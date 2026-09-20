@@ -6634,6 +6634,22 @@ if ($isEnabled('inbound_mail')) {
             )
     );
 
+    // The DMARC consumer (roadmap IT-06), on the same registry and for
+    // the same reason. This one also reads an attachment's bytes through
+    // `Api\PayloadConsumerInterface` — the narrow door a machine feed
+    // needs, since `AttachmentPolicy` rightly refuses archives and
+    // `CandidateAttachment` carries no bytes.
+    $inboundReadConsumers->registerFactory(
+        \Core\Mail\Feedback\Dmarc\DmarcConsumer::CONSUMER_ID,
+        static fn(): \Modules\InboundMail\Api\MessageConsumerInterface =>
+            new \Core\Mail\Feedback\Dmarc\DmarcConsumer(
+                new \Core\Mail\Feedback\Dmarc\DmarcReportParser(),
+                new \Core\Mail\Feedback\Dmarc\DmarcReportRepository($pdo),
+                new \Core\Mail\Feedback\Dmarc\BoundedArchive(),
+                $journalService
+            )
+    );
+
     // One-time reprise for installs that stored a message's consumer and
     // business reference in the message's own columns, before
     // inbound_message_links existed. Each of those triplets becomes an

@@ -1,0 +1,189 @@
+<?php
+/**
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
+declare(strict_types=1);
+
+namespace Tests\Core\Mail\Feedback\Dmarc;
+
+use Core\Mail\Feedback\Dmarc\DmarcRecord;
+use Core\Mail\Feedback\Dmarc\DmarcReport;
+use Core\Mail\Feedback\Dmarc\DmarcReportRepository;
+use PHPUnit\Framework\Attributes\Group;
+use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
+
+#[Group('database')]
+class DmarcReportRepositoryTest extends TestCase
+{
+    private \PDO $pdo;
+    private DmarcReportRepository $reports;
+
+    protected function setUp(): void
+    {
+        $this->pdo = DatabaseTestHelper::createTestDatabase();
+        $this->pdo->exec('PRAGMA foreign_keys = ON');
+        $this->reports = new DmarcReportRepository($this->pdo);
+    }
+
+    private function report(string $reportId = 'r-1', string $org = 'google.com'): DmarcReport
+    {
+        return new DmarcReport(
+            organisation: $org,
+            reportId: $reportId,
+            domain: 'unite.be',
+            begin: new \DateTimeImmutable('-2 days'),
+            end: new \DateTimeImmutable('-1 day'),
+            policy: 'none',
+            records: [
+                new DmarcRecord('185.12.80.100', 42, 'none', true, true, 'unite.be'),
+                new DmarcRecord('203.0.113.77', 3, 'quarantine', false, false, 'unite.be'),
+            ]
+        );
+    }
+
+    public function testAReportIsWrittenWithItsLines(): void
+    {
+        $this->assertTrue($this->reports->record($this->report(), new \DateTimeImmutable()));
+
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM mail_dmarc_reports')->fetchColumn());
+        $this->assertSame(2, (int) $this->pdo->query('SELECT COUNT(*) FROM mail_dmarc_sources')->fetchColumn());
+    }
+
+    /**
+     * **The same report arriving twice is routine**, not exceptional: a
+     * UIDVALIDITY reset has a folder re-read, and one message can sit in
+     * two watched folders at once. The sync runs its analysis pass BEFORE
+     * the Message-ID dedup, so the consumer is the one that has to shrug.
+     */
+    public function testTheSameReportReadTwiceIsWrittenOnce(): void
+    {
+        $now = new \DateTimeImmutable();
+
+        $this->assertTrue($this->reports->record($this->report(), $now));
+        $this->assertFalse($this->reports->record($this->report(), $now));
+
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM mail_dmarc_reports')->fetchColumn());
+        $this->assertSame(2, (int) $this->pdo->query('SELECT COUNT(*) FROM mail_dmarc_sources')->fetchColumn());
+    }
+
+    /** Two reporters may use the same id without colliding. */
+    public function testTwoReportersMayShareAReportId(): void
+    {
+        $now = new \DateTimeImmutable();
+
+        $this->assertTrue($this->reports->record($this->report('same', 'google.com'), $now));
+        $this->assertTrue($this->reports->record($this->report('same', 'Enterprise Outlook'), $now));
+
+        $this->assertSame(2, (int) $this->pdo->query('SELECT COUNT(*) FROM mail_dmarc_reports')->fetchColumn());
+    }
+
+    /**
+     * Grouped on the address, because the question is « who sends in my
+     * name » and one sender appears in as many reports as there are
+     * providers receiving from it.
+     */
+    public function testSourcesAreSummedAcrossReporters(): void
+    {
+        $now = new \DateTimeImmutable();
+        $this->reports->record($this->report('r-1', 'google.com'), $now);
+        $this->reports->record($this->report('r-2', 'Enterprise Outlook'), $now);
+
+        $sources = $this->reports->sourcesSince(new \DateTimeImmutable('-30 days'));
+
+        $this->assertCount(2, $sources);
+        $this->assertSame('185.12.80.100', $sources[0]['source_ip'], 'most messages first.');
+        $this->assertSame(84, $sources[0]['messages']);
+        $this->assertSame(84, $sources[0]['authenticated']);
+        $this->assertSame(2, $sources[0]['reporters']);
+        $this->assertSame(6, $sources[1]['messages']);
+        $this->assertSame(0, $sources[1]['authenticated'], 'neither SPF nor DKIM passed for that one.');
+    }
+
+    public function testTheReportListCarriesThePolicyEachReporterSaw(): void
+    {
+        $this->reports->record($this->report(), new \DateTimeImmutable());
+
+        $listed = $this->reports->reportsSince(new \DateTimeImmutable('-30 days'));
+
+        $this->assertCount(1, $listed);
+        $this->assertSame('google.com', $listed[0]['organisation']);
+        $this->assertSame('none', $listed[0]['policy']);
+        $this->assertSame(45, $listed[0]['messages']);
+    }
+
+    /** Outside the window is outside the answer. */
+    public function testAReportOlderThanTheWindowIsNotListed(): void
+    {
+        $old = new DmarcReport(
+            organisation: 'google.com',
+            reportId: 'ancient',
+            domain: 'unite.be',
+            begin: new \DateTimeImmutable('-400 days'),
+            end: new \DateTimeImmutable('-399 days'),
+            policy: 'none',
+            records: [new DmarcRecord('185.12.80.100', 5, 'none', true, true, 'unite.be')]
+        );
+        $this->reports->record($old, new \DateTimeImmutable());
+
+        $this->assertSame([], $this->reports->sourcesSince(new \DateTimeImmutable('-30 days')));
+        $this->assertSame([], $this->reports->reportsSince(new \DateTimeImmutable('-30 days')));
+    }
+
+    /**
+     * **Purged on the period's end, not on arrival.** A report can turn up
+     * days after the window it describes, and purging on arrival would
+     * remove it for being old the moment it landed.
+     */
+    public function testThePurgeRemovesReportsAndTheirLines(): void
+    {
+        $now = new \DateTimeImmutable();
+        $this->reports->record($this->report('recent'), $now);
+
+        $old = new DmarcReport(
+            organisation: 'google.com',
+            reportId: 'ancient',
+            domain: 'unite.be',
+            begin: new \DateTimeImmutable('-400 days'),
+            end: new \DateTimeImmutable('-399 days'),
+            policy: 'none',
+            records: [new DmarcRecord('185.12.80.100', 5, 'none', true, true, 'unite.be')]
+        );
+        $this->reports->record($old, $now);
+
+        // **A report whose window STRADDLES the cut stays.** Without this
+        // one the test cannot tell `period_end` from `period_begin`: the
+        // ancient report above has both bounds before the cut, so either
+        // column purges it and the assertion passes either way. Verified
+        // by swapping the column — which is how this case came to be here.
+        $straddling = new DmarcReport(
+            organisation: 'Enterprise Outlook',
+            reportId: 'straddling',
+            domain: 'unite.be',
+            begin: new \DateTimeImmutable('-366 days'),
+            end: new \DateTimeImmutable('-364 days'),
+            policy: 'none',
+            records: [new DmarcRecord('185.12.80.100', 1, 'none', true, true, 'unite.be')]
+        );
+        $this->reports->record($straddling, $now);
+
+        $removed = $this->reports->purgeBefore(new \DateTimeImmutable('-365 days'));
+
+        $this->assertSame(1, $removed, 'only the report whose window ENDED before the cut.');
+        $this->assertSame(
+            1,
+            (int) $this->pdo
+                ->query("SELECT COUNT(*) FROM mail_dmarc_reports WHERE report_id = 'straddling'")
+                ->fetchColumn(),
+            'a window still open at the cut is not over, whatever its beginning.'
+        );
+        $this->assertSame(2, (int) $this->pdo->query('SELECT COUNT(*) FROM mail_dmarc_reports')->fetchColumn());
+        $this->assertSame(
+            3,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM mail_dmarc_sources')->fetchColumn(),
+            'the purged report took its own lines and left the others alone.'
+        );
+    }
+}

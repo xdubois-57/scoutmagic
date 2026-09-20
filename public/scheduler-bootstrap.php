@@ -417,6 +417,23 @@ function scoutmagicBootstrapScheduler(
                     )
                 ));
 
+                // The DMARC reports (roadmap IT-06), registered on BOTH
+                // registries for exactly the reason spelled out above the
+                // bounce consumer: this is the one `analyze()` — and the
+                // payload pass — actually run against.
+                //
+                // It is also the only consumer that reads an attachment's
+                // bytes, through `Api\PayloadConsumerInterface`. Nothing
+                // is stored: the archive is opened under a ceiling, the
+                // counters are written, and the message is forgotten on
+                // the ordinary retention schedule.
+                $registry->register(new \Core\Mail\Feedback\Dmarc\DmarcConsumer(
+                    new \Core\Mail\Feedback\Dmarc\DmarcReportParser(),
+                    new \Core\Mail\Feedback\Dmarc\DmarcReportRepository($pdo),
+                    new \Core\Mail\Feedback\Dmarc\BoundedArchive(),
+                    $journalService
+                ));
+
                 // Claims only a message whose subject carries a key this
                 // receiver itself issued — the narrowest claim of the lot
                 // (roadmap IT-27). Order is immaterial: every consumer
