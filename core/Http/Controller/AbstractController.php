@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
+use Core\Exception\UserFacingMessage;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -33,8 +34,12 @@ abstract class AbstractController
      * What errors/403.html.twig says when a refusal carries no sentence
      * of its own. Kept here rather than only in the template so the JSON
      * shape of the same refusal says exactly the same thing.
+     *
+     * The sentence itself lives in {@see UserFacingMessage::FORBIDDEN},
+     * where a service refusing a write can reach it without depending on
+     * this layer.
      */
-    public const FORBIDDEN_MESSAGE = "Vous n'avez pas les permissions nécessaires pour accéder à cette page.";
+    public const FORBIDDEN_MESSAGE = UserFacingMessage::FORBIDDEN;
 
     public function __construct(protected Environment $twig)
     {

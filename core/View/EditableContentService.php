@@ -8,7 +8,7 @@ declare(strict_types=1);
 
 namespace Core\View;
 
-use Core\Http\Controller\AbstractController;
+use Core\Exception\UserFacingMessage;
 use Core\Page\TextPageContentAuthorizer;
 use Core\Security\AuthSession;
 use Core\Security\HtmlSanitizer;
@@ -90,7 +90,7 @@ class EditableContentService
             }
 
             if (!Role::fromString(AuthSession::getRole())->hasAccess(Role::fromString($required))) {
-                throw new EditableContentForbiddenException(AbstractController::FORBIDDEN_MESSAGE);
+                throw new EditableContentForbiddenException(UserFacingMessage::FORBIDDEN);
             }
         }
     }

@@ -329,6 +329,28 @@ texte n'appartient à personne, non.
 Le test qui le tient est vérifié par mutation : sans la suppression
 compensatoire, il échoue.
 
+**Et la flèche des couches, remise à l'endroit.** Le garde du service
+levait son refus avec `AbstractController::FORBIDDEN_MESSAGE`, parce que
+c'est là que vivait la phrase de refus standard du site. Rien n'échouait,
+et c'était pourtant la seule classe de service de tout le dépôt à importer
+du `Core\Http\Controller` : `AGENTS.md` écrit **Controller → Service →
+Repository**, et cette flèche ne va que dans un sens. Un service qui
+remonte dans la couche HTTP impose cette dépendance à tous ses appelants
+suivants, y compris ceux qui ne parlent pas HTTP.
+
+La phrase a déménagé dans `Core\Exception\UserFacingMessage::FORBIDDEN` —
+la couche qui décide de ce qu'un visiteur peut lire — et
+`AbstractController::FORBIDDEN_MESSAGE` **est** cette constante plutôt
+qu'une copie : deux littéraux de la même phrase française divergent, et
+celui qui diverge est celui que personne ne relit.
+
+La règle est écrite comme test, `tests/Architecture/LayersPointOneWayTest.php`,
+et pas seulement corrigée : rien hors de `core/Http/` ne peut appeler
+l'API d'un contrôleur. Elle distingue **nommer** un contrôleur — le
+`Foo::class` qu'une route donne au routeur, qui est de l'aiguillage — de
+l'appeler. Vérifiée par mutation : en remettant l'ancien import, elle
+échoue.
+
 **Deux tests ne pouvaient pas échouer.** Le dépôt venait précisément de
 livrer « Les tests qui ne peuvent pas échouer » (#389), et la relecture a
 cité cette itération. `assertTrue($required->hasAccess($required))`
