@@ -2789,20 +2789,85 @@ chose**.
 **Rien n'est écrit sur disque** : le PDF sort en mémoire. Sur un hébergement mutualisé, un fichier
 temporaire est un fichier que le processus de quelqu'un d'autre peut lire.
 
-### 44.9 Ce que la page RGPD en dit
+### 44.9 La fiche santé : une ligne par membre, remplacée sur place
+
+`official_documents_health_sheets` : `member_id` unique en `ON DELETE CASCADE`, un `content_encrypted`
+MEDIUMBLOB, `last_used_at`, `created_at`, `updated_at`.
+
+**Un seul BLOB chiffré portant un document JSON**, et non une colonne par champ. Ce contenu n'est
+jamais cherché, jamais filtré, jamais trié : il est lu pour un membre à la fois, par son propre
+foyer. Des colonnes n'achèteraient rien et coûteraient une migration chaque fois que la fédération
+déplace une ligne de son formulaire. Même raisonnement qu'`entity_changes` et que
+`mail_deferred_messages.payload_encrypted`. **Chiffrement et déchiffrement dans le Repository
+uniquement.**
+
+**Pas de `scout_year_id`** — l'exception qu'`AGENTS.md` § Database autorise pour cette forme : la
+fiche décrit une personne telle qu'elle est aujourd'hui, elle est remplacée sur place, et sa
+fraîcheur est portée par `last_used_at`. Clé sur `members.id` comme `member_notes` : les allergies
+d'un enfant ne recommencent pas chaque septembre.
+
+`last_used_at` bouge à l'enregistrement **et** à la génération du document (IT-04) : produire la
+fiche est une famille qui s'en sert, donc cela repousse la purge autant que la retaper.
+
+### 44.10 L'écran de la fiche santé
+
+Les rubriques suivent le formulaire officiel dans son ordre : identité (en lecture seule), deux
+personnes à contacter en cas d'urgence, médecin traitant, puis la santé — taille, poids,
+participation, niveau de natation, les douze cases d'affections, maladies et opérations, tétanos,
+allergies, régime, traitement.
+
+**Un seul formulaire découpé en sections repliables**, jamais plusieurs pages : une famille qui en
+remplit la moitié et enregistre ne doit rien perdre.
+
+**Tout est facultatif et une fiche vide est un état valide.** Il n'y a donc aucune validation qui
+puisse échouer — et par conséquent aucun message d'erreur susceptible de renvoyer une valeur de
+santé. Ce n'est pas une simplification : c'est ce qui rend la règle de §44.12 tenable.
+
+L'identité n'est ni stockée ni modifiable ici : elle vient de l'inscription à la fédération. L'écran
+le dit avec le chemin de correction — « prévenez votre animateur » — et **sans jamais écrire le mot
+« Desk »**, qu'un parent ne connaît pas.
+
+**« Tout effacer »** vide l'enregistrement, derrière une simple boîte de dialogue (`data-confirm`,
+jamais un gestionnaire en ligne, qui serait mort sous la CSP). Pas le mot-clé à retaper de la page
+Maintenance : celui-ci protège une installation entière, pas les données de quelqu'un sur lui-même.
+Le bouton vit dans un **formulaire séparé** de celui qui enregistre, pour qu'une touche Entrée
+égarée ne soit pas à un geste de la destruction.
+
+### 44.11 Aucune donnée de santé hors de la fiche
+
+Ni dans le journal, ni dans un message d'erreur, ni dans une exception, ni dans un paquet de
+support.
+
+Un enregistrement ordinaire **n'est pas journalisé du tout** : la seule chose intéressante à en dire
+serait ce qui a changé, c'est-à-dire exactement ce qui ne doit pas être écrit. « Tout effacer » l'est
+— détruire des données sans pouvoir dire *que* c'est arrivé empêcherait de répondre à une famille
+demandant pourquoi sa fiche a disparu — mais avec **l'identifiant numérique du membre et rien
+d'autre** : pas un nom de rubrique, pas un décompte de champs remplis.
+
+Violer cette règle ne produit aucun symptôme : rien ne devient rouge, le journal se met simplement à
+contenir ce qu'il ne devrait pas. Elle est donc tenue par un test qui lit chaque argument dont
+l'entrée est construite, en tirant la liste des champs du value object plutôt qu'en la retapant.
+
+### 44.12 Ce que la page RGPD en dit
 
 Le module a sa sous-section en 2.4 de la politique de confidentialité, et sa règle dans le prompt de
 régénération (`Core\View\RgpdContentService::buildSystemPrompt()`), parce qu'il écrit des données
 personnelles — le nom du membre, le nom et l'adresse du responsable de section, le nom du parent qui
-signe — même s'il n'en conserve aucune.
+signe — et, depuis la fiche santé, parce qu'il en **conserve**.
 
-Quatre faits y sont tenus par un test plutôt que par la bonne volonté : **seule la version signée
-compte**, **rien de ce que le parent tape n'est enregistré**, **aucune vue staff et aucun
-contournement chef**, et **aucun sous-traitant ni appel à une IA**. Ce sont les promesses de §44.1 ;
-le jour où l'une cesse de tenir, le test est ce qui force le texte et le code à se remettre
-d'accord.
+Les faits y sont tenus par un test plutôt que par la bonne volonté : **seule la version signée
+compte**, **aucune vue staff et aucun contournement chef**, **aucun sous-traitant ni appel à une
+IA** ; côté autorisation parentale **rien de ce que le parent tape n'est enregistré**, et côté fiche
+santé **elle est conservée, chiffrée au repos, effaçable d'un bouton, et invisible à toute l'unité**.
 
-### 44.10 Le bloc sur la page du membre
+Ce test a déjà servi une fois : la notice disait « rien de ce que le parent tape n'est enregistré »
+du module entier, ce qui était vrai de la seule autorisation parentale et que la table de la fiche
+santé a rendu faux. Il est passé au rouge le jour où cette table est arrivée, et c'est ce qui a
+forcé la phrase à être corrigée plutôt que laissée en promesse que le site ne tient plus. **Une
+notice qui ne décrirait que la moitié ne conservant rien serait pire que pas de notice du tout** :
+une famille la lirait et conclurait que le site ne détient aucune donnée de santé sur son enfant.
+
+### 44.13 Le bloc sur la page du membre
 
 La page d'un membre gagne un bloc « Documents officiels », placé avant « Documents privés », qui
 porte le lien vers chaque formulaire et l'avertissement de §44.1. Il n'est rendu que pour **le

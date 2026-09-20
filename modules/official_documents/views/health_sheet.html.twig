@@ -323,9 +323,16 @@
       A plain dialog, not the retyped keyword of the Maintenance page: that
       one protects a whole installation, this is a family acting on its own
       data.
+
+      `data-confirm` rather than an inline `onsubmit`: inline handlers are
+      dead under this site's CSP, so a `confirm()` written there would not
+      ask anything at all — the form would just submit, and the one place
+      that must never happen silently is the button that destroys a child's
+      health data. `Tests\Core\View\UxConventionsTest` is what says so.
     #}
     <form method="post" action="/members/{{ member.memberYearId }}/fiche-sante/effacer" class="mt-4"
-          onsubmit="return confirm('Effacer définitivement toute la fiche santé de {{ member|display_name|e('js') }} ?');">
+          data-confirm="Effacer définitivement toute la fiche santé de {{ member|display_name }} ? Cette opération ne se défait pas."
+          data-confirm-label="Tout effacer">
         {{ csrf_field()|raw }}
         <button type="submit" class="btn btn-outline-danger btn-sm">
             <i class="bi bi-trash me-1" aria-hidden="true"></i>Tout effacer
