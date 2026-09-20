@@ -48,6 +48,15 @@ class DrainDeferredMailHandlerTest extends TestCase
     /** @var array<int, string> */
     private array $refuse = [];
 
+    /**
+     * Addresses the site itself declines to write to on replay — the
+     * suspended ones. Apart from `$refuse`, because the two settle
+     * differently and that difference is what the tests below measure.
+     *
+     * @var list<string>
+     */
+    private array $suppress = [];
+
     private string $refusalReason = 'SMTP connect() failed.';
 
     /** @var array<int, string> */
@@ -178,6 +187,65 @@ class DrainDeferredMailHandlerTest extends TestCase
         $this->drain();
 
         $this->assertSame([], $this->repository->due(10, '2099-01-01 00:00:00'), 'Nothing is waiting any more.');
+        $this->assertSame(1, $this->repository->countAbandoned());
+    }
+
+    /**
+     * **The flag has to survive the queue**, or the suppression gate reads
+     * the wrong answer on every replay.
+     *
+     * `send()` decides whether to suppress from `$vouchesForRecipient`,
+     * and the drain rebuilt its call from the stored payload — which did
+     * not carry the flag. Every replay therefore read « false »: « the
+     * site never chose this recipient », for a notification the site very
+     * much chose. A message deferred while the address was still fine and
+     * drained after two permanent bounces had blocked it went out anyway,
+     * to somebody who had just been told the site had stopped writing to
+     * them.
+     */
+    public function testAVouchedMessageIsStillVouchedForWhenItIsReplayed(): void
+    {
+        $this->queue(MailLane::Bulk, nextAttemptAt: $this->minutesAgo(5), vouchesForRecipient: true);
+
+        $this->drain();
+
+        $this->assertCount(1, $this->sent);
+        $this->assertTrue($this->sent[0]['vouches'], 'the replay has to ask the same question the first send asked.');
+    }
+
+    /**
+     * **And a row queued before the key existed reads false**, which is
+     * the safe reading of the two: an authentication mail wrongly
+     * suppressed locks somebody out of the site, where a message wrongly
+     * delivered to a suspended address costs reputation (D9). The queue
+     * drains in minutes, so this window is short.
+     */
+    public function testARowQueuedBeforeTheFlagExistedDoesNotVouch(): void
+    {
+        $this->queue(MailLane::Bulk, nextAttemptAt: $this->minutesAgo(5));
+
+        $this->drain();
+
+        $this->assertCount(1, $this->sent);
+        $this->assertFalse($this->sent[0]['vouches']);
+    }
+
+    /**
+     * A replay the site declines is abandoned, not retried: every later
+     * pass would decline identically until somebody lifts the suspension,
+     * so walking the ladder would spend a day's attempts learning what is
+     * already known. Abandoned rather than deleted, so the Relance screen
+     * can say why it never left.
+     */
+    public function testAReplayToASuspendedAddressIsAbandonedRatherThanRetried(): void
+    {
+        $this->queue(MailLane::Bulk, nextAttemptAt: $this->minutesAgo(5), vouchesForRecipient: true);
+        $this->suppress = ['parent@exemple.test'];
+
+        $this->drain();
+
+        $this->assertSame([], $this->sent, 'nothing left.');
+        $this->assertSame([], $this->repository->due(10, '2099-01-01 00:00:00'), 'and nothing is waiting either.');
         $this->assertSame(1, $this->repository->countAbandoned());
     }
 
@@ -335,11 +403,20 @@ class DrainDeferredMailHandlerTest extends TestCase
                 ?string $fromAddressOverride = null,
                 ?string $fromNameOverride = null,
                 array $extraHeaders = [],
-                MailPurpose $purpose = MailPurpose::Ordinary
+                MailPurpose $purpose = MailPurpose::Ordinary,
+                bool $vouchesForRecipient = false
             ): bool {
                 foreach ($attachments as $attachment) {
                     $this->temporaryPathsSeen[] = $attachment['path'];
                     $this->assertFileExists($attachment['path']);
+                }
+
+                // The real `send()` decides this from the flag; the double
+                // is told directly, so that what is under test here is the
+                // flag SURVIVING the queue rather than the gate itself
+                // (which `MailTransportSeamTest` already pins).
+                if ($vouchesForRecipient && in_array($to, $this->suppress, true)) {
+                    throw \Core\Mail\SuppressedRecipientException::blocked();
                 }
 
                 if (in_array($to, $this->refuse, true)) {
@@ -350,6 +427,7 @@ class DrainDeferredMailHandlerTest extends TestCase
                     'to' => $to,
                     'subject' => $subject,
                     'purpose' => $purpose,
+                    'vouches' => $vouchesForRecipient,
                     'attachments' => $attachments,
                 ];
 
@@ -367,7 +445,8 @@ class DrainDeferredMailHandlerTest extends TestCase
         MailLane $lane,
         string $nextAttemptAt,
         ?string $expiresAt = null,
-        array $attachments = []
+        array $attachments = [],
+        ?bool $vouchesForRecipient = null
     ): int {
         return $this->repository->add(
             $lane,
@@ -381,6 +460,9 @@ class DrainDeferredMailHandlerTest extends TestCase
                 'fromAddressOverride' => null,
                 'fromNameOverride' => null,
                 'extraHeaders' => [],
+                // Null leaves the key out entirely, which is what a row
+                // queued before this key existed looks like.
+                ...($vouchesForRecipient === null ? [] : ['vouchesForRecipient' => $vouchesForRecipient]),
                 'attachments' => $attachments,
             ],
             'quota épuisé',

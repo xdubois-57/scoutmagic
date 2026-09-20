@@ -1818,6 +1818,54 @@ panne n'ait rien à voir avec l'envoi qui vient de réussir — et vérifie
 que les deux copies restent `sent` et que le lot suivant est bien
 replanifié. Vérifié en retirant la garde : la `PDOException` s'échappe.
 
+### Deux fois où la suppression s'ouvrait au lieu de se fermer
+
+La garde de suppression est branchée sur `$vouchesForRecipient`, et deux
+chemins la contournaient — dans les deux cas en **échouant ouvert**, ce
+qui est le mauvais sens pour une garde.
+
+**La file des messages différés perdait le drapeau.**
+`DrainDeferredMailHandler::trySend()` reconstruit l'appel depuis la charge
+stockée, laquelle ne portait pas `vouchesForRecipient`. Chaque rejeu
+lisait donc « false » — « le site n'a pas choisi ce destinataire » — pour
+une notification que le site avait très exactement choisie. Un message
+différé alors que l'adresse allait bien, puis drainé après deux refus
+définitifs qui l'ont bloquée, partait quand même : vers quelqu'un à qui
+l'on venait d'annoncer que le site avait cessé de lui écrire. La charge
+porte maintenant le drapeau. Sur une ligne mise en file avant l'existence
+de la clé, `?? false` s'applique, et c'est le bon sens de lecture ici :
+un courrier d'authentification supprimé à tort enferme quelqu'un dehors,
+ce qui est la pire des deux erreurs (D9).
+
+Un rejeu supprimé est **abandonné**, pas réessayé : tous les passages
+suivants décideraient à l'identique tant que la suspension tient, et
+l'échelle de réessai dépenserait une journée à réapprendre la même chose.
+Abandonné plutôt que supprimé, pour que l'écran Relance puisse dire
+pourquoi il n'est jamais parti.
+
+**Et le publipostage passait par l'autre porte.** `freezeMergeRecipients()`
+ne vérifiait que `isSuppressed()`, jamais `isBlocked()`, alors que son
+voisin `freezeListAddressRecipient()` fait les deux. Or une ligne
+d'audience sans « Tiers » porte une adresse brute —
+`AudienceImportService` en écrit une dès qu'une ligne importée a une
+colonne « Email » sans correspondance — et rien d'autre ne la filtre : la
+branche membre passe par `resolveValidAddressesForMassMail()`, qui écarte
+bien les adresses bloquées mais seulement pour les lignes qui ONT un
+membre, et la garde de `MailService::send()` ne se déclenche pas puisque
+les destinataires de fusion ne se portent pas garants. Une adresse
+suspendue après deux refus définitifs continuait donc d'être écrite par
+une campagne de fusion : exactement le « continue d'être écrite par une
+liste » que la vérification voisine existe pour fermer.
+
+**Le test est écrit dans `ListAddressFlowTest`, pas dans
+`MassMailServiceTest`**, et c'est délibéré : cette dernière construit son
+`MassMailService` sans `BounceStateRepository`, donc
+`$this->bounces?->isBlocked()` y court-circuite et le test passerait quoi
+que fasse le gel. C'est la cinquième fois de ce chantier qu'une
+dépendance optionnelle absente d'une racine de composition rend une
+couverture creuse ; ici elle a été vue avant d'écrire le test plutôt
+qu'après.
+
 ### Écarts et limites, assumés
 
 **La preuve d'envoi réduit la falsification, elle ne la supprime pas.** La

@@ -75,6 +75,7 @@ class ListAddressFlowTest extends TestCase
     private MemberEmailService $memberEmailService;
     private int $scoutYearId;
     private int $sectionId;
+    private AudienceRepository $audienceRepository;
     private int $functionId;
     private int $listId;
 
@@ -126,7 +127,7 @@ class ListAddressFlowTest extends TestCase
             new ScoutYearService($this->pdo),
             new ImportJournalRepository($this->pdo),
             sys_get_temp_dir(),
-            new AudienceRepository($this->pdo, $this->encryption),
+            $this->audienceRepository = new AudienceRepository($this->pdo, $this->encryption),
             new MemberResolutionRepository($this->pdo, $this->encryption),
             $this->suppressedRepository,
             new MergeRenderer(),
@@ -305,6 +306,81 @@ class ListAddressFlowTest extends TestCase
         $this->massMailService->startSending($email->id, null);
 
         $recipient = $this->recipientFor($this->recipientRepository->findByEmailId($email->id), 'jeunesse@wavre.be');
+        $this->assertSame(Recipient::STATUS_ERROR, $recipient->status);
+        $this->assertSame('Adresse suspendue après des refus répétés', $recipient->errorMessage);
+    }
+
+    /**
+     * **The same hole, through the other list type** — and this one the
+     * list-path check above does not cover.
+     *
+     * A mail-merge audience row without a « Tiers » carries a raw address:
+     * `AudienceImportService` writes one whenever an imported line has an
+     * « Email » column and no member match. Nothing else filters it. The
+     * member branch of the freeze goes through
+     * `resolveValidAddressesForMassMail()`, which drops blocked
+     * addresses — but only for rows that HAVE a member. And
+     * `MailService::send()`'s own gate never fires, because merge
+     * recipients do not vouch for their recipient.
+     *
+     * So an address suspended after two permanent bounces went on being
+     * written to through a merge campaign: exactly the « keeps being
+     * written to through a list » the list-path check was added to close,
+     * arriving by the door next to it.
+     *
+     * Written HERE rather than in `MassMailServiceTest` on purpose: that
+     * class builds its `MassMailService` without a `BounceStateRepository`,
+     * so `$this->bounces?->isBlocked()` short-circuits to null there and
+     * the test would pass whatever the freeze did.
+     */
+    public function testABounceBlockedRawAddressIsFrozenInAMergeCampaignToo(): void
+    {
+        $t = new \DateTimeImmutable('2026-03-01 09:00:00');
+        $this->bounceStates->recordSend('jeunesse@wavre.be', $t, true);
+        $state = $this->bounceStates->record(
+            'jeunesse@wavre.be',
+            \Core\Mail\Feedback\Bounce\BounceCategory::NoSuchAddress,
+            \Core\Mail\Feedback\Bounce\BounceSeverity::Permanent,
+            '5.1.1',
+            $t->modify('+1 minute')
+        );
+        self::assertNotNull($state);
+        $this->bounceStates->block($state->id, $t->modify('+2 minutes'));
+
+        $audienceId = $this->audienceRepository->createAudience(
+            'test.xlsx',
+            'Feuille1',
+            ['Email', 'Prenom'],
+            1,
+            null
+        );
+        $this->audienceRepository->createRow(
+            $audienceId,
+            2,
+            null,
+            'jeunesse@wavre.be',
+            ['Email' => 'jeunesse@wavre.be', 'Prenom' => 'Emma']
+        );
+
+        $email = $this->massMailService->createDraft(
+            'Infos pour {{Prenom}}',
+            '<p>Bonjour {{Prenom}}</p>',
+            $this->sectionId,
+            Email::LIST_TYPE_MAIL_MERGE,
+            null,
+            null,
+            [],
+            null,
+            new SenderAuthorization(true, [], null),
+            $audienceId
+        );
+        $this->massMailService->moveToTest($email->id, null);
+        $this->massMailService->startSending($email->id, null);
+
+        $recipient = $this->recipientFor(
+            $this->recipientRepository->findByEmailId($email->id),
+            'jeunesse@wavre.be'
+        );
         $this->assertSame(Recipient::STATUS_ERROR, $recipient->status);
         $this->assertSame('Adresse suspendue après des refus répétés', $recipient->errorMessage);
     }

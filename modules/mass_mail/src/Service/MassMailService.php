@@ -1066,6 +1066,41 @@ class MassMailService
                     $invalidCount++;
                     continue;
                 }
+
+                // **The same gate as the list path, for the same reason.**
+                // A merge audience row without a Tiers carries a raw
+                // address — `AudienceImportService` writes one whenever an
+                // imported line has an « Email » column and no match — and
+                // that address reaches no member table, so nothing else
+                // filters it: `resolveValidAddressesForMassMail()` above
+                // drops blocked addresses, but only for rows that HAVE a
+                // member, and `MailService::send()`'s own gate never fires
+                // because merge recipients do not vouch. Without this, an
+                // address suspended after two permanent bounces kept being
+                // written to through a mail-merge campaign — the very
+                // « keeps being written to through a list » this check
+                // exists to close, arriving by the other list type.
+                if ($this->bounces?->isBlocked($address) === true) {
+                    $recipientId = $this->recipientRepository->create(
+                        $email->id,
+                        null,
+                        null,
+                        $address,
+                        Recipient::STATUS_ERROR,
+                        'Adresse suspendue après des refus répétés',
+                        null,
+                        $row->id
+                    );
+                    $this->journalRecipientNotSendable(
+                        $email->id,
+                        $recipientId,
+                        null,
+                        'Adresse suspendue après des refus répétés'
+                    );
+                    $invalidCount++;
+                    continue;
+                }
+
                 $this->recipientRepository->create(
                     $email->id,
                     null,

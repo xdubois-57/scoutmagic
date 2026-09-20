@@ -378,7 +378,8 @@ class MailService
                 $attachments,
                 $fromAddressOverride,
                 $fromNameOverride,
-                $extraHeaders
+                $extraHeaders,
+                $vouchesForRecipient
             );
 
             if ($payload !== null && $this->deferred?->defer($e->lane, $purpose, $payload, $reason) === true) {
@@ -512,6 +513,7 @@ class MailService
      *     to: string, subject: string, bodyHtml: string, bodyText: string,
      *     replyTo: ?string, fromAddressOverride: ?string, fromNameOverride: ?string,
      *     extraHeaders: array<string, string>,
+     *     vouchesForRecipient: bool,
      *     attachments: array<int, array{name: string, content: string}>
      * }|null
      */
@@ -524,7 +526,8 @@ class MailService
         array $attachments,
         ?string $fromAddressOverride,
         ?string $fromNameOverride,
-        array $extraHeaders
+        array $extraHeaders,
+        bool $vouchesForRecipient
     ): ?array {
         $bytes = 0;
         foreach ($attachments as $attachment) {
@@ -558,6 +561,15 @@ class MailService
             'fromAddressOverride' => $fromAddressOverride,
             'fromNameOverride' => $fromNameOverride,
             'extraHeaders' => $extraHeaders,
+            // **Carried, because the queue outlives the decision.** The
+            // suppression gate at the top of `send()` reads this flag, and
+            // a replay that did not carry it read « false » — « the site
+            // never chose this recipient » — for a notification the site
+            // very much chose. A message deferred while the address was
+            // fine and drained after it was blocked went out anyway, to
+            // somebody who had just been told the site had stopped writing
+            // to them. A drain re-reads the gate with the right answer.
+            'vouchesForRecipient' => $vouchesForRecipient,
             'attachments' => $carried,
         ];
     }
