@@ -727,6 +727,67 @@ $settingService->register(
     false,
     57
 );
+// Whether the mailing lane also writes to the unit's seed mailboxes
+// (roadmap IT-07). Off unless somebody turns it on: a copy of every
+// mailing carries real members' data into however many boxes are
+// declared, so that has to be a decision rather than a default. Written
+// from the « Boîtes témoins » page, which journals the change at
+// `security` — hence editable: false here.
+$settingService->register(
+    \Core\Mail\Feedback\Seed\SeedMailboxes::SETTING_ENABLED,
+    '0',
+    'boolean',
+    'Copies vers les boîtes témoins',
+    'Envoie une copie de chaque publipostage aux boîtes témoins déclarées, pour mesurer où il atterrit.',
+    null,
+    null,
+    null,
+    false,
+    58
+);
+// Whether the site should act on what the seed boxes show, rather than
+// merely showing it (D13, roadmap IT-07). Off, and it stays off unless
+// somebody decides: with three to five boxes and a few mailings a year,
+// routing on two observations is routing on noise, and splitting a
+// sender's volume costs each relay the regular traffic its reputation
+// rests on. `DomainRouting::MINIMUM_RUNS` is the second lock.
+$settingService->register(
+    \Core\Mail\Feedback\Seed\DomainRouting::SETTING_AUTOMATIC,
+    '0',
+    'boolean',
+    'Routage automatique par fournisseur',
+    'Applique de lui-même ce que les boîtes témoins recommandent, au lieu de seulement l\'afficher.',
+    null,
+    null,
+    null,
+    false,
+    59
+);
+// Where a routing decision is written down (roadmap IT-07, D13): a JSON
+// map of recipient domain to relay id, read by `MailTransportChain` on
+// every mailing and written by the « Boîtes témoins » page and the daily
+// sweep.
+//
+// **Registered here because `setInternal()` throws on a key that has no
+// row**, and every writer of this setting goes through it. Unregistered,
+// the « appliquer » button raised `SettingException` on a real site — and
+// worse, the same throw inside the daily sweep escaped before
+// `rearmAfter()`, so the retention purge chain would have stopped for
+// good. Nothing caught it because the tests register the key themselves
+// in `setUp()`, which is the same shape as the `cron.php` wiring that
+// review caught earlier.
+$settingService->register(
+    \Core\Mail\Transport\DomainPreferences::SETTING_KEY,
+    '',
+    'text',
+    'Routage par domaine destinataire',
+    'Quel relais est essayé en premier pour les publipostages vers un fournisseur donné.',
+    null,
+    null,
+    null,
+    false,
+    60
+);
 $settingService->register(
     'dkim_selector',
     's2026',
@@ -2186,6 +2247,10 @@ $mailTransport = \Core\Mail\Transport\MailTransportFactory::build(
 $mailTransportChain = $mailTransport['chain'];
 $mailProviderDirectory = $mailTransport['directory'];
 $providerConnections = $mailTransport['connections'];
+// Which relay a recipient domain's mailings try first, on the bulk lane
+// and nowhere else (roadmap IT-07, D13). Read by the chain on every
+// message, written by the « Boîtes témoins » page and by the daily sweep.
+$mailDomainPreferences = $mailTransport['preferences'];
 
 // The queue a message falls into when its whole lane has run out (D9).
 // Built here rather than inside MailServiceFactory because it needs the
@@ -2212,6 +2277,15 @@ $mailService = MailServiceFactory::create(
     // unwired factory would make the whole of IT-05 record nothing —
     // silently, the way a missing optional dependency always does.
     new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService)
+,
+    // The seed mailboxes (roadmap IT-07). Built here and kept in a
+    // variable because the module it needs does not exist yet: this is
+    // handed `inbound_mail` further down, the mutable-registry shape §7.6
+    // describes and that the mail-template registry below already uses.
+    $seedMailboxes = new \Core\Mail\Feedback\Seed\SeedMailboxes(
+        new \Core\Mail\Feedback\Seed\SeedCopyRepository($pdo, $encryptionService),
+        $settingService
+    )
 );
 
 // Automatic e-mails (Core\Mail\Template, ARCHITECTURE.md §8.7bis).
@@ -2310,9 +2384,21 @@ $posterPdfService = new PosterPdfService();
 // Create cookie consent service
 $cookieConsentService = new CookieConsentService();
 
+// Free-text pages a superadmin has added to a menu (issue #368,
+// ARCHITECTURE.md §8.116). Its repository comes first because the
+// editable-content service is handed an authorizer built on it: a page's
+// body is written at the PAGE's role, not at the role of whichever
+// endpoint carries the write (SECURITY.md §3).
+$textPageRepository = new \Core\Page\TextPageRepository($pdo);
+
 // Create editable content service
 $editableContentRepo = new EditableContentRepository($pdo);
-$editableContentService = new EditableContentService($editableContentRepo);
+$editableContentService = new EditableContentService(
+    $editableContentRepo,
+    [new \Core\Page\TextPageContentAuthorizer($textPageRepository)]
+);
+
+$textPageService = new \Core\Page\TextPageService($textPageRepository, $editableContentRepo);
 $sectionRepository = new SectionRepository($pdo);
 
 // Create import-related services
@@ -3500,7 +3586,12 @@ scoutmagicBootstrapScheduler(
     $userAccountRepo,
     $storagePath,
     $notificationService,
-    $mailProviderDirectory
+    $mailProviderDirectory,
+    // Passed here as well as wired eagerly further down, so the two
+    // composition roots are symmetric: an entry point that forgets the
+    // eager call still gets a working feature, which is the shape
+    // `cron.php` did not have.
+    $seedMailboxes
 );
 
 // Bootstrap the recurring automatic backup — Task\AutoBackupHandler
@@ -4091,6 +4182,38 @@ $router->addRoute(
     // for this exact path gets no link from it.
     ['label' => 'Rapports DMARC', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
         'ancestors' => [['label' => 'Courrier sortant', 'path' => '/config/courrier-sortant']]],
+);
+// Boîtes témoins (roadmap IT-07).
+$router->addRoute(
+    'GET',
+    '/config/courrier-sortant/temoins',
+    \Core\Http\Controller\OutboundMailController::class,
+    'seeds',
+    'superadmin',
+    ['label' => 'Boîtes témoins', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Courrier sortant', 'path' => '/config/courrier-sortant']]],
+);
+$router->addRoute(
+    'POST',
+    '/config/courrier-sortant/temoins/activation',
+    \Core\Http\Controller\OutboundMailController::class,
+    'toggleSeeds',
+    'superadmin',
+);
+// D13's « appliquer » button, and the switch that does without it.
+$router->addRoute(
+    'POST',
+    '/config/courrier-sortant/temoins/routage',
+    \Core\Http\Controller\OutboundMailController::class,
+    'routeSeeds',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/courrier-sortant/temoins/routage-automatique',
+    \Core\Http\Controller\OutboundMailController::class,
+    'toggleRouting',
+    'superadmin',
 );
 $router->addRoute(
     'POST',
@@ -4696,6 +4819,29 @@ $router->addRoute(
     'admin',
 );
 $router->addRoute('POST', '/admin/members/{id}/temporary-access', TemporaryMemberController::class, 'add', 'admin');
+// « Ajouter à mes contacts » on a member's page: the vCard file and the QR
+// code of the same card (Core\Contact, ARCHITECTURE.md §8.115). Same
+// `admin` floor as the page that offers them — the button exists nowhere
+// else, and neither does the data.
+//
+// No dot in either path on purpose: Router::matchPath() interpolates a
+// route pattern straight into a regex without escaping it, so a literal
+// `.` would match any character. The file's name is carried by
+// Content-Disposition, which is what a browser reads anyway.
+$router->addRoute(
+    'GET',
+    '/admin/members/{id}/contact-vcard',
+    \Core\Contact\Controller\MemberContactController::class,
+    'vcard',
+    'admin',
+);
+$router->addRoute(
+    'GET',
+    '/admin/members/{id}/contact-qr',
+    \Core\Contact\Controller\MemberContactController::class,
+    'qrCode',
+    'admin',
+);
 $router->addRoute(
     'GET',
     '/admin/scout-year',
@@ -5095,6 +5241,24 @@ $router->addRoute(
 );
 $router->addRoute('POST', '/config/functions/branch-url', FunctionsController::class, 'updateBranchUrl', 'superadmin');
 
+// **The one place a route is born from a database row.** Each active
+// free-text page registers its own concrete path carrying the role floor
+// of the menu it was filed in, so the RBAC guard — which runs before any
+// controller — is the primary protection, exactly as it is for every
+// route declared above (SECURITY.md §3, ARCHITECTURE.md §2 and §8.116).
+// A single `/pages/{slug}` at `role_min: public` with the check moved
+// into the controller would have violated both.
+//
+// A page that is switched off registers nothing, which is what makes it
+// answer 404 rather than 403: it does not exist, it is not forbidden.
+//
+// The returned list is reused twice below — for the menu entries and for
+// the controller — so the whole feature costs ONE query per request, and
+// a page can never be in a menu without a route behind it. Returns []
+// when the database cannot be read, so an installation whose database is
+// down still answers instead of failing in the front controller.
+$activeTextPages = \Core\Page\TextPageRouteRegistrar::register($router, $textPageRepository);
+
 // Load enabled modules (routes registered AFTER core routes so core takes priority)
 $moduleManager->loadEnabledModules();
 
@@ -5255,6 +5419,39 @@ foreach ($menus as $menu) {
 $twig->addGlobal('active_menu_id', $activeMenuId);
 $twig->addGlobal('active_page_url', $activePageUrl);
 
+// Free-text pages in their menus (issue #368). Same shape as the module
+// blocks further down — register, rebuild, re-derive the highlight — but
+// here rather than there because these are core pages, and because the
+// list they are built from is the one the routes were registered from a
+// few hundred lines above rather than a second query.
+//
+// MenuEntryProvider rather than a plain addPage() loop: it is what
+// already solves ordering against the core and module entries and
+// refreshing which entry is highlighted once entries arrive after the
+// first build (Core\View\DynamicMenuRegistrar).
+if ($activeTextPages !== []) {
+    $textPageMenuEntries = $dynamicMenuRegistrar->register(
+        $menuBuilder,
+        [new \Core\Page\TextPageMenuProvider($activeTextPages)],
+        AuthSession::isAuthenticated() ? AuthSession::getEmail() : null
+    );
+    $menus = $menuBuilder->build();
+    $twig->addGlobal('menus', $menus);
+
+    $textPageMenuActive = $dynamicMenuRegistrar->resolveActive(
+        $textPageMenuEntries,
+        $currentPath,
+        $activeMenuId,
+        $activePageUrl,
+        $bestMatchLength
+    );
+    $activeMenuId = $textPageMenuActive['menuId'];
+    $activePageUrl = $textPageMenuActive['pageUrl'];
+    $bestMatchLength = $textPageMenuActive['matchLength'];
+    $twig->addGlobal('active_menu_id', $activeMenuId);
+    $twig->addGlobal('active_page_url', $activePageUrl);
+}
+
 // The LLM connector other modules consume and its RGPD sub-processor
 // declaration — assigned in the module's single block below, after
 // $frontController exists (its config page registers there too).
@@ -5318,6 +5515,16 @@ $frontController = new FrontController(
 $frontController->registerController(
     \Core\Http\Controller\AuditController::class,
     new \Core\Http\Controller\AuditController($twig, $auditService, $auditAccessResolver)
+);
+
+// One free-text page (issue #368). Registered here rather than next to
+// its routes because those routes are built from database rows before
+// $frontController exists, and because the controller needs the service
+// — it resolves the slug the matched path carries. It checks no role:
+// the route the guard already enforced carries this page's own floor.
+$frontController->registerController(
+    \Core\Http\Controller\TextPageController::class,
+    new \Core\Http\Controller\TextPageController($twig, $textPageService)
 );
 
 // Contextual help pages (Core\Http\Controller\HelpController) — needs the
@@ -5904,7 +6111,17 @@ $photoIngestionService = new \Core\Photo\PhotoIngestionService(
     $imageVariantService,
     $accountPhotoService
 );
-$uploadController = new UploadController($twig, $photoIngestionService, $memberService);
+// The fourth argument is the same question the editable-content endpoint
+// asks: `context=editable_image` writes `editable_contents` under a
+// client-chosen key, so this is a second door onto the same table and it
+// has to refuse what that one refuses (ARCHITECTURE.md §8.116). The
+// service decides; this only lets the upload say no in its own shape.
+$uploadController = new UploadController(
+    $twig,
+    $photoIngestionService,
+    $memberService,
+    $editableContentService
+);
 $uploadController->setJournalService($journalService);
 $frontController->registerController(UploadController::class, $uploadController);
 $frontController->registerController(
@@ -6268,6 +6485,40 @@ if ($isEnabled('calendar')) {
             $settingService,
             $journalService,
             $calendarNotificationService
+        )
+    );
+}
+
+// Documents officiels (specifications.md §44) — the federation's own forms,
+// pre-filled. Placed after the calendar block because its event picker
+// consumes $calendarEventLookupForOthers, which is null while that module
+// is off: the picker then disappears and the two date fields stay.
+//
+// The block this module contributes to a member's own page is wired further
+// down, where MemberPageService is rebuilt — the same place every other
+// optional page block is.
+$memberOfficialDocumentsProvider = null;
+if ($isEnabled('official_documents')) {
+    \Core\Debug\RequestTimeline::mark('module_official_documents');
+    $parentalAuthorizationService = new \Modules\OfficialDocuments\Service\ParentalAuthorizationService(
+        $memberService,
+        $sectionService,
+        $settingService,
+        $moduleHooks
+    );
+    $memberOfficialDocumentsProvider = new \Modules\OfficialDocuments\Service\MemberDocumentsSummaryService();
+
+    $frontController->registerController(
+        \Modules\OfficialDocuments\Controller\ParentalAuthorizationController::class,
+        new \Modules\OfficialDocuments\Controller\ParentalAuthorizationController(
+            $twig,
+            $memberService,
+            $userAccountRepo,
+            $parentalAuthorizationService,
+            new \Modules\OfficialDocuments\Service\ParentalAuthorizationPdfService(
+                \Modules\OfficialDocuments\Pdf\TemplateLibrary::shipped()
+            ),
+            $calendarEventLookupForOthers
         )
     );
 }
@@ -6640,6 +6891,17 @@ if ($isEnabled('inbound_mail')) {
         $encryptedFileStorageService
     );
 
+    // **And the seed mailboxes learn where to ask** (roadmap IT-07).
+    //
+    // Built four thousand lines above, with the one `MailService` every
+    // page uses, and given the module only now: it answers « which boxes
+    // are seed boxes » through `probeAddressesFor()`, which is the scope
+    // mechanism that already answers « who reads what » (D10). Without
+    // this line the feature is wired, green and inert — a shape this file
+    // has met before and the reason the comment beside the send receipts
+    // says what it says.
+    $seedMailboxes->useInboundMail($inboundMailForOthers);
+
     // The core's own consumer, so that the mailbox configuration screen
     // lists « Courrier sortant » among the modules a box can be opened to
     // (roadmap IT-03). It has to be on THIS registry and not only on the
@@ -6695,6 +6957,23 @@ if ($isEnabled('inbound_mail')) {
                 new \Core\Mail\Feedback\Dmarc\DmarcReportRepository($pdo),
                 new \Core\Mail\Feedback\Dmarc\BoundedArchive(),
                 $journalService
+            )
+    );
+
+    // The seed consumer (roadmap IT-07), on the same registry and for the
+    // same reason again — it is what makes « boîtes témoins » appear in
+    // the list of scopes the super-admin answers for, and a box can only
+    // BE a seed box by being granted that scope (D10).
+    //
+    // It is also the one consumer on this site that declares
+    // `Api\PruningConsumerInterface`: a box receiving a copy of every
+    // mailing has to empty itself, or it stops being a measuring
+    // instrument. Its two locks are documented on that interface.
+    $inboundReadConsumers->registerFactory(
+        \Core\Mail\Feedback\Seed\SeedConsumer::CONSUMER_ID,
+        static fn(): \Modules\InboundMail\Api\MessageConsumerInterface =>
+            new \Core\Mail\Feedback\Seed\SeedConsumer(
+                new \Core\Mail\Feedback\Seed\SeedCopyRepository($pdo, $encryptionService)
             )
     );
 
@@ -7000,7 +7279,24 @@ $frontController->registerController(
         // (SECURITY.md §11).
         $inboundMailForOthers === null
             ? null
-            : \Core\Mail\Feedback\Dmarc\KnownSenders::remembered($settingService)
+            : \Core\Mail\Feedback\Dmarc\KnownSenders::remembered($settingService),
+        // The seed mailboxes and their results (roadmap IT-07). The same
+        // object the transport was handed above, so the page shows the
+        // state the sending path actually reads — two instances would be
+        // two answers to « are the copies on ».
+        $inboundMailForOthers === null ? null : $seedMailboxes,
+        $inboundMailForOthers === null
+            ? null
+            : new \Core\Mail\Feedback\Seed\SeedCopyRepository($pdo, $encryptionService),
+        $inboundMailForOthers === null
+            ? null
+            : new \Core\Mail\Feedback\Seed\DomainRouting(
+                new \Core\Mail\Feedback\Seed\SeedCopyRepository($pdo, $encryptionService),
+                $settingService,
+                $mailDomainPreferences,
+                new \Core\Mail\Transport\LaneChainRepository($pdo),
+                $mailProviderDirectory
+            )
     )
 );
 
@@ -10231,6 +10527,10 @@ if ($isEnabled('rental')) {
             $rentalAuthorizationService,
             $rentalAssetRepository,
             $scoutYearResolver,
+            // The conditions a renter ticks live in the generic
+            // editable-content store, which sanitizes them on the way in
+            // (Modules\Rental\Document\AssetConditions, §22.5).
+            $editableContentService,
             $rentalPaymentService,
             // The « Rappels » section of the asset's settings (§6.29).
             $rentalAssetReminderRepository
@@ -10245,7 +10545,10 @@ if ($isEnabled('rental')) {
             $scoutYearResolver,
             $rentalAvailabilityService,
             $rentalPricingService,
-            new \Core\View\MonthGrid\DayStateGridBuilder()
+            new \Core\View\MonthGrid\DayStateGridBuilder(),
+            // Read-only: the public asset page RENDERS the conditions, and
+            // no longer offers to edit them in place (§22.5).
+            $editableContentService
         )
     );
     // Documents: contracts, invoices and whatever a manager attaches
@@ -10434,6 +10737,8 @@ if ($isEnabled('rental')) {
             $rentalPricingService,
             $memberService,
             new \Core\View\MonthGrid\DayStateGridBuilder(),
+            // The asset's rental conditions, shown on its settings page.
+            $editableContentService,
             $rentalPaymentService,
             $rentalDocumentService,
             $rentalBookingMailService,
@@ -10760,6 +11065,7 @@ if (
     || $isEnabled('trombinoscope')
     || $isEnabled('leadership')
     || $isEnabled('finance')
+    || $isEnabled('official_documents')
 ) {
     $massMailQueryForMember = $isEnabled('mass_mail')
         ? new \Modules\MassMail\Service\MassMailQueryService(
@@ -10791,6 +11097,7 @@ if (
         $massMailQueryForMember,
         $galleryAlbumProviderForMember,
         $calendarEventLookupForOthers,
+        $memberOfficialDocumentsProvider,
     );
 
     $frontController->registerController(
@@ -10849,6 +11156,31 @@ $frontController->registerController(
         // behind it both ask, so the buttons are never offered where saving
         // would answer 403.
         $sectionStaffAuthorizationService
+    )
+);
+
+// The contact card of one member (ARCHITECTURE.md §8.115) — the « Ajouter
+// à mes contacts » button of the page registered just above, and nothing
+// else on the site: same `admin` floor, same page, same two routes.
+$frontController->registerController(
+    \Core\Contact\Controller\MemberContactController::class,
+    new \Core\Contact\Controller\MemberContactController(
+        $twig,
+        $memberService,
+        new \Core\Contact\ContactCardService(
+            new \Core\Contact\Repository\ContactCardRepository($connection),
+            $settingService,
+            $memberEmailRepository,
+            new \Core\Contact\ContactPhotoResolver(
+                $memberPhotoService,
+                $fileRepository,
+                $imageVariantService,
+                $storagePath
+            )
+        ),
+        new \Core\Contact\VCardBuilder(),
+        new \Core\Contact\ContactQrCodeBuilder(),
+        $journalService
     )
 );
 

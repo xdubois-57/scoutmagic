@@ -102,7 +102,23 @@ class OutboundMailCollector implements SupportCollectorInterface
         /** The bounce state (roadmap IT-05). */
         private ?\Core\Mail\Feedback\Bounce\BounceStateRepository $bounces = null,
         /** The DMARC reports (roadmap IT-06), read-only like the rest. */
-        private ?\Core\Mail\Feedback\Dmarc\DmarcReportRepository $dmarc = null
+        private ?\Core\Mail\Feedback\Dmarc\DmarcReportRepository $dmarc = null,
+        /** What the seed boxes measured, and where it routed (IT-07). */
+        private ?\Core\Mail\Feedback\Seed\DomainRouting $seedRouting = null,
+        private ?\Core\Mail\Transport\DomainPreferences $domainPreferences = null,
+        /**
+         * Whether those figures could see what they claim to measure
+         * (roadmap IT-07).
+         *
+         * A seed box read only in its INBOX never sees the copy its
+         * provider shelved as spam, so that copy is given up on as
+         * « jamais arrivé » two days later. A third party reading
+         * « perdus : 5 » would diagnose a sender being refused, when in
+         * fact five messages were delivered into a folder nobody was
+         * looking at — so the archive has to say which of the two it is
+         * showing.
+         */
+        private ?\Core\Mail\Feedback\Seed\SeedMailboxes $seedMailboxes = null
     ) {
     }
 
@@ -185,6 +201,10 @@ class OutboundMailCollector implements SupportCollectorInterface
         }
 
         foreach ($this->dmarcLines() as $line) {
+            $lines[] = $line;
+        }
+
+        foreach ($this->seedLines() as $line) {
             $lines[] = $line;
         }
 
@@ -512,6 +532,113 @@ class OutboundMailCollector implements SupportCollectorInterface
             $authenticated,
             $messages > 0 ? (int) round($authenticated * 100 / $messages) : 0
         );
+        $lines[] = '';
+
+        return $lines;
+    }
+
+    /**
+     * What the seed boxes measured, by mail provider (roadmap IT-07).
+     *
+     * **Counters and provider names, and that is the whole of it.** A
+     * seed box's address is a mailbox of the unit's, so it never appears
+     * here — the same rule the screen itself follows, and the same rule
+     * as the recipient addresses this file has never carried. What a
+     * third party needs to instruct « leurs envois n'arrivent pas » is
+     * how many mailings were measured at each provider and what became of
+     * them, which is exactly what an aggregated domain says and an
+     * address does not.
+     *
+     * The routing is reported beside it because it is the other half of
+     * the same question: a unit whose Gmail figures look odd may have had
+     * its Gmail traffic moved to another relay a month ago, and a reader
+     * who cannot see that is reading the figures of a configuration that
+     * is no longer the one in force.
+     *
+     * @return list<string>
+     */
+    private function seedLines(): array
+    {
+        if ($this->seedRouting === null) {
+            return [];
+        }
+
+        try {
+            $readings = $this->seedRouting->readings(
+                (new \DateTimeImmutable())->sub(new \DateInterval('P30D'))
+            );
+            $automatic = $this->seedRouting->isAutomatic();
+            $routes = $this->domainPreferences?->all() ?? [];
+        } catch (\Throwable) {
+            return [];
+        }
+
+        $lines = ['── Boîtes témoins, 30 derniers jours ───────────────────────'];
+        $lines[] = 'routage automatique : ' . ($automatic ? 'oui' : 'non');
+        // **The line that says how to read the one beside it.** Printed
+        // even at zero: « aucune » and « la question n'a pas été posée »
+        // are different answers, and a counter that only appears when it
+        // is bad leaves a reader unable to tell them apart.
+        $lines[] = 'boîtes sans dossier « indésirables » : '
+            . ($this->seedMailboxes?->boxesBlindToSpam() ?? 0)
+            . ' (leurs copies classées en indésirables comptent « perdues »)';
+
+        $rows = [];
+        foreach ($readings as $reading) {
+            $rows[] = sprintf(
+                '%-26s %6d  %7d  %6d  %6d  %5d  %s',
+                mb_substr($reading['provider'], 0, 26),
+                $reading['runs'],
+                $reading['inbox'],
+                $reading['spam'],
+                $reading['missing'],
+                $reading['elsewhere'],
+                $reading['routed_to'] ?? '—'
+            );
+        }
+
+        // **Decided domains the readings do not cover, and this is not a
+        // nicety.** A provider routed months ago and since gone quiet —
+        // no mailing measured in thirty days — still steers every mailing
+        // it names. Leaving it out would hand a third party the figures
+        // of a configuration that is not the one in force, which is worse
+        // than handing them none. The first version returned early on an
+        // empty reading and lost exactly this row.
+        $measured = array_column($readings, 'provider');
+        foreach (array_keys($routes) as $domain) {
+            if (in_array($domain, $measured, true)) {
+                continue;
+            }
+
+            $rows[] = sprintf(
+                '%-26s %6s  %7s  %6s  %6s  %5s  %s',
+                mb_substr($domain, 0, 26),
+                '—',
+                '—',
+                '—',
+                '—',
+                '—',
+                'routé'
+            );
+        }
+
+        if ($rows === []) {
+            $lines[] = 'aucun envoi mesuré';
+            $lines[] = '';
+
+            return $lines;
+        }
+
+        // **`elsewhere` is a column here too.** Without it a provider that
+        // files every copy into a folder the site cannot classify prints
+        // « 5 envois, 0 réception, 0 indésirable, 0 perdu » — a measured
+        // provider with no outcomes at all, which reads to a third party
+        // as a broken measurement rather than as copies that arrived
+        // somewhere unnamed.
+        $lines[] = 'fournisseur                 envois  récept.  indés.  perdus  autre  relais';
+        foreach ($rows as $row) {
+            $lines[] = $row;
+        }
         $lines[] = '';
 
         return $lines;

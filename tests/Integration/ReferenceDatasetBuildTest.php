@@ -91,6 +91,7 @@ final class ReferenceDatasetBuildTest extends TestCase
         'gallery_albums' => 'SELECT COUNT(*) FROM gallery_albums',
         'rental_assets' => 'SELECT COUNT(*) FROM rental_assets',
         'rental_bookings' => 'SELECT COUNT(*) FROM rental_bookings',
+        'rental_bookings_refused' => "SELECT COUNT(*) FROM rental_bookings WHERE status = 'refused'",
         'member_badges' => 'SELECT COUNT(*) FROM member_badges',
         'member_photos' => 'SELECT COUNT(*) FROM member_photos',
         'finance_campaign_rows' => 'SELECT COUNT(*) FROM finance_campaign_rows',
@@ -264,6 +265,34 @@ final class ReferenceDatasetBuildTest extends TestCase
         ] as $table => $domain) {
             self::assertGreaterThan(0, $this->rowCount($table), "Rien n'a été semé pour {$domain}.");
         }
+    }
+
+    /**
+     * The seven bookings the README documents, the refused one included.
+     *
+     * A count rather than « greater than zero », and this is the exception
+     * to the rule above: `RentalSeeder` catches a `RentalException` per
+     * entry and carries on, because a refusal is something it models. So a
+     * new rule on the public request path — `createFromPublicRequest()`
+     * gaining a mandatory field a blueprint entry leaves null, say — drops
+     * that entry silently, and « greater than zero » stays green while the
+     * dataset quietly loses a booking. It happened: the phone became
+     * mandatory (§22.5) and took two entries with it, one of which was the
+     * dataset's ONLY refused booking — the only final state that is not a
+     * success, and the reason `status:refused` has anything to render on.
+     */
+    public function testTheSevenDocumentedBookingsAreAllThereIncludingTheRefusedOne(): void
+    {
+        self::assertSame(
+            count(\Tests\Fixtures\ReferenceDataset\RentalBlueprint::BOOKINGS),
+            $this->rowCount('rental_bookings'),
+            'README.md documente sept réservations : le semoir en a perdu une en silence.',
+        );
+        self::assertSame(
+            1,
+            $this->rowCount('rental_bookings_refused'),
+            "La seule réservation refusée du jeu de données a disparu : plus aucun état final qui n'est pas un succès.",
+        );
     }
 
     /**

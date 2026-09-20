@@ -49,9 +49,12 @@ class OutboundMailControllerTest extends TestCase
     private \Core\Mail\Probe\MailProbeRepository $mailProbes;
     private \Core\Mail\Feedback\Bounce\BounceStateRepository $bounceStates;
     private \Core\Mail\Feedback\Dmarc\DmarcReportRepository $dmarcReports;
+    private \Core\Mail\Feedback\Seed\SeedMailboxes $seedMailboxes;
+    private \Core\Mail\Feedback\Seed\SeedCopyRepository $seedCopies;
     private OutboundMailController $controller;
     /** @var list<mixed> the arguments $controller was built from */
     private array $controllerArguments = [];
+    private \Core\Mail\Transport\DomainPreferences $mailPreferences;
     private string $secretsDirectory = '';
     private SettingService $settings;
     private \Core\Mail\Transport\DeferredMailRepository $deferred;
@@ -96,6 +99,43 @@ class OutboundMailControllerTest extends TestCase
 
         $this->settings = $settings;
         self::registerMailIdentitySettings($settings);
+        $settings->register(
+            \Core\Mail\Feedback\Seed\SeedMailboxes::SETTING_ENABLED,
+            '0',
+            'boolean',
+            'Copies témoins',
+            '',
+            null,
+            null,
+            null,
+            false,
+            58
+        );
+        $settings->register(
+            \Core\Mail\Feedback\Seed\DomainRouting::SETTING_AUTOMATIC,
+            '0',
+            'boolean',
+            'Routage automatique',
+            '',
+            null,
+            null,
+            null,
+            false,
+            59
+        );
+        $settings->register(
+            \Core\Mail\Transport\DomainPreferences::SETTING_KEY,
+            '',
+            'text',
+            'Routage par domaine',
+            '',
+            null,
+            null,
+            null,
+            false,
+            60
+        );
+        $this->mailPreferences = new \Core\Mail\Transport\DomainPreferences($settings);
         // Kept as a list rather than spent on the spot, because the two
         // probe arguments are optional and the sub-page has a whole
         // branch for an installation that did not build them. Dropping
@@ -189,6 +229,20 @@ class OutboundMailControllerTest extends TestCase
             // test that handed the controller a live resolver would be
             // exercising a road nothing travels.
             self::rememberedRelays($settings),
+            // REAL, like the bounce and DMARC pairs: with null the page
+            // answers « indisponible » before reading anything, and every
+            // assertion about what it shows would hold whatever the code
+            // does.
+            $this->seedMailboxes = new \Core\Mail\Feedback\Seed\SeedMailboxes(
+                $this->seedCopies = new \Core\Mail\Feedback\Seed\SeedCopyRepository($this->pdo, $encryption),
+                $settings
+            ),
+            $this->seedCopies,
+            // REAL again, and with a real lane chain behind it: with null
+            // the recommendation table is simply absent and every
+            // assertion about what it offers would hold whatever the code
+            // does.
+            $this->seedRouting($directory),
         ];
         $this->controller = new OutboundMailController(...$this->controllerArguments);
 
@@ -292,6 +346,10 @@ class OutboundMailControllerTest extends TestCase
             'the bounces' => ['GET', '/config/courrier-sortant/rebonds'],
             'lifting a block' => ['POST', '/config/courrier-sortant/rebonds/{id}/reprise'],
             'the DMARC reports' => ['GET', '/config/courrier-sortant/dmarc'],
+            'the seed mailboxes' => ['GET', '/config/courrier-sortant/temoins'],
+            'toggling the seed copies' => ['POST', '/config/courrier-sortant/temoins/activation'],
+            'routing a domain' => ['POST', '/config/courrier-sortant/temoins/routage'],
+            'the automatic routing switch' => ['POST', '/config/courrier-sortant/temoins/routage-automatique'],
         ];
     }
 
@@ -451,6 +509,26 @@ class OutboundMailControllerTest extends TestCase
      * bounce pair instead, and the probe test went on passing while
      * testing something else. Positions move; names do not.
      */
+    /**
+     * The routing, built fresh.
+     *
+     * Rebuilt rather than reused because `DomainRouting` memoises the
+     * mailing chain: a test that adds a relay and then asks the
+     * controller built in `setUp()` would be asking about the chain as it
+     * was when nothing had been configured.
+     */
+    private function seedRouting(\Core\Mail\Transport\MailProviderDirectory $directory):
+        \Core\Mail\Feedback\Seed\DomainRouting
+    {
+        return new \Core\Mail\Feedback\Seed\DomainRouting(
+            $this->seedCopies,
+            $this->settings,
+            $this->mailPreferences,
+            new \Core\Mail\Transport\LaneChainRepository($this->pdo),
+            $directory
+        );
+    }
+
     private function controllerWithout(string ...$omitted): OutboundMailController
     {
         // **Positions read off the constructor itself**, not written
@@ -560,6 +638,566 @@ class OutboundMailControllerTest extends TestCase
         $this->controller->unblockBounce($stale, ['id' => (string) $id]);
 
         $this->assertSame(1, $this->bounceStates->countBlocked(), 'no block may be lifted on a stale token.');
+    }
+
+    // ── the seed mailboxes (roadmap IT-07) ────────────────────────────
+
+    /**
+     * The page sends the operator to the page that already declares
+     * mailboxes rather than growing a second one — D10's whole point:
+     * « aucun nouveau type de boîte, aucun nouveau concept de
+     * configuration ».
+     */
+    public function testTheSeedsPageSendsTheOperatorToTheInboundMailPage(): void
+    {
+        $response = $this->controller->seeds($this->getRequest(), []);
+        $body = (string) $response->getBody();
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('/config/courrier-entrant', $body);
+        $this->assertStringContainsString('Aucune boîte témoin déclarée', $body);
+    }
+
+    /**
+     * **« Trois à cinq suffisent », et au-delà cela se retourne contre
+     * vous.** The warning is the one thing on this page an operator could
+     * get wrong in the expensive direction: seed boxes never read their
+     * mail, so measuring harder makes the delivery worse.
+     */
+    public function testTooManySeedBoxesRaisesTheWarningThatMoreIsWorse(): void
+    {
+        $controller = $this->controllerWithSeedAddresses([
+            'a@gmail.com', 'b@outlook.com', 'c@yahoo.fr', 'd@proton.me', 'e@orange.fr', 'f@free.fr',
+        ]);
+
+        $body = (string) $controller->seeds($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('Trois à cinq boîtes suffisent', $body);
+        $this->assertStringContainsString('6', $body);
+    }
+
+    /** And a reasonable number raises nothing. */
+    public function testAHandfulOfSeedBoxesRaisesNoWarning(): void
+    {
+        $controller = $this->controllerWithSeedAddresses(['a@gmail.com', 'b@outlook.com']);
+
+        $body = (string) $controller->seeds($this->getRequest(), [])->getBody();
+
+        $this->assertStringNotContainsString('Trois à cinq boîtes suffisent', $body);
+        $this->assertStringContainsString('gmail.com', $body, 'The providers are the results columns.');
+    }
+
+    /**
+     * **The providers, never the addresses.** A seed box is the unit's
+     * own mailbox, and an address on a screen is an address in every
+     * screenshot of it (SECURITY.md §11). « gmail.com » names a company
+     * and is what the results are read by.
+     */
+    public function testThePageNamesProvidersAndNeverAMailboxAddress(): void
+    {
+        $controller = $this->controllerWithSeedAddresses(['temoin-secret@gmail.com']);
+
+        $body = (string) $controller->seeds($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('gmail.com', $body);
+        $this->assertStringNotContainsString('temoin-secret@gmail.com', $body);
+        $this->assertStringNotContainsString('temoin-secret', $body);
+    }
+
+    /** One row per mailing, one cell per provider. */
+    public function testTheResultsShowOneRowPerMailingAndOneCellPerProvider(): void
+    {
+        $now = new \DateTimeImmutable();
+        $this->seedCopies->claim('mass_mail:42', 'a@gmail.com', $now);
+        $this->seedCopies->recordLanding('mass_mail:42', 'a@gmail.com', 'INBOX', $now);
+        $this->seedCopies->claim('mass_mail:42', 'b@outlook.com', $now);
+        $this->seedCopies->recordLanding('mass_mail:42', 'b@outlook.com', 'Junk', $now);
+
+        $controller = $this->controllerWithSeedAddresses(['a@gmail.com', 'b@outlook.com']);
+        $body = (string) $controller->seeds($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('Boîte de réception', $body);
+        $this->assertStringContainsString('Indésirables', $body);
+        // The provider's own folder name, beside the verdict: « Junk » and
+        // « Indésirables » are one verdict and two names, and the name is
+        // what an operator recognises when they go and look.
+        $this->assertStringContainsString('Junk', $body);
+    }
+
+    /**
+     * **A provider stops being measured; its measurements stay.**
+     *
+     * The columns used to be derived from the boxes as they are now, and
+     * `addresses()` answers `[]` rather than throwing when the module
+     * cannot be reached — so removing one box, or a single failed
+     * resolution, emptied a table whose rows were all still there. The
+     * page would read « rien mesuré » for a period it had measured,
+     * while the recommendation below went on acting on those very rows.
+     */
+    public function testAProviderNoLongerDeclaredKeepsTheResultsItProduced(): void
+    {
+        $now = new \DateTimeImmutable();
+        $this->seedCopies->claim('mass_mail:42', 'b@orange.fr', $now);
+        $this->seedCopies->recordLanding('mass_mail:42', 'b@orange.fr', 'Junk', $now);
+
+        // The box at that provider is gone from the scope since.
+        $controller = $this->controllerWithSeedAddresses(['a@gmail.com']);
+        $body = (string) $controller->seeds($this->getRequest(), [])->getBody();
+
+        // The results table's COLUMN, not merely the name somewhere on the
+        // page: the recommendation table below reads the same stored rows
+        // and would print « orange.fr » in a cell whatever this code does.
+        $this->assertStringContainsString('<th scope="col">orange.fr</th>', $body);
+        $this->assertStringContainsString('Indésirables', $body, 'and the verdict inside it.');
+    }
+
+    /**
+     * **The blind spot the default configuration has, named before the
+     * reader trusts a figure it makes wrong.**
+     *
+     * A mailbox is read in its INBOX and nowhere else until somebody
+     * names more folders. For a seed box that is not a limitation but a
+     * wrong answer: the copy filed as spam is never fetched, never
+     * recorded, and two days later the sweep writes « jamais arrivé » on
+     * it — the gravest verdict this screen has, produced systematically
+     * by the one outcome the screen exists to detect.
+     */
+    public function testABoxThatCannotSeeItsJunkFolderIsSaidSoOnThePage(): void
+    {
+        $controller = $this->controllerWithSeedBoxes(
+            ['a@gmail.com', 'b@outlook.com'],
+            [['INBOX'], ['INBOX', 'Junk']]
+        );
+
+        $body = (string) $controller->seeds($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('1 boîte(s) témoin(s) ne surveille(nt) pas', $body);
+        $this->assertStringContainsString('jamais arrivé', $body, 'and what it costs, in the page\'s own words.');
+    }
+
+    /** A unit that watches its junk folders is told nothing of the sort. */
+    public function testABoxWatchingItsJunkFolderRaisesNothing(): void
+    {
+        $controller = $this->controllerWithSeedBoxes(['a@gmail.com'], [['INBOX', 'Spam']]);
+
+        $body = (string) $controller->seeds($this->getRequest(), [])->getBody();
+
+        $this->assertStringNotContainsString('ne surveille(nt) pas', $body);
+    }
+
+    /**
+     * **And the automatism is refused outright while that is true**,
+     * which is the one place a warning is not enough: this switch moves a
+     * whole provider's mail to another relay, unattended, on the strength
+     * of a measurement that cannot tell « indésirables » from « jamais
+     * arrivé » — the very difference it would act on.
+     */
+    public function testTheAutomaticRoutingCannotBeArmedWhileABoxIsBlind(): void
+    {
+        $controller = $this->controllerWithSeedBoxes(['a@gmail.com'], [['INBOX']]);
+
+        $controller->toggleRouting($this->formRequest(['enabled' => '1']), []);
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame(
+            '0',
+            (string) ($this->settings->get(\Core\Mail\Feedback\Seed\DomainRouting::SETTING_AUTOMATIC) ?? '0'),
+            'and the switch is still off.'
+        );
+    }
+
+    /**
+     * **And with no seed box at all it is refused too**, which it was
+     * not: `boxesBlindToSpam()` counts blind boxes, so with no boxes it
+     * counts zero — « nothing wrong » and « nothing measured » giving
+     * the same figure. A unit could arm the automatism before declaring
+     * anything, add an inbox-only box later, and have the sweep reroute
+     * a provider on exactly the evidence the guard refuses.
+     */
+    public function testTheAutomaticRoutingCannotBeArmedWithNoSeedBoxAtAll(): void
+    {
+        $controller = $this->controllerWithSeedBoxes([], []);
+
+        $controller->toggleRouting($this->formRequest(['enabled' => '1']), []);
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame(
+            '0',
+            (string) ($this->settings->get(\Core\Mail\Feedback\Seed\DomainRouting::SETTING_AUTOMATIC) ?? '0')
+        );
+    }
+
+    /** Turning it OFF is never refused: that direction removes a risk. */
+    public function testTheAutomaticRoutingCanAlwaysBeTurnedOff(): void
+    {
+        $this->controllerWithSeedBoxes(['a@gmail.com'], [['INBOX', 'Junk']])
+            ->toggleRouting($this->formRequest(['enabled' => '1']), []);
+        $this->assertSame(
+            '1',
+            $this->settings->get(\Core\Mail\Feedback\Seed\DomainRouting::SETTING_AUTOMATIC),
+            'it has to be on for turning it off to mean anything.'
+        );
+
+        // And the boxes have since gone blind.
+        $controller = $this->controllerWithSeedBoxes(['a@gmail.com'], [['INBOX']]);
+
+        $controller->toggleRouting($this->formRequest(['enabled' => '0']), []);
+
+        $this->assertSame(
+            '0',
+            $this->settings->get(\Core\Mail\Feedback\Seed\DomainRouting::SETTING_AUTOMATIC)
+        );
+    }
+
+    /** With the junk folders watched, the switch arms as it always did. */
+    public function testTheAutomaticRoutingArmsWhenTheBoxesCanSeeTheirJunkFolder(): void
+    {
+        $controller = $this->controllerWithSeedBoxes(['a@gmail.com'], [['INBOX', 'Indésirables']]);
+
+        $controller->toggleRouting($this->formRequest(['enabled' => '1']), []);
+
+        $this->assertSame(
+            '1',
+            $this->settings->get(\Core\Mail\Feedback\Seed\DomainRouting::SETTING_AUTOMATIC)
+        );
+    }
+
+    /**
+     * **The limit the page must state.** A seed box says where ITS copy
+     * landed at ITS provider — not what each family saw, since filing
+     * also depends on what that person has opened and marked before.
+     */
+    public function testThePageSaysWhatASeedBoxCannotTellYou(): void
+    {
+        $body = (string) $this->controller->seeds($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('Ce que ces résultats ne disent pas', $body);
+        $this->assertStringContainsString('deux comptes Gmail', $body);
+    }
+
+    /** Turning the copies on is journalled at `security`, as the roadmap asks. */
+    public function testTurningTheCopiesOnIsJournalledAsASecurityDecision(): void
+    {
+        $response = $this->controller->toggleSeeds($this->formRequest(['enabled' => '1']), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertTrue($this->seedMailboxes->isEnabled());
+
+        $row = $this->journalRow('mail_seed_boxes_toggled');
+        $this->assertNotNull($row);
+        $this->assertSame('security', $row['level']);
+    }
+
+    public function testTurningThemOffIsJournalledToo(): void
+    {
+        $this->controller->toggleSeeds($this->formRequest(['enabled' => '1']), []);
+        $this->controller->toggleSeeds($this->formRequest(['enabled' => '0']), []);
+
+        $this->assertFalse($this->seedMailboxes->isEnabled());
+    }
+
+    /** A stale token changes nothing. */
+    public function testAStaleTokenDoesNotTurnTheCopiesOn(): void
+    {
+        $_POST = [];
+        $stale = new Request(
+            'POST',
+            '/config/courrier-sortant/temoins/activation',
+            [],
+            ['_csrf_token' => 'périmé', 'enabled' => '1'],
+            [],
+            []
+        );
+
+        $this->controller->toggleSeeds($stale, []);
+
+        $this->assertFalse($this->seedMailboxes->isEnabled());
+    }
+
+    // ── routing by domain, the button and the switch (D13) ────────────
+
+    /**
+     * Two relays on the mailing lane, and a controller that has read
+     * them.
+     */
+    private function controllerWithTwoRelays(): OutboundMailController
+    {
+        $ids = [];
+        foreach (['Premier', 'Second'] as $position => $name) {
+            $statement = $this->pdo->prepare(
+                'INSERT INTO mail_providers (name, secret_prefix, batch_size, batch_interval_minutes)
+                 VALUES (?, ?, 50, 10)'
+            );
+            $statement->execute([$name, 'mail_provider_' . $name]);
+            $ids[] = (int) $this->pdo->lastInsertId();
+
+            $entry = $this->pdo->prepare(
+                'INSERT INTO mail_lane_entries (lane, provider_id, position, is_enabled) VALUES (?, ?, ?, 1)'
+            );
+            $entry->execute([\Core\Mail\Transport\MailLane::Bulk->value, end($ids), $position + 1]);
+        }
+
+        $arguments = $this->controllerArguments;
+        $positions = [];
+        foreach ((new \ReflectionMethod(OutboundMailController::class, '__construct'))->getParameters() as $p) {
+            $positions[$p->getName()] = $p->getPosition();
+        }
+        $arguments[$positions['routing']] = $this->seedRouting($arguments[$positions['directory']]);
+
+        return new OutboundMailController(...$arguments);
+    }
+
+    /** A provider the figures plainly condemn, over enough mailings. */
+    private function recordTrouble(string $address = 'temoin@gmail.com'): void
+    {
+        for ($i = 0; $i < \Core\Mail\Feedback\Seed\DomainRouting::MINIMUM_RUNS; $i++) {
+            $sent = new \DateTimeImmutable('-1 day');
+            $this->seedCopies->claim('envoi-' . $i, $address, $sent);
+            $this->seedCopies->recordLanding('envoi-' . $i, $address, 'Junk', $sent);
+        }
+    }
+
+    /**
+     * **The button D13 asks for by name**: « l'écran affiche le constat
+     * et un bouton pour appliquer ».
+     */
+    public function testTheScreenOffersToRouteATroubledProvider(): void
+    {
+        $this->recordTrouble();
+
+        $body = (string) $this->controllerWithTwoRelays()->seeds($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('Passer par Second', $body);
+    }
+
+    /**
+     * **With one relay there is nowhere to route to**, which is most
+     * units, and the screen says so rather than drawing a button that
+     * would explain nothing when it did nothing.
+     */
+    public function testWithASingleRelayTheScreenSaysSoInsteadOfOfferingAButton(): void
+    {
+        $this->recordTrouble();
+
+        $body = (string) $this->controller->seeds($this->getRequest(), [])->getBody();
+
+        $this->assertStringNotContainsString('Passer par', $body);
+        $this->assertStringContainsString('Un seul relais', $body);
+    }
+
+    /** Applying writes the decision where the transport reads it. */
+    public function testApplyingRoutesTheDomainAndJournalsItAtSecurity(): void
+    {
+        $controller = $this->controllerWithTwoRelays();
+
+        $response = $controller->routeSeeds($this->formRequest(['domain' => 'gmail.com']), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertNotNull($this->mailPreferences->forDomain('gmail.com'));
+
+        $row = $this->journalRow('mail_seed_routing_changed');
+        $this->assertNotNull($row);
+        $this->assertSame('security', $row['level']);
+        $this->assertStringContainsString('gmail.com', (string) $row['context']);
+    }
+
+    /** And undoing it puts the domain back under the lane's own order. */
+    public function testUndoingPutsTheDomainBackUnderTheLanesOrder(): void
+    {
+        $controller = $this->controllerWithTwoRelays();
+        $controller->routeSeeds($this->formRequest(['domain' => 'gmail.com']), []);
+
+        $controller->routeSeeds($this->formRequest(['domain' => 'gmail.com', 'undo' => '1']), []);
+
+        $this->assertNull($this->mailPreferences->forDomain('gmail.com'));
+    }
+
+    /** With nowhere to route to, the answer is an error and no decision. */
+    public function testApplyingWithoutAnAlternativeSaysSoAndWritesNothing(): void
+    {
+        $response = $this->controller->routeSeeds($this->formRequest(['domain' => 'gmail.com']), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertNull($this->mailPreferences->forDomain('gmail.com'));
+    }
+
+    /**
+     * A posted value that is not a domain is refused with its own
+     * message: « aucun autre relais » and « ceci n'est pas un domaine »
+     * send somebody looking in two different places.
+     */
+    public function testAPostedValueThatIsNotADomainIsRefusedOnItsOwnTerms(): void
+    {
+        $controller = $this->controllerWithTwoRelays();
+
+        $controller->routeSeeds($this->formRequest(['domain' => "gmail\ncom"]), []);
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame([], $this->mailPreferences->all());
+    }
+
+    /** A stale token routes nothing, like every other POST here. */
+    public function testAStaleTokenRoutesNothing(): void
+    {
+        $_POST = [];
+        $stale = new Request(
+            'POST',
+            '/config/courrier-sortant/temoins/routage',
+            [],
+            ['_csrf_token' => 'périmé', 'domain' => 'gmail.com'],
+            [],
+            []
+        );
+
+        $this->controllerWithTwoRelays()->routeSeeds($stale, []);
+
+        $this->assertNull($this->mailPreferences->forDomain('gmail.com'));
+    }
+
+    /** The second lock of D13, and it starts off. */
+    public function testTheAutomaticSwitchIsOffUntilSomebodyTurnsItOn(): void
+    {
+        // The switch lives on the recommendation card, so there has to be
+        // something to recommend: an automatism offered before a single
+        // mailing has been measured would be a switch with no reading
+        // behind it.
+        $this->recordTrouble();
+
+        $body = (string) $this->controllerWithTwoRelays()->seeds($this->getRequest(), [])->getBody();
+        $this->assertStringContainsString('Appliquer automatiquement', $body);
+
+        // A box that can see its junk folder, because arming the switch
+        // without one is refused — see the two tests below.
+        $this->controllerWithSeedBoxes(['temoin@gmail.com'], [['INBOX', 'Junk']])
+            ->toggleRouting($this->formRequest(['enabled' => '1']), []);
+
+        $this->assertSame(
+            '1',
+            $this->settings->get(\Core\Mail\Feedback\Seed\DomainRouting::SETTING_AUTOMATIC)
+        );
+        $row = $this->journalRow('mail_seed_routing_automatic_toggled');
+        $this->assertNotNull($row);
+        $this->assertSame('security', $row['level']);
+    }
+
+    public function testTurningTheAutomaticSwitchBackOffIsJournalledToo(): void
+    {
+        $this->controller->toggleRouting($this->formRequest(['enabled' => '1']), []);
+        $this->controller->toggleRouting($this->formRequest(['enabled' => '0']), []);
+
+        $this->assertSame(
+            '0',
+            $this->settings->get(\Core\Mail\Feedback\Seed\DomainRouting::SETTING_AUTOMATIC)
+        );
+    }
+
+    /**
+     * **The page says the remedy is not free**, which is the half of D13
+     * a table of figures cannot carry: sending part of the volume
+     * elsewhere gives each relay less of the regular traffic its standing
+     * depends on.
+     */
+    public function testThePageSaysWhatChangingRelayCosts(): void
+    {
+        $this->recordTrouble();
+
+        $body = (string) $this->controllerWithTwoRelays()->seeds($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString("n'est pas gratuit", $body);
+    }
+
+    /**
+     * **An installation without `inbound_mail` gets a refusal, not a
+     * half-working page** — the same shape already pinned for the
+     * bounces, for DMARC and for the probe.
+     *
+     * It matters here more than elsewhere: these three actions each have
+     * a null-dependency branch, and a page that merely rendered empty
+     * would tell a unit its mailings are fine when in fact nothing is
+     * being measured at all.
+     */
+    public function testAnInstallationWithoutTheInboundModuleSaysSoOnAllThreeSeedRoutes(): void
+    {
+        $controller = $this->controllerWithout('seedMailboxes', 'seedCopies', 'routing');
+
+        $body = (string) $controller->seeds($this->getRequest(), [])->getBody();
+        $this->assertStringContainsString('demandent le module', $body);
+        $this->assertStringNotContainsString('Copier les publipostages', $body);
+
+        $controller->toggleSeeds($this->formRequest(['enabled' => '1']), []);
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertFalse($this->seedMailboxes->isEnabled(), 'and nothing was switched on.');
+
+        $controller->routeSeeds($this->formRequest(['domain' => 'gmail.com']), []);
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame([], $this->mailPreferences->all(), 'and nothing was routed.');
+
+        // **The fourth route, which used to fall through.** Its guard was
+        // a nullsafe chain rather than an early return, so « no module »
+        // reached the blind-box test as « zero blind boxes » — « nothing
+        // wrong » — and the switch armed itself on an installation that
+        // measures nothing at all.
+        $controller->toggleRouting($this->formRequest(['enabled' => '1']), []);
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertSame(
+            '0',
+            (string) ($this->settings->get(\Core\Mail\Feedback\Seed\DomainRouting::SETTING_AUTOMATIC) ?? '0'),
+            'and the automatism is still off.'
+        );
+        // **And it says the right thing.** « Aucune boîte témoin ne peut
+        // mesurer » sends the reader to « Courrier entrant » to declare
+        // boxes they cannot declare: the module is off, which is a
+        // different answer and the one its two siblings give.
+        $this->assertStringContainsString(
+            'demandent le module',
+            (string) ($flash['message'] ?? ''),
+            'the switch answered « no seed box » where the truth is « no module ».'
+        );
+    }
+
+    /**
+     * @param list<string> $addresses
+     */
+    private function controllerWithSeedAddresses(array $addresses): OutboundMailController
+    {
+        $inbound = $this->createStub(\Modules\InboundMail\Api\InboundMailInterface::class);
+        $inbound->method('probeAddressesFor')->willReturn($addresses);
+        $this->seedMailboxes->useInboundMail($inbound);
+
+        return $this->controller;
+    }
+
+    /**
+     * The same, saying which folders each of those boxes is read in —
+     * the answer the module gives about boxes it already reads, and the
+     * one that decides whether a spam verdict is observable at all.
+     *
+     * @param list<string> $addresses
+     * @param list<list<string>> $folders box for box, in the same order
+     */
+    private function controllerWithSeedBoxes(array $addresses, array $folders): OutboundMailController
+    {
+        $inbound = $this->createStub(\Modules\InboundMail\Api\InboundMailInterface::class);
+        $inbound->method('probeAddressesFor')->willReturn($addresses);
+        $inbound->method('watchedFoldersFor')->willReturn($folders);
+        $this->seedMailboxes->useInboundMail($inbound);
+
+        return $this->controller;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function journalRow(string $eventType): ?array
+    {
+        $statement = $this->pdo->prepare('SELECT * FROM event_log WHERE event_type = ? LIMIT 1');
+        $statement->execute([$eventType]);
+        $row = $statement->fetch(\PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $row;
     }
 
     // ── the DMARC reports (roadmap IT-06) ─────────────────────────────

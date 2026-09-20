@@ -415,4 +415,30 @@ interface InboundMailInterface
      * @return list<string>
      */
     public function probeAddressesFor(string $consumerId): array;
+
+    /**
+     * Which folders each of those boxes is actually read in — the
+     * question « what could this consumer possibly observe? ».
+     *
+     * **It exists because a box watches its inbox and nothing else
+     * unless somebody said otherwise**, and for a consumer that measures
+     * where mail LANDS that default is not a limitation, it is a wrong
+     * answer: a copy the provider files under « Indésirables » is never
+     * fetched, so it is never recorded, so it is given up on as « jamais
+     * arrivé ». The gravest verdict the seed screen has would then be
+     * produced, systematically, by the one outcome the screen exists to
+     * detect.
+     *
+     * The answer is folder NAMES and no more — never a box's address,
+     * never its host. Naming what is read is what lets a caller say « two
+     * of your boxes cannot see their junk folder »; classifying those
+     * names is the caller's business, because only the caller knows what
+     * it is looking for.
+     *
+     * Scoped and filtered exactly like {@see self::probeAddressesFor()},
+     * and in the same order, so the two answers line up box for box.
+     *
+     * @return list<list<string>> one entry per box, its watched folders
+     */
+    public function watchedFoldersFor(string $consumerId): array;
 }

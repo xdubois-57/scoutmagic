@@ -55,7 +55,8 @@ final class MailTransportFactory
      * @param MailTransportInterface|null $delivery The transport underneath
      *        — null keeps the ordinary `PhpMailerTransport`.
      * @return array{chain: MailTransportChain, directory: MailProviderDirectory,
-     *     connections: ProviderConnections, delivery: MailTransportInterface}
+     *     connections: ProviderConnections, delivery: MailTransportInterface,
+     *     preferences: DomainPreferences}
      */
     public static function build(
         PDO $pdo,
@@ -77,6 +78,7 @@ final class MailTransportFactory
         $directory = new MailProviderDirectory(new MailProviderRepository($pdo), $connections, $settings);
         $chains = new LaneChainRepository($pdo);
         $counters = new SendCounterRepository($pdo);
+        $preferences = new DomainPreferences($settings);
 
         return [
             'chain' => new MailTransportChain(
@@ -95,11 +97,17 @@ final class MailTransportFactory
                 // enforces. Tests\Core\Mail\Transport\MailTransportFactoryTest
                 // pins that they arrive.
                 new ProviderHealthRepository($pdo),
-                new MailReserve($counters, $chains)
+                new MailReserve($counters, $chains),
+                // Likewise: a composition root that forgot it would give
+                // an installation a « Boîtes témoins » page whose
+                // « appliquer » button wrote a decision nothing ever read
+                // (roadmap IT-07, D13).
+                $preferences
             ),
             'directory' => $directory,
             'connections' => $connections,
             'delivery' => $delivery,
+            'preferences' => $preferences,
         ];
     }
 }

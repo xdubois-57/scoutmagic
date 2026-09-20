@@ -80,6 +80,10 @@ class MemberSearchRbacTest extends TestCase
         $router->addRoute('POST', '/admin/members/{id}/notes', MembersStubController::class, 'index', 'admin');
         $router->addRoute('POST', '/admin/members/{id}/notes/{note_id}', MembersStubController::class, 'index', 'admin');
         $router->addRoute('POST', '/admin/members/{id}/notes/{note_id}/delete', MembersStubController::class, 'index', 'admin');
+        // The contact card of one member (Core\Contact): same floor as the
+        // page that offers the button, because it is the same data.
+        $router->addRoute('GET', '/admin/members/{id}/contact-vcard', MembersStubController::class, 'index', 'admin');
+        $router->addRoute('GET', '/admin/members/{id}/contact-qr', MembersStubController::class, 'index', 'admin');
         $fc = new FrontController($router, $this->twig, $this->config);
         $fc->registerController(MembersStubController::class, new MembersStubController($this->twig));
 
@@ -175,6 +179,45 @@ class MemberSearchRbacTest extends TestCase
             'add' => ['/admin/members/42/notes'],
             'update' => ['/admin/members/42/notes/7'],
             'delete' => ['/admin/members/42/notes/7/delete'],
+        ];
+    }
+
+    /**
+     * « Ajouter à mes contacts » hands over a member's name, telephone
+     * numbers, e-mail addresses and postal addresses in one file. Its two
+     * routes therefore take the floor of the page that offers them and
+     * never a rung below — the button exists on no other screen, and a
+     * route a level lower would be the trombinoscope leak the chantier
+     * explicitly refused, reached by URL instead of by button.
+     *
+     * @dataProvider contactCardRoutes
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('contactCardRoutes')]
+    public function testContactCardRoutesAllowAdminAndRefuseOneLevelBelow(string $path): void
+    {
+        $this->startTestSession();
+
+        AuthSession::login(1, 'a@test.com', 'admin');
+        $this->assertSame(200, $this->buildFrontController()->handle(new Request('GET', $path, [], [], [], []))->getStatusCode());
+
+        AuthSession::login(1, 's@test.com', 'superadmin');
+        $this->assertSame(200, $this->buildFrontController()->handle(new Request('GET', $path, [], [], [], []))->getStatusCode());
+
+        AuthSession::login(1, 'c@test.com', 'chief');
+        $this->assertSame(403, $this->buildFrontController()->handle(new Request('GET', $path, [], [], [], []))->getStatusCode());
+
+        AuthSession::login(1, 'i@test.com', 'identified');
+        $this->assertSame(403, $this->buildFrontController()->handle(new Request('GET', $path, [], [], [], []))->getStatusCode());
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function contactCardRoutes(): array
+    {
+        return [
+            'vcard' => ['/admin/members/42/contact-vcard'],
+            'qr' => ['/admin/members/42/contact-qr'],
         ];
     }
 

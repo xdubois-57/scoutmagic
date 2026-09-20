@@ -7,6 +7,12 @@
   CSRF. Billing details are NOT asked for here — they are collected later in
   the workflow, when they are actually relevant.
 
+  Phone and purpose are required, in the browser AND in
+  Service\RentalBookingService (§22.5): a `required` attribute is a
+  convenience for the visitor, never a guarantee to the unit. The
+  organisation is not, and deliberately: a family letting the hall for a
+  communion has none.
+
   The two tick-boxes are distinct and both required. The second is worded as
   an acknowledgement, NOT as consent: the processing is necessary to the
   booking, and calling it consent would misrepresent the legal basis.
@@ -94,7 +100,9 @@
                     <div class="col-12 col-md-6">
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'phone', field_name: 'phone', type: 'tel',
-                            label: 'Téléphone', autocomplete: 'tel',
+                            label: 'Téléphone', required: true, autocomplete: 'tel',
+                            placeholder: '0470 12 34 56',
+                            help: 'Pour vous joindre si quelque chose se décide vite.',
                             value: submitted.phone,
                         } only %}
                     </div>
@@ -102,13 +110,16 @@
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'organisation', field_name: 'organisation',
                             label: 'Organisation',
+                            placeholder: 'Unité du Petit Ry SV025',
+                            help: 'Facultatif. Beaucoup d\'unités appliquent un tarif différent selon qui loue.',
                             value: submitted.organisation,
                         } only %}
                     </div>
                     <div class="col-12">
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'purpose', field_name: 'purpose',
-                            label: 'Objet de la location',
+                            label: 'Objet de la location', required: true,
+                            placeholder: 'Week-end de section',
                             value: submitted.purpose,
                         } only %}
                     </div>
@@ -122,14 +133,18 @@
                 </div>
             </fieldset>
 
-            {% if conditions_html %}
-                <fieldset class="mb-4">
-                    <legend class="h5">Conditions de location</legend>
-                    <div class="rich-text border rounded p-3 mb-3" style="max-height: 240px; overflow-y: auto;">
-                        {{ conditions_html|raw }}
-                    </div>
-                </fieldset>
-            {% endif %}
+            {#
+              Always rendered, and never empty: Document\AssetConditions falls
+              back to the standard Belgian body the module ships. The tick-box
+              below is mandatory, so a missing text used to mean accepting
+              nothing while the acceptance hash attested to it.
+            #}
+            <fieldset class="mb-4">
+                <legend class="h5">Conditions de location</legend>
+                <div class="rich-text border rounded p-3 mb-3" style="max-height: 240px; overflow-y: auto;">
+                    {{ conditions_html|raw }}
+                </div>
+            </fieldset>
 
             <div class="form-check mb-2">
                 <input class="form-check-input" type="checkbox" id="accept-conditions" name="accept_conditions" required>

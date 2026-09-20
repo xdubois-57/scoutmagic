@@ -352,8 +352,22 @@ class DatabaseTestHelper
             content_type TEXT NOT NULL,
             content_value TEXT,
             module_id TEXT,
+            text_page_id INTEGER NULL REFERENCES text_pages(id) ON DELETE CASCADE,
             modified_at TEXT,
             modified_by INTEGER
+        )');
+
+        $pdo->exec('CREATE TABLE text_pages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            slug TEXT NOT NULL UNIQUE,
+            menu_label TEXT NOT NULL,
+            title TEXT NOT NULL,
+            menu_id TEXT NOT NULL,
+            menu_group TEXT,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT
         )');
 
         $pdo->exec('CREATE TABLE files (
@@ -772,6 +786,19 @@ class DatabaseTestHelper
             authenticated_count INTEGER NOT NULL,
             disposition TEXT NOT NULL,
             FOREIGN KEY (dmarc_report_id) REFERENCES mail_dmarc_reports(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE mail_seed_copies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_reference TEXT NOT NULL,
+            seed_address_encrypted BLOB NOT NULL,
+            seed_address_blind_index TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            sent_at TEXT NOT NULL,
+            verdict TEXT NOT NULL DEFAULT \'pending\',
+            landed_folder TEXT NULL,
+            recorded_at TEXT NULL,
+            UNIQUE (run_reference, seed_address_blind_index)
         )');
 
         $pdo->exec('CREATE TABLE human_check_rate_limits (

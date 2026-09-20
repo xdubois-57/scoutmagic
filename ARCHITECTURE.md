@@ -26,8 +26,9 @@ Only a small, explicitly justified set of external dependencies is allowed:
 | aws/aws-sdk-php | The S3-compatible storage backend (`Core\Storage\Location\Backend\ObjectStorageBackend`, §8.107) — correctly implementing multipart upload, presigned URLs, and provider-specific auth quirks (AWS S3, and S3-compatible providers) by hand is not worth it for one storage backend among several. |
 | minishlink/web-push | Web Push (RFC 8030/8291) sending for `Core\Notification\NotificationService`: VAPID ES256 JWT signing, ECDH key agreement, and the RFC 8291 `aes128gcm` payload encryption. Reimplementing this elliptic-curve crypto by hand is real security-sensitive surface area (a subtly wrong HKDF/AEAD derivation silently breaks or, worse, weakens delivery) for a well-defined, narrow protocol a maintained library already gets right. |
 | webklex/php-imap | Pure-PHP IMAP client over sockets (`Modules\InboundMail\Client\ImapMailboxClient`, §7 of the inbound-mail spec). **`ext-imap` was removed from PHP's core in 8.4 and moved to PECL**, which puts it out of reach of essentially every shared host ScoutMagic targets — so an extension-free implementation is not a preference, it is the only option. Hand-rolling one would mean implementing IMAP4rev1 command pipelining, literal handling, UIDVALIDITY semantics, MIME structure parsing and TLS negotiation correctly, on a protocol where a mistake either loses somebody's mail or writes to their mailbox. Its Laravel-adjacent transitive dependencies (`illuminate/support`, `nesbot/carbon`, `symfony/http-foundation`) are the real cost of this entry and are the reason it is worth stating: they are pulled in for `Collection` and date handling only, no framework is bootstrapped, and nothing outside this module's `Client/` directory references them. |
-| setasign/fpdi | Cuts pages out of an existing PDF (`Modules\Attestations\Service\AttestationPdfSplitter`, §8.86). Nothing already here can: `dompdf` renders new documents from HTML and `smalot/pdfparser` reads text out of one. Keeping the federation's single PDF instead of splitting it is not an option — it holds every family's certificate in one file, so handing it to one family hands them all the others. Reimplementing the cut means reading PDF's object graph, cross-reference tables and content streams and re-emitting a valid document, which is exactly the class of work `smalot/pdfparser` is already in the table for not hand-rolling. |
+| setasign/fpdi | Cuts pages out of an existing PDF (`Modules\Attestations\Service\AttestationPdfSplitter`, §8.86). Nothing already here can: `dompdf` renders new documents from HTML and `smalot/pdfparser` reads text out of one. Keeping the federation's single PDF instead of splitting it is not an option — it holds every family's certificate in one file, so handing it to one family hands them all the others. Reimplementing the cut means reading PDF's object graph, cross-reference tables and content streams and re-emitting a valid document, which is exactly the class of work `smalot/pdfparser` is already in the table for not hand-rolling. It is also the *import* half of the official-documents overlay (`Modules\OfficialDocuments\Pdf\OverlayPdf`, specifications.md §44): the federation's own form is drawn as the page background and the family's answers are written on top of it, on the printed lines themselves. Redrawing that form from HTML would produce a different document — what a unit collects is the federation's form, not a lookalike. |
 | setasign/fpdf | The PDF *writer* `setasign/fpdi` requires: FPDI supplies the import half only and its `Fpdi` class extends an FPDF-compatible generator, which the package deliberately does not bundle so a caller can pick one. ~50 KB of pure PHP with no extension beyond `zlib`, against TCPDF — the alternative FPDI supports — which is an order of magnitude larger for output this project never composes itself: every page it emits is a page imported verbatim from the deposited file. |
+| setasign/tfpdf | The PDF *writer* the official-documents overlay uses instead, for one reason: **FPDF's core fonts are cp1252 only**, so a name like « Wiśniewski » or « Ayşe » comes out mangled — on a form a family signs and hands to a hospital. tFPDF is FPDF itself with TrueType/UTF-8 support (the same API, the same `zlib`-only requirement, ~40 KB on top) and ships the DejaVu faces it needs, which is what lets `Modules\OfficialDocuments\Pdf\OverlayPdf` extend `setasign\Fpdi\Tfpdf\Fpdi` rather than the plain one. It does **not** replace `setasign/fpdf`: the attestations splitter re-emits imported pages verbatim and writes no text at all, so it needs no font — and converting it would be a change to a release-critical path for no gain. |
 | ifsnop/mysqldump-php | Pure-PHP `mysqldump` reimplementation (`Core\Database\DatabaseDumper`, §8.15.1) that dumps over a PDO connection it opens itself — no `mysqldump` binary, no shell-execution function, and none of the shared-hosting failure modes (missing `$PATH`, `disable_functions`, a `libmysqlclient` build that can't load the `mysql_native_password` auth plugin) a shelled-out dump used to hit. |
 
 Everything else is written in-house. Composer is used for autoloading and dependency resolution during CI build — `vendor/` is built by CI and deployed via FTP; Composer is never required on the hosting server.
@@ -2032,6 +2033,8 @@ file on somebody's list.
 **Substitution happens after sanitizing, and every value is escaped** (`Document\DocumentKeywords`). The other order would run the sanitizer over renter-supplied content and let it decide whether that content should have been markup. dompdf renders HTML, and these values come from a form an anonymous visitor filled in — a renter's name or organisation containing `<`, `&` or a quote is not exotic, it is Tuesday. The keyword list is **closed**: a template can say exactly these things and nothing else, and anything else it asks for is reported to its author **at edit time** rather than surviving into a signed contract as literal braces. An unknown keyword is left visible rather than blanked — a contract showing `{{ prix_ttc }}` is obviously wrong to whoever reads it, a silently emptied one reads as a clause that says nothing.
 
 **The hazard both editors are built around**: a contenteditable surface happily splits a run of text across elements as it is edited, so `{{ prix_total }}` can silently become `{{ pri<b>x</b>_total }}` — still readable to a human, no longer a keyword to the substituter, and only noticed once a contract goes out with braces in it. Both used to be plain HTML textareas for exactly that reason. They are the generic rich-text form field now (`partials/rich_text_form_field.html.twig`), which **answers** the hazard rather than avoiding it, on three levels: every keyword of the closed list renders as one `contenteditable="false"` chip the browser treats as a single indivisible character; the **server repairs** what survives anyway — a paste, an author with no JavaScript — after sanitizing and before substitution (§8.114, `DocumentKeywords::repairSplitKeywords()`); and the « mots-clés non reconnus » warning stays the net, because the repair only rewrites a region once what it would become is a real keyword. Repaired at save time AND at generation, since a text stored before the repair existed is still out there.
+
+**The conditions a renter accepts are the third shipped text** (`Document\AssetConditions`, `StandardTemplates::conditions()`, `specifications.md` §22.5) and they follow the same three-level shape for the same reason. They live in `editable_contents` under `rental_asset_{id}_conditions` — the key the public page has always read, so nothing is migrated — and the shipped standard body is what is in force while that entry is blank. What changed is **who writes it and from where**: the asset's managers, from that asset's own settings page, rather than the configuration mode on the asset's *public* page, which needs a superadmin. That mismatch is why so many assets had no conditions at all while the request form still made a visitor tick a mandatory « J'accepte les conditions de location » over an empty block — the renter accepted nothing and `conditions_hash` attested to it faithfully. The text now can never be empty: a blank or whitespace-only save is refused, and an empty stored entry falls back to the standard.
 
 **Sending is what makes a document read-only** (`specifications.md` §22.6). Until a document of a type has gone out, its text is a draft a manager may rework freely; afterwards the renter holds a copy, and silently changing what that copy was made from is precisely the confusion versioning exists to prevent. `RentalDocumentService::textIsLocked()` decides it from `rental_documents.sent_at` — any version, not just the latest — the editor renders the text without offering to edit it, and `saveBookingText()` refuses on the server, because a page that merely hides a form is not a rule. The confirmation on « Envoyer » says so before it happens: a button that quietly makes a page read-only is a button nobody expects. Regenerating still never overwrites — what the lock stops is the SOURCE moving under a version that has already been read and possibly signed.
 
@@ -4548,6 +4551,120 @@ never a recipient, a subject or a body. That is what settles the personal
 -data question (RGPD §2.10) and what separates them from forensic
 reports, which this site neither requests nor accepts (D12).
 
+#### Seed mailboxes, and routing by recipient domain (`Core\Mail\Feedback\Seed`, roadmap IT-07)
+
+**A DMARC report says a message was authenticated. It never says it was
+read.** A perfectly aligned mailing can be filed in a provider's junk
+folder and every screen above will look clean while nobody reads
+anything. The only way to know is to be a recipient, so the site sends a
+copy of each mailing to a handful of the unit's own mailboxes and looks
+at where the copy landed.
+
+*A seed box is an ordinary inbound mailbox* (D10). There is no new kind
+of box and no second configuration concept: the box is declared on
+`/config/courrier-entrant` like any other, and the super-admin opens the
+`core_mail_seed` consumer's scope to it — the mechanism that already
+answers « who may read what ». `SeedMailboxes::addresses()` is
+`InboundMailInterface::probeAddressesFor()`, so « which boxes are seed
+boxes » is the scope and nothing else. Only boxes belonging to the unit
+(D11).
+
+*The copy is emitted at the TRANSPORT, not in `mass_mail`.* `MailService`
+emits one when the purpose is `Bulk` and the caller passed a
+`bulkRunReference`; the mailing module knows nothing about it, and any
+future bulk sender inherits the measurement without code. They are
+separate messages, never blind copies, and they carry an opaque
+`X-ScoutMagic-Seed` header holding that reference — which is what lets
+`SeedConsumer` recognise a copy without the site having to guess from a
+subject line. A failure to emit a copy never fails the mailing: a
+measurement is worth less than the message it measures.
+
+*`SeedConsumer` reads the landing folder, records the verdict, then
+deletes the message.* Reading the folder needed one new field on
+`CandidateMessage` (`folder`, null meaning « the relay did not say »,
+never « INBOX »), which is the roadmap's own instruction: a datum to add
+to the reported message, not an architecture to change.
+
+*Deleting it crossed a boundary `inbound_mail` had deliberately erected*,
+and the divergence is worth stating. `IncomingMailboxClientInterface`
+documents that every one of its methods is a read, and `ImapMailboxClient`
+uses EXAMINE and never SELECT — « the way to guarantee it never touches
+their mail is to give it no vocabulary for doing so » (§7.5). Rather than
+widen that interface, the capability is opt-in on **both** sides, the
+same shape as IT-06's `PayloadConsumerInterface`: a client may implement
+`PruningMailboxClientInterface` (one method, `deleteMessage()`, the only
+place a write verb is allowed to appear) and a consumer may implement
+`PruningConsumerInterface`. A message is deleted only when the two halves
+agree AND the box's scope named that consumer, so the containment is the
+scope — the same mechanism that decides everything else here.
+`NonIntrusiveReadTest` was tightened rather than relaxed: the reading
+half of `ImapMailboxClient` is still scanned for write verbs, and the one
+pruning method is scanned for being the only exception.
+
+*`mail_seed_copies` is the table, and an address in it is a `BLOB`*
+beside its blind index, like every other address the site stores. The
+index has its OWN purpose (`seed_mailbox`) rather than the shared
+`'email'` one, because a seed address is never compared against a
+member's. `Task\PurgeSeedCopiesHandler` is the daily reading: two days
+before a copy nobody found becomes « jamais arrivé », ninety days before
+the result is dropped, and — only if the unit asked — the routing below.
+
+*Routing by recipient domain is a recommendation, not an automatism*
+(D13). With three to five boxes and a few mailings a year, routing on two
+observations is routing on noise, so `DomainRouting::MINIMUM_RUNS` counts
+**mailings** and not copies: five boxes at one provider on one mailing
+say one thing five times. And the remedy has a price of its own — a
+relay's reputation rests on regular traffic, so sending part of it
+elsewhere gives each relay less of what its standing depends on. The
+screen therefore shows the finding, offers a button per provider, and
+keeps the automatism behind an explicit switch as well as the minimum
+sample.
+
+*What a decision actually is: `Core\Mail\Transport\DomainPreferences`,
+a domain-to-relay map read by `MailTransportChain`.* It **reorders** the
+candidates of one lane and nothing more. A lane is still derived from
+`MailPurpose` and from nothing else (§8.106's own rule): a message bound
+for `gmail.com` travels the mailing lane exactly as every other mailing
+does, and only the order of the relays inside it changes. The rule that
+may not be relaxed is that **routing applies to the mailing lane alone**
+— a magic link lives fifteen minutes, and a login path that varies with
+the recipient's provider is a login path nobody can reason about. Four
+further properties are pinned because each of them, broken, would cost a
+message rather than a nicety: a preference never brings back a relay the
+lane dropped (quota, disabled entry, open breaker all outrank it); it
+never costs a fallback, since the rest of the chain keeps its order
+behind the preferred relay; an unreadable setting is « no preference »,
+never an exception on the send path; and a message with several
+recipients is not routed at all, because a mailing sends one message per
+member and routing a batch by its first address would send the rest
+through a relay chosen for somebody else's provider.
+
+*The automatism applies once per domain and never undoes.* `apply()`
+moves a domain to the NEXT relay of the chain, so a sweep that applied
+again each day would walk that domain around the chain for ever. And a
+domain that has stopped being troubled has stopped being troubled ON ITS
+NEW RELAY, so undoing would make it troubled again and the two readings
+would alternate for as long as the switch stayed on. Coming back is a
+person's decision, from the button.
+
+*Three to five boxes, and more is worse* — the screen says so. These
+boxes never read their mail, never reply and never click, and the large
+providers score a sender on exactly that, so a unit measuring harder
+would be degrading the delivery it is measuring.
+
+*The support archive carries provider names and counters, never a box.*
+A seed box is a mailbox of the unit's; an aggregated provider
+(« gmail.com ») is a company. A domain that was routed and has since gone
+unmeasured still appears, because it still steers every mailing it names
+and figures read without it are the figures of a configuration that is
+not in force.
+
+*And the RGPD section names these providers as processors.* A copy is the
+real message, so it carries the same personal data as the mailing itself,
+into mailboxes hosted by third parties the unit chooses. The routing
+itself introduces no processor: it only says which already-declared relay
+is tried first.
+
 ### 8.107 Storage locations (`Core\Storage\Location`)
 
 **One declared destination for bytes, and every consumer picks one.** The same idea used to be written twice, with two incompatible models: the gallery had `gallery_storage_locations` — N rows, a `StorageBackendInterface`, a cached health column — while the off-site backup had a dozen flat `SettingService` keys, a `RemoteBackupTarget` interface and a `remote_backup_last_error` setting. A single destination in flat settings on one side, N destinations in a table on the other. The second form is the right one, and this is it, generalised. **Both halves have now arrived**: the gallery moved here in IT-01 and the off-site backup in IT-05, which is where `RemoteBackupTarget` disappeared and a Drive folder became a location like any other (§8.104).
@@ -4764,6 +4881,195 @@ variable palette. A spreadsheet's column headers are deliberately **not**
 one — they are data, different for every mailing, and the publipostage
 inserts them through its own control (`modules/mass_mail/views/partials/
 _variable_toolbar.html.twig`) for that reason.
+
+### 8.115 The contact card of one member (`Core\Contact`)
+
+« Ajouter à mes contacts », on a member's admin page
+(`/admin/members/{id}`, `role_min: admin`) and nowhere else on the site.
+Two payloads of ONE card: a QR code a phone's camera turns into a contact
+straight from the viewfinder, and a `text/vcard` download. Both are always
+offered together — there is **no device detection**, because a browser's
+idea of what it is running on has never been reliable enough to take a
+choice away from somebody.
+
+**One definition of the contents, one renderer.** `ContactCardService`
+assembles a `ContactCard`; `VCardBuilder` renders it as vCard 3.0.
+`VCardVariant` is the only thing that makes the two payloads differ, and it
+can do exactly two things: drop the portrait, and cut the affiliation
+history to five lines. So a field cannot say one thing in the QR code and
+another in the file — the failure mode of two builders, which is what this
+shape exists to make impossible. Version 3.0 rather than 4.0 is a
+compatibility fact, not a preference: iOS and the stock Android address
+book both read 3.0 and both have historically mangled 4.0.
+
+**What a card carries**: `FN` (the full name, never the totem alone — a
+contact filed as « Loutre Rieuse » is one nobody finds), `N`, `NICKNAME`,
+`ORG` (the unit then the section), `TITLE`, every e-mail address (Desk's
+first, then the confirmed ones the member configured), the two Desk
+telephone numbers **unlabelled**, every postal address, a `NOTE` holding
+the current scout year and one line per year of affiliations, a `UID`
+derived from `members.id` and a `REV` — the last two identical in both
+variants, so a client that honours them recognises the same person rather
+than filing them twice. `PHOTO` is in the file and in CardDAV only.
+
+**What it never carries, and cannot**: the handicap, the supplementary
+insurance, the gender, the date of birth, the Desk identifier, the patrol,
+the formation level, the two communication consents. None of them is a
+property of `ContactCard`, so adding one would be a deliberate edit rather
+than a field slipping through. The **handicap is health data** and sits one
+line away from the telephone numbers inside the same
+`Core\Member\MemberProfile`; `Tests\Core\Contact\VCardBuilderTest` and
+`ContactCardServiceTest` both assert it never comes out.
+
+**The history is one query.** `Core\Member\MemberProfile` is a snapshot of
+a single `member_years` row and carries only that year's functions, so a
+history rebuilt from it would cost one full hydration — and one AES
+decryption of every personal column — per scout year.
+`Repository\ContactCardRepository` reads every year of a member in one
+statement and decrypts nothing: a function label, a section name and a year
+label are all in clear. The section is resolved through the `sections` row,
+so a section renamed in Configuration reads under its new name for past
+years too, and `sections.desk_code` is never a fallback.
+
+`REV` comes from the same repository, and it is the aggregate of every
+event that COULD have moved a card — the annual row's creation, the imports
+covering its years, the member's portrait and configured addresses. There
+is no `updated_at` to read: a Desk import rewrites `member_years` in place.
+It therefore over-reports rather than under-reports, which is the safe
+direction, and it touches no encrypted column — the property IT-03's
+`getctag` will need to answer a client that polls every few minutes.
+
+**Nothing is written to disk** (`SECURITY.md` §5), and the QR code is built
+with `endroid/qr-code`, already a justified dependency (posters, the SEPA
+payment QR) — never an external QR service, which would be handed a
+minor's name, telephone number and home address.
+
+Each served card is journaled at `security` level with **the member's
+identifier and nothing else**.
+
+### 8.116 Free-text pages, and the one route born from a database row (`Core\Page`)
+
+A superadmin adds a page — the ASBL's description, the Bulle Safe —
+chooses which menu it appears in, names it twice (short in the menu,
+explicit on the page), and writes its text with the site's ordinary
+configuration-mode editing. Issue #368. It is not a CMS and has no
+templates: a page is a title and a rich text, and the text is stored in
+`editable_contents` like the home page's introduction, through the same
+`editable()` and the same sanitizer.
+
+**Each active page registers its own route at boot, and that is the whole
+design.** `Core\Page\TextPageRouteRegistrar` reads `text_pages` once per
+request and calls `Router::addRoute()` for every active row, with the path
+`/pages/{slug}` and the `role_min` of the menu the page was filed in. This
+is the only place in the codebase where a route comes from a database row
+rather than from `public/index.php` or a module manifest, which is why it
+is written down here.
+
+The alternative — one `/pages/{slug}` declared `public`, with the real
+check done in the controller — was rejected because it breaks two written
+promises at once: SECURITY.md §3 ("the RBAC guard is called by the Router
+**before** any controller code") and §2 above ("a controller may re-check
+a fine-grained permission, but this is never the primary protection").
+`Core\Http\Controller\TextPageController` therefore checks nothing at
+all, and a test asserts that it never learns to.
+
+Three consequences worth stating:
+
+- **The access level is the menu's, never a column.** The five menus
+  already carry their floor (`MenuBuilder::MENUS`, reachable through
+  `MenuBuilder::roleMinFor()`), so choosing the section IS choosing who
+  reads the page. A role column on `text_pages` would be a second truth
+  and the one that drifts away from the menu it is meant to agree with.
+- **A hidden page registers nothing, so it answers 404 and not 403.** It
+  does not exist rather than being forbidden — nothing confirms to a
+  passer-by that there is something behind the address.
+- **The read must survive the database being unreachable.** This runs in
+  the front controller on every request; an installation mid-install,
+  mid-restore or with rotated credentials must still answer, `/setup` and
+  the page explaining the failure included. A failure registers no routes
+  and rethrows nothing. It is a deliberate silence, and a narrow one: it
+  swallows one optional read, not the request.
+
+The section + column pair is guarded twice, at two different moments, and
+both are needed. **On the way in**, `TextPageService::assertMenuPlacement()`
+validates it server side rather than relying on the form hiding the column
+picker. **Afterwards**, `TextPageMenuProvider` skips a row whose column its
+menu no longer declares — because `MENU_GROUPS` is a PHP constant, so a
+placement that was valid when it was written can be renamed away by a later
+version. Without the second guard the consequence would not be a broken
+page: `MenuBuilder::addPage()` throws on an undeclared column, and that call
+happens while building the navigation of every page of the site, before
+routing, on every request.
+
+The address is derived from the title at creation and **frozen**: it is
+shared the moment the page is published, so correcting a typo in the title
+must not break a link somebody has already sent. The content key is
+`page_content_{id}` — keyed on the id and never on the slug, so a page that
+is ever renamed cannot orphan its own text. Deleting a page deletes that
+row too: rich text left behind with no page to name it is data nobody can
+find, read or erase.
+
+Menu entries come from `Core\Page\TextPageMenuProvider`, a
+`MenuEntryProvider` handed the very list the routes were registered from
+rather than a second query — so the feature costs one query per request,
+and a page can never appear in a menu without a route behind it. That
+provider **skips a page whose column its menu no longer declares**, rather
+than letting `addPage()` throw: `MENU_GROUPS` is a PHP constant, so a
+column validated at write time can be renamed away in a later version, and
+these entries are added while building the navigation every page renders.
+Filtering costs one menu entry; catching around the loop would have cost
+all of them, and throwing would have cost the site.
+
+**The body is written at the page's own role, not at the write
+endpoint's.** `POST /api/editable-content` is `role_min: admin`, which was
+the whole answer for as long as every editable row belonged to a page an
+admin could also read — home, contact, sections, a module's public view. A
+page filed in the Configuration menu is read at `superadmin` while its text
+is written through that same admin endpoint: **the first content on this
+site whose read floor exceeds its write floor.** It was reachable through a
+second door too, `POST /upload` with `context=editable_image`, which writes
+the same table under a client-chosen key.
+
+**Ownership is a column, not a spelling.** `editable_contents.text_page_id`
+names the page a row belongs to, and `EditableContentService::set()` — the
+one point every write passes through — reads the required role off it. The
+obvious alternative, working the owner out of `content_key`, cannot be made
+safe: that column is compared with `utf8mb4_unicode_ci`, which equates
+spellings differing in case, accents, trailing spaces (PAD SPACE),
+fullwidth forms and every primary-ignorable character, so a parser has to
+reproduce that equivalence exactly. Four attempts each left a gap. Asking
+the row with the same `WHERE content_key = ?` the write itself uses removes
+the question: whatever the collation takes a key to be, the row that
+answers is the row that will be written.
+
+Two consequences follow from the column rather than from code. The content
+row is **claimed with the page**, empty and owned, so there is never a
+moment when the key exists unclaimed and whoever writes first decides what
+a page they cannot read says. And deleting a page deletes its text by
+`ON DELETE CASCADE` — a second delete issued from a service could fail on
+its own and leave rich text nobody can name, read or erase behind; the
+constraint cannot.
+
+**Claimed and not inserted**, because the key can already be taken.
+`POST /api/editable-content` is `role_min: admin` and accepts any key the
+client sends; `content_key` is `UNIQUE`; `text_pages.id` is a predictable
+auto-increment. So an admin can write `page_content_{next id}` before that
+page exists — allowed precisely because nothing owns it yet — and a blind
+`INSERT` at creation time would then fail on the duplicate key *after* the
+page's own row is committed. That leaves a live, routed page whose body is
+unowned, and an unowned body is governed by the write endpoint's own floor
+rather than by its section's: the escalation the column exists to close,
+reopened by the one place the column is written.
+`EditableContentRepository::claimForPage()` therefore takes an existing row
+over, blanking it — text written under a page's key before that page
+existed cannot be its content by any legitimate route — and
+`TextPageService::create()` **deletes the page it just made** if the claim
+cannot be completed. A page that does not exist is recoverable; a live page
+whose text belongs to nobody is not.
+
+Explicitly **not** in scope: free-text pages do not join
+`Core\Offline\OfflineWhitelist`. That list is a static server-side
+declaration, and wiring it to a database table is a subject of its own.
 
 ## 9. Installation / bootstrap
 

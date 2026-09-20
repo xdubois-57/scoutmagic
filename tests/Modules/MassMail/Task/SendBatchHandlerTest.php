@@ -489,6 +489,98 @@ class SendBatchHandlerTest extends TestCase
         $this->assertNotNull($stmt->fetchColumn());
     }
 
+    /**
+     * **A seed copy of a publipostage carries nobody's merged data**
+     * (roadmap IT-07).
+     *
+     * One copy is emitted per RUN, so whatever this argument holds is
+     * what every seed mailbox receives — ordinary inboxes at Gmail or
+     * Outlook, i.e. third parties. The first version passed
+     * `$baseBodyHtml`, whose name says « base » only relative to the
+     * unsubscribe link appended after it: on a merge it had already been
+     * rendered from the first processed recipient's audience row, and the
+     * subject with it. One arbitrary member's name went to every box, on
+     * every campaign, while the privacy notice this iteration wrote
+     * promised the copy carries nothing the site mints for one person.
+     *
+     * What travels instead is the campaign with each variable filled by
+     * the name of its own column — the shape and the length of the real
+     * message, none of its values, and the same string for every box.
+     */
+    public function testTheSeedCopyOfAMergeCarriesNoRecipientsValues(): void
+    {
+        $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");
+        $recipient = $this->recipientRepository->findByEmailId($this->emailId)[0];
+
+        $audienceRepository = new \Modules\MassMail\Repository\AudienceRepository($this->pdo, $this->encryption);
+        $audienceId = $audienceRepository->createAudience('camp.xlsx', 'Camp', ['Prenom'], 1, null);
+        $rowId = $audienceRepository->createRow($audienceId, 2, $this->memberId, null, ['Prenom' => 'Kaa']);
+        $update = $this->pdo->prepare(
+            "UPDATE mass_mail_emails
+                SET subject = 'Camp de {{Prenom}}',
+                    body_html = '<p>Bonjour {{Prenom}}, le camp approche.</p>',
+                    list_type = 'mail_merge',
+                    audience_id = ?
+              WHERE id = ?"
+        );
+        $update->execute([$audienceId, $this->emailId]);
+        $this->pdo->prepare('UPDATE mass_mail_recipients SET audience_row_id = ? WHERE id = ?')
+            ->execute([$rowId, $recipient->id]);
+
+        $sentSubject = null;
+        $sentBodyHtml = null;
+        $copy = null;
+        $mailService = $this->createMock(MailService::class);
+        $mailService->expects($this->once())
+            ->method('send')
+            ->willReturnCallback(
+                function (...$args) use (&$sentSubject, &$sentBodyHtml, &$copy): void {
+                    $sentSubject = $args[1];
+                    $sentBodyHtml = $args[2];
+                    $copy = $args[12] ?? null;
+                }
+            );
+
+        (new SendBatchHandler())->handle([], $this->buildContext($mailService));
+
+        // **The real message IS personalised**, or the assertions below
+        // would hold on a merge that never happened.
+        $this->assertSame('Camp de Kaa', $sentSubject);
+        $this->assertStringContainsString('Bonjour Kaa', (string) $sentBodyHtml);
+
+        $this->assertInstanceOf(\Core\Mail\Feedback\Seed\SeedCopyContent::class, $copy);
+        $this->assertStringNotContainsString('Kaa', $copy->bodyHtml, 'a member\'s merged value went to every seed box.');
+        $this->assertStringNotContainsString('Kaa', $copy->bodyText);
+        $this->assertStringNotContainsString('Kaa', (string) $copy->subject);
+
+        // Rendered, not left raw: curly braces in a subject line are the
+        // sort of oddity a filter weighs, and a copy scored on them would
+        // measure itself rather than the campaign.
+        $this->assertSame('Camp de Prenom', $copy->subject);
+        $this->assertStringContainsString('Bonjour Prenom,', $copy->bodyHtml);
+        $this->assertStringNotContainsString('{{', $copy->bodyHtml);
+    }
+
+    /** An ordinary mailing personalises no subject, so the copy keeps it. */
+    public function testTheSeedCopyOfAnOrdinaryMailingKeepsTheCampaignsSubject(): void
+    {
+        $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");
+
+        $copy = null;
+        $mailService = $this->createMock(MailService::class);
+        $mailService->expects($this->once())
+            ->method('send')
+            ->willReturnCallback(function (...$args) use (&$copy): void {
+                $copy = $args[12] ?? null;
+            });
+
+        (new SendBatchHandler())->handle([], $this->buildContext($mailService));
+
+        $this->assertInstanceOf(\Core\Mail\Feedback\Seed\SeedCopyContent::class, $copy);
+        $subject = $this->pdo->query('SELECT subject FROM mass_mail_emails')->fetchColumn();
+        $this->assertSame($subject, $copy->subject);
+    }
+
     public function testMarksParentEmailSentOnceAllRecipientsProcessed(): void
     {
         $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");

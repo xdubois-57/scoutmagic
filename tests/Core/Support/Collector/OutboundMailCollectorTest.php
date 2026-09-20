@@ -59,6 +59,8 @@ class OutboundMailCollectorTest extends TestCase
     private \Core\Mail\Probe\MailProbeRepository $mailProbes;
     private \Core\Mail\Feedback\Bounce\BounceStateRepository $bounceStates;
     private \Core\Mail\Feedback\Dmarc\DmarcReportRepository $dmarcReports;
+    private \Core\Mail\Feedback\Seed\SeedCopyRepository $seedCopies;
+    private \Core\Mail\Transport\DomainPreferences $domainPreferences;
     private ?InboundMailInterface $inboundMail = null;
 
     /** @var array<string, string> */
@@ -78,6 +80,32 @@ class OutboundMailCollectorTest extends TestCase
         $this->mailProbes = new \Core\Mail\Probe\MailProbeRepository($this->pdo, $encryption);
         $this->bounceStates = new \Core\Mail\Feedback\Bounce\BounceStateRepository($this->pdo, $encryption);
         $this->dmarcReports = new \Core\Mail\Feedback\Dmarc\DmarcReportRepository($this->pdo);
+        $this->seedCopies = new \Core\Mail\Feedback\Seed\SeedCopyRepository($this->pdo, $encryption);
+        $this->settings->register(
+            \Core\Mail\Feedback\Seed\DomainRouting::SETTING_AUTOMATIC,
+            '0',
+            'boolean',
+            'Routage automatique',
+            '',
+            null,
+            null,
+            null,
+            false,
+            59
+        );
+        $this->settings->register(
+            \Core\Mail\Transport\DomainPreferences::SETTING_KEY,
+            '',
+            'text',
+            'Routage par domaine',
+            '',
+            null,
+            null,
+            null,
+            false,
+            60
+        );
+        $this->domainPreferences = new \Core\Mail\Transport\DomainPreferences($this->settings);
 
         $this->projectRoot = sys_get_temp_dir() . '/scoutmagic-outbound-' . bin2hex(random_bytes(6));
         $this->storagePath = $this->projectRoot . '/storage';
@@ -436,6 +464,88 @@ class OutboundMailCollectorTest extends TestCase
         $this->assertStringNotContainsString('203.0.113.42', $report);
     }
 
+    /**
+     * **The seed section counts and never names a box.**
+     *
+     * The fixture's addresses are distinctive on purpose, like the DMARC
+     * ones above: a seed box is a mailbox of the unit's, so an edit that
+     * starts printing one fails here rather than shipping an archive that
+     * carries mailbox addresses to a third party (SECURITY.md §11).
+     */
+    public function testTheArchiveCountsTheSeedResultsByProviderAndNamesNoBox(): void
+    {
+        $sent = new \DateTimeImmutable('-1 day');
+        foreach (['un', 'deux', 'trois'] as $run) {
+            $this->seedCopies->claim($run, 'temoin-tres-distinctif@gmail.com', $sent);
+            $this->seedCopies->recordLanding($run, 'temoin-tres-distinctif@gmail.com', 'Junk', $sent);
+        }
+
+        $report = $this->collect();
+
+        $this->assertStringContainsString('── Boîtes témoins, 30 derniers jours', $report);
+        $this->assertStringContainsString('routage automatique : non', $report);
+        $this->assertStringContainsString('gmail.com', $report, 'An aggregated provider is a company.');
+        $this->assertStringNotContainsString('temoin-tres-distinctif', $report);
+    }
+
+    /**
+     * **The archive says whether those figures could see what they
+     * measure.**
+     *
+     * A seed box read only in its INBOX never sees the copy its provider
+     * shelved as spam, so that copy is given up on as « jamais arrivé »
+     * two days later. A third party reading « perdus : 5 » would
+     * diagnose a sender being refused, when five messages were in fact
+     * delivered into a folder nobody was looking at — the worst kind of
+     * wrong answer an archive can give, because it is precise.
+     */
+    public function testTheArchiveSaysHowManyBoxesCannotSeeTheirJunkFolder(): void
+    {
+        $gateway = $this->createStub(InboundMailInterface::class);
+        $gateway->method('watchedFoldersFor')->willReturn([['INBOX'], ['INBOX', 'Junk'], ['INBOX']]);
+        $this->inboundMail = $gateway;
+
+        $report = $this->collect();
+
+        $this->assertStringContainsString('boîtes sans dossier « indésirables » : 2', $report);
+    }
+
+    /**
+     * Printed at zero as well: « aucune » and « la question n'a pas été
+     * posée » are different answers, and a counter that only appears
+     * when it is bad leaves a reader unable to tell them apart.
+     */
+    public function testThatCounterIsPrintedEvenWhenThereIsNothingToReport(): void
+    {
+        $report = $this->collect();
+
+        $this->assertStringContainsString('boîtes sans dossier « indésirables » : 0', $report);
+    }
+
+    /**
+     * A domain whose mail was routed months ago and is no longer measured
+     * still steers every mailing it names, so it stays in the archive: a
+     * reader who cannot see it is reading the figures of a configuration
+     * that is not the one in force.
+     */
+    public function testADecidedDomainAppearsEvenWithNoRecentMeasurement(): void
+    {
+        $this->domainPreferences->prefer('orange.fr', 3);
+
+        $report = $this->collect();
+
+        $this->assertStringContainsString('orange.fr', $report);
+        $this->assertStringContainsString('routé', $report);
+    }
+
+    public function testTheArchiveSaysSoWhenNothingHasBeenMeasured(): void
+    {
+        $report = $this->collect();
+
+        $this->assertStringContainsString('── Boîtes témoins, 30 derniers jours', $report);
+        $this->assertStringContainsString('aucun envoi mesuré', $report);
+    }
+
     public function testTheArchiveSaysSoWhenNoDmarcReportHasArrived(): void
     {
         $report = $this->collect();
@@ -717,7 +827,20 @@ class OutboundMailCollectorTest extends TestCase
             $this->inboundMail,
             $withProbes ? $this->mailProbes : null,
             $this->bounceStates,
-            $this->dmarcReports
+            $this->dmarcReports,
+            new \Core\Mail\Feedback\Seed\DomainRouting(
+                $this->seedCopies,
+                $this->settings,
+                $this->domainPreferences,
+                $this->chains,
+                new MailProviderDirectory($this->providers, $connections, $this->settings)
+            ),
+            $this->domainPreferences,
+            new \Core\Mail\Feedback\Seed\SeedMailboxes(
+                $this->seedCopies,
+                $this->settings,
+                $this->inboundMail
+            )
         );
 
         $archivePath = $this->storagePath . '/temp/outbound-' . bin2hex(random_bytes(6)) . '.zip';

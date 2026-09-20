@@ -124,7 +124,7 @@ final class RentalBlueprint
         [
             'arrival' => '2025-09-12', 'departure' => '2025-09-14', 'persons' => 48,
             'status' => BookingStatus::CLOSED->value,
-            'name' => 'Aurélie Massin', 'email' => 'aurelie.massin@example.com', 'phone' => null,
+            'name' => 'Aurélie Massin', 'email' => 'aurelie.massin@example.com', 'phone' => '+32 470 00 31 06',
             'organisation' => 'Unité voisine — Groupe ZZ002', 'purpose' => 'Weekend de staff', 'comment' => null,
         ],
         // --- En cours ----------------------------------------------------
@@ -152,7 +152,7 @@ final class RentalBlueprint
         [
             'arrival' => '2027-05-14', 'departure' => '2027-05-16', 'persons' => 70,
             'status' => BookingStatus::REFUSED->value,
-            'name' => 'Gaëtan Dupuis', 'email' => 'g.dupuis@example.com', 'phone' => null,
+            'name' => 'Gaëtan Dupuis', 'email' => 'g.dupuis@example.com', 'phone' => '+32 470 00 31 07',
             'organisation' => null, 'purpose' => 'Soirée privée',
             'comment' => 'Nous serons environ septante.',
         ],

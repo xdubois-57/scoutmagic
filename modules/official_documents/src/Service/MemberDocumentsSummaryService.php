@@ -1,0 +1,46 @@
+<?php
+/**
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
+declare(strict_types=1);
+
+namespace Modules\OfficialDocuments\Service;
+
+use Modules\OfficialDocuments\Api\DocumentLink;
+use Modules\OfficialDocuments\Api\MemberOfficialDocumentsProvider;
+use Modules\OfficialDocuments\Api\OfficialDocumentsSummary;
+
+/**
+ * The block this module contributes to a member's own page.
+ *
+ * Lives in `Service\` rather than `Api\`: the interface is what other code
+ * names, the implementation is this module's own business (ARCHITECTURE.md
+ * §7.5). Only the composition root ever writes this class's name.
+ */
+final class MemberDocumentsSummaryService implements MemberOfficialDocumentsProvider
+{
+    /**
+     * The sentence the whole module exists around, said once, here.
+     *
+     * On the web page and never on the PDF: the federation's document says
+     * what it says, and the site does not add mentions to it.
+     */
+    public const WARNING = 'Un document imprimé mais non signé n\'a aucune valeur. '
+        . 'Seule la version signée et remise à l\'animateur compte.';
+
+    public function summaryFor(int $memberYearId, int $memberId): OfficialDocumentsSummary
+    {
+        return new OfficialDocumentsSummary(
+            [
+                new DocumentLink(
+                    'Autorisation parentale',
+                    'Formulaire de la fédération, pré-rempli',
+                    '/members/' . $memberYearId . '/autorisation-parentale'
+                ),
+            ],
+            self::WARNING
+        );
+    }
+}

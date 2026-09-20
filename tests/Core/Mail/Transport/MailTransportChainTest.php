@@ -10,6 +10,7 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\MailPurpose;
 use Core\Mail\MailTransportInterface;
+use Core\Mail\Transport\DomainPreferences;
 use Core\Mail\Transport\LaneChainRepository;
 use Core\Mail\Transport\MailLane;
 use Core\Mail\Transport\MailProvider;
@@ -249,6 +250,137 @@ class MailTransportChainTest extends TestCase
 
     /** @var array<string, string> */
     private array $secrets = [];
+
+    // ── routing by recipient domain (roadmap IT-07, D13) ──────────────
+
+    /**
+     * A decision taken on the « Boîtes témoins » page reaches the send
+     * path, and reaches it on the mailing lane.
+     */
+    public function testTheMailingLaneTriesThisDomainsPreferredRelayFirst(): void
+    {
+        $first = $this->addRelay('Premier', 'smtp.premier.test');
+        $second = $this->addRelay('Second', 'smtp.second.test');
+        $this->enable(MailLane::Bulk, [$first, $second]);
+
+        $delivery = $this->recordingTransport();
+        $this->chain($delivery, preferences: $this->preferring('gmail.com', $second))
+            ->deliver($this->message('famille@gmail.com'), MailPurpose::Bulk);
+
+        $this->assertSame(['smtp.second.test'], $delivery->attemptedHosts);
+    }
+
+    /**
+     * **The rule of D13 nothing may relax.** A magic link lives fifteen
+     * minutes; a login path that varies with the recipient's provider is
+     * a login path nobody can reason about, and this is the seam where
+     * relaxing it would be invisible.
+     */
+    public function testAMagicLinkTakesTheSameRoadWhoeverIsReceivingIt(): void
+    {
+        $first = $this->addRelay('Premier', 'smtp.premier.test');
+        $second = $this->addRelay('Second', 'smtp.second.test');
+        $this->enable(MailLane::Authentication, [$first, $second]);
+
+        $delivery = $this->recordingTransport();
+        $this->chain($delivery, preferences: $this->preferring('gmail.com', $second))
+            ->deliver($this->message('famille@gmail.com'), MailPurpose::MagicLink);
+
+        $this->assertSame(['smtp.premier.test'], $delivery->attemptedHosts);
+    }
+
+    /**
+     * **A preference costs no fallback.** The preferred relay refuses,
+     * and the message still leaves through the one the lane would have
+     * used — otherwise routing a domain would quietly spend its second
+     * chance.
+     */
+    public function testAPreferredRelayThatRefusesFallsBackToTheRestOfTheChain(): void
+    {
+        $first = $this->addRelay('Premier', 'smtp.premier.test');
+        $second = $this->addRelay('Second', 'smtp.second.test');
+        $this->enable(MailLane::Bulk, [$first, $second]);
+
+        $delivery = $this->recordingTransport(refuseHosts: ['smtp.second.test']);
+        $this->chain($delivery, preferences: $this->preferring('gmail.com', $second))
+            ->deliver($this->message('famille@gmail.com'), MailPurpose::Bulk);
+
+        $this->assertSame(['smtp.second.test', 'smtp.premier.test'], $delivery->attemptedHosts);
+    }
+
+    /**
+     * **A preference never outranks a spent quota.** The lane dropped
+     * that relay for a reason no routing decision knows better than.
+     */
+    public function testAPreferenceCannotBringBackARelayTheLaneDropped(): void
+    {
+        $first = $this->addRelay('Premier', 'smtp.premier.test');
+        $second = $this->addRelay('Second', 'smtp.second.test', dailyQuota: 1);
+        $this->enable(MailLane::Bulk, [$first, $second]);
+        $this->counters->increment($second, MailLane::Bulk);
+
+        $delivery = $this->recordingTransport();
+        $this->chain($delivery, preferences: $this->preferring('gmail.com', $second))
+            ->deliver($this->message('famille@gmail.com'), MailPurpose::Bulk);
+
+        $this->assertSame(['smtp.premier.test'], $delivery->attemptedHosts);
+    }
+
+    /** A domain nobody decided on keeps the lane's own order. */
+    public function testAnUndecidedDomainIsNotRouted(): void
+    {
+        $first = $this->addRelay('Premier', 'smtp.premier.test');
+        $second = $this->addRelay('Second', 'smtp.second.test');
+        $this->enable(MailLane::Bulk, [$first, $second]);
+
+        $delivery = $this->recordingTransport();
+        $this->chain($delivery, preferences: $this->preferring('gmail.com', $second))
+            ->deliver($this->message('famille@laposte.net'), MailPurpose::Bulk);
+
+        $this->assertSame(['smtp.premier.test'], $delivery->attemptedHosts);
+    }
+
+    /**
+     * **A message with several recipients is not one this reading has an
+     * opinion about.** A mailing sends one message per member; routing a
+     * batch by the first address in it would send the rest through a
+     * relay chosen for somebody else's provider.
+     */
+    public function testAMessageWithSeveralRecipientsIsNotRouted(): void
+    {
+        $first = $this->addRelay('Premier', 'smtp.premier.test');
+        $second = $this->addRelay('Second', 'smtp.second.test');
+        $this->enable(MailLane::Bulk, [$first, $second]);
+
+        $mail = $this->message('famille@gmail.com');
+        $mail->addAddress('autre@laposte.net');
+
+        $delivery = $this->recordingTransport();
+        $this->chain($delivery, preferences: $this->preferring('gmail.com', $second))
+            ->deliver($mail, MailPurpose::Bulk);
+
+        $this->assertSame(['smtp.premier.test'], $delivery->attemptedHosts);
+    }
+
+    private function preferring(string $domain, int $providerId): DomainPreferences
+    {
+        $this->settings->register(
+            DomainPreferences::SETTING_KEY,
+            '',
+            'text',
+            'Routage par domaine',
+            '',
+            null,
+            null,
+            null,
+            false,
+            60
+        );
+        $preferences = new DomainPreferences($this->settings);
+        $preferences->prefer($domain, $providerId);
+
+        return $preferences;
+    }
 
     private function addRelay(
         string $name,
@@ -491,7 +623,8 @@ class MailTransportChainTest extends TestCase
     private function chain(
         MailTransportInterface $delivery,
         ?ProviderHealthRepository $health = null,
-        ?MailReserve $reserve = null
+        ?MailReserve $reserve = null,
+        ?DomainPreferences $preferences = null
     ): MailTransportChain {
         $connections = new ProviderConnections($this->secrets);
 
@@ -503,15 +636,19 @@ class MailTransportChainTest extends TestCase
             $delivery,
             new JournalService(new JournalRepository($this->pdo)),
             $health,
-            $reserve
+            $reserve,
+            $preferences
         );
     }
 
-    private function message(): PHPMailer
+    private function message(string $to = ''): PHPMailer
     {
         $mail = new PHPMailer(true);
         $mail->CharSet = 'UTF-8';
         $mail->Subject = 'Sujet';
+        if ($to !== '') {
+            $mail->addAddress($to);
+        }
 
         return $mail;
     }

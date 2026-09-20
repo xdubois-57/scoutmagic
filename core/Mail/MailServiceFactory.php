@@ -34,6 +34,13 @@ class MailServiceFactory
      *                                               (roadmap IT-05). Null for the setup
      *                                               wizard, same as the journal: no
      *                                               database, and nothing to bounce yet.
+     * @param Feedback\Seed\SeedMailboxes|null $seedMailboxes The unit's seed mailboxes
+     *                                               (roadmap IT-07). Null is « no
+     *                                               copies », which is also what a unit
+     *                                               that never turned them on gets — so
+     *                                               a boot path that omits it degrades
+     *                                               to the behaviour everybody has by
+     *                                               default rather than to a broken one.
      */
     public static function create(
         array $secrets,
@@ -41,7 +48,8 @@ class MailServiceFactory
         ?MailTransportInterface $transport = null,
         ?\Core\Journal\JournalService $journal = null,
         ?Transport\DeferredMailQueue $deferred = null,
-        ?Feedback\Bounce\BounceStateRepository $sendReceipts = null
+        ?Feedback\Bounce\BounceStateRepository $sendReceipts = null,
+        ?Feedback\Seed\SeedMailboxes $seedMailboxes = null
     ): MailService {
         return new MailService(
             mode: $secrets['mail_mode'] ?? 'local',
@@ -58,7 +66,8 @@ class MailServiceFactory
             transport: $transport ?? new PhpMailerTransport(),
             journal: $journal,
             deferred: $deferred,
-            sendReceipts: $sendReceipts
+            sendReceipts: $sendReceipts,
+            seedMailboxes: $seedMailboxes
         );
     }
 }

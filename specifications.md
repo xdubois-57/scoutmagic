@@ -208,11 +208,12 @@ It used to render below the search results, as `?member={id}` appended to the qu
 
 **The Desk half is read-only** and keeps its padlock: name, first name, birth date, sex, totem, section, function, address, e-mail as a `mailto:` link, both phone numbers as `tel:` links, disability, supplementary insurance. The member's secondary e-mail addresses are shown here too, **in reading only** — they are strict self-service (ARCHITECTURE.md §8.27), so the page offers no control at all rather than one the server would refuse.
 
-**The three site actions are three cards.** The old « Données du site » heading was dropped: once the page grew, everything past the Desk half is site data.
+**The four site actions are four cards.** The old « Données du site » heading was dropped: once the page grew, everything past the Desk half is site data.
 
 1. **Année dans la branche** — the −1 / 0 / +1 group and the branch-year pill, recoloured on change. The action itself stays `role_min: chief`, unchanged, and is not aligned onto the page's own `admin` floor.
 2. **Départ** — the "leaving next year" box and its optional 1000-character comment, available for **any member found by search, staff included**.
 3. **Voir le site à sa place** — the temporary member addition (ARCHITECTURE.md §8.42). This one changes **the reader's session**, not the member, and says so with a « Votre session » label in its header and the full explanation in its body, the last sentence included: *« Aucune modification n'est enregistrée : le retrait ou la déconnexion annule tout. »* Without it nobody dares click. No other visual treatment — the card is identical to its neighbours.
+4. **Ajouter à mes contacts** — the member's contact card (ARCHITECTURE.md §8.115), offered as a QR code to scan and as a `text/vcard` file to download, **both at once and with no device detection**. The dialog states in one sentence what the card holds and for which scout year, and promises nothing about what happens afterwards: `UID` and `REV` help a client recognise the same person, some honour them and others file a second entry, so no wording may suggest the card updates itself in an address book. The card carries the full name (never the totem alone), the unit and section, the year's function, every known e-mail address, both telephone numbers **unlabelled** — the screen says « Tél. parent 1 / 2 », the card says nothing, deliberately — every postal address, the portrait (file only, never the QR code) and the history of functions year by year, capped at five years in the QR code and complete in the file. It carries **none** of the disability, supplementary insurance, sex, birth date, Desk identifier, patrol, formation level or communication consents; the disability is health data and is the one this page puts one line away from the telephone numbers. **This button exists on this page only** — not on the trombinoscope, where it would give every identified member a way to collect the staff's contact details one by one. Every card produced is journaled with the member's identifier and nothing else.
 
 **The core blocks** the page adds: the member's photo, the badges of the scout year, the year's functions, and the **parcours dans l'unité** — every section the person has been in, year by year, read from the membership periods keyed on the persistent member identity so the history survives the years that produced it.
 
@@ -994,6 +995,10 @@ A line a manager edited by hand is never re-priced, in either direction. When th
 A request holds the dates for a configurable period so two visitors cannot both be told yes. The hold lapsing releases the dates and **refuses nothing** — the request stays waiting, because nobody promised anything.
 
 The renter's acknowledgement email carries a link to their own tracking page. **That link is the authorisation**: they have no account, and a lost email is answered by issuing a new one. The token is stored **encrypted, not hashed** — a hash can only ever answer « is this the token? », and every email a manager's decision sends has to answer a different question, « what is this booking's link? ». The cost is stated where it is paid (`modules/rental/schema.sql`): the column survives a database copy taken without the application key, and no longer one taken with it — which is where every other identity column of that table already stood. Their page shows the state of their request, what they owe and the practical information — never an internal comment, never a manager's note, never another booking.
+
+**The request form asks for what answering it needs, and nothing more.** Dates, head count, a name, an e-mail, a **phone** and the **purpose of the letting** are required — the last two in the browser *and* on the server, because a `required` attribute is a convenience for the visitor and never a guarantee to the unit. A manager answering a request needs a number to call when an arrival goes wrong and needs to know what the hall is for; a request giving neither costs the first two e-mails of every file. The **organisation stays optional**: a family letting the hall for a communion has none, and demanding one only makes them invent an answer. Billing details are not asked for at all (§22.6).
+
+**The conditions a renter accepts are never empty.** They are per-asset rich text, and a standard Belgian body ships with the module, exactly like the contract (§22.6): a unit that has written nothing still presents complete conditions, said to be a starting point rather than legal advice. They are written by the asset's **managers**, from that asset's own settings page — not from the configuration mode on the public page, which needs a superadmin and therefore put the one person able to write them outside the people who let the hall. That is how so many assets ended up with none, while the form still made a visitor tick « J'accepte les conditions de location » over an empty block: the renter accepted nothing, and the hash below attested to it faithfully.
 
 **What the visitor agreed to is provable afterwards.** Each tick-box on the request form is recorded with the version *and* a hash of the exact text that was on screen, so re-wording the conditions later never changes what a past renter accepted.
 
@@ -2660,3 +2665,154 @@ coordonnées en regardant le PDF produit, puis seulement mettre à jour la const
 endroits, et aux deux : dans le `README.md` de ce dossier, et dans le message d'échec du test qui
 épingle les SHA-256 des gabarits. Une procédure qui ne vit que dans un fichier que personne n'ouvre
 est une procédure perdue.
+
+### 44.4 L'accès : le lien compte ↔ membre, jamais le rôle
+
+Les deux routes de l'autorisation parentale sont déclarées `role_min: identified`, et ce `role_min`
+n'est **jamais** la protection réelle : il dit seulement que quelqu'un est connecté. Ce qui décide
+est le lien entre le compte et **ce** membre-ci, revérifié dans le contrôleur à chaque action —
+`MemberService::canAccess($email, $memberYearId, 'identified')`.
+
+Le littéral `'identified'` à la place du rôle réel de l'appelant est ce qui rend la règle stricte :
+la branche « chef ou administrateur » de cette méthode ne peut alors jamais répondre oui. Un chef
+d'unité connecté comme chef se voit poser exactement la même question que n'importe qui. Le seul
+chemin par lequel du staff atteint l'écran reste la **substitution temporaire de membre**
+(ARCHITECTURE.md §8.42), que `canAccess()` honore précisément pour qu'un administrateur puisse agir
+pour quelqu'un, et qui s'affiche à l'écran tant qu'elle dure.
+
+Les deux routes portent `menu: "espace_animes"` et `label: ""` : elles n'apparaissent dans aucun
+menu, on y arrive depuis la page du membre. Le modèle est
+`Modules\MassMail\Controller\MemberEmailController`, qui déclare déjà une sous-page de cette page.
+
+| Route | `role_min` | Gardée aussi par |
+|---|---|---|
+| `GET /members/{id}/autorisation-parentale` | `identified` | lien compte ↔ membre |
+| `POST /members/{id}/autorisation-parentale` | `identified` | lien compte ↔ membre |
+
+Le téléchargement est un **POST**, et ce n'est pas une formalité : ce que le parent saisit est son
+propre nom et le lieu où il signe, et une chaîne de requête est ce que gardent un journal de proxy,
+un historique de navigateur et un en-tête `Referer`. La réponse porte `Cache-Control: private,
+no-store` — un document qui nomme une famille n'est pas quelque chose qu'un cache partagé conserve.
+
+### 44.5 L'écran de génération
+
+Un formulaire court : **nom du signataire** (pré-rempli avec le prénom et le nom du compte connecté,
+obligatoires depuis §2.4, et modifiable), **qualité** — père, mère, tuteur ou répondant, une seule —,
+**dates de début et de fin**, **lieu** (pré-rempli avec la ville du membre, libre parce que la
+personne qui signe peut fort bien être ailleurs ce jour-là), et une case **activité à l'étranger**.
+
+Un refus — une valeur manquante, une valeur trop longue — **réaffiche l'écran avec ce qui était
+saisi**, jamais une redirection : une redirection perd tout ce que le parent venait de remplir, et
+ce formulaire est exactement le genre que personne ne veut retaper.
+
+Aucun jargon interne sur cet écran : il s'adresse à des parents. Ni « Desk », ni « année de
+membre », ni un nom de champ technique quelconque.
+
+### 44.6 Le sélecteur d'événements ne parle qu'au navigateur
+
+Le sélecteur propose les événements de la section du membre **en cours ou à venir** dans l'année qui
+vient et qui **couvrent au moins une nuit** (`endDate > startDate`) — c'est ce à quoi sert une
+autorisation parentale, et un samedi après-midi ordinaire n'en demande aucune. Il lit
+`Modules\Calendar\Api\CalendarEventLookupInterface::findEventsInWindow()`, et non
+`SectionEventLookupInterface` : la seconde replie les calendriers supplémentaires à côté de celui de
+la section, si bien qu'un camp d'unité porté par un calendrier non sectionnel serait proposé par
+l'une et invisible à l'autre.
+
+**Le serveur ne reçoit jamais qu'une date de début et une date de fin**, jamais un identifiant
+d'événement : le `<select>` n'a pas d'attribut `name` et ne fait que remplir les deux champs de date
+dans le navigateur. Il n'y a donc rien à re-résoudre côté serveur, et aucune confiance accordée au
+client sur un identifiant.
+
+Dépendance optionnelle au sens d'ARCHITECTURE.md §7.5 : module `calendar` absent ou désactivé, le
+sélecteur disparaît et les deux champs de date restent. Le module `camps` n'est pas consommé — c'est
+un référentiel de lieux et d'historique, pas la source des dates d'une activité à venir.
+
+### 44.7 Ce qui est écrit sur le formulaire, et ce qui est biffé
+
+| Emplacement du formulaire | Source |
+|---|---|
+| Animateur responsable : prénom, nom | responsable de section, via `Core\Module\SectionResponsableProvider` |
+| Animateur responsable : adresse complète | `MemberService::findProfileByMemberAndYear()` — `hydrateMemberProfile()` ne charge pas les adresses (ARCHITECTURE.md §8.22) |
+| Je soussigné(e) | saisie |
+| père / mère / tuteur / répondant | les trois non retenues **barrées d'un trait** |
+| autorise (prénom, nom) | le membre, par son **nom légal** et jamais son totem |
+| Baladins / Louveteaux / Éclaireurs / Pionniers | les non concernées **barrées d'un trait** |
+| de l'unité | le nom du site, précédé du code de l'unité quand le paramètre `official_documents_unit_code` est rempli |
+| du … au … | saisie |
+| Fait à … le … | lieu saisi, date du jour |
+
+Les deux lignes « Signature représentant·e légal·e 1 » et « 2 » restent **vides** : le formulaire
+prévoit deux signatures pour un seul « Je soussigné(e) », et signer est tout l'intérêt de l'imprimer.
+
+**Le nom légal, jamais le totem** : la personne que cherchent une assurance ou un hôpital n'est
+jamais « Akéla ».
+
+**Une branche peut n'être aucune des quatre imprimées** — Staff d'U, Iama, Route, ou une branche
+qu'une unité a inventée. Dans ce cas **rien n'est barré** : barrer les quatre dirait « aucune de
+celles-ci » sur un formulaire dont la phrase a besoin que l'une d'elles tienne. La branche est lue
+par `Core\Import\AgeBranchRepository::canonicalSortOrder()`, ce qui fait de « Éclaireurs »,
+« eclaireurs » et « Éclaireurs (mixte) » une seule et même réponse.
+
+**La note (1) du formulaire** — la phrase sur la sortie du territoire belge — est **barrée par
+défaut**, sur ses deux lignes imprimées : une activité en Belgique est le cas ordinaire. La case
+« activité à l'étranger » la laisse tenir.
+
+**Le code de l'unité est un paramètre du module**, `official_documents_unit_code`, et non une donnée
+dérivée : rien de ce que le site importe ne le porte. La colonne `member_years.unit_code` est la
+« Fonction au sein de l'unité » du fichier de la fédération — une fonction, pas une unité. Laissé
+vide, seul le nom du site est écrit.
+
+### 44.8 Le calage des coordonnées vit dans un seul fichier
+
+`Modules\OfficialDocuments\Pdf\ParentalAuthorizationLayout` est la **carte unique** du document :
+chaque champ y est une position en millimètres et une largeur disponible, chaque mention à biffer un
+segment. Rien de tout cela n'est dispersé dans le service, ce qui fait d'une nouvelle version du
+formulaire un changement de coordonnées et non une réécriture.
+
+`scripts/pdf-template-grid.php` est l'utilitaire de développement qui produit le gabarit avec une
+grille millimétrée en surimpression, pour placer ces champs. Le `README.md` du dossier des gabarits
+le désigne par ce nom exact : s'il change de nom, ce README change dans la même PR.
+
+Un test vérifie que chaque champ déclaré tient dans les limites de la page et qu'aucun nom attendu
+ne manque — un champ déplacé hors de la feuille est invisible sur le PDF produit, et donc exactement
+le genre d'erreur qu'on ne voit pas en relisant une carte de coordonnées.
+
+**Une valeur trop longue pour sa ligne est réduite en corps, jamais coupée** — et si elle ne tient
+toujours pas au plus petit corps admis, ce qui arrive ensuite dépend de **qui peut y faire quelque
+chose**.
+
+- Une valeur que le parent a tapée — son nom, les dates, le lieu — **réaffiche l'écran** avec ce qui
+  était saisi : il peut la raccourcir, et vaut mieux l'apprendre là que sur le papier.
+- Une valeur que le site fournit — le nom du membre, l'adresse du responsable, la ligne d'unité —
+  **ne bloque rien** : le document part quand même. Le parent ne peut pas raccourcir l'adresse de
+  quelqu'un d'autre, et lui demander de le faire mettrait son autorisation hors d'atteinte pour de
+  bon. La valeur est écrite de toute façon, serrée, donc il reçoit un formulaire correct avec une
+  ligne à l'étroit — ce qu'un chef corrige ensuite dans les réglages du module ou dans le fichier de
+  la fédération.
+
+**Rien n'est écrit sur disque** : le PDF sort en mémoire. Sur un hébergement mutualisé, un fichier
+temporaire est un fichier que le processus de quelqu'un d'autre peut lire.
+
+### 44.9 Ce que la page RGPD en dit
+
+Le module a sa sous-section en 2.4 de la politique de confidentialité, et sa règle dans le prompt de
+régénération (`Core\View\RgpdContentService::buildSystemPrompt()`), parce qu'il écrit des données
+personnelles — le nom du membre, le nom et l'adresse du responsable de section, le nom du parent qui
+signe — même s'il n'en conserve aucune.
+
+Quatre faits y sont tenus par un test plutôt que par la bonne volonté : **seule la version signée
+compte**, **rien de ce que le parent tape n'est enregistré**, **aucune vue staff et aucun
+contournement chef**, et **aucun sous-traitant ni appel à une IA**. Ce sont les promesses de §44.1 ;
+le jour où l'une cesse de tenir, le test est ce qui force le texte et le code à se remettre
+d'accord.
+
+### 44.10 Le bloc sur la page du membre
+
+La page d'un membre gagne un bloc « Documents officiels », placé avant « Documents privés », qui
+porte le lien vers chaque formulaire et l'avertissement de §44.1. Il n'est rendu que pour **le
+membre lui-même** — pas pour un staff qui consulte la fiche, quelle que soit la portée de ce qu'il a
+le droit de voir par ailleurs.
+
+Le bloc arrive par `Modules\OfficialDocuments\Api\MemberOfficialDocumentsProvider`, une dépendance
+optionnelle de `Core\Member\MemberPageService` : module absent ou désactivé, le bloc n'existe pas et
+la page est celle d'avant.

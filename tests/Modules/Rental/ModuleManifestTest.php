@@ -39,18 +39,29 @@ class ModuleManifestTest extends TestCase
      * (AGENTS.md). Editing schema.sql should break this test — the fix is to
      * bump module.json, which is the whole point.
      *
-     * 1.21.0 has one behind it — `rental_asset_reminders`, the per-asset
+     * 1.23.0 has one behind it — `rental_asset_reminders`, the per-asset
      * reminder overrides (§6.29) — and the manifest also stops declaring
      * `rental.new_request`, a notification type nothing ever dispatched.
-     * That pruning is what the version comparison still drives.
+     * That pruning is what the version comparison still drives, and the
+     * twelve `reminder_*_days` settings and the « Rappels » route arrive
+     * with it.
+     *
+     * It skips 1.22.0 rather than taking it: that number belongs to the
+     * tracking page's own iteration, which merges first, and two branches
+     * of one worksite claiming a single version is how one of them ends up
+     * being the no-op the comparison above describes.
      *
      * 1.18.0 is a bump with no schema change behind it: the module now
      * names its own receivables on « Paiements attendus »
      * (Finance\RentalReceivableDescriber), which is something a unit sees.
+     *
+     * 1.21.0 is another: an asset's rental conditions moved out of the
+     * configuration mode and into its own settings section (§22.5), which
+     * is a new route and a new screen — something a unit sees.
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.21.0', $this->manifest->version);
+        $this->assertSame('1.23.0', $this->manifest->version);
     }
 
     /**
@@ -98,6 +109,7 @@ class ModuleManifestTest extends TestCase
             '/mes-locations/{slug}/reglages/frais',
             '/mes-locations/{slug}/reglages/frais-supprimer',
             '/mes-locations/{slug}/reglages/paiements',
+            '/mes-locations/{slug}/reglages/conditions',
             '/admin/locations/compte',
             '/admin/locations/create',
             '/admin/locations/general',

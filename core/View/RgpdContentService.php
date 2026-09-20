@@ -1055,6 +1055,22 @@ e-mails déjà partis ; (h) que le journal ne contient que des compteurs et des 
 n'introduit **aucun sous-traitant** et ne fait **aucun appel à une IA** : ne l'ajoute ni en section 4 ni en section
 5.2.
 
+33bis. **Module Documents officiels (module official_documents)** : Si "official_documents" ne figure PAS dans la
+liste des modules actifs ({$modulesText}), retire entièrement la sous-section "Module Documents officiels" de la
+section 2.4. Si "official_documents" est actif, conserve-la intégralement et sans l'édulcorer. Conserve en
+particulier : (a) que **seule la version signée sur papier a une valeur** — ce que le site produit est un brouillon de
+pré-remplissage, il n'existe ni signature électronique, ni renvoi du document signé, ni vue staff sur ces données, et
+ne présente jamais cette absence comme une limitation temporaire ; (b) que les données reprises sur le document
+viennent des fiches membres déjà décrites en section 2.2 — nom du membre, branche, unité, et nom, prénom et adresse
+postale de l'animateur responsable de sa section — et qu'**aucune n'est collectée à cette occasion** ; (c) que ce que
+le parent saisit (son nom, sa qualité, les dates, le lieu) n'est **enregistré nulle part** : ces valeurs ne vivent que
+le temps de la requête ; (d) que le PDF produit **ne touche jamais le disque** et n'est conservé en aucune copie ;
+(e) que l'accès est réservé aux comptes liés à ce membre, revérifié à chaque action, **sans exception pour un chef
+d'unité ni pour un administrateur**, la seule voie pour un administrateur étant la substitution temporaire de membre,
+visible à l'écran tant qu'elle dure ; (f) que le journal ne porte ni valeur saisie, ni nom, ni contenu de document. Ce
+module n'introduit **aucun sous-traitant** et ne fait **aucun appel à une IA** : ne l'ajoute ni en section 4 ni en
+section 5.2.
+
 34. **Assistant d'aide (fonctionnalité du cœur du site, section 2.8)** : Cette section ne dépend d'aucun module — elle
 dépend uniquement de la présence d'un connecteur IA actif. Si "llm_connector" ne figure PAS dans la liste des modules
 actifs ({$modulesText}), ou si {$providerInfo} n'indique aucun fournisseur actif, retire entièrement la sous-section «
@@ -1071,6 +1087,27 @@ et après une heure d'inactivité, et que le journal du site n'en retient que de
 questions ; (d) que la recherche dans l'aide, elle, fonctionne entièrement sur l'appareil de la personne, sans aucun
 appel extérieur, et reste disponible sans fournisseur d'IA. N'invente aucune durée de conservation pour les
 conversations : il n'y en a pas, elles ne sont pas stockées.
+
+35. **Boîtes témoins de délivrabilité (fonctionnalité du cœur du site, PAS un module)** : Comme les notifications push
+(règle 23), les deux paragraphes de la section 4.1 sur les boîtes témoins et sur le choix du relais par fournisseur de
+messagerie concernent une fonctionnalité du cœur du site, présente sur toute installation ScoutMagic
+indépendamment de {$modulesText}. Conserve-les TOUJOURS intégralement et ne les conditionne jamais à la liste des
+modules actifs. Conserve en particulier, car une omission serait ici trompeuse : (a) que la copie envoyée à une boîte
+témoin porte **le texte réel du publipostage** — celui que toutes les familles reçoivent — mais **jamais ce que le
+site fabrique pour une personne en particulier** : ni le lien de désinscription d'un membre, qui permettrait d'agir à
+sa place et ne sort pas du message qui lui est adressé, ni, sur un publipostage personnalisé, **la moindre valeur
+tirée du fichier de l'unité** — chaque champ de fusion porte dans la copie le nom de sa propre colonne ; (b) que les
+fournisseurs qui hébergent ces boîtes sont des **sous-traitants à part entière** pour ces copies, choisis par l'unité
+en décidant où elle ouvre ces boîtes, et qu'ils relèvent de la section 5.2 si ces boîtes sont hébergées hors de
+l'Espace économique européen ; (c) que les copies ne partent que vers des boîtes **appartenant à l'unité**, jamais
+vers un service d'analyse extérieur, et qu'**aucune adresse de famille** n'y figure ; (d) que le site **supprime
+chaque copie** de la boîte témoin après avoir relevé son dossier d'arrivée, et ne conserve que ce constat ; (e) que
+l'option est **désactivée par défaut** et que, tant qu'elle ne l'est pas, aucune copie ne part nulle part. Le choix du
+relais par fournisseur de messagerie **n'introduit aucun sous-traitant supplémentaire** : ne le présente jamais comme
+tel, puisqu'il ne fait que désigner lequel des relais déjà déclarés est essayé en premier. Conserve aussi, en section
+3.1, la puce « Résultats des boîtes témoins » : deux jours avant qu'une copie introuvable soit déclarée jamais
+arrivée, puis quatre-vingt-dix jours pour le constat qui en reste. Une durée de conservation retirée de cette section
+est une durée que plus personne ne peut vérifier.
 
 Rappel final — instructions de l'administrateur à intégrer intégralement, point par point (voir règle 18) :
 {$userPrompt}

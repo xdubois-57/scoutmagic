@@ -130,17 +130,96 @@ CREATE TABLE password_reset_tokens (
     INDEX idx_expires (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- One row per free-text page a superadmin has added to a menu (issue #368,
+-- ARCHITECTURE.md §8.116). A page is a menu name, a title and a place in a
+-- menu; its TEXT is not here. The text lives in `editable_contents` under
+-- the key `page_content_{id}` and is written through the site's ordinary
+-- configuration-mode editing, exactly like the home page's intro — which
+-- is why this table has no content column and why the key is built from
+-- `id` rather than from `slug`: renaming a page must never orphan its
+-- text.
+--
+-- **This is the one table in the schema a route is born from.** At boot,
+-- the active rows are read once and each registers its own route with the
+-- role floor of its menu (Core\Page\TextPageRouteRegistrar), so the RBAC
+-- guard stays the primary protection and the controller checks nothing —
+-- SECURITY.md §3, ARCHITECTURE.md §2. A row that is not active registers
+-- nothing at all, which is what makes a hidden page answer 404 rather
+-- than 403: it does not exist, it is not forbidden.
+CREATE TABLE text_pages (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    -- Derived from the title at creation and FROZEN afterwards: the
+    -- address is shared the moment the page is published, and fixing a
+    -- typo in a title must not break a link somebody has already sent.
+    -- Unique, with a numeric suffix on collision.
+    slug VARCHAR(160) NOT NULL,
+    -- Two names on purpose, both required: the short one the menu shows,
+    -- and the explicit one the page is headed with — « Réglages » in the
+    -- menu, « Réglages du bien » on the page.
+    menu_label VARCHAR(100) NOT NULL,
+    title VARCHAR(200) NOT NULL,
+    -- Core\View\MenuBuilder's menu id, and one of the named columns that
+    -- menu declares (Core\View\MenuBuilder::MENU_GROUPS) — NULL for the
+    -- one ungrouped menu, « Notre unité ». The pair is validated server
+    -- side before it is written: MenuBuilder::addPage() throws on a group
+    -- its menu does not declare, and an unchecked value here would take
+    -- down the whole site's menu on the next request rather than just
+    -- this page.
+    --
+    -- There is deliberately NO role column. The menu carries the floor
+    -- already (MenuBuilder::roleMinFor()); a second one here would be a
+    -- second truth, and the one that drifts.
+    menu_id VARCHAR(32) NOT NULL,
+    menu_group VARCHAR(32) NULL,
+    sort_order INT NOT NULL DEFAULT 0,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NULL,
+    UNIQUE INDEX idx_text_pages_slug (slug),
+    -- The boot-time read is `WHERE is_active = 1 ORDER BY menu_id,
+    -- sort_order`, once per request: it is on the critical path of every
+    -- page of the site, so it gets its own covering-ish index rather than
+    -- a table scan that grows with the unit's page count.
+    INDEX idx_text_pages_active (is_active, menu_id, sort_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE editable_contents (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     content_key VARCHAR(100) NOT NULL,
     content_type ENUM('rich_text', 'image') NOT NULL,
     content_value MEDIUMTEXT,
     module_id VARCHAR(50),
+    -- **Which resource owns this text, when a resource does.**
+    --
+    -- Almost every row here is page-anchored: `home.intro` belongs to the
+    -- home page and nothing can delete it or restrict it. A free-text
+    -- page's body is different — it belongs to a row in `text_pages`,
+    -- which carries its own audience and can be deleted (issue #368,
+    -- ARCHITECTURE.md §8.116).
+    --
+    -- **The column exists so that ownership is a fact rather than a
+    -- spelling.** The alternative — reading the owner back out of
+    -- `content_key` — cannot be made safe: `content_key` is compared with
+    -- this table's own `utf8mb4_unicode_ci`, which equates spellings that
+    -- differ in case, accents, trailing spaces, fullwidth forms and every
+    -- primary-ignorable character, so any code that re-parses the key has
+    -- to reproduce that equivalence exactly or leave a gap. Four attempts
+    -- to do so each left one. Asking the row instead means the
+    -- authorization check and the write use the SAME comparison, by
+    -- construction.
+    --
+    -- ON DELETE CASCADE is the second half of the same idea: deleting a
+    -- page deletes the text that belonged to it, because the database
+    -- knows it belonged to it. Rich text left behind with no page to name
+    -- it is data nobody can find, read or erase.
+    text_page_id INT UNSIGNED NULL,
     modified_at DATETIME,
     modified_by INT UNSIGNED,
     UNIQUE INDEX idx_content_key (content_key),
     INDEX idx_module (module_id),
-    CONSTRAINT fk_editable_modified_by FOREIGN KEY (modified_by) REFERENCES user_accounts(id) ON DELETE SET NULL
+    INDEX idx_editable_text_page (text_page_id),
+    CONSTRAINT fk_editable_modified_by FOREIGN KEY (modified_by) REFERENCES user_accounts(id) ON DELETE SET NULL,
+    CONSTRAINT fk_editable_text_page FOREIGN KEY (text_page_id) REFERENCES text_pages(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE files (
@@ -1924,6 +2003,79 @@ CREATE TABLE IF NOT EXISTS mail_dmarc_sources (
         REFERENCES mail_dmarc_reports(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- mail_seed_copies: one row per (mailing run × seed mailbox), and that
+-- pair is the whole design (roadmap IT-07).
+--
+-- A SEED MAILBOX is an ordinary inbound mailbox of the unit's (D10). There
+-- is no new kind of box and no new configuration concept: the operator
+-- declares the box under « Courrier entrant » as they would any other, and
+-- grants the seed consumer a scope on it. « Which boxes are seed boxes »
+-- is then answered by the scope mechanism that already answers « who reads
+-- what », and the addresses come back from
+-- Modules\InboundMail\Api\InboundMailInterface::probeAddressesFor() —
+-- the method the manual probe already uses for the same question.
+--
+-- **The copy carries the campaign's real subject and real body**, and that
+-- is the measurement. A seed copy whose subject were decorated with a
+-- tracking code — the way the manual probe's `SM-XXXXXX` decorates its own
+-- — would be measuring the code's effect on filtering rather than the
+-- campaign's. The correlation therefore rides in a header, never in
+-- anything a filter weighs.
+--
+-- `run_reference` is what the SENDER calls its run. The transport cannot
+-- see a campaign: it is handed one message per recipient, so without this
+-- a mailing of five hundred would emit five hundred sets of seed copies.
+-- The sender passes the reference it already has; it knows nothing about
+-- seed boxes, and any future bulk sender gets the same behaviour by
+-- passing its own.
+--
+-- The address is encrypted like every other address on this site, even
+-- though a seed box is organisational rather than a person's
+-- (design.md §2.6): the screens show the PROVIDER — « gmail.com » — which
+-- is the column the results are read by, and the address itself never
+-- reaches a screen, a log or the support archive (SECURITY.md §11).
+CREATE TABLE IF NOT EXISTS mail_seed_copies (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    -- What the sender called this run. Opaque here on purpose: the
+    -- transport neither parses it nor assumes a shape, so a future sender
+    -- of another kind needs no column of its own.
+    run_reference VARCHAR(64) NOT NULL,
+    seed_address_encrypted BLOB NOT NULL,
+    -- Its own purpose, NOT the shared 'email' one: these indexes are never
+    -- compared against member_emails or user_accounts, and a seed box is
+    -- not a member. Domain separation costs nothing here and keeps the one
+    -- shared purpose meaning exactly what EncryptionService says it means.
+    seed_address_blind_index CHAR(64) NOT NULL,
+    -- The mailbox provider, in clear: 'gmail.com', 'outlook.com'. This is
+    -- the column the results table is read by, and it names a company
+    -- rather than a person.
+    provider VARCHAR(255) NOT NULL,
+    sent_at DATETIME NOT NULL,
+    -- 'pending' until the copy is found, then 'inbox', 'spam' or
+    -- 'elsewhere'; 'missing' is set by the sweep, never by an arrival.
+    -- 'missing' is a third state rather than a failure: a copy nobody has
+    -- seen YET and a copy that never came are different answers, and only
+    -- time tells them apart.
+    -- 'elsewhere' is a copy that DID arrive, in a folder the site cannot
+    -- name — 'Quarantaine', 'Bulk', something the unit created. It exists
+    -- because leaving those at 'pending' had the sweep declare an arrival
+    -- « jamais arrivé » two days later, beside the very folder it was
+    -- found in.
+    verdict VARCHAR(12) NOT NULL DEFAULT 'pending',
+    -- The folder the copy actually landed in, as the provider names it.
+    -- Kept beside the verdict rather than instead of it: 'Junk',
+    -- 'Indésirables' and 'Spam' are one verdict and three names, and the
+    -- name is what an operator recognises when they go and look.
+    landed_folder VARCHAR(255) NULL,
+    recorded_at DATETIME NULL,
+    -- One copy per box per run, and it is the guarantee rather than an
+    -- economy: it is what stops a re-read, a retry or a second batch of the
+    -- same mailing from emitting a second copy to the same box.
+    UNIQUE KEY uq_msc_run_box (run_reference, seed_address_blind_index),
+    INDEX idx_msc_sent (sent_at),
+    INDEX idx_msc_verdict (verdict)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- storage_locations: one row per declared destination for bytes — a
 -- directory on this server, an S3-compatible bucket, and the kinds the
 -- following iterations add. In the core and not in a module, for the same
@@ -2069,3 +2221,4 @@ CREATE TABLE IF NOT EXISTS storage_protections (
     CONSTRAINT fk_storage_protections_destination FOREIGN KEY (destination_location_id)
         REFERENCES storage_locations(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+

@@ -2315,3 +2315,256 @@ rien dire. C'est le test à deux relais qui l'a attrapé.
   d'adresses publiées** (les `include:` du SPF) ferait reconnaître un relais
   jamais déclaré. Utile, plus grand que cette itération, et sans intérêt
   tant que les relais déclarés couvrent le cas courant.
+
+---
+
+## IT-07 — Boîtes témoins et routage par domaine
+
+### Livré
+
+Chaque publipostage part aussi vers quelques boîtes aux lettres de
+l'unité, ouvertes chez des fournisseurs différents. Le site regarde dans
+quel dossier la copie a atterri — réception ou indésirables —, consigne
+le verdict, puis **efface le message**. L'écran « Boîtes témoins » montre
+une ligne par envoi et une colonne par fournisseur, puis, en dessous, ce
+que ces résultats suggèrent : quel fournisseur écarte une part notable
+des envois, et un bouton pour faire passer ses messages par un autre
+relais. L'automatisme existe, derrière un interrupteur explicite et un
+échantillon minimal. La section « Sous-traitants » de la politique de
+confidentialité nomme les fournisseurs qui hébergent ces boîtes, et le
+paquet de support porte les compteurs par fournisseur sans jamais une
+adresse de boîte.
+
+C'est la dernière itération du chantier : les huit onglets de
+« Courrier sortant » sont en place.
+
+### L'écart avec la roadmap, et pourquoi il fallait le prendre
+
+La roadmap demande que le consommateur **supprime le message après
+lecture**, en précisant que ce doit être « une capacité explicite du
+consommateur ». Elle a raison, et le mur était plus haut qu'il n'y
+paraît : `IncomingMailboxClientInterface` écrit noir sur blanc que
+« chacune de ses méthodes est une lecture », et `ImapMailboxClient`
+ouvre les dossiers en `EXAMINE`, jamais en `SELECT` — le module s'est
+délibérément interdit le vocabulaire de l'écriture, ce qui est la seule
+garantie qui tienne (§7.5).
+
+Élargir ce contrat pour un consommateur aurait rendu la suppression
+possible depuis n'importe lequel. D'où **deux interfaces facultatives
+qui doivent se rencontrer** : un client peut implémenter
+`PruningMailboxClientInterface` — une seule méthode, seul endroit du
+fichier où un verbe d'écriture a le droit d'apparaître — et un
+consommateur `PruningConsumerInterface`. Un message n'est supprimé que
+si les deux moitiés sont d'accord **et** que la portée de la boîte
+nommait ce consommateur. La même forme que la porte étroite d'IT-06, et
+le confinement est la portée : le mécanisme qui décide déjà de tout le
+reste ici.
+
+`NonIntrusiveReadTest` a été **resserré, pas relâché** : la moitié
+lisante du client est toujours passée au crible des verbes d'écriture,
+et un nouveau test vérifie que l'unique méthode d'exception est bien la
+seule.
+
+### Une seule question fonctionnelle posée
+
+Comment le transport identifie-t-il une campagne, pour rapprocher une
+copie de l'envoi dont elle vient ? La réponse retenue : **une référence
+de série passée par l'appelant**, opaque au transport. `mass_mail` passe
+`mass_mail:<id>`, et tout futur envoyeur en nombre hérite de la mesure
+sans code. Le reste des décisions de l'itération est noté ci-dessous.
+
+### Décisions prises en autonomie
+
+**La copie est émise au transport, pas dans `mass_mail`** — c'est la
+roadmap — et son échec n'échoue jamais l'envoi : une mesure vaut moins
+que le message qu'elle mesure.
+
+**Un en-tête `X-ScoutMagic-Seed` plutôt qu'une reconnaissance au sujet.**
+Deviner à quel publipostage appartient une copie en lisant son objet est
+faux le jour où deux envois portent le même titre.
+
+**Le dossier d'arrivée est un champ de plus sur `CandidateMessage`**,
+`null` signifiant « le relais ne l'a pas dit » et jamais « INBOX » — la
+roadmap le prévoyait en toutes lettres : une donnée à ajouter au message
+relevé, pas une architecture à changer.
+
+**L'index aveugle des adresses témoins a sa propre finalité**
+(`seed_mailbox`) au lieu de la finalité partagée `email`. Une adresse
+témoin n'est jamais comparée à celle d'un membre ; partager la finalité
+aurait rendu ces deux tables rapprochables sans raison.
+
+**Le consommateur témoin ne revendique rien.** Une revendication créerait
+une association, donc conserverait une copie entière de chaque
+publipostage dans la base — l'inverse de ce que la mesure demande. Il
+lit, consigne, supprime, et ne renvoie rien.
+
+**Le routage est une préférence d'ordre à l'intérieur d'une voie**, pas
+une voie. `MailLane` dit qu'une voie se déduit de `MailPurpose` et de
+rien d'autre, jamais du destinataire ; cette règle est intacte. Ce qui
+change, c'est lequel des relais de la voie masse est essayé en premier.
+
+**L'automatisme vit dans le balayage quotidien**, là où les copies
+deviennent déjà des faits établis, plutôt que dans une tâche de plus :
+étaler les deux sur deux horaires laisserait un écran lire un verdict que
+le routage n'aurait pas encore vu.
+
+**Il agit une fois par fournisseur et ne défait jamais.** `apply()`
+avance d'un cran dans la chaîne, donc rappliquer chaque jour ferait
+tourner un domaine autour de la chaîne indéfiniment. Et défaire
+ramènerait un fournisseur sur le relais qui le maltraitait, donc les deux
+lectures alterneraient tant que l'interrupteur resterait mis. Revenir est
+une décision humaine.
+
+**Le routage des boîtes témoins a son propre sujet d'aide.** La charte
+coupe un sujet à quatre cents mots ; le sujet des boîtes témoins y était
+déjà. Deux sujets sur la même page, ce qui existe déjà ailleurs.
+
+### Ce qu'un test a attrapé et que je n'aurais pas vu
+
+**`DomainRouting` comptait des copies, pas des envois**, en contredisant
+son propre docblock, qui expliquait pourtant très bien pourquoi il ne
+fallait pas. Cinq boîtes chez un fournisseur sur un seul publipostage
+auraient franchi le seuil de cinq observations sur une campagne unique —
+exactement le bruit que la décision D13 existe pour refuser.
+
+**Un test qui ne pouvait pas échouer**, encore une fois, et c'est la
+leçon récurrente de tout le chantier. « Trois balayages, une seule
+décision » passait aussi bien sans le garde : avec deux relais la chaîne
+boucle, donc un nombre impair de balayages revient au point de départ.
+Deux balayages, et il discrimine.
+
+**Le paquet de support perdait un domaine routé.** La section rendait la
+main sur « aucun envoi mesuré » avant d'avoir listé les décisions en
+vigueur : un fournisseur routé il y a trois mois et depuis silencieux
+disparaissait du fichier tout en continuant d'orienter chaque envoi qu'il
+nomme. Remettre à un tiers les chiffres d'une configuration qui n'est
+plus celle en vigueur est pire que de ne rien lui remettre.
+
+**Le formulaire d'activation posait son jeton CSRF avec
+`{{ csrf_token }}`** — une recherche de variable, vide dès que le
+contrôleur oublie de la fournir, et tous les POST échouent alors au garde
+CSRF sans qu'aucun message ne le dise. `UxConventionsTest` l'a attrapé.
+
+### Ce que la relecture a trouvé
+
+**La cause est une et elle revient**, et je l'ai écrite aux relecteurs
+plutôt que de corriger cinq fois la même chose : presque tous les défauts
+de cette itération viennent d'un *fixture de test qui fabrique une
+condition que la production ne fournit pas*. Le câblage de `cron.php`, le
+réglage non enregistré, le garde de récursion, l'entrée d'envoi local
+absente de la voie, le corps personnalisé jamais exercé — à chaque fois
+le test passait parce qu'il s'était donné ce que le code n'obtient pas
+tout seul.
+
+**La copie arrivée après l'abandon coûtait un corps, pas un verdict.**
+`markMissingBefore()` n'observe rien : au bout de deux jours elle écrit
+« jamais arrivé » sur ce qui est encore en attente. Un fournisseur qui a
+gardé le message en file, ou une boîte relevée plus lentement, le livre
+ensuite — et l'écriture répondait alors faux, donc le consommateur ne
+reconnaissait pas le message, donc il ne demandait pas sa suppression,
+donc `store()` le conservait avec son corps. **Le publipostage complet,
+données des membres comprises, restait dans `inbound_messages`** — ce
+que la notice de confidentialité écrite dans cette même PR dit
+expressément qu'il ne fait pas. Une observation l'emporte désormais sur
+un abandon, et sur lui seul : un verdict lu dans un vrai dossier n'est
+jamais réécrit.
+
+**Une colonne disparaissait avec sa boîte.** Les colonnes du tableau se
+déduisaient des boîtes *actuelles*, et `addresses()` répond « aucune »
+plutôt que de lever quand le module est injoignable : retirer une boîte
+de la portée, ou un seul échec de résolution, vidait un tableau dont
+toutes les lignes étaient pourtant là. La page affichait « rien mesuré »
+pour une période mesurée, pendant que la recommandation, elle, continuait
+d'agir sur ces lignes. Les colonnes viennent maintenant des mesures.
+
+**Et le plus grave : la mesure était aveugle à ce qu'elle mesure.** Une
+boîte déclarée dans « Courrier entrant » est lue dans sa boîte de
+réception et nulle part ailleurs tant qu'on ne lui ajoute pas de
+dossiers. Pour toutes les autres boîtes c'est le bon réglage ; pour une
+boîte témoin c'est l'inverse : la copie classée en indésirables n'est
+jamais relevée, jamais consignée, et le balayage écrit « jamais arrivé »
+dessus deux jours plus tard. Le pire verdict de l'écran était donc
+produit, systématiquement, par le seul résultat que l'écran existe pour
+détecter — et ce faux « jamais arrivé » nourrissait ensuite la
+recommandation de routage.
+
+`Api\InboundMailInterface` gagne `watchedFoldersFor()` — des noms de
+dossiers, jamais une adresse — l'écran nomme les boîtes aveugles avant
+qu'on ne lise ses chiffres, l'aide explique le réglage, et **le routage
+automatique est refusé tant qu'une boîte témoin est aveugle** : c'est le
+seul endroit où un avertissement ne suffit pas, puisque cet interrupteur
+déplace le courrier de toute une unité sans que personne relise la
+décision.
+
+**Et la copie emportait encore les données d'un membre — les champs de
+fusion.** La relecture précédente avait retiré le jeton de désinscription
+en faisant porter la copie par `$baseBodyHtml`. Le nom trompe : « base »
+ne l'est que par rapport au lien ajouté après lui. Sur un publipostage
+personnalisé, `$baseBodyHtml` et le sujet ont déjà été rendus depuis la
+ligne d'audience du destinataire courant — et une copie est émise une
+fois par série, donc c'est la première personne traitée dont le prénom,
+le montant, ce que porte le fichier de l'unité, partait vers chaque boîte
+témoin. Chez Gmail, chez Outlook. À chaque campagne.
+
+Le correctif ne prend pas le gabarit brut : `{{Prénom}}` dans une ligne
+d'objet est exactement le genre d'anomalie qu'un filtre pèse, et une
+copie notée là-dessus mesurerait elle-même au lieu de mesurer la
+campagne — la raison pour laquelle le tampon voyage déjà dans un en-tête
+et non dans le sujet. La copie est donc **rendue aussi, mais depuis la
+ligne de personne** : chaque colonne est remplacée par son propre
+en-tête, « Bonjour Prénom ». Même forme, même longueur, aucune valeur —
+et la même chaîne pour toutes les boîtes, ce qui est aussi ce qui en
+fait une mesure plutôt qu'un échantillon. `SeedCopyContent` porte
+désormais le sujet, parce qu'il se personnalise comme le corps et qu'il
+est la seule ligne que toute boîte affiche dans sa liste.
+
+**Deux constats plus petits du même tour.** L'en-tête de tampon était
+fusionné avec `+`, qui garde la valeur de GAUCHE : un appelant nommant
+cet en-tête aurait remplacé le tampon anti-falsification par le sien, et
+une copie dont le tampon ne vérifie pas est une copie que le
+consommateur ne reconnaît jamais, ne consigne jamais et ne supprime
+jamais — elle reste dans la boîte témoin avec le texte du publipostage
+dedans. Latent avec l'unique appelant d'aujourd'hui, hérité en silence
+par le suivant. `array_merge()`, et le commentaire dit enfin ce que le
+code fait.
+
+Et le garde du routage automatique ne gardait rien quand il n'y avait
+aucune boîte : `boxesBlindToSpam()` compte les boîtes aveugles, donc sans
+boîte il compte zéro — « rien d'anormal » et « rien de mesuré » donnant
+le même chiffre, ce qui est le plus vieux piège de cette page et ce que
+le tableau des résultats énonce justement à part. Une unité pouvait armer
+l'interrupteur avant d'avoir rien déclaré, ajouter ensuite une boîte
+limitée à sa réception, et voir le balayage rerouter un fournisseur sur
+exactement la preuve que le garde existe pour refuser.
+`measuresSpamReliably()` pose les deux conditions en un seul endroit, et
+**le balayage quotidien la repose avant d'appliquer** : l'écran arme,
+mais la configuration bouge ensuite et c'est le balayage qui agit. Le
+renoncement est journalisé plutôt que silencieux, sinon personne ne peut
+dater le jour où le site a cessé d'appliquer.
+
+Et le même garde **échouait encore ouvert** de deux manières qu'un
+second passage a trouvées : `toggleRouting()` était la seule des quatre
+routes témoins sans retour anticipé sur « module absent », donc une
+chaîne `?->` lisait « pas de module » comme « rien d'anormal » ; et
+`boxesBlindToSpam()`, qui attrape ses erreurs et rend zéro, servait à la
+fois d'affichage et de garde — « je ne sais pas répondre » y devenait
+« tout va bien ». Les deux usages sont maintenant séparés : la lecture
+des dossiers rend `null` quand elle échoue, l'écran continue de lire
+zéro, et le garde refuse. **Une leniency juste sur un écran est fausse
+sur une porte.**
+
+### Reporté
+
+- **Rapprocher un fournisseur de messagerie d'un domaine destinataire
+  autre que le sien.** Une famille chez Gmail via un domaine personnel
+  n'est pas comptée dans « gmail.com ». Le dire serait honnête, le
+  résoudre demanderait de lire les enregistrements MX de chaque domaine
+  destinataire — une itération à soi seule, et l'écran énonce déjà la
+  limite.
+- **Une tendance dans le temps** (ce fournisseur se dégrade-t-il ?) :
+  même raison qu'en IT-06, rien ne la réclame tant que personne n'a
+  regardé la page deux fois.
+- **Proposer un relais autrement que « le suivant dans la voie ».** Un
+  classement calculé à partir des résultats par relais supposerait
+  d'avoir mesuré chaque fournisseur depuis chaque relais, ce qu'une unité
+  qui envoie quelques fois par an n'aura jamais.

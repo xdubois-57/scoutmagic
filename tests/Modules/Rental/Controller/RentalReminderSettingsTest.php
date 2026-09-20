@@ -25,6 +25,8 @@ use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
+use Core\View\EditableContentRepository;
+use Core\View\EditableContentService;
 use Core\View\TwigFactory;
 use Modules\Rental\Availability\AvailabilityCalculator;
 use Modules\Rental\Controller\RentalPricingController;
@@ -110,6 +112,10 @@ class RentalReminderSettingsTest extends TestCase
             new RentalAuthorizationService($memberService, $assetRepository, $managerRepository),
             $assetRepository,
             $scoutYearResolver,
+            // Required since IT-02: the conditions a renter ticks live in
+            // the generic editable-content store. Nothing here reaches
+            // them, but a controller that cannot be built proves nothing.
+            new EditableContentService(new EditableContentRepository($this->pdo)),
             null,
             $this->reminderRepository
         );

@@ -69,6 +69,19 @@ class OutboundMailController extends AbstractController
 
     public const DMARC_URL = '/config/courrier-sortant/dmarc';
 
+    public const SEEDS_URL = '/config/courrier-sortant/temoins';
+
+    private const SEEDS_UNAVAILABLE = 'Les boîtes témoins demandent le module « Courrier entrant ».';
+
+    /**
+     * The window the results screen reports on.
+     *
+     * Thirty days like the DMARC page, and for the same reason: a unit
+     * sends a few mailings a month, so thirty days is « the recent ones »
+     * without being « all of them ».
+     */
+    private const SEEDS_WINDOW = 'P30D';
+
     private const DMARC_UNAVAILABLE = 'La lecture des rapports DMARC demande le module « Courrier entrant ».';
 
     /**
@@ -152,7 +165,20 @@ class OutboundMailController extends AbstractController
          * reassuring lie this section could tell.
          */
         private ?\Core\Mail\Feedback\Dmarc\DmarcReportRepository $dmarc = null,
-        private ?\Core\Mail\Feedback\Dmarc\KnownSenders $knownSenders = null
+        private ?\Core\Mail\Feedback\Dmarc\KnownSenders $knownSenders = null,
+        /**
+         * The seed mailboxes and their results (roadmap IT-07).
+         *
+         * Nullable on the same grounds as the bounce and DMARC pairs
+         * above: the table is core and always readable, but a site whose
+         * `inbound_mail` module is off has no boxes at all, and a page
+         * offering to measure with nothing to measure into would be a
+         * promise it cannot keep.
+         */
+        private ?\Core\Mail\Feedback\Seed\SeedMailboxes $seedMailboxes = null,
+        private ?\Core\Mail\Feedback\Seed\SeedCopyRepository $seedCopies = null,
+        /** What the results recommend, and whether it is applied (D13). */
+        private ?\Core\Mail\Feedback\Seed\DomainRouting $routing = null
     ) {
     }
 
@@ -264,6 +290,372 @@ class OutboundMailController extends AbstractController
     public function bounces(Request $request, array $params): Response
     {
         return $this->renderBounces();
+    }
+
+    // ── Boîtes témoins (roadmap IT-07) ────────────────────────────────
+
+    /**
+     * GET .../temoins — where the mailings landed, per provider.
+     *
+     * @param array<string, string> $params
+     */
+    public function seeds(Request $request, array $params): Response
+    {
+        $since = (new \DateTimeImmutable())->sub(new \DateInterval(self::SEEDS_WINDOW));
+        $addresses = $this->seedMailboxes?->addresses() ?? [];
+        $runs = $this->seedRuns($since);
+
+        return $this->render('config/outbound_mail/seeds.html.twig', [
+            'available' => $this->seedMailboxes !== null && $this->seedCopies !== null,
+            'unavailable_reason' => self::SEEDS_UNAVAILABLE,
+            'enabled' => $this->seedMailboxes?->isEnabled() ?? false,
+            // The COUNT and not the addresses. A seed box is the unit's
+            // own, so naming one would tell a reader nothing they need and
+            // put a mailbox address on a screen a screenshot can carry
+            // (SECURITY.md §11). What the operator acts on is « combien »,
+            // and the providers already show up as the result columns.
+            'box_count' => count($addresses),
+            // The blind spot the default configuration has, counted so
+            // the screen can name it before the reader trusts a figure it
+            // makes wrong.
+            'blind_boxes' => $this->seedMailboxes?->boxesBlindToSpam() ?? 0,
+            'suggested_maximum' => \Core\Mail\Feedback\Seed\SeedMailboxes::SUGGESTED_MAXIMUM,
+            'providers' => $this->seedProviders($addresses),
+            // **The columns come from the measurements, not from the
+            // boxes.** A box removed from the scope — or a module that
+            // cannot answer right now — must not make thirty days of
+            // results vanish from the page while the routing below goes
+            // on acting on them.
+            'columns' => $this->seedColumns($addresses, $runs),
+            'runs' => $runs,
+            'window_days' => 30,
+            // **The recommendation, and the fact that it is one** (D13).
+            // Shown beside the results rather than acted on: with three to
+            // five boxes and a few mailings a year, routing on two
+            // observations is routing on noise, and splitting a sender's
+            // volume costs each relay the regular traffic its standing
+            // rests on. The automatism exists, behind a switch and a
+            // minimum sample, and the screen says which of the two it is
+            // looking at.
+            'readings' => $this->routing?->readings($since) ?? [],
+            'routing_automatic' => $this->routing?->isAutomatic() ?? false,
+            'minimum_runs' => \Core\Mail\Feedback\Seed\DomainRouting::MINIMUM_RUNS,
+            // Two relays on the mailing lane is what makes « appliquer »
+            // mean anything. Below that the screen says so rather than
+            // drawing a button that would explain nothing when it did
+            // nothing: a unit with one relay answers a provider filtering
+            // its mail by changing what it sends, not where from.
+            'bulk_relays' => count($this->routing?->bulkChain() ?? []),
+            'current_path' => self::SEEDS_URL,
+            'inbound_url' => '/config/courrier-entrant',
+        ]);
+    }
+
+    /**
+     * POST .../temoins/activation — the super-admin turns the copies on
+     * or off.
+     *
+     * **Journalled at `security`, which the roadmap asks for by name.**
+     * It is not a cosmetic setting: switching it on starts putting a copy
+     * of every mailing — real members' data — into every declared box, and
+     * switching it off stops a measurement somebody may be relying on.
+     * Both directions are decisions worth being able to date afterwards.
+     *
+     * @param array<string, string> $params
+     */
+    public function toggleSeeds(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, self::SEEDS_URL)) !== null) {
+            return $guard;
+        }
+
+        if ($this->seedMailboxes === null) {
+            FlashMessage::set('error', self::SEEDS_UNAVAILABLE);
+
+            return $this->redirect(self::SEEDS_URL);
+        }
+
+        $wanted = (string) $request->getBody('enabled', '0') === '1';
+        $this->settings->setInternal(
+            \Core\Mail\Feedback\Seed\SeedMailboxes::SETTING_ENABLED,
+            $wanted ? '1' : '0'
+        );
+
+        $this->journal->log(
+            'core',
+            'mail_seed_boxes_toggled',
+            'security',
+            $wanted ? 'Copies vers les boîtes témoins activées' : 'Copies vers les boîtes témoins désactivées',
+            // The count, never the addresses — the same rule the screen
+            // itself follows.
+            ['enabled' => $wanted, 'boxes' => count($this->seedMailboxes->addresses())]
+        );
+
+        FlashMessage::set(
+            'success',
+            $wanted
+                ? 'Les prochains publipostages seront aussi envoyés à vos boîtes témoins.'
+                : 'Les publipostages ne sont plus copiés vers les boîtes témoins.'
+        );
+
+        return $this->redirect(self::SEEDS_URL);
+    }
+
+    /**
+     * POST .../temoins/routage — apply, or undo, the recommendation for
+     * one recipient domain (D13).
+     *
+     * **A button, not an automatism**, which is what D13 turns on: the
+     * page shows the finding and a person decides, because splitting a
+     * sender's volume costs each relay the regular traffic its reputation
+     * rests on and that price is not the site's to pay unasked.
+     *
+     * Journalled at `security` like every other change to how mail leaves
+     * this site. A recipient domain is a mail provider, not a person —
+     * « gmail.com » names a company the way « Brevo » does — so both ends
+     * of the decision are named and the line is worth reading afterwards.
+     *
+     * @param array<string, string> $params
+     */
+    public function routeSeeds(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, self::SEEDS_URL)) !== null) {
+            return $guard;
+        }
+
+        if ($this->routing === null) {
+            FlashMessage::set('error', self::SEEDS_UNAVAILABLE);
+
+            return $this->redirect(self::SEEDS_URL);
+        }
+
+        $domain = strtolower(trim((string) $request->getBody('domain', '')));
+        $undo = (string) $request->getBody('undo', '0') === '1';
+
+        // Checked here as well as at the writer so the two failures do
+        // not share one message: « aucun autre relais » and « ceci n'est
+        // pas un domaine » send somebody looking in different places, and
+        // a form posting the second means the page was tampered with
+        // rather than misconfigured.
+        if (!\Core\Mail\Transport\DomainPreferences::isPlausibleDomain($domain)) {
+            FlashMessage::set('error', 'Ce n\'est pas un nom de domaine.');
+
+            return $this->redirect(self::SEEDS_URL);
+        }
+
+        if ($undo) {
+            if ($this->routing->clear($domain)) {
+                $this->journalRouting($domain, null);
+                FlashMessage::set('success', 'Ce fournisseur repasse par l\'ordre habituel de la voie masse.');
+            }
+
+            return $this->redirect(self::SEEDS_URL);
+        }
+
+        $moved = $this->routing->apply($domain);
+        if ($moved === null) {
+            FlashMessage::set(
+                'error',
+                'Aucun autre relais disponible sur la voie masse : il n\'y a nulle part où router ces envois.'
+            );
+
+            return $this->redirect(self::SEEDS_URL);
+        }
+
+        $this->journalRouting($domain, $moved->name);
+        FlashMessage::set(
+            'success',
+            'Les publipostages vers ce fournisseur partiront d\'abord par « ' . $moved->name . ' ».'
+        );
+
+        return $this->redirect(self::SEEDS_URL);
+    }
+
+    /**
+     * POST .../temoins/routage-automatique — the second lock of D13.
+     *
+     * **The switch is explicit and it stays off until somebody says
+     * otherwise.** With it on, the daily sweep applies the recommendation
+     * for a provider that has crossed the minimum sample — once per
+     * domain, never undoing — so the two locks the roadmap asks for are
+     * both in force: this switch, and
+     * `DomainRouting::MINIMUM_RUNS`.
+     *
+     * @param array<string, string> $params
+     */
+    public function toggleRouting(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, self::SEEDS_URL)) !== null) {
+            return $guard;
+        }
+
+        // **Unavailable like its two siblings**, rather than falling
+        // through to a nullsafe chain that would read « no module » as
+        // « nothing wrong ». `toggleSeeds()` and `routeSeeds()` refuse
+        // here; this one did not, so on an installation without
+        // `inbound_mail` the switch armed itself silently.
+        if ($this->seedMailboxes === null || $this->routing === null) {
+            FlashMessage::set('error', self::SEEDS_UNAVAILABLE);
+
+            return $this->redirect(self::SEEDS_URL);
+        }
+
+        $wanted = (string) $request->getBody('enabled', '0') === '1';
+
+        // **An automatism may not be armed on a measurement that cannot
+        // support it.** A seed box watching only its inbox cannot tell
+        // « indésirables » from « jamais arrivé » — it reports the second
+        // for both — and that is precisely the difference this switch
+        // would have the site act on, unattended, by moving a whole
+        // provider's mail to another relay. No box at all is the same
+        // answer for a simpler reason. Refused rather than warned about:
+        // the screen already warns, and a switch that takes a decision no
+        // one will re-read afterwards is the one place where a warning is
+        // not enough. Turning it OFF is always allowed.
+        if ($wanted && !$this->seedMailboxes->measuresSpamReliably()) {
+            $blind = $this->seedMailboxes->boxesBlindToSpam();
+            FlashMessage::set(
+                'error',
+                $blind > 0
+                    ? $blind . ' boîte(s) témoin(s) ne surveille(nt) pas leur dossier « Indésirables » : '
+                        . 'un message classé en indésirables y est compté « jamais arrivé ». '
+                        . 'Ajoutez ce dossier dans « Courrier entrant » avant d\'automatiser le routage.'
+                    : 'Aucune boîte témoin ne peut mesurer quoi que ce soit pour l\'instant : '
+                        . 'déclarez-en dans « Courrier entrant », avec leur dossier « Indésirables », '
+                        . 'avant d\'automatiser le routage.'
+            );
+
+            return $this->redirect(self::SEEDS_URL);
+        }
+
+        $this->settings->setInternal(
+            \Core\Mail\Feedback\Seed\DomainRouting::SETTING_AUTOMATIC,
+            $wanted ? '1' : '0'
+        );
+
+        $this->journal->log(
+            'core',
+            'mail_seed_routing_automatic_toggled',
+            'security',
+            $wanted ? 'Routage par domaine automatique activé' : 'Routage par domaine automatique désactivé',
+            ['enabled' => $wanted]
+        );
+
+        FlashMessage::set(
+            'success',
+            $wanted
+                ? 'Le site appliquera de lui-même ce que les boîtes témoins recommandent.'
+                : 'Le site se contente désormais d\'afficher la recommandation.'
+        );
+
+        return $this->redirect(self::SEEDS_URL);
+    }
+
+    /** One shape for both directions, so neither can drift from the other. */
+    private function journalRouting(string $domain, ?string $relay): void
+    {
+        $this->journal->log(
+            'core',
+            'mail_seed_routing_changed',
+            'security',
+            $relay === null ? 'Routage par domaine retiré' : 'Routage par domaine appliqué',
+            ['domain' => $domain, 'relay' => $relay]
+        );
+    }
+
+    /**
+     * The providers the unit is measuring with, deduplicated.
+     *
+     * The columns of the results table, and the one thing about a seed
+     * box that belongs on a screen: « gmail.com » names a company, an
+     * address names a mailbox.
+     *
+     * @param list<string> $addresses
+     *
+     * @return list<string>
+     */
+    private function seedProviders(array $addresses): array
+    {
+        $providers = [];
+        foreach ($addresses as $address) {
+            $providers[\Core\Mail\Feedback\Seed\SeedCopy::providerOf($address)] = true;
+        }
+
+        $names = array_keys($providers);
+        sort($names);
+
+        return $names;
+    }
+
+    /**
+     * The columns of the results table: every provider the unit measures
+     * with **and** every provider it has measured.
+     *
+     * The two are usually the same list, and the one case where they
+     * differ is the one that matters. `addresses()` answers about the
+     * boxes as they are *now*, and it answers `[]` rather than throwing
+     * when the module cannot be reached — so deriving the columns from it
+     * alone meant that removing one box, or a momentary failure to
+     * resolve `inbound_mail`, silently emptied a table whose rows were
+     * still there. The page would show « aucun résultat » for a period it
+     * had results for, while {@see DomainRouting} below went on
+     * recommending from those very rows.
+     *
+     * @param list<string> $addresses
+     * @param list<array{reference: string, sent_at: string, cells: array<string, mixed>}> $runs
+     *
+     * @return list<string>
+     */
+    private function seedColumns(array $addresses, array $runs): array
+    {
+        $columns = [];
+        foreach ($this->seedProviders($addresses) as $provider) {
+            $columns[$provider] = true;
+        }
+
+        foreach ($runs as $run) {
+            foreach (array_keys($run['cells']) as $provider) {
+                $columns[(string) $provider] = true;
+            }
+        }
+
+        $names = array_keys($columns);
+        sort($names);
+
+        return $names;
+    }
+
+    /**
+     * One row per mailing, one cell per provider — the shape the roadmap
+     * asks for.
+     *
+     * @return list<array{reference: string, sent_at: string, cells: array<string, array{verdict: string, label: string, badge: string, folder: ?string}>}>
+     */
+    private function seedRuns(\DateTimeImmutable $since): array
+    {
+        $rows = [];
+
+        foreach ($this->seedCopies?->runsSince($since) ?? [] as $reference => $copies) {
+            $cells = [];
+            $sentAt = null;
+            foreach ($copies as $copy) {
+                $sentAt ??= $copy->sentAt;
+                $cells[$copy->provider] = [
+                    'verdict' => $copy->verdict->value,
+                    'label' => $copy->verdict->label(),
+                    'badge' => $copy->verdict->badge(),
+                    'folder' => $copy->landedFolder,
+                ];
+            }
+
+            $rows[] = [
+                'reference' => (string) $reference,
+                'sent_at' => ($sentAt ?? new \DateTimeImmutable())->format('d/m/Y à H:i'),
+                'cells' => $cells,
+            ];
+        }
+
+        return $rows;
     }
 
     /**

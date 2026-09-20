@@ -156,6 +156,38 @@
                 </div>
             {% endif %}
 
+            {# Documents officiels (module official_documents,
+               specifications.md §44) — self only, and that is an
+               interdiction rather than this page's usual rule: what the
+               site stores is an unsigned draft, so an animateur reading it
+               would read a version without legal value and believe it. The
+               block stays two links and one sentence; this page already
+               carries a dozen of them.
+
+               The warning belongs HERE and never on the PDF: the federation
+               writes its own document, and the site does not add mentions
+               to it. #}
+            {% if official_documents %}
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h2 class="h5 mb-3">Documents officiels</h2>
+                        <ul class="list-unstyled mb-3">
+                            {% for link in official_documents.links %}
+                                <li class="border-bottom py-2">
+                                    <a href="{{ link.url }}" class="text-decoration-none tap-target d-block">
+                                        {{ link.label }}
+                                        {% if link.note %}
+                                            <span class="d-block small text-body-secondary">{{ link.note }}</span>
+                                        {% endif %}
+                                    </a>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                        <p class="small text-body-secondary mb-0">{{ official_documents.warning }}</p>
+                    </div>
+                </div>
+            {% endif %}
+
             {# §5 — Documents privés (self only, no staff bypass) — always
                shown to the member themselves, empty-state when there's
                nothing yet. #}
