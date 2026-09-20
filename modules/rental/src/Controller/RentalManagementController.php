@@ -29,6 +29,7 @@ use Modules\Rental\Availability\MonthWindow;
 use Modules\Rental\Booking\BookingMilestones;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\BookingTransition;
+use Modules\Rental\Booking\BookingAttention;
 use Modules\Rental\Booking\ChangeRequestKind;
 use Modules\Rental\Booking\ChangeRequestOrigin;
 use Modules\Rental\Booking\MilestoneEvidence;
@@ -516,20 +517,27 @@ class RentalManagementController extends AbstractController
             $assets
         ));
 
-        $pending = array_values(array_filter(
+        // ONE query for every booking's pending change requests, not one
+        // per booking: this page legitimately shows every asset a manager
+        // runs, and « À traiter » now asks a question about each of them
+        // (§22.5).
+        $attention = BookingAttention::from(
             $bookings,
-            static fn(RentalBooking $booking) => $booking->status->needsAttention()
-        ));
+            $this->changeRequestRepository->findPendingForBookings(array_map(
+                static fn(RentalBooking $booking) => $booking->id,
+                $bookings
+            ))
+        );
 
         $countsByAsset = [];
-        foreach ($pending as $booking) {
-            $countsByAsset[$booking->assetId] = ($countsByAsset[$booking->assetId] ?? 0) + 1;
+        foreach ($attention as $one) {
+            $countsByAsset[$one->booking->assetId] = ($countsByAsset[$one->booking->assetId] ?? 0) + 1;
         }
 
         return $this->render('@rental/management/my_rentals.html.twig', [
             'assets' => $assets,
             'is_unit_staff' => $this->authorizationService->isUnitStaff($email, $scoutYearId),
-            'pending_bookings' => $pending,
+            'pending_bookings' => $attention,
             'pending_counts' => $countsByAsset,
             'assets_by_id' => $this->indexById($assets),
         ]);
@@ -549,6 +557,12 @@ class RentalManagementController extends AbstractController
 
         $now = new \DateTimeImmutable();
         $bookings = $this->bookingRepository->findAllForAssets([$asset->id]);
+        // One statement for the whole page (§22.5): everything pending
+        // against any of this asset's bookings, grouped by booking.
+        $pendingChangeRequests = $this->changeRequestRepository->findPendingForBookings(array_map(
+            static fn(RentalBooking $booking) => $booking->id,
+            $bookings
+        ));
 
         return $this->render('@rental/management/overview.html.twig', [
             'asset' => $asset,
@@ -562,10 +576,11 @@ class RentalManagementController extends AbstractController
             'breadcrumb_current' => $asset->name,
             'breadcrumb_trail' => $this->assetTrail(),
             'bookings' => $bookings,
-            'needs_attention' => array_values(array_filter(
-                $bookings,
-                static fn(RentalBooking $b) => $b->status->needsAttention()
-            )),
+            // Not a filter on the status any more: a confirmed booking
+            // carrying a change request nobody has answered is exactly a
+            // thing to deal with, and used to appear on no list at all
+            // (Booking\BookingAttention).
+            'needs_attention' => BookingAttention::from($bookings, $pendingChangeRequests),
             'in_progress' => array_values(array_filter(
                 $bookings,
                 static fn(RentalBooking $b) => $b->isInProgress($now)
@@ -607,13 +622,24 @@ class RentalManagementController extends AbstractController
         // filter of its own rather than something the enum has to pretend
         // to model.
         $status = BookingStatus::tryFrom($filter);
+        // Loaded once, and only for the filter that needs it — « À traiter »
+        // means the same thing here as on the overview, which is the whole
+        // reason Booking\BookingAttention exists rather than four copies of
+        // one condition.
+        $pendingChangeRequests = $filter === 'a_traiter'
+            ? $this->changeRequestRepository->findPendingForBookings(array_map(
+                static fn(RentalBooking $b) => $b->id,
+                $all
+            ))
+            : [];
         $matching = array_values(array_filter($all, static function (RentalBooking $b) use (
             $filter,
             $status,
             $year,
-            $search
+            $search,
+            $pendingChangeRequests
         ): bool {
-            if ($filter === 'a_traiter' && !$b->status->needsAttention()) {
+            if ($filter === 'a_traiter' && BookingAttention::of($b, $pendingChangeRequests[$b->id] ?? []) === null) {
                 return false;
             }
             if ($status !== null && $b->status !== $status) {

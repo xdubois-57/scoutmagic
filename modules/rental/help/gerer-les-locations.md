@@ -7,6 +7,7 @@ role_min: identified
 question: Comment traiter une demande de location reçue ?
 question: Comment envoyer le contrat de location au locataire ?
 question: Comment savoir si un locataire a payé son acompte ?
+question: Pourquoi une réservation confirmée apparaît-elle dans « À traiter » ?
 paths: /mes-locations, /mes-locations/*, /mes-locations/*/calendrier, /mes-locations/*/gabarits, /mes-locations/*/reservations, /mes-locations/*/reservations/*, /mes-locations/*/reservations/*/sejour, /mes-locations/*/reservations/*/document/*
 related: locations, locations-courrier, config-locations, courrier-entrant, locations-reglages, locations-conformite
 ---
@@ -16,22 +17,32 @@ désignées sur chaque bien, plus le Staff d'Unité qui voit tout. La
 page d'accueil rassemble ce qui attend une action, tous biens
 confondus.
 
+## « À traiter »
+
+Une seule question : **quelqu'un attend-il ?** Soit le dossier en est à
+une étape où vous devez décider, soit le locataire a demandé une
+modification, soit votre proposition attend sa réponse. Chaque ligne dit
+laquelle — les deux dernières ne se lisent pas dans le statut, et une
+réservation confirmée portant une demande reçue hier n'apparaissait donc
+nulle part. Le chiffre en haut de page et le filtre de la liste des
+réservations comptent la même chose.
+
 ## Traiter une demande
 
-Chaque réservation a sa fiche : le parcours du dossier, l'état, le prix,
-les paiements, les documents et l'historique. Les jalons se cochent
-d'après les faits — envoyer le contrat coche « Contrat envoyé » — et une
-ligne grisée signale ce qui est sans objet ici, comme une caution non
-demandée. Les boutons agissent sans recharger, et ceux qui écrivent au
-locataire vous laissent ajouter un mot. Poser une **option** bloque les
-dates jusqu'à une échéance : dépassée, la réservation expire et libère
-les dates toute seule.
+Chaque réservation a sa fiche : le parcours du dossier, l'état, le
+prix, les paiements, les documents et l'historique. Les jalons se
+cochent d'après les faits — envoyer le contrat coche « Contrat
+envoyé » — et une ligne grisée signale ce qui est sans objet ici, comme
+une caution non demandée. Les boutons agissent sans recharger, et ceux
+qui écrivent au locataire vous laissent ajouter un mot. Poser une
+**option** bloque les dates jusqu'à une échéance : dépassée, la
+réservation expire et libère les dates toute seule.
 
 Le **lien de suivi** du locataire n'est affiché nulle part, pas même
-pour vous : le posséder suffit pour ouvrir le dossier. Il ne se retrouve
-donc pas, il se remplace — « Régénérer le lien de suivi » en envoie un
-nouveau et désactive l'ancien sur-le-champ, qu'il ait été perdu ou
-transmis à la mauvaise personne.
+pour vous : le posséder suffit pour ouvrir le dossier. Il ne se
+retrouve donc pas, il se remplace — « Régénérer le lien de suivi » en
+envoie un nouveau et désactive l'ancien sur-le-champ, qu'il ait été
+perdu ou transmis à la mauvaise personne.
 
 ## Le prix et les paiements
 
@@ -59,9 +70,8 @@ un document ne se consulte pas : le site le dit.
 
 ## Le courrier reçu
 
-Les e-mails que le site rattache à la réservation, les propositions à
-confirmer et ce que « Détacher » fait exactement sont décrits dans
-« Le courrier d'une réservation ».
+Décrit dans « Le courrier d'une réservation » : les e-mails rattachés,
+les propositions à confirmer, et ce que « Détacher » fait exactement.
 
 ## Le séjour
 
