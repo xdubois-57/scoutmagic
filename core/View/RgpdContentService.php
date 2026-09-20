@@ -1055,6 +1055,22 @@ e-mails déjà partis ; (h) que le journal ne contient que des compteurs et des 
 n'introduit **aucun sous-traitant** et ne fait **aucun appel à une IA** : ne l'ajoute ni en section 4 ni en section
 5.2.
 
+33bis. **Module Documents officiels (module official_documents)** : Si "official_documents" ne figure PAS dans la
+liste des modules actifs ({$modulesText}), retire entièrement la sous-section "Module Documents officiels" de la
+section 2.4. Si "official_documents" est actif, conserve-la intégralement et sans l'édulcorer. Conserve en
+particulier : (a) que **seule la version signée sur papier a une valeur** — ce que le site produit est un brouillon de
+pré-remplissage, il n'existe ni signature électronique, ni renvoi du document signé, ni vue staff sur ces données, et
+ne présente jamais cette absence comme une limitation temporaire ; (b) que les données reprises sur le document
+viennent des fiches membres déjà décrites en section 2.2 — nom du membre, branche, unité, et nom, prénom et adresse
+postale de l'animateur responsable de sa section — et qu'**aucune n'est collectée à cette occasion** ; (c) que ce que
+le parent saisit (son nom, sa qualité, les dates, le lieu) n'est **enregistré nulle part** : ces valeurs ne vivent que
+le temps de la requête ; (d) que le PDF produit **ne touche jamais le disque** et n'est conservé en aucune copie ;
+(e) que l'accès est réservé aux comptes liés à ce membre, revérifié à chaque action, **sans exception pour un chef
+d'unité ni pour un administrateur**, la seule voie pour un administrateur étant la substitution temporaire de membre,
+visible à l'écran tant qu'elle dure ; (f) que le journal ne porte ni valeur saisie, ni nom, ni contenu de document. Ce
+module n'introduit **aucun sous-traitant** et ne fait **aucun appel à une IA** : ne l'ajoute ni en section 4 ni en
+section 5.2.
+
 34. **Assistant d'aide (fonctionnalité du cœur du site, section 2.8)** : Cette section ne dépend d'aucun module — elle
 dépend uniquement de la présence d'un connecteur IA actif. Si "llm_connector" ne figure PAS dans la liste des modules
 actifs ({$modulesText}), ou si {$providerInfo} n'indique aucun fournisseur actif, retire entièrement la sous-section «

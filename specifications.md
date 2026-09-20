@@ -2769,13 +2769,35 @@ ne manque — un champ déplacé hors de la feuille est invisible sur le PDF pro
 le genre d'erreur qu'on ne voit pas en relisant une carte de coordonnées.
 
 **Une valeur trop longue pour sa ligne est réduite en corps, jamais coupée** — et si elle ne tient
-toujours pas au plus petit corps admis, elle est **signalée sur la page web** plutôt que découverte
-sur le papier.
+toujours pas au plus petit corps admis, ce qui arrive ensuite dépend de **qui peut y faire quelque
+chose**.
+
+- Une valeur que le parent a tapée — son nom, les dates, le lieu — **réaffiche l'écran** avec ce qui
+  était saisi : il peut la raccourcir, et vaut mieux l'apprendre là que sur le papier.
+- Une valeur que le site fournit — le nom du membre, l'adresse du responsable, la ligne d'unité —
+  **ne bloque rien** : le document part quand même. Le parent ne peut pas raccourcir l'adresse de
+  quelqu'un d'autre, et lui demander de le faire mettrait son autorisation hors d'atteinte pour de
+  bon. La valeur est écrite de toute façon, serrée, donc il reçoit un formulaire correct avec une
+  ligne à l'étroit — ce qu'un chef corrige ensuite dans les réglages du module ou dans le fichier de
+  la fédération.
 
 **Rien n'est écrit sur disque** : le PDF sort en mémoire. Sur un hébergement mutualisé, un fichier
 temporaire est un fichier que le processus de quelqu'un d'autre peut lire.
 
-### 44.9 Le bloc sur la page du membre
+### 44.9 Ce que la page RGPD en dit
+
+Le module a sa sous-section en 2.4 de la politique de confidentialité, et sa règle dans le prompt de
+régénération (`Core\View\RgpdContentService::buildSystemPrompt()`), parce qu'il écrit des données
+personnelles — le nom du membre, le nom et l'adresse du responsable de section, le nom du parent qui
+signe — même s'il n'en conserve aucune.
+
+Quatre faits y sont tenus par un test plutôt que par la bonne volonté : **seule la version signée
+compte**, **rien de ce que le parent tape n'est enregistré**, **aucune vue staff et aucun
+contournement chef**, et **aucun sous-traitant ni appel à une IA**. Ce sont les promesses de §44.1 ;
+le jour où l'une cesse de tenir, le test est ce qui force le texte et le code à se remettre
+d'accord.
+
+### 44.10 Le bloc sur la page du membre
 
 La page d'un membre gagne un bloc « Documents officiels », placé avant « Documents privés », qui
 porte le lien vers chaque formulaire et l'avertissement de §44.1. Il n'est rendu que pour **le

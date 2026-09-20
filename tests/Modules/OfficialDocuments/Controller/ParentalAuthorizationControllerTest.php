@@ -254,6 +254,66 @@ final class ParentalAuthorizationControllerTest extends TestCase
     }
 
     /**
+     * The distinction that decides whether a family gets their document at
+     * all: an overflow they can fix stops the download, an overflow they
+     * cannot does not.
+     *
+     * Every value goes through the same overflow-checked path, the site's
+     * own included — the unit line, the member's name, the responsable's
+     * address. A long unit label is nothing a parent can shorten from this
+     * form, so blocking on it would put the authorization permanently out of
+     * reach for that member with a message telling them to do the
+     * impossible. The value is still written (cramped) on the page, so what
+     * they get is a correct form with one tight line.
+     */
+    public function testAnOverflowTheParentCannotFixStillProducesTheDocument(): void
+    {
+        $token = $this->signIn();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')->willReturn(self::profile());
+        $this->memberService->method('getScoutYearIdForMemberYear')->willReturn(3);
+        $this->authorizationService->method('responsableFor')->willReturn(null);
+        // Far past what the 63 mm « de l'unité » line holds, and built from
+        // a setting plus the site name — neither on this screen.
+        $this->authorizationService->method('unitLabel')
+            ->willReturn(str_repeat('Unité de Braine-l\'Alleud ', 10));
+
+        $response = $this->controller->download(
+            new Request('POST', '/members/7/autorisation-parentale', [], self::filledForm($token), [], []),
+            ['id' => '7']
+        );
+
+        $this->assertSame('application/pdf', $response->getHeaders()['Content-Type'] ?? null);
+        $this->assertStringStartsWith('%PDF-', $response->getBody());
+    }
+
+    /**
+     * The other half of the same rule: « Fait à » IS on the form, so an
+     * overflow there comes back as the screen with something the parent can
+     * act on.
+     */
+    public function testAnOverflowTheParentCanFixComesBackAsTheScreen(): void
+    {
+        $token = $this->signIn();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')->willReturn(self::profile());
+        $this->memberService->method('getScoutYearIdForMemberYear')->willReturn(3);
+        $this->authorizationService->method('responsableFor')->willReturn(null);
+        $this->authorizationService->method('unitLabel')->willReturn('25e SV');
+
+        $body = self::filledForm($token);
+        $body['place'] = str_repeat('Braine-l\'Alleud ', 20);
+
+        $response = $this->controller->download(
+            new Request('POST', '/members/7/autorisation-parentale', [], $body, [], []),
+            ['id' => '7']
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertNotSame('application/pdf', $response->getHeaders()['Content-Type'] ?? null);
+    }
+
+    /**
      * With the calendar module disabled the picker simply is not there, and
      * the screen works unchanged — the §7.5 contract, exercised rather than
      * asserted in a docblock. The controller in this class is built with a

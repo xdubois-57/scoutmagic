@@ -151,6 +151,33 @@ final class ParentalAuthorizationPdfServiceTest extends TestCase
     }
 
     /**
+     * The premise `ParentalAuthorizationControllerTest` rests on: a value
+     * the site supplies overflows through the very same path as one the
+     * parent typed, and is reported by its own name.
+     *
+     * Without this, the controller test that proves a site-derived overflow
+     * still yields a PDF could pass for the wrong reason — because nothing
+     * overflowed at all.
+     */
+    public function testAValueTheSiteSuppliesOverflowsUnderItsOwnName(): void
+    {
+        $result = self::service()->render(
+            self::member(),
+            null,
+            str_repeat('Unité de Braine-l\'Alleud ', 10),
+            self::input(),
+            new \DateTimeImmutable('2026-09-20')
+        );
+
+        $this->assertContains('unit', $result['overflowing']);
+        $this->assertNotContains(
+            'unit',
+            \Modules\OfficialDocuments\Service\ParentalAuthorizationFilling::PARENT_EDITABLE,
+            'le code d\'unité n\'est pas quelque chose qu\'un parent peut raccourcir'
+        );
+    }
+
+    /**
      * A missing template is a French sentence, never an FPDI stack trace
      * about a path — this message is shown to a parent verbatim.
      */

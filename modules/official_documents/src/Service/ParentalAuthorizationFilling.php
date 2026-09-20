@@ -42,6 +42,18 @@ final class ParentalAuthorizationFilling
     ];
 
     /**
+     * The fields the parent can actually do something about — the whole of
+     * the screen's form, and nothing else.
+     *
+     * Everything else `values()` writes comes from the site: the member's
+     * own name, the section responsable's name and address, the unit line.
+     * A parent asked to « shorten » one of those is being asked for
+     * something impossible, so the distinction decides what an overflow
+     * means rather than being a nicety (see the controller).
+     */
+    public const PARENT_EDITABLE = ['signatory_name', 'start_date', 'end_date', 'place'];
+
+    /**
      * Roughly what the first dotted line of « Adresse complète » holds at
      * the nominal size. A longer address is split over the form's two lines
      * rather than shrunk: two readable lines beat one line of six-point type

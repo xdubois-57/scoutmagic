@@ -20,6 +20,7 @@ use Core\Security\UserAccountRepository;
 use Modules\Calendar\Api\CalendarEventLookupInterface;
 use Modules\Calendar\Api\EventSummary;
 use Modules\OfficialDocuments\Api\OfficialDocumentsException;
+use Modules\OfficialDocuments\Service\ParentalAuthorizationFilling;
 use Modules\OfficialDocuments\Service\ParentalAuthorizationInput;
 use Modules\OfficialDocuments\Service\ParentalAuthorizationPdfService;
 use Modules\OfficialDocuments\Service\ParentalAuthorizationService;
@@ -131,7 +132,24 @@ class ParentalAuthorizationController extends AbstractController
             return $this->renderForm($member, $this->submitted($body), $e->getMessage());
         }
 
-        if ($result['overflowing'] !== []) {
+        // Only an overflow the parent can DO something about stops the
+        // download. The same overflow-checked path writes the member's own
+        // name, the responsable's address and the unit line, none of which
+        // this form exposes — telling a parent to shorten one of those
+        // would be telling them to shorten somebody else's address, and the
+        // document would stay out of reach for that member for good.
+        //
+        // The value is written either way (`OverlayPdf::writeText()` draws
+        // it cramped rather than dropping it), so a site-derived overflow
+        // costs a tight line on a form that is otherwise correct — which is
+        // a great deal better than no form at all. What a chef would need
+        // to change, they change in the module's settings or in Desk.
+        $theirs = array_values(array_intersect(
+            $result['overflowing'],
+            ParentalAuthorizationFilling::PARENT_EDITABLE
+        ));
+
+        if ($theirs !== []) {
             return $this->renderForm(
                 $member,
                 $this->submitted($body),
