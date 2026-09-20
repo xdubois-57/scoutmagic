@@ -30,33 +30,45 @@ namespace Modules\OfficialDocuments\Value;
 final class HealthSheet
 {
     /**
-     * The four swimming levels the form prints, plus the unanswered case.
+     * The five swimming levels the form prints, plus the unanswered case.
      *
      * A closed vocabulary because it is a set of printed boxes, one of
-     * which gets ticked; a free string would tick none of them.
+     * which gets ticked; a free string would tick none of them. **These are
+     * read off the template, not invented**: an earlier version of this
+     * class offered « nage 25 mètres » and « nage 50 mètres », which the
+     * federation's form does not print — so the PDF could have ticked
+     * nothing at all for a parent who chose one.
      */
-    public const SWIMMING_LEVELS = ['', 'none', 'beginner', '25m', '50m', 'confirmed'];
+    public const SWIMMING_LEVELS = ['', 'very_good', 'good', 'fair', 'poor', 'not_at_all'];
 
     /**
-     * The twelve conditions the form lists as tick-boxes, in its own order.
+     * The twelve conditions the form lists as tick-boxes, **in the order it
+     * prints them** — three rows of four, read left to right.
      *
      * Kept as a list of keys rather than twelve properties: the screen
      * draws them in a loop, the PDF ticks them in a loop, and a thirteenth
      * one the federation adds next year is one line here.
+     *
+     * The order matters beyond tidiness: `Pdf\HealthSheetLayout` maps each
+     * key to the box printed beside its own words, so a key out of place
+     * would tick « asthme » for a child who has « diabète ».
      */
     public const CONDITIONS = [
-        'asthma',
-        'bronchitis',
-        'rheumatism',
-        'ear_infections',
-        'heart_condition',
+        // Row 1
         'diabetes',
-        'epilepsy',
         'car_sickness',
-        'sleepwalking',
+        'heart_condition',
+        'mental_disability',
+        // Row 2
+        'asthma',
+        'rheumatism',
+        'skin_condition',
+        'motor_disability',
+        // Row 3
+        'epilepsy',
         'bedwetting',
-        'fainting',
-        'other',
+        'sleepwalking',
+        'headaches',
     ];
 
     /**

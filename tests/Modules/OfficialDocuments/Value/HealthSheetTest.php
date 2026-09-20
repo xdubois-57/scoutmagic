@@ -43,7 +43,7 @@ final class HealthSheetTest extends TestCase
             array_fill(0, count(HealthSheet::CONDITIONS), true)
         );
         // The one closed vocabulary: anything else reads as unanswered.
-        $data['swimming_level'] = '25m';
+        $data['swimming_level'] = 'fair';
 
         return $data;
     }
@@ -159,9 +159,33 @@ final class HealthSheetTest extends TestCase
      * them matches reads as unanswered — which leaves the form's own boxes
      * blank for a pen, rather than ticking the wrong one.
      */
+    /**
+     * The vocabulary is the form's, not one invented here. An earlier
+     * version offered « nage 25 mètres » and « nage 50 mètres », which the
+     * federation does not print — so a parent could choose a level the PDF
+     * had no box to tick. This pins both lists against the template's own
+     * wording, which `Pdf\HealthSheetLayout` maps box by box.
+     */
+    public function testTheVocabularyIsTheOneThePrintedFormUses(): void
+    {
+        $this->assertSame(
+            ['', 'very_good', 'good', 'fair', 'poor', 'not_at_all'],
+            HealthSheet::SWIMMING_LEVELS
+        );
+        $this->assertSame(
+            [
+                'diabetes', 'car_sickness', 'heart_condition', 'mental_disability',
+                'asthma', 'rheumatism', 'skin_condition', 'motor_disability',
+                'epilepsy', 'bedwetting', 'sleepwalking', 'headaches',
+            ],
+            HealthSheet::CONDITIONS,
+            'l\'ordre est celui que le formulaire imprime : trois rangées de quatre'
+        );
+    }
+
     public function testAnUnknownSwimmingLevelReadsAsUnanswered(): void
     {
-        $this->assertSame('25m', HealthSheet::fromArray(['swimming_level' => '25m'])->swimmingLevel);
+        $this->assertSame('fair', HealthSheet::fromArray(['swimming_level' => 'fair'])->swimmingLevel);
         $this->assertSame('', HealthSheet::fromArray(['swimming_level' => 'champion olympique'])->swimmingLevel);
         $this->assertSame('', HealthSheet::fromArray([])->swimmingLevel);
     }

@@ -200,11 +200,11 @@
                             value: sheet.swimming_level,
                             options: [
                                 { value: '', label: 'Non précisé' },
-                                { value: 'none', label: 'Ne nage pas' },
-                                { value: 'beginner', label: 'Débutant' },
-                                { value: '25m', label: 'Nage 25 mètres' },
-                                { value: '50m', label: 'Nage 50 mètres' },
-                                { value: 'confirmed', label: 'Nageur confirmé' },
+                                { value: 'very_good', label: 'Très bien' },
+                                { value: 'good', label: 'Bien' },
+                                { value: 'fair', label: 'Moyennement bien' },
+                                { value: 'poor', label: 'Difficilement' },
+                                { value: 'not_at_all', label: 'Pas du tout' },
                             ],
                         } only %}
 
@@ -218,19 +218,25 @@
                                                id="condition-{{ condition }}" value="{{ condition }}"
                                                {{ sheet.conditions[condition] ? 'checked' : '' }}>
                                         <label class="form-check-label tap-target" for="condition-{{ condition }}">
+                                            {#
+                                              The federation's own wording, in
+                                              its own order. A label invented
+                                              here would offer a parent a box
+                                              the printed form does not have.
+                                            #}
                                             {{ {
-                                                'asthma': 'Asthme',
-                                                'bronchitis': 'Bronchite',
-                                                'rheumatism': 'Rhumatisme',
-                                                'ear_infections': 'Otites',
-                                                'heart_condition': 'Affection cardiaque',
                                                 'diabetes': 'Diabète',
-                                                'epilepsy': 'Épilepsie',
                                                 'car_sickness': 'Mal des transports',
+                                                'heart_condition': 'Affection cardiaque',
+                                                'mental_disability': 'Handicap mental',
+                                                'asthma': 'Asthme',
+                                                'rheumatism': 'Rhumatisme',
+                                                'skin_condition': 'Affection cutanée',
+                                                'motor_disability': 'Handicap moteur',
+                                                'epilepsy': 'Épilepsie',
+                                                'bedwetting': 'Énurésie nocturne',
                                                 'sleepwalking': 'Somnambulisme',
-                                                'bedwetting': 'Énurésie (pipi au lit)',
-                                                'fainting': 'Évanouissements',
-                                                'other': 'Autre',
+                                                'headaches': 'Maux de tête / migraines',
                                             }[condition] }}
                                         </label>
                                     </div>
