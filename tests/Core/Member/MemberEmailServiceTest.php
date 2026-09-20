@@ -646,13 +646,51 @@ class MemberEmailServiceTest extends TestCase
         );
         $this->blockAddress('rebond@example.com');
 
-        $this->service->unblockBounce($this->memberId, $id);
+        $this->assertTrue($this->service->unblockBounce($this->memberId, $id));
 
         $addresses = $this->service->resolveValidAddressesForMassMail($this->memberId, null);
         $this->assertSame(
             ['rebond@example.com'],
             array_map(static fn(MemberEmail $row): string => $row->email, $addresses)
         );
+    }
+
+    /**
+     * **Lifting nothing answers false**, so the page can say so instead of
+     * reporting a success over a no-op.
+     *
+     * Every way of getting here is ordinary: a double-submit, a
+     * back-button resubmit (the CSRF token is not consumed on use), a
+     * second guardian's stale tab, or a super-admin who lifted the block
+     * first. The admin path already asked this question of
+     * `BounceService::unblock()`; this one used to discard the answer and
+     * flash « Adresse réactivée » regardless.
+     */
+    public function testLiftingABlockThatIsNoLongerThereAnswersFalse(): void
+    {
+        $id = $this->repository->create(
+            $this->memberId, 'rebond@example.com', MemberEmail::SOURCE_MANUAL, MemberEmail::STATUS_VALID, null, null
+        );
+        $this->blockAddress('rebond@example.com');
+
+        $this->assertTrue($this->service->unblockBounce($this->memberId, $id), 'the first one lifts it.');
+        $this->assertFalse(
+            $this->service->unblockBounce($this->memberId, $id),
+            'and the second has nothing left to lift.'
+        );
+    }
+
+    /**
+     * An address that never bounced has no state at all — a direct POST,
+     * or a row whose bounce was forgotten when a message got through.
+     */
+    public function testLiftingABlockOnAnAddressThatNeverBouncedAnswersFalse(): void
+    {
+        $id = $this->repository->create(
+            $this->memberId, 'jamais@example.com', MemberEmail::SOURCE_MANUAL, MemberEmail::STATUS_VALID, null, null
+        );
+
+        $this->assertFalse($this->service->unblockBounce($this->memberId, $id));
     }
 
     /**

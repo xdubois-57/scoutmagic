@@ -692,8 +692,18 @@ class PostControllerTest extends TestCase
     {
         $manager = $this->createMock(DelegatedAlbumManager::class);
         $manager->method('ensureAlbum')->willReturn(new DelegatedAlbum(1, 'Louveteaux', '2026-01-01'));
+        // **Counted, not drawn.** Four `random_int(1000, 9999)` draws
+        // collide about once in fifteen hundred runs, and the collision
+        // hits a real UNIQUE (post_id, gallery_media_id) — so this test
+        // failed on roughly that schedule, in a module that had changed
+        // nothing. Distinct by construction costs nothing here: what is
+        // under test is that four media are accepted, not which ids they
+        // carry.
+        $mediaId = 0;
         $manager->method('addMedia')->willReturnCallback(
-            fn() => new DelegatedMedia(random_int(1000, 9999), 'photo', 'pending', 0, 'photo.jpg', '2026-01-01 10:00:00')
+            function () use (&$mediaId): DelegatedMedia {
+                return new DelegatedMedia(++$mediaId, 'photo', 'pending', 0, 'photo.jpg', '2026-01-01 10:00:00');
+            }
         );
 
         $this->withMediaFiles(4);

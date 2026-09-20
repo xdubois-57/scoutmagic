@@ -347,7 +347,7 @@
                                             {% else %}
                                                 Un message n'a pas pu être remis le {{ bounce.since|french_date }}.
                                             {% endif %}
-                                            <span class="d-block text-body-secondary">{{ bounce.label }}. {{ bounce.guidance }}</span>
+                                            <span class="d-block text-body-secondary">{{ bounce.label }}. {{ bounce.guidance }}{% if bounce.blocked and bounce.reactivation_hint %} {{ bounce.reactivation_hint }}{% endif %}</span>
                                         </div>
                                     {% endif %}
                                 </div>

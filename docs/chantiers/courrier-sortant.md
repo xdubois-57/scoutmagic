@@ -1755,6 +1755,44 @@ second compte *était* prévenu. C'est la couverture la plus coûteuse qui
 soit : elle faisait passer le comportement pour délibéré. Elle est
 remplacée par son contraire, vérifié en cassant le correctif.
 
+### Deux phrases qui mentaient, dans le même tour de relecture
+
+**« Réactivez l'adresse ci-dessous », sans rien en dessous.** Trois des
+quatre catégories terminaient leur conseil ainsi, alors que le bouton qui
+réactive ne s'affiche qu'une fois l'adresse bloquée. Un premier échec
+définitif — et *tous* les échecs temporaires, qui par construction ne
+bloquent jamais puisque seul `Permanent` incrémente le compteur —
+désignaient donc un bouton absent de la page. La même phrase partait aussi
+dans la notification non bloquante, dont la charge porte `'url' => null` et
+se lit sur un écran verrouillé : là, « ci-dessous » ne nomme rien du tout.
+
+`guidance()` ne dit plus que ce qui est vrai dans tous les cas ;
+l'invitation vit dans `reactivationHint()`, affichée uniquement à côté du
+bouton. `null` pour `Unreachable`, et ce n'est pas un oubli : rien de ce
+que le membre fait ne répare le serveur injoignable de son fournisseur, et
+l'inviter à réessayer serait l'inviter à échouer une seconde fois.
+
+**« Adresse réactivée » pour un non-événement.** `unblockBounce()` côté
+membre renvoyait `void` et le contrôleur affichait le succès quoi qu'il
+arrive, alors que le chemin super-admin, lui, lisait déjà le booléen de
+`BounceService::unblock()` et disait « Cette adresse n'est plus dans la
+liste » le cas échéant. Aucune mauvaise intention n'est nécessaire pour y
+arriver : un double-clic, un retour arrière (le jeton CSRF n'est pas
+consommé à l'usage), l'onglet resté ouvert du second parent, ou un
+super-admin passé avant. Le service renvoie maintenant `bool` et le
+contrôleur dit l'un ou l'autre.
+
+**Au passage, un test instable sans rapport.**
+`PostControllerTest::testCreateAcceptsExactlyFourMedia` (module Groupes)
+tirait quatre `random_int(1000, 9999)` pour ses identifiants de média,
+contre un `UNIQUE (post_id, gallery_media_id)` bien réel : environ une
+exécution sur mille cinq cents échouait, dans un module qui n'avait rien
+changé. C'est ce tirage qui a cassé une passe locale de cette PR. Les
+identifiants sont maintenant comptés plutôt que tirés — distincts par
+construction. Correction hors périmètre, assumée et signalée ici plutôt
+que glissée sans le dire : la laisser en place, c'était livrer sciemment
+un test qui casse la CI de temps en temps.
+
 ### Écarts et limites, assumés
 
 **La preuve d'envoi réduit la falsification, elle ne la supprime pas.** La

@@ -257,7 +257,8 @@ class MemberEmailAddressControllerTest extends TestCase
         $token = $this->startSessionWithCsrfToken();
         $this->memberService->method('canAccess')->willReturn(true);
         $this->memberService->method('getMemberProfile')->willReturn($this->makeProfile(42));
-        $this->memberEmailService->expects($this->once())->method('unblockBounce')->with(42, 5);
+        $this->memberEmailService->expects($this->once())->method('unblockBounce')
+            ->with(42, 5)->willReturn(true);
 
         $response = $this->controller->unblockBounce(
             new Request('POST', '/members/1/emails/5/bounce-unblock', [], ['_csrf_token' => $token], [], []),
@@ -266,6 +267,38 @@ class MemberEmailAddressControllerTest extends TestCase
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertSame('/members/1', $response->getHeaders()['Location'] ?? null);
+        $this->assertSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
+    }
+
+    /**
+     * **A no-op is said out loud**, as the admin path already said it.
+     *
+     * `unblockBounce()` returned `void` and the controller flashed
+     * « Adresse réactivée » whatever happened — so a double-submit, a
+     * back-button resubmit, a second guardian's stale tab, or a
+     * super-admin who lifted the block first all reported a success over
+     * nothing. None of those needs any bad intent to reach: the CSRF token
+     * is not consumed on use.
+     */
+    public function testUnblockBounceSaysSoWhenThereWasNothingToLift(): void
+    {
+        $token = $this->startSessionWithCsrfToken();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')->willReturn($this->makeProfile(42));
+        $this->memberEmailService->expects($this->once())->method('unblockBounce')
+            ->with(42, 5)->willReturn(false);
+
+        $response = $this->controller->unblockBounce(
+            new Request('POST', '/members/1/emails/5/bounce-unblock', [], ['_csrf_token' => $token], [], []),
+            ['id' => '1', 'email_id' => '5']
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertNotNull($flash);
+        $this->assertSame('error', $flash['type'], 'nothing was lifted, so this is not a success.');
+        $this->assertStringNotContainsString('réactivée', $flash['message']);
     }
 
     public function testUnblockBounceRejectsAStaleCsrfTokenWithoutCallingTheService(): void

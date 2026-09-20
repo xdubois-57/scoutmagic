@@ -59,21 +59,53 @@ enum BounceCategory: string
      * Each one ends in something doable. « Contactez votre fournisseur »
      * is the last resort and appears once: an instruction nobody can carry
      * out reads as a refusal to help.
+     *
+     * **It says nothing about reactivating, and that is the fix for a real
+     * defect.** Three of these used to end in « réactivez l’adresse
+     * ci-dessous », while the button that reactivates only renders once
+     * the address is blocked — so a first permanent failure, and *every*
+     * transient one (which by design can never block, since only
+     * `Permanent` increments the counter), pointed the member at a control
+     * that was not on the page. The same sentence also travelled in the
+     * non-blocking push notification, where « ci-dessous » names nothing
+     * at all. The invitation now lives in {@see reactivationHint()}, shown
+     * only where the control actually is.
      */
     public function guidance(): string
     {
         return match ($this) {
             self::MailboxFull => 'Votre boîte de réception est pleine et ne peut plus rien recevoir. '
-                . 'Faites-y de la place, puis réactivez l’adresse ci-dessous.',
+                . 'Faites-y de la place.',
             self::NoSuchAddress => 'Le serveur destinataire dit que cette adresse n’existe pas. '
-                . 'Vérifiez l’orthographe : une lettre en trop suffit. Si l’adresse est bonne et que '
-                . 'vous venez de la créer ou de la corriger chez votre fournisseur, réactivez-la ci-dessous.',
+                . 'Vérifiez l’orthographe : une lettre en trop suffit.',
             self::Refused => 'Le serveur qui reçoit votre courrier a refusé nos messages. '
                 . 'C’est souvent un filtre anti-spam un peu strict : ajoutez notre adresse d’expédition '
-                . 'à vos contacts, puis réactivez l’adresse ci-dessous.',
+                . 'à vos contacts.',
             self::Unreachable => 'Nous n’avons pas réussi à joindre le serveur de votre fournisseur. '
                 . 'C’est en général passager. Si cela dure, c’est chez votre fournisseur qu’il faut '
                 . 'demander, pas ici.',
+        };
+    }
+
+    /**
+     * The sentence that invites the member to put the address back in
+     * service — shown **only next to the button that does it**, which
+     * exists only once the address is blocked.
+     *
+     * Null for `Unreachable`, and not by omission: nothing the member does
+     * fixes their provider's server being unreachable, so inviting them to
+     * retry would be inviting them to fail again. The site lifts that one
+     * by itself on the next message that gets through.
+     */
+    public function reactivationHint(): ?string
+    {
+        return match ($this) {
+            self::MailboxFull => 'Une fois la place faite, réactivez l’adresse ci-dessous.',
+            self::NoSuchAddress => 'Si l’adresse est bonne et que vous venez de la créer ou de la '
+                . 'corriger chez votre fournisseur, réactivez-la ci-dessous.',
+            self::Refused => 'Une fois notre adresse ajoutée à vos contacts, réactivez celle-ci '
+                . 'ci-dessous.',
+            self::Unreachable => null,
         };
     }
 

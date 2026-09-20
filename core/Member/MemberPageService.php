@@ -108,6 +108,8 @@ class MemberPageService
                     // means nothing to a parent (SECURITY.md §11).
                     'label' => $bounce->category->label(),
                     'guidance' => $bounce->category->guidance(),
+                    // Only where the button is: see BounceCategory.
+                    'reactivation_hint' => $bounce->category->reactivationHint(),
                     // **`blockedAt` when there is one, and that is not the
                     // same date.** `last_seen_at` moves with every bounce
                     // the address goes on producing — including after it

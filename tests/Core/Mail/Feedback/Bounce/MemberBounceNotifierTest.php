@@ -210,6 +210,11 @@ class MemberBounceNotifierTest extends TestCase
         $this->notifier->notify($this->state(), false);
 
         $this->assertStringContainsString(BounceCategory::MailboxFull->guidance(), $this->sent[0]['body']);
+
+        // And nothing that names a control: this payload carries
+        // `'url' => null` and is read on a lock screen, so « ci-dessous »
+        // would point at nothing at all.
+        $this->assertStringNotContainsString('ci-dessous', $this->sent[0]['body']);
     }
 
     /**

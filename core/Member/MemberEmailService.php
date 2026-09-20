@@ -94,8 +94,17 @@ class MemberEmailService
      * Unblocking through one child's profile clears the mailbox
      * everywhere, because there is one mailbox and one state — see the
      * `mail_bounce_states` table comment.
+     *
+     * @return bool whether a block was actually lifted. False is the
+     *              ordinary outcome of a double-submit, a stale tab, or a
+     *              super-admin having got there first — and the caller has
+     *              to know, because « Adresse réactivée » over a no-op is a
+     *              success message about nothing. The admin path
+     *              ({@see \Core\Http\Controller\OutboundMailController
+     *              ::unblockBounce()}) already answered this question; this
+     *              one threw the answer away.
      */
-    public function unblockBounce(int $memberId, int $emailId, ?string $deskEmail = null): void
+    public function unblockBounce(int $memberId, int $emailId, ?string $deskEmail = null): bool
     {
         // **Id 0 is the Desk address, and it has no row yet.**
         // `virtualDeskRow()` synthesises one with `id: 0` whenever the
@@ -114,15 +123,15 @@ class MemberEmailService
             : $this->requireProvenOwnRow($memberId, $emailId)->email;
 
         if ($this->bounces === null) {
-            return;
+            return false;
         }
 
         $state = $this->bounces->stateFor($email);
         if ($state === null) {
-            return;
+            return false;
         }
 
-        $this->bounces->unblock($state->id, true);
+        return $this->bounces->unblock($state->id, true);
     }
 
     /**

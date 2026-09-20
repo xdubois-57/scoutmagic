@@ -212,14 +212,21 @@ class MemberEmailAddressController extends AbstractController
             // synthesised Desk row that has no `member_emails` entry yet
             // (the common case). It is read off the member's own profile
             // here, never off the request.
-            $this->memberEmailService->unblockBounce(
+            $lifted = $this->memberEmailService->unblockBounce(
                 $memberId,
                 (int) $params['email_id'],
                 $this->deskEmailFor($memberYearId)
             );
+
+            // Mirrors the admin path: a no-op is said out loud rather than
+            // dressed as a success. Reachable without any bad intent — a
+            // double-submit, a back-button resubmit, a second guardian's
+            // stale tab, or a super-admin who lifted it first.
             FlashMessage::set(
-                'success',
-                'Adresse réactivée. Si elle refuse à nouveau nos messages, elle sera suspendue de nouveau.'
+                $lifted ? 'success' : 'error',
+                $lifted
+                    ? 'Adresse réactivée. Si elle refuse à nouveau nos messages, elle sera suspendue de nouveau.'
+                    : 'Cette adresse n’était plus suspendue : il n’y avait rien à réactiver.'
             );
         } catch (MemberEmailException $e) {
             FlashMessage::set('error', $e->getMessage());
