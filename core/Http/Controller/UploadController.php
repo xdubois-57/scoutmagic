@@ -19,6 +19,7 @@ use Core\Photo\PhotoIngestionService;
 use Core\Security\AuthSession;
 use Core\Security\Role;
 use Core\View\ConfigurationMode;
+use Core\View\EditableContentAuthorizer;
 use Twig\Environment;
 
 class UploadController extends AbstractController
@@ -32,10 +33,17 @@ class UploadController extends AbstractController
      * below has to know whether the requesting account is the member whose
      * photo the key names.
      */
+    /**
+     * @param EditableContentAuthorizer[] $editableContentAuthorizers the
+     *        keys whose write role is narrower than configuration mode's
+     *        own `admin` — see {@see isUploadAuthorized()}. Optional and
+     *        trailing so existing call sites keep working.
+     */
     public function __construct(
         protected Environment $twig,
         private PhotoIngestionService $photoIngestionService,
         private MemberService $memberService,
+        private array $editableContentAuthorizers = [],
     ) {
     }
 
@@ -255,6 +263,31 @@ class UploadController extends AbstractController
         // require here either.
         if ($context === 'unit_logo') {
             return Role::fromString(AuthSession::getRole())->hasAccess(Role::SUPERADMIN);
+        }
+
+        // `editable_image` writes `editable_contents` under a key the
+        // CLIENT chooses, through PhotoIngestionService rather than
+        // through EditableContentController — a second door onto the same
+        // table. Configuration mode alone means `admin`, which was the
+        // whole answer for as long as every editable key sat on a page an
+        // admin could also read. A free-text page filed in the
+        // Configuration menu is read at `superadmin`
+        // (ARCHITECTURE.md §8.115), so this door has to ask the same
+        // question the other one does, or an admin could overwrite a
+        // page's body here that they are refused there.
+        //
+        // EditableContentService::set() refuses it too, as the backstop
+        // that makes a THIRD door fail closed. This check is here so the
+        // refusal is an ordinary refused upload rather than an exception.
+        if ($context === PhotoIngestionService::CONTEXT_EDITABLE_IMAGE) {
+            foreach ($this->editableContentAuthorizers as $authorizer) {
+                $required = $authorizer->roleMinForKey($key);
+                if ($required !== null
+                    && !Role::fromString(AuthSession::getRole())->hasAccess(Role::fromString($required))
+                ) {
+                    return false;
+                }
+            }
         }
 
         return ConfigurationMode::isActive();

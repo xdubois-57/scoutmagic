@@ -2310,16 +2310,20 @@ $posterPdfService = new PosterPdfService();
 // Create cookie consent service
 $cookieConsentService = new CookieConsentService();
 
+// Free-text pages a superadmin has added to a menu (issue #368,
+// ARCHITECTURE.md §8.115). Its repository comes first because the
+// editable-content service is handed an authorizer built on it: a page's
+// body is written at the PAGE's role, not at the role of whichever
+// endpoint carries the write (SECURITY.md §3).
+$textPageRepository = new \Core\Page\TextPageRepository($pdo);
+
 // Create editable content service
 $editableContentRepo = new EditableContentRepository($pdo);
-$editableContentService = new EditableContentService($editableContentRepo);
+$editableContentService = new EditableContentService(
+    $editableContentRepo,
+    [new \Core\Page\TextPageContentAuthorizer($textPageRepository)]
+);
 
-// Free-text pages a superadmin has added to a menu (issue #368,
-// ARCHITECTURE.md §8.115). Built here because it is handed the editable
-// content service: deleting a page deletes the rich text that belonged
-// to it, and a page whose row is gone while its text stays in
-// `editable_contents` is data nobody can name, find or erase.
-$textPageRepository = new \Core\Page\TextPageRepository($pdo);
 $textPageService = new \Core\Page\TextPageService($textPageRepository, $editableContentService);
 $sectionRepository = new SectionRepository($pdo);
 
@@ -5967,7 +5971,16 @@ $photoIngestionService = new \Core\Photo\PhotoIngestionService(
     $imageVariantService,
     $accountPhotoService
 );
-$uploadController = new UploadController($twig, $photoIngestionService, $memberService);
+// The fourth argument is the same per-key re-check the editable-content
+// endpoint carries: `context=editable_image` writes `editable_contents`
+// under a client-chosen key, so this is a second door onto the same
+// table and it has to ask the same question (ARCHITECTURE.md §8.115).
+$uploadController = new UploadController(
+    $twig,
+    $photoIngestionService,
+    $memberService,
+    [new \Core\Page\TextPageContentAuthorizer($textPageRepository)]
+);
 $uploadController->setJournalService($journalService);
 $frontController->registerController(UploadController::class, $uploadController);
 $frontController->registerController(

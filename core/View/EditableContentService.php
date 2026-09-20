@@ -8,7 +8,10 @@ declare(strict_types=1);
 
 namespace Core\View;
 
+use Core\Http\Controller\AbstractController;
+use Core\Security\AuthSession;
 use Core\Security\HtmlSanitizer;
+use Core\Security\Role;
 
 class EditableContentService
 {
@@ -22,10 +25,52 @@ class EditableContentService
      */
     private array $rows = [];
 
+    /**
+     * @param EditableContentAuthorizer[] $authorizers the keys whose write
+     *        role is narrower than the endpoint that would otherwise
+     *        decide — see {@see assertMayWrite()}. Optional and trailing
+     *        so the many call sites that build this service with one
+     *        argument keep working; an empty list is the behaviour this
+     *        service had before free-text pages existed.
+     */
     public function __construct(
-        private EditableContentRepository $repository
+        private EditableContentRepository $repository,
+        private array $authorizers = []
     ) {
         $this->sanitizer = new HtmlSanitizer();
+    }
+
+    /**
+     * **The one gate every write to `editable_contents` passes.**
+     *
+     * The entry points check first, so each can refuse in its own shape:
+     * `EditableContentController` answers a JSON 403, and
+     * `UploadController` refuses the upload. Those checks are the good
+     * error messages; THIS one is the guarantee.
+     *
+     * The reason it exists at all is that a per-door check is only ever
+     * as complete as the list of doors somebody remembered. Free-text
+     * pages made `page_content_{id}` the first key on this site whose
+     * read floor can exceed the `admin` floor of the endpoints that write
+     * it (ARCHITECTURE.md §8.115), and the gap was reachable through a
+     * second door — `POST /upload` with `context=editable_image` — that
+     * had never needed guarding before. A third one added later fails
+     * closed here instead of quietly reopening it.
+     *
+     * @throws EditableContentForbiddenException
+     */
+    private function assertMayWrite(string $key): void
+    {
+        foreach ($this->authorizers as $authorizer) {
+            $required = $authorizer->roleMinForKey($key);
+            if ($required === null) {
+                continue;
+            }
+
+            if (!Role::fromString(AuthSession::getRole())->hasAccess(Role::fromString($required))) {
+                throw new EditableContentForbiddenException(AbstractController::FORBIDDEN_MESSAGE);
+            }
+        }
     }
 
     /**
@@ -72,6 +117,8 @@ class EditableContentService
      */
     public function set(string $key, string $value, string $type, int $modifiedBy): string
     {
+        $this->assertMayWrite($key);
+
         $value = $this->sanitizer->sanitize($value);
 
         $this->repository->upsert($key, $type, $value, null, $modifiedBy);

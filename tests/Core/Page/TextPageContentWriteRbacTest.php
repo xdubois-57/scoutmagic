@@ -131,6 +131,54 @@ class TextPageContentWriteRbacTest extends TestCase
     }
 
     /**
+     * **The backstop, asked of the chokepoint every door funnels
+     * through.**
+     *
+     * The per-door checks are the good error messages; this is the
+     * guarantee. `POST /upload` with `context=editable_image` writes
+     * `editable_contents` under a client-chosen key through
+     * `PhotoIngestionService`, never touching the editable-content
+     * controller — a second door that had never needed guarding until
+     * this iteration created the first key whose read floor exceeds
+     * `admin`. A third one added later must fail closed rather than
+     * quietly reopening the gap.
+     */
+    public function testTheServiceItselfRefusesWhateverDoorTheWriteCameThrough(): void
+    {
+        $page = $this->pages->create('ASBL', 'Notre ASBL', MenuBuilder::MENU_CONFIGURATION, 'site');
+
+        $guarded = new EditableContentService(
+            new EditableContentRepository($this->pdo),
+            [new TextPageContentAuthorizer(new TextPageRepository($this->pdo))]
+        );
+
+        AuthSession::logout();
+        AuthSession::login(7, 'admin@test.be', 'admin');
+
+        $this->expectException(\Core\View\EditableContentForbiddenException::class);
+        $guarded->set($page->contentKey(), '5', 'image', 7);
+    }
+
+    /**
+     * And the same call from a superadmin goes through — the backstop
+     * narrows where it must and nowhere else.
+     */
+    public function testTheServiceLetsTheRightRoleThrough(): void
+    {
+        $page = $this->pages->create('ASBL', 'Notre ASBL', MenuBuilder::MENU_CONFIGURATION, 'site');
+
+        $guarded = new EditableContentService(
+            new EditableContentRepository($this->pdo),
+            [new TextPageContentAuthorizer(new TextPageRepository($this->pdo))]
+        );
+
+        AuthSession::logout();
+        AuthSession::login(7, 'superadmin@test.be', 'superadmin');
+
+        $this->assertSame('5', $guarded->set($page->contentKey(), '5', 'image', 7));
+    }
+
+    /**
      * The refusal says the same thing whatever the reason and never
      * names what the key points at — an answer that distinguished « no
      * such page » from « not your page » would map out which ids exist.

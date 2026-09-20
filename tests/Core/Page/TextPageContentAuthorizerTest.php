@@ -101,6 +101,58 @@ class TextPageContentAuthorizerTest extends TestCase
     }
 
     /**
+     * **The escalation reopened by changing the case of one letter.**
+     *
+     * `editable_contents` is `utf8mb4_unicode_ci` and
+     * `EditableContentRepository` compares with a plain
+     * `WHERE content_key = ?`, so the database considers `Page_Content_7`
+     * and `page_content_7` the same row. A case-sensitive authorizer
+     * would abstain on the first spelling, hand it back to the
+     * endpoint's own `admin` floor, and let the write land on the real
+     * row anyway.
+     */
+    public function testAKeyInAnotherCaseIsStillThePagesKey(): void
+    {
+        $page = $this->service->create('ASBL', 'Notre ASBL', MenuBuilder::MENU_CONFIGURATION, 'site');
+        $id = $page->id;
+
+        foreach (["Page_Content_{$id}", "PAGE_CONTENT_{$id}", "pAgE_cOnTeNt_{$id}"] as $spelling) {
+            $this->assertSame('superadmin', $this->authorizer->roleMinForKey($spelling), $spelling);
+        }
+    }
+
+    /**
+     * The same, with accents — `utf8mb4_unicode_ci` is accent-insensitive
+     * too, so `/i` alone would not have been enough.
+     */
+    public function testAnAccentedSpellingIsStillThePagesKey(): void
+    {
+        $page = $this->service->create('ASBL', 'Notre ASBL', MenuBuilder::MENU_CONFIGURATION, 'site');
+
+        foreach (['pagé_content_', 'page_cöntent_', 'pàgè_cóntént_'] as $prefix) {
+            $this->assertSame(
+                'superadmin',
+                $this->authorizer->roleMinForKey($prefix . $page->id),
+                $prefix
+            );
+        }
+    }
+
+    /**
+     * Trailing whitespace is guarded too, and for a reason beyond case
+     * and accents: `utf8mb4_unicode_ci` is a PAD SPACE collation, so
+     * MySQL's `=` ignores trailing spaces entirely —
+     * `'page_content_1 '` and `'page_content_1'` are the same row to the
+     * database.
+     */
+    public function testATrailingSpaceIsStillThePagesKey(): void
+    {
+        $page = $this->service->create('ASBL', 'Notre ASBL', MenuBuilder::MENU_CONFIGURATION, 'site');
+
+        $this->assertSame('superadmin', $this->authorizer->roleMinForKey($page->contentKey() . '  '));
+    }
+
+    /**
      * Every other key on the site is none of this authorizer's business,
      * so it can only ever narrow and never widen.
      */
@@ -117,7 +169,6 @@ class TextPageContentAuthorizerTest extends TestCase
             'page_content_x',
             'page_content_1a',
             'xpage_content_1',
-            'page_content_1 ',
         ];
 
         foreach ($untouched as $key) {

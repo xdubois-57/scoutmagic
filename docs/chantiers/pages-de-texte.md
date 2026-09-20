@@ -53,7 +53,7 @@ Pour que ça ne revienne pas par accident :
   cœur, les entrées de menu juste après le calcul du surlignage, et le
   contrôleur pré-construit.
 - `ARCHITECTURE.md` §8.115.
-- 34 tests dans `tests/Core/Page/`, plus la table dans
+- 55 tests dans `tests/Core/Page/`, plus la table dans
   `tests/DatabaseTestHelper.php`.
 
 ### Décisions prises seul
@@ -226,6 +226,48 @@ Filtrer plutôt qu'entourer d'un `catch` est délibéré : un `catch` aurait
 fait disparaître l'entrée de menu de **toutes** les pages parce qu'une
 ligne a vieilli. Là, une ligne périmée coûte son entrée de menu ; la page
 garde sa route et reste joignable par son adresse.
+
+**Un second tour a trouvé deux autres portes sur la même faille.** La
+correction ci-dessus fermait la porte que le premier constat nommait, et
+la relecture suivante a montré qu'il y en avait deux autres — ce qui est
+l'argument contre les gardes posés porte par porte.
+
+*Par l'orthographe de la clé.* `editable_contents` est déclarée
+`utf8mb4_unicode_ci` et le dépôt compare par un simple
+`WHERE content_key = ?` : la base considère `Page_Content_7`,
+`pagé_content_7` et `page_content_7` comme la même ligne. Un motif
+sensible à la casse s'abstenait donc sur les deux premières
+orthographes, les rendait au plancher `admin` du point d'entrée, et
+l'écriture atteignait quand même la vraie ligne. La clé est désormais
+repliée par `TextNormalizerService::fold()` avant d'être reconnue — la
+même fonction que le slug utilise, et pour la même raison : elle ne
+dépend pas de l'hôte. Le repli couvre la casse, les accents et
+l'orthographe des séparateurs d'un seul coup, et **sur-reconnaît
+volontairement** : garder une clé qui n'est pas celle d'une page coûte
+un refus sur une clé que rien n'utilise, s'abstenir sur une qui l'est
+coûte l'élévation. Le test a trouvé un cas de plus que la relecture
+n'en nommait : `utf8mb4_unicode_ci` est une collation PAD SPACE, donc
+MySQL ignore les espaces de fin — `'page_content_1 '` est la même ligne
+aussi.
+
+*Par le téléversement.* `POST /upload` avec `context=editable_image`
+écrit la même table sous une clé choisie par le client, via
+`PhotoIngestionService`, sans jamais passer par
+`EditableContentController`. Son autorisation était
+`ConfigurationMode::isActive()` seul, c'est-à-dire `admin`. Cette porte
+n'avait aucune conséquence de sécurité avant cette itération : elle
+devient exploitable parce que c'est ici qu'apparaît la première clé dont
+le plancher de lecture dépasse `admin`, donc c'est ici qu'elle se ferme.
+
+**Le correctif structurel qui en découle.** Les deux portes passent par
+`EditableContentService::set()`. Le garde y est donc posé aussi, comme
+filet : un garde par porte ne vaut que la liste des portes dont
+quelqu'un s'est souvenu, et cette relecture vient d'en trouver deux. Les
+contrôles aux portes restent — ce sont eux qui produisent un bon refus,
+un 403 JSON d'un côté et un téléversement refusé de l'autre — mais
+c'est le point de passage unique qui garantit qu'une **troisième** porte
+ajoutée plus tard échouera fermée au lieu de rouvrir la faille en
+silence.
 
 **Deux tests ne pouvaient pas échouer.** Le dépôt venait précisément de
 livrer « Les tests qui ne peuvent pas échouer » (#389), et la relecture a

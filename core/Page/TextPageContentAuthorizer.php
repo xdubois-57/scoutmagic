@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Page;
 
+use Core\Service\TextNormalizerService;
 use Core\View\EditableContentAuthorizer;
 
 /**
@@ -26,8 +27,32 @@ use Core\View\EditableContentAuthorizer;
  */
 final class TextPageContentAuthorizer implements EditableContentAuthorizer
 {
-    /** `page_content_` followed by the id, and nothing else. */
-    private const KEY_PATTERN = '/^page_content_(\d+)$/';
+    /**
+     * `page content` followed by the id — matched against the FOLDED key,
+     * which is why the separators are spaces here.
+     *
+     * **A case-sensitive match on the raw key would reopen the very
+     * escalation this class closes.** `editable_contents` is declared
+     * `utf8mb4_unicode_ci`, and `EditableContentRepository` compares with
+     * a plain `WHERE content_key = ?`: the database considers
+     * `Page_Content_7`, `pagé_content_7` and `page_content_7` the same
+     * row. An authorizer that only recognised the third spelling would
+     * abstain on the first two, hand them back to the endpoint's own
+     * `admin` floor, and let the write land on the real row anyway.
+     *
+     * {@see TextNormalizerService::fold()} is the site's own
+     * platform-independent folding — lowercase, an explicit accent map
+     * that does not depend on the host's C library, and every run of
+     * non-alphanumerics collapsed to one space. Matching on its output
+     * covers case, accents and separator spelling in one step.
+     *
+     * It deliberately over-matches: a key like `page content 7`, which
+     * the database would NOT equate with a page's key, is guarded too.
+     * That asymmetry is the right way round. Guarding a key that is not a
+     * page's costs an administrator a refusal on a key nothing uses;
+     * abstaining on one that IS a page's costs the escalation.
+     */
+    private const KEY_PATTERN = '/^page content (\d+)$/';
 
     public function __construct(private TextPageRepository $repository)
     {
@@ -35,7 +60,7 @@ final class TextPageContentAuthorizer implements EditableContentAuthorizer
 
     public function roleMinForKey(string $key): ?string
     {
-        if (preg_match(self::KEY_PATTERN, $key, $matches) !== 1) {
+        if (preg_match(self::KEY_PATTERN, TextNormalizerService::fold($key), $matches) !== 1) {
             // Not a page's key — this authorizer has nothing to say, and
             // the endpoint's own floor stands.
             return null;

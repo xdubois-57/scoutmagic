@@ -4741,13 +4741,16 @@ Three consequences worth stating:
   and rethrows nothing. It is a deliberate silence, and a narrow one: it
   swallows one optional read, not the request.
 
-The section + column pair is validated **server side** before anything is
-written (`TextPageService::assertMenuPlacement()`), not only by hiding the
-column picker in the form. `MenuBuilder::addPage()` throws on a column its
-menu does not declare, and that call happens while building the navigation
-of every page of the site — so a hand-edited value would not break the new
-page, it would break the menu everywhere, for everyone, on the next
-request.
+The section + column pair is guarded twice, at two different moments, and
+both are needed. **On the way in**, `TextPageService::assertMenuPlacement()`
+validates it server side rather than relying on the form hiding the column
+picker. **Afterwards**, `TextPageMenuProvider` skips a row whose column its
+menu no longer declares — because `MENU_GROUPS` is a PHP constant, so a
+placement that was valid when it was written can be renamed away by a later
+version. Without the second guard the consequence would not be a broken
+page: `MenuBuilder::addPage()` throws on an undeclared column, and that call
+happens while building the navigation of every page of the site, before
+routing, on every request.
 
 The address is derived from the title at creation and **frozen**: it is
 shared the moment the page is published, so correcting a typo in the title

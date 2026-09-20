@@ -59,6 +59,7 @@ final class UserFacingExceptionInventoryTest extends TestCase
         \Core\Security\SuperAdminException::class,
         \Core\Storage\InsufficientDiskSpaceException::class,
         \Core\Support\SupportPackageException::class,
+        \Core\View\EditableContentForbiddenException::class,
         \Core\View\RgpdGenerationException::class,
         \Modules\Attestations\Service\AttestationsException::class,
         \Modules\Attestations\Service\PageCountMismatchException::class,
