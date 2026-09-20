@@ -19,6 +19,7 @@ use Core\Maintenance\MaintenanceGate;
 use Core\Maintenance\UpdateHistory;
 use Core\Offline\OfflineWhitelist;
 use Core\Security\AuthSession;
+use Core\Security\ProfileCompletionGate;
 use Core\Security\RbacGuard;
 use Core\Security\Role;
 use Core\Service\DateInput;
@@ -66,7 +67,13 @@ class FrontController
         // (Core\Help\HelpPageLinkResolver). Optional and trailing for the
         // same reason as $helpService above; null simply means the panel
         // renders as it did before the link existed.
-        private ?HelpPageLinkResolver $helpPageLinks = null
+        private ?HelpPageLinkResolver $helpPageLinks = null,
+        // Whether the signed-in account still owes the site its first and
+        // last name (Core\Security\ProfileCompletionGate). Optional and
+        // trailing like every late collaborator here: null means no gate
+        // was wired for this entry point — tests, and anything that is not
+        // the web request — and nothing is ever intercepted.
+        private ?ProfileCompletionGate $profileCompletionGate = null
     ) {
         $this->rbacGuard = new RbacGuard();
     }
@@ -137,6 +144,20 @@ class FrontController
                 }
                 return $guardResponse;
             }
+        }
+
+        // An identified account with no first or last name goes to the
+        // interstitial screen instead of the page it asked for, whatever
+        // its role (Core\Security\ProfileCompletionGate). Placed AFTER the
+        // guard on purpose: a route this session could not reach anyway
+        // answers 403, which is the truthful answer, rather than being
+        // bounced to a screen that would suggest the page is waiting for
+        // them. A public route is never intercepted — the blocked screen
+        // has to be able to load the manifest and the icons it renders
+        // with — and neither is logging out, which is the only way out.
+        if ($this->profileCompletionGate?->blocks($request, $resolvedRoute->roleMin) === true) {
+            return (new Response('', 302))
+                ->setHeader('Location', ProfileCompletionGate::PATH);
         }
 
         // Fil d'Ariane (breadcrumb_bar.html.twig) — set only once the visitor

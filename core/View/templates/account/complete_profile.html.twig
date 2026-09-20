@@ -1,0 +1,75 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The interstitial screen an identified account meets while its first or
+  last name is missing (Core\Security\ProfileCompletionGate). Every other
+  route answers a redirect here, so this page has to be a dead end on
+  purpose — which is why it renders no navigation at all: a menu whose
+  every entry comes straight back here reads as a broken site rather than
+  as a site that is waiting for something.
+
+  Logging out is the only way out and is therefore ON the page rather than
+  in the nav that is not drawn. It is not negotiable: a validation that
+  will not let go locks somebody out of their own site, the first account
+  of every installation included.
+#}
+{% extends 'base.html.twig' %}
+
+{% block title %}Avant de continuer — {{ site_name }}{% endblock %}
+
+{% block nav %}{% endblock %}
+
+{% block content %}
+<div class="page-narrow">
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Avant de continuer',
+        subtitle: current_user_email,
+    } only %}
+
+    <p>
+        Votre prénom et votre nom sont nécessaires pour identifier qui signe les documents
+        officiels et pour vous reconnaître sur le site.
+    </p>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <form method="post" action="/account/complete-profile">
+                {{ csrf_field()|raw }}
+                <div class="row g-3 mb-3">
+                    <div class="col-12 col-sm-6">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'complete-profile-first-name', field_name: 'first_name',
+                            label: 'Prénom', value: first_name, required: true,
+                            autocomplete: 'given-name', autofocus: true,
+                            describedby_extra: submit_error ? 'complete-profile-error' : null,
+                        } only %}
+                    </div>
+                    <div class="col-12 col-sm-6">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'complete-profile-last-name', field_name: 'last_name',
+                            label: 'Nom', value: last_name, required: true,
+                            autocomplete: 'family-name',
+                            describedby_extra: submit_error ? 'complete-profile-error' : null,
+                        } only %}
+                    </div>
+                </div>
+                {% if submit_error %}
+                <p id="complete-profile-error" class="text-danger small" role="alert">{{ submit_error }}</p>
+                {% endif %}
+                <button type="submit" class="btn btn-primary w-100 w-sm-auto">Enregistrer et continuer</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="alert alert-warning" role="alert">
+        Tant que ces deux champs ne sont pas remplis, le reste du site n'est pas accessible.
+    </div>
+
+    <form method="post" action="/logout" class="text-center">
+        {{ csrf_field()|raw }}
+        <button type="submit" class="btn btn-outline-secondary btn-sm">Se déconnecter</button>
+    </form>
+</div>
+{% endblock %}
