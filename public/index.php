@@ -4047,6 +4047,19 @@ $router->addRoute(
     ['label' => 'Rebonds', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
         'ancestors' => [['label' => 'Courrier sortant', 'path' => '/config/courrier-sortant']]],
 );
+// Rapports DMARC (roadmap IT-06).
+$router->addRoute(
+    'GET',
+    '/config/courrier-sortant/dmarc',
+    \Core\Http\Controller\OutboundMailController::class,
+    'dmarc',
+    'superadmin',
+    // Without a label the breadcrumb stops at the home icon and
+    // `HelpPageLinkResolver` skips the route, so the help topic written
+    // for this exact path gets no link from it.
+    ['label' => 'Rapports DMARC', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Courrier sortant', 'path' => '/config/courrier-sortant']]],
+);
 $router->addRoute(
     'POST',
     '/config/courrier-sortant/rebonds/{id}/reprise',
@@ -6937,7 +6950,19 @@ $frontController->registerController(
         ),
         $inboundMailForOthers === null
             ? null
-            : new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService)
+            : new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService),
+        // DMARC reports (roadmap IT-06), on the same terms and for the
+        // same reason: a site that receives no report must not be shown a
+        // permanently empty page saying « personne n'envoie en votre nom »,
+        // which would be the most reassuring lie this section could tell.
+        $inboundMailForOthers === null ? null : new \Core\Mail\Feedback\Dmarc\DmarcReportRepository($pdo),
+        // The relays this unit sends through, resolved to addresses so the
+        // screen can say « votre relais » instead of printing an IP nobody
+        // can place. Names only — a relay hostname is infrastructure and
+        // stays off the screen (SECURITY.md §11).
+        $inboundMailForOthers === null ? null : new \Core\Mail\Feedback\Dmarc\KnownSenders(
+            array_values($mailProviderDirectory->relays())
+        )
     )
 );
 

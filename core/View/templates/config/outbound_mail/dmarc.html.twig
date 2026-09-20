@@ -1,0 +1,167 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  Courrier sortant › Rapports DMARC (roadmap IT-06).
+
+  Two sentences this page must not omit, and both are here rather than
+  only in the help topic:
+
+  - A DMARC report says whether a message was AUTHENTICATED, never
+    whether it was read. It is the exact sibling of the sentence on the
+    Rebonds page, and confusing the two the same way would have somebody
+    conclude from a clean page that their mail arrives.
+  - An unknown source that authenticates is almost always a forgotten
+    tool of the unit's own, not an impostor — and it has to be found
+    BEFORE moving to p=reject, or those messages are rejected too. That
+    is the classic trap this screen exists to prevent.
+#}
+{% extends 'base.html.twig' %}
+{% block title %}Rapports DMARC — {{ site_name }}{% endblock %}
+{% block content %}
+{% include 'partials/page_header.html.twig' with {
+    title: 'Rapports DMARC',
+    subtitle: "Qui envoie du courrier en votre nom, et si ces messages sont authentifiés.",
+} only %}
+
+{% include 'config/outbound_mail/_nav.html.twig' %}
+
+{% if not available %}
+    <div class="alert alert-warning">{{ unavailable_reason }}</div>
+{% else %}
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5">Qui envoie en votre nom</h2>
+            {% if sources is empty %}
+                <p class="text-body-secondary small mb-0">
+                    Aucun rapport reçu ces {{ window_days }} derniers jours. Les fournisseurs n'en envoient
+                    que si votre enregistrement DMARC leur donne une adresse — c'est le champ
+                    <code>rua</code> de la page « Authentification » — et que cette adresse arrive dans une
+                    boîte du courrier entrant ouverte à ce lecteur.
+                </p>
+            {% else %}
+                <p class="text-body-secondary small">
+                    Sur les {{ window_days }} derniers jours. Un serveur « à vous » est un de vos relais
+                    déclarés ; tout le reste est classé ailleurs, y compris ce que nous n'avons pas pu
+                    identifier.
+                </p>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th scope="col">Serveur expéditeur</th>
+                                <th scope="col" class="text-end">Messages</th>
+                                <th scope="col" class="text-end">Authentifiés</th>
+                                <th scope="col" class="text-end">Non authentifiés</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for source in sources %}
+                                <tr>
+                                    <td>
+                                        <code>{{ source.source_ip }}</code>
+                                        {% if source.is_own %}
+                                            <span class="badge text-bg-success-subtle ms-1">{{ source.provider }}</span>
+                                        {% else %}
+                                            <span class="badge text-bg-secondary-subtle ms-1">Autre</span>
+                                        {% endif %}
+                                        {% if source.reporters > 1 %}
+                                            <span class="d-block text-body-secondary small">
+                                                Signalé par {{ source.reporters }} fournisseurs.
+                                            </span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-end">{{ source.messages }}</td>
+                                    <td class="text-end">{{ source.authenticated }}</td>
+                                    <td class="text-end">
+                                        {% if source.failed > 0 %}
+                                            <span class="text-danger">{{ source.failed }}</span>
+                                        {% else %}
+                                            0
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    {% set unknown_senders = sources|filter(s => s.needs_attention) %}
+    {% if unknown_senders is not empty %}
+        <div class="alert alert-warning">
+            <h2 class="h6">Un outil oublié, plus probablement qu'un usurpateur</h2>
+            <p class="mb-2">
+                {{ unknown_senders|length }} serveur(s) que nous ne reconnaissons pas envoient en votre nom
+                <strong>et y parviennent</strong> : leurs messages sont authentifiés. C'est presque toujours
+                un outil de l'unité que plus personne n'a en tête — une ancienne plateforme d'inscription,
+                un service d'infolettre, la boîte personnelle de quelqu'un configurée avec l'adresse de
+                l'unité. Une usurpation, c'est plus rare.
+            </p>
+            <p class="mb-0">
+                <strong>Identifiez-les avant de passer votre politique à <code>p=reject</code></strong>, sinon
+                ce sont ces messages-là qui seront rejetés, et vous l'apprendrez par la personne qui ne
+                reçoit plus rien.
+            </p>
+        </div>
+    {% endif %}
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5">Rapports reçus</h2>
+            {% if reports is empty %}
+                <p class="text-body-secondary small mb-0">Aucun rapport sur la période.</p>
+            {% else %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th scope="col">Fournisseur</th>
+                                <th scope="col">Domaine</th>
+                                <th scope="col">Politique vue</th>
+                                <th scope="col">Période</th>
+                                <th scope="col" class="text-end">Messages</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for report in reports %}
+                                <tr>
+                                    <td>{{ report.organisation }}</td>
+                                    <td>{{ report.domain }}</td>
+                                    <td><code>p={{ report.policy }}</code></td>
+                                    <td>{{ report.period_end|french_date }}</td>
+                                    <td class="text-end">{{ report.messages }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <p class="text-body-secondary small mb-0">
+                    « Politique vue » est ce que le fournisseur a lu dans votre DNS au moment du rapport.
+                    Si vous venez de la changer, l'écart est normal le temps que les rapports suivants
+                    arrivent.
+                </p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="alert alert-info">
+        <h2 class="h6">Ce que ces rapports ne disent pas</h2>
+        <p class="mb-2">
+            Un rapport DMARC dit si un message était <strong>authentifié</strong>, pas s'il a été
+            <strong>lu</strong>. Un message parfaitement authentifié peut très bien avoir atterri dans les
+            indésirables : la page « Sonde » est le seul moyen de le savoir.
+        </p>
+        <p class="mb-0">
+            Ces rapports ne nomment aucun destinataire — ce ne sont que des compteurs et des adresses de
+            serveurs. C'est ce qui les rend anodins du point de vue des données personnelles, contrairement
+            aux rapports dits « forensiques », que ce site ne demande pas et n'accepte pas.
+        </p>
+    </div>
+
+{% endif %}
+{% endblock %}

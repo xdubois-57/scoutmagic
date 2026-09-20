@@ -9,7 +9,7 @@ declare(strict_types=1);
 namespace Tests\Core\Mail\Feedback\Dmarc;
 
 use Core\Mail\Feedback\Dmarc\KnownSenders;
-use Core\Mail\Transport\ProviderConnections;
+use Core\Mail\Transport\MailProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -17,15 +17,29 @@ use PHPUnit\Framework\TestCase;
  */
 class KnownSendersTest extends TestCase
 {
+    private function relay(string $name, string $host): MailProvider
+    {
+        return new MailProvider(
+            id: 2,
+            name: $name,
+            host: $host,
+            port: 587,
+            username: 'unite',
+            dailyQuota: null,
+            batchSize: 50,
+            batchIntervalMinutes: 10,
+            secretPrefix: 'mail_provider_2'
+        );
+    }
+
     /**
-     * @param array<string, list<string>> $zone host => addresses
-     * @param array<string, string>       $names prefix => display name
+     * @param array<string, list<string>> $zone   host => addresses
+     * @param list<MailProvider>|null     $relays
      */
-    private function senders(array $zone, array $names = ['smtp' => 'Brevo']): KnownSenders
+    private function senders(array $zone, ?array $relays = null): KnownSenders
     {
         return new KnownSenders(
-            new ProviderConnections(['smtp_host' => 'smtp-relay.brevo.com', 'mail_provider_2_host' => 'mail.ovh.net']),
-            $names,
+            $relays ?? [$this->relay('Brevo', 'smtp-relay.brevo.com')],
             static fn(string $host): array => $zone[$host] ?? []
         );
     }
@@ -77,7 +91,7 @@ class KnownSendersTest extends TestCase
                 'smtp-relay.brevo.com' => ['185.12.80.100'],
                 'mail.ovh.net' => ['51.68.1.1'],
             ],
-            ['smtp' => 'Brevo', 'mail_provider_2' => 'OVH']
+            [$this->relay('Brevo', 'smtp-relay.brevo.com'), $this->relay('OVH', 'mail.ovh.net')]
         );
 
         $this->assertSame('Brevo', $senders->nameFor('185.12.80.100'));
@@ -88,8 +102,7 @@ class KnownSendersTest extends TestCase
     public function testAProviderWithoutAHostClaimsNothing(): void
     {
         $senders = new KnownSenders(
-            new ProviderConnections([]),
-            ['smtp' => 'Brevo'],
+            [$this->relay('Brevo', '')],
             static fn(string $host): array => ['203.0.113.1']
         );
 
@@ -105,8 +118,7 @@ class KnownSendersTest extends TestCase
     {
         $calls = 0;
         $senders = new KnownSenders(
-            new ProviderConnections(['smtp_host' => 'smtp-relay.brevo.com']),
-            ['smtp' => 'Brevo'],
+            [$this->relay('Brevo', 'smtp-relay.brevo.com')],
             static function (string $host) use (&$calls): array {
                 $calls++;
 

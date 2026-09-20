@@ -7,10 +7,9 @@
   partials/page_picker.html.twig component, the one
   modules/finance/views/config/_nav.html.twig already uses (design.md §7.6).
 
-  Six entries. The two the chantier still announces — Rapports DMARC and
-  Boîtes témoins — join this list as the iterations that deliver them
-  land: a tab pointing at a page that does not exist yet is a 404 one
-  click away.
+  Seven entries. The one the chantier still announces — Boîtes témoins —
+  joins this list as the iteration that delivers it lands: a tab pointing
+  at a page that does not exist yet is a 404 one click away.
 
   « Tableau de bord » sits at the section's own URL and « Fournisseurs »
   moved under it, which is why the menu entry needed no change: the first
@@ -26,6 +25,7 @@
         {'url': '/config/courrier-sortant/acheminement', 'label': 'Acheminement'},
         {'url': '/config/courrier-sortant/sonde', 'label': 'Sonde'},
         {'url': '/config/courrier-sortant/rebonds', 'label': 'Rebonds'},
+        {'url': '/config/courrier-sortant/dmarc', 'label': 'Rapports DMARC'},
     ],
     current_path: current_path,
     match_prefix: true,

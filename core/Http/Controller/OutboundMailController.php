@@ -67,6 +67,20 @@ class OutboundMailController extends AbstractController
     /** Said the same way wherever the bounce page cannot run at all. */
     private const BOUNCES_UNAVAILABLE = 'Le suivi des rebonds demande le module « Courrier entrant ».';
 
+    public const DMARC_URL = '/config/courrier-sortant/dmarc';
+
+    private const DMARC_UNAVAILABLE = 'La lecture des rapports DMARC demande le module « Courrier entrant ».';
+
+    /**
+     * The window the screen reports on.
+     *
+     * Thirty days rather than « everything »: a source that stopped
+     * sending three months ago is not a question anybody still has, and a
+     * page that keeps answering it makes the one source that started
+     * yesterday harder to see.
+     */
+    private const DMARC_WINDOW = 'P30D';
+
     public const PROBE_URL = '/config/courrier-sortant/sonde';
     public const PROBE_SEND_URL = '/config/courrier-sortant/sonde/envoi';
     public const PROBE_VERDICT_URL = '/config/courrier-sortant/sonde/verdict';
@@ -115,8 +129,79 @@ class OutboundMailController extends AbstractController
          * feature that cannot work. Null makes the sub-page say so.
          */
         private ?\Core\Mail\Feedback\Bounce\BounceService $bounces = null,
-        private ?\Core\Mail\Feedback\Bounce\BounceStateRepository $bounceHistory = null
+        private ?\Core\Mail\Feedback\Bounce\BounceStateRepository $bounceHistory = null,
+        /**
+         * The DMARC reports (roadmap IT-06).
+         *
+         * Nullable on the same grounds as the bounce state: the tables are
+         * core and always readable, but a site whose `inbound_mail` module
+         * is off never receives a report, and a permanently empty page
+         * saying « personne n'envoie en votre nom » would be the most
+         * reassuring lie this section could tell.
+         */
+        private ?\Core\Mail\Feedback\Dmarc\DmarcReportRepository $dmarc = null,
+        private ?\Core\Mail\Feedback\Dmarc\KnownSenders $knownSenders = null
     ) {
+    }
+
+    /**
+     * GET /config/courrier-sortant/dmarc — who sends in this unit's name,
+     * and whether it authenticates (roadmap IT-06).
+     *
+     * @param array<string, string> $params
+     */
+    public function dmarc(Request $request, array $params): Response
+    {
+        $since = (new \DateTimeImmutable())->sub(new \DateInterval(self::DMARC_WINDOW));
+
+        return $this->render('config/outbound_mail/dmarc.html.twig', [
+            'available' => $this->dmarc !== null,
+            'unavailable_reason' => self::DMARC_UNAVAILABLE,
+            'sources' => $this->dmarcSources($since),
+            'reports' => $this->dmarc?->reportsSince($since) ?? [],
+            'window_days' => 30,
+            'current_path' => self::DMARC_URL,
+        ]);
+    }
+
+    /**
+     * One line per sending address, with the two things a volunteer can
+     * act on: is it ours, and did it authenticate.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function dmarcSources(\DateTimeImmutable $since): array
+    {
+        $lines = [];
+
+        foreach ($this->dmarc?->sourcesSince($since) ?? [] as $source) {
+            $messages = $source['messages'];
+            $authenticated = $source['authenticated'];
+            $provider = $this->knownSenders?->nameFor($source['source_ip']);
+
+            $lines[] = [
+                // The sending SERVER's address, which is infrastructure
+                // and names nobody — the whole reason an aggregate report
+                // settles the RGPD question (D12).
+                'source_ip' => $source['source_ip'],
+                'provider' => $provider,
+                'is_own' => $provider !== null,
+                'messages' => $messages,
+                'authenticated' => $authenticated,
+                'failed' => $messages - $authenticated,
+                'reporters' => $source['reporters'],
+                // **The warning that avoids the classic trap.** An unknown
+                // source that authenticates is almost always a forgotten
+                // tool of the unit's own — an old registration platform, a
+                // newsletter service, somebody's mailbox configured with
+                // the unit's address — far more often than a spoof. It has
+                // to be identified BEFORE moving to `p=reject`, or those
+                // messages are rejected too.
+                'needs_attention' => $provider === null && $authenticated > 0,
+            ];
+        }
+
+        return $lines;
     }
 
     /**

@@ -8,7 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Mail\Feedback\Dmarc;
 
-use Core\Mail\Transport\ProviderConnections;
+use Core\Mail\Transport\MailProvider;
 
 /**
  * Which of the addresses in a report are this unit's own relays
@@ -45,11 +45,13 @@ class KnownSenders
     private ?array $addresses = null;
 
     /**
-     * @param array<int|string, string> $providerNames prefix => display name
+     * @param list<MailProvider> $relays the unit's own relays — they
+     *                                   already carry both the host and
+     *                                   the name, so nothing here reads a
+     *                                   secret of its own
      */
     public function __construct(
-        private ProviderConnections $connections,
-        private array $providerNames,
+        private array $relays,
         /** Injected so a test can answer without a resolver. */
         private ?\Closure $resolver = null
     ) {
@@ -80,20 +82,15 @@ class KnownSenders
 
         $addresses = [];
 
-        foreach ($this->providerNames as $prefix => $name) {
-            $host = '';
-
-            try {
-                $host = trim($this->connections->host((string) $prefix));
-            } catch (\Throwable) {
-                // A provider whose secret cannot be read is a provider we
-                // cannot vouch for, which is « autres » and correct.
-                continue;
-            }
-
+        foreach ($this->relays as $relay) {
+            $host = trim($relay->host);
+            // A relay with no host configured — the local send among them —
+            // vouches for nothing, which is « autres » and correct.
             if ($host === '') {
                 continue;
             }
+
+            $name = $relay->name;
 
             foreach ($this->resolve($host) as $address) {
                 // First provider wins a shared address rather than the

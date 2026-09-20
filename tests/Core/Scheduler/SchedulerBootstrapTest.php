@@ -261,7 +261,7 @@ class SchedulerBootstrapTest extends TestCase
         $consumers = (new \ReflectionProperty(\Modules\InboundMail\Service\MessageConsumerRegistry::class, 'consumers'))
             ->getValue($registry);
 
-        $this->assertCount(4, $consumers);
+        $this->assertCount(5, $consumers);
         // The core's own round trip is registered unconditionally — it
         // belongs to the core, not to a module, so there is no module id
         // to test for (roadmap IT-03). It claims nothing, so its position
@@ -275,10 +275,17 @@ class SchedulerBootstrapTest extends TestCase
         // present there and absent here is offered, ticked, and never
         // asked anything.
         $this->assertInstanceOf(\Core\Mail\Feedback\Bounce\BounceConsumer::class, $consumers[1]);
-        $this->assertInstanceOf(\Modules\Rental\Mail\RentalMessageConsumer::class, $consumers[2]);
+        // The DMARC reports (roadmap IT-06), on the same terms as the two
+        // above — and the only consumer of the lot that reads an
+        // attachment's bytes, through `Api\PayloadConsumerInterface`.
+        // Being counted HERE is what this assertion is for: registered on
+        // the web registry alone, the sub-page would offer a scope that
+        // nothing ever asks anything of.
+        $this->assertInstanceOf(\Core\Mail\Feedback\Dmarc\DmarcConsumer::class, $consumers[2]);
+        $this->assertInstanceOf(\Modules\Rental\Mail\RentalMessageConsumer::class, $consumers[3]);
         // Last, and load-bearing: first-claim-wins, and a dedicated camps
         // mailbox claims everything it is offered.
-        $this->assertInstanceOf(\Modules\Camps\Mail\CampsMessageConsumer::class, $consumers[3]);
+        $this->assertInstanceOf(\Modules\Camps\Mail\CampsMessageConsumer::class, $consumers[4]);
     }
 
     public function testTheSyncFactoryIsNotRegisteredWhenInboundMailIsDisabled(): void
