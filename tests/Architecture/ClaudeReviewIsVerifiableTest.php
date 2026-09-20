@@ -140,10 +140,33 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
      * The floor is what the largest real review needs, not what a typical
      * one costs. Raising the number is fine and lowering it below the
      * floor is the edit this catches.
+     *
+     * THE FLOOR IS 30 AND IT IS MEASURED. Over the 221 complete reviews to
+     * 2026-09-20 the median is 11.7 minutes, the p90 is 17.8 and the
+     * longest is 25.2 — and #257 above was cut at 20. So anything at or
+     * below 30 is inside the range real reviews have needed, and the
+     * ceiling was brought from 60 down to 40 against those numbers rather
+     * than against the fear that set it to 60. It bounds a runaway; it
+     * does not bound cost, because the most expensive run measured spent
+     * 24.23 USD in 13.6 minutes.
      */
     public function testTheReviewerIsGivenTimeToFinishALargeDiff(): void
     {
-        [$review] = self::jobs();
+        [$firstHalf] = self::jobs();
+
+        // The review job specifically. Since the `settle` job joined this
+        // file, the first `timeout-minutes:` in that half belongs to a job
+        // that sleeps — reading it would have this test guarding the wrong
+        // ceiling, and passing while the real one went to zero.
+        $begins = strpos($firstHalf, "\n  review:\n");
+
+        self::assertIsInt(
+            $begins,
+            'The review job is no longer where this test expects it to start, so the ceiling it reads '
+            . 'below may belong to another job entirely.',
+        );
+
+        $review = substr($firstHalf, $begins);
 
         $matched = preg_match('/^    timeout-minutes: (\d+)$/m', $review, $found);
 
@@ -155,12 +178,45 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
         );
 
         $this->assertGreaterThanOrEqual(
-            60,
+            30,
             (int) $found[1],
             'The review job is capped at ' . $found[1] . ' minutes. A review of the largest diff this '
             . 'repository has produced does not fit, it is cancelled rather than failed, and because '
             . '`Claude review` is required on `main` that shows up as an unmergeable pull request with '
             . 'nothing wrong in it — see docs/quality-pipeline.md § Code review.',
+        );
+    }
+
+    /**
+     * A JOB NOTHING WAITS FOR IS A JOB THAT DOES NOTHING. The `settle` job
+     * exists so that a push landing during the quiet window cancels a
+     * sleep rather than a review in flight — 41 of the 300 runs to
+     * 2026-09-20 were cancelled mid-review, each having already spent
+     * whatever it had spent. That only holds while the review actually
+     * waits for it: drop the `needs:` and the job still runs, still shows
+     * green, and saves nothing at all.
+     */
+    public function testTheReviewWaitsForTheBranchToSettle(): void
+    {
+        $workflow = self::workflow();
+
+        $this->assertMatchesRegularExpression(
+            '/^  settle:$/m',
+            $workflow,
+            'The `settle` job is gone, so every push pays for a review that the next push cancels '
+            . 'half-way through — see docs/quality-pipeline.md § Code review.',
+        );
+
+        [$firstHalf] = self::jobs();
+        $begins = strpos($firstHalf, "\n  review:\n");
+
+        self::assertIsInt($begins, 'The review job is no longer where this test expects it to start.');
+
+        $this->assertMatchesRegularExpression(
+            '/^    needs: settle$/m',
+            substr($firstHalf, $begins),
+            'The review job no longer waits for `settle`, so the quiet window buys nothing: the review '
+            . 'starts on the push exactly as before, and the sleep is a job that only burns runner time.',
         );
     }
 

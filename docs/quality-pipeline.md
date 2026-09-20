@@ -744,25 +744,58 @@ background agents to complete"*, which returns instantly; then ended its
 turn. Nothing in the allowlist blocks, because everything that blocks had
 been refused as a way of "arranging to be called back later".
 
-So the enumeration stops being the answer, and what has to replace it is
-not a name but a default: every `Agent`/`Task` launch in a workflow run
-must start in the foreground, whether or not its caller said so. A
-`PreToolUse` hook can enforce precisely that, because it may return an
-`updatedInput` that replaces the call's arguments — and that the
-reviewer's session loads this repository's hooks is a fact about the
-action rather than a hope: its SDK options carry
+So the enumeration stops being the answer, and what replaces it is not a
+name but a default: every `Agent`/`Task` launch in a workflow run now
+starts in the foreground, whether or not its caller said so.
+`.claude/hooks/subagents-in-foreground.sh` rewrites the call before it
+runs, through the `updatedInput` a `PreToolUse` hook may return — and
+that the reviewer's session loads this repository's hooks is a fact about
+the action rather than a hope: its SDK options carry
 `settingSources: ["user", "project", "local"]`, and the `SessionStart`
 hook already fires in every review run. Scoped to `GITHUB_ACTIONS`, it
-would leave interactive sessions their background agents, which they can
+leaves interactive sessions their background agents, which they can
 collect because they have a later turn and a person to wake them.
 
-**That hook is not in the tree.** It belongs under `.claude/`, which is
-the maintainer's own agent configuration, so it lands with their approval
-rather than through a change nobody asked for. Until it does, the cause
-described above is untouched and the reviewer will keep truncating at
-roughly one run in eight; what follows is what could be built without it,
-and none of it stops the truncation — it only stops the truncation from
-being silent, mis-described, or reported as a review.
+**It is also the cheapest change in this section.** Across twelve
+complete runs, cost tracks **turns** (r = 0.86) and not agent count
+(r = 0.06) — and the high-turn runs are exactly the backgrounded ones,
+because a main thread with no blocking primitive polls its agents turn
+after turn and re-sends the conversation each time:
+
+| run | started in background | turns | cost |
+|---|---|---|---|
+| 35511781916 | 9 | 608 | 24.23 USD |
+| 35510803664 | 7 | 346 | 12.01 USD |
+| 35500543867 | 9 | 305 | 10.14 USD |
+| *eight runs, all foreground* | 0–1 | 15–38 | 3.19–10.98 USD |
+
+So the same defect that leaves part of the diff unread also roughly
+doubles what the run costs. The median complete review is 8.80 USD.
+
+**The hook grants what it rewrites, and that is why a workflow has to opt
+in.** Claude Code applies `updatedInput` only on an `allow` decision, so
+the hook necessarily allows the `Agent`/`Task` call it rewrites. A hook
+that fired on every workflow run would therefore have granted both tools
+inside `issue-triage.yml`, **which denies them on purpose** —
+`--disallowedTools "Agent,Task,ScheduleWakeup,…"`, itself the fix for
+2026-09-05, when a backlog scan spawned three `Agent` subagents,
+scheduled a wake-up, ended its turn, and three reporters got nothing. A
+hook written to stop lost subagents would have re-opened the door to
+exactly that, in another workflow, in silence.
+
+So the hook does nothing unless the job sets
+`CLAUDE_SUBAGENTS_FOREGROUND=true`, and only the review job sets it.
+Adding that variable to a workflow is a decision with two halves — every
+subagent runs in the foreground, **and** `Agent`/`Task` are granted there
+whatever the allowlist says — so it does not belong in a job that means
+to deny them. `Tests\Architecture\SubagentsStartInForegroundTest` pins
+both halves: the hook stays silent without the variable, and
+`issue-triage.yml` neither sets it nor stops denying the tools.
+
+Within the review job the grant changes nothing, since `claude_args`
+grants `Task` and `Agent` outright — but it does mean removing `Agent`
+from that list would no longer stop a launch. The hook's own header says
+to delete it in the same change if that day comes.
 
 **The guard stays, and it is the reason a hook is allowed to be the fix
 at all.** A hook that is absent, unreadable or silently wrong has to be
@@ -812,6 +845,43 @@ back on fanning the work out to background agents. The shell operators
 stay denied for the reason the interpreters do, and the prompt now says
 so and names what to use instead: `git diff` per path, `--name-only` for
 the list, `Read` and `Grep` for the contents.
+
+**What the reviewer costs, and where that money actually goes.** A
+complete review has a median cost of 8.80 USD and a median wall-clock of
+11.7 minutes (p90 17.8, longest 25.2) — against a CI median of 18.5
+minutes, so **the review is not the critical path for a merge**, and
+making it faster would not make anything merge sooner. Over the 300 runs
+to 2026-09-20 the bill is of the order of 2 000 USD for ten days, and it
+is not spread evenly: 300 runs fall on 36 branches, median 2 runs each,
+**and the four largest pull requests account for 200 of them**. One
++8 756-line diff was reviewed from scratch 66 times.
+
+That distribution decides which levers are worth pulling, and the two
+cheapest are not in this file:
+
+- **Keep a long-lived pull request in draft while it is being iterated.**
+  The review job already skips drafts and `ready_for_review` picks the
+  pull request up the moment it stops being one, so this costs nothing to
+  adopt and gives up no guarantee — the diff that gets reviewed is the
+  one somebody means to merge. On the window measured it would have
+  removed something like half of all runs.
+- **The `settle` job** above, which moves the existing mid-review
+  cancellation to before the money is spent. Worth about the 13.7% of
+  runs that are cancelled today, and it costs twelve minutes of latency
+  on every push — see the job's own comment for why twelve.
+
+**What is not worth pulling: a cheaper model for the bug-hunting
+agents.** The orchestrator is already Sonnet; only the bug-hunting
+subagents are Opus, and they are the part doing the reasoning the review
+exists for — multi-hop, cross-file findings like *"a late-arriving copy
+after the 2-day sweep is never pruned, causing full mailing content to be
+permanently retained"*, which contradicted a privacy notice written in
+the same pull request. The measurement also says it would not help much:
+cost tracks turns, not agents. And it is not a setting — the plugin asks
+for `"model": "opus"` per agent, `--model` does not override that, and
+the procedure is not pinnable. If the question comes back, answer it with
+an eval over the pull requests where the reviewer has already posted
+verified findings, not with an opinion.
 
 **Two more names went on the list, and they are a different shape — the
 truncation rule above is not what they trip.** Pull request #321 went red

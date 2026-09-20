@@ -230,11 +230,19 @@ read it first.** That number is the cause: every truncated run this
 repository has recorded started agents in the background, and the complete
 ones started none or one. A launch that simply omits `run_in_background`
 counts here too — the default is the background, which is why the
-instruction in the prompt has never been enough. Until a `PreToolUse` hook
-forces the foreground (`docs/quality-pipeline.md` § Code review: it needs
-the maintainer's approval to land under `.claude/`), a truncated run is
-the reviewer having omitted the field, not a verdict on the diff: re-run
-the review rather than reading anything into it.
+instruction in the prompt was never enough on its own.
+
+`.claude/hooks/subagents-in-foreground.sh` now rewrites every launch in a
+workflow run to the foreground, so **that row should read 0**. If a
+truncated run shows anything else, the hook did not fire, and that is what
+to look at rather than the reviewer's judgement: check it is still
+registered as a `PreToolUse` hook in `.claude/settings.json`, still
+executable, and that the review job still sets
+`CLAUDE_SUBAGENTS_FOREGROUND: "true"` — the hook is inert without it, by
+design, because allowing the rewrite also grants `Agent`/`Task` and
+`issue-triage.yml` denies both on purpose.
+`vendor/bin/phpunit tests/Architecture/SubagentsStartInForegroundTest.php`
+answers all of that in a second.
 
 **"Ended without finishing" is a different sentence and a different
 defect.** It means agents failed or were killed rather than being left in
@@ -252,6 +260,17 @@ file why it must stay denied.
 loaded.** It cannot be pinned — the action takes a marketplace URL and no
 ref — so when the reviewer starts behaving differently on an unchanged
 workflow, compare that row against the last run that behaved.
+
+**A review costs about 8.80 USD and the review no longer starts on the
+push.** Two things follow for anyone driving a pull request here. A push
+now waits twelve minutes before the review begins (the `settle` job), so
+a `Claude review` that has not appeared yet is not stuck — it is waiting,
+and another push restarts that wait. And a pull request that will be
+pushed to ten more times should be a **draft** while that happens: the
+review skips drafts and picks it up at `ready_for_review`, which is the
+difference between paying for one review and paying for eleven. Four
+pull requests accounted for two thirds of all review runs in the ten
+days to 2026-09-20.
 
 **Its `Took` row is information, not evidence.** That comment used to
 decide on duration — under a minute meant a skip — and it was wrong
