@@ -197,10 +197,20 @@ class RentalDocumentService
             throw new RentalException("Ce type de document ne se rédige pas : il s'envoie.");
         }
 
+        if ($this->textIsLocked($booking, $type)) {
+            throw new RentalException(self::lockedRefusal($type));
+        }
+
         // Sanitized here rather than relying on the caller, because this
         // path does not go through EditableContentService and would
         // otherwise be the one place raw HTML reached a PDF.
-        $clean = $this->sanitizer->sanitize($bodyHtml);
+        //
+        // Then repaired, in that order and no other (§22.6): the sanitizer
+        // decides which markup exists at all, and the repair pass removes
+        // what a rich-text surface left INSIDE a keyword —
+        // `{{ pri<b>x</b>_total }}` is still readable to a human and no
+        // longer a keyword to anything that substitutes.
+        $clean = DocumentKeywords::repairSplitKeywords($this->sanitizer->sanitize($bodyHtml));
         $this->documentRepository->saveText($booking->id, $type, $clean);
 
         $this->bookingAudit->record(
@@ -213,6 +223,51 @@ class RentalDocumentService
         );
 
         return DocumentKeywords::unknownIn($clean);
+    }
+
+    /**
+     * Whether this booking's text for $type may still be edited (§22.6).
+     *
+     * **Sending is the action that locks.** Until a document of this type
+     * has gone out, its text is a draft and a manager may rework it freely;
+     * once the renter holds a copy, silently changing what that copy was
+     * made from is exactly the confusion versioning exists to prevent. The
+     * confirmation on « Envoyer » says so before it happens, because a
+     * button that quietly makes a page read-only is a button nobody expects.
+     *
+     * Regenerating still never overwrites: v2 appears beside v1. What the
+     * lock stops is the SOURCE moving under a version that has already been
+     * read and possibly signed.
+     */
+    public function textIsLocked(RentalBooking $booking, DocumentType $type): bool
+    {
+        return $type->isGenerated()
+            && $this->documentRepository->hasSentDocumentOfType($booking->id, $type);
+    }
+
+    /**
+     * The one sentence a locked text is refused with, wherever the refusal
+     * happens — written once because the editor shows it and the save
+     * refuses with it, and two wordings for one rule read as two rules.
+     */
+    public static function lockedRefusal(DocumentType $type): string
+    {
+        $opening = 'Ce document a été envoyé au locataire : son texte n\'est plus modifiable. ';
+
+        // Written out per type rather than assembled around
+        // `$type->label()`, because French will not be assembled: « Facture »
+        // is feminine, so the generic sentence produced « Le facture qu'il a
+        // reçu doit rester celui qu'il a reçu » — on the editor's warning
+        // banner and in the flash that refuses the save, both of which an
+        // invoice reaches exactly as a contract does.
+        return $opening . match ($type) {
+            DocumentType::INVOICE => 'La facture qu\'il a reçue doit rester celle qu\'il a reçue.',
+            DocumentType::CONTRACT => 'Le contrat qu\'il a reçu doit rester celui qu\'il a reçu.',
+            // Unreachable while `textIsLocked()` guards on `isGenerated()`,
+            // and a neutral sentence rather than a throw: a document type
+            // added to that list must not be able to blank this page.
+            default => 'Ce qui est parti doit rester ce qui est parti.',
+        };
     }
 
     // ── Level 3: the PDF (§6.25) ────────────────────────────────────────
@@ -252,10 +307,17 @@ class RentalDocumentService
 
         $values = $this->valuesFor($booking, $asset, $paymentSettings, $communication);
 
-        // Sanitize first, substitute second, and escape every value. The
-        // other order would run the sanitizer over renter-supplied content
-        // and let it decide whether that content was markup (§6.25).
-        $rendered = DocumentKeywords::substitute($this->sanitizer->sanitize($body), $values);
+        // Sanitize, repair, substitute — in that order and no other
+        // (§6.25, §22.6). Sanitizing last would run the sanitizer over a
+        // document that already carries renter-supplied values; repairing
+        // after substitution would have no keyword left to rescue.
+        //
+        // Repaired here as well as at save time, because a text stored
+        // before the repair pass existed is still out there.
+        $rendered = DocumentKeywords::substitute(
+            DocumentKeywords::repairSplitKeywords($this->sanitizer->sanitize($body)),
+            $values
+        );
 
         // The booking takes its own copy at the FIRST generation (§6.25),
         // which is also what gives the version counter a row to live on.
@@ -467,6 +529,20 @@ class RentalDocumentService
      */
     public function delete(RentalDocument $document, ?int $actorMemberId = null): void
     {
+        // **A document that has gone out cannot be deleted.** Not tidiness:
+        // `textIsLocked()` asks whether a document of this type carries a
+        // `sent_at`, so deleting the only sent contract unlocked its source
+        // text again — while the renter still holds the PDF that was made
+        // from the old one. The module already refuses to reuse a version
+        // number for the same reason (`claimNextVersion()`: "v2 may already
+        // have been emailed"), and this is that rule one step further on.
+        if ($document->sentAt !== null) {
+            throw new RentalException(
+                'Ce document a été envoyé au locataire : il ne peut plus être supprimé. '
+                . 'Ce qui est parti reste au dossier.'
+            );
+        }
+
         $this->fileRemover->remove(
             $this->documentRepository,
             $document->id,

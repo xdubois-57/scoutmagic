@@ -49,13 +49,15 @@
                     <div class="col-12 col-sm-6">
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'account-first-name', field_name: 'first_name',
-                            label: 'Prénom', value: account.firstName,
+                            label: 'Prénom', value: account.firstName, required: true,
+                            autocomplete: 'given-name',
                         } only %}
                     </div>
                     <div class="col-12 col-sm-6">
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'account-last-name', field_name: 'last_name',
-                            label: 'Nom', value: account.lastName,
+                            label: 'Nom', value: account.lastName, required: true,
+                            autocomplete: 'family-name',
                         } only %}
                     </div>
                 </div>

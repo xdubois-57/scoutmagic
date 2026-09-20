@@ -123,6 +123,24 @@ final class DocumentKeywords
     }
 
     /**
+     * Removes inline markup a rich-text surface left INSIDE a keyword —
+     * `{{ pri<b>x</b>_total }}` back to `{{ prix_total }}`.
+     *
+     * Runs **after sanitizing and before substitution** (§22.6): the
+     * sanitizer is what decides which markup exists at all, and after
+     * substitution there is no keyword left to rescue.
+     *
+     * A region is only rewritten once what it would become is a real
+     * keyword, so a contract whose prose happens to sit between braces is
+     * left alone and the « mots-clés non reconnus » warning stays the net
+     * it was meant to be — see Core\Template\TokenEngine.
+     */
+    public static function repairSplitKeywords(string $sanitizedHtml): string
+    {
+        return self::engine()->repairTokensSplitByMarkup($sanitizedHtml);
+    }
+
+    /**
      * Keywords a template uses that are not on the list.
      *
      * Reported to the author **while editing** (§6.25): a keyword nobody

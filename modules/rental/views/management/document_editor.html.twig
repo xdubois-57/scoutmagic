@@ -7,9 +7,28 @@
   from then on: editing the asset's template afterwards touches nothing
   here, and editing here touches no other booking.
 
-  Plain textarea for the same reason as the asset templates: a
-  contenteditable surface can split `{{ prix_total }}` across elements as it
-  is edited, silently turning a keyword into prose.
+  **This was a plain textarea, and the comment that said why was right.** A
+  contenteditable surface splits a run of text across elements as it is
+  edited, so `{{ '{{ prix_total }}' }}` becomes `{{ '{{ pri<b>x</b>_total }}' }}`
+  the moment somebody bolds a word that overlaps it — still readable to a
+  human, no longer a keyword to the substituter, and only noticed once a
+  contract has gone out with braces in it.
+
+  What changed is that the hazard is answered rather than avoided, on three
+  levels (§22.6):
+
+  - every keyword of the closed list renders as one indivisible
+    `contenteditable="false"` chip the generic field already produces, so it
+    cannot be split or half-deleted;
+  - the SERVER repairs what survives anyway — a paste, an author with no
+    JavaScript — after sanitizing and before substitution
+    (Core\Template\TokenEngine);
+  - and the « mots-clés non reconnus » warning below stays the net: when the
+    repair declines, it shows on screen rather than in a signed contract.
+
+  **Read-only once sent.** Until a document of this type has gone out, the
+  text is a draft; afterwards the renter holds a copy, and what that copy
+  was made from must not move under it.
 #}
 {% block content %}
     <div class="page-medium">
@@ -23,6 +42,10 @@
             changera pas, et le modifier ici ne change aucune autre réservation.
         </div>
 
+        {% if is_locked %}
+            <output class="alert alert-warning d-block">{{ locked_reason }}</output>
+        {% endif %}
+
         {% if unknown_keywords is not empty %}
             <output class="alert alert-warning d-block">
                 Mots-clés non reconnus, qui apparaîtront tels quels dans le document :
@@ -32,29 +55,59 @@
             </output>
         {% endif %}
 
-        {% include '@rental/management/_keywords.html.twig' %}
+        {% if is_locked %}
+            {# Shown, never offered for editing: a manager still has to be
+               able to read what went out. #}
+            <div class="rich-text border rounded-3 p-3 mb-3 bg-body-tertiary">{{ body_html|sanitized_html }}</div>
+        {% else %}
+            {% include '@rental/management/_keywords.html.twig' %}
 
-        <form method="post" action="/mes-locations/document-texte">
-            {{ csrf_field()|raw }}
-            <input type="hidden" name="asset_id" value="{{ asset.id }}">
-            <input type="hidden" name="booking_id" value="{{ booking.id }}">
-            <input type="hidden" name="document_type" value="{{ document_type.value }}">
+            <form method="post" action="/mes-locations/document-texte">
+                {{ csrf_field()|raw }}
+                <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                <input type="hidden" name="document_type" value="{{ document_type.value }}">
 
-            <label class="form-label" for="document-body">Texte (HTML simple)</label>
-            <textarea class="form-control font-monospace mb-3" rows="18" id="document-body" name="body">{{ body_html }}</textarea>
+                {% include 'partials/rich_text_form_field.html.twig' with {
+                    field_id: 'document-body',
+                    field_name: 'body',
+                    value: body_html,
+                    label: 'Texte du document',
+                    help: 'Mettez en forme le texte comme ailleurs sur le site. Les mots-clés insérés
+                           — en bleu — sont remplacés par les valeurs de cette réservation au moment
+                           où le document est généré.',
+                    placeholders: keywords,
+                    rows_height: '22rem',
+                } %}
 
-            <div class="d-flex flex-wrap gap-2">
-                <button type="submit" class="btn btn-primary">Enregistrer</button>
-            </div>
-        </form>
+                <div class="d-flex flex-wrap gap-2">
+                    <button type="submit" class="btn btn-primary">Enregistrer</button>
+                </div>
+            </form>
+        {% endif %}
 
         {% if asset_template %}
             <details class="mt-4">
                 <summary class="fw-semibold">Gabarit du bien, pour comparaison</summary>
-                <div class="border rounded p-3 mt-2 bg-body-tertiary">
-                    <pre class="mb-0 small" style="white-space: pre-wrap;">{{ asset_template }}</pre>
-                </div>
+                <div class="border rounded p-3 mt-2 bg-body-tertiary rich-text">{{ asset_template|sanitized_html }}</div>
             </details>
         {% endif %}
     </div>
+{% endblock %}
+
+{% block stylesheets %}
+    {# The keyword chips and the editing surface are styled by
+       components.css, which base.html.twig deliberately does not load —
+       every caller of `placeholders` opts in, and templates.html.twig does
+       the same a few files over. Without it the chips render as plain
+       text, which is this page's own help copy (« en bleu ») made false:
+       the `contenteditable="false"` protection still holds, but nothing
+       shows the manager which words are tokens. #}
+    <link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">
+{% endblock %}
+
+{% block scripts %}
+    {# type="module" — the file uses `export`, and a classic <script> tag
+       rejects it with a SyntaxError before a line of it runs. #}
+    <script type="module" src="{{ asset('/assets/js/rich-text-form-field.js') }}"></script>
 {% endblock %}

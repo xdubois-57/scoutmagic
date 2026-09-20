@@ -8,11 +8,14 @@
 
   With Finance off, this renders one honest sentence instead of a dead panel.
 
+  A box of « Le dossier » since booking.html.twig was reorganised: it sits
+  inside the box's own card, so it carries no card and no heading of its
+  own — the fold's header is the heading, and it is where the figure that
+  says whether this box wants opening lives.
+
   Requires `asset`, `booking` and `payment`.
 #}
-<div class="card mb-4">
-    <div class="card-body">
-        <h2 class="h5 mb-2">Paiements</h2>
+<div class="card-body pt-0">
 
         {% if not payment.available %}
             <p class="text-body-secondary small mb-0">
@@ -69,7 +72,7 @@
 
             {% if payment.security_deposit.amount_cents is not null %}
                 <hr>
-                <h3 class="h6">Caution</h3>
+                <h4 class="h6">Caution</h4>
                 <p class="text-body-secondary small">
                     Créance distincte, communication distincte. La caution n'entre jamais dans le
                     revenu de location.
@@ -139,4 +142,3 @@
             {% endif %}
         {% endif %}
     </div>
-</div>

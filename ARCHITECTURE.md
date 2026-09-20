@@ -91,7 +91,9 @@ Routes within "Espace animateurs" declare `role_min: "intendant"` or `role_min: 
 
 A person logs in with an email address, not with a member account.
 
-- `user_accounts` contains only an email (unique) + optional info (name, surname).
+- `user_accounts` contains an email (unique) + the person's first and last name.
+
+**Those two names are mandatory, and the enforcement is in the application rather than in the schema** (`Core\Security\ProfileCompletionGate`, specifications.md §2.4). The columns stay nullable because most existing rows carry neither — the setup wizard collects an address and nothing else, and `Core\Import\DeskImportService` creates an account per member e-mail without a name — and there is nothing to migrate them from. So an identified session missing either name is answered with an interstitial screen (`/account/complete-profile`) instead of the page it asked for, and « Mon compte » refuses to empty either field. Three properties are load-bearing: it applies to **every** identified account whatever its role (the first account of every installation has no name by construction, so an exemption for `superadmin` would exempt the one person who administers the site); **logging out always works**, since it is the only way out and a validation that will not let go locks somebody out of their own site; and a **public route is never intercepted**, decided from the route's own `role_min` so that the screen can still load the manifest and the icons it renders with, and so that a route added later is covered without anybody listing it. The gate is a nullable `FrontController` dependency built from the account the request is already signed in as, checked **after** the RBAC guard — a route this session could not reach anyway answers 403, which is the truthful answer, rather than promising a page that is not theirs.
 - At login, the system finds all `member_years` for the current scout year whose email matches.
 - Effective role = the **highest** among the functions of all linked members.
 - The person can then navigate between "their" members (e.g. a parent sees the page of each of their children).
@@ -1965,6 +1967,10 @@ The edited quote is stored as `agreed_price_snapshot`, a **second column** besid
 
 **The booking file acts without reloading.** Its sixteen POST forms all funnel through `RentalManagementController::bookingAction()`, so one branch there — `X-Requested-With: XMLHttpRequest` answers `{success, type, message}` (the flash, consumed, since nothing is going to render it) instead of redirecting — makes the whole page asynchronous with no per-handler change. `public/assets/js/rental-booking.js` posts each form with `fetch`, toasts that message, then **re-fetches the page and swaps the contents of every `[data-booking-panel]` wrapper**. Re-rendering rather than patching is deliberate: one action moves several panels at once — sending the contract also ticks a milestone and writes a history line — and a client-side guess about which is how a page starts lying. The wrappers are always present even when what they hold is conditional, so a card that appears or disappears swaps like any other. Without JavaScript every form still posts, redirects and renders its flash exactly as before.
 
+**The booking file is read in four movements, and only one of them is unfolded.** `Booking\BookingJourney` is the staging of that same derived checklist — it takes what `BookingMilestones::for()` produced and adds no fact of its own, which is the whole point: the five stretches and the fifteen lines cannot tell different stories because there is only one derivation. The page reads: what the rental is, **« L'action suivante »** (the first applicable unticked line, and nothing else), the journey, then **« Le dossier »** — price, payments, documents, mail, change requests, comments and history, folded, each carrying the figure that answers the question it would have been opened for. `Booking\BookingPhase` groups milestone keys into the five stretches and `Booking\BookingBox` pairs each box's name with the anchor a journey line links to, so the link and the card it aims at cannot become two different strings. Three consequences worth stating: the « État » card is **gone** (its badge is in the details at the top and its buttons were never a state, so each now sits in the stretch whose decision it is); a decision lifted into « L'action suivante » is not also rendered inside its stretch, because one page offering « Confirmée » twice is one where pressing either is a guess; and the checklist gained a line it never had — « Décision prise sur la demande », done exactly when `BookingTransition` no longer offers confirming, since « Demande reçue » ticks on arrival and a request nobody had looked at therefore used to point the manager straight at the contract.
+
+**A box's fold lives outside its refresh wrapper.** `data-booking-panel` sits *inside* the `.collapse`, and the figure on the header carries a wrapper of its own — so cashing a payment re-renders the box's body and its figure while leaving the box open at the line somebody was reading. Re-rendering the card around it would have folded the box under their hands. The journey's own stretches are the deliberate exception: an action that moves the booking on moves which stretch is current, and the fresh render opening the new one is the answer rather than a lost place.
+
 **The private calendar pages into the past, the public one does not.** `Availability\MonthWindow` is the single place that clamping lives, with a floor that is zero for visitors (`specifications.md` §22.2) and two years for managers, because half a manager's work is about stays that already happened. Clamping is server-side: the month is a query parameter, and a hidden arrow is not a boundary (§12).
 
 ### 8.54 Rental payments (`Modules\Rental\Service\RentalPaymentService`)
@@ -1981,6 +1987,40 @@ The **only** place `rental` touches money (`specifications.md` §22.4). Everythi
 
 Receivables are raised **at confirmation**, which is when the unit actually expects to be paid, and a Finance failure there is journaled rather than thrown: the confirmation has committed and the manager has been told it worked, so undoing it would be a worse lie than a rental whose payment panel plainly shows no receivable yet. A price change pushes the new total onto the existing receivable; a refusal ("this would drop below what came in") is likewise journaled, because the price change itself is legitimate and what is left is a situation a manager has to look at, not a reason to reject their edit.
 
+### 8.54ter « À traiter », and why a status could not answer it (`Modules\Rental\Booking\BookingAttention`)
+
+**One definition, four readers.** « À traiter » used to be
+`$booking->status->needsAttention()`, written out at four call sites: the
+asset overview's list, the same page's figure above it, the bookings list's
+own filter, and the per-asset badge on « Mes locations ». Four copies of one
+rule is four chances for a tile to say « 2 » over a list of five — and
+widening one of them without the others would have guaranteed it.
+
+**The question it actually answers is « is somebody waiting on this
+booking? »**, and a status can only see one third of that. A *confirmed*
+booking carrying a change request the renter sent yesterday appeared on no
+list at all: its status is `confirmed`, and nothing about a status knows
+what is pending against it. A proposal the unit sent and the renter has not
+answered is the symmetrical case — it waits on somebody too, and the unit is
+the one who has to know it is still waiting, because a proposal nobody
+followed up is how a booking goes quiet for three weeks.
+
+**Every row carries its reasons** (`Booking\AttentionReason`), and that is
+not decoration: while the list was a status filter, the status badge *was*
+the explanation. It is not any more, and a list that grew without saying why
+reads as a list that has broken.
+
+**Pure, and fed in bulk.** `BookingAttention` takes the pending change
+requests already loaded, keyed by booking id;
+`RentalChangeRequestRepository::findPendingForBookings()` reads them in one
+statement. The page it serves already reads every booking it shows in a
+single query (`findAllForAssets()`), and answering a per-booking question
+with a per-booking query is exactly the shape that turns one screen into
+thirty round trips. A final booking is excluded whatever is recorded against
+it: `RentalBookingService` refuses every request still pending the moment a
+booking closes, and a row that survived that must not resurrect a closed
+file on somebody's list.
+
 ### 8.55 Rental documents, contracts and invoices (`Modules\Rental\Document`)
 
 **Three levels, each frozen the moment the next is born** (`specifications.md` §22.6). The asset's template lives in `editable_contents`; the booking takes its **own copy** at the first generation (`rental_booking_document_texts`); the PDF is a rendering of that copy at one instant (`rental_documents` + a `files` row). The middle level is the one that earns its keep: a template reworded in March must not silently change what a renter agreed to in February, and editing one booking's copy must not touch another's.
@@ -1991,7 +2031,9 @@ Receivables are raised **at confirmation**, which is when the unit actually expe
 
 **Substitution happens after sanitizing, and every value is escaped** (`Document\DocumentKeywords`). The other order would run the sanitizer over renter-supplied content and let it decide whether that content should have been markup. dompdf renders HTML, and these values come from a form an anonymous visitor filled in — a renter's name or organisation containing `<`, `&` or a quote is not exotic, it is Tuesday. The keyword list is **closed**: a template can say exactly these things and nothing else, and anything else it asks for is reported to its author **at edit time** rather than surviving into a signed contract as literal braces. An unknown keyword is left visible rather than blanked — a contract showing `{{ prix_ttc }}` is obviously wrong to whoever reads it, a silently emptied one reads as a clause that says nothing.
 
-The editors are **plain HTML textareas, not the rich-text modal**, and that is deliberate: a contenteditable surface happily splits a run of text across elements as it is edited, so `{{ prix_total }}` can silently become `{{ pri<b>x</b>_total }}` — still readable to a human, no longer a keyword to the substituter, and only noticed once a contract goes out with braces in it.
+**The hazard both editors are built around**: a contenteditable surface happily splits a run of text across elements as it is edited, so `{{ prix_total }}` can silently become `{{ pri<b>x</b>_total }}` — still readable to a human, no longer a keyword to the substituter, and only noticed once a contract goes out with braces in it. Both used to be plain HTML textareas for exactly that reason. They are the generic rich-text form field now (`partials/rich_text_form_field.html.twig`), which **answers** the hazard rather than avoiding it, on three levels: every keyword of the closed list renders as one `contenteditable="false"` chip the browser treats as a single indivisible character; the **server repairs** what survives anyway — a paste, an author with no JavaScript — after sanitizing and before substitution (§8.114, `DocumentKeywords::repairSplitKeywords()`); and the « mots-clés non reconnus » warning stays the net, because the repair only rewrites a region once what it would become is a real keyword. Repaired at save time AND at generation, since a text stored before the repair existed is still out there.
+
+**Sending is what makes a document read-only** (`specifications.md` §22.6). Until a document of a type has gone out, its text is a draft a manager may rework freely; afterwards the renter holds a copy, and silently changing what that copy was made from is precisely the confusion versioning exists to prevent. `RentalDocumentService::textIsLocked()` decides it from `rental_documents.sent_at` — any version, not just the latest — the editor renders the text without offering to edit it, and `saveBookingText()` refuses on the server, because a page that merely hides a form is not a rule. The confirmation on « Envoyer » says so before it happens: a button that quietly makes a page read-only is a button nobody expects. Regenerating still never overwrites — what the lock stops is the SOURCE moving under a version that has already been read and possibly signed.
 
 **`is_for_renter` is an email flag, not an access right** (`specifications.md` §22.6). An external renter downloads nothing from this site: they have no account, and the tracking token is a capability for *their own page*, not a file credential. Their contract and invoice reach them by email and only by email; a lost email is resent by a manager, which is why resending is a first-class action. Wiring the token into file access would be a new exception to SECURITY.md §6 for the sake of saving one click, and there is a test asserting the tracking page carries no download link at all.
 

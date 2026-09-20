@@ -113,6 +113,110 @@ class AccountControllerTest extends TestCase
         $this->assertSame('Dupont', $account->lastName);
     }
 
+    public function testUpdateProfileRefusesToEmptyEitherName(): void
+    {
+        $this->userRepo->updateProfile($this->userId, 'Jean', 'Dupont');
+
+        foreach ([['', 'Dupont'], ['Jean', ''], ['  ', '  ']] as [$firstName, $lastName]) {
+            $request = new Request('POST', '/account/profile', [], [
+                '_csrf_token' => CsrfGuard::generateToken(),
+                'first_name' => $firstName,
+                'last_name' => $lastName,
+            ], [], []);
+
+            $this->assertSame(302, $this->controller->updateProfile($request, [])->getStatusCode());
+
+            $account = $this->userRepo->findById($this->userId);
+            $this->assertSame('Jean', $account->firstName);
+            $this->assertSame('Dupont', $account->lastName);
+        }
+    }
+
+    public function testCompleteProfileScreenRendersWhileANameIsMissing(): void
+    {
+        $request = new Request('GET', '/account/complete-profile', [], [], [], []);
+        $response = $this->controller->completeProfile($request, []);
+
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
+    public function testCompleteProfileScreenIsADeadEndOnceTheProfileIsComplete(): void
+    {
+        $this->userRepo->updateProfile($this->userId, 'Jean', 'Dupont');
+
+        $request = new Request('GET', '/account/complete-profile', [], [], [], []);
+        $response = $this->controller->completeProfile($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/', $response->getHeaders()['Location']);
+    }
+
+    public function testCompleteProfileScreenRedirectsToLoginWhenNotAuthenticated(): void
+    {
+        AuthSession::logout();
+        $_SESSION = [];
+
+        $request = new Request('GET', '/account/complete-profile', [], [], [], []);
+        $response = $this->controller->completeProfile($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/login', $response->getHeaders()['Location']);
+    }
+
+    public function testSavingBothNamesReleasesTheSession(): void
+    {
+        $request = new Request('POST', '/account/complete-profile', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'first_name' => '  Camille ',
+            'last_name' => ' Renard ',
+        ], [], []);
+
+        $response = $this->controller->saveCompleteProfile($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/', $response->getHeaders()['Location']);
+
+        $account = $this->userRepo->findById($this->userId);
+        $this->assertSame('Camille', $account->firstName);
+        $this->assertSame('Renard', $account->lastName);
+    }
+
+    /**
+     * A refusal re-renders the screen (200) rather than redirecting: there
+     * is nowhere to redirect to but this screen, and the round trip would
+     * lose whichever field the person did fill in.
+     */
+    public function testAnIncompleteAnswerReRendersTheScreenAndStoresNothing(): void
+    {
+        $request = new Request('POST', '/account/complete-profile', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'first_name' => 'Camille',
+            'last_name' => '',
+        ], [], []);
+
+        $response = $this->controller->saveCompleteProfile($request, []);
+
+        $this->assertSame(200, $response->getStatusCode());
+
+        $account = $this->userRepo->findById($this->userId);
+        $this->assertNull($account->firstName);
+        $this->assertNull($account->lastName);
+    }
+
+    public function testCsrfValidatedOnTheCompleteProfileScreen(): void
+    {
+        $request = new Request('POST', '/account/complete-profile', [], [
+            '_csrf_token' => 'invalid_token',
+            'first_name' => 'Hacker',
+            'last_name' => 'Mann',
+        ], [], []);
+
+        $response = $this->controller->saveCompleteProfile($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertNull($this->userRepo->findById($this->userId)->firstName);
+    }
+
     public function testUpdatePasswordSetsPasswordWhenNoneExists(): void
     {
         $csrfToken = CsrfGuard::generateToken();

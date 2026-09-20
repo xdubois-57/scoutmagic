@@ -28,6 +28,7 @@ use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Service\ExpectedReceivableService;
 use Modules\Finance\Service\StructuredCommunicationService;
 use Modules\Rental\Availability\AvailabilityCalculator;
+use Modules\Rental\Booking\BookingBox;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\ChangeRequestKind;
 use Modules\Rental\Booking\ChangeRequestOrigin;
@@ -254,7 +255,14 @@ class RentalManagementControllerTest extends TestCase
                     $this->storagePath
                 )
             ),
-            null,
+            // The three figures: « À traiter » has to be countable here, or
+            // the tile and the list under it are only ever checked apart
+            // (§22.5).
+            new \Modules\Rental\Service\RentalStatisticsService(
+                $this->bookingRepository,
+                new \Modules\Rental\Repository\RentalAggregateRepository($this->pdo),
+                $this->changeRequestRepository
+            ),
             // Only « Régénérer le lien de suivi » reaches it.
             new RentalBookingService($this->bookingRepository, $journal)
         );
@@ -506,6 +514,111 @@ class RentalManagementControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode(), (string) $response->getBody());
         $this->assertStringContainsString('Local Saint-Georges', (string) $response->getBody());
+    }
+
+    // ── « À traiter » is not a filter on the status (§22.5) ─────────────
+
+    /**
+     * The defect the iteration closes: a confirmed booking carrying a change
+     * request the renter sent yesterday appeared on no list at all, because
+     * `confirmed` does not need attention and nothing about a status knows
+     * what is pending against it.
+     */
+    public function testAConfirmedBookingCarryingARenterRequestIsOnTheOverviewList(): void
+    {
+        $this->addManager($this->assetId, 'manager@test.be');
+        AuthSession::login(1, 'manager@test.be', 'identified');
+
+        $booking = $this->createBooking();
+        $this->bookingRepository->setStatus($booking->id, BookingStatus::CONFIRMED, new \DateTimeImmutable());
+        $this->changeRequestRepository->create(
+            $booking->id,
+            ChangeRequestOrigin::RENTER,
+            ChangeRequestKind::DATES,
+            '2027-07-08',
+            '2027-07-11',
+            null,
+            null,
+            null,
+            'Nous arriverions plutôt le 8.'
+        );
+
+        $body = (string) $this->overview('local-saint-georges')->getBody();
+
+        $this->assertStringContainsString($booking->reference, $body);
+        $this->assertStringContainsString('Le locataire a demandé une modification', $body);
+    }
+
+    /**
+     * A proposal waits on somebody too, and the unit is the one who has to
+     * know it is still waiting.
+     */
+    public function testAnUnansweredProposalPutsABookingOnTheOverviewList(): void
+    {
+        $this->addManager($this->assetId, 'manager@test.be');
+        AuthSession::login(1, 'manager@test.be', 'identified');
+
+        $booking = $this->createBooking();
+        $this->bookingRepository->setStatus($booking->id, BookingStatus::CONFIRMED, new \DateTimeImmutable());
+        $this->changeRequestRepository->create(
+            $booking->id,
+            ChangeRequestOrigin::MANAGER,
+            ChangeRequestKind::DATES,
+            '2027-07-08',
+            '2027-07-11',
+            null,
+            null,
+            null,
+            null
+        );
+
+        $body = (string) $this->overview('local-saint-georges')->getBody();
+
+        $this->assertStringContainsString('Votre proposition attend la réponse du locataire', $body);
+    }
+
+    /**
+     * The tile and the list under it cannot disagree: both are counted from
+     * Booking\BookingAttention. A « 0 » over a list of one is the failure
+     * this pins.
+     */
+    public function testTheFigureAgreesWithTheListBelowIt(): void
+    {
+        $this->addManager($this->assetId, 'manager@test.be');
+        AuthSession::login(1, 'manager@test.be', 'identified');
+
+        $booking = $this->createBooking();
+        $this->bookingRepository->setStatus($booking->id, BookingStatus::CONFIRMED, new \DateTimeImmutable());
+        $this->changeRequestRepository->create(
+            $booking->id,
+            ChangeRequestOrigin::RENTER,
+            ChangeRequestKind::PERSONS,
+            null,
+            null,
+            null,
+            40,
+            null,
+            'Nous serons quarante.'
+        );
+
+        $body = (string) preg_replace('/\s+/', ' ', (string) $this->overview('local-saint-georges')->getBody());
+
+        // The list holds exactly one row, and the tile says so.
+        $this->assertSame(1, substr_count($body, 'Le locataire a demandé une modification'));
+        $this->assertMatchesRegularExpression('/À traiter.*?>1</s', $body);
+    }
+
+    public function testAConfirmedBookingWithNothingPendingStaysOffTheList(): void
+    {
+        $this->addManager($this->assetId, 'manager@test.be');
+        AuthSession::login(1, 'manager@test.be', 'identified');
+
+        $booking = $this->createBooking();
+        $this->bookingRepository->setStatus($booking->id, BookingStatus::CONFIRMED, new \DateTimeImmutable());
+
+        $body = (string) $this->overview('local-saint-georges')->getBody();
+
+        $this->assertStringContainsString('Aucune demande en attente.', $body);
     }
 
     public function testAManagerOfOneAssetCannotReachAnother(): void
@@ -1308,9 +1421,175 @@ class RentalManagementControllerTest extends TestCase
         $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
 
         $this->assertStringContainsString('data-rental-booking', $body);
-        foreach (['milestones', 'lifecycle', 'documents', 'price', 'history'] as $panel) {
+        foreach (['milestones', 'next-step', 'documents', 'price', 'history'] as $panel) {
             $this->assertStringContainsString('data-booking-panel="' . $panel . '"', $body);
         }
+
+        // The figure on a folded box is its own region: it is the only part
+        // of the box outside the fold that an action changes, and a box
+        // still reading « Aucun document » over a document somebody has
+        // just generated is the lie the wrapper exists to stop.
+        foreach (['documents-figure', 'payment-figure', 'history-figure'] as $panel) {
+            $this->assertStringContainsString('data-booking-panel="' . $panel . '"', $body);
+        }
+    }
+
+    /**
+     * **The figure has to carry the number, not just the wrapper.**
+     *
+     * Each box embeds `_dossier_header.html.twig` with `only`, which
+     * restricts the embed — the `{% block figure %}` overrides included —
+     * to exactly what the `with {}` map passes. A variable the figure reads
+     * and the map does not pass resolves to null rather than erroring,
+     * because `strict_variables` is off, so every box renders its empty
+     * branch over a file that is not empty: « Aucun document » above a
+     * contract, « Suivi hors ScoutMagic » above money that is owed. Nothing
+     * in the markup says so, which is why this asserts the computed text.
+     */
+    public function testEachFoldedBoxCarriesTheFigureItWasFoldedBehind(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+        $this->commentRepository->create($booking->id, null, 'Le locataire a téléphoné.');
+
+        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString('1 document', self::panel($body, 'documents-figure'));
+        $this->assertStringContainsString('1 commentaire', self::panel($body, 'comments-figure'));
+        // The history is never empty: creating the booking is itself an
+        // entry, so a figure reading nothing at all is the bug.
+        $this->assertMatchesRegularExpression(
+            '/\d+ modification/',
+            self::panel($body, 'history-figure')
+        );
+        // No change request has been made, and the figure says so rather
+        // than staying blank.
+        $this->assertStringContainsString('Aucune demande', self::panel($body, 'changes-figure'));
+    }
+
+    /**
+     * The four movements of the page, in the order §6.15 reads them: what
+     * the rental is, the one thing to do next, how far it has got, then the
+     * file. Asserted by position rather than by presence, because the whole
+     * of IT-05 is the order — four headings in the wrong sequence would
+     * pass a test that only asked whether they were there.
+     */
+    public function testTheBookingPageReadsInItsFourMovements(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+
+        $positions = [];
+        foreach ([
+            'Les détails de la location',
+            "L'action suivante",
+            'Où en est cette location',
+            'Le dossier',
+        ] as $heading) {
+            $at = strpos($body, $heading);
+            $this->assertNotFalse($at, "the page is missing « {$heading} »");
+            $positions[] = $at;
+        }
+
+        $sorted = $positions;
+        sort($sorted);
+        $this->assertSame($sorted, $positions, 'the four movements are out of order');
+
+        // The « État » card is gone: its badge is in the details above and
+        // its buttons are decisions of a phase, never a state of their own.
+        $this->assertStringNotContainsString('data-booking-panel="lifecycle"', $body);
+    }
+
+    /**
+     * A request nobody has answered yet puts the decision at the top of the
+     * page, with the buttons under it — not a link to a phase, and not a
+     * request for a contract, which is where the checklist alone used to
+     * point.
+     */
+    public function testAnUndecidedRequestLeadsWithItsDecision(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $nextStep = self::panel($body, 'next-step');
+
+        $this->assertStringContainsString('Décision prise sur la demande', $nextStep);
+        $this->assertStringContainsString('value="confirmed"', $nextStep);
+        $this->assertStringContainsString('value="refused"', $nextStep);
+    }
+
+    /**
+     * And the same buttons are NOT repeated inside the stretch they belong
+     * to. One page offering « Confirmée » twice is one where pressing
+     * either is a guess about which one counts.
+     */
+    public function testALiftedDecisionIsNotAlsoShownInsideItsPhase(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+
+        $this->assertSame(
+            1,
+            substr_count($body, 'name="status" value="confirmed"'),
+            'the « Confirmée » button is rendered twice'
+        );
+    }
+
+    /**
+     * Each box carries the anchor its journey line links to, and
+     * Booking\BookingBox is where both come from — a card whose id the
+     * links miss is a « Voir "Paiements" » that scrolls nowhere.
+     */
+    public function testEveryDossierBoxCarriesTheAnchorItsLinksAimAt(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+
+        foreach (BookingBox::cases() as $box) {
+            // Courrier is the one box that is not always there: with
+            // `inbound_mail` off — which is the case here — a box that
+            // could only ever be empty is noise (§7.7).
+            if ($box === BookingBox::MAIL) {
+                continue;
+            }
+
+            $this->assertStringContainsString(
+                'id="' . $box->anchor() . '"',
+                $body,
+                'no box carries ' . $box->anchor()
+            );
+        }
+    }
+
+    /**
+     * One panel's markup, by the wrapper rental-booking.js swaps — the same
+     * addressing the page's own script uses, rather than a guess at which
+     * card a string landed in.
+     */
+    private static function panel(string $body, string $name): string
+    {
+        $open = strpos($body, 'data-booking-panel="' . $name . '"');
+        self::assertNotFalse($open, "no panel named {$name}");
+
+        // Up to the next wrapper rather than a fixed window: a CSRF token
+        // is 64 characters and a panel holding six forms outgrows any
+        // number picked here, which would make the assertion pass or fail
+        // on how long a page happens to be.
+        $next = strpos($body, 'data-booking-panel="', $open + 1);
+
+        return $next === false ? substr($body, $open) : substr($body, $open, $next - $open);
     }
 
     // ── The page acts without reloading ─────────────────────────────────

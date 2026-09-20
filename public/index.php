@@ -3797,6 +3797,20 @@ $router->addRoute(
     ['label' => 'Mon compte', 'parents' => []],
 );
 $router->addRoute('POST', '/account/profile', AccountController::class, 'updateProfile', 'identified');
+// The interstitial screen an identified account meets while its first or
+// last name is missing (Core\Security\ProfileCompletionGate). Deliberately
+// declares NO breadcrumb: it is an interruption rather than a page of the
+// site, it draws no navigation, and every other route redirects to it — a
+// trail would offer an ancestry it is precisely refusing to let anybody
+// walk. It is also the reason `/logout` below must stay reachable.
+$router->addRoute('GET', '/account/complete-profile', AccountController::class, 'completeProfile', 'identified');
+$router->addRoute(
+    'POST',
+    '/account/complete-profile',
+    AccountController::class,
+    'saveCompleteProfile',
+    'identified'
+);
 $router->addRoute('POST', '/account/password', AccountController::class, 'updatePassword', 'identified');
 $router->addRoute(
     'GET',
@@ -5355,7 +5369,10 @@ $frontController = new FrontController(
     $offlineWhitelist,
     $maintenanceGate,
     $helpService,
-    $helpPageLinkResolver
+    $helpPageLinkResolver,
+    // Built from the account this request is signed in as — the same row
+    // the avatar's initials already read, so this costs no extra query.
+    \Core\Security\ProfileCompletionGate::forAccount($currentAccountForAvatar)
 );
 
 // Entity change history pages (Core\Audit) — registered here rather than
@@ -10515,7 +10532,10 @@ if ($isEnabled('rental')) {
             // bookings AND the aggregates a purge left behind.
             new \Modules\Rental\Service\RentalStatisticsService(
                 $rentalBookingRepository,
-                new \Modules\Rental\Repository\RentalAggregateRepository($pdo)
+                new \Modules\Rental\Repository\RentalAggregateRepository($pdo),
+                // « À traiter » counts what waits on somebody, not what a
+                // status happens to say (§22.5).
+                $rentalChangeRequestRepository
             ),
             // Only « Régénérer le lien de suivi » reaches it.
             $rentalBookingService

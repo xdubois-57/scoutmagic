@@ -85,6 +85,7 @@ import { expect, test } from '@playwright/test';
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin } from '../support/admin-login.js';
+import { openCard } from '../support/collapsible-card.js';
 import { openSectionEditor } from '../support/section-editor.js';
 import { pngBuffer } from '../support/png.js';
 import { scaled } from '../support/timeouts.js';
@@ -239,6 +240,15 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         await expect(milestone(page, 'Caution restituée')).toContainText(NOT_APPLICABLE);
 
         // ── The contract: generated, then sent ───────────────────────────
+        // « Documents » is a box of « Le dossier » and boxes ship folded
+        // (IT-05): the page opens on the one thing to do, not on eight
+        // panels at once. Opened ONCE here — its fold lives outside the
+        // `data-booking-panel` wrapper, so the four presses below, each of
+        // which re-renders the panel, must all leave it open. A box that
+        // folded under the manager's hands after every action is the
+        // regression this single call is watching for.
+        await openCard(page, 'dossier-documents');
+
         // A marker on the live document. If any of the presses below makes
         // the browser navigate, the document is replaced and the marker goes
         // with it — the only way to tell "the panel was re-rendered" from
@@ -252,11 +262,21 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         // Headroom over the expect default because this one press renders a
         // PDF: dompdf loads its fonts on the first document of the run, and
         // the work happens inside the request the panel refresh waits on.
-        await expect(page.getByRole('button', { name: 'Envoyer', exact: true }))
-            .toBeVisible({ timeout: scaled(45_000) });
+        // Named by the regular expression rather than by « Envoyer » alone,
+        // and that is the whole point of the change it follows: the action
+        // is an icon now, and its accessible name NAMES ITS DOCUMENT —
+        // « Supprimer » five times down a column tells a screen-reader user
+        // nothing about which row they are on. Anchored at the start
+        // because getByRole's string matching is a case-insensitive
+        // substring, so a plain « Envoyer » also names « Renvoyer ».
+        const send = page.getByRole('button', { name: /^Envoyer «/ });
+
+        await expect(send).toBeVisible({ timeout: scaled(45_000) });
         await expect(milestone(page, 'Contrat envoyé')).toContainText(TODO);
 
-        await page.getByRole('button', { name: 'Envoyer', exact: true }).click();
+        // The dialog this raises — sending freezes the document's text — is
+        // answered by autoConfirm() at the top of the scenario.
+        await send.click();
         await expect(milestone(page, 'Contrat envoyé')).toContainText(DONE);
         // The date the line carries is the send date. Matched as a shape
         // rather than as today's date written out here: the assertion is
@@ -265,7 +285,7 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         await expect(milestone(page, 'Contrat envoyé')).toContainText(/\d{2}\/\d{2}\/\d{4}/);
         // The row now offers « Renvoyer » — the document knows it has gone
         // out, which is the same fact the milestone just read.
-        await expect(page.getByRole('button', { name: 'Renvoyer', exact: true })).toBeVisible();
+        await expect(page.getByRole('button', { name: /^Renvoyer «/ })).toBeVisible();
 
         // ── The signed copy coming back ──────────────────────────────────
         // A photograph of a signed contract, which is what a renter actually
@@ -381,7 +401,7 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         // the whole document: a page-wide getByText is how a header, a
         // drawer and the body all answer to one visible string.
         await expect(
-            page.locator('[data-booking-panel="lifecycle"]'),
+            page.locator('[data-booking-panel="next-step"]'),
         ).toContainText('Cette réservation est dans un état définitif');
 
         expect(serverErrors, 'the application returned a server error').toEqual([]);
@@ -412,6 +432,7 @@ test.describe('Rentals — the milestones after a confirmation', () => {
 function milestone(page, label) {
     return page.locator('[data-booking-panel="milestones"] li').filter({ hasText: label });
 }
+
 
 /**
  * The booking's own URL, taken from the address bar.
