@@ -28,14 +28,14 @@ namespace Modules\Rental\Booking;
  */
 enum BookingBox: string
 {
-    case PRICE = 'prix';
-    case PAYMENT = 'paiements';
+    case PRICE = 'price';
+    case PAYMENT = 'payment';
     case DOCUMENTS = 'documents';
-    case MAIL = 'courrier';
-    case CHANGES = 'demandes';
-    case STAY = 'sejour';
-    case COMMENTS = 'commentaires';
-    case HISTORY = 'historique';
+    case MAIL = 'mail';
+    case CHANGES = 'changes';
+    case STAY = 'stay';
+    case COMMENTS = 'comments';
+    case HISTORY = 'history';
 
     public function label(): string
     {
@@ -62,6 +62,19 @@ enum BookingBox: string
     public function anchor(): string
     {
         return 'dossier-' . $this->value;
+    }
+
+    /**
+     * Whether this box is a page of its own rather than a fold.
+     *
+     * Only the stay is, and the journey's links have to know: its card
+     * carries no collapsible panel, so `#dossier-stay` lands a manager on
+     * the line and leaves them to click it a second time — an « Ouvrir
+     * "Séjour" » button that does not open anything.
+     */
+    public function isPage(): bool
+    {
+        return $this === self::STAY;
     }
 
     /**

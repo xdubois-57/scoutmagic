@@ -1435,6 +1435,44 @@ class RentalManagementControllerTest extends TestCase
     }
 
     /**
+     * **The figure has to carry the number, not just the wrapper.**
+     *
+     * Each box embeds `_dossier_header.html.twig` with `only`, which
+     * restricts the embed — the `{% block figure %}` overrides included —
+     * to exactly what the `with {}` map passes. A variable the figure reads
+     * and the map does not pass resolves to null rather than erroring,
+     * because `strict_variables` is off, so every box renders its empty
+     * branch over a file that is not empty: « Aucun document » above a
+     * contract, « Suivi hors ScoutMagic » above money that is owed. Nothing
+     * in the markup says so, which is why this asserts the computed text.
+     */
+    public function testEachFoldedBoxCarriesTheFigureItWasFoldedBehind(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+        $this->commentRepository->create($booking->id, null, 'Le locataire a téléphoné.');
+
+        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString('1 document', self::panel($body, 'documents-figure'));
+        $this->assertStringContainsString('1 commentaire', self::panel($body, 'comments-figure'));
+        // The history is never empty: creating the booking is itself an
+        // entry, so a figure reading nothing at all is the bug.
+        $this->assertMatchesRegularExpression(
+            '/\d+ modification/',
+            self::panel($body, 'history-figure')
+        );
+        // No change request has been made, and the figure says so rather
+        // than staying blank.
+        $this->assertStringContainsString('Aucune demande', self::panel($body, 'changes-figure'));
+    }
+
+    /**
      * The four movements of the page, in the order §6.15 reads them: what
      * the rental is, the one thing to do next, how far it has got, then the
      * file. Asserted by position rather than by presence, because the whole

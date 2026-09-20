@@ -741,7 +741,7 @@ class RentalManagementController extends AbstractController
         $transitions = BookingTransition::allowedFrom($booking->status);
 
         // Keyed by the enum's own value so the template writes
-        // `boxes.paiements.anchor` rather than the string that anchor
+        // `boxes.payment.anchor` rather than the string that anchor
         // happens to be today: the journey's links are built from the same
         // enum, and a template that spelled its own would send half of them
         // to an id nothing carries (Booking\BookingBox).
@@ -753,6 +753,10 @@ class RentalManagementController extends AbstractController
         return $this->render('@rental/management/booking.html.twig', [
             'asset' => $asset,
             'booking' => $booking,
+            // The one box that is a page rather than a fold, so the
+            // journey's links to it need a URL and not a fragment
+            // (`BookingBox::isPage()`).
+            'stay_url' => $this->bookingUrl($asset, $booking) . '/sejour',
             'breadcrumb_current' => $booking->reference,
             'breadcrumb_trail' => $this->bookingTrail($asset),
             // The checklist is derived from what the booking's own records

@@ -209,12 +209,34 @@ class BookingJourneyTest extends TestCase
      */
     public function testAnInapplicableLineIsNeverTheNextThingToDo(): void
     {
-        $journey = BookingJourney::of($this->milestones(
+        // A key absent from $extras is emitted inapplicable and incomplete
+        // (`BookingMilestones::extra()` keys applicability on
+        // array_key_exists), so the three contract and deposit lines here
+        // come BEFORE the balance and are exactly the shape that must be
+        // stepped over.
+        $milestones = $this->milestones(
             BookingStatus::CONFIRMED,
             [BookingMilestones::BALANCE_RECEIVED => false]
-        ));
+        );
 
-        $this->assertSame(BookingMilestones::BALANCE_RECEIVED, $journey->next()?->key);
+        $skipped = array_values(array_filter(
+            $milestones,
+            static fn(BookingMilestone $m): bool => in_array($m->key, [
+                BookingMilestones::CONTRACT_SENT,
+                BookingMilestones::CONTRACT_ACCEPTED,
+                BookingMilestones::DEPOSIT_RECEIVED,
+            ], true)
+        ));
+        $this->assertCount(3, $skipped, 'The lines to be stepped over must be on the list at all.');
+        foreach ($skipped as $milestone) {
+            $this->assertFalse($milestone->isApplicable, $milestone->key);
+            $this->assertFalse($milestone->isDone, $milestone->key);
+        }
+
+        // Incomplete and earlier, yet none of them is proposed: the balance
+        // is, because it is the first incomplete line this installation can
+        // actually do something about.
+        $this->assertSame(BookingMilestones::BALANCE_RECEIVED, BookingJourney::of($milestones)->next()?->key);
     }
 
     public function testAClosedBookingHasNothingLeftToDo(): void

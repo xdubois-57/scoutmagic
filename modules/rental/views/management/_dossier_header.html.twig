@@ -7,7 +7,7 @@
   in the `figure` block, wrapped in its own `data-booking-panel`:
 
     {% embed '@rental/management/_dossier_header.html.twig' with {
-        box: boxes.paiements, target_id: 'box-paiements',
+        box: boxes.payment, target_id: 'box-payment',
     } only %}
         {% block figure %}<span data-booking-panel="payment-figure">…</span>{% endblock %}
     {% endembed %}

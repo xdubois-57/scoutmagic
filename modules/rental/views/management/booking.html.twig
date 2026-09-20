@@ -157,7 +157,8 @@
                             transitions: journey.liftedTransitions, renter_decisions: renter_decisions,
                         } only %}
                     {% elseif journey.nextBox %}
-                        <a class="btn btn-primary" href="#{{ journey.nextBox.anchor }}">
+                        <a class="btn btn-primary"
+                           href="{{ journey.nextBox.isPage ? stay_url : '#' ~ journey.nextBox.anchor }}">
                             Ouvrir « {{ journey.nextBox.label }} »
                         </a>
                     {% else %}
@@ -279,7 +280,9 @@
 
                                 {% if phase.box %}
                                     <p class="mb-0 mt-3">
-                                        <a href="#{{ phase.box.anchor }}">Voir « {{ phase.box.label }} »</a>
+                                        <a href="{{ phase.box.isPage ? stay_url : '#' ~ phase.box.anchor }}">
+                                            Voir « {{ phase.box.label }} »
+                                        </a>
                                     </p>
                                 {% endif %}
                             </div>
@@ -302,9 +305,9 @@
             à côté de son nom dit ce qu'elle contient.
         </p>
 
-        <div class="card mb-3" id="{{ boxes.prix.anchor }}">
+        <div class="card mb-3" id="{{ boxes.price.anchor }}">
             {% embed '@rental/management/_dossier_header.html.twig' with {
-                box: boxes.prix, target_id: boxes.prix.bodyAnchor,
+                box: boxes.price, target_id: boxes.price.bodyAnchor, quote: quote,
             } only %}
                 {% block figure %}
                     <span class="text-body-secondary small" data-booking-panel="price-figure">
@@ -312,16 +315,16 @@
                     </span>
                 {% endblock %}
             {% endembed %}
-            <div class="collapse" id="{{ boxes.prix.bodyAnchor }}">
+            <div class="collapse" id="{{ boxes.price.bodyAnchor }}">
                 <div data-booking-panel="price">
                     {% include '@rental/management/_price.html.twig' %}
                 </div>
             </div>
         </div>
 
-        <div class="card mb-3" id="{{ boxes.paiements.anchor }}">
+        <div class="card mb-3" id="{{ boxes.payment.anchor }}">
             {% embed '@rental/management/_dossier_header.html.twig' with {
-                box: boxes.paiements, target_id: boxes.paiements.bodyAnchor,
+                box: boxes.payment, target_id: boxes.payment.bodyAnchor, payment: payment,
             } only %}
                 {% block figure %}
                     <span class="text-body-secondary small" data-booking-panel="payment-figure">
@@ -337,7 +340,7 @@
                     </span>
                 {% endblock %}
             {% endembed %}
-            <div class="collapse" id="{{ boxes.paiements.bodyAnchor }}">
+            <div class="collapse" id="{{ boxes.payment.bodyAnchor }}">
                 <div data-booking-panel="payment">
                     {% include '@rental/management/_payment.html.twig' %}
                 </div>
@@ -346,7 +349,7 @@
 
         <div class="card mb-3" id="{{ boxes.documents.anchor }}">
             {% embed '@rental/management/_dossier_header.html.twig' with {
-                box: boxes.documents, target_id: boxes.documents.bodyAnchor,
+                box: boxes.documents, target_id: boxes.documents.bodyAnchor, documents: documents,
             } only %}
                 {% block figure %}
                     <span class="text-body-secondary small" data-booking-panel="documents-figure">
@@ -372,9 +375,9 @@
           or gone. A box that could only ever be empty is noise (§7.7).
         #}
         {% if communications_available %}
-            <div class="card mb-3" id="{{ boxes.courrier.anchor }}">
+            <div class="card mb-3" id="{{ boxes.mail.anchor }}">
                 {% embed '@rental/management/_dossier_header.html.twig' with {
-                    box: boxes.courrier, target_id: boxes.courrier.bodyAnchor,
+                    box: boxes.mail, target_id: boxes.mail.bodyAnchor, messages: messages,
                 } only %}
                     {% block figure %}
                         <span class="text-body-secondary small" data-booking-panel="communications-figure">
@@ -384,7 +387,7 @@
                         </span>
                     {% endblock %}
                 {% endembed %}
-                <div class="collapse" id="{{ boxes.courrier.bodyAnchor }}">
+                <div class="collapse" id="{{ boxes.mail.bodyAnchor }}">
                     <div data-booking-panel="communications">
                         {% include '@rental/management/_communications.html.twig' %}
                     </div>
@@ -393,9 +396,10 @@
         {% endif %}
 
         {% set pending_changes = change_requests|filter(c => c.isPending)|length %}
-        <div class="card mb-3" id="{{ boxes.demandes.anchor }}">
+        <div class="card mb-3" id="{{ boxes.changes.anchor }}">
             {% embed '@rental/management/_dossier_header.html.twig' with {
-                box: boxes.demandes, target_id: boxes.demandes.bodyAnchor,
+                box: boxes.changes, target_id: boxes.changes.bodyAnchor,
+                change_requests: change_requests, pending_changes: pending_changes,
             } only %}
                 {% block figure %}
                     <span class="text-body-secondary small" data-booking-panel="changes-figure">
@@ -409,7 +413,7 @@
                     </span>
                 {% endblock %}
             {% endembed %}
-            <div class="collapse" id="{{ boxes.demandes.bodyAnchor }}">
+            <div class="collapse" id="{{ boxes.changes.bodyAnchor }}">
                 <div data-booking-panel="changes">
                     {% include '@rental/management/_changes.html.twig' %}
                 </div>
@@ -421,11 +425,11 @@
           fold — the only one in the list, and it says so by carrying an
           arrow instead of a chevron.
         #}
-        <div class="card mb-3" id="{{ boxes.sejour.anchor }}">
+        <div class="card mb-3" id="{{ boxes.stay.anchor }}">
             <a class="card-body d-flex justify-content-between align-items-center gap-2 text-decoration-none"
-               href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}/sejour">
+               href="{{ stay_url }}">
                 <span>
-                    <span class="h6 mb-0">{{ boxes.sejour.label }}</span>
+                    <span class="h6 mb-0">{{ boxes.stay.label }}</span>
                     <span class="text-body-secondary small d-block">
                         Relevés de compteurs, état des lieux, incidents et décompte final.
                     </span>
@@ -434,9 +438,9 @@
             </a>
         </div>
 
-        <div class="card mb-3" id="{{ boxes.commentaires.anchor }}">
+        <div class="card mb-3" id="{{ boxes.comments.anchor }}">
             {% embed '@rental/management/_dossier_header.html.twig' with {
-                box: boxes.commentaires, target_id: boxes.commentaires.bodyAnchor,
+                box: boxes.comments, target_id: boxes.comments.bodyAnchor, comments: comments,
             } only %}
                 {% block figure %}
                     <span class="text-body-secondary small" data-booking-panel="comments-figure">
@@ -446,16 +450,16 @@
                     </span>
                 {% endblock %}
             {% endembed %}
-            <div class="collapse" id="{{ boxes.commentaires.bodyAnchor }}">
+            <div class="collapse" id="{{ boxes.comments.bodyAnchor }}">
                 <div data-booking-panel="comments">
                     {% include '@rental/management/_comments.html.twig' %}
                 </div>
             </div>
         </div>
 
-        <div class="card mb-3" id="{{ boxes.historique.anchor }}">
+        <div class="card mb-3" id="{{ boxes.history.anchor }}">
             {% embed '@rental/management/_dossier_header.html.twig' with {
-                box: boxes.historique, target_id: boxes.historique.bodyAnchor,
+                box: boxes.history, target_id: boxes.history.bodyAnchor, audit_page: audit_page,
             } only %}
                 {% block figure %}
                     <span class="text-body-secondary small" data-booking-panel="history-figure">
@@ -463,7 +467,7 @@
                     </span>
                 {% endblock %}
             {% endembed %}
-            <div class="collapse" id="{{ boxes.historique.bodyAnchor }}">
+            <div class="collapse" id="{{ boxes.history.bodyAnchor }}">
                 <div data-booking-panel="history">
                     <div class="card-body pt-0">
                         {% include 'partials/audit_timeline.html.twig' with {
