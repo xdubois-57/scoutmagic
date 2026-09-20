@@ -3297,6 +3297,22 @@ $menuBuilder->addPage(
     null,
     'site'
 );
+// Configuration > Site > Pages de texte (ARCHITECTURE.md §8.116). Order 11
+// puts it right after Modules: both answer « what does this site have on
+// it », where the entries below answer « what does this unit have in it ».
+$menuBuilder->addPage(
+    MenuBuilder::MENU_CONFIGURATION,
+    'Pages de texte',
+    '/config/pages-de-texte',
+    'superadmin',
+    11,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-file-text',
+    null,
+    'site'
+);
 $menuBuilder->addPage(
     MenuBuilder::MENU_CONFIGURATION,
     'Badges',
@@ -5082,6 +5098,78 @@ $router->addRoute(
 $router->addRoute('POST', '/config/modules/toggle', ConfigModulesController::class, 'toggleModule', 'superadmin');
 $router->addRoute('POST', '/config/modules/reorder', ConfigModulesController::class, 'reorderModules', 'superadmin');
 
+// Configuration > Pages de texte — the screen that creates the free-text
+// pages of ARCHITECTURE.md §8.116. Every route is `superadmin`, and
+// TextPageConfigController checks no role of its own: the guard here is
+// the protection (SECURITY.md §3).
+//
+// The literal paths are declared BEFORE `/config/pages-de-texte/{id}`
+// (§7.1, literal-before-wildcard). An id-named placeholder matches digits
+// only (SECURITY.md §35), so `nouveau` could not have been taken for one
+// anyway — the order is what keeps that true the day a placeholder's
+// pattern widens.
+$router->addRoute(
+    'GET',
+    '/config/pages-de-texte',
+    \Core\Http\Controller\TextPageConfigController::class,
+    'index',
+    'superadmin',
+    ['label' => 'Pages de texte', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+);
+$router->addRoute(
+    'GET',
+    '/config/pages-de-texte/nouveau',
+    \Core\Http\Controller\TextPageConfigController::class,
+    'createForm',
+    'superadmin',
+    ['label' => 'Nouvelle page de texte', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Pages de texte', 'path' => '/config/pages-de-texte']]],
+);
+$router->addRoute(
+    'POST',
+    '/config/pages-de-texte',
+    \Core\Http\Controller\TextPageConfigController::class,
+    'create',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/pages-de-texte/ordre',
+    \Core\Http\Controller\TextPageConfigController::class,
+    'reorder',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/pages-de-texte/activation',
+    \Core\Http\Controller\TextPageConfigController::class,
+    'toggleActive',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/pages-de-texte/suppression',
+    \Core\Http\Controller\TextPageConfigController::class,
+    'delete',
+    'superadmin',
+);
+$router->addRoute(
+    'GET',
+    '/config/pages-de-texte/{id}',
+    \Core\Http\Controller\TextPageConfigController::class,
+    'editForm',
+    'superadmin',
+    ['label' => 'Modifier une page de texte', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Pages de texte', 'path' => '/config/pages-de-texte']]],
+);
+$router->addRoute(
+    'POST',
+    '/config/pages-de-texte/{id}',
+    \Core\Http\Controller\TextPageConfigController::class,
+    'update',
+    'superadmin',
+);
+
 // Configuration > Badges — badge registry (split out of Configuration
 // générale, ARCHITECTURE §8.11). Stays superadmin, in the Configuration menu.
 $router->addRoute(
@@ -5525,6 +5613,15 @@ $frontController->registerController(
 $frontController->registerController(
     \Core\Http\Controller\TextPageController::class,
     new \Core\Http\Controller\TextPageController($twig, $textPageService)
+);
+
+// Configuration > Pages de texte — the screen that creates them
+// (ARCHITECTURE.md §8.116). Registered next to the controller it manages
+// rather than with the other config screens, because it takes the same
+// TextPageService that one does.
+$frontController->registerController(
+    \Core\Http\Controller\TextPageConfigController::class,
+    new \Core\Http\Controller\TextPageConfigController($twig, $textPageService, $journalService)
 );
 
 // Contextual help pages (Core\Http\Controller\HelpController) — needs the

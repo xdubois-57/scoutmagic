@@ -267,6 +267,8 @@ A module that needs to extend a *core* configuration page (e.g. attach flags to 
 
 Because `MenuBuilder::build()` — and the per-request active-menu highlight — must run before module services are wired later in `public/index.php`, the composition root calls back into the builder from inside the module's own conditional block and re-derives `$menus`/`active_menu_id`/`active_page_url` from the updated list; `MenuBuilder::build()` itself is a pure read of its internal page list, so calling it twice is safe. `Core\View\DynamicMenuRegistrar` encapsulates exactly that two-step: `register()` applies a list of providers to the builder and returns what it added, `resolveActive()` re-runs the active-page scan over just those entries, carrying the first scan's best match forward. Use it rather than hand-writing the re-derivation per module — a copy that silently drops the highlight refresh yields a correct page with no nav highlight, a bug no route test would catch.
 
+**One provider is not a module's.** `Core\Page\TextPageMenuProvider` contributes the unit's own free-text pages (§8.116) — the only entries whose *existence*, not just whose visibility, comes from a database row rather than from code. It is handed the very list the routes were built from, so a page can never appear in a menu without a route behind it, nor the reverse, and the whole feature costs one query per request. It also **filters a placement that has gone stale** — a `menu_group` whose column a later version removed — rather than letting `addPage()` throw: the throw would happen while building the navigation of every page of the site, so one aged row would cost every page its menu instead of costing itself its entry.
+
 **A menu entry is never a permission.** `MenuEntry::$roleMin` filters *display* only; the route it points at carries its own `role_min`, and any per-object rule is re-checked server-side in the controller (§12).
 
 **And a menu entry is a promise**, which is the rule in the other direction and the one issue #347 was reported against. A `label` in `module.json` draws the entry from `role_min` and nothing else, so a controller that then narrows further — `/config/retro` and `/config/banner` ask for Staff d'U membership on top of `role_min: admin` — offers a link to somebody it will refuse, and the refusal is all they get. **A route whose controller applies a check `role_min` cannot express therefore does not declare a static `label`**: it drops the label and its entry is contributed by a `MenuEntryProvider` asking the controller's own question (`Modules\Retro\Menu\RetroMenuHookService`, `Modules\Banner\Menu\BannerMenuHookService`). Hiding the entry protects nothing and showing it grants nothing — what changes is whether the site tells the truth about where it will let somebody in. `Tests\Architecture\MenuEntriesAreNotDeadLinksTest` holds the rule statically, and the authorization matrix (SECURITY.md §36) holds it at runtime, where a menu entry refusing a role its `role_min` admits fails the run.
@@ -5041,6 +5043,41 @@ existed cannot be its content by any legitimate route — and
 `TextPageService::create()` **deletes the page it just made** if the claim
 cannot be completed. A page that does not exist is recoverable; a live page
 whose text belongs to nobody is not.
+
+**The screen that creates them** is Configuration › Site › Pages de texte
+(`Core\Http\Controller\TextPageConfigController`), every route
+`superadmin`. It checks no role of its own — the guard the router already
+ran carries the floor, and a re-check here would be a second answer to a
+settled question. Its list is the shared `partials/list_editor.html.twig`
+with no extra checkbox: activation is the toggle, ordering is the drag,
+deletion is the bin. Adding is a link rather than that partial's own
+blind-create button, because a page cannot exist before it has a name, a
+title and a place.
+
+`« Créer et ouvrir »` is one button because it is one intention: it saves,
+switches the session into configuration mode and redirects to the page. A
+page that has just been created is empty by definition, and the only
+sensible next step is to go and write it. The mode grants nothing (§8.2)
+and stays on for the session like everywhere else, with no exception
+carved out here.
+
+The **column picker follows the section** in the browser, filled from
+`MenuBuilder::MENU_GROUPS` and hidden entirely for « Notre unité », which
+declares no columns. That is the convenience;
+`TextPageService::assertMenuPlacement()` is the rule, and it runs again on
+every save — `addPage()` throwing on an undeclared column would not break
+the new page, it would break the navigation of every page of the site.
+The hidden `<select>` is also disabled, because a hidden control still
+submits and an empty string is not the null the service expects.
+
+The **help topic is `docs/help/pages-de-texte.md`**, and it declares
+`/pages/*` alongside the screen's own paths so a superadmin reading a page
+they created gets the help that explains how pages work. A public visitor
+on a public text page gets nothing from it — the topic is `superadmin` —
+and that is correct: it documents managing pages, not reading one. The
+topic is also why `Tests\Core\Help\HelpInvariantsTest` knows about
+`TextPage::PATH_PREFIX`: that check reads `public/index.php` for GET
+routes, and these routes are not written there to be read.
 
 Explicitly **not** in scope: free-text pages do not join
 `Core\Offline\OfflineWhitelist`. That list is a static server-side
