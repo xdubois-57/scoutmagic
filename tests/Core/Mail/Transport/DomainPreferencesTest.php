@@ -285,4 +285,46 @@ class DomainPreferencesTest extends TestCase
         $this->assertFalse($this->preferences->prefer('   ', 2));
         $this->assertSame([], $this->preferences->all());
     }
+
+    /**
+     * **Only something that could be the right-hand side of an address.**
+     *
+     * The decision arrives from a form, is journalled, is printed into
+     * the support archive a third party reads, and is matched against
+     * every mailing's recipient. A newline or a hundred lines of text
+     * reaching any of those is a defect, and the guard sits at the single
+     * writer rather than at each of the four readers.
+     */
+    public function testSomethingThatIsNotADomainIsNotStored(): void
+    {
+        foreach (
+            [
+                'gmail',
+                'deux lignes' . "\n" . 'gmail.com',
+                '-gmail.com',
+                'gmail-.com',
+                'gmail.com/chemin',
+                'famille@gmail.com',
+                str_repeat('a', 64) . '.com',
+                str_repeat('a.', 200) . 'com',
+            ] as $notADomain
+        ) {
+            $this->assertFalse(
+                $this->preferences->prefer($notADomain, 2),
+                var_export($notADomain, true) . ' is not a domain.'
+            );
+        }
+
+        $this->assertSame([], $this->preferences->all());
+    }
+
+    /** And the ordinary ones are, including the awkward-looking ones. */
+    public function testRealDomainsAreStored(): void
+    {
+        foreach (['gmail.com', 'sous.domaine.co.uk', 'xn--dmain-0sa.be', 'a-b.fr'] as $domain) {
+            $this->assertTrue($this->preferences->prefer($domain, 2), $domain);
+        }
+
+        $this->assertCount(4, $this->preferences->all());
+    }
 }

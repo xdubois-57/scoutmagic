@@ -418,8 +418,19 @@ class OutboundMailController extends AbstractController
             return $this->redirect(self::SEEDS_URL);
         }
 
-        $domain = trim((string) $request->getBody('domain', ''));
+        $domain = strtolower(trim((string) $request->getBody('domain', '')));
         $undo = (string) $request->getBody('undo', '0') === '1';
+
+        // Checked here as well as at the writer so the two failures do
+        // not share one message: « aucun autre relais » and « ceci n'est
+        // pas un domaine » send somebody looking in different places, and
+        // a form posting the second means the page was tampered with
+        // rather than misconfigured.
+        if (!\Core\Mail\Transport\DomainPreferences::isPlausibleDomain($domain)) {
+            FlashMessage::set('error', 'Ce n\'est pas un nom de domaine.');
+
+            return $this->redirect(self::SEEDS_URL);
+        }
 
         if ($undo) {
             if ($this->routing->clear($domain)) {

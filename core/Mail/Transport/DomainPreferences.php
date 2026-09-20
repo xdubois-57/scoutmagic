@@ -116,7 +116,7 @@ final class DomainPreferences
     public function prefer(string $domain, int $providerId): bool
     {
         $domain = $this->normalise($domain);
-        if ($domain === '') {
+        if (!self::isPlausibleDomain($domain)) {
             return false;
         }
 
@@ -209,6 +209,29 @@ final class DomainPreferences
         }
 
         return strtolower(trim(substr($address, $at + 1)));
+    }
+
+    /**
+     * Whether this is something that could be the right-hand side of an
+     * address at all.
+     *
+     * **Checked at the single writer, not at the form.** The decision
+     * arrives from a page, is journalled, is printed into the support
+     * archive a third party reads, and is matched against every mailing's
+     * recipient — four places that would each have to distrust it
+     * separately. One guard here is the one that cannot be forgotten by a
+     * fifth caller.
+     *
+     * Deliberately a shape check and not a resolution: a unit routing
+     * mail for a domain that does not resolve today is not making a
+     * mistake this class is entitled to correct, and a DNS lookup on a
+     * setting write is a lookup that fails on the day the network does.
+     */
+    public static function isPlausibleDomain(string $domain): bool
+    {
+        return $domain !== ''
+            && strlen($domain) <= 253
+            && preg_match('/^(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))+$/', $domain) === 1;
     }
 
     private function normalise(string $domain): string

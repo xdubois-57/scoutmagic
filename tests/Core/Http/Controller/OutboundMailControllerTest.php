@@ -885,6 +885,21 @@ class OutboundMailControllerTest extends TestCase
         $this->assertNull($this->mailPreferences->forDomain('gmail.com'));
     }
 
+    /**
+     * A posted value that is not a domain is refused with its own
+     * message: « aucun autre relais » and « ceci n'est pas un domaine »
+     * send somebody looking in two different places.
+     */
+    public function testAPostedValueThatIsNotADomainIsRefusedOnItsOwnTerms(): void
+    {
+        $controller = $this->controllerWithTwoRelays();
+
+        $controller->routeSeeds($this->formRequest(['domain' => "gmail\ncom"]), []);
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame([], $this->mailPreferences->all());
+    }
+
     /** A stale token routes nothing, like every other POST here. */
     public function testAStaleTokenRoutesNothing(): void
     {
