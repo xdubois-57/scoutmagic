@@ -126,6 +126,9 @@
     "/config/courrier-sortant/rebonds/{id}": {
       "id": "1"
     },
+    "/config/pages-de-texte/{id}": {
+      "id": "1"
+    },
     "/config/emails/{template}": {
       "template": "member_email_unsubscribe_confirmation"
     },

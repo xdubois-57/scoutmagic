@@ -125,8 +125,9 @@ Filtered by role — intendants see only `role_min: intendant` pages, chiefs see
 ### 3.4 Espace chefs d'U (admin)
 Administrative tools.
 
-### 3.5 Configuration (admin)
-Site-wide settings, modules, functions.
+### 3.5 Configuration (superadmin)
+Site-wide settings, modules, functions, and the free-text pages the unit
+writes itself (§4.5).
 
 ### 3.6 Navigation
 - **Mobile**: hamburger (left), unit name (right). Offcanvas from left. User card, accordion sub-menus, login/logout. Every sub-page entry starts with an icon, in the same box the per-member entries use for their avatar, so all the labels in a menu line up.
@@ -256,6 +257,7 @@ All pages in this menu require the `superadmin` role, except Maintenance (`admin
 | Page | Content |
 |---|---|
 | Configuration générale | Badges (transversal roles, e.g. Infirmier/Trésorier, plus one auto-generated "Référent {section}" badge per visible section, assignable only to Staff d'U members — add/rename/activate/deactivate; default badges and badges already assigned can only be deactivated, never deleted). Module registry + configuration mode toggle. |
+| Pages de texte | The unit's own free-text pages (ARCHITECTURE.md §8.116): a menu name, a page title, the menu section and — where that section has columns — which column. **The section is the access level**: a page filed under « Notre unité » is public, one under Configuration is read by superadmins only, and there is deliberately no separate permission field, since two settings for one question end with the forgotten one deciding. The address is derived from the title at creation and **frozen** afterwards, so a link shared the same afternoon survives a typo being fixed. The list orders the menu entries by drag and drop, its toggle hides a page — hidden means **no route at all**, so its address answers exactly as an address that never existed — and its bin deletes the page together with its text, with no archived-but-kept state. The creation button reads « Créer et ouvrir »: it saves, switches the session into configuration mode and lands on the page, because a page that has just been created empty has exactly one sensible next step. The text itself is written on the page, with the site's ordinary editing mechanism, never in this screen. Creation, deletion, activation and deactivation are journaled with the page's identifier and nothing else. |
 | Correspondances Desk | Map Desk functions to site roles; rename sections, set section email, and toggle section visibility across the site. Per age branch: federation logo (uploaded, falls back to a shipped default per canonical branch, else nothing) and explanation link (defaults to the Les Scouts federation page), shown on the member page's branch card (§4.2). |
 | Paramètres | Key-value settings grouped by module, edit via dialog. |
 | Actions planifiées | Scheduled actions list with status. |

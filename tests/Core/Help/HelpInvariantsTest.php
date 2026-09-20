@@ -12,6 +12,7 @@ namespace Tests\Core\Help;
 use Core\Help\HelpFrontMatterParser;
 use Core\Help\HelpRegistry;
 use Core\Help\HelpTopic;
+use Core\Page\TextPage;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -123,6 +124,17 @@ final class HelpInvariantsTest extends TestCase
                 }
             }
         }
+
+        // The one family of GET routes that is not written anywhere to be
+        // read: a free-text page's route is built from a database row at
+        // boot (ARCHITECTURE.md §8.116), so it appears in neither
+        // public/index.php nor a module manifest, and a topic covering
+        // those pages would look like a typo to the check above.
+        //
+        // Taken from the value object that builds those paths rather than
+        // written out here, so this cannot go on asserting a shape the
+        // application stopped serving.
+        $patterns[] = TextPage::PATH_PREFIX . '{slug}';
 
         return $patterns;
     }

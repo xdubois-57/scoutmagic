@@ -1,0 +1,87 @@
+{#
+  Adding or renaming one free-text page (ARCHITECTURE.md §8.116).
+
+  No activation field: it lives on the list's row, as the toggle. And no
+  address field either — the slug is derived from the title at creation
+  and frozen afterwards, so that a link shared the same afternoon keeps
+  working the day somebody fixes a typo in the title.
+
+  The column picker is hidden for a section that declares no columns
+  (« Notre unité »). That is a convenience: the pair is validated again
+  server-side by TextPageService::assertMenuPlacement(), because
+  MenuBuilder::addPage() throws on a column its menu does not declare,
+  and it throws while building the navigation of EVERY page of the site.
+#}
+{% extends 'base.html.twig' %}
+
+{% block title %}{{ page is null ? 'Nouvelle page de texte' : page.menuLabel }} — {{ site_name }}{% endblock %}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with {
+        title: page is null ? 'Nouvelle page de texte' : page.menuLabel,
+        subtitle: page is null
+            ? "La section choisie décide qui pourra lire cette page. Vous écrirez son texte juste après, sur la page elle-même."
+            : "L'adresse d'une page ne change plus après sa création : les liens déjà partagés continuent de fonctionner.",
+    } only %}
+
+    <form method="post"
+          action="{{ page is null ? '/config/pages-de-texte' : '/config/pages-de-texte/' ~ page.id }}"
+          class="page-narrow"
+          data-text-page-form
+          data-groups="{{ groups_by_section|json_encode }}">
+        {{ csrf_field()|raw }}
+
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'text-page-menu-label',
+            field_name: 'menu_label',
+            label: 'Nom dans le menu',
+            value: page is null ? '' : page.menuLabel,
+            required: true,
+            maxlength: 100,
+            help: "Court, celui que le menu affiche — « Notre ASBL ».",
+        } only %}
+
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'text-page-title',
+            field_name: 'title',
+            label: 'Titre de la page',
+            value: page is null ? '' : page.title,
+            required: true,
+            maxlength: 200,
+            help: "Explicite, celui qui s'affiche en tête de la page — « L'ASBL qui porte l'unité ».",
+        } only %}
+
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'text-page-menu-id',
+            field_name: 'menu_id',
+            label: 'Section du menu',
+            type: 'select',
+            options: sections,
+            help: "C'est elle qui décide qui peut lire la page : « Notre unité » est publique, « Configuration » ne se lit qu'en superadmin.",
+        } only %}
+
+        <div data-text-page-group-field{% if selected_group is null %} hidden{% endif %}>
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'text-page-menu-group',
+                field_name: 'menu_group',
+                label: 'Colonne',
+                type: 'select',
+                options: [],
+                help: "La colonne du méga-menu où l'entrée apparaîtra.",
+            } only %}
+        </div>
+
+        <input type="hidden" data-text-page-selected-group value="{{ selected_group }}">
+
+        <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary">
+                {{ page is null ? 'Créer et ouvrir' : 'Enregistrer' }}
+            </button>
+            <a class="btn btn-outline-secondary" href="/config/pages-de-texte">Annuler</a>
+        </div>
+    </form>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ asset('/assets/js/text-page-form.js') }}" defer></script>
+{% endblock %}
