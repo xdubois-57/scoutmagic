@@ -9,7 +9,7 @@ question: Où sont passés le prix et les paiements sur la fiche d'une réservat
 question: Comment bloquer les dates d'une réservation jusqu'à une échéance ?
 question: Pourquoi la carte « État » a-t-elle disparu de la fiche ?
 paths: /mes-locations/*/reservations/*
-related: gerer-les-locations, locations-courrier, locations-suivi, locations-conformite
+related: gerer-les-locations, locations-documents, locations-courrier, locations-suivi, locations-conformite
 ---
 
 La fiche se lit de haut en bas, en quatre temps.

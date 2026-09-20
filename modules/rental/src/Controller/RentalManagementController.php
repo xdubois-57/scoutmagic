@@ -1057,6 +1057,10 @@ class RentalManagementController extends AbstractController
             'breadcrumb_current' => $type->label(),
             'breadcrumb_trail' => $this->bookingTrail($asset, $booking),
             'body_html' => $body,
+            // Sending is what locks (§22.6). The page shows the text either
+            // way — a manager still has to be able to read what went out.
+            'is_locked' => $this->documentService->textIsLocked($booking, $type),
+            'locked_reason' => RentalDocumentService::lockedRefusal($type),
             // Level 1 for reference, so a manager can see what they are
             // diverging from without leaving the page.
             'asset_template' => $this->documentService->template($asset, $type),

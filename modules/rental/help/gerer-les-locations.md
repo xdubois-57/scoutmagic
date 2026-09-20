@@ -5,11 +5,10 @@ summary: Les réservations, les paiements, les documents et le séjour.
 category: Espace membres
 role_min: identified
 question: Comment traiter une demande de location reçue ?
-question: Comment envoyer le contrat de location au locataire ?
 question: Comment savoir si un locataire a payé son acompte ?
 question: Pourquoi une réservation confirmée apparaît-elle dans « À traiter » ?
-paths: /mes-locations, /mes-locations/*, /mes-locations/*/calendrier, /mes-locations/*/gabarits, /mes-locations/*/reservations, /mes-locations/*/reservations/*/sejour, /mes-locations/*/reservations/*/document/*
-related: locations, locations-reservation, locations-courrier, config-locations, courrier-entrant, locations-reglages, locations-conformite
+paths: /mes-locations, /mes-locations/*, /mes-locations/*/calendrier, /mes-locations/*/gabarits, /mes-locations/*/reservations, /mes-locations/*/reservations/*/sejour
+related: locations, locations-reservation, locations-documents, locations-courrier, config-locations, courrier-entrant, locations-reglages, locations-conformite
 ---
 
 « Mes locations » est l'espace des gestionnaires : les personnes
@@ -37,26 +36,27 @@ locataire vous laissent ajouter un mot.
 
 ## Le prix et les paiements
 
-L'estimation faite par le visiteur reste figée ; le prix **convenu**
-se construit sur la fiche, ligne par ligne — une ligne retouchée à la
-main n'est plus jamais recalculée. Avec le module Finances, l'acompte
-et le solde se pointent automatiquement grâce à la communication
-structurée ; la caution a la sienne, séparée, et sa restitution se
-note à la main. Le décompte final, après séjour, ajoute ses lignes
-sans jamais réécrire le prix convenu.
+L'estimation du visiteur reste figée ; le prix **convenu** se construit
+sur la fiche, ligne par ligne — une ligne retouchée à la main n'est plus
+recalculée. Avec Finances, l'acompte et le solde se pointent grâce à la
+communication structurée ; la caution a la sienne et sa restitution se
+note à la main. Le décompte final ajoute ses lignes sans réécrire le
+prix convenu.
 
-## Contrat et facture
+## Les documents
 
-« Générer le contrat » ou « la facture » produit un PDF depuis le
-gabarit du bien ; chaque génération crée une nouvelle version, sans
-écraser la précédente — une version signée reste intacte. « Envoyer »
-l'expédie au locataire : celui-ci ne télécharge jamais rien depuis le
-site.
+Les actions de la table sont des icônes, leur infobulle nomme le
+document. « Ouvrir » s'ouvre dans un nouvel onglet — sans quoi le PDF
+remplace l'écran de l'application installée sans moyen d'en revenir.
+Hors ligne, un document ne se consulte pas : le site le dit.
+
+Rédiger, générer et envoyer un contrat ou une facture — et ce que
+l'envoi verrouille — sont décrits dans « Le contrat et la facture d'une
+réservation ».
 
 ## Le courrier reçu
 
-Décrit dans « Le courrier d'une réservation » : les e-mails rattachés,
-les propositions à confirmer, et ce que « Détacher » fait exactement.
+Voir « Le courrier d'une réservation ».
 
 ## Le séjour
 
@@ -66,6 +66,5 @@ facture sans qu'un gestionnaire tranche : ajouter au décompte, retenir
 sur la caution, ou ne pas facturer. Cette page ne fonctionne qu'en
 ligne : sur place sans réseau, photographiez, saisissez au retour.
 
-Les réglages du bien — règles de réservation, tarifs, acompte,
-gabarits, échéances de conformité — vivent dans les onglets du bien,
-et ne changent jamais une réservation déjà existante.
+Les réglages du bien vivent dans ses propres onglets, et ne changent
+jamais une réservation déjà existante.
