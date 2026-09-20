@@ -7,8 +7,8 @@ role_min: identified
 question: Comment traiter une demande de location reçue ?
 question: Comment savoir si un locataire a payé son acompte ?
 question: Pourquoi une réservation confirmée apparaît-elle dans « À traiter » ?
-paths: /mes-locations, /mes-locations/*, /mes-locations/*/calendrier, /mes-locations/*/gabarits, /mes-locations/*/reservations, /mes-locations/*/reservations/*, /mes-locations/*/reservations/*/sejour
-related: locations, locations-documents, locations-courrier, config-locations, courrier-entrant, locations-reglages, locations-conformite
+paths: /mes-locations, /mes-locations/*, /mes-locations/*/calendrier, /mes-locations/*/gabarits, /mes-locations/*/reservations, /mes-locations/*/reservations/*/sejour
+related: locations, locations-reservation, locations-documents, locations-courrier, config-locations, courrier-entrant, locations-reglages, locations-conformite
 ---
 
 « Mes locations » est l'espace des gestionnaires : les personnes
@@ -28,20 +28,11 @@ réservations comptent la même chose.
 
 ## Traiter une demande
 
-Chaque réservation a sa fiche : le parcours du dossier, l'état, le
-prix, les paiements, les documents et l'historique. Les jalons se
-cochent d'après les faits — envoyer le contrat coche « Contrat
-envoyé » — et une ligne grisée signale ce qui est sans objet ici, comme
-une caution non demandée. Les boutons agissent sans recharger, et ceux
-qui écrivent au locataire vous laissent ajouter un mot. Poser une
-**option** bloque les dates jusqu'à une échéance : dépassée, la
-réservation expire et libère les dates toute seule.
-
-Le **lien de suivi** du locataire n'est affiché nulle part, pas même
-pour vous : le posséder suffit pour ouvrir le dossier. Il ne se
-retrouve donc pas, il se remplace — « Régénérer le lien de suivi » en
-envoie un nouveau et désactive l'ancien sur-le-champ, qu'il ait été
-perdu ou transmis à la mauvaise personne.
+Chaque réservation a sa fiche, décrite dans « La fiche d'une
+réservation » : elle se lit en quatre temps, du détail de la location
+à un dossier replié, en passant par la seule chose qui vous attend.
+Les boutons y agissent sans recharger, et ceux qui écrivent au
+locataire vous laissent ajouter un mot.
 
 ## Le prix et les paiements
 

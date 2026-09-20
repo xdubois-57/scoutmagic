@@ -24,6 +24,7 @@ Everything beyond the core site is a module (`modules/<id>/`, ARCHITECTURE.md §
 | `mass_mail` | Envoi de mails | §24, §29 |
 | `member_stats` | Statistiques des membres | §35 |
 | `news` | Actualités | §32, §29 |
+| `official_documents` | Documents officiels | §44 |
 | `presences` | Présences | §43 |
 | `registration` | Inscriptions | §17, §18, §19 |
 | `rental` | Locations | §22 |
@@ -967,6 +968,8 @@ The renter's acknowledgement email carries a link to their own tracking page. **
 **A booking moves through one lifecycle, and every step is on the booking.** Change requests and proposals are the same object seen from two ends — the renter asks for other dates, or the unit offers them — and either side's answer applies or closes it, never silently. Cancellation is available from every live state, confirmed included, and **computes no refund**: what is owed after a cancellation is a conversation, not an arithmetic rule the module could get right.
 
 **The milestone checklist is derived, never stored.** "Deposit paid", "contract sent", "inventory taken" are computed from the booking's own state every time they are shown, so they cannot drift from it and no scheduled task has to keep them in step. Every change a person makes to a booking is kept as the booking's own history, with the value before and after.
+
+**The booking's page leads with one thing to do.** It reads in four movements — the details of the rental, « L'action suivante », the journey in five phases, then « Le dossier » — and only the phase the booking has reached is unfolded. A file whose price, payments, documents, mail, change requests, comments and history are all open at once shows everything and therefore nothing first; each of those is a folded box now, and the figure beside its name (what is still owed, how many requests are waiting) answers the question it would have been opened for. The status is stated once, at the top: a second card repeating it lower down is how a page starts giving two answers to one question. The decision on a request is itself a milestone, because « Demande reçue » ticks when the request arrives and says nothing about whether anybody has answered it.
 
 ### 22.6 Documents
 
@@ -2563,3 +2566,59 @@ agendas rafraîchis à la même seconde.
 défend rien. C'est la page de présences qui refuse un visiteur qui n'anime pas la section — un
 contrôle nécessaire de toute façon, un lien pouvant être transféré. Deux barrières indépendantes,
 dont aucune ne repose sur le secret du code.
+
+## 44. Documents officiels — autorisation parentale et fiche santé (module official_documents)
+
+Un parent ouvre la page de son enfant, télécharge le formulaire officiel de la fédération **déjà
+rempli avec ce que le site sait**, l'imprime, le signe, et le remet à l'animateur. C'est tout : il
+n'y a pas de signature électronique, pas de renvoi du document signé au site, pas de tableau de bord
+pour le staff.
+
+Le module n'est **pas activé par défaut**. Une donnée de santé ne doit exister sur une installation
+que si quelqu'un l'a décidé, et un module jamais activé n'a jamais écrit une ligne dans sa table.
+La table elle-même existe partout : `Core\Database\SchemaFiles::all()` migre le `schema.sql` de
+chaque module, activé ou non, précisément pour qu'aucun DDL ne tourne au moment où quelqu'un clique
+sur « activer » (ARCHITECTURE.md §7.3). Ce qui est garanti par la non-activation, c'est donc
+l'absence de données, jamais l'absence de table. Le prix est assumé et se dit : module désactivé,
+il n'y a plus d'autorisation parentale non plus.
+
+### 44.1 Seule la version signée sur papier a une valeur
+
+C'est le principe qui gouverne le module entier, et il s'énonce en une phrase : **la seule version
+qui a une valeur légale est celle signée par les parents, sur papier.** Ce que le site enregistre
+n'est qu'un brouillon de pré-remplissage. Il s'ensuit trois interdits, pas trois préférences :
+
+- **Aucune vue staff sur ces données, jamais.** Ni maintenant, ni par extension future. Un animateur
+  qui lirait la version du site lirait une version non signée, donc sans valeur — et croirait
+  savoir.
+- **Auto-service strict**, au sens d'ARCHITECTURE.md §8.27 : chaque action revérifie que le compte
+  demandeur est lié au membre, quel que soit son rôle. Aucun contournement chef ou administrateur.
+- L'avertissement « un document non signé n'a aucune valeur » s'affiche **sur la page web**, jamais
+  sur le PDF : on n'écrit rien sur un document officiel qui n'en fasse pas partie.
+
+### 44.2 Deux formulaires de la fédération, et deux seulement
+
+Du « Pack admin membre » de la fédération, le module reprend l'**autorisation parentale** (une page,
+aucun champ de formulaire) et la **fiche santé** (deux pages, soixante champs). Sont hors périmètre
+la fiche d'inscription, la prescription médicale et les deux autorisations de publication de photos.
+
+**Il n'existe pas deux autorisations parentales.** Un seul formulaire couvre n'importe quelle
+période, via « du …/…/… au …/…/… » ; la distinction résidentiel / non résidentiel ne se traduit donc
+que par la plage de dates choisie.
+
+### 44.3 Les gabarits sont committés, convertis une fois par un mainteneur
+
+Le PDF officiel est importé comme fond et le texte est écrit par-dessus, à des coordonnées fixes en
+millimètres. `setasign/fpdi` ne lit, dans sa version libre, que les tables de références croisées
+classiques — soit les PDF jusqu'à la version 1.4 — alors que les fichiers de la fédération sont en
+1.7, la fiche santé avec flux d'objets.
+
+La conversion se fait donc **une fois, sur un poste de développement**, et c'est le résultat qui est
+committé sous `modules/official_documents/templates/`. **Aucun code serveur ne convertit quoi que ce
+soit** : `qpdf` n'est pas une dépendance du projet et n'existe pas sur un hébergement mutualisé.
+
+La procédure complète — convertir, laisser échouer le test qui épingle les empreintes, recaler les
+coordonnées en regardant le PDF produit, puis seulement mettre à jour la constante — vit à deux
+endroits, et aux deux : dans le `README.md` de ce dossier, et dans le message d'échec du test qui
+épingle les SHA-256 des gabarits. Une procédure qui ne vit que dans un fichier que personne n'ouvre
+est une procédure perdue.

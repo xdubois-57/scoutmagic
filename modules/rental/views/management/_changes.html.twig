@@ -1,0 +1,96 @@
+{#
+  Change requests and proposals on one booking (§6.16), a box of
+  « Le dossier ».
+
+  Lifted out of booking.html.twig when that page was reorganised into folded
+  boxes; nothing in it changed. It sits inside the box's own card, so it
+  carries no card and no heading of its own — the fold's header is the
+  heading, and it is also where the count of what is still pending is shown,
+  which is the figure that says whether this box wants opening at all.
+
+  Requires `asset`, `booking` and `change_requests`.
+#}
+<div class="card-body pt-0">
+                <p class="text-body-secondary small">
+                    Une demande ne modifie jamais la réservation d'elle-même : elle attend une décision.
+                </p>
+
+                {% if change_requests is empty %}
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucune demande.',
+                        compact: true,
+                    } only %}
+                {% else %}
+                    <ul class="list-unstyled">
+                        {% for change in change_requests %}
+                            <li class="border-bottom py-2">
+                                <div class="d-flex justify-content-between align-items-start gap-2">
+                                    <span>
+                                        <span class="fw-semibold">{{ change.origin.label }}</span> —
+                                        {{ change.kind.label }}
+                                        <span class="text-body-secondary small d-block">{{ change.summary }}</span>
+                                        {% if change.message %}
+                                            <span class="small d-block">{{ change.message|nl2br }}</span>
+                                        {% endif %}
+                                    </span>
+                                    {% include 'partials/status_badge.html.twig' with { status: change.status.value, label: change.status.label } only %}
+                                </div>
+                                {% if change.isPending and change.origin.value == 'renter' %}
+                                    <div class="d-flex gap-2 mt-2">
+                                        <form method="post" action="/mes-locations/demande"
+                                              data-confirm="Accepter cette demande ? Elle sera appliquée à la réservation, et le locataire en sera informé."
+                                              data-confirm-label="Accepter"
+                                              data-confirm-note="Un mot au locataire (facultatif)"
+                                              data-confirm-note-name="message">
+                                            {{ csrf_field()|raw }}
+                                            <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                            <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                            <input type="hidden" name="request_id" value="{{ change.id }}">
+                                            <input type="hidden" name="decision" value="accept">
+                                            <button type="submit" class="btn btn-sm btn-outline-secondary">Accepter</button>
+                                        </form>
+                                        <form method="post" action="/mes-locations/demande"
+                                              data-confirm="Refuser cette demande ? La réservation reste inchangée, et le locataire en sera informé."
+                                              data-confirm-label="Refuser"
+                                              data-confirm-note="Dire pourquoi, si vous le souhaitez (facultatif)"
+                                              data-confirm-note-name="message">
+                                            {{ csrf_field()|raw }}
+                                            <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                            <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                            <input type="hidden" name="request_id" value="{{ change.id }}">
+                                            <input type="hidden" name="decision" value="refuse">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger">Refuser</button>
+                                        </form>
+                                    </div>
+                                {% endif %}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+
+                {% if not booking.status.isFinal %}
+                    <form method="post" action="/mes-locations/proposition" class="row g-2 align-items-end mt-2">
+                        {{ csrf_field()|raw }}
+                        <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                        <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                        <input type="hidden" name="kind" value="dates">
+                        <div class="col-6 col-md-3">
+                            <label class="form-label" for="propose-arrival">Proposer du</label>
+                            <input type="date" class="form-control form-control-sm" id="propose-arrival" name="arrival">
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <label class="form-label" for="propose-departure">au</label>
+                            <input type="date" class="form-control form-control-sm" id="propose-departure" name="departure">
+                        </div>
+                        <div class="col-12 col-md-4">
+                            <label class="form-label" for="propose-message">Message au locataire</label>
+                            <input type="text" class="form-control form-control-sm" id="propose-message" name="message"
+                                   aria-describedby="propose-message-help">
+                            <div class="form-text" id="propose-message-help">Envoyé avec la proposition.</div>
+                        </div>
+                        <div class="col-12 col-md-2">
+                            <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Proposer</button>
+                        </div>
+                    </form>
+                {% endif %}
+</div>

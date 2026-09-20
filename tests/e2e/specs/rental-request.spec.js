@@ -60,6 +60,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { expectRendersAsACalendar } from '../support/calendar.js';
 import { answerCookieBanner } from '../support/cookie-banner.js';
+import { openCard } from '../support/collapsible-card.js';
 import { openSectionEditor } from '../support/section-editor.js';
 
 /** A date far enough out to clear any notice period the asset declares. */
@@ -253,6 +254,11 @@ test.describe('Rentals', () => {
         await page.goto(`/mes-locations/${ASSET_SLUG}/reservations`);
         await page.getByRole('link', { name: new RegExp(reference) }).first().click();
 
+        // « Commentaires internes » is a box of « Le dossier » and boxes
+        // ship folded (IT-05): the booking's page opens on the one thing to
+        // do, not on eight panels at once.
+        await openCard(page, 'dossier-comments');
+
         const comment = page.locator('form[action="/mes-locations/commentaire"]');
         await comment.locator('textarea[name="body"]').fill(INTERNAL_NOTE);
         await comment.getByRole('button', { name: 'Enregistrer' }).click();
@@ -271,6 +277,10 @@ test.describe('Rentals', () => {
         // manager, answered by an anonymous browser holding a link.
         await page.goto(`/mes-locations/${ASSET_SLUG}/reservations`);
         await page.getByRole('link', { name: new RegExp(reference) }).first().click();
+
+        // Same again for « Demandes et propositions » — and it has to be
+        // re-opened, because the page was reloaded in between.
+        await openCard(page, 'dossier-changes');
 
         const proposal = page.locator('form[action="/mes-locations/proposition"]');
         await proposal.locator('input[name="arrival"]').fill(PROPOSED_ARRIVAL);
@@ -327,7 +337,9 @@ test.describe('Rentals', () => {
             page.getByText(`${ASSET_NAME} · du ${frenchDate(PROPOSED_ARRIVAL)} au ${frenchDate(PROPOSED_DEPARTURE)}`),
         ).toBeVisible();
         // And the booking's own history recorded it, through Core\Audit
-        // like every other per-entity timeline on the site (§8.66).
+        // like every other per-entity timeline on the site (§8.66). It is
+        // the last box of « Le dossier », folded like the others (IT-05).
+        await openCard(page, 'dossier-history');
         await expect(page.locator('.audit-timeline')).toBeVisible();
         await expect(page.getByText(/Décision sur la modification/).first()).toBeVisible();
 
