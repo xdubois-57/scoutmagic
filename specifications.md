@@ -2987,6 +2987,21 @@ que le site ne maîtrise pas, pour éviter une suppression qu'il suffit d'ouvrir
 traitement de cette installation à passer sur les réponses médicales de toutes les familles en une fois, à quatre
 heures du matin, sans personne pour regarder.
 
+**Chaque ligne est supprimée sous sa propre condition revérifiée.** Choisir les identifiants puis supprimer par
+identifiant seul laisse une fenêtre : une famille qui enregistre sa fiche ou imprime son document entre les deux
+requêtes voit ses données effacées quand même, et le journal enregistre alors une purge pour une fiche qui était en
+usage à l'instant où elle est partie. L'effacement est définitif et la donnée n'est nulle part ailleurs. Le `DELETE`
+porte donc `AND last_used_at < ?` et `rowCount()` dit ce qui est réellement parti.
+
+Délibérément **pas** une transaction avec `SELECT … FOR UPDATE` : celle-ci tiendrait un verrou sur toutes les fiches
+périmées le temps de la passe, et prendrait une portée transactionnelle que le dépôt ne possède pas — son appelant
+peut déjà être dans une transaction, et PDO ne s'imbrique pas. La condition revérifiée donne la même garantie sans
+rien verrouiller.
+
+Les identifiants sont tout de même lus d'abord, et cette moitié-là compte aussi : supprimer sur la seule date
+prendrait des lignes devenues périmées après la lecture, sans les nommer, et une suppression non journalisée est une
+suppression dont aucune famille ne pourra jamais obtenir l'explication.
+
 **Le journal porte l'identifiant du membre et rien d'autre** — même forme que « Tout effacer » (§44.11), et pour la
 même raison : la purge ne doit pas écrire ce qu'elle existe pour détruire. Une passe qui n'efface rien n'écrit rien.
 

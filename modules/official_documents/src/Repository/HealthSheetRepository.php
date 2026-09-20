@@ -154,12 +154,21 @@ class HealthSheetRepository
      * every family's medical answers in a single pass, at four in the
      * morning, with nobody watching.
      *
-     * The ids are read BEFORE the delete, and that is the only way round
-     * that works: afterwards there is nothing left to name, and the
-     * journal entry the chantier asks for — the member id and nothing else
-     * — would have nothing to carry.
+     * **Each row is deleted under its own re-checked condition**, and that
+     * is not a detail of style. Selecting the ids and then deleting by id
+     * alone leaves a window: a family that saves the sheet or prints the
+     * document between the two statements has their data erased anyway,
+     * because the delete no longer knows what it was deleting for — and
+     * the journal then records a purge for a sheet that was in active use
+     * at the moment it went. The erasure is permanent and the data is
+     * nowhere else.
      *
-     * @return list<int> the member ids whose sheets were removed
+     * The ids are still read first, and that half also matters both ways:
+     * deleting on the date alone would take rows that went stale after the
+     * read, without naming them, and an unjournalled deletion is one no
+     * family can ever get an answer about.
+     *
+     * @return list<int> the member ids whose sheets were actually removed
      */
     public function deleteUnusedSince(\DateTimeImmutable $cutoff): array
     {
@@ -168,19 +177,51 @@ class HealthSheetRepository
         );
         $stmt->execute([$cutoff->format('Y-m-d H:i:s')]);
 
-        /** @var list<int> $memberIds */
-        $memberIds = array_map(intval(...), $stmt->fetchAll(\PDO::FETCH_COLUMN));
-        if ($memberIds === []) {
-            return [];
+        /** @var list<int> $candidates */
+        $candidates = array_map(intval(...), $stmt->fetchAll(\PDO::FETCH_COLUMN));
+
+        $removed = [];
+        foreach ($candidates as $memberId) {
+            if ($this->deleteIfUnusedSince($memberId, $cutoff)) {
+                $removed[] = $memberId;
+            }
         }
 
-        $placeholders = implode(',', array_fill(0, count($memberIds), '?'));
-        $delete = $this->pdo->prepare(
-            'DELETE FROM official_documents_health_sheets WHERE member_id IN (' . $placeholders . ')'
-        );
-        $delete->execute($memberIds);
+        return $removed;
+    }
 
-        return $memberIds;
+    /**
+     * Delete one sheet **only if it is still unused** at this instant, and
+     * say whether it went.
+     *
+     * The whole retention guarantee lives in this one statement: the
+     * condition that chose the row is re-evaluated by the engine as it
+     * deletes, under the row's own lock. A `touch()` that committed first
+     * makes the row stop matching and it survives; a delete that goes
+     * first simply wins, which is the legitimate outcome of that race.
+     *
+     * A statement per member rather than one `IN (…)` over the lot: these
+     * are rows nobody has opened in eighteen months, so a daily pass has a
+     * handful, and `rowCount()` is then the truth about what actually went
+     * — which is what the journal carries. A single bulk delete would
+     * answer a total, and « une fiche a été effacée » answers no family's
+     * question about their own child.
+     *
+     * Deliberately NOT a transaction with `SELECT … FOR UPDATE`: that
+     * holds a lock on every stale sheet for the length of the pass, and it
+     * takes a transaction scope this repository does not own — its caller
+     * may already be in one, and PDO does not nest. The re-checked
+     * condition gives the same guarantee while holding nothing.
+     */
+    public function deleteIfUnusedSince(int $memberId, \DateTimeImmutable $cutoff): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'DELETE FROM official_documents_health_sheets
+             WHERE member_id = ? AND last_used_at < ?'
+        );
+        $stmt->execute([$memberId, $cutoff->format('Y-m-d H:i:s')]);
+
+        return $stmt->rowCount() > 0;
     }
 
     public function lastUsedAt(int $memberId): ?\DateTimeImmutable
