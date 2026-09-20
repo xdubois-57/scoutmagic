@@ -320,3 +320,111 @@ pour une page que les deux déclareraient. C'est l'option 2 de #401, appliquée
   transition durable — une colonne sur `rental_booking_document_texts` —
   donc une modification de `schema.sql`, que le chantier réserve à IT-07,
   et qui ferait du verrou un drapeau stocké là où tout le module dérive.
+
+## IT-07 — Les rappels
+
+**Livré.**
+
+- `Reminder\ReminderKind` : `NEW_REQUEST` retiré, `defaultDays()`,
+  `settingKey()` et `repeatAfterDays()` ajoutés. Les six constantes de
+  `ReminderPlanner` disparaissent — un délai vit sur le rappel, pas à côté.
+- `Reminder\ReminderSchedule` — les trois niveaux (valeur livrée, défaut de
+  l'unité, valeur du bien) résolus en un seul endroit, et pur comme le
+  planificateur : on lui passe les réglages et les surcharges déjà lus.
+- `schema.sql` : `rental_asset_reminders (asset_id, reminder_key,
+  delay_days NULL, is_active)`, une ligne par différence.
+- `Repository\RentalAssetReminderRepository` — `findForAsset()`,
+  `findAll()` pour la passe quotidienne, `save()` et `clear()`.
+- `RentalReminderRepository::claim()` prend une cadence.
+- `module.json` : douze réglages `reminder_*_days`, la notification orpheline
+  `rental.new_request` retirée, la route de la section, version 1.21.0.
+- La section « Rappels » des réglages d'un bien
+  (`views/management/_reminders.html.twig`,
+  `RentalManagementController::reminderRows()`,
+  `RentalPricingController::saveReminders()`).
+- Documentation : `ARCHITECTURE.md` §8.60, `specifications.md` §22.11,
+  `modules/rental/help/locations-reglages.md`.
+- Tests : `ReminderScheduleTest` (11), `RentalAssetReminderRepositoryTest`
+  (12), `RentalReminderSettingsTest` (11), cinq de plus sur
+  `ReminderPlannerTest`, quatre sur `RentalReminderServiceTest`, quatre sur
+  `RentalManagementControllerTest`.
+
+**La clé unique ne pouvait pas être desserrée**, et c'est la divergence la
+plus lourde du chantier. `SchemaComparator` compare les index **par leur
+nom**, jamais par leurs colonnes, et rien dans ce dépôt n'en supprime un —
+`drops.sql` est pour les colonnes et les clés étrangères, et le dit.
+Redéfinir `idx_rental_reminder_once` sur `sent_on` aurait donc laissé
+l'ancien index exactement en place sur chaque site installé, refusant la
+seconde insertion, pendant qu'une installation neuve fonctionnait. La panne
+aurait été invisible précisément là où elle comptait.
+
+Un rappel qui se répète **reporte sa ligne** au lieu d'en ajouter une :
+`claim()` tente d'abord un `UPDATE` gardé par `sent_on <= aujourd'hui −
+cadence`, et retombe sur l'`INSERT`. L'index continue de faire le seul
+travail pour lequel il a été écrit — deux passes qui se chevauchent ne
+peuvent pas envoyer toutes les deux — et la cadence vit dans une clause
+`WHERE` plutôt que dans l'absence d'une contrainte. La table ne grossit pas
+non plus d'une ligne par envoi, ce que `RentalRetentionService` aurait ensuite
+dû purger.
+
+**Le point 4 du chantier a été abandonné, sur arbitrage.** Il demandait
+« pas de case à cocher supplémentaire : un délai vide veut dire *jamais* » —
+et le point 2, deux lignes plus haut, demande qu'un champ vide affiche
+« (défaut : 14 jours) ». Les deux ne peuvent pas être vrais du même champ.
+Arbitré : **vide = hérite du défaut de l'unité**, et la case « Actif »
+éteint. C'est la lecture que le reste du chantier impose — douze champs sur
+chaque bien sont douze champs que personne ne remplit, donc un champ laissé
+vide doit continuer de fonctionner — et elle évite que `0`, « le jour même »,
+soit à une faute de frappe de « jamais ». Le reste du point 4 tient : `0` veut
+bien dire le jour même.
+
+**Décisions prises seul.**
+
+- **Le champ affiche la valeur du bien, jamais la valeur héritée.**
+  Pré-remplir le nombre de l'unité fige ce défaut le jour où quelqu'un
+  enregistre sans rien changer, et le bien cesse alors de suivre l'unité. Le
+  nombre est écrit **sous** le champ.
+- **Une ligne qui ne dit rien supprime sa ligne en base.** Une table de
+  lignes signifiant « aucun changement » est une table dont la taille
+  n'apprend plus rien à personne.
+- **Une case décochée ne poste rien du tout** : c'est l'absence qui est le
+  signal. Lire un champ manquant comme « laisse comme c'était » aurait rendu
+  l'extinction impossible.
+- **La seconde chance du contrat est dérivée du délai en vigueur**
+  (`délai − 3 jours`, jamais moins de 1) plutôt que fixée à J-3 : une unité
+  qui raccourcit son délai à cinq jours recevrait sinon les deux envois l'un
+  sur l'autre.
+- **La relance des trois rappels d'argent s'arrête à l'arrivée.** Le chantier
+  dit « jusqu'à réception ou jusqu'à l'arrivée » ; la même phrase répétée une
+  fois les locataires installés est un canal qui apprend à l'unité à
+  l'ignorer.
+- **Les deux dépendances des contrôleurs sont facultatives.** Nulles, l'écran
+  rend chaque rappel au défaut de l'unité — ce que fait une installation qui
+  n'a jamais ouvert la section — et `saveReminders()` refuse en français
+  plutôt que d'écrire nulle part.
+
+**Divergences avec le document de chantier.**
+
+- **« Treize rappels »** : il y en a douze une fois « Nouvelle demande »
+  partie, onze internes et un au locataire. `specifications.md` §22.11 et
+  `ARCHITECTURE.md` sont corrigés, comme le chantier le demandait.
+- **Le bump de `version` n'est plus imposé par `schema.sql`.** AGENTS.md
+  § Schema a retiré cette règle : le schéma d'un module est appliqué sans
+  elle. `module.json` passe tout de même en 1.21.0, parce que le module
+  gagne douze réglages, une route et un écran — ce qui est, lui, un
+  changement visible.
+- **`rental.new_request` était une notification déclarée sans personne pour
+  l'émettre.** Retirer `NEW_REQUEST` de l'énumération la laissait orpheline
+  dans `module.json` ; elle est retirée aussi.
+
+**Reporté.**
+
+- **#405** reste ouverte : la course entre `saveBookingText()` et
+  `sendDocument()`. Le chantier réservait à IT-07 la modification de
+  `schema.sql` qui la fermerait, mais fermer cette fenêtre demande de rendre
+  l'envoi durable — une colonne de transition sur
+  `rental_booking_document_texts` — donc de faire du verrou un drapeau
+  stocké là où tout le module dérive. Ce n'est pas un choix à faire en
+  passant, dans l'itération des rappels.
+- **#401** : après le découpage d'IT-05, `gerer-les-locations` est à 381
+  mots, sous les ~400 de la charte. L'issue peut être close.
