@@ -19,7 +19,11 @@ use Core\Member\MemberService;
 use Core\Security\AuthSession;
 use Core\Security\UserAccount;
 use Core\Security\UserAccountRepository;
+use Modules\OfficialDocuments\Controller\HealthSheetController;
 use Modules\OfficialDocuments\Controller\ParentalAuthorizationController;
+use Modules\OfficialDocuments\Repository\HealthSheetRepository;
+use Modules\OfficialDocuments\Security\OwnMemberOnly;
+use Modules\OfficialDocuments\Service\HealthSheetService;
 use Modules\OfficialDocuments\Pdf\TemplateLibrary;
 use Modules\OfficialDocuments\Service\ParentalAuthorizationPdfService;
 use Modules\OfficialDocuments\Service\ParentalAuthorizationService;
@@ -28,22 +32,24 @@ use PHPUnit\Framework\TestCase;
 use Twig\Environment;
 
 /**
- * The route floor, through the REAL Router and RBAC guard, against the
- * `role_min` each route declares in `module.json`.
+ * The route floor of EVERY route this module declares, through the REAL
+ * Router and RBAC guard, against the `role_min` in `module.json`.
  *
- * `ParentalAuthorizationControllerTest` is the other half and the more
- * interesting one — it proves the self-only rule the router cannot see. But
- * the two together are what AGENTS.md § Tests asks for on a new route
- * (« allowed at `role_min`, denied one level below »), and neither implies
- * the other: a controller that refuses everybody but a route left `public`
- * would pass that suite while offering an anonymous visitor a page it has
- * no business seeing.
+ * The per-controller suites are the other half and the more interesting
+ * one — they prove the self-only rule the router cannot see. But the two
+ * together are what AGENTS.md § Tests asks for on a new route (« allowed at
+ * `role_min`, denied one level below »), and neither implies the other: a
+ * controller that refuses everybody but a route left `public` would pass
+ * those suites while offering an anonymous visitor a page it has no
+ * business seeing.
  *
- * The roles come out of the manifest rather than being typed here, so a
- * route whose `role_min` is loosened one day fails this test instead of
- * quietly widening.
+ * **The routes come out of the manifest, not from a list here**, which is
+ * what makes this file cover a route somebody adds next year without
+ * anybody remembering to add it. It earned that the day the health sheet's
+ * three routes landed: the provider picked them up on its own and the suite
+ * went red until they were dispatched too.
  */
-final class ParentalAuthorizationRbacTest extends TestCase
+final class OfficialDocumentsRbacTest extends TestCase
 {
     protected function setUp(): void
     {
@@ -63,7 +69,7 @@ final class ParentalAuthorizationRbacTest extends TestCase
     /**
      * Every route this module declares, read from its manifest.
      *
-     * @return array<string, array{string, string, string}>
+     * @return array<string, array{string, string, string, string, string}>
      */
     public static function routeProvider(): array
     {
@@ -80,6 +86,8 @@ final class ParentalAuthorizationRbacTest extends TestCase
                 (string) $route['method'],
                 (string) $route['path'],
                 (string) $route['role_min'],
+                (string) $route['controller'],
+                (string) $route['action'],
             ];
         }
 
@@ -91,9 +99,18 @@ final class ParentalAuthorizationRbacTest extends TestCase
      * signed in before the question « is this your child? » is even asked.
      */
     #[DataProvider('routeProvider')]
-    public function testEveryRouteDeclaresTheIdentifiedFloor(string $method, string $path, string $roleMin): void
-    {
+    public function testEveryRouteDeclaresTheIdentifiedFloor(
+        string $method,
+        string $path,
+        string $roleMin,
+        string $controller,
+        string $action
+    ): void {
         $this->assertSame('identified', $roleMin, $method . ' ' . $path);
+        // The manifest must also name something this module actually
+        // ships: a typo there is a 500 on a real request, and the router
+        // below would happily register it.
+        $this->assertTrue(method_exists($controller, $action), $controller . '::' . $action);
     }
 
     /**
@@ -105,12 +122,17 @@ final class ParentalAuthorizationRbacTest extends TestCase
      * route comes to be untested while looking tested.
      */
     #[DataProvider('routeProvider')]
-    public function testAPublicVisitorIsStoppedByTheGuard(string $method, string $path, string $roleMin): void
-    {
+    public function testAPublicVisitorIsStoppedByTheGuard(
+        string $method,
+        string $path,
+        string $roleMin,
+        string $controller,
+        string $action
+    ): void {
         AuthSession::logout();
 
-        $response = $this->frontController($path, $method, $roleMin)
-            ->handle(new Request($method, '/members/7/autorisation-parentale', [], [], [], []));
+        $response = $this->frontController($path, $method, $roleMin, $controller, $action)
+            ->handle(new Request($method, self::urlFor($path), [], [], [], []));
 
         $this->assertSame(302, $response->getStatusCode(), $method . ' ' . $path);
         $this->assertSame('/login', $response->getHeaders()['Location'] ?? null, $method . ' ' . $path);
@@ -127,12 +149,14 @@ final class ParentalAuthorizationRbacTest extends TestCase
     public function testAnIdentifiedMemberIsLetThroughToTheController(
         string $method,
         string $path,
-        string $roleMin
+        string $roleMin,
+        string $controller,
+        string $action
     ): void {
         if ($method === 'POST') {
             // A POST without a CSRF token is refused by the controller for a
             // different reason entirely, which would say nothing about the
-            // guard. The GET case carries this one.
+            // guard. The GET routes carry this one.
             $this->assertSame('identified', $roleMin);
 
             return;
@@ -140,22 +164,30 @@ final class ParentalAuthorizationRbacTest extends TestCase
 
         AuthSession::login(1, 'parent@example.be', 'identified');
 
-        $response = $this->frontController($path, $method, $roleMin)
-            ->handle(new Request($method, '/members/7/autorisation-parentale', [], [], [], []));
+        $response = $this->frontController($path, $method, $roleMin, $controller, $action)
+            ->handle(new Request($method, self::urlFor($path), [], [], [], []));
 
         $this->assertSame(200, $response->getStatusCode(), $method . ' ' . $path);
     }
 
-    private function frontController(string $path, string $method, string $roleMin): FrontController
+    /**
+     * A concrete URL for a declared route pattern — the only member id in
+     * this file, so a route added later needs nothing here.
+     */
+    private static function urlFor(string $path): string
     {
+        return str_replace('{id}', '7', $path);
+    }
+
+    private function frontController(
+        string $path,
+        string $method,
+        string $roleMin,
+        string $controller,
+        string $action
+    ): FrontController {
         $router = new Router();
-        $router->addRoute(
-            $method,
-            $path,
-            ParentalAuthorizationController::class,
-            $method === 'GET' ? 'show' : 'download',
-            $roleMin
-        );
+        $router->addRoute($method, $path, $controller, $action, $roleMin);
 
         $configFile = sys_get_temp_dir() . '/test_official_documents_config_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
@@ -174,6 +206,10 @@ final class ParentalAuthorizationRbacTest extends TestCase
         $authorization->method('defaultPlaceFor')->willReturn('Verviers');
 
         $frontController = new FrontController($router, $twig, new AppConfig($configFile));
+
+        // Both controllers are registered whichever route is under test:
+        // the router only ever dispatches to the one the manifest named,
+        // and this way a third controller added later needs one line.
         $frontController->registerController(
             ParentalAuthorizationController::class,
             new ParentalAuthorizationController(
@@ -183,6 +219,14 @@ final class ParentalAuthorizationRbacTest extends TestCase
                 $authorization,
                 new ParentalAuthorizationPdfService(TemplateLibrary::shipped()),
                 null
+            )
+        );
+        $frontController->registerController(
+            HealthSheetController::class,
+            new HealthSheetController(
+                $twig,
+                new OwnMemberOnly($memberService),
+                new HealthSheetService($this->createStub(HealthSheetRepository::class))
             )
         );
 

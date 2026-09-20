@@ -1063,8 +1063,13 @@ pré-remplissage, il n'existe ni signature électronique, ni renvoi du document 
 ne présente jamais cette absence comme une limitation temporaire ; (b) que les données reprises sur le document
 viennent des fiches membres déjà décrites en section 2.2 — nom du membre, branche, unité, et nom, prénom et adresse
 postale de l'animateur responsable de sa section — et qu'**aucune n'est collectée à cette occasion** ; (c) que ce que
-le parent saisit (son nom, sa qualité, les dates, le lieu) n'est **enregistré nulle part** : ces valeurs ne vivent que
-le temps de la requête ; (d) que le PDF produit **ne touche jamais le disque** et n'est conservé en aucune copie ;
+le parent saisit **sur l'autorisation parentale** (son nom, sa qualité, les dates, le lieu) n'est **enregistré nulle
+part** : ces valeurs ne vivent que le temps de la requête ; (c bis) que la **fiche santé**, elle, **est conservée** —
+c'est son intérêt, saisie une fois et réutilisée — qu'elle est **chiffrée au repos**, que tout y est facultatif, que la
+famille peut **tout effacer** définitivement d'un bouton, et qu'**aucun animateur, aucun chef d'unité et aucun
+administrateur n'y a accès depuis le site** : le seul chemin vers l'unité est le papier imprimé et signé. Ne présente
+jamais le module comme ne conservant rien — c'était vrai de la seule autorisation parentale ; (d) que le PDF produit
+**ne touche jamais le disque** et n'est conservé en aucune copie ;
 (e) que l'accès est réservé aux comptes liés à ce membre, revérifié à chaque action, **sans exception pour un chef
 d'unité ni pour un administrateur**, la seule voie pour un administrateur étant la substitution temporaire de membre,
 visible à l'écran tant qu'elle dure ; (f) que le journal ne porte ni valeur saisie, ni nom, ni contenu de document. Ce

@@ -140,15 +140,45 @@ final class OfficialDocumentsRgpdCoverageTest extends TestCase
     }
 
     /**
-     * The claim that would be the easiest to leave behind and the worst to
-     * get wrong: the notice must not promise that the site keeps a copy of
-     * anything, because it keeps none — not the PDF, not what was typed.
+     * The authorization keeps nothing, and the notice must keep saying so:
+     * no stored answers, no stored PDF.
+     *
+     * The wording is deliberately narrow — « sur l'autorisation parentale »
+     * — because it stopped being true of the module as a whole the day the
+     * health sheet got a table. This test is what forced that sentence to
+     * be corrected rather than left standing as a promise the site no
+     * longer keeps.
      */
-    public function testTheNoticeSaysNothingIsKept(): void
+    public function testTheNoticeStillSaysTheAuthorizationKeepsNothing(): void
     {
         $section = self::officialDocumentsSectionOf(self::NOTICE);
 
         $this->assertStringContainsString('sans jamais toucher le disque', $section);
-        $this->assertStringContainsString('Rien de ce que le parent tape n\'est enregistré', $section);
+        $this->assertStringContainsString(
+            'Rien de ce que le parent tape sur l\'autorisation parentale n\'est enregistré',
+            $section
+        );
+    }
+
+    /**
+     * And the health sheet, which IS kept, must say so in the same breath.
+     *
+     * A privacy notice that described only the half keeping nothing would
+     * be worse than one saying nothing at all: a family would read it and
+     * conclude the site holds no health data about their child.
+     */
+    public function testTheNoticeSaysTheHealthSheetIsKeptAndHow(): void
+    {
+        $section = self::officialDocumentsSectionOf(self::NOTICE);
+
+        $this->assertStringContainsString('La fiche santé, elle, est conservée', $section);
+        $this->assertStringContainsString('chiffrées au repos', $section);
+        // The two things a family most needs to know about data they
+        // cannot see: nobody at the unit reads it, and they can destroy it.
+        $this->assertStringContainsString('tout effacer', $section);
+        $this->assertStringContainsStringIgnoringCase(
+            'aucun animateur, aucun chef d\'unité et aucun administrateur',
+            $section
+        );
     }
 }

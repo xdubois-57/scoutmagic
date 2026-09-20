@@ -2,7 +2,7 @@
   "id": "official_documents",
   "name": "Documents officiels",
   "description": "Les formulaires officiels de la fédération, pré-remplis avec ce que le site sait déjà : autorisation parentale et fiche santé, à imprimer, signer et remettre à l'animateur.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "routes": [
     {
       "path": "/members/{id}/autorisation-parentale",
@@ -14,7 +14,9 @@
       "label": "",
       "breadcrumb": {
         "label": "Autorisation parentale",
-        "parents": ["Espace membres"]
+        "parents": [
+          "Espace membres"
+        ]
       }
     },
     {
@@ -22,6 +24,39 @@
       "method": "POST",
       "controller": "Modules\\OfficialDocuments\\Controller\\ParentalAuthorizationController",
       "action": "download",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/members/{id}/fiche-sante",
+      "method": "GET",
+      "controller": "Modules\\OfficialDocuments\\Controller\\HealthSheetController",
+      "action": "show",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Fiche santé",
+        "parents": [
+          "Espace membres"
+        ]
+      }
+    },
+    {
+      "path": "/members/{id}/fiche-sante",
+      "method": "POST",
+      "controller": "Modules\\OfficialDocuments\\Controller\\HealthSheetController",
+      "action": "save",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/members/{id}/fiche-sante/effacer",
+      "method": "POST",
+      "controller": "Modules\\OfficialDocuments\\Controller\\HealthSheetController",
+      "action": "clear",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
