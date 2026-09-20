@@ -122,6 +122,20 @@ pointent. C'est le genre de collision qu'une numérotation manuelle produit
 quand deux chantiers avancent en parallèle : elle se voit au conflit de
 fusion, pas avant.
 
+**Un compteur de tables peut fusionner en silence.**
+`SqlParserTest::testParsingActualCoreSqlFileSucceeds` affirme le nombre
+exact de tables de `schema/core.sql` — un nombre en dur, délibérément,
+pour qu'une table ajoutée sans y penser fasse échouer la CI. Cette
+itération l'a passé de 63 à 64 ; `main` a ajouté `mail_seed_copies`
+pendant la revue et l'a passé de 63 à 64 **aussi**. Les deux côtés ont
+écrit exactement le même texte, donc git a fusionné sans conflit, et
+l'assertion disait 64 pour une base qui en comptait 65. Rien ne l'a
+signalé avant la CI — la fusion locale était propre et la suite locale
+verte, parce qu'elle tournait sur un arbre qui n'avait pas encore les
+deux tables. C'est la limite d'un compteur partagé : il attrape la table
+qu'on oublie, il n'attrape pas deux branches qui l'incrémentent en
+parallèle.
+
 **Le garde « pas de base, pas de route » est moins exposé que le chantier
 ne le suppose, et il a été écrit quand même.** Dans `public/index.php`,
 la branche « site non initialisé » sort vers `/setup` autour de la ligne
