@@ -76,6 +76,77 @@ class TextPageMenuProviderTest extends TestCase
         $this->assertEquals($anonymous, $signedIn);
     }
 
+    /**
+     * A page whose column no longer exists loses its menu entry, and
+     * nothing else.
+     *
+     * `MenuBuilder::addPage()` throws on a column its menu does not
+     * declare, and these entries are added while building the navigation
+     * that EVERY page of the site renders — so one stale row would be an
+     * uncaught exception on every request rather than a broken link on
+     * one page. `TextPageService::assertMenuPlacement()` prevents it at
+     * write time, but `MENU_GROUPS` is a PHP constant: validity is
+     * time-of-write only, and a later version that renames a column
+     * orphans every row that named it.
+     */
+    public function testAColumnThatNoLongerExistsCostsTheEntryAndNotTheSite(): void
+    {
+        $stale = self::page(1, MenuBuilder::MENU_ESPACE_ANIMES, 'colonne-supprimee', 'a');
+        $sound = self::page(2, MenuBuilder::MENU_ESPACE_ANIMES, 'pages', 'b');
+
+        $entries = (new TextPageMenuProvider([$stale, $sound]))->getMenuEntries(null);
+
+        $this->assertCount(1, $entries, 'only the stale row is dropped');
+        $this->assertSame('/pages/b', $entries[0]->url);
+
+        // And what survives is still something MenuBuilder accepts.
+        $builder = new MenuBuilder(Role::SUPERADMIN);
+        $builder->addPage(
+            $entries[0]->menuId,
+            $entries[0]->label,
+            $entries[0]->url,
+            $entries[0]->roleMin,
+            $entries[0]->order,
+            $entries[0]->isDynamic,
+            $entries[0]->subtitle,
+            $entries[0]->sortGroup,
+            $entries[0]->icon,
+            null,
+            $entries[0]->menuGroup,
+        );
+        $this->addToAssertionCount(1);
+    }
+
+    /**
+     * The mirror case: a column on the one menu that has none. Both
+     * halves of the pair are checked, because either one alone would let
+     * a row through that `addPage()` refuses.
+     */
+    public function testAColumnOnTheUngroupedMenuIsDroppedToo(): void
+    {
+        $entries = (new TextPageMenuProvider([
+            self::page(1, MenuBuilder::MENU_NOTRE_UNITE, 'site', 'a'),
+            self::page(2, MenuBuilder::MENU_NOTRE_UNITE, null, 'b'),
+        ]))->getMenuEntries(null);
+
+        $this->assertCount(1, $entries);
+        $this->assertSame('/pages/b', $entries[0]->url);
+    }
+
+    /**
+     * A grouped menu with no column at all is dropped as well — that is
+     * the pair `assertMenuPlacement()` refuses on the way in, and a row
+     * predating a menu gaining columns would carry it.
+     */
+    public function testAGroupedMenuWithNoColumnIsDropped(): void
+    {
+        $entries = (new TextPageMenuProvider([
+            self::page(1, MenuBuilder::MENU_CONFIGURATION, null, 'a'),
+        ]))->getMenuEntries(null);
+
+        $this->assertSame([], $entries);
+    }
+
     public function testNoPagesMeansNoEntries(): void
     {
         $this->assertSame([], (new TextPageMenuProvider([]))->getMenuEntries(null));

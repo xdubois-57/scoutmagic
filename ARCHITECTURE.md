@@ -4760,7 +4760,26 @@ find, read or erase.
 Menu entries come from `Core\Page\TextPageMenuProvider`, a
 `MenuEntryProvider` handed the very list the routes were registered from
 rather than a second query — so the feature costs one query per request,
-and a page can never appear in a menu without a route behind it.
+and a page can never appear in a menu without a route behind it. That
+provider **skips a page whose column its menu no longer declares**, rather
+than letting `addPage()` throw: `MENU_GROUPS` is a PHP constant, so a
+column validated at write time can be renamed away in a later version, and
+these entries are added while building the navigation every page renders.
+Filtering costs one menu entry; catching around the loop would have cost
+all of them, and throwing would have cost the site.
+
+**The body is written at the page's own role, not at the write
+endpoint's.** `POST /api/editable-content` is `role_min: admin`, which was
+the whole answer for as long as every editable key sat on a page an admin
+could also read — home, contact, sections, a module's public view. A page
+filed in the Configuration menu is read at `superadmin` while its text is
+written through that same admin endpoint under `page_content_{id}`, an id
+that is small and guessable: **the first content on this site whose read
+floor exceeds its write floor.** `Core\View\EditableContentAuthorizer` is
+the per-key re-check SECURITY.md §3 calls for, and
+`Core\Page\TextPageContentAuthorizer` answers it with the page's own
+`roleMin()` so the two halves cannot drift. An authorizer answers `null`
+for keys it does not recognise, so it can only ever narrow.
 
 Explicitly **not** in scope: free-text pages do not join
 `Core\Offline\OfflineWhitelist`. That list is a static server-side

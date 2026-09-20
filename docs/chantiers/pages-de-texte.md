@@ -172,6 +172,71 @@ et aucun n'est construit à partir du `getMessage()` d'une autre exception
 `schema/core.sql` : 63 → 64, et la nouvelle est nommée explicitement dans
 l'assertion.
 
+### Ce que la relecture a trouvé, et qui n'était pas dans le chantier
+
+Quatre constats, tous justes. Le premier est une **élévation de
+privilège que cette itération introduisait**, et le chantier ne pouvait
+pas l'anticiper : elle naît de la rencontre entre une décision
+verrouillée (le niveau d'accès dérive de la section, Configuration
+comprise) et un mécanisme qu'il fallait réutiliser tel quel
+(`editable()`).
+
+**Un `admin` pouvait écrire le corps d'une page que seul un `superadmin`
+peut lire.** `POST /api/editable-content` est `role_min: admin`, sans
+autorisation par clé. Une page classée dans le menu Configuration se lit
+en `superadmin`, mais son texte s'écrit par ce même point d'entrée sous
+la clé `page_content_{id}` — un identifiant petit, séquentiel et
+devinable. Un chef d'unité correctement refusé sur `GET /pages/{slug}`
+pouvait donc réécrire ce qu'un superadmin lit.
+
+Le relecteur a mis le doigt sur ce qui rend ça invisible : **c'est le
+premier contenu du site dont le plancher de lecture dépasse le plancher
+d'écriture.** Tous les appels d'`editable()` antérieurs vivent sur une
+page lisible à `admin` ou en dessous — accueil, contact, sections, vue
+publique d'un module — donc « écrivable par un admin » et « lisible par
+un admin » coïncidaient, et un seul plancher suffisait.
+
+Corrigé par `Core\View\EditableContentAuthorizer`, la revérification par
+clé que `SECURITY.md` §3 réclame en toutes lettres (« `role_min` is a
+floor, never the whole answer »), et `Core\Page\
+TextPageContentAuthorizer` qui répond le `roleMin()` de la page
+elle-même. Un authorizer répond `null` pour les clés qu'il ne reconnaît
+pas : il ne peut donc que restreindre, jamais élargir. Les deux points
+d'entrée sont gardés, y compris `/api/rich-text-content` que les pages
+n'utilisent pas — la clé est un espace de noms partagé.
+
+Deux choix dans ce correctif méritent d'être dits. Une page **masquée**
+garde le rôle de sa section : l'éteindre ne doit pas confier son texte à
+un public plus large que la page. Et une clé de la bonne forme désignant
+une page inexistante est **refusée** plutôt qu'ignorée — répondre `null`
+la rendrait au plancher du point d'entrée et laisserait créer une ligne
+de contenu que plus rien ne peut nommer.
+
+**Le bloc de menu n'avait pas de garde, contrairement à son jumeau.**
+`MenuBuilder::addPage()` lève une exception sur une colonne que son menu
+ne déclare pas, et `MENU_GROUPS` est une constante PHP : la validité est
+celle du moment de l'écriture. Renommer une colonne dans une version
+ultérieure orpheline les lignes qui la nommaient — cas que le docblock
+de `defaultGroupFor()` anticipe lui-même — et l'exception tomberait
+pendant la construction du menu de **toutes** les pages du site, avant le
+routage, à chaque requête.
+
+`TextPageMenuProvider` filtre donc les placements devenus invalides.
+Filtrer plutôt qu'entourer d'un `catch` est délibéré : un `catch` aurait
+fait disparaître l'entrée de menu de **toutes** les pages parce qu'une
+ligne a vieilli. Là, une ligne périmée coûte son entrée de menu ; la page
+garde sa route et reste joignable par son adresse.
+
+**Deux tests ne pouvaient pas échouer.** Le dépôt venait précisément de
+livrer « Les tests qui ne peuvent pas échouer » (#389), et la relecture a
+cité cette itération. `assertTrue($required->hasAccess($required))`
+comparait un rôle à lui-même : il n'affirmait que la réflexivité de
+`hasAccess()`. Et une assertion affirmait qu'une adresse avec barre
+oblique finale résout la même page — faux dans l'application déployée :
+`Router::matchPath()` ancre son motif avec `^…$`, les routes de ces pages
+sont littérales et sans barre finale, donc `/pages/x/` fait 404 au
+routeur et n'atteint jamais le contrôleur. Les deux sont supprimées.
+
 ### Reporté
 
 Rien. IT-01 est livrée entière. L'écran de configuration, la

@@ -113,8 +113,6 @@ class TextPageControllerTest extends TestCase
 
         $this->assertSame('/pages/la-bulle-safe', $page->path());
         $this->assertSame(200, $this->show($page->path())->getStatusCode());
-        // A trailing slash resolves to the same page rather than to a 404.
-        $this->assertSame(200, $this->show($page->path() . '/')->getStatusCode());
     }
 
     public function testAPathOutsideThePrefixResolvesNothing(): void

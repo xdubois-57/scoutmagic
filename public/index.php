@@ -5919,7 +5919,18 @@ $frontController->registerController(
     )
 );
 $frontController->registerController(ConfigModeController::class, new ConfigModeController($twig));
-$editableContentController = new EditableContentController($twig, $editableContentService);
+// The third argument is the per-key re-check SECURITY.md §3 asks for.
+// This endpoint is `role_min: admin`, which was the whole answer for as
+// long as every editable key sat on a page an admin could also READ. A
+// free-text page filed in the Configuration menu is read at
+// `superadmin` while its body is written here under `page_content_{id}`,
+// so without this an admin refused the page itself could still rewrite
+// what a superadmin reads (ARCHITECTURE.md §8.115).
+$editableContentController = new EditableContentController(
+    $twig,
+    $editableContentService,
+    [new \Core\Page\TextPageContentAuthorizer($textPageRepository)]
+);
 $editableContentController->setJournalService($journalService);
 $frontController->registerController(EditableContentController::class, $editableContentController);
 // FileController (and the FileAccessGuard it consumes) is registered at

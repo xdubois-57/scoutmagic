@@ -58,6 +58,30 @@ final class TextPageMenuProvider implements MenuEntryProvider
         $entries = [];
 
         foreach ($this->pages as $page) {
+            // **A stale column is skipped, and skipping it is the point.**
+            // `MenuBuilder::addPage()` throws when a column is not
+            // declared for its menu, and these entries are added while
+            // building the navigation that every page of the site
+            // renders — so one bad row would be an uncaught exception on
+            // every request, not a broken link on one page.
+            //
+            // `TextPageService::assertMenuPlacement()` prevents that at
+            // write time, but `MenuBuilder::MENU_GROUPS` is a PHP
+            // constant: validity is time-of-write only, and renaming or
+            // removing a column in a later version orphans every row
+            // that named it. That is not hypothetical — this feature's
+            // own `defaultGroupFor()` is written to survive exactly that
+            // rename.
+            //
+            // Filtering here rather than catching around the whole loop
+            // is deliberate: a catch would drop EVERY page's menu entry
+            // because one row went stale. The page itself keeps its
+            // route and stays reachable by address; only its menu entry
+            // waits for somebody to re-file it.
+            if (!self::placementIsStillValid($page)) {
+                continue;
+            }
+
             $entries[] = new MenuEntry(
                 menuId: $page->menuId,
                 label: $page->menuLabel,
@@ -73,5 +97,23 @@ final class TextPageMenuProvider implements MenuEntryProvider
         }
 
         return $entries;
+    }
+
+    /**
+     * Whether this page's column is one its menu still declares.
+     *
+     * A menu with no columns at all — « Notre unité » — is valid only
+     * with no column, which is the same pair
+     * {@see TextPageService::assertMenuPlacement()} enforces on the way
+     * in. The two say the same thing on purpose: one refuses bad input,
+     * the other survives input that went bad afterwards.
+     */
+    private static function placementIsStillValid(TextPage $page): bool
+    {
+        $declared = MenuBuilder::groupIdsFor($page->menuId);
+
+        return $page->menuGroup === null
+            ? $declared === []
+            : in_array($page->menuGroup, $declared, true);
     }
 }

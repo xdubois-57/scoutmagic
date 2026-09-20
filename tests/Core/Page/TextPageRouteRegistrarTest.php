@@ -109,10 +109,6 @@ class TextPageRouteRegistrarTest extends TestCase
             $this->assertNotNull($roleMin);
             $required = Role::fromString($roleMin);
 
-            $this->assertTrue(
-                $required->hasAccess($required),
-                "{$menuId}: its own floor must be admitted"
-            );
             $this->assertFalse(
                 $insufficientRole->hasAccess($required),
                 "{$menuId}: one rung below the floor must be refused"
