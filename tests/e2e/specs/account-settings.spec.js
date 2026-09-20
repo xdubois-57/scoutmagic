@@ -91,8 +91,19 @@ test('the account page updates the profile, replaces the photo through the clien
     // The provisioned name is load-bearing fixture for the groups
     // scenarios, so restoring it is part of the scenario's contract.
     // ---------------------------------------------------------------
-    const firstNameField = page.getByLabel('Prénom');
-    const lastNameField = page.getByLabel('Nom', { exact: true });
+    // By ROLE and accessible name rather than by label text, and the
+    // difference is not cosmetic here. Both fields are `required` now (the
+    // site refuses to empty either one — Core\Security\
+    // ProfileCompletionGate), so partials/form_field.html.twig draws its
+    // marker inside the <label> and the label TEXT reads « Nom * ». The
+    // marker carries `aria-hidden`, so the accessible name is still
+    // « Nom » — which is exactly the difference between the two locators:
+    // getByLabel reads the label's text and stopped matching, getByRole
+    // reads the accessible name a screen reader would announce and still
+    // does. `exact` tells « Nom » from « Prénom » and from the passkey
+    // section's « Nom de cette clé ».
+    const firstNameField = page.getByRole('textbox', { name: 'Prénom', exact: true });
+    const lastNameField = page.getByRole('textbox', { name: 'Nom', exact: true });
     const originalFirstName = await firstNameField.inputValue();
     const originalLastName = await lastNameField.inputValue();
 
@@ -102,14 +113,14 @@ test('the account page updates the profile, replaces the photo through the clien
     await page.waitForURL('**/account', { waitUntil: 'domcontentloaded' });
 
     // Re-rendered from the database, not from browser state.
-    await expect(page.getByLabel('Prénom')).toHaveValue('Prénom-E2E');
-    await expect(page.getByLabel('Nom', { exact: true })).toHaveValue('Nom-E2E');
+    await expect(page.getByRole('textbox', { name: 'Prénom', exact: true })).toHaveValue('Prénom-E2E');
+    await expect(page.getByRole('textbox', { name: 'Nom', exact: true })).toHaveValue('Nom-E2E');
 
-    await page.getByLabel('Prénom').fill(originalFirstName);
-    await page.getByLabel('Nom', { exact: true }).fill(originalLastName);
+    await page.getByRole('textbox', { name: 'Prénom', exact: true }).fill(originalFirstName);
+    await page.getByRole('textbox', { name: 'Nom', exact: true }).fill(originalLastName);
     await page.getByRole('button', { name: 'Enregistrer' }).click();
     await page.waitForURL('**/account', { waitUntil: 'domcontentloaded' });
-    await expect(page.getByLabel('Prénom')).toHaveValue(originalFirstName);
+    await expect(page.getByRole('textbox', { name: 'Prénom', exact: true })).toHaveValue(originalFirstName);
 
     // ---------------------------------------------------------------
     // The photo. The avatar's overlay walks to the shared upload page;

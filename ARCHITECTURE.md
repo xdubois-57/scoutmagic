@@ -91,7 +91,9 @@ Routes within "Espace animateurs" declare `role_min: "intendant"` or `role_min: 
 
 A person logs in with an email address, not with a member account.
 
-- `user_accounts` contains only an email (unique) + optional info (name, surname).
+- `user_accounts` contains an email (unique) + the person's first and last name.
+
+**Those two names are mandatory, and the enforcement is in the application rather than in the schema** (`Core\Security\ProfileCompletionGate`, specifications.md §2.4). The columns stay nullable because most existing rows carry neither — the setup wizard collects an address and nothing else, and `Core\Import\DeskImportService` creates an account per member e-mail without a name — and there is nothing to migrate them from. So an identified session missing either name is answered with an interstitial screen (`/account/complete-profile`) instead of the page it asked for, and « Mon compte » refuses to empty either field. Three properties are load-bearing: it applies to **every** identified account whatever its role (the first account of every installation has no name by construction, so an exemption for `superadmin` would exempt the one person who administers the site); **logging out always works**, since it is the only way out and a validation that will not let go locks somebody out of their own site; and a **public route is never intercepted**, decided from the route's own `role_min` so that the screen can still load the manifest and the icons it renders with, and so that a route added later is covered without anybody listing it. The gate is a nullable `FrontController` dependency built from the account the request is already signed in as, checked **after** the RBAC guard — a route this session could not reach anyway answers 403, which is the truthful answer, rather than promising a page that is not theirs.
 - At login, the system finds all `member_years` for the current scout year whose email matches.
 - Effective role = the **highest** among the functions of all linked members.
 - The person can then navigate between "their" members (e.g. a parent sees the page of each of their children).

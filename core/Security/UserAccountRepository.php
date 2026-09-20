@@ -503,10 +503,17 @@ class UserAccountRepository
     /**
      * Update profile (first name and last name), encrypted at rest.
      */
-    public function updateProfile(int $id, ?string $firstName, ?string $lastName): void
+    /**
+     * Both names are mandatory (Core\Security\ProfileCompletionGate), which
+     * is why neither parameter is nullable any more: the columns stay
+     * nullable for the accounts that predate the rule, and nothing may add
+     * to them. Whether a name is ACCEPTABLE — non-empty once trimmed — is
+     * the caller's question, asked in the two places a person types one.
+     */
+    public function updateProfile(int $id, string $firstName, string $lastName): void
     {
-        $encFirstName = $firstName !== null ? $this->encryption->encrypt($firstName, 'user_accounts.first_name') : null;
-        $encLastName = $lastName !== null ? $this->encryption->encrypt($lastName, 'user_accounts.last_name') : null;
+        $encFirstName = $this->encryption->encrypt($firstName, 'user_accounts.first_name');
+        $encLastName = $this->encryption->encrypt($lastName, 'user_accounts.last_name');
 
         $stmt = $this->pdo->prepare(
             'UPDATE user_accounts SET first_name_encrypted = ?, last_name_encrypted = ? WHERE id = ?'
