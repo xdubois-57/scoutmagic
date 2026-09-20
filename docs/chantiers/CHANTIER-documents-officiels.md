@@ -24,8 +24,12 @@ qu'ils décrivent une réalité que le code contredit, **mets-les à jour dans l
 - Tests obligatoires : PHPUnit, PHPStan, Vitest et `npm run typecheck` si tu touches du JS.
   Couverture RBAC sur chaque route : autorisée au rôle déclaré, refusée un cran en dessous, **et
   refusée à un membre identifié qui n'est pas le bon membre**.
-- **Toute édition de `modules/official_documents/schema.sql` impose de bumper `version` dans son
-  `module.json`**, dans le même changement.
+- **Bumper `version` dans `module.json` quand le module change d'une façon que ses utilisateurs
+  doivent voir** — une page nouvelle, un réglage nouveau. *Cette ligne demandait à l'origine un bump
+  à toute édition de `schema.sql` ; c'est la règle qu'`AGENTS.md` § Database déclare retirée, et
+  `ModuleManager::loadEnabledModules()` le confirme : le schéma déclaré entier est migré en une
+  passe par ce qui déploie le code, la comparaison de version ne pilotant plus que l'élagage des
+  réglages. Corrigée ici parce que ce fichier dit lui-même qu'`AGENTS.md` prime sur lui.*
 - Code, commentaires, identifiants, tables, colonnes en anglais ; interface en français. Aucune
   donnée personnelle dans le journal, les messages d'erreur ou les traces.
 - **Aucun jargon interne dans l'interface de ces écrans** : ni « Desk », ni « member_year », ni
@@ -85,7 +89,9 @@ que par la plage de dates choisie.
 
 `modules/official_documents/`, nom affiché « Documents officiels ». **Pas de
 `enabled_by_default`** : une donnée de santé ne doit exister sur une installation que si quelqu'un
-l'a décidé. Un module jamais activé n'a jamais créé sa table.
+l'a décidé. Un module jamais activé n'a jamais écrit une ligne dans sa table. *La table, elle, est
+créée partout : `Core\Database\SchemaFiles::all()` prend le `schema.sql` de chaque module, activé ou
+non, et la version d'origine de cette phrase — « n'a jamais créé sa table » — était fausse.*
 
 Le bloc sur la page du membre passe par un hook cœur (`ARCHITECTURE.md` §7.4/§7.5), exactement
 comme les six dépendances optionnelles que `Core\Member\MemberPageService` porte déjà : dépendance
@@ -294,9 +300,12 @@ qu'aucun nom de champ attendu ne manque.
   FPDF : un accent y passerait, un caractère hors cp1252 non.
 - **Une branche peut n'être dans aucune des quatre listées** — Staff d'U, Iama, une branche
   inconnue. Dans ce cas, ne barre rien plutôt que de barrer les quatre.
-- Le texte du membre est contrôlé par le membre : chaque valeur substituée passe par
-  l'échappement avant d'atteindre le PDF, exactement comme `DocumentPdfService` l'exige de ses
-  appelants.
+- Le texte du membre est contrôlé par le membre, et ce chemin-ci n'a **pas** de contexte HTML :
+  tFPDF écrit sur un canevas PDF et échappe lui-même les caractères spéciaux d'une chaîne PDF.
+  Ce qui reste à surveiller est la couverture de la police et la longueur — les deux puces
+  voisines. *La version d'origine de cette puce renvoyait à `DocumentPdfService`, qui est un moteur
+  dompdf dont l'« échappement » est `htmlspecialchars` ; l'appliquer avant `Cell()` imprimerait
+  « L&#039;Hoëst » sur un document officiel.*
 - La longueur déborde : un nom composé, une adresse longue. Réduis le corps sur la ligne plutôt que
   de laisser le texte sortir de la zone.
 - **Aucun fichier temporaire sur disque.** Le PDF sort en mémoire.

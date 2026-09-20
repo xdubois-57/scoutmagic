@@ -2569,8 +2569,12 @@ n'y a pas de signature électronique, pas de renvoi du document signé au site, 
 pour le staff.
 
 Le module n'est **pas activé par défaut**. Une donnée de santé ne doit exister sur une installation
-que si quelqu'un l'a décidé, et un module jamais activé n'a jamais créé sa table. Le prix est assumé
-et se dit : module désactivé, il n'y a plus d'autorisation parentale non plus.
+que si quelqu'un l'a décidé, et un module jamais activé n'a jamais écrit une ligne dans sa table.
+La table elle-même existe partout : `Core\Database\SchemaFiles::all()` migre le `schema.sql` de
+chaque module, activé ou non, précisément pour qu'aucun DDL ne tourne au moment où quelqu'un clique
+sur « activer » (ARCHITECTURE.md §7.3). Ce qui est garanti par la non-activation, c'est donc
+l'absence de données, jamais l'absence de table. Le prix est assumé et se dit : module désactivé,
+il n'y a plus d'autorisation parentale non plus.
 
 ### 44.1 Seule la version signée sur papier a une valeur
 
