@@ -259,8 +259,11 @@ final class AssistantServiceTest extends TestCase
 
         try {
             $service->ask('Une question ?', Role::CHIEF, 9);
-        } catch (LlmException $e) {
-            // expected
+            $this->fail('Expected the provider\'s LlmException to reach the caller.');
+        } catch (LlmException) {
+            // The failure is this test's premise: a call that stopped
+            // failing would spend its allowance for an ordinary reason,
+            // and the count below would say nothing.
         }
 
         $count = (int) $this->pdo->query('SELECT COUNT(*) FROM help_assistant_rate_limits')->fetchColumn();

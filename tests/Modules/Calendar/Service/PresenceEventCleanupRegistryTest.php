@@ -16,7 +16,13 @@ class PresenceEventCleanupRegistryTest extends TestCase
 
         $registry->forgetEvent(42);
 
-        $this->assertTrue(true, 'Deleting an event with presences off is a no-op, never an error.');
+        // Nothing was forgotten, and nothing was buffered either: the
+        // presences block still provides its cleanup afterwards, and only
+        // the events deleted from then on reach it.
+        $cleanup = $this->createMock(PresenceEventCleanupInterface::class);
+        $cleanup->expects($this->once())->method('forgetEvent')->with(43);
+        $registry->provide($cleanup);
+        $registry->forgetEvent(43);
     }
 
     public function testDelegatesToTheProvidedCleanup(): void

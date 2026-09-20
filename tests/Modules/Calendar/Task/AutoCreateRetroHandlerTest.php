@@ -150,18 +150,28 @@ class AutoCreateRetroHandlerTest extends TestCase
     public function testIgnoresADeletedEvent(): void
     {
         $this->enableRetro();
+        // An event deleted between the scheduling and the run: the board
+        // it would have carried must not be created under another name.
+        $this->createEvent();
 
-        // Must not throw.
         (new AutoCreateRetroHandler())->handle(['event_id' => 999999], $this->context);
-        $this->assertTrue(true);
+
+        $this->assertSame(0, $this->boardCount());
     }
 
     public function testIgnoresAMissingEventIdInThePayload(): void
     {
         $this->enableRetro();
+        $this->createEvent();
 
         (new AutoCreateRetroHandler())->handle([], $this->context);
-        $this->assertTrue(true);
+
+        $this->assertSame(0, $this->boardCount());
+    }
+
+    private function boardCount(): int
+    {
+        return (int) $this->pdo->query('SELECT COUNT(*) FROM retro_boards')->fetchColumn();
     }
 
     public function testLogsToTheJournal(): void

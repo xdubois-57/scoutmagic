@@ -180,9 +180,15 @@ class DiskBudgetTest extends TestCase
     {
         $this->settings->set(DiskBudget::QUOTA_SETTING, '500 Mo');
 
-        $this->budget()->ensureRoom(100 * self::MIB);
+        // The premise the silence rests on, asserted rather than assumed:
+        // a machine whose own volume had less free space than this would
+        // make the acceptance below say nothing about the quota.
+        $this->assertGreaterThanOrEqual(
+            100 * self::MIB + DiskBudget::SAFETY_MARGIN_BYTES,
+            $this->budget()->availableBytes()
+        );
 
-        $this->assertTrue(true, 'ensureRoom() returned without refusing.');
+        $this->budget()->ensureRoom(100 * self::MIB);
     }
 
     /**
