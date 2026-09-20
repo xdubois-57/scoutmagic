@@ -252,8 +252,22 @@ class RentalDocumentService
      */
     public static function lockedRefusal(DocumentType $type): string
     {
-        return 'Ce document a été envoyé au locataire : son texte n\'est plus modifiable. '
-            . 'Le ' . mb_strtolower($type->label()) . ' qu\'il a reçu doit rester celui qu\'il a reçu.';
+        $opening = 'Ce document a été envoyé au locataire : son texte n\'est plus modifiable. ';
+
+        // Written out per type rather than assembled around
+        // `$type->label()`, because French will not be assembled: « Facture »
+        // is feminine, so the generic sentence produced « Le facture qu'il a
+        // reçu doit rester celui qu'il a reçu » — on the editor's warning
+        // banner and in the flash that refuses the save, both of which an
+        // invoice reaches exactly as a contract does.
+        return $opening . match ($type) {
+            DocumentType::INVOICE => 'La facture qu\'il a reçue doit rester celle qu\'il a reçue.',
+            DocumentType::CONTRACT => 'Le contrat qu\'il a reçu doit rester celui qu\'il a reçu.',
+            // Unreachable while `textIsLocked()` guards on `isGenerated()`,
+            // and a neutral sentence rather than a throw: a document type
+            // added to that list must not be able to blank this page.
+            default => 'Ce qui est parti doit rester ce qui est parti.',
+        };
     }
 
     // ── Level 3: the PDF (§6.25) ────────────────────────────────────────
@@ -515,6 +529,20 @@ class RentalDocumentService
      */
     public function delete(RentalDocument $document, ?int $actorMemberId = null): void
     {
+        // **A document that has gone out cannot be deleted.** Not tidiness:
+        // `textIsLocked()` asks whether a document of this type carries a
+        // `sent_at`, so deleting the only sent contract unlocked its source
+        // text again — while the renter still holds the PDF that was made
+        // from the old one. The module already refuses to reuse a version
+        // number for the same reason (`claimNextVersion()`: "v2 may already
+        // have been emailed"), and this is that rule one step further on.
+        if ($document->sentAt !== null) {
+            throw new RentalException(
+                'Ce document a été envoyé au locataire : il ne peut plus être supprimé. '
+                . 'Ce qui est parti reste au dossier.'
+            );
+        }
+
         $this->fileRemover->remove(
             $this->documentRepository,
             $document->id,

@@ -7,6 +7,7 @@ namespace Tests\Modules\Rental\Service;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\File\FileRepository;
+use Core\File\PdfTextExtractor;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Pdf\DocumentPdfService;
@@ -193,6 +194,23 @@ class RentalDocumentServiceTest extends TestCase
         );
     }
 
+    /**
+     * The text layer of a generated document, which is what a reader sees.
+     *
+     * `pdfTextOf()` below hands back the file's bytes, which is the right
+     * thing for « is this a PDF at all » and the wrong thing for anything
+     * about its content: dompdf compresses its streams, so a string that
+     * is plainly on the page is absent from them, and a string that is not
+     * is absent too.
+     */
+    private function renderedTextOf(int $documentId): string
+    {
+        $text = (new PdfTextExtractor())->extractText($this->pdfTextOf($documentId));
+        $this->assertNotNull($text, 'the generated PDF carries no readable text layer');
+
+        return $text;
+    }
+
     private function pdfTextOf(int $documentId): string
     {
         $document = $this->documentRepository->findById($documentId);
@@ -349,11 +367,29 @@ class RentalDocumentServiceTest extends TestCase
     public function testARepairedKeywordSubstitutesIntoTheGeneratedDocument(): void
     {
         $booking = $this->createBooking();
-        $this->service->saveBookingText($booking, DocumentType::CONTRACT, '<p>{{ locatai<em>re</em>_nom }}</p>');
+        $this->service->saveBookingText(
+            $booking,
+            DocumentType::CONTRACT,
+            // Prose around the keyword, and not for realism: the extractor
+            // below answers null under twenty meaningful characters, so a
+            // document whose whole text is one name would make this test
+            // pass by being unreadable.
+            '<p>Le present contrat est conclu entre l unite et {{ locatai<em>re</em>_nom }}.</p>'
+        );
 
         $document = $this->service->generate($booking, $this->asset(), DocumentType::CONTRACT, $this->settings());
 
-        $this->assertStringNotContainsString('{{', $this->pdfTextOf($document->id));
+        // **The rendered TEXT, not the file's bytes.** dompdf compresses its
+        // content streams, so `{{` would not appear in the raw PDF whether
+        // the keyword was substituted or not — and asserting its absence
+        // there passes just as happily when the keyword was dropped
+        // altogether. Reading the text layer is what makes the assertion
+        // able to fail.
+        $text = $this->renderedTextOf($document->id);
+
+        $this->assertStringContainsString('Jeanne Martin', $text);
+        $this->assertStringNotContainsString('{{', $text);
+        $this->assertStringNotContainsString('locataire_nom', $text);
     }
 
     /**
@@ -413,6 +449,64 @@ class RentalDocumentServiceTest extends TestCase
         $this->expectExceptionMessage('n\'est plus modifiable');
 
         $this->service->saveBookingText($booking, DocumentType::CONTRACT, '<p>Autre chose.</p>');
+    }
+
+    /**
+     * The hole under the lock: `textIsLocked()` asks whether a document of
+     * this type carries a `sent_at`, so deleting the only sent contract
+     * unlocked its source text again — while the renter still held the PDF
+     * made from the old one. A document that has gone out is evidence, the
+     * same reason `claimNextVersion()` never reuses a number.
+     */
+    public function testASentDocumentCannotBeDeleted(): void
+    {
+        $booking = $this->createBooking();
+        $this->setTemplate('<p>x</p>');
+        $document = $this->service->generate($booking, $this->asset(), DocumentType::CONTRACT, $this->settings());
+        $this->service->markSent($document->id, new \DateTimeImmutable());
+
+        $sent = $this->documentRepository->findById($document->id);
+        $this->assertNotNull($sent);
+
+        try {
+            $this->service->delete($sent);
+            $this->fail('a sent document was deleted');
+        } catch (RentalException $refusal) {
+            $this->assertStringContainsString('ne peut plus être supprimé', $refusal->getMessage());
+        }
+
+        // And the lock it holds up is still standing.
+        $this->assertTrue($this->service->textIsLocked($booking, DocumentType::CONTRACT));
+    }
+
+    public function testADocumentThatNeverLeftIsStillDeletable(): void
+    {
+        $booking = $this->createBooking();
+        $this->setTemplate('<p>x</p>');
+        $document = $this->service->generate($booking, $this->asset(), DocumentType::CONTRACT, $this->settings());
+
+        $this->service->delete($document);
+
+        $this->assertSame([], $this->service->forBooking($booking->id));
+    }
+
+    /**
+     * French will not be assembled. « Facture » is feminine, so building
+     * one sentence around `$type->label()` produced « Le facture qu'il a
+     * reçu doit rester celui qu'il a reçu » — on the editor's banner and in
+     * the flash that refuses the save, both of which an invoice reaches
+     * exactly as a contract does.
+     */
+    public function testTheRefusalIsGrammaticalForTheInvoiceToo(): void
+    {
+        $this->assertStringContainsString(
+            'La facture qu\'il a reçue doit rester celle qu\'il a reçue.',
+            RentalDocumentService::lockedRefusal(DocumentType::INVOICE)
+        );
+        $this->assertStringContainsString(
+            'Le contrat qu\'il a reçu doit rester celui qu\'il a reçu.',
+            RentalDocumentService::lockedRefusal(DocumentType::CONTRACT)
+        );
     }
 
     // ── Level 3: the PDF ────────────────────────────────────────────────

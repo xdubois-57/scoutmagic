@@ -186,6 +186,13 @@
                                                 </button>
                                             </form>
                                         {% endif %}
+                                        {# Not offered on a document that has gone out: deleting
+                                           the only sent contract would unlock its source text
+                                           while the renter still holds the PDF made from the old
+                                           one. The refusal is server-side in
+                                           RentalDocumentService::delete(); this is only the page
+                                           not proposing what would be refused. #}
+                                        {% if not document.hasBeenSent %}
                                         <form method="post" action="/mes-locations/document-supprimer" class="d-inline"
                                               data-confirm="Supprimer « {{ document.label }} » ?">
                                             {{ csrf_field()|raw }}
@@ -198,6 +205,7 @@
                                                 <i class="bi bi-trash" aria-hidden="true"></i>
                                             </button>
                                         </form>
+                                        {% endif %}
                                     </div>
                                 </td>
                             </tr>
