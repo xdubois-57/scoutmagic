@@ -4481,6 +4481,120 @@ never a recipient, a subject or a body. That is what settles the personal
 -data question (RGPD §2.10) and what separates them from forensic
 reports, which this site neither requests nor accepts (D12).
 
+#### Seed mailboxes, and routing by recipient domain (`Core\Mail\Feedback\Seed`, roadmap IT-07)
+
+**A DMARC report says a message was authenticated. It never says it was
+read.** A perfectly aligned mailing can be filed in a provider's junk
+folder and every screen above will look clean while nobody reads
+anything. The only way to know is to be a recipient, so the site sends a
+copy of each mailing to a handful of the unit's own mailboxes and looks
+at where the copy landed.
+
+*A seed box is an ordinary inbound mailbox* (D10). There is no new kind
+of box and no second configuration concept: the box is declared on
+`/config/courrier-entrant` like any other, and the super-admin opens the
+`core_mail_seed` consumer's scope to it — the mechanism that already
+answers « who may read what ». `SeedMailboxes::addresses()` is
+`InboundMailInterface::probeAddressesFor()`, so « which boxes are seed
+boxes » is the scope and nothing else. Only boxes belonging to the unit
+(D11).
+
+*The copy is emitted at the TRANSPORT, not in `mass_mail`.* `MailService`
+emits one when the purpose is `Bulk` and the caller passed a
+`bulkRunReference`; the mailing module knows nothing about it, and any
+future bulk sender inherits the measurement without code. They are
+separate messages, never blind copies, and they carry an opaque
+`X-ScoutMagic-Seed` header holding that reference — which is what lets
+`SeedConsumer` recognise a copy without the site having to guess from a
+subject line. A failure to emit a copy never fails the mailing: a
+measurement is worth less than the message it measures.
+
+*`SeedConsumer` reads the landing folder, records the verdict, then
+deletes the message.* Reading the folder needed one new field on
+`CandidateMessage` (`folder`, null meaning « the relay did not say »,
+never « INBOX »), which is the roadmap's own instruction: a datum to add
+to the reported message, not an architecture to change.
+
+*Deleting it crossed a boundary `inbound_mail` had deliberately erected*,
+and the divergence is worth stating. `IncomingMailboxClientInterface`
+documents that every one of its methods is a read, and `ImapMailboxClient`
+uses EXAMINE and never SELECT — « the way to guarantee it never touches
+their mail is to give it no vocabulary for doing so » (§7.5). Rather than
+widen that interface, the capability is opt-in on **both** sides, the
+same shape as IT-06's `PayloadConsumerInterface`: a client may implement
+`PruningMailboxClientInterface` (one method, `deleteMessage()`, the only
+place a write verb is allowed to appear) and a consumer may implement
+`PruningConsumerInterface`. A message is deleted only when the two halves
+agree AND the box's scope named that consumer, so the containment is the
+scope — the same mechanism that decides everything else here.
+`NonIntrusiveReadTest` was tightened rather than relaxed: the reading
+half of `ImapMailboxClient` is still scanned for write verbs, and the one
+pruning method is scanned for being the only exception.
+
+*`mail_seed_copies` is the table, and an address in it is a `BLOB`*
+beside its blind index, like every other address the site stores. The
+index has its OWN purpose (`seed_mailbox`) rather than the shared
+`'email'` one, because a seed address is never compared against a
+member's. `Task\PurgeSeedCopiesHandler` is the daily reading: two days
+before a copy nobody found becomes « jamais arrivé », ninety days before
+the result is dropped, and — only if the unit asked — the routing below.
+
+*Routing by recipient domain is a recommendation, not an automatism*
+(D13). With three to five boxes and a few mailings a year, routing on two
+observations is routing on noise, so `DomainRouting::MINIMUM_RUNS` counts
+**mailings** and not copies: five boxes at one provider on one mailing
+say one thing five times. And the remedy has a price of its own — a
+relay's reputation rests on regular traffic, so sending part of it
+elsewhere gives each relay less of what its standing depends on. The
+screen therefore shows the finding, offers a button per provider, and
+keeps the automatism behind an explicit switch as well as the minimum
+sample.
+
+*What a decision actually is: `Core\Mail\Transport\DomainPreferences`,
+a domain-to-relay map read by `MailTransportChain`.* It **reorders** the
+candidates of one lane and nothing more. A lane is still derived from
+`MailPurpose` and from nothing else (§8.106's own rule): a message bound
+for `gmail.com` travels the mailing lane exactly as every other mailing
+does, and only the order of the relays inside it changes. The rule that
+may not be relaxed is that **routing applies to the mailing lane alone**
+— a magic link lives fifteen minutes, and a login path that varies with
+the recipient's provider is a login path nobody can reason about. Four
+further properties are pinned because each of them, broken, would cost a
+message rather than a nicety: a preference never brings back a relay the
+lane dropped (quota, disabled entry, open breaker all outrank it); it
+never costs a fallback, since the rest of the chain keeps its order
+behind the preferred relay; an unreadable setting is « no preference »,
+never an exception on the send path; and a message with several
+recipients is not routed at all, because a mailing sends one message per
+member and routing a batch by its first address would send the rest
+through a relay chosen for somebody else's provider.
+
+*The automatism applies once per domain and never undoes.* `apply()`
+moves a domain to the NEXT relay of the chain, so a sweep that applied
+again each day would walk that domain around the chain for ever. And a
+domain that has stopped being troubled has stopped being troubled ON ITS
+NEW RELAY, so undoing would make it troubled again and the two readings
+would alternate for as long as the switch stayed on. Coming back is a
+person's decision, from the button.
+
+*Three to five boxes, and more is worse* — the screen says so. These
+boxes never read their mail, never reply and never click, and the large
+providers score a sender on exactly that, so a unit measuring harder
+would be degrading the delivery it is measuring.
+
+*The support archive carries provider names and counters, never a box.*
+A seed box is a mailbox of the unit's; an aggregated provider
+(« gmail.com ») is a company. A domain that was routed and has since gone
+unmeasured still appears, because it still steers every mailing it names
+and figures read without it are the figures of a configuration that is
+not in force.
+
+*And the RGPD section names these providers as processors.* A copy is the
+real message, so it carries the same personal data as the mailing itself,
+into mailboxes hosted by third parties the unit chooses. The routing
+itself introduces no processor: it only says which already-declared relay
+is tried first.
+
 ### 8.107 Storage locations (`Core\Storage\Location`)
 
 **One declared destination for bytes, and every consumer picks one.** The same idea used to be written twice, with two incompatible models: the gallery had `gallery_storage_locations` — N rows, a `StorageBackendInterface`, a cached health column — while the off-site backup had a dozen flat `SettingService` keys, a `RemoteBackupTarget` interface and a `remote_backup_last_error` setting. A single destination in flat settings on one side, N destinations in a table on the other. The second form is the right one, and this is it, generalised. **Both halves have now arrived**: the gallery moved here in IT-01 and the off-site backup in IT-05, which is where `RemoteBackupTarget` disappeared and a Drive folder became a location like any other (§8.104).
