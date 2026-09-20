@@ -208,8 +208,29 @@ class SendBatchHandler implements TaskHandlerInterface
                 // stamped a moment ago: one address is one receipt, and
                 // the settling clock is set by the first send after a
                 // bounce and left alone by the rest.
-                (new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $context->encryption))
-                    ->recordSend($recipient->emailAddress, new \DateTimeImmutable(), true);
+                //
+                // **Guarded exactly like its twin** in
+                // `Core\Mail\MailService::send()`, and here it matters
+                // more. The copy has already left and
+                // `recordSendSuccess()` is committed; the only handler
+                // around this loop catches `MailException`, so anything
+                // else — a `DecryptionException` on a row encrypted under
+                // a rotated key, a `\ValueError` from a stored category
+                // that is no longer a case, a `\PDOException` — would
+                // escape the loop entirely. `rescheduleIfPendingRemain()`
+                // never runs then, and nothing else reschedules a failed
+                // `send_batch`: every remaining recipient stays `pending`
+                // until somebody notices and restarts the mailing by
+                // hand. A receipt is not worth a mailing.
+                try {
+                    (new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $context->encryption))
+                        ->recordSend($recipient->emailAddress, new \DateTimeImmutable(), true);
+                } catch (\Throwable) {
+                    // Deliberately silent, for the same reason the twin
+                    // gives: there is nobody to tell who could act on it,
+                    // and the journal is reached through the same database
+                    // that just refused.
+                }
                 // One line per copy that actually left — see
                 // Service\MassMailService::journalRecipientSent(). The
                 // batch summary below stays, but it answers a different

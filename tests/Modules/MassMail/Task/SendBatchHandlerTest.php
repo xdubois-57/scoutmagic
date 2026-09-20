@@ -164,6 +164,52 @@ class SendBatchHandlerTest extends TestCase
         $this->assertSame(0, (int) $stmt->fetchColumn());
     }
 
+    /**
+     * **A receipt is not worth a mailing.**
+     *
+     * The bounce receipt is stamped after the copy has left and after
+     * `recordSendSuccess()` is committed, and the only handler around
+     * that loop catches `MailException`. So anything else thrown while
+     * stamping — a `DecryptionException` on a row encrypted under a
+     * rotated key, a `\ValueError` from a stored category that is no
+     * longer a case, a `\PDOException` — escaped the loop outright.
+     * `rescheduleIfPendingRemain()` never ran, and nothing else
+     * reschedules a failed `send_batch`: every recipient still pending
+     * stayed pending until somebody noticed and restarted the mailing by
+     * hand.
+     *
+     * The missing table below stands in for that whole family: what
+     * matters is that the failure is unrelated to the send that has
+     * already succeeded.
+     */
+    public function testAReceiptThatCannotBeStampedDoesNotStrandTheRestOfTheMailing(): void
+    {
+        // `recordSend()` is called with `vouchedFor: true` here, so it
+        // skips the `isOnFile()` lookup and goes straight to stamping —
+        // which is the write this removes the ground from under.
+        $this->pdo->exec('DROP TABLE mail_send_receipts');
+
+        $mailService = $this->createMock(MailService::class);
+        $mailService->expects($this->exactly(2))->method('send');
+
+        $handler = new SendBatchHandler();
+        $handler->handle([], $this->buildContext($mailService));
+
+        $counts = $this->recipientRepository->countGroupedByStatus($this->emailId);
+        $this->assertSame(2, $counts['sent'], 'both copies left, so both are sent whatever the receipt did.');
+        $this->assertSame(1, $counts['pending']);
+
+        $stmt = $this->pdo->query(
+            "SELECT COUNT(*) FROM scheduled_actions WHERE module_id = 'mass_mail' "
+            . "AND task_key = 'send_batch' AND status = 'pending'"
+        );
+        $this->assertSame(
+            1,
+            (int) $stmt->fetchColumn(),
+            'the next batch is still scheduled — without it the last recipient waits for a human.'
+        );
+    }
+
     public function testMailExceptionMarksRecipientAsErrorWithoutLeakingAddress(): void
     {
         $mailService = $this->createMock(MailService::class);

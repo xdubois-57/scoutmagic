@@ -1793,6 +1793,31 @@ construction. Correction hors périmètre, assumée et signalée ici plutôt
 que glissée sans le dire : la laisser en place, c'était livrer sciemment
 un test qui casse la CI de temps en temps.
 
+### Le reçu qui pouvait emporter tout un publipostage
+
+Dernière trouvaille de la relecture, et la plus chère si elle était
+passée. Le tampon de reçu ajouté dans `SendBatchHandler` n'était pas
+protégé, alors que son jumeau dans `MailService::send()` l'est —
+`try { … } catch (\Throwable) {}`, avec le commentaire qui explique
+pourquoi ce silence est voulu.
+
+Ici, le tampon tombe **après** le départ de la copie et après le
+`recordSendSuccess()` déjà écrit, et le seul `catch` autour de la boucle
+attrape `MailException`. Tout le reste s'échappait donc : une
+`DecryptionException` sur une ligne chiffrée avec une clé tournée, un
+`\ValueError` sur une catégorie stockée qui n'est plus un cas, une
+`\PDOException`. Et comme `rescheduleIfPendingRemain()` ne tourne
+qu'après la boucle, et que rien d'autre ne replanifie un `send_batch` en
+échec, **tous les destinataires restants restaient `pending`** jusqu'à ce
+qu'un humain s'en aperçoive et relance l'envoi à la main.
+
+Un reçu ne vaut pas un publipostage : même garde que le jumeau, même
+raison. Le test retire la table `mail_send_receipts` sous les pieds du
+tampon — ce qui représente toute la famille, l'essentiel étant que la
+panne n'ait rien à voir avec l'envoi qui vient de réussir — et vérifie
+que les deux copies restent `sent` et que le lot suivant est bien
+replanifié. Vérifié en retirant la garde : la `PDOException` s'échappe.
+
 ### Écarts et limites, assumés
 
 **La preuve d'envoi réduit la falsification, elle ne la supprime pas.** La
