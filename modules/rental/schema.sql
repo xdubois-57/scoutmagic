@@ -1088,6 +1088,35 @@ CREATE TABLE IF NOT EXISTS rental_reminders_sent (
     KEY idx_rental_reminder_sent_on (sent_on)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- rental_asset_reminders: what one asset changed about its reminders (§6.29).
+--
+-- **Only the differences.** Twelve reminders times every asset would be a
+-- table a unit never edits and a migration has to keep in step with the
+-- enum; a row exists here because somebody changed something, and its
+-- absence is "whatever the unit's default says". `Reminder\ReminderSchedule`
+-- is the one place that resolution lives.
+--
+-- `delay_days` is nullable for the same reason the form leaves the field
+-- empty: NULL is "take the unit's default", never "never". Switching a
+-- reminder off is `is_active`, because a remorque has neither an inventory
+-- nor a security deposit and those reminders on it are guaranteed noise —
+-- and because folding "off" into an empty number field is how 0 and never
+-- end up one typo apart.
+--
+-- `reminder_key` is a Reminder\ReminderKind value, kept as text rather than
+-- an ENUM so adding a reminder is a code change and not a migration.
+CREATE TABLE IF NOT EXISTS rental_asset_reminders (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    asset_id INT UNSIGNED NOT NULL,
+    reminder_key VARCHAR(50) NOT NULL,
+    delay_days SMALLINT UNSIGNED NULL,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    updated_at DATETIME NOT NULL,
+    UNIQUE KEY idx_rental_asset_reminder (asset_id, reminder_key),
+    CONSTRAINT fk_rental_asset_reminder_asset FOREIGN KEY (asset_id)
+        REFERENCES rental_assets (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- rental_booking_aggregates: what survives a purge (§6.35).
 --
 -- **One anonymous row per booking, and nothing that can be tied back to a

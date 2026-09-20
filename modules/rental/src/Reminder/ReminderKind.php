@@ -20,10 +20,10 @@ namespace Modules\Rental\Reminder;
  */
 enum ReminderKind: string
 {
-    // ── To the unit's own people (notification centre) ───────────────────
+    /** How close to the stay the contract reminder is said a second time. */
+    public const CONTRACT_SECOND_CHANCE_DAYS = 3;
 
-    /** A public request just came in. */
-    case NEW_REQUEST = 'new_request';
+    // ── To the unit's own people (notification centre) ───────────────────
 
     /** A request nobody has answered yet. */
     case UNANSWERED_REQUEST = 'unanswered_request';
@@ -92,7 +92,6 @@ enum ReminderKind: string
     public function label(): string
     {
         return match ($this) {
-            self::NEW_REQUEST => 'Nouvelle demande de location',
             self::UNANSWERED_REQUEST => 'Demande de location sans réponse',
             self::HOLD_EXPIRING => 'Blocage de dates bientôt expiré',
             self::DEPOSIT_MISSING => 'Acompte non reçu',
@@ -105,6 +104,70 @@ enum ReminderKind: string
             self::SECURITY_DEPOSIT_TO_RETURN => 'Caution à restituer',
             self::COMPLIANCE_EXPIRING => 'Document de conformité expirant',
             self::PRACTICAL_INFO => 'Informations pratiques avant le séjour',
+        };
+    }
+
+    /**
+     * The shipped delay, in **days**, before this reminder is due.
+     *
+     * Days and never hours, on purpose: the pass runs once a day
+     * (`SendRentalRemindersHandler`), so an hour is a precision the machine
+     * cannot honour — the hold reminder's old `24 hours` was one day
+     * dressed up as something finer. What the number counts depends on the
+     * reminder and is stated where it is used: days since the request
+     * arrived, days before the stay, days after a due date went by.
+     *
+     * `0` means "the day the condition becomes true", which is what the
+     * three money reminders and the two inventories have always done.
+     */
+    public function defaultDays(): int
+    {
+        return match ($this) {
+            self::UNANSWERED_REQUEST => 3,
+            self::HOLD_EXPIRING => 1,
+            self::DEPOSIT_MISSING, self::BALANCE_MISSING, self::SECURITY_DEPOSIT_MISSING => 0,
+            self::CONTRACT_MISSING => 14,
+            self::ARRIVAL_INVENTORY, self::DEPARTURE_INVENTORY => 0,
+            self::SETTLEMENT_DUE => 7,
+            self::SECURITY_DEPOSIT_TO_RETURN => 14,
+            self::COMPLIANCE_EXPIRING => 60,
+            self::PRACTICAL_INFO => 7,
+        };
+    }
+
+    /**
+     * The module setting that carries the unit-wide default, which an asset
+     * may then override.
+     */
+    public function settingKey(): string
+    {
+        return 'reminder_' . $this->value . '_days';
+    }
+
+    /**
+     * How many days before this reminder may be sent a second time, or
+     * **null** when it is said once and never again.
+     *
+     * Only four repeat, and the chantier is specific about which: money
+     * that has not arrived is worth asking about again, because the answer
+     * can change between two Mondays. An inventory nobody recorded is not —
+     * it is a fact that will still be true next week, and repeating it
+     * teaches the unit to ignore the whole channel, which is worse than not
+     * reminding at all (§6.29).
+     *
+     * The contract's second chance is not a weekly cadence but a single
+     * later nudge, and it is **derived from the configured lead time**
+     * rather than fixed: sent when the stay comes into range, said once
+     * more when only `CONTRACT_SECOND_CHANCE_DAYS` are left. Deriving it is
+     * what keeps a unit that shortened the lead time to five days from
+     * getting the two sends on top of each other.
+     */
+    public function repeatAfterDays(int $configuredDays): ?int
+    {
+        return match ($this) {
+            self::DEPOSIT_MISSING, self::BALANCE_MISSING, self::SECURITY_DEPOSIT_MISSING => 7,
+            self::CONTRACT_MISSING => max(1, $configuredDays - self::CONTRACT_SECOND_CHANCE_DAYS),
+            default => null,
         };
     }
 

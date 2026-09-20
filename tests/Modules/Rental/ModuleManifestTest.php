@@ -39,13 +39,18 @@ class ModuleManifestTest extends TestCase
      * (AGENTS.md). Editing schema.sql should break this test — the fix is to
      * bump module.json, which is the whole point.
      *
+     * 1.21.0 has one behind it — `rental_asset_reminders`, the per-asset
+     * reminder overrides (§6.29) — and the manifest also stops declaring
+     * `rental.new_request`, a notification type nothing ever dispatched.
+     * That pruning is what the version comparison still drives.
+     *
      * 1.18.0 is a bump with no schema change behind it: the module now
      * names its own receivables on « Paiements attendus »
      * (Finance\RentalReceivableDescriber), which is something a unit sees.
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.20.0', $this->manifest->version);
+        $this->assertSame('1.21.0', $this->manifest->version);
     }
 
     /**
