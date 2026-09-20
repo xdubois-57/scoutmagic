@@ -82,9 +82,13 @@ final class AssetConditions
      * `contenteditable` puts in a paragraph somebody blanked, and `trim()`
      * removes neither the entity nor the U+00A0 it decodes to.
      *
-     * Same test, and for the same reason, as
-     * `Modules\InboundMail\Service\MessageContentSanitizer::rendersNothing()`
-     * — with one difference. There the images are already gone by the time
+     * Same test, and for the same reason, as the inbound-mail module's own
+     * « renders nothing » check on a message body (`MessageContentSanitizer`
+     * — named here without its namespace on purpose: outside a module, only
+     * its `Api\` is ever nameable, comments included, and
+     * `RentalInboundMailWiringTest` reads this file as text).
+     *
+     * One difference with it. There the images are already gone by the time
      * the question is asked; here they are not, and `strip_tags()` would
      * erase a conditions block made of one scanned page, silently replacing
      * somebody's own terms with the shipped standard. An image is content.

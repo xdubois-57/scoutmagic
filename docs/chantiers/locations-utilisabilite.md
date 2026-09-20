@@ -240,10 +240,14 @@ celle qui loue le local.
   déclenchait donc jamais. Résultat : une boîte « Conditions de location »
   visuellement vide au-dessus d'une case obligatoire — le défaut même que
   l'itération ferme, rouvert par une autre porte. Le dépôt avait déjà le
-  bon motif pour ce piège
-  (`InboundMail\Service\MessageContentSanitizer::rendersNothing()`) :
-  `AssetConditions::isBlank()` le reprend, et les deux appelants passent par
-  lui. Sept formes de « rien » sont pinnées par un fournisseur de données.
+  bon motif pour ce piège — la question « est-ce que ça n'affiche rien ? »
+  que le module de courrier entrant pose déjà sur un corps de message — et
+  `AssetConditions::isBlank()` le reprend, les deux appelants passant par
+  lui. Le docbloc le nomme sans son espace de noms, délibérément : hors d'un
+  module, seul son `Api\` est nommable, **commentaires compris**, et
+  `RentalInboundMailWiringTest` lit ce fichier comme du texte. C'est lui qui
+  l'a rappelé, sur la suite complète, après que les suites ciblées soient
+  passées au vert. Sept formes de « rien » sont pinnées par un fournisseur de données.
   Une différence assumée avec le précédent : là-bas les images ont déjà
   disparu quand la question se pose, ici non — `strip_tags()` effacerait des
   conditions faites d'une page scannée et servirait le texte standard
