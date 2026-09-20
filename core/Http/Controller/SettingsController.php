@@ -58,6 +58,12 @@ class SettingsController extends AbstractController
         \Core\Mail\Transport\MailProviderDirectory::SETTING_LOCAL_BATCH_INTERVAL,
         \Core\Mail\Transport\TransportSeeder::SETTING_SEEDED,
         \Core\Mail\Transport\TransportSeeder::SETTING_RELAY_IMPORTED,
+        // The contact-synchronisation cut-out (Core\Contact\Device,
+        // ARCHITECTURE.md §8.116). Same reason as the keys above: a bare
+        // checkbox on this page says nothing about what it stops, while
+        // Configuration > Synchronisation des contacts shows it next to
+        // the devices it would cut off.
+        \Core\Contact\Device\DeviceCredentialService::SETTING_SYNC_ENABLED,
     ];
 
     public function __construct(

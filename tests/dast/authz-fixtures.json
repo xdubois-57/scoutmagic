@@ -24,6 +24,9 @@
     "/api/support/tickets/{reference}": {
       "reference": "SUP-ABCDEF"
     },
+    "/account/devices/{id}": {
+      "id": "1"
+    },
     "/admin/attestations/{id}": {
       "id": "1"
     },
@@ -106,6 +109,9 @@
       "eventId": "1"
     },
     "/chefs/staffs/documents/{id}": {
+      "id": "1"
+    },
+    "/config/synchronisation-contacts/{id}": {
       "id": "1"
     },
     "/config/courrier-entrant/boites/{id}": {

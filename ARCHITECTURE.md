@@ -5045,6 +5045,69 @@ whose text belongs to nobody is not.
 Explicitly **not** in scope: free-text pages do not join
 `Core\Offline\OfflineWhitelist`. That list is a static server-side
 declaration, and wiring it to a database table is a subject of its own.
+### 8.117 Device credentials for contact synchronisation (`Core\Contact\Device`)
+
+The credentials an address-book client authenticates with, and the
+site-wide switch that stops all of them at once. On their own they open
+nothing — §8.118 is what they let a client read — but they are the whole
+of the authentication, and they are testable and shippable without it.
+
+**Why a credential of their own.** None of the site's three ways in fits
+a client that synchronises in the background with no interface: a magic
+link needs a mailbox and a browser, a password belongs to a person rather
+than to a device, and a passkey needs the device to be asked. A CardDAV
+client speaks HTTP Basic and nothing else.
+
+**The secret** is 32 bytes from `random_bytes()`, hex-encoded, shown to
+its owner exactly once at creation and never recoverable — the same
+treatment as the GitHub webhook secret (§8.17), and deliberately **not** a
+row in `settings`, which would make it readable on the Paramètres page.
+Only a SHA-256 of it is stored, compared with `hash_equals()`: at 256 bits
+of entropy a fast hash is as safe as bcrypt, and this is an anonymous
+route a client polls every few minutes, where a wrong guess must cost a
+comparison rather than a bcrypt (`SECURITY.md` §2, the same reasoning the
+triage token and the one-click unsubscribe token already carry).
+
+**The rule that does not bend: the role is re-resolved on EVERY request.**
+`DeviceAuthenticator` never lets a credential authorise anything by
+itself. It says which account is asking; the account's role is then
+computed from the unit's current state by `Core\Security\RoleResolver`,
+over the same set of years the login door judges on
+(`Core\ScoutYear\AuthorizationYearService`), and anything below `admin`
+is refused. A chief who leaves the staff loses the site at the next Desk
+import; a device of theirs dies the same way, at its next poll, without
+waiting for anybody to remember to revoke it.
+
+Four checks, each sufficient on its own to refuse: the site-wide switch,
+the credential (live, and belonging to that account), the account's right
+to sign in at all, and the role. **Every refusal is the identical
+nothing**, so no caller can learn from the answer whether an address has
+an account, whether a credential exists, or whether a role changed.
+
+**Two screens.** « Appareils synchronisés », under Mon compte at
+`role_min: admin` — the list, the creation, the revocation, and the
+unpleasant truth said before the button rather than after it: the copy
+that came down stays on the device, follows its backups, and revoking
+erases none of it. And Configuration > « Synchronisation des contacts »
+at `role_min: superadmin` — the cut-out for the whole site, and every
+device of every account with a revocation on each. A feature that
+replicates personal data onto personal telephones needs both; a superadmin
+who can only see their own devices cannot answer « qui synchronise ? ».
+
+**Revoking never deletes.** The row is the evidence that the device
+existed, and `last_sync_at` is what lets a screen point at a credential
+declared and never used — a valid credential lying around, which the site
+reports and does not clean up on its own.
+
+**The journal records the lifecycle and never a synchronisation.** A
+created credential, a revoked credential, a flipped switch and a failed
+authentication, all at `security` level, carrying identifiers and nothing
+else — no secret, no label somebody typed, no address, no member's name.
+Successful syncs are deliberately absent: they arrive every few minutes
+and would bury everything else. Failures are bounded per source address in
+the rate-limit table under a purpose of their own, so one misconfigured
+client cannot fill the journal, nor be used to bury a real attempt.
+
 
 ## 9. Installation / bootstrap
 

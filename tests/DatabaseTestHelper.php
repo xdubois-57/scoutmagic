@@ -399,6 +399,17 @@ class DatabaseTestHelper
             FOREIGN KEY (user_account_id) REFERENCES user_accounts(id)
         )');
 
+        $pdo->exec('CREATE TABLE device_credentials (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_account_id INTEGER NOT NULL,
+            label TEXT NOT NULL,
+            secret_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_sync_at TEXT,
+            revoked_at TEXT,
+            FOREIGN KEY (user_account_id) REFERENCES user_accounts(id)
+        )');
+
         $pdo->exec('CREATE TABLE login_attempts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email_blind_index TEXT NOT NULL,

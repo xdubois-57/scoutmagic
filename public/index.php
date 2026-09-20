@@ -631,6 +631,24 @@ $settingService->register(
     'Nom de l\'unité',
     'Nom complet de l\'unité, affiché dans le header et le titre du site.'
 );
+// The site-wide cut-out for contact synchronisation (Core\Contact\Device,
+// ARCHITECTURE.md §8.117). Default '1': it is a cut-out, not an opt-in —
+// nothing synchronises until an administrator has registered a device
+// anyway. Not editable from the generic Paramètres page: a bare checkbox
+// there would say nothing about what it stops, and
+// Configuration > Synchronisation des contacts pairs it with the list of
+// devices it would cut off.
+$settingService->register(
+    \Core\Contact\Device\DeviceCredentialService::SETTING_SYNC_ENABLED,
+    '1',
+    'boolean',
+    'Synchronisation des contacts',
+    'Autorise les appareils enregistrés à recopier le carnet d\'adresses du staff.',
+    null,
+    null,
+    null,
+    false
+);
 $settingService->register(
     'short_name',
     '',
@@ -3466,6 +3484,19 @@ $menuBuilder->addPage(
     null,
     'exploitation'
 );
+$menuBuilder->addPage(
+    MenuBuilder::MENU_CONFIGURATION,
+    'Synchronisation des contacts',
+    '/config/synchronisation-contacts',
+    'superadmin',
+    55,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-phone',
+    null,
+    'exploitation'
+);
 // order 10, not a leftover "after the separator" number — SORT_GROUP_CORE
 // (addPage()'s default) already sorts this after the dynamic member
 // entries/empty-state placeholder above regardless of the numeric order,
@@ -3901,6 +3932,39 @@ $router->addRoute(
 $router->addRoute('POST', '/account/passkey/register', AccountController::class, 'passkeyRegister', 'identified');
 $router->addRoute('POST', '/account/passkey/delete', AccountController::class, 'passkeyDelete', 'identified');
 $router->addRoute('POST', '/account/photo/delete', AccountController::class, 'deletePhoto', 'identified');
+// « Appareils synchronisés » (Core\Contact\Device, ARCHITECTURE.md
+// §8.117). `role_min: admin` and not `identified` like the rest of Mon
+// compte: the address book these credentials open is the staff's, and
+// DeviceAuthenticator refuses anything below that floor on every single
+// request anyway — a page offering to register a device that would never
+// be allowed to synchronise would just be a broken promise.
+$router->addRoute(
+    'GET',
+    '/account/devices',
+    \Core\Contact\Controller\DeviceCredentialController::class,
+    'index',
+    'admin',
+    ['label' => 'Appareils synchronisés', 'parents' => [],
+        'ancestors' => [['label' => 'Mon compte', 'path' => '/account']]]
+);
+// JSON, because the answer carries the one cleartext copy of the secret
+// there will ever be and it must not be parked in a flash message on its
+// way through a redirect — same reason
+// MaintenanceController::generateWebhookSecret() is JSON.
+$router->addRoute(
+    'POST',
+    '/api/account/devices',
+    \Core\Contact\Controller\DeviceCredentialController::class,
+    'create',
+    'admin'
+);
+$router->addRoute(
+    'POST',
+    '/account/devices/{id}/revoke',
+    \Core\Contact\Controller\DeviceCredentialController::class,
+    'revoke',
+    'admin'
+);
 // « Revoir les astuces » — forgets every discovery tip this account was
 // shown and releases any delay (§8.95). On HelpDiscoveryController rather
 // than AccountController because it is the discovery feature's own state:
@@ -4885,6 +4949,33 @@ $router->addRoute(
     'superadmin',
     ['label' => 'Support', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
 );
+
+// Synchronisation des contacts (Core\Contact\Device, ARCHITECTURE.md
+// §8.117) — the site-wide cut-out and every device of every account.
+// `superadmin`, like every other page of the Configuration menu.
+$router->addRoute(
+    'GET',
+    '/config/synchronisation-contacts',
+    \Core\Contact\Controller\ContactSyncConfigController::class,
+    'index',
+    'superadmin',
+    ['label' => 'Synchronisation des contacts',
+        'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+);
+$router->addRoute(
+    'POST',
+    '/config/synchronisation-contacts/switch',
+    \Core\Contact\Controller\ContactSyncConfigController::class,
+    'toggle',
+    'superadmin'
+);
+$router->addRoute(
+    'POST',
+    '/config/synchronisation-contacts/{id}/revoke',
+    \Core\Contact\Controller\ContactSyncConfigController::class,
+    'revoke',
+    'superadmin'
+);
 $router->addRoute('POST', '/config/support/statistics', SupportController::class, 'saveStatistics', 'superadmin');
 $router->addRoute('POST', '/config/support/measure', SupportController::class, 'startMeasurement', 'superadmin');
 $router->addRoute('POST', '/config/support/measure/stop', SupportController::class, 'stopMeasurement', 'superadmin');
@@ -5837,6 +5928,29 @@ $frontController->registerController(
         $webAuthnService,
         $accountPhotoService,
         $seenHelpTopicRepository
+    )
+);
+// Contact synchronisation: the credentials an address-book client
+// authenticates with (Core\Contact\Device, ARCHITECTURE.md §8.117). One
+// service, three surfaces — the owner's page under Mon compte, the
+// superadmin's cut-out under Configuration, and (from IT-03) the CardDAV
+// routes' own authenticator.
+$deviceCredentialService = new \Core\Contact\Device\DeviceCredentialService(
+    new \Core\Contact\Device\DeviceCredentialRepository($pdo),
+    $settingService,
+    $journalService,
+    // Only to name each device's owner on the superadmin's page.
+    $userAccountRepo
+);
+$frontController->registerController(
+    \Core\Contact\Controller\DeviceCredentialController::class,
+    new \Core\Contact\Controller\DeviceCredentialController($twig, $deviceCredentialService)
+);
+$frontController->registerController(
+    \Core\Contact\Controller\ContactSyncConfigController::class,
+    new \Core\Contact\Controller\ContactSyncConfigController(
+        $twig,
+        $deviceCredentialService
     )
 );
 $frontController->registerController(

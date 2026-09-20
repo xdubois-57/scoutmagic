@@ -725,6 +725,54 @@ CREATE TABLE webauthn_credentials (
     CONSTRAINT fk_wc_user FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- device_credentials: the dedicated credentials a CardDAV client
+-- authenticates with (ARCHITECTURE.md §8.116, SECURITY.md § 2).
+--
+-- They exist because none of the site's three ways in fits a client that
+-- synchronises in the background with no interface: a magic link needs a
+-- mailbox and a browser, a password belongs to a person and not to a
+-- device, and a passkey needs the device to be asked. A CardDAV client
+-- knows HTTP Basic and nothing else.
+--
+-- The secret is 32 random bytes, shown to its owner exactly ONCE at
+-- creation and stored only as a SHA-256 — never in clear, in any column,
+-- in the journal, or in a response. A fast hash rather than bcrypt, for
+-- the reason SECURITY.md already states for the triage token and the
+-- one-click unsubscribe token: at 256 bits of entropy a fast hash is as
+-- safe, and this is an anonymous route polled every few minutes where a
+-- wrong guess must cost a comparison and not a bcrypt.
+--
+-- Deliberately NOT a row in `settings`: a setting is readable on the
+-- Paramètres page, which is the whole thing a credential must not be
+-- (same rule as the GitHub webhook secret, ARCHITECTURE.md §8.17).
+--
+-- `label` is a device name its own owner types (« iPhone de Jean ») and
+-- is stored in clear, exactly like webauthn_credentials.device_label
+-- above, which is the same datum for the same purpose.
+--
+-- No scout_year_id, and the reason is the one AGENTS.md § Database asks
+-- for: a credential belongs to an ACCOUNT, not to a season. It must
+-- survive the year boundary — a client that stopped synchronising every
+-- 1 September would be a bug — and what the year decides is the role,
+-- which is re-resolved on every single request and never stored here.
+--
+-- `revoked_at` rather than a delete: a revoked credential is evidence
+-- that the device existed, and the copy it already pulled down is still
+-- on it. `last_sync_at` is what lets the screen point at a credential
+-- declared and never used — a valid credential lying around.
+CREATE TABLE IF NOT EXISTS device_credentials (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_account_id INT UNSIGNED NOT NULL,
+    label VARCHAR(100) NOT NULL,
+    secret_hash CHAR(64) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_sync_at DATETIME NULL,
+    revoked_at DATETIME NULL,
+    -- The authentication lookup: every live credential of one account.
+    INDEX idx_dc_account_live (user_account_id, revoked_at),
+    CONSTRAINT fk_dc_account FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE login_attempts (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     email_blind_index CHAR(64) NOT NULL,

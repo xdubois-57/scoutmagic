@@ -452,6 +452,15 @@ Modèles : Llama, Qwen, divers modèles open source</li>
 <p><strong>Ce que cela implique</strong> : Une fois descendue sur un appareil, la copie appartient à cet appareil : elle suit ses sauvegardes, elle ne se met pas à jour toute seule, et le site n'a plus aucun moyen de l'effacer. C'est la raison pour laquelle chaque fiche produite est consignée au journal du site, avec l'identifiant du membre concerné et rien d'autre — ni son nom, ni son adresse, ni un numéro.</p>
 <p><strong>Base légale</strong> : Intérêt légitime (organisation de l'unité et communication entre l'équipe d'animation et les familles).</p>
 
+<h3>2.13. Identifiants d'appareil pour la synchronisation des contacts</h3>
+<p><strong>Finalité</strong> : Permettre au carnet d'adresses d'un téléphone ou d'un ordinateur de se tenir à jour tout seul avec les coordonnées des animateurs et du Staff d'unité. Les clients de carnet d'adresses ne savent s'authentifier qu'avec un identifiant et un mot de passe dédiés : aucune des méthodes de connexion du site ne convient à un logiciel qui se synchronise en arrière-plan.</p>
+<p><strong>Données traitées</strong> : Pour chaque appareil enregistré, le compte auquel il appartient, le nom que son propriétaire lui a donné, la date de création, la date de dernière synchronisation et la date de révocation éventuelle. <strong>Le mot de passe n'est jamais conservé en clair</strong> : seule une empreinte irréversible l'est, et le mot de passe lui-même n'est affiché qu'une seule fois, à la création.</p>
+<p><strong>Qui peut en créer</strong> : Uniquement un chef d'unité ou un superadministrateur, pour son propre compte. Le droit est revérifié <strong>à chaque requête</strong> : une personne qui quitte le Staff d'unité perd la synchronisation au passage suivant, sans qu'aucune révocation manuelle soit nécessaire.</p>
+<p><strong>Ce qui est consigné</strong> : La création d'un appareil, sa révocation et les échecs d'authentification, avec des identifiants techniques et rien d'autre — jamais un mot de passe, jamais un nom, jamais une adresse. Les synchronisations réussies ne sont pas consignées : elles arrivent toutes les quelques minutes.</p>
+<p><strong>Destinataire</strong> : L'appareil personnel de la personne qui l'a enregistré, et lui seul. Aucun service extérieur n'intervient.</p>
+<p><strong>Ce que cela implique</strong> : La copie descendue appartient à l'appareil : elle suit ses sauvegardes et le site n'a plus aucun moyen de l'effacer. Révoquer un appareil arrête les synchronisations suivantes, rien de plus. Un superadministrateur peut à tout moment couper la synchronisation pour tout le site et révoquer n'importe quel appareil.</p>
+<p><strong>Base légale</strong> : Intérêt légitime (organisation de l'unité et communication au sein de l'équipe d'animation).</p>
+
 <h2>3. Combien de temps conservons-nous vos données</h2>
 <p>Conformément au principe de limitation de la conservation (art. 5.1.e RGPD), nous ne conservons vos données personnelles que pendant la durée strictement nécessaire aux finalités pour lesquelles elles ont été collectées, ou lorsque la loi l'impose.</p>
 
