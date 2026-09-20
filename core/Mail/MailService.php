@@ -221,7 +221,36 @@ class MailService
         // `DeliveryState::Sent` — never retried — and the member page
         // flashing « Document renvoyé par e-mail » for a message nobody
         // received. {@see SuppressedRecipientException} for the rest.
-        if ($vouchesForRecipient && $this->sendReceipts?->find($to)?->isBlocked() === true) {
+        //
+        // **Asking the question must not be able to break the send.** This
+        // runs before the `try` below, so an unguarded `find()` — a query
+        // plus a `decrypt()` — threw a raw `PDOException` or a decryption
+        // failure straight out of a method whose whole contract is
+        // `MailException`. `NotificationMailer` catches only that, and its
+        // own caller `NotificationService::deliverPendingEmails()` catches
+        // nothing, so one corrupt row would abort the entire delivery loop
+        // rather than cost one message.
+        //
+        // **And it fails OPEN, unlike the receipt below.** The two are not
+        // symmetrical: a receipt not written costs a future bounce its
+        // proof, while a suppression not applied costs one message to an
+        // address that may be suspended. Withholding a document or a
+        // notification from somebody because a database read failed is the
+        // worse of the two, and it is the same judgement D9 already makes
+        // about mail people are waiting for. Reputation is what this gate
+        // protects, and reputation survives one message; a member who
+        // never receives their attestation has no way to know they should
+        // ask for it.
+        $blocked = false;
+
+        try {
+            $blocked = $vouchesForRecipient && $this->sendReceipts?->find($to)?->isBlocked() === true;
+        } catch (\Throwable) {
+            // Deliberately silent, like the receipt: the journal is reached
+            // through the same database that just refused.
+        }
+
+        if ($blocked) {
             $this->journalSuppressedToBlockedAddress();
 
             throw SuppressedRecipientException::blocked();

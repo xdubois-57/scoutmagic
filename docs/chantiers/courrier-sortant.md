@@ -1902,6 +1902,28 @@ Le test assert la FIN de la chaîne — un rebond d'une adresse Desk est cru
 consultées, mais qu'un vrai rebond d'un vrai membre soit cru.
 Vérifié en retirant la troisième branche.
 
+### Poser la question pouvait casser l'envoi
+
+Même famille que le reçu du publipostage, de l'autre côté de la méthode.
+La garde de suppression interroge `find()` — une requête plus un
+`decrypt()` — et elle tourne **avant** le `try` qui convertit tout en
+`MailException`. Une panne passagère de base, ou une ligne chiffrée avec
+une clé tournée, lançait donc une `PDOException` brute hors d'une méthode
+dont tout le contrat est `MailException`. Or `NotificationMailer`
+n'attrape que celle-là, et son appelant
+`NotificationService::deliverPendingEmails()` n'attrape rien : une seule
+ligne abîmée interrompait toute la boucle de distribution au lieu de
+coûter un message.
+
+**Et elle échoue ouvert, contrairement au reçu.** Les deux ne sont pas
+symétriques : un reçu non écrit coûte sa preuve à un futur rebond, une
+suppression non appliquée coûte un message vers une adresse peut-être
+suspendue. Retenir le document de quelqu'un parce qu'une lecture a échoué
+est la pire des deux erreurs, et c'est le jugement que D9 porte déjà sur
+le courrier qu'on attend. C'est la réputation que cette garde protège, et
+la réputation survit à un message ; un membre qui ne reçoit jamais son
+attestation n'a aucun moyen de savoir qu'il devrait la réclamer.
+
 ### Écarts et limites, assumés
 
 **La preuve d'envoi réduit la falsification, elle ne la supprime pas.** La

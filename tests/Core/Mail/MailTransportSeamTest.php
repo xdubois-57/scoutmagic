@@ -494,6 +494,45 @@ class MailTransportSeamTest extends TestCase
     }
 
     /**
+     * **Asking whether the address is suspended must not be able to break
+     * the send**, and it used to.
+     *
+     * The lookup runs before the `try` that turns everything into a
+     * `MailException`, and it is a query plus a `decrypt()`. A transient
+     * database error or a row encrypted under a rotated key therefore
+     * threw a raw `PDOException` out of a method whose whole contract is
+     * `MailException` — and `NotificationMailer` catches only that, while
+     * its caller `NotificationService::deliverPendingEmails()` catches
+     * nothing. One bad row aborted the entire delivery loop.
+     *
+     * **It fails open, unlike the receipt.** The two are not symmetrical:
+     * a receipt not written costs a future bounce its proof, where a
+     * suppression not applied costs one message to an address that may be
+     * suspended. Withholding somebody's document because a read failed is
+     * the worse mistake, and it is the judgement D9 already makes.
+     */
+    public function testAnUnreadableBounceTableDoesNotStopTheMessage(): void
+    {
+        $pdo = \Tests\DatabaseTestHelper::createTestDatabase();
+        $this->blockedAddress($pdo, 'rebond@exemple.be');
+
+        // The ground removed from under the lookup — standing in for the
+        // whole family, what matters being that reading the state fails
+        // for a reason that has nothing to do with this message.
+        $pdo->exec('DROP TABLE mail_bounce_states');
+
+        $transport = $this->recordingTransport();
+        $this->serviceWithReceipts($transport, $this->receiptsOver($pdo))
+            ->send('rebond@exemple.be', 'Sujet', '<p>x</p>', 'x', vouchesForRecipient: true);
+
+        $this->assertSame(
+            1,
+            $transport->calls,
+            'a database that cannot answer must not cost somebody their document.'
+        );
+    }
+
+    /**
      * **But authentication mail still goes.** A magic link or a password
      * reset is the one thing somebody is waiting for at that moment, and
      * withholding it over a bounce two months old locks them out of the
