@@ -187,7 +187,7 @@ class DmarcReportRepositoryTest extends TestCase
         );
     }
 
-    // ── ce que la relecture a demandé (IT-06) ─────────────────────────
+    // ── what the review asked for (roadmap IT-06) ─────────────────────
 
     /**
      * **A failure that is not the race must not answer « déjà là ».**
