@@ -165,7 +165,12 @@ class SendRentalRemindersHandler implements TaskHandlerInterface
                 self::emailTemplateRenderer($context),
                 $context->settings,
                 $context->journal
-            )
+            ),
+            // The per-asset reminder overrides and the unit's defaults
+            // (§6.29). Without them every asset runs on the shipped
+            // values, which is what this pass did before they existed.
+            new \Modules\Rental\Repository\RentalAssetReminderRepository($pdo),
+            $context->settings
         );
     }
 
