@@ -95,6 +95,17 @@
     </div>
 {% endblock %}
 
+{% block stylesheets %}
+    {# The keyword chips and the editing surface are styled by
+       components.css, which base.html.twig deliberately does not load —
+       every caller of `placeholders` opts in, and templates.html.twig does
+       the same a few files over. Without it the chips render as plain
+       text, which is this page's own help copy (« en bleu ») made false:
+       the `contenteditable="false"` protection still holds, but nothing
+       shows the manager which words are tokens. #}
+    <link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">
+{% endblock %}
+
 {% block scripts %}
     {# type="module" — the file uses `export`, and a classic <script> tag
        rejects it with a SyntaxError before a line of it runs. #}
