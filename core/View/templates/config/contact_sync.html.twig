@@ -1,0 +1,90 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{% extends 'base.html.twig' %}
+{% block title %}Synchronisation des contacts — Configuration — {{ param('site_name') }}{% endblock %}
+
+{% block content %}
+{% include 'partials/page_header.html.twig' with {
+    title: 'Synchronisation des contacts',
+    subtitle: 'Le coupe-circuit du site, et tous les appareils autorisés.',
+} only %}
+
+<div class="page-narrow">
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5 mb-3">Coupe-circuit</h2>
+            <p class="small text-body-secondary mb-3">
+                Cette fonctionnalité recopie les coordonnées des animateurs et du Staff d'U sur des
+                appareils personnels. Cet interrupteur arrête toutes les synchronisations du site
+                d'un coup, sans avoir à révoquer les appareils un par un. Les copies déjà descendues
+                restent sur les appareils : couper ici n'efface rien.
+            </p>
+            <form method="post" action="/config/synchronisation-contacts/switch">
+                {{ csrf_field()|raw }}
+                <input type="hidden" name="enabled" value="{{ sync_enabled ? '0' : '1' }}">
+                {% if sync_enabled %}
+                    <p class="mb-2"><span class="badge text-bg-success">Active</span></p>
+                    <button type="submit" class="btn btn-outline-danger">
+                        <i class="bi bi-plug" aria-hidden="true"></i> Couper la synchronisation
+                    </button>
+                {% else %}
+                    <p class="mb-2"><span class="badge text-bg-secondary">Coupée</span></p>
+                    <button type="submit" class="btn btn-outline-primary">
+                        <i class="bi bi-plug" aria-hidden="true"></i> Réactiver la synchronisation
+                    </button>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5 mb-3">Appareils autorisés</h2>
+            <p class="small text-body-secondary mb-3">
+                Tous comptes confondus. {{ live_count }} appareil{{ live_count > 1 ? 's' : '' }}
+                peu{{ live_count > 1 ? 'vent' : 't' }} se synchroniser aujourd'hui.
+                Un appareil enregistré et jamais synchronisé reste un identifiant valide.
+            </p>
+
+            {% for credential in credentials %}
+                <div class="d-flex align-items-center justify-content-between border rounded p-2 mb-2">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-phone text-body-secondary" aria-hidden="true"></i>
+                        <div>
+                            <span class="small">{{ credential.label }}</span>
+                            <span class="text-body-secondary d-block" style="font-size:0.75rem;">
+                                {% set owner = owners[credential.userAccountId] ?? null %}
+                                {{ owner ? ((owner.first_name ~ ' ' ~ owner.last_name)|trim ?: 'Compte ' ~ credential.userAccountId) : 'Compte ' ~ credential.userAccountId }}
+                                —
+                                {% if credential.isRevoked %}
+                                    révoqué le {{ credential.revokedAt|date_fr }}
+                                {% elseif credential.hasNeverSynchronised %}
+                                    enregistré le {{ credential.createdAt|date_fr }}, jamais synchronisé
+                                {% else %}
+                                    dernière synchronisation le {{ credential.lastSyncAt|date_fr }}
+                                {% endif %}
+                            </span>
+                        </div>
+                    </div>
+                    {% if not credential.isRevoked %}
+                        <form method="post" action="/config/synchronisation-contacts/{{ credential.id }}/revoke">
+                            {{ csrf_field()|raw }}
+                            <button type="submit" class="btn btn-sm btn-outline-danger"
+                                    aria-label="Révoquer {{ credential.label }}">
+                                <i class="bi bi-trash" aria-hidden="true"></i> Révoquer
+                            </button>
+                        </form>
+                    {% endif %}
+                </div>
+            {% else %}
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Aucun appareil enregistré sur ce site.',
+                    compact: true,
+                } only %}
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -95,6 +95,7 @@ class MenuRegistrationOrderTest extends TestCase
                 'Modules', 'Badges', 'Correspondances Desk', 'Réglages', 'RGPD',
                 'Actions planifiées', 'Comptes superadmin', 'Maintenance', 'Notifications',
                 'E-mails', 'Courrier sortant', 'Stockage', 'Support',
+                'Synchronisation des contacts',
             ],
             array_slice($labels, 1)
         );

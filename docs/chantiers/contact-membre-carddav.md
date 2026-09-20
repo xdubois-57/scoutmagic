@@ -145,3 +145,108 @@ format que `docs/chantiers/courrier-sortant.md`.
   requête préparée. Ce que cela coûte, c'est un déchiffrement qui a deux
   foyers au lieu d'un, et une duplication que le docbloc de
   `MemberFunctionInfo::deduplicate()` constate déjà.
+
+---
+
+## IT-02 — Les identifiants d'appareil
+
+Aucun effet visible sans IT-03, et entièrement testable seule : c'est le
+socle d'authentification de la synchronisation.
+
+**Livré.**
+
+- La table `device_credentials` : compte, libellé donné par l'utilisateur,
+  empreinte du secret, création, dernière synchronisation, révocation.
+- `Core\Contact\Device` : `DeviceCredential` (l'objet de valeur, qui n'a
+  aucune propriété où un secret pourrait tenir), `NewDeviceCredential`
+  (l'unique exemplaire en clair du secret, le temps d'un aller vers
+  l'écran), `DeviceCredentialRepository`, `DeviceCredentialService`,
+  `DeviceAuthenticator` et `AuthenticatedDevice`.
+- Deux écrans : « Appareils synchronisés » sous Mon compte
+  (`/account/devices`, `role_min: admin`) — la liste, la création, la
+  révocation — et Configuration > « Synchronisation des contacts »
+  (`/config/synchronisation-contacts`, `role_min: superadmin`) — le
+  coupe-circuit du site et **tous** les appareils, tous comptes
+  confondus, avec révocation sur chacun.
+- Le réglage `contact_sync_enabled`, exclu de la page Paramètres
+  générique et piloté depuis sa propre page.
+- `public/assets/js/device-credentials.js` : la création passe par une
+  requête JSON parce que la réponse porte l'unique exemplaire en clair du
+  secret, qui ne doit être garé nulle part en route — même raison que
+  `MaintenanceController::generateWebhookSecret()`.
+- Journalisation `security` : `device_credential_created`,
+  `device_credential_revoked`, `device_credential_auth_failed`,
+  `contact_sync_enabled` / `_disabled`. Jamais une synchronisation
+  réussie.
+- Documentation : `ARCHITECTURE.md` §8.116, `SECURITY.md` §2,
+  `specifications.md` §4.5 et le tableau de Mon compte,
+  `core/View/rgpd_default.html` §2.13, et les sujets d'aide
+  `docs/help/appareils-synchronises.md` et
+  `docs/help/synchronisation-contacts.md`.
+- Tests : `tests/Core/Contact/Device/` (trois classes, dont vingt-deux cas
+  sur l'authentificateur), `tests/Core/Contact/Controller/` (les deux
+  écrans plus la frontière RBAC des six routes), et
+  `tests/js/device-credentials.test.js`.
+
+**Décisions prises en autonomie.**
+
+- **Le secret est comparé par SHA-256 et `hash_equals()`, pas par
+  bcrypt.** C'est le précédent que `SECURITY.md` §4 tient déjà pour le
+  jeton de triage et pour le désabonnement en un clic : à 32 octets
+  d'entropie une empreinte rapide vaut bcrypt, et la route est anonyme et
+  sondée toutes les quelques minutes — y mettre un bcrypt donnerait à
+  n'importe qui un levier d'amplification CPU sur un hébergement mutualisé.
+  Le chantier dit « secret haché », sans dire avec quoi ; c'est ce
+  raisonnement-là qui tranche.
+- **Le nom de l'appareil est stocké en clair**, comme
+  `webauthn_credentials.device_label` juste au-dessus dans le même schéma :
+  c'est la même donnée, saisie par la même personne, pour le même usage.
+  Suivre le précédent plutôt qu'inventer une règle plus stricte pour un
+  champ identique.
+- **Pas de `scout_year_id` sur la table**, avec la raison qu'`AGENTS.md`
+  § Database exige quand on l'omet : un identifiant appartient à un
+  *compte*, pas à une saison, et il doit survivre au 1er septembre. Ce que
+  l'année décide, c'est le rôle — recalculé à chaque requête et jamais
+  stocké là.
+- **Le coupe-circuit est actif par défaut.** C'est un coupe-circuit, pas
+  un opt-in : rien ne se synchronise tant qu'un administrateur n'a pas
+  enregistré d'appareil, et un interrupteur qu'il faut d'abord allumer
+  n'est pas un coupe-circuit.
+- **Dix identifiants vivants par compte au maximum.** Pas une frontière de
+  sécurité — ils appartiennent tous à la même personne et meurent avec son
+  rôle — mais une borne sur une liste qu'un écran doit rester capable
+  d'afficher, et sur une table que n'importe quel admin pourrait sinon
+  faire grossir sans fin.
+- **Les échecs d'authentification sont journalisés, mais bornés** à cinq
+  par heure et par adresse source, comptés dans
+  `human_check_rate_limits` sous un `form_key` à eux. Le chantier demande
+  de journaliser les échecs ; un client mal configuré réessaie toutes les
+  quelques minutes indéfiniment, et journaliser chaque refus enterrerait
+  le journal sous un seul mauvais mot de passe — ou permettrait d'y
+  enterrer une vraie tentative. C'est exactement le traitement que
+  `SECURITY.md` décrit déjà pour les refus de l'extrait de triage.
+- **Ni le coupe-circuit ni l'absence d'en-tête `Authorization` ne sont
+  journalisés.** Le premier est un acte unique d'un superadministrateur,
+  déjà dans le journal ; le second est la première requête ordinaire de
+  tout client, qui revient aussitôt avec ses identifiants.
+- **`DeviceAuthenticator` n'est pas encore câblé dans
+  `public/index.php`**, parce qu'aucune route ne l'appelle avant IT-03.
+  Il est couvert par PHPStan et par vingt-deux cas de test ; IT-03
+  n'ajoutera que les routes.
+- **La couverture RBAC des six routes vit dans son propre fichier**,
+  `tests/Core/Contact/Controller/ContactSyncRbacTest.php`, contrairement à
+  IT-01 : il n'existait pas de test de frontière à étendre pour
+  `/account` ni pour `/config`, et deux planchers différents
+  (`admin` et `superadmin`) méritaient d'être affirmés côte à côte.
+
+**Divergences entre le chantier et le dépôt réel.**
+
+- **Aucune ici.** Les trois pièges qu'annonçait IT-02 — le secret jamais
+  récupérable, le refus de `SettingService`, le rôle re-résolu — décrivent
+  exactement ce que le dépôt permet, et le précédent du webhook GitHub
+  s'applique tel quel.
+
+**Reporté.**
+
+- Rien. Aucun problème réel n'a été constaté puis laissé de côté dans
+  cette itération.
