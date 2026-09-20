@@ -11,7 +11,9 @@ namespace Modules\InboundMail\Service;
 use Modules\InboundMail\Api\AnalysisResult;
 use Modules\InboundMail\Api\CandidateMessage;
 use Modules\InboundMail\Api\InboundMessage;
+use Modules\InboundMail\Api\MessagePayload;
 use Modules\InboundMail\Api\MessageConsumerInterface;
+use Modules\InboundMail\Api\PayloadConsumerInterface;
 
 /**
  * Who gets asked what an incoming message means to them.
@@ -165,6 +167,94 @@ class MessageConsumerRegistry
         }
 
         return $results;
+    }
+
+    /**
+     * The **payload** pass: the few consumers that asked for an
+     * attachment's bytes by type get them, bounded by their own ceiling
+     * (roadmap IT-06, {@see PayloadConsumerInterface}).
+     *
+     * Run alongside `analyzeAll()` rather than instead of it, and isolated
+     * the same way: a consumer that throws loses its own answer, is
+     * journalled against its own id, and costs nobody else their mail.
+     *
+     * A consumer is asked only when something actually matched — being
+     * handed an empty list would make every message look like a feed, and
+     * every consumer would have to check for that itself.
+     *
+     * @param list<MessagePayload>           $available every attachment of
+     *                                                 this message, bytes
+     *                                                 included, sniffed
+     * @param MessageConsumerInterface[]|null $only     null means everybody
+     *
+     * @return array<string, AnalysisResult> keyed by consumer id
+     */
+    public function analyzeAllPayloads(CandidateMessage $message, array $available, ?array $only = null): array
+    {
+        if ($available === []) {
+            return [];
+        }
+
+        $results = [];
+
+        foreach ($only ?? $this->all() as $consumer) {
+            if (!$consumer instanceof PayloadConsumerInterface) {
+                continue;
+            }
+
+            $wanted = $this->payloadsFor($consumer, $available);
+            if ($wanted === []) {
+                continue;
+            }
+
+            try {
+                $result = $consumer->analyzePayloads($message, $wanted);
+            } catch (\Throwable $e) {
+                $this->analysisJournal?->failed(
+                    $consumer->consumerId(),
+                    $message->mailboxId,
+                    AnalysisJournal::PASS_ARRIVAL,
+                    $e
+                );
+                continue;
+            }
+
+            if (!$result->isEmpty()) {
+                $results[$consumer->consumerId()] = $result;
+            }
+        }
+
+        return $results;
+    }
+
+    /**
+     * What this one consumer declared it wants, and nothing else.
+     *
+     * **The ceiling refuses rather than truncates.** Half a machine report
+     * is not a smaller machine report; handing one over would have the
+     * consumer parse a fragment and record whatever it made of it.
+     *
+     * @param list<MessagePayload> $available
+     *
+     * @return list<MessagePayload>
+     */
+    private function payloadsFor(PayloadConsumerInterface $consumer, array $available): array
+    {
+        $types = $consumer->payloadMimeTypes();
+        if ($types === []) {
+            return [];
+        }
+
+        $ceiling = $consumer->maxPayloadBytes();
+        $wanted = [];
+
+        foreach ($available as $payload) {
+            if (in_array($payload->mimeType, $types, true) && $payload->sizeBytes() <= $ceiling) {
+                $wanted[] = $payload;
+            }
+        }
+
+        return $wanted;
     }
 
     /**

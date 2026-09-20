@@ -15,6 +15,7 @@ use Modules\InboundMail\Api\AttachmentOmission;
 use Modules\InboundMail\Api\CandidateAttachment;
 use Modules\InboundMail\Api\CandidateMessage;
 use Modules\InboundMail\Api\MessageConsumerInterface;
+use Modules\InboundMail\Api\MessagePayload;
 use Modules\InboundMail\Api\MessageLink;
 use Modules\InboundMail\Api\MessageRetentionPreference;
 use Modules\InboundMail\Client\FetchedAttachment;
@@ -265,6 +266,22 @@ class MailboxSyncService
         // message it may not analyse, so it cannot act on one by accident.
         $results = $this->consumerRegistry->analyzeAll($candidate, $consumers);
 
+        // **And the payload pass, for the machine feeds** (roadmap IT-06).
+        // A consumer that declared mime types it wants the BYTES of gets
+        // them here — bounded by its own ceiling, never stored, and never
+        // run through `AttachmentPolicy`'s document allowlist, which
+        // answers a different question. See `Api\PayloadConsumerInterface`.
+        //
+        // Merged after the arrival answers rather than before: a consumer
+        // reading a machine report claims no business object and answers
+        // `nothing()` from `analyze()`, so in practice the two never
+        // collide. Were one ever to answer from both, the payload pass is
+        // the later and better informed of the two.
+        $results = array_merge(
+            $results,
+            $this->consumerRegistry->analyzeAllPayloads($candidate, $this->payloadsOf($message), $consumers)
+        );
+
         // The message may already be in this box — after a UIDVALIDITY
         // reset made the folder be re-read, or because it arrived in two
         // watched folders. The message is written once; only the
@@ -503,6 +520,44 @@ class MailboxSyncService
         }
 
         return $attachments;
+    }
+
+    /**
+     * Every attachment of this message as a payload — bytes included, type
+     * sniffed from those bytes (roadmap IT-06).
+     *
+     * **Built once for all consumers and filtered per consumer inside the
+     * registry.** The bytes are already in memory, held by the fetched
+     * message: this copies none of them and keeps none afterwards.
+     *
+     * Decorations are left out for the same reason they are left out of
+     * the candidate attachments — a signature logo is something the
+     * sender's mail client added, not something anybody attached.
+     *
+     * @return list<MessagePayload>
+     */
+    private function payloadsOf(FetchedMessage $message): array
+    {
+        if ($message->attachments === []) {
+            return [];
+        }
+
+        $sanitizedHtml = $this->sanitizer->sanitizeHtml($message->bodyHtml);
+
+        $payloads = [];
+        foreach ($message->attachments as $attachment) {
+            if ($this->attachmentPolicy->isDecoration($attachment, $sanitizedHtml)) {
+                continue;
+            }
+
+            $payloads[] = new MessagePayload(
+                $attachment->filename,
+                (string) $this->attachmentPolicy->detectMimeType($attachment->bytes),
+                $attachment->bytes
+            );
+        }
+
+        return $payloads;
     }
 
     private function recordOmission(
