@@ -2,9 +2,40 @@
   "id": "official_documents",
   "name": "Documents officiels",
   "description": "Les formulaires officiels de la fédération, pré-remplis avec ce que le site sait déjà : autorisation parentale et fiche santé, à imprimer, signer et remettre à l'animateur.",
-  "version": "0.1.0",
-  "routes": [],
-  "settings": [],
+  "version": "1.0.0",
+  "routes": [
+    {
+      "path": "/members/{id}/autorisation-parentale",
+      "method": "GET",
+      "controller": "Modules\\OfficialDocuments\\Controller\\ParentalAuthorizationController",
+      "action": "show",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Autorisation parentale",
+        "parents": ["Espace membres"]
+      }
+    },
+    {
+      "path": "/members/{id}/autorisation-parentale",
+      "method": "POST",
+      "controller": "Modules\\OfficialDocuments\\Controller\\ParentalAuthorizationController",
+      "action": "download",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    }
+  ],
+  "settings": [
+    {
+      "key": "official_documents_unit_code",
+      "default_value": "",
+      "type": "text",
+      "label": "Code de l'unité à la fédération",
+      "description": "Le code que la fédération donne à votre unité, par exemple « LgVI/25 ». Il est écrit à côté du nom de l'unité sur la ligne « de l'unité » de l'autorisation parentale. Laissez vide si vous ne le connaissez pas : seul le nom de l'unité sera écrit."
+    }
+  ],
   "cookies": [],
   "scheduled_tasks": [],
   "storage": {}

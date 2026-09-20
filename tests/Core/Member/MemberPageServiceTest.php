@@ -30,6 +30,9 @@ use Modules\Calendar\Api\CalendarEventLookupInterface;
 use Modules\Calendar\Api\EventSummary;
 use Modules\Gallery\Api\GalleryAlbumProvider;
 use Modules\MassMail\Api\MassMailQueryInterface;
+use Modules\OfficialDocuments\Api\DocumentLink;
+use Modules\OfficialDocuments\Api\MemberOfficialDocumentsProvider;
+use Modules\OfficialDocuments\Api\OfficialDocumentsSummary;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
@@ -129,7 +132,8 @@ class MemberPageServiceTest extends TestCase
         ?GalleryAlbumProvider $galleryAlbumProvider = null,
         ?CalendarEventLookupInterface $calendarEventLookup = null,
         ?FormationPathProvider $formationPathProvider = null,
-        ?MemberPaymentProvider $memberPaymentProvider = null
+        ?MemberPaymentProvider $memberPaymentProvider = null,
+        ?MemberOfficialDocumentsProvider $officialDocuments = null
     ): MemberPageService {
         // The three CORE hooks travel through the registry, exactly as
         // the composition root wires them; the module-Api collaborators
@@ -157,7 +161,8 @@ class MemberPageServiceTest extends TestCase
             $hooks,
             $massMailQuery,
             $galleryAlbumProvider,
-            $calendarEventLookup
+            $calendarEventLookup,
+            $officialDocuments
         );
     }
 
@@ -642,6 +647,81 @@ class MemberPageServiceTest extends TestCase
             '2026-03-08',
             $data['member_email_bounces'][$emailId]['since']->format('Y-m-d'),
             'the date shown must be the block, not the newest refusal.'
+        );
+    }
+
+    // --- Documents officiels (module official_documents, §44) ---
+
+    /**
+     * The block is the member's own, and `$isSelf` is what decides it —
+     * never `$showPersonal`, which admits a chief. §44.1 of the functional
+     * specification makes that an interdiction rather than a preference:
+     * what the site would show a staff member is an unsigned draft, so
+     * reading it means believing a version that has no value.
+     *
+     * The chief in this test is a chief of everything (`$isChiefOrAbove`
+     * true, role admin) and still gets nothing, which is the whole point.
+     */
+    public function testTheOfficialDocumentsBlockIsTheMembersOwnAndNoChiefSeesIt(): void
+    {
+        $profile = $this->createMemberInSection();
+        $service = $this->buildService(officialDocuments: new FakeOfficialDocumentsProvider());
+
+        $own = $service->buildPageData($profile, $this->scoutYearId, true, false, Role::IDENTIFIED);
+        $chief = $service->buildPageData($profile, $this->scoutYearId, false, true, Role::ADMIN);
+
+        $this->assertInstanceOf(OfficialDocumentsSummary::class, $own['official_documents']);
+        $this->assertNull($chief['official_documents'], 'aucune vue staff sur ces documents, jamais');
+    }
+
+    /**
+     * Module disabled — the composition root passes null — and the page is
+     * the one from before: no block, no empty card, no error (§7.5).
+     */
+    public function testThePageIsUnchangedWhenTheModuleIsAbsent(): void
+    {
+        $profile = $this->createMemberInSection();
+
+        $data = $this->buildService()->buildPageData($profile, $this->scoutYearId, true, false, Role::IDENTIFIED);
+
+        $this->assertArrayHasKey('official_documents', $data);
+        $this->assertNull($data['official_documents']);
+    }
+
+    /**
+     * The provider is asked about the member it was shown, by both
+     * identifiers: the page's URLs hang off the member-year, anything
+     * stored hangs off the persistent member.
+     */
+    public function testBothIdentifiersReachTheProvider(): void
+    {
+        $profile = $this->createMemberInSection();
+        $provider = new FakeOfficialDocumentsProvider();
+
+        $this->buildService(officialDocuments: $provider)
+            ->buildPageData($profile, $this->scoutYearId, true, false, Role::IDENTIFIED);
+
+        $this->assertSame([$profile->memberYearId, $profile->memberId], $provider->asked);
+    }
+}
+
+/**
+ * The module's contract, implemented here rather than mocked: what this test
+ * cares about is WHO is asked and whether anything comes back, and a hand
+ * double says that in less space than an expectation script.
+ */
+final class FakeOfficialDocumentsProvider implements MemberOfficialDocumentsProvider
+{
+    /** @var list<int> */
+    public array $asked = [];
+
+    public function summaryFor(int $memberYearId, int $memberId): OfficialDocumentsSummary
+    {
+        $this->asked = [$memberYearId, $memberId];
+
+        return new OfficialDocumentsSummary(
+            [new DocumentLink('Autorisation parentale', '', '/members/' . $memberYearId . '/autorisation-parentale')],
+            'Un document imprimé mais non signé n\'a aucune valeur.'
         );
     }
 }
