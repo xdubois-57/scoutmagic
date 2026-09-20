@@ -8,16 +8,22 @@ use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Contact\ContactCardService;
 use Core\Contact\ContactQrCodeBuilder;
+use Core\Contact\ContactPhotoResolver;
 use Core\Contact\Controller\MemberContactController;
 use Core\Contact\Repository\ContactCardRepository;
 use Core\Contact\VCardBuilder;
 use Core\Database\Connection;
+use Core\File\FileRepository;
 use Core\Http\Request;
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Member\MemberEmailRepository;
 use Core\Member\MemberService;
+use Core\Photo\ImageVariantProcessor;
+use Core\Photo\ImageVariantService;
+use Core\Photo\MemberPhotoRepository;
+use Core\Photo\MemberPhotoService;
 use Core\Security\EncryptionService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -37,12 +43,19 @@ class MemberContactControllerTest extends TestCase
     private MemberContactController $controller;
     private int $memberId;
     private int $memberYearId;
+    private int $yearId;
+    private string $storagePath;
+    private MemberPhotoService $photoService;
 
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         $enc = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
+
+        $this->storagePath = sys_get_temp_dir() . '/member_contact_' . bin2hex(random_bytes(6));
+        mkdir($this->storagePath . '/core/member_photos', 0755, true);
+        $this->photoService = new MemberPhotoService(new MemberPhotoRepository($this->pdo));
 
         $settingService = new SettingService(new SettingRepository($this->pdo));
         $settingService->register('site_name', '15e Unité Saint-Michel', 'text', 'Nom', 'Nom de l\'unité');
@@ -55,7 +68,20 @@ class MemberContactControllerTest extends TestCase
             new ContactCardService(
                 new ContactCardRepository($connection),
                 $settingService,
-                new MemberEmailRepository($this->pdo, $enc)
+                new MemberEmailRepository($this->pdo, $enc),
+                // Wired, so the served file really goes through the
+                // portrait path rather than skipping it for want of a
+                // collaborator.
+                new ContactPhotoResolver(
+                    $this->photoService,
+                    new FileRepository($this->pdo),
+                    new ImageVariantService(
+                        new FileRepository($this->pdo),
+                        new ImageVariantProcessor(),
+                        $this->storagePath
+                    ),
+                    $this->storagePath
+                )
             ),
             new VCardBuilder(),
             new ContactQrCodeBuilder(),
@@ -65,7 +91,7 @@ class MemberContactControllerTest extends TestCase
         [$label, $start, $end] = DatabaseTestHelper::scoutYear();
         $stmt = $this->pdo->prepare('INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES (?, ?, ?, 1)');
         $stmt->execute([$label, $start, $end]);
-        $yearId = (int) $this->pdo->lastInsertId();
+        $this->yearId = (int) $this->pdo->lastInsertId();
 
         $this->pdo->exec("INSERT INTO age_branches (desk_code, label) VALUES ('LOUV', 'Louveteaux')");
         $branchId = (int) $this->pdo->lastInsertId();
@@ -84,7 +110,7 @@ class MemberContactControllerTest extends TestCase
         );
         $stmt->execute([
             $this->memberId,
-            $yearId,
+            $this->yearId,
             $enc->encrypt('JEAN-LOUIS', 'member_years.first_name'),
             $enc->encrypt('DE LA CROIX', 'member_years.last_name'),
             $enc->encrypt('081/12.34.56', 'member_years.phone'),
@@ -195,6 +221,45 @@ class MemberContactControllerTest extends TestCase
         }
 
         $this->assertSame([], $this->journalEntries());
+    }
+
+    protected function tearDown(): void
+    {
+        foreach (glob($this->storagePath . '/core/member_photos/*') ?: [] as $file) {
+            unlink($file);
+        }
+    }
+
+    /**
+     * End to end: the portrait travels inside the downloaded file and
+     * never inside the QR code, which could not hold a JPEG at all.
+     */
+    public function testThePortraitIsInTheDownloadedFileAndNotInTheQrCode(): void
+    {
+        $image = imagecreatetruecolor(300, 200);
+        imagefilledrectangle($image, 0, 0, 300, 200, imagecolorallocate($image, 10, 120, 200));
+        ob_start();
+        imagejpeg($image);
+        $bytes = (string) ob_get_clean();
+        imagedestroy($image);
+
+        $relativePath = 'core/member_photos/portrait.jpg';
+        file_put_contents($this->storagePath . '/' . $relativePath, $bytes);
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min, encrypted)
+             VALUES (?, ?, ?, ?, ?, 0)'
+        );
+        $stmt->execute([$relativePath, 'portrait.jpg', 'image/jpeg', strlen($bytes), 'identified']);
+        $this->photoService->setPhoto($this->memberId, $this->yearId, (int) $this->pdo->lastInsertId(), null);
+
+        $vcard = $this->controller->vcard($this->request(), ['id' => (string) $this->memberYearId])->getBody();
+
+        $this->assertStringContainsString('PHOTO;ENCODING=b;TYPE=JPEG:', str_replace("\r\n ", '', $vcard));
+        $this->assertSame(
+            200,
+            $this->controller->qrCode($this->request(), ['id' => (string) $this->memberYearId])->getStatusCode(),
+            'The QR code still fits, because it carries no portrait.'
+        );
     }
 
     /**

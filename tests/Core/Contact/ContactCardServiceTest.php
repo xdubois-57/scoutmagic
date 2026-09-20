@@ -7,11 +7,17 @@ namespace Tests\Core\Contact;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Contact\ContactCardService;
+use Core\Contact\ContactPhotoResolver;
 use Core\Contact\Repository\ContactCardRepository;
 use Core\Contact\VCardVariant;
 use Core\Database\Connection;
+use Core\File\FileRepository;
 use Core\Member\MemberEmailRepository;
 use Core\Member\MemberService;
+use Core\Photo\ImageVariantProcessor;
+use Core\Photo\ImageVariantService;
+use Core\Photo\MemberPhotoRepository;
+use Core\Photo\MemberPhotoService;
 use Core\Security\EncryptionService;
 use Core\Import\MemberYearRepository;
 use PHPUnit\Framework\TestCase;
@@ -33,6 +39,8 @@ class ContactCardServiceTest extends TestCase
     private int $memberId;
     private int $memberYearId;
     private int $yearId;
+    private MemberPhotoService $photoService;
+    private string $storagePath;
 
     protected function setUp(): void
     {
@@ -44,10 +52,24 @@ class ContactCardServiceTest extends TestCase
         $settingService->register('site_name', '15e Unité Saint-Michel', 'text', 'Nom', 'Nom de l\'unité');
 
         $this->memberService = new MemberService(new MemberYearRepository($this->pdo), $this->enc, $connection);
+        // The portrait resolver is wired here, not left null: the Full
+        // variant's PHOTO is part of what this class decides, and a test
+        // that never gives it a resolver never exercises it.
+        $this->storagePath = sys_get_temp_dir() . '/contact_card_' . bin2hex(random_bytes(6));
+        mkdir($this->storagePath . '/core/member_photos', 0755, true);
+        $fileRepository = new FileRepository($this->pdo);
+        $this->photoService = new MemberPhotoService(new MemberPhotoRepository($this->pdo));
+
         $this->service = new ContactCardService(
             new ContactCardRepository($connection),
             $settingService,
-            new MemberEmailRepository($this->pdo, $this->enc)
+            new MemberEmailRepository($this->pdo, $this->enc),
+            new ContactPhotoResolver(
+                $this->photoService,
+                $fileRepository,
+                new ImageVariantService($fileRepository, new ImageVariantProcessor(), $this->storagePath),
+                $this->storagePath
+            )
         );
 
         [$label, $start, $end] = DatabaseTestHelper::scoutYear();
@@ -109,6 +131,13 @@ class ContactCardServiceTest extends TestCase
             $this->enc->encrypt('5000', 'member_addresses.postal_code'),
             $this->enc->encrypt('Namur', 'member_addresses.city'),
         ]);
+    }
+
+    protected function tearDown(): void
+    {
+        foreach (glob($this->storagePath . '/core/member_photos/*') ?: [] as $file) {
+            unlink($file);
+        }
     }
 
     private function build(VCardVariant $variant = VCardVariant::Full): \Core\Contact\ContactCard
@@ -220,6 +249,47 @@ class ContactCardServiceTest extends TestCase
         ) {
             $this->assertStringNotContainsString($forbidden, (string) $serialised);
         }
+    }
+
+    private function givePhoto(): void
+    {
+        $image = imagecreatetruecolor(300, 200);
+        imagefilledrectangle($image, 0, 0, 300, 200, imagecolorallocate($image, 10, 120, 200));
+        ob_start();
+        imagejpeg($image);
+        $bytes = (string) ob_get_clean();
+        imagedestroy($image);
+
+        $relativePath = 'core/member_photos/portrait.jpg';
+        file_put_contents($this->storagePath . '/' . $relativePath, $bytes);
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min, encrypted)
+             VALUES (?, ?, ?, ?, ?, 0)'
+        );
+        $stmt->execute([$relativePath, 'portrait.jpg', 'image/jpeg', strlen($bytes), 'identified']);
+
+        $this->photoService->setPhoto($this->memberId, $this->yearId, (int) $this->pdo->lastInsertId(), null);
+    }
+
+    /**
+     * The portrait travels in the file and in CardDAV, never in the QR
+     * code — a JPEG does not fit in a scannable symbol at all.
+     */
+    public function testThePortraitIsCarriedByTheFullVariantAndNeverByTheQrOne(): void
+    {
+        $this->givePhoto();
+
+        $full = $this->build(VCardVariant::Full);
+        $this->assertNotNull($full->photoJpeg);
+        $this->assertSame('image/jpeg', (string) (getimagesizefromstring($full->photoJpeg)['mime'] ?? ''));
+
+        $this->assertNull($this->build(VCardVariant::Qr)->photoJpeg);
+    }
+
+    public function testAMemberWithNoPortraitSimplyCarriesNone(): void
+    {
+        $this->assertNull($this->build(VCardVariant::Full)->photoJpeg);
     }
 
     public function testAMemberWithoutATotemHasNoNickname(): void

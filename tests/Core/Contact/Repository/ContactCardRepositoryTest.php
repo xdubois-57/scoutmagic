@@ -176,6 +176,38 @@ class ContactCardRepositoryTest extends TestCase
         );
     }
 
+    /**
+     * A member can have a `member_years` row and no function at all —
+     * `Core\Attention\CoreAttentionRepository` exists to flag exactly
+     * that, a Desk encoding somebody never finished. The year belongs in
+     * the history all the same: dropping it would make a card skip a
+     * season without saying so.
+     */
+    public function testAYearWithNoFunctionAtAllStillAppearsInTheHistory(): void
+    {
+        $this->addMemberYear('2024-2025');
+        $this->addFunction($this->addMemberYear('2025-2026'), 'ANIM', $this->sectionId, true);
+
+        $this->assertSame(
+            ['2025-2026 · Animateur · Les Loups Gris', '2024-2025'],
+            array_map(
+                static fn($a): string => $a->format(),
+                $this->repository->findAffiliationsForMember($this->memberId)
+            )
+        );
+    }
+
+    public function testAMemberWhoseOnlyYearHasNoFunctionStillHasThatYear(): void
+    {
+        $this->addMemberYear('2025-2026');
+
+        $affiliations = $this->repository->findAffiliationsForMember($this->memberId);
+
+        $this->assertCount(1, $affiliations);
+        $this->assertSame([], $affiliations[0]->functions);
+        $this->assertSame('2025-2026', $affiliations[0]->format());
+    }
+
     public function testAMemberWithNoYearAtAllHasNoHistory(): void
     {
         $this->assertSame([], $this->repository->findAffiliationsForMember($this->memberId));

@@ -53,6 +53,15 @@ class ContactCardRepository
      * card names a section or names none, it never prints a Desk code at
      * somebody's reader.
      *
+     * **`member_functions` is a LEFT JOIN, and that is load-bearing.** A
+     * member can perfectly well have a `member_years` row and no function
+     * at all for that year — `Core\Attention\CoreAttentionRepository`
+     * exists to flag exactly that, a Desk encoding somebody never
+     * finished. An inner join would drop the whole year from the history
+     * in silence, so a person's card would skip a season without saying
+     * so. Such a year comes back as itself, with no function behind it
+     * ({@see ContactAffiliation::format()}).
+     *
      * @param int[] $memberIds
      * @return array<int, list<ContactAffiliation>> keyed by `members.id`; a member with no
      *         `member_years` row at all is simply absent
@@ -74,8 +83,8 @@ class ContactCardRepository
                     mf.is_main_function AS is_main
              FROM member_years my
              JOIN scout_years sy ON sy.id = my.scout_year_id
-             JOIN member_functions mf ON mf.member_year_id = my.id
-             JOIN functions f ON f.id = mf.function_id
+             LEFT JOIN member_functions mf ON mf.member_year_id = my.id
+             LEFT JOIN functions f ON f.id = mf.function_id
              LEFT JOIN sections s ON s.id = mf.section_id
              WHERE my.member_id IN ($placeholders)
              ORDER BY my.member_id, sy.start_date DESC, mf.is_main_function DESC, f.label, s.name"
@@ -87,16 +96,23 @@ class ContactCardRepository
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
             $memberId = (int) $row['member_id'];
             $yearKey = (string) $row['year_start'] . '|' . (string) $row['year_label'];
-            $sectionName = $row['section_name'] !== null ? (string) $row['section_name'] : null;
 
+            // The year is registered whether or not a function came back
+            // with it — see the LEFT JOIN above.
+            if (!isset($byMember[$memberId][$yearKey])) {
+                $byMember[$memberId][$yearKey] = ['label' => (string) $row['year_label'], 'functions' => []];
+            }
+
+            if ($row['function_label'] === null) {
+                continue;
+            }
+
+            $sectionName = $row['section_name'] !== null ? (string) $row['section_name'] : null;
             $entry = [
                 'function' => (string) $row['function_label'],
                 'section' => $sectionName !== '' ? $sectionName : null,
             ];
 
-            if (!isset($byMember[$memberId][$yearKey])) {
-                $byMember[$memberId][$yearKey] = ['label' => (string) $row['year_label'], 'functions' => []];
-            }
             // The same function listed twice in one year is one function
             // said twice: a Desk export carries one row per
             // (function × address), the same trap
