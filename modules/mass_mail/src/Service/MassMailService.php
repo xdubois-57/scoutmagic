@@ -830,19 +830,34 @@ class MassMailService
             $addresses = $this->memberEmailService->resolveValidAddressesForMassMail($member['member_id'], $deskEmail);
 
             if ($addresses === []) {
+                // **« Vide » a deux causes, et elles demandent le
+                // contraire l'une de l'autre.** An address that is merely
+                // suspended is well formed and worked until it stopped:
+                // reporting it as « invalide » sends a chef d'unité
+                // hunting for a typo that is not there, when what they
+                // need is the Rebonds page. The raw-address paths below
+                // already say « suspendue » — this one said « invalide »
+                // for both.
+                $reason = $this->memberEmailService->everyAddressIsBlockedForMassMail(
+                    $member['member_id'],
+                    $deskEmail
+                )
+                    ? 'Adresse suspendue après des refus répétés'
+                    : 'Adresse invalide';
+
                 $recipientId = $this->recipientRepository->create(
                     $email->id,
                     $member['member_id'],
                     $member['scout_year_id'],
                     null,
                     Recipient::STATUS_ERROR,
-                    'Adresse invalide'
+                    $reason
                 );
                 $this->journalRecipientNotSendable(
                     $email->id,
                     $recipientId,
                     $member['member_id'],
-                    'Adresse invalide'
+                    $reason
                 );
                 $invalidCount++;
                 continue;
@@ -1009,13 +1024,22 @@ class MassMailService
                 $addresses = $this->memberEmailService->resolveValidAddressesForMassMail($row->memberId, $deskEmail);
 
                 if ($addresses === []) {
+                    // Same distinction as the list path above, for the
+                    // same reason.
+                    $reason = $this->memberEmailService->everyAddressIsBlockedForMassMail(
+                        $row->memberId,
+                        $deskEmail
+                    )
+                        ? 'Adresse suspendue après des refus répétés'
+                        : 'Adresse invalide';
+
                     $recipientId = $this->recipientRepository->create(
                         $email->id,
                         $row->memberId,
                         $profile['scout_year_id'] ?? null,
                         null,
                         Recipient::STATUS_ERROR,
-                        'Adresse invalide',
+                        $reason,
                         null,
                         $row->id
                     );
@@ -1023,7 +1047,7 @@ class MassMailService
                         $email->id,
                         $recipientId,
                         $row->memberId,
-                        'Adresse invalide'
+                        $reason
                     );
                     $invalidCount++;
                     continue;

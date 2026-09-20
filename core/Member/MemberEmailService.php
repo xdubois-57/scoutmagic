@@ -396,6 +396,62 @@ class MemberEmailService
      */
     public function resolveValidAddressesForMassMail(int $memberId, ?string $deskEmail): array
     {
+        // **The point of the whole chantier, in one filter.** An address
+        // the far end has refused twice is an address every further
+        // message damages the unit's reputation with — and the member has
+        // been told, and can lift it themselves. Filtered here rather than
+        // in the caller so that no future sender can forget to.
+        return array_values(array_filter(
+            $this->sendableRowsForMassMail($memberId, $deskEmail),
+            fn(MemberEmail $row): bool => !($this->bounces?->isBlocked($row->email) ?? false)
+        ));
+    }
+
+    /**
+     * Whether this member HAS addresses and every one of them is currently
+     * blocked for bounces.
+     *
+     * **Asked only when the list above comes back empty**, and it exists
+     * because « vide » has two causes that need opposite things from a
+     * chef d'unité. The mass-mail freeze reported both as « Adresse
+     * invalide », which sends somebody hunting for a typo in an address
+     * that is perfectly well formed and worked until last month — when
+     * what they need is the Rebonds page.
+     *
+     * The distinction became load-bearing the moment
+     * {@see \Core\Mail\Feedback\Bounce\BounceStateRepository} learned to
+     * recognise Desk addresses: before that a Desk-only member could never
+     * be blocked, so this case could not arise. It can now, and it is the
+     * commonest shape of member on the site.
+     *
+     * False when the member has no address at all — that is the OTHER
+     * cause, and it keeps its own wording.
+     */
+    public function everyAddressIsBlockedForMassMail(int $memberId, ?string $deskEmail): bool
+    {
+        $rows = $this->sendableRowsForMassMail($memberId, $deskEmail);
+        if ($rows === []) {
+            return false;
+        }
+
+        foreach ($rows as $row) {
+            if (!($this->bounces?->isBlocked($row->email) ?? false)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Every address a mailing could use for this member, BEFORE the bounce
+     * filter — the Desk address (lazily given its override row) and the
+     * valid secondary ones.
+     *
+     * @return MemberEmail[]
+     */
+    private function sendableRowsForMassMail(int $memberId, ?string $deskEmail): array
+    {
         $addresses = [];
 
         if ($deskEmail !== null && $deskEmail !== '') {
@@ -409,15 +465,7 @@ class MemberEmailService
             $addresses[] = $row;
         }
 
-        // **The point of the whole chantier, in one filter.** An address
-        // the far end has refused twice is an address every further
-        // message damages the unit's reputation with — and the member has
-        // been told, and can lift it themselves. Filtered here rather than
-        // in the caller so that no future sender can forget to.
-        return array_values(array_filter(
-            $addresses,
-            fn(MemberEmail $row): bool => !($this->bounces?->isBlocked($row->email) ?? false)
-        ));
+        return $addresses;
     }
 
     /**

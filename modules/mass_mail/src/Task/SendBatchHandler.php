@@ -465,7 +465,18 @@ class SendBatchHandler implements TaskHandlerInterface
             $memberService,
             $scoutYearService,
             (string) $context->settings->get('base_url'),
-            (string) ($context->settings->get('site_name') ?: 'Unité scoute')
+            (string) ($context->settings->get('site_name') ?: 'Unité scoute'),
+            new \Core\Member\EmailDomainValidator(),
+            // **Wired here as well as in `public/index.php`**, so the two
+            // composition roots of this class answer « cette adresse
+            // est-elle suspendue » the same way. Nothing on THIS path
+            // resolves addresses today — the freeze happens in the web
+            // request — but a null here would be a silent « jamais
+            // rebondi » the day something does, and that is exactly the
+            // shape of hole this iteration kept finding.
+            new \Core\Mail\Feedback\Bounce\BounceService(
+                new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $context->encryption)
+            )
         );
 
         return new MassMailService(

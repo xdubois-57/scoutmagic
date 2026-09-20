@@ -1924,6 +1924,44 @@ le courrier qu'on attend. C'est la réputation que cette garde protège, et
 la réputation survit à un message ; un membre qui ne reçoit jamais son
 attestation n'a aucun moyen de savoir qu'il devrait la réclamer.
 
+### « Adresse invalide » pour une adresse parfaitement valide
+
+Quand toutes les adresses d'un membre sont bloquées,
+`resolveValidAddressesForMassMail()` renvoie `[]` — et le gel lisait ce
+vide comme « ce membre n'a pas d'adresse », inscrivant « Adresse
+invalide » sur la page de suivi et dans le journal. Un chef d'unité part
+alors chercher une faute de frappe dans une adresse parfaitement bien
+formée, qui fonctionnait le mois dernier, au lieu d'aller lever la
+suspension sur la page Rebonds. Les deux causes de « vide » demandent le
+contraire l'une de l'autre, et le même fichier disait déjà « suspendue »
+sur ses autres chemins.
+
+Le cas est devenu **atteignable par le correctif précédent** : tant que
+`isOnFile()` ignorait `member_years`, un membre à adresse Desk seule ne
+pouvait jamais être bloqué. C'est maintenant la forme la plus courante de
+membre sur le site.
+
+`everyAddressIsBlockedForMassMail()` répond à la question que les deux
+appelants posaient sans le savoir. Elle renvoie `false` quand le membre
+n'a aucune adresse : c'est l'autre cause, et elle garde ses mots.
+
+**Et, trouvée en écrivant le test : la sixième dépendance optionnelle
+absente d'une racine de composition.** `SendBatchHandler` construit son
+*propre* `MemberEmailService`, sans le service de rebonds — là où
+`public/index.php` le câble. Rien sur ce chemin ne résout d'adresses
+aujourd'hui (le gel a lieu dans la requête web), donc l'omission ne
+coûtait rien encore ; c'est précisément pourquoi elle aurait survécu. Un
+`null` y répond « jamais rebondi » en silence, et le jour où quelque
+chose demande sur le chemin du planificateur, la mauvaise réponse
+n'échoue nulle part. Les deux racines sont câblées, et
+`OutboundMailWiringTest` épingle désormais la seconde comme il épinglait
+déjà la première : qu'une racine soit juste ne veut pas dire que le
+câblage l'est.
+
+Le montage de test avait la même lacune, ce qui aurait rendu le nouveau
+test creux — il est passé au premier essai pour cette raison, avant
+câblage, ce qui est le signal qu'il fallait lire.
+
 ### Écarts et limites, assumés
 
 **La preuve d'envoi réduit la falsification, elle ne la supprime pas.** La

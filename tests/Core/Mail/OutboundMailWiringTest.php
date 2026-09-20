@@ -421,4 +421,36 @@ class OutboundMailWiringTest extends TestCase
             'Without this, a blocked address is resolved for every mailing exactly as before.'
         );
     }
+
+    /**
+     * **And the SECOND composition root of the same class**, which had
+     * gone without it.
+     *
+     * `Modules\MassMail\Task\SendBatchHandler` builds its own
+     * `MemberEmailService`. Nothing on that path resolves addresses today
+     * — the freeze happens in the web request — so the omission cost
+     * nothing yet, and that is exactly why it would have survived: a null
+     * there answers « jamais rebondi » silently, and the day anything on
+     * the scheduler path asks, it gets the wrong answer with no failure
+     * anywhere.
+     *
+     * Two roots for one class is the shape this chantier kept tripping
+     * over. One of them being right is not the same as the wiring being
+     * right.
+     */
+    public function testTheSchedulersOwnAddressResolverIsGivenItToo(): void
+    {
+        $source = self::source('modules/mass_mail/src/Task/SendBatchHandler.php');
+
+        $position = strpos($source, 'new \Core\Member\MemberEmailService(');
+        $this->assertNotFalse($position, 'the scheduler builds its own, so it has to be found here.');
+
+        $construction = substr($source, $position, 1400);
+
+        $this->assertStringContainsString(
+            'new \Core\Mail\Feedback\Bounce\BounceService(',
+            $construction,
+            'the two roots of one class must answer « suspendue ? » the same way.'
+        );
+    }
 }

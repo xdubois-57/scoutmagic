@@ -385,6 +385,54 @@ class ListAddressFlowTest extends TestCase
         $this->assertSame('Adresse suspendue après des refus répétés', $recipient->errorMessage);
     }
 
+    /**
+     * **« Adresse invalide » pour une adresse parfaitement valide.**
+     *
+     * When a member's every address is blocked,
+     * `resolveValidAddressesForMassMail()` returns `[]` — and the freeze
+     * read that emptiness as « this member has no address », reporting
+     * « Adresse invalide » on the tracking page and in the journal. A chef
+     * d'unité then hunts for a typo in an address that is well formed and
+     * worked until last month, instead of going to the Rebonds page and
+     * lifting the suspension.
+     *
+     * The case became reachable the moment `isOnFile()` learned to
+     * recognise Desk addresses: before that a Desk-only member could never
+     * be blocked at all. It is now the commonest shape of member on the
+     * site.
+     */
+    public function testAMemberWhoseOnlyAddressIsSuspendedIsNotReportedAsInvalid(): void
+    {
+        $memberId = $this->createMember('chef@test.be');
+
+        $t = new \DateTimeImmutable('2026-03-01 09:00:00');
+        $this->bounceStates->recordSend('chef@test.be', $t, true);
+        $state = $this->bounceStates->record(
+            'chef@test.be',
+            \Core\Mail\Feedback\Bounce\BounceCategory::NoSuchAddress,
+            \Core\Mail\Feedback\Bounce\BounceSeverity::Permanent,
+            '5.1.1',
+            $t->modify('+1 minute')
+        );
+        self::assertNotNull($state);
+        $this->bounceStates->block($state->id, $t->modify('+2 minutes'));
+
+        $email = $this->sendableEmail();
+        $this->massMailService->startSending($email->id, null);
+
+        $recipients = $this->recipientRepository->findByEmailId($email->id);
+        $this->assertNotSame([], $recipients);
+
+        $frozen = $recipients[0];
+        $this->assertSame(Recipient::STATUS_ERROR, $frozen->status);
+        $this->assertSame(
+            'Adresse suspendue après des refus répétés',
+            $frozen->errorMessage,
+            'the address is not malformed — saying so costs the reader the one page that would help.'
+        );
+        unset($memberId);
+    }
+
     /** And an address that never bounced goes through untouched. */
     public function testAnAddressThatNeverBouncedIsStillSendable(): void
     {
@@ -593,7 +641,15 @@ class ListAddressFlowTest extends TestCase
             $memberService,
             new ScoutYearService($this->pdo),
             'https://example.test',
-            'Test Unité'
+            'Test Unité',
+            new \Core\Member\EmailDomainValidator(),
+            // As `public/index.php` wires it. Without this the bounce
+            // filter inside `resolveValidAddressesForMassMail()` short
+            // circuits on `?->` and every test touching it passes
+            // whatever the filter does.
+            new \Core\Mail\Feedback\Bounce\BounceService(
+                new \Core\Mail\Feedback\Bounce\BounceStateRepository($this->pdo, $this->encryption)
+            )
         );
     }
 }
