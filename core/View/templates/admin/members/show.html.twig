@@ -712,7 +712,18 @@
                  data-member-year-id="{{ member_year_id }}"
                  class="img-fluid" style="max-width:260px;" width="260" height="260" decoding="async">
         </div>
-        <p class="small text-body-secondary mb-0">
+        {# What the reader sees when the code QR cannot be drawn — a fiche
+           too long for a symbol, or simply a request that did not arrive.
+           The route is only ever an <img> source, so the server's own
+           refusal never reaches a screen: a browser handed a non-image
+           answer draws a broken icon and says nothing. The sentence is
+           therefore here, true whatever the cause, and it names the way
+           out — which is the same way out in every case.
+           public/assets/js/member-search.js swaps the two. #}
+        <output id="contact-card-qr-error" class="alert alert-warning d-none d-block small">
+            Le code QR n'a pas pu être affiché. Téléchargez le fichier de contact ci-dessous.
+        </output>
+        <p class="small text-body-secondary mb-0" id="contact-card-qr-hint">
             Scannez le code avec l'appareil photo du téléphone, ou téléchargez le fichier.
         </p>
     {% endblock %}

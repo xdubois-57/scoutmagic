@@ -243,6 +243,18 @@
             return;
         }
 
+        // A browser handed a non-image answer draws a broken icon and
+        // says nothing: the server's own French refusal — a card too long
+        // for a symbol — travels in a response body nothing here reads,
+        // because this route is only ever an <img> source. So the failure
+        // is answered on screen instead, by a sentence that is true
+        // whatever the cause and names the same way out in every case.
+        image.addEventListener('error', function () {
+            image.classList.add('d-none');
+            document.getElementById('contact-card-qr-hint')?.classList.add('d-none');
+            document.getElementById('contact-card-qr-error')?.classList.remove('d-none');
+        });
+
         dialog.addEventListener('show.bs.modal', function () {
             if (image.getAttribute('src')) {
                 return;

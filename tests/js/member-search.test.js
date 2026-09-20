@@ -65,6 +65,10 @@ const CONTACT_CARD_DIALOG = `
     <div class="modal fade" id="contact-card-modal" tabindex="-1">
         <div class="modal-body">
             <img id="contact-card-qr" alt="Code QR de la fiche de contact" data-member-year-id="101">
+            <output id="contact-card-qr-error" class="alert alert-warning d-none d-block small">
+                Le code QR n'a pas pu être affiché. Téléchargez le fichier de contact ci-dessous.
+            </output>
+            <p id="contact-card-qr-hint">Scannez le code avec l'appareil photo du téléphone.</p>
         </div>
     </div>`;
 
@@ -427,6 +431,31 @@ describe('member-search.js', () => {
             dialog.dispatchEvent(new Event('show.bs.modal'));
 
             expect(el('contact-card-qr').getAttribute('src')).toBe('/admin/members/101/contact-qr');
+        });
+
+        /**
+         * A card too long for a symbol comes back as a 422 whose body is
+         * a French sentence — which a browser asked for an image never
+         * shows anybody: it draws a broken icon and says nothing. The
+         * sentence on screen is what the reader actually gets, and it is
+         * true for a failed request too.
+         */
+        it('replaces a code that cannot be drawn with a sentence and a way out', async () => {
+            await boot();
+            el('contact-card-modal').dispatchEvent(new Event('show.bs.modal'));
+            el('contact-card-qr').dispatchEvent(new Event('error'));
+
+            expect(el('contact-card-qr').classList.contains('d-none')).toBe(true);
+            expect(el('contact-card-qr-error').classList.contains('d-none')).toBe(false);
+            expect(el('contact-card-qr-hint').classList.contains('d-none')).toBe(true);
+        });
+
+        it('shows nothing of the failure while the code loads normally', async () => {
+            await boot();
+            el('contact-card-modal').dispatchEvent(new Event('show.bs.modal'));
+
+            expect(el('contact-card-qr-error').classList.contains('d-none')).toBe(true);
+            expect(el('contact-card-qr').classList.contains('d-none')).toBe(false);
         });
 
         /**

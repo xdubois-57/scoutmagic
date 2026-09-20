@@ -105,6 +105,18 @@ class MemberContactController extends AbstractController
             $png = $this->qrCodeBuilder->build($body);
         } catch (ContactCardException $e) {
             // The one refusal this can produce, and it names nobody.
+            //
+            // **The reader never sees this sentence**, and that is by
+            // construction rather than by oversight: this route is only
+            // ever an `<img>` source, and a browser handed a non-image
+            // answer draws a broken icon in silence. What the reader gets
+            // is the French sentence the dialog itself carries, revealed
+            // by `public/assets/js/member-search.js` on the image's
+            // `error` event — one message, true for a card too long AND
+            // for a request that never arrived, naming the same way out
+            // in both cases. The status and the body stay honest for what
+            // they are: an HTTP answer, and the one a future non-`<img>`
+            // caller would read.
             return new Response($e->getMessage(), 422);
         }
 
