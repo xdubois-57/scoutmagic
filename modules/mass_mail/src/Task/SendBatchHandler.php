@@ -220,7 +220,45 @@ class SendBatchHandler implements TaskHandlerInterface
                     // Prefixed because the column is shared: « 42 » from
                     // here and « 42 » from a future sender must not be one
                     // run.
-                    bulkRunReference: 'mass_mail:' . $email->id
+                    bulkRunReference: 'mass_mail:' . $email->id,
+                    // **What a seed copy may carry, and it is not this
+                    // message** (roadmap IT-07).
+                    //
+                    // The body above is personalised: it ends with a
+                    // one-click unsubscribe link holding a capability
+                    // token minted for THIS recipient a few lines up.
+                    // Copying it to a seed box — an ordinary mailbox at
+                    // Gmail or Outlook — would put a working link to act
+                    // on one real member's behalf into a third party's
+                    // hands, on every campaign.
+                    //
+                    // So the copy carries `$baseBodyHtml`: the campaign
+                    // as the unit wrote it, before anyone's name or token
+                    // was added. That is also the better measurement,
+                    // being the same for every box.
+                    bulkCopy: new \Core\Mail\Feedback\Seed\SeedCopyContent(
+                        $baseBodyHtml,
+                        strip_tags($baseBodyHtml),
+                        [
+                            // **A `mailto:`, not the one-click URL.** The
+                            // header has to be there — the large
+                            // providers weigh one-click support as a
+                            // bulk-sender signal, so a copy without it is
+                            // likelier to be filed as spam than the
+                            // campaign it measures, which would bias the
+                            // reading in exactly the direction that
+                            // triggers a reroute. But the campaign's own
+                            // URL is a member's capability and may not
+                            // travel, so the copy gets the unit's address
+                            // instead: same signal, nothing to act with.
+                            //
+                            // No `List-Unsubscribe-Post`: that header
+                            // promises one-click, and a `mailto:` is not
+                            // one. Claiming it would be a second lie to a
+                            // provider that checks.
+                            'List-Unsubscribe' => '<mailto:' . $sender['address'] . '?subject=unsubscribe>',
+                        ]
+                    )
                 );
                 $recipientRepository->recordSendSuccess($recipient->id);
                 // **The module vouches for its own list addresses**

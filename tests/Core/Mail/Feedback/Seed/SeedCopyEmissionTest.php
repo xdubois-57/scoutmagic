@@ -11,6 +11,7 @@ namespace Tests\Core\Mail\Feedback\Seed;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Mail\DkimManager;
+use Core\Mail\Feedback\Seed\SeedCopyContent;
 use Core\Mail\Feedback\Seed\SeedCopyRepository;
 use Core\Mail\Feedback\Seed\SeedMailboxes;
 use Core\Mail\MailPurpose;
@@ -134,18 +135,48 @@ class SeedCopyEmissionTest extends TestCase
         );
     }
 
+    /**
+     * A capability token a real member's message would carry — distinctive
+     * on purpose, so an edit that starts forwarding it fails loudly.
+     */
+    private const MEMBER_TOKEN = 'JETON-DE-CE-MEMBRE-SEULEMENT';
+
+    /**
+     * A campaign as `mass_mail` really sends one: the body carries the
+     * recipient's own one-click unsubscribe token, and what the copy may
+     * carry is stated separately.
+     */
     private function sendCampaign(
         MailService $service,
         string $to = 'parent@exemple.be',
-        ?string $run = 'mass_mail:42'
+        ?string $run = 'mass_mail:42',
+        ?SeedCopyContent $copy = null,
+        bool $omitCopy = false
     ): void {
         $service->send(
             to: $to,
             subject: 'Le camp de cet été',
-            bodyHtml: '<p>Bonjour</p>',
-            bodyText: 'Bonjour',
+            bodyHtml: '<p>Bonjour</p><a href="https://unite.be/mass-mail/unsubscribe/7?token='
+                . self::MEMBER_TOKEN . '">Se désinscrire</a>',
+            bodyText: 'Bonjour — se désinscrire : https://unite.be/mass-mail/unsubscribe/7?token='
+                . self::MEMBER_TOKEN,
+            extraHeaders: [
+                'List-Unsubscribe' => '<https://unite.be/mass-mail/unsubscribe/7?token=' . self::MEMBER_TOKEN . '>',
+                'List-Unsubscribe-Post' => 'List-Unsubscribe=One-Click',
+            ],
             purpose: MailPurpose::Bulk,
-            bulkRunReference: $run
+            bulkRunReference: $run,
+            bulkCopy: $omitCopy ? null : ($copy ?? self::campaignCopy())
+        );
+    }
+
+    /** The campaign as written, before anybody's name or token. */
+    private static function campaignCopy(): SeedCopyContent
+    {
+        return new SeedCopyContent(
+            '<p>Bonjour</p>',
+            'Bonjour',
+            ['List-Unsubscribe' => '<mailto:unite@exemple.be?subject=unsubscribe>']
         );
     }
 
@@ -181,7 +212,81 @@ class SeedCopyEmissionTest extends TestCase
         // Prefix included: the unit's short tag is part of what a filter
         // sees, so a copy without it would not be the same message.
         $this->assertSame('[25SV] Le camp de cet été', $copy->Subject);
-        $this->assertSame($campaign->Body, $copy->Body);
+
+        // **The CAMPAIGN's body, not the recipient's message.** They
+        // differ by exactly what is minted per member, and this used to
+        // assert the two were identical — which is how the token below
+        // travelled.
+        $this->assertSame('<p>Bonjour</p>', $copy->Body);
+        $this->assertNotSame($campaign->Body, $copy->Body);
+    }
+
+    /**
+     * **The one assertion this whole object exists for.**
+     *
+     * A mailing ends with a one-click unsubscribe link holding a
+     * capability token minted for the recipient being written to. Seed
+     * boxes are ordinary mailboxes at Gmail or Outlook — the unit's own,
+     * but hosted by a third party and read by whoever can open them. A
+     * copy carrying that link hands over a working way to act on one real
+     * member's behalf, every campaign, and the privacy notice promises
+     * « the same personal data », which a live capability is not.
+     */
+    public function testNoSeedCopyEverCarriesAMembersUnsubscribeToken(): void
+    {
+        $transport = $this->recordingTransport();
+        $this->sendCampaign($this->serviceWith($transport, ['t1@gmail.com', 't2@outlook.com']));
+
+        $this->assertStringContainsString(
+            self::MEMBER_TOKEN,
+            $transport->sent[0]->Body,
+            'the real recipient does get their own link — otherwise this test proves nothing.'
+        );
+
+        foreach ([$transport->sent[1], $transport->sent[2]] as $copy) {
+            $this->assertStringNotContainsString(self::MEMBER_TOKEN, $copy->Body);
+            $this->assertStringNotContainsString(self::MEMBER_TOKEN, $copy->AltBody);
+            $this->assertStringNotContainsString(self::MEMBER_TOKEN, $copy->createHeader());
+        }
+    }
+
+    /**
+     * **And the copy keeps a `List-Unsubscribe`, because its absence
+     * biases the measurement.**
+     *
+     * The large providers weigh one-click support as a bulk-sender
+     * signal, so a copy without the header is systematically likelier to
+     * be filed as spam than the campaign it measures — and with the
+     * automatic switch on, that bias reroutes real traffic. The first
+     * version replaced the header list with the stamp alone and dropped
+     * it.
+     */
+    public function testTheCopyKeepsAnUnsubscribeHeaderThatIsNotACapability(): void
+    {
+        $transport = $this->recordingTransport();
+        $this->sendCampaign($this->serviceWith($transport, ['t1@gmail.com']));
+
+        $raw = $transport->sent[1]->createHeader();
+
+        $this->assertStringContainsString('List-Unsubscribe: <mailto:', $raw);
+        $this->assertStringNotContainsString(self::MEMBER_TOKEN, $raw);
+        // And the stamp survived the merge rather than being overwritten
+        // by the caller's list.
+        $this->assertStringContainsString(SeedMailboxes::HEADER . ':', $raw);
+    }
+
+    /**
+     * **No content to copy means no copies.** The safe default: the
+     * failure mode of guessing what may be copied is a silent leak, so a
+     * caller that says nothing gets nothing.
+     */
+    public function testACallerThatSuppliesNoCopyContentGetsNoCopies(): void
+    {
+        $transport = $this->recordingTransport();
+        $this->sendCampaign($this->serviceWith($transport, ['t1@gmail.com']), omitCopy: true);
+
+        $this->assertCount(1, $transport->sent);
+        $this->assertCount(0, $this->copies->forRun('mass_mail:42'));
     }
 
     /** The correlation rides in a header, which is not what a filter weighs. */

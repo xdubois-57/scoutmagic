@@ -118,7 +118,8 @@ class EmailTemplateControllerTest extends TestCase
                 array $extraHeaders = [],
                 \Core\Mail\MailPurpose $purpose = \Core\Mail\MailPurpose::Ordinary,
                 bool $vouchesForRecipient = false,
-                ?string $bulkRunReference = null
+                ?string $bulkRunReference = null,
+                ?\Core\Mail\Feedback\Seed\SeedCopyContent $bulkCopy = null
             ): void {
                 $this->sent[] = ['to' => $to, 'subject' => $subject, 'html' => $bodyHtml, 'text' => $bodyText];
             }

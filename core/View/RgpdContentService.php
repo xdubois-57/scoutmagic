@@ -1077,7 +1077,9 @@ conversations : il n'y en a pas, elles ne sont pas stockées.
 messagerie concernent une fonctionnalité du cœur du site, présente sur toute installation ScoutMagic
 indépendamment de {$modulesText}. Conserve-les TOUJOURS intégralement et ne les conditionne jamais à la liste des
 modules actifs. Conserve en particulier, car une omission serait ici trompeuse : (a) que la copie envoyée à une boîte
-témoin est **le message réel** et porte donc les mêmes données personnelles que le publipostage lui-même ; (b) que les
+témoin porte **le texte réel du publipostage**, donc les mêmes données personnelles que lui, mais **jamais ce que le
+site fabrique pour une personne en particulier** — le lien de désinscription d'un membre permettrait d'agir à sa
+place et ne sort pas du message qui lui est adressé ; (b) que les
 fournisseurs qui hébergent ces boîtes sont des **sous-traitants à part entière** pour ces copies, choisis par l'unité
 en décidant où elle ouvre ces boîtes, et qu'ils relèvent de la section 5.2 si ces boîtes sont hébergées hors de
 l'Espace économique européen ; (c) que les copies ne partent que vers des boîtes **appartenant à l'unité**, jamais

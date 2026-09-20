@@ -225,7 +225,21 @@ class MailService
          * Null on every ordinary send, and null on the seed copies
          * themselves — which is also what stops this from recursing.
          */
-        ?string $bulkRunReference = null
+        ?string $bulkRunReference = null,
+        /**
+         * What a seed copy of this mailing may carry (roadmap IT-07).
+         *
+         * **Separate from the bodies above, and that separation is a
+         * defect being closed.** Those bodies are personalised: a mailing
+         * appends a one-click unsubscribe link minted for the recipient
+         * being written to, so copying them to a seed box put a working
+         * capability for one real member into a third party's mailbox.
+         * Only the caller knows which half is the campaign.
+         *
+         * Null means no copies. That is the safe default: the failure
+         * mode of guessing is a silent leak.
+         */
+        ?Feedback\Seed\SeedCopyContent $bulkCopy = null
     ): void {
         // **A blocked address is one the site has stopped writing to, and
         // that has to be true of every message it sends of its own
@@ -413,13 +427,12 @@ class MailService
             // And it can never cost the campaign a message: everything
             // below is wrapped, because a diagnostic that breaks the thing
             // it measures is worse than no diagnostic.
-            if ($purpose === MailPurpose::Bulk && $bulkRunReference !== null) {
+            if ($purpose === MailPurpose::Bulk && $bulkRunReference !== null && $bulkCopy !== null) {
                 try {
                     $this->emitSeedCopies(
                         $bulkRunReference,
                         $subject,
-                        $bodyHtml,
-                        $bodyText,
+                        $bulkCopy,
                         $fromAddressOverride,
                         $fromNameOverride
                     );
@@ -494,20 +507,34 @@ class MailService
      * One copy of this message to each seed mailbox that has not had one
      * for this run (roadmap IT-07).
      *
-     * **The copy is the campaign, byte for byte.** Same subject, same
-     * bodies, same sender identity — because a copy that differed would be
-     * measuring the difference. The one addition is a header carrying the
-     * run reference, which is what lets the consumer match an arrival back
-     * to its row; a header rather than a subject token for the reason
-     * {@see Feedback\Seed\SeedMailboxes::HEADER} gives.
+     * **The copy is the campaign, not the message.** Same subject, same
+     * sender identity, and the body the CALLER handed over — because the
+     * body this method was given is personalised, and copying it shipped
+     * one member's live unsubscribe token to a third party's mailbox on
+     * every campaign ({@see Feedback\Seed\SeedCopyContent}).
      *
-     * **Attachments are deliberately left off.** They are the one part of
-     * a mailing that costs real bytes per copy, and filing decisions turn
-     * on the sender, the wording and the links far more than on whether a
-     * PDF rode along. Five seed boxes × a 4 MB attachment on every campaign
-     * is a cost a unit would pay for ever, for a signal nobody has shown to
-     * move. Written down because it IS a difference between the copy and
-     * the campaign, and the only one.
+     * **Three differences from the campaign, and they are all written
+     * down here** — a list that claimed to be exhaustive and was not is
+     * how the token leak survived review once already:
+     *
+     * 1. **No attachments.** They are the one part of a mailing that
+     *    costs real bytes per copy, and filing decisions turn on the
+     *    sender, the wording and the links far more than on whether a PDF
+     *    rode along. Five boxes × 4 MB on every campaign is a cost a unit
+     *    would pay for ever, for a signal nobody has shown to move.
+     * 2. **The stamped header**, which is what lets the consumer match an
+     *    arrival back to its row — a header rather than a subject token
+     *    for the reason {@see Feedback\Seed\SeedMailboxes::HEADER} gives.
+     * 3. **The caller's headers rather than the message's.** A mailing's
+     *    `List-Unsubscribe` is a one-click URL holding a member's
+     *    capability, so it cannot travel; the caller supplies a
+     *    capability-free equivalent instead. Dropping the header
+     *    altogether — which the first version did, by replacing the
+     *    header list rather than taking the caller's — biased the very
+     *    measurement this exists to take: the large providers weigh
+     *    one-click support as a bulk-sender signal, so the copy was
+     *    systematically likelier to be filed as spam than the campaign,
+     *    and with the automatic switch on that bias rerouted real traffic.
      *
      * `bulkRunReference: null` on the way out, which is what stops this
      * from recursing: a seed copy is an ordinary bulk message and must not
@@ -516,8 +543,7 @@ class MailService
     private function emitSeedCopies(
         string $runReference,
         string $subject,
-        string $bodyHtml,
-        string $bodyText,
+        Feedback\Seed\SeedCopyContent $copy,
         ?string $fromAddressOverride,
         ?string $fromNameOverride
     ): void {
@@ -543,13 +569,17 @@ class MailService
                 $this->send(
                     $address,
                     $subject,
-                    $bodyHtml,
-                    $bodyText,
+                    $copy->bodyHtml,
+                    $copy->bodyText,
                     null,
                     [],
                     $fromAddressOverride,
                     $fromNameOverride,
-                    [Feedback\Seed\SeedMailboxes::HEADER => $stamp],
+                    // The caller's headers PLUS the stamp, never the stamp
+                    // alone: replacing the list is what dropped
+                    // `List-Unsubscribe` and biased the measurement. The
+                    // stamp is added last so nothing can overwrite it.
+                    $copy->extraHeaders + [Feedback\Seed\SeedMailboxes::HEADER => $stamp],
                     MailPurpose::Bulk,
                     // The site did not choose this correspondent from its
                     // records — it is the unit's own diagnostic box. No
@@ -558,6 +588,9 @@ class MailService
                     // about it.
                     false,
                     // Null, and this is the recursion guard.
+                    null,
+                    // And no content to copy, which is the second half of
+                    // the same guard.
                     null
                 );
             } catch (\Throwable) {
