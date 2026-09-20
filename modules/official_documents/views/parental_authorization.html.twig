@@ -1,0 +1,137 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The parental authorization screen (specifications.md §44.5), laid out as
+  the « Documents officiels — maquette » canvas fixes it: signatory, capacity,
+  the activity picker, the two dates, the place, the abroad note, the warning,
+  then the one action.
+
+  The form posts to its own URL and comes back a PDF. Everything the parent
+  types stays in the body — nothing about this document belongs in a query
+  string a proxy log would keep.
+#}
+{% extends 'base.html.twig' %}
+
+{% block title %}Autorisation parentale — {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="page-narrow">
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Autorisation parentale',
+        subtitle: member|display_name,
+    } only %}
+
+    <p>
+        Le formulaire officiel de la fédération, pré-rempli avec ce que le site sait.
+        À imprimer, signer, et remettre à l'animateur.
+    </p>
+
+    {% if submit_error %}
+    <div class="alert alert-danger" role="alert">{{ submit_error }}</div>
+    {% endif %}
+
+    <form method="post" action="/members/{{ member.memberYearId }}/autorisation-parentale">
+        {{ csrf_field()|raw }}
+
+        <div class="card mb-3">
+            <div class="card-body">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'signatory-name', field_name: 'signatory_name',
+                    label: 'Je soussigné·e', value: values.signatory_name, required: true,
+                    autocomplete: 'name',
+                    help: 'Le nom de la personne qui signera le document.',
+                } only %}
+
+                <fieldset class="mb-3">
+                    <legend class="form-label">En qualité de</legend>
+                    <div class="row g-2">
+                        {% for capacity in capacities %}
+                        <div class="col-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="capacity"
+                                       id="capacity-{{ capacity.value }}" value="{{ capacity.value }}"
+                                       {{ values.capacity == capacity.value ? 'checked' : '' }} required>
+                                <label class="form-check-label tap-target" for="capacity-{{ capacity.value }}">
+                                    {{ capacity.label }}
+                                </label>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </fieldset>
+
+                {#
+                  The picker only fills the two date fields below, in the
+                  browser. The server is never sent an event identifier —
+                  it is a convenience, not a source of truth, so there is
+                  nothing to re-resolve and nothing to trust.
+
+                  Absent entirely when the calendar module is disabled: the
+                  two date fields stay and the form works unchanged.
+                #}
+                {% if events is not empty %}
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'event-picker', type: 'select',
+                    label: 'Reprendre les dates d\'une activité',
+                    help: 'Seules les activités qui couvrent au moins une nuit sont proposées.',
+                    options: [{ value: '', label: 'Choisir une activité…' }]|merge(
+                        events|map(event => {
+                            value: event.start ~ '|' ~ event.end,
+                            label: event.label,
+                        })
+                    ),
+                    data: { 'event-picker': '1' },
+                } only %}
+                {% endif %}
+
+                <div class="row g-3">
+                    <div class="col-12 col-sm-6">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'start-date', field_name: 'start_date', type: 'date',
+                            label: 'Du', value: values.start_date, required: true,
+                        } only %}
+                    </div>
+                    <div class="col-12 col-sm-6">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'end-date', field_name: 'end_date', type: 'date',
+                            label: 'Au', value: values.end_date, required: true,
+                        } only %}
+                    </div>
+                </div>
+
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'place', field_name: 'place',
+                    label: 'Fait à', value: values.place, required: true,
+                    help: 'Le lieu où vous signez le document.',
+                } only %}
+
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="abroad" id="abroad" value="1"
+                           {{ values.abroad ? 'checked' : '' }}>
+                    <label class="form-check-label tap-target" for="abroad">
+                        Cette activité se déroule à l'étranger
+                    </label>
+                    <div class="form-text">
+                        Sinon, la phrase autorisant la sortie du territoire belge est biffée, comme la note (1)
+                        du formulaire le demande.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="alert alert-warning" role="alert">
+            Le document n'a aucune valeur tant qu'il n'est pas signé à la main. Rien n'est enregistré sur le site.
+        </div>
+
+        <button type="submit" class="btn btn-primary w-100 w-sm-auto">
+            <i class="bi bi-download me-1" aria-hidden="true"></i>Télécharger le PDF
+        </button>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+    <script src="{{ asset('/assets/js/official-documents-event-picker.js') }}" defer></script>
+{% endblock %}

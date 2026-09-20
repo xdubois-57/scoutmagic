@@ -437,6 +437,12 @@ et nouveau traitement, détaillés rubrique par rubrique — et
 `RgpdContentService::buildSystemPrompt()`, qui doit décrire le traitement du module. `AGENTS.md`
 est explicite : une PR qui ajoute un traitement de données personnelles sans cela est incomplète.
 
+*Note ajoutée en cours de chantier : cette règle d'`AGENTS.md` mord dès la PR qui introduit le
+traitement, pas à la fin. La sous-section « Module Documents officiels » et la règle 33bis du prompt
+ont donc été écrites en **IT-02**, pour l'autorisation parentale, et sont tenues par
+`Tests\Core\View\OfficialDocumentsRgpdCoverageTest`. Ce qui reste ici est de les **étendre** à la
+fiche santé : des données de santé conservées, chiffrées, et leur purge — soit le gros du sujet.*
+
 **L'aide contextuelle** : `modules/official_documents/help/*.md`, déclarée dans `module.json`, sur
 le modèle des autres modules. Au minimum : à quoi servent ces documents, pourquoi seul le papier
 signé compte, et que la fiche s'efface toute seule au bout de 18 mois.

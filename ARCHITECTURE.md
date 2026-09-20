@@ -26,8 +26,9 @@ Only a small, explicitly justified set of external dependencies is allowed:
 | aws/aws-sdk-php | The S3-compatible storage backend (`Core\Storage\Location\Backend\ObjectStorageBackend`, §8.107) — correctly implementing multipart upload, presigned URLs, and provider-specific auth quirks (AWS S3, and S3-compatible providers) by hand is not worth it for one storage backend among several. |
 | minishlink/web-push | Web Push (RFC 8030/8291) sending for `Core\Notification\NotificationService`: VAPID ES256 JWT signing, ECDH key agreement, and the RFC 8291 `aes128gcm` payload encryption. Reimplementing this elliptic-curve crypto by hand is real security-sensitive surface area (a subtly wrong HKDF/AEAD derivation silently breaks or, worse, weakens delivery) for a well-defined, narrow protocol a maintained library already gets right. |
 | webklex/php-imap | Pure-PHP IMAP client over sockets (`Modules\InboundMail\Client\ImapMailboxClient`, §7 of the inbound-mail spec). **`ext-imap` was removed from PHP's core in 8.4 and moved to PECL**, which puts it out of reach of essentially every shared host ScoutMagic targets — so an extension-free implementation is not a preference, it is the only option. Hand-rolling one would mean implementing IMAP4rev1 command pipelining, literal handling, UIDVALIDITY semantics, MIME structure parsing and TLS negotiation correctly, on a protocol where a mistake either loses somebody's mail or writes to their mailbox. Its Laravel-adjacent transitive dependencies (`illuminate/support`, `nesbot/carbon`, `symfony/http-foundation`) are the real cost of this entry and are the reason it is worth stating: they are pulled in for `Collection` and date handling only, no framework is bootstrapped, and nothing outside this module's `Client/` directory references them. |
-| setasign/fpdi | Cuts pages out of an existing PDF (`Modules\Attestations\Service\AttestationPdfSplitter`, §8.86). Nothing already here can: `dompdf` renders new documents from HTML and `smalot/pdfparser` reads text out of one. Keeping the federation's single PDF instead of splitting it is not an option — it holds every family's certificate in one file, so handing it to one family hands them all the others. Reimplementing the cut means reading PDF's object graph, cross-reference tables and content streams and re-emitting a valid document, which is exactly the class of work `smalot/pdfparser` is already in the table for not hand-rolling. |
+| setasign/fpdi | Cuts pages out of an existing PDF (`Modules\Attestations\Service\AttestationPdfSplitter`, §8.86). Nothing already here can: `dompdf` renders new documents from HTML and `smalot/pdfparser` reads text out of one. Keeping the federation's single PDF instead of splitting it is not an option — it holds every family's certificate in one file, so handing it to one family hands them all the others. Reimplementing the cut means reading PDF's object graph, cross-reference tables and content streams and re-emitting a valid document, which is exactly the class of work `smalot/pdfparser` is already in the table for not hand-rolling. It is also the *import* half of the official-documents overlay (`Modules\OfficialDocuments\Pdf\OverlayPdf`, specifications.md §44): the federation's own form is drawn as the page background and the family's answers are written on top of it, on the printed lines themselves. Redrawing that form from HTML would produce a different document — what a unit collects is the federation's form, not a lookalike. |
 | setasign/fpdf | The PDF *writer* `setasign/fpdi` requires: FPDI supplies the import half only and its `Fpdi` class extends an FPDF-compatible generator, which the package deliberately does not bundle so a caller can pick one. ~50 KB of pure PHP with no extension beyond `zlib`, against TCPDF — the alternative FPDI supports — which is an order of magnitude larger for output this project never composes itself: every page it emits is a page imported verbatim from the deposited file. |
+| setasign/tfpdf | The PDF *writer* the official-documents overlay uses instead, for one reason: **FPDF's core fonts are cp1252 only**, so a name like « Wiśniewski » or « Ayşe » comes out mangled — on a form a family signs and hands to a hospital. tFPDF is FPDF itself with TrueType/UTF-8 support (the same API, the same `zlib`-only requirement, ~40 KB on top) and ships the DejaVu faces it needs, which is what lets `Modules\OfficialDocuments\Pdf\OverlayPdf` extend `setasign\Fpdi\Tfpdf\Fpdi` rather than the plain one. It does **not** replace `setasign/fpdf`: the attestations splitter re-emits imported pages verbatim and writes no text at all, so it needs no font — and converting it would be a change to a release-critical path for no gain. |
 | ifsnop/mysqldump-php | Pure-PHP `mysqldump` reimplementation (`Core\Database\DatabaseDumper`, §8.15.1) that dumps over a PDO connection it opens itself — no `mysqldump` binary, no shell-execution function, and none of the shared-hosting failure modes (missing `$PATH`, `disable_functions`, a `libmysqlclient` build that can't load the `mysql_native_password` auth plugin) a shelled-out dump used to hit. |
 
 Everything else is written in-house. Composer is used for autoloading and dependency resolution during CI build — `vendor/` is built by CI and deployed via FTP; Composer is never required on the hosting server.
@@ -4920,6 +4921,130 @@ minor's name, telephone number and home address.
 
 Each served card is journaled at `security` level with **the member's
 identifier and nothing else**.
+
+### 8.116 Free-text pages, and the one route born from a database row (`Core\Page`)
+
+A superadmin adds a page — the ASBL's description, the Bulle Safe —
+chooses which menu it appears in, names it twice (short in the menu,
+explicit on the page), and writes its text with the site's ordinary
+configuration-mode editing. Issue #368. It is not a CMS and has no
+templates: a page is a title and a rich text, and the text is stored in
+`editable_contents` like the home page's introduction, through the same
+`editable()` and the same sanitizer.
+
+**Each active page registers its own route at boot, and that is the whole
+design.** `Core\Page\TextPageRouteRegistrar` reads `text_pages` once per
+request and calls `Router::addRoute()` for every active row, with the path
+`/pages/{slug}` and the `role_min` of the menu the page was filed in. This
+is the only place in the codebase where a route comes from a database row
+rather than from `public/index.php` or a module manifest, which is why it
+is written down here.
+
+The alternative — one `/pages/{slug}` declared `public`, with the real
+check done in the controller — was rejected because it breaks two written
+promises at once: SECURITY.md §3 ("the RBAC guard is called by the Router
+**before** any controller code") and §2 above ("a controller may re-check
+a fine-grained permission, but this is never the primary protection").
+`Core\Http\Controller\TextPageController` therefore checks nothing at
+all, and a test asserts that it never learns to.
+
+Three consequences worth stating:
+
+- **The access level is the menu's, never a column.** The five menus
+  already carry their floor (`MenuBuilder::MENUS`, reachable through
+  `MenuBuilder::roleMinFor()`), so choosing the section IS choosing who
+  reads the page. A role column on `text_pages` would be a second truth
+  and the one that drifts away from the menu it is meant to agree with.
+- **A hidden page registers nothing, so it answers 404 and not 403.** It
+  does not exist rather than being forbidden — nothing confirms to a
+  passer-by that there is something behind the address.
+- **The read must survive the database being unreachable.** This runs in
+  the front controller on every request; an installation mid-install,
+  mid-restore or with rotated credentials must still answer, `/setup` and
+  the page explaining the failure included. A failure registers no routes
+  and rethrows nothing. It is a deliberate silence, and a narrow one: it
+  swallows one optional read, not the request.
+
+The section + column pair is guarded twice, at two different moments, and
+both are needed. **On the way in**, `TextPageService::assertMenuPlacement()`
+validates it server side rather than relying on the form hiding the column
+picker. **Afterwards**, `TextPageMenuProvider` skips a row whose column its
+menu no longer declares — because `MENU_GROUPS` is a PHP constant, so a
+placement that was valid when it was written can be renamed away by a later
+version. Without the second guard the consequence would not be a broken
+page: `MenuBuilder::addPage()` throws on an undeclared column, and that call
+happens while building the navigation of every page of the site, before
+routing, on every request.
+
+The address is derived from the title at creation and **frozen**: it is
+shared the moment the page is published, so correcting a typo in the title
+must not break a link somebody has already sent. The content key is
+`page_content_{id}` — keyed on the id and never on the slug, so a page that
+is ever renamed cannot orphan its own text. Deleting a page deletes that
+row too: rich text left behind with no page to name it is data nobody can
+find, read or erase.
+
+Menu entries come from `Core\Page\TextPageMenuProvider`, a
+`MenuEntryProvider` handed the very list the routes were registered from
+rather than a second query — so the feature costs one query per request,
+and a page can never appear in a menu without a route behind it. That
+provider **skips a page whose column its menu no longer declares**, rather
+than letting `addPage()` throw: `MENU_GROUPS` is a PHP constant, so a
+column validated at write time can be renamed away in a later version, and
+these entries are added while building the navigation every page renders.
+Filtering costs one menu entry; catching around the loop would have cost
+all of them, and throwing would have cost the site.
+
+**The body is written at the page's own role, not at the write
+endpoint's.** `POST /api/editable-content` is `role_min: admin`, which was
+the whole answer for as long as every editable row belonged to a page an
+admin could also read — home, contact, sections, a module's public view. A
+page filed in the Configuration menu is read at `superadmin` while its text
+is written through that same admin endpoint: **the first content on this
+site whose read floor exceeds its write floor.** It was reachable through a
+second door too, `POST /upload` with `context=editable_image`, which writes
+the same table under a client-chosen key.
+
+**Ownership is a column, not a spelling.** `editable_contents.text_page_id`
+names the page a row belongs to, and `EditableContentService::set()` — the
+one point every write passes through — reads the required role off it. The
+obvious alternative, working the owner out of `content_key`, cannot be made
+safe: that column is compared with `utf8mb4_unicode_ci`, which equates
+spellings differing in case, accents, trailing spaces (PAD SPACE),
+fullwidth forms and every primary-ignorable character, so a parser has to
+reproduce that equivalence exactly. Four attempts each left a gap. Asking
+the row with the same `WHERE content_key = ?` the write itself uses removes
+the question: whatever the collation takes a key to be, the row that
+answers is the row that will be written.
+
+Two consequences follow from the column rather than from code. The content
+row is **claimed with the page**, empty and owned, so there is never a
+moment when the key exists unclaimed and whoever writes first decides what
+a page they cannot read says. And deleting a page deletes its text by
+`ON DELETE CASCADE` — a second delete issued from a service could fail on
+its own and leave rich text nobody can name, read or erase behind; the
+constraint cannot.
+
+**Claimed and not inserted**, because the key can already be taken.
+`POST /api/editable-content` is `role_min: admin` and accepts any key the
+client sends; `content_key` is `UNIQUE`; `text_pages.id` is a predictable
+auto-increment. So an admin can write `page_content_{next id}` before that
+page exists — allowed precisely because nothing owns it yet — and a blind
+`INSERT` at creation time would then fail on the duplicate key *after* the
+page's own row is committed. That leaves a live, routed page whose body is
+unowned, and an unowned body is governed by the write endpoint's own floor
+rather than by its section's: the escalation the column exists to close,
+reopened by the one place the column is written.
+`EditableContentRepository::claimForPage()` therefore takes an existing row
+over, blanking it — text written under a page's key before that page
+existed cannot be its content by any legitimate route — and
+`TextPageService::create()` **deletes the page it just made** if the claim
+cannot be completed. A page that does not exist is recoverable; a live page
+whose text belongs to nobody is not.
+
+Explicitly **not** in scope: free-text pages do not join
+`Core\Offline\OfflineWhitelist`. That list is a static server-side
+declaration, and wiring it to a database table is a subject of its own.
 
 ## 9. Installation / bootstrap
 

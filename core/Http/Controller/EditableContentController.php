@@ -13,6 +13,7 @@ use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Security\Role;
 use Core\View\ConfigurationMode;
 use Core\View\EditableContentService;
 use Twig\Environment;
@@ -25,6 +26,40 @@ class EditableContentController extends AbstractController
         protected Environment $twig,
         private EditableContentService $editableContentService
     ) {
+    }
+
+    /**
+     * The per-key re-check SECURITY.md §3 asks for: « `role_min` is a
+     * floor, never the whole answer ».
+     *
+     * Both endpoints below are `role_min: admin`, which was the whole
+     * answer for as long as every editable row belonged to a page an
+     * admin could also read. A free-text page filed in the Configuration
+     * menu is read at `superadmin` while its body is written here, so
+     * without this an admin refused the page could still rewrite what a
+     * superadmin reads (ARCHITECTURE.md §8.116).
+     *
+     * The decision itself lives in
+     * {@see EditableContentService::roleMinToWrite()}, which resolves the
+     * row that owns the content rather than parsing the key. This method
+     * only turns its answer into the JSON refusal this endpoint speaks.
+     * `set()` refuses again regardless — that is the guarantee; this is
+     * the good error message.
+     */
+    private function requireWriteAccess(string $key): ?Response
+    {
+        $required = $this->editableContentService->roleMinToWrite($key);
+
+        if ($required !== null
+            && !Role::fromString(AuthSession::getRole())->hasAccess(Role::fromString($required))
+        ) {
+            // The same sentence whatever the reason, and no mention of
+            // what the key names: an answer that distinguished "no such
+            // page" from "not your page" would map out which ids exist.
+            return $this->json(['success' => false, 'error' => self::FORBIDDEN_MESSAGE], 403);
+        }
+
+        return null;
     }
 
     public function setJournalService(JournalService $journalService): void
@@ -76,6 +111,10 @@ class EditableContentController extends AbstractController
         // type in order to smuggle a body past what that type accepts.
         if ($type === 'image' && $value !== '' && preg_match('/^\d+$/', $value) !== 1) {
             return $this->json(['success' => false, 'error' => 'Une image se réfère à un fichier envoyé.'], 400);
+        }
+
+        if (($refusal = $this->requireWriteAccess($key)) !== null) {
+            return $refusal;
         }
 
         $userId = AuthSession::getUserAccountId();
@@ -147,6 +186,10 @@ class EditableContentController extends AbstractController
         // type in order to smuggle a body past what that type accepts.
         if ($type === 'image' && $value !== '' && preg_match('/^\d+$/', $value) !== 1) {
             return $this->json(['success' => false, 'error' => 'Une image se réfère à un fichier envoyé.'], 400);
+        }
+
+        if (($refusal = $this->requireWriteAccess($key)) !== null) {
+            return $refusal;
         }
 
         $userId = AuthSession::getUserAccountId();

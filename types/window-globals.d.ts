@@ -350,4 +350,11 @@ interface Window {
         };
         renderTopics: (target: HTMLElement, topics: Array<{ id: string, title: string }>) => void;
     };
+    // public/assets/js/official-documents-event-picker.js — the « reprendre
+    // les dates d'une activité » control on the parental authorization
+    // screen. Only its parsing is exposed, and only for the unit tests: the
+    // picker carries the two dates itself, so there is nothing else here.
+    ScoutMagicEventPicker?: {
+        datesFrom: (value: string) => { start: string, end: string } | null;
+    };
 }
