@@ -8,6 +8,10 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Document;
 
+use Core\Template\TokenCatalogue;
+use Core\Template\TokenEngine;
+use Core\Template\TokenSyntax;
+
 /**
  * The closed list of `{{ mot_cle }}` placeholders a contract or an invoice
  * template may use, and the substitution itself (§6.25).
@@ -33,6 +37,12 @@ namespace Modules\Rental\Document;
  * scope; here a template can say exactly these things and nothing else, and
  * anything it asks for that is not on the list is reported to its author at
  * edit time rather than rendered as literal braces in a signed contract.
+ *
+ * **Both rules are Core\Template\TokenEngine's now**, along with the
+ * pattern, the unknown-keyword report and the rescue of a keyword a
+ * rich-text surface broke apart. The publipostage had grown its own copy of
+ * the same four rules; what is left here is this module's own: the
+ * catalogue, and nothing else.
  */
 final class DocumentKeywords
 {
@@ -70,37 +80,46 @@ final class DocumentKeywords
     ];
 
     /**
-     * Matches `{{ mot_cle }}` with any spacing, and nothing else.
+     * The shared engine, on this module's own vocabulary: `{{ mot_cle }}`
+     * with any spacing, lower-case letters, digits and underscores, and
+     * nothing else.
      *
-     * Deliberately narrow: only lower-case letters, digits and underscores.
-     * A pattern that accepted anything between the braces would make
-     * "unknown keyword" reporting useless, because every stray `{{` in a
-     * contract's prose would become a candidate.
+     * Deliberately narrow. A syntax that accepted anything between the
+     * braces would make "unknown keyword" reporting useless, because every
+     * stray `{{` in a contract's prose would become a candidate; it is also
+     * what makes the repair pass safe, since a region is only rewritten
+     * once what it would become spells a name this narrow.
+     *
+     * Built per call rather than held: it carries no state, every caller
+     * here is static, and a shared instance would be a singleton for the
+     * sake of two object allocations.
      */
-    private const PATTERN = '/\{\{\s*([a-z0-9_]+)\s*\}\}/';
+    private static function engine(): TokenEngine
+    {
+        return new TokenEngine(TokenSyntax::identifiers());
+    }
 
     /**
-     * The catalogue, for the panel beside the editor.
+     * The declared list, as the palette a rich-text field reads.
+     */
+    public static function tokenCatalogue(): TokenCatalogue
+    {
+        return TokenCatalogue::of(self::CATALOGUE);
+    }
+
+    /**
+     * The catalogue, for the palette beside the editor.
      *
      * @return array<int, array{keyword: string, placeholder: string, description: string}>
      */
     public static function catalogue(): array
     {
-        $entries = [];
-        foreach (self::CATALOGUE as $keyword => $description) {
-            $entries[] = [
-                'keyword' => $keyword,
-                'placeholder' => '{{ ' . $keyword . ' }}',
-                'description' => $description,
-            ];
-        }
-
-        return $entries;
+        return self::tokenCatalogue()->palette();
     }
 
     public static function isKnown(string $keyword): bool
     {
-        return array_key_exists($keyword, self::CATALOGUE);
+        return self::tokenCatalogue()->has($keyword);
     }
 
     /**
@@ -114,16 +133,10 @@ final class DocumentKeywords
      */
     public static function unknownIn(string $html): array
     {
-        preg_match_all(self::PATTERN, $html, $matches);
-
-        $unknown = [];
-        foreach ($matches[1] as $keyword) {
-            if (!self::isKnown($keyword) && !in_array($keyword, $unknown, true)) {
-                $unknown[] = $keyword;
-            }
-        }
-
-        return $unknown;
+        return self::engine()->unknownTokens(
+            $html,
+            static fn(string $keyword): bool => self::isKnown($keyword)
+        );
     }
 
     /**
@@ -139,27 +152,21 @@ final class DocumentKeywords
      */
     public static function substitute(string $sanitizedHtml, array $values): string
     {
-        $replaced = preg_replace_callback(
-            self::PATTERN,
-            static function (array $match) use ($values): string {
-                $keyword = $match[1];
+        // Escaping is the engine's, and it is the whole safety of this
+        // class: dompdf renders HTML, and these values come from a form an
+        // anonymous visitor filled in.
+        return self::engine()->substitute(
+            $sanitizedHtml,
+            static function (string $keyword) use ($values): ?string {
                 if (!self::isKnown($keyword) || !array_key_exists($keyword, $values)) {
-                    return $match[0];
+                    return null;
                 }
 
                 $value = $values[$keyword];
-                if ($value === null || trim($value) === '') {
-                    return '—';
-                }
 
-                // The whole safety of this class. dompdf renders HTML, and
-                // these values come from a form an anonymous visitor filled
-                // in.
-                return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+                return ($value === null || trim($value) === '') ? '—' : $value;
             },
-            $sanitizedHtml
+            true
         );
-
-        return $replaced ?? $sanitizedHtml;
     }
 }
