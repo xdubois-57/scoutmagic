@@ -31,6 +31,13 @@ namespace Core\Mail\Feedback\Seed;
  * What travels is the campaign as written: the same body every recipient
  * received the substance of, with none of the parts minted for one of
  * them.
+ *
+ * **The subject is part of the message and had to be said too.** The
+ * transport used the one it was sending, which is right for an ordinary
+ * mailing and wrong for a mail-merge, where the subject is rendered from
+ * one recipient's row exactly as the body is — « Camp de Kaa » — and a
+ * subject is the one line every mailbox shows in its list. A caller that
+ * personalises nothing leaves it null and the message's own is used.
  */
 final class SeedCopyContent
 {
@@ -45,7 +52,13 @@ final class SeedCopyContent
     public function __construct(
         public readonly string $bodyHtml,
         public readonly string $bodyText,
-        public readonly array $extraHeaders = []
+        public readonly array $extraHeaders = [],
+        /**
+         * What the copy is titled. Null means « the message's own », which
+         * is only safe when the caller's subject is the same string for
+         * every recipient.
+         */
+        public readonly ?string $subject = null
     ) {
     }
 }

@@ -103,6 +103,13 @@ class SendBatchHandler implements TaskHandlerInterface
             // failure, never a mail with raw {{tokens}} in it.
             $subject = $email->subject;
             $baseBodyHtml = $email->bodyHtml;
+            // **What a seed copy may carry, decided here rather than
+            // after the merge** — see the `bulkCopy` argument below. On an
+            // ordinary mailing it is the same text; on a merge it is
+            // deliberately NOT, and that is the whole reason for the two
+            // extra variables.
+            $seedSubject = $email->subject;
+            $seedBodyHtml = $email->bodyHtml;
             if ($email->listType === Email::LIST_TYPE_MAIL_MERGE) {
                 $mergeRow = $recipient->audienceRowId !== null
                     ? $audienceRepository->findRowById($recipient->audienceRowId)
@@ -120,6 +127,25 @@ class SendBatchHandler implements TaskHandlerInterface
                 }
                 $subject = $mergeRenderer->renderText($email->subject, $mergeRow->data);
                 $baseBodyHtml = $mergeRenderer->renderHtml($email->bodyHtml, $mergeRow->data);
+
+                // **The seed copy is rendered too, but from nobody's
+                // row.** Each column is substituted by its own HEADER —
+                // « Bonjour Prénom, » — so the copy has the shape and
+                // the length of the message that went out, and none of
+                // its values. A column header describes a field; a cell
+                // describes a person.
+                //
+                // Rendered rather than left as `{{Prénom}}`, because the
+                // raw template is not the thing being measured: curly
+                // braces in a subject line are exactly the sort of
+                // oddity a filter weighs, and a copy scored on them
+                // would make every figure on the results page quietly
+                // wrong — the same reason the stamp rides in a header
+                // rather than in the subject.
+                $headers = array_keys($mergeRow->data);
+                $asColumnNames = array_combine($headers, $headers);
+                $seedSubject = $mergeRenderer->renderText($email->subject, $asColumnNames);
+                $seedBodyHtml = $mergeRenderer->renderHtml($email->bodyHtml, $asColumnNames);
             }
 
             $attachments = [];
@@ -224,21 +250,35 @@ class SendBatchHandler implements TaskHandlerInterface
                     // **What a seed copy may carry, and it is not this
                     // message** (roadmap IT-07).
                     //
-                    // The body above is personalised: it ends with a
-                    // one-click unsubscribe link holding a capability
-                    // token minted for THIS recipient a few lines up.
-                    // Copying it to a seed box — an ordinary mailbox at
-                    // Gmail or Outlook — would put a working link to act
-                    // on one real member's behalf into a third party's
-                    // hands, on every campaign.
+                    // The body above is personalised twice over. It ends
+                    // with a one-click unsubscribe link holding a
+                    // capability token minted for THIS recipient a few
+                    // lines up — copying it to a seed box, an ordinary
+                    // mailbox at Gmail or Outlook, would put a working
+                    // link to act on one real member's behalf into a
+                    // third party's hands, on every campaign. And on a
+                    // merge, `$baseBodyHtml` and `$subject` were
+                    // rendered from THIS recipient's audience row: their
+                    // name, their amount, whatever the unit's
+                    // spreadsheet holds.
                     //
-                    // So the copy carries `$baseBodyHtml`: the campaign
-                    // as the unit wrote it, before anyone's name or token
-                    // was added. That is also the better measurement,
-                    // being the same for every box.
+                    // **`$baseBodyHtml` was the first version's answer to
+                    // the first problem, and it is not an answer to the
+                    // second.** Its name says « base » only relative to
+                    // the unsubscribe link appended after it. A copy is
+                    // emitted once per run, so the first recipient
+                    // processed was the member whose merged data went to
+                    // every seed box.
+                    //
+                    // So the copy carries `$seedSubject`/`$seedBodyHtml`:
+                    // the campaign with its variables filled by the names
+                    // of their own columns. Same shape, same length,
+                    // nobody's values — and identical for every box,
+                    // which is also what makes it a measurement rather
+                    // than a sample.
                     bulkCopy: new \Core\Mail\Feedback\Seed\SeedCopyContent(
-                        $baseBodyHtml,
-                        strip_tags($baseBodyHtml),
+                        $seedBodyHtml,
+                        strip_tags($seedBodyHtml),
                         [
                             // **A `mailto:`, not the one-click URL.** The
                             // header has to be there — the large
@@ -257,7 +297,13 @@ class SendBatchHandler implements TaskHandlerInterface
                             // one. Claiming it would be a second lie to a
                             // provider that checks.
                             'List-Unsubscribe' => '<mailto:' . $sender['address'] . '?subject=unsubscribe>',
-                        ]
+                        ],
+                        // The subject travels with the body or not at
+                        // all: on a merge it is rendered from the same
+                        // row, so copying the message's own would leak
+                        // through the one line every mailbox shows in
+                        // its list.
+                        $seedSubject
                     )
                 );
                 $recipientRepository->recordSendSuccess($recipient->id);

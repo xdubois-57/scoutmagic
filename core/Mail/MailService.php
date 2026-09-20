@@ -568,7 +568,11 @@ class MailService
             try {
                 $this->send(
                     $address,
-                    $subject,
+                    // The caller's subject when it gave one: a mail-merge
+                    // renders the subject from one recipient's row just as
+                    // it renders the body, and a subject is the one line
+                    // every mailbox shows in its list.
+                    $copy->subject ?? $subject,
                     $copy->bodyHtml,
                     $copy->bodyText,
                     null,

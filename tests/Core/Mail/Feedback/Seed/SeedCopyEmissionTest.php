@@ -222,6 +222,33 @@ class SeedCopyEmissionTest extends TestCase
     }
 
     /**
+     * **And the subject too, when the caller gave one.**
+     *
+     * A mail-merge renders the subject from one recipient's audience row
+     * exactly as it renders the body — « Camp de Kaa » — and a subject is
+     * the one line every mailbox shows in its list. The transport used
+     * the subject it was sending, which is right for an ordinary mailing
+     * and was a leak on a merge: copies are emitted once per run, so the
+     * first recipient processed was the member whose name reached every
+     * seed box.
+     */
+    public function testTheCopyCarriesTheCallersSubjectWhenItSuppliedOne(): void
+    {
+        $transport = $this->recordingTransport();
+        $this->sendCampaign(
+            $this->serviceWith($transport, ['t1@gmail.com']),
+            copy: new SeedCopyContent('<p>Bonjour Prenom</p>', 'Bonjour Prenom', [], 'Camp de Prenom')
+        );
+
+        $this->assertSame(
+            '[25SV] Le camp de cet été',
+            $transport->sent[0]->Subject,
+            'the real message keeps its own — otherwise this test proves nothing.'
+        );
+        $this->assertSame('[25SV] Camp de Prenom', $transport->sent[1]->Subject);
+    }
+
+    /**
      * **The one assertion this whole object exists for.**
      *
      * A mailing ends with a one-click unsubscribe link holding a

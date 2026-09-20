@@ -2496,6 +2496,28 @@ seul endroit où un avertissement ne suffit pas, puisque cet interrupteur
 déplace le courrier de toute une unité sans que personne relise la
 décision.
 
+**Et la copie emportait encore les données d'un membre — les champs de
+fusion.** La relecture précédente avait retiré le jeton de désinscription
+en faisant porter la copie par `$baseBodyHtml`. Le nom trompe : « base »
+ne l'est que par rapport au lien ajouté après lui. Sur un publipostage
+personnalisé, `$baseBodyHtml` et le sujet ont déjà été rendus depuis la
+ligne d'audience du destinataire courant — et une copie est émise une
+fois par série, donc c'est la première personne traitée dont le prénom,
+le montant, ce que porte le fichier de l'unité, partait vers chaque boîte
+témoin. Chez Gmail, chez Outlook. À chaque campagne.
+
+Le correctif ne prend pas le gabarit brut : `{{Prénom}}` dans une ligne
+d'objet est exactement le genre d'anomalie qu'un filtre pèse, et une
+copie notée là-dessus mesurerait elle-même au lieu de mesurer la
+campagne — la raison pour laquelle le tampon voyage déjà dans un en-tête
+et non dans le sujet. La copie est donc **rendue aussi, mais depuis la
+ligne de personne** : chaque colonne est remplacée par son propre
+en-tête, « Bonjour Prénom ». Même forme, même longueur, aucune valeur —
+et la même chaîne pour toutes les boîtes, ce qui est aussi ce qui en
+fait une mesure plutôt qu'un échantillon. `SeedCopyContent` porte
+désormais le sujet, parce qu'il se personnalise comme le corps et qu'il
+est la seule ligne que toute boîte affiche dans sa liste.
+
 ### Reporté
 
 - **Rapprocher un fournisseur de messagerie d'un domaine destinataire
