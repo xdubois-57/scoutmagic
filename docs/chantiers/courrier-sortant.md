@@ -1962,6 +1962,37 @@ Le montage de test avait la même lacune, ce qui aurait rendu le nouveau
 test creux — il est passé au premier essai pour cette raison, avant
 câblage, ce qui est le signal qu'il fallait lire.
 
+### Le publipostage ne se portait pas garant de ses propres destinataires
+
+La garde de suppression de `MailService::send()` est entièrement
+conditionnée à `$vouchesForRecipient`. Or la documentation de ce
+paramètre nomme elle-même les trois appels qui doivent le poser : « une
+notification à un membre, un document envoyé à la personne qu'il
+concerne, **un publipostage** ». Les deux premiers passaient `true`. Le
+troisième — l'envoi de masse lui-même — ne le passait pas, donc la garde
+vivante ne s'est jamais déclenchée pour le courrier de masse.
+
+Le gel filtre bien les adresses bloquées, mais **une seule fois**, au
+moment de la mise en file. Un lot se vide ensuite sur une cadence qui
+s'étale sur des heures, et une adresse bloquée *pendant* ce parcours —
+typiquement parce qu'elle a fait rebondir un lot précédent du même
+publipostage — continuait de recevoir tous les lots suivants, le seul
+contrôle restant étant cet instantané périmé. Exactement les adresses que
+le site venait de décider de ne plus écrire.
+
+Correction d'un argument. Le refus qui en découle est attrapé avant le
+cas général pour que la page de suivi garde un seul vocabulaire :
+« Adresse suspendue après des refus répétés », la phrase que le gel écrit
+déjà pour une adresse bloquée avant l'envoi. Le message de l'exception,
+lui, est écrit pour le **membre** — il nomme sa page d'adresses — et
+cette colonne est lue par le staff.
+
+**Une erreur de ma part en chemin**, notée parce qu'elle dit quelque
+chose : j'ai d'abord incrémenté un `$failedCount` qui n'existe pas, le
+compteur réel étant `$errorCount`. Relue avant exécution, donc sans
+conséquence — mais c'est le genre de détail qu'une garde de sécurité
+ajoutée à la hâte emporte avec elle.
+
 ### Écarts et limites, assumés
 
 **La preuve d'envoi réduit la falsification, elle ne la supprime pas.** La

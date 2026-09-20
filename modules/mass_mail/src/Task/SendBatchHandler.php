@@ -187,7 +187,24 @@ class SendBatchHandler implements TaskHandlerInterface
                         'List-Unsubscribe' => '<' . $unsubscribeUrl . '>',
                         'List-Unsubscribe-Post' => 'List-Unsubscribe=One-Click',
                     ],
-                    \Core\Mail\MailPurpose::Bulk
+                    \Core\Mail\MailPurpose::Bulk,
+                    // **The mailing vouches, and the docblock of this
+                    // parameter always said it should** — « une
+                    // notification à un membre, un document envoyé à la
+                    // personne qu'il concerne, un publipostage ». The
+                    // other two passed `true`; this one, the mailing
+                    // itself, did not, so the live suppression gate never
+                    // fired for mass mail at all.
+                    //
+                    // The freeze filters blocked addresses once, when the
+                    // mailing is queued. But a batch drains over a cadence
+                    // that spans hours, and an address that gets blocked
+                    // DURING that run — typically by bouncing an earlier
+                    // batch of this very mailing — kept receiving every
+                    // later batch, because the only remaining check was
+                    // that stale snapshot. Precisely the addresses the
+                    // site had just decided to stop writing to.
+                    vouchesForRecipient: true
                 );
                 $recipientRepository->recordSendSuccess($recipient->id);
                 // **The module vouches for its own list addresses**
@@ -246,6 +263,20 @@ class SendBatchHandler implements TaskHandlerInterface
                     $email->listType === Email::LIST_TYPE_MAIL_MERGE
                         && $mergeRenderer->containsToken($email->subject)
                 );
+            } catch (\Core\Mail\SuppressedRecipientException) {
+                // Caught ahead of the general case so the tracking page
+                // keeps one vocabulary: the freeze writes this same
+                // sentence for an address already blocked when the mailing
+                // was queued, and this is the same situation noticed a few
+                // batches later. The exception's own message is written
+                // for the MEMBER — it names their address page — and this
+                // column is read by staff.
+                $recipientRepository->recordSendFailure(
+                    $recipient->id,
+                    'Adresse suspendue après des refus répétés'
+                );
+                $errorCount++;
+                continue;
             } catch (MailException $e) {
                 // $e->getMessage() is a transport-level error (SMTP
                 // response, connection failure) built from PHPMailer's
