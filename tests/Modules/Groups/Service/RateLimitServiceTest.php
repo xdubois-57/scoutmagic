@@ -63,13 +63,18 @@ class RateLimitServiceTest extends TestCase
 
     public function testThePostAndReplyBudgetsAreSeparate(): void
     {
+        $spent = false;
         try {
             for ($i = 0; $i < 100; $i++) {
                 $this->service->checkAndRecord(3, RateLimitService::ACTION_POST);
             }
         } catch (GroupsException) {
-            // expected: the post budget is now spent
+            $spent = true;
         }
+
+        // The premise, asserted: a post budget that never ran out would
+        // make everything below say nothing at all.
+        $this->assertTrue($spent, 'the post budget must really be spent');
 
         // Being unable to start a new thread must not stop someone
         // answering an existing one.
@@ -80,13 +85,16 @@ class RateLimitServiceTest extends TestCase
 
     public function testTheBudgetIsPerMember(): void
     {
+        $spent = false;
         try {
             for ($i = 0; $i < 100; $i++) {
                 $this->service->checkAndRecord(3, RateLimitService::ACTION_POST);
             }
         } catch (GroupsException) {
-            // expected
+            $spent = true;
         }
+
+        $this->assertTrue($spent, 'member 3\'s post budget must really be spent');
 
         $this->service->checkAndRecord(4, RateLimitService::ACTION_POST);
 

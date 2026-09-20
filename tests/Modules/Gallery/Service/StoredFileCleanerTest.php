@@ -79,16 +79,22 @@ class StoredFileCleanerTest extends TestCase
 
     public function testDeleteIsANoOpForNull(): void
     {
+        $kept = $this->createStoredFile();
+
         $this->cleaner->delete(null);
 
-        $this->assertTrue(true);
+        $this->assertNotNull($this->fileRepository->findById($kept));
+        $this->assertFileExists($this->storagePath . '/gallery/1/orig/abc.jpg');
     }
 
     public function testDeleteIsANoOpForAnUnknownFileId(): void
     {
+        $kept = $this->createStoredFile();
+
         $this->cleaner->delete(999999);
 
-        $this->assertTrue(true);
+        $this->assertNotNull($this->fileRepository->findById($kept));
+        $this->assertFileExists($this->storagePath . '/gallery/1/orig/abc.jpg');
     }
 
     public function testDeleteLeavesOtherFilesAlone(): void

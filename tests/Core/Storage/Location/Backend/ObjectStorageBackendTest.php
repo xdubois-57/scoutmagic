@@ -453,15 +453,22 @@ class ObjectStorageBackendTest extends TestCase
 
     public function testDeletePrefixIssuesNoDeleteWhenNothingIsListed(): void
     {
+        $calls = 0;
         $mock = new MockHandler();
-        $mock->append(fn() => new Result(['Contents' => [], 'IsTruncated' => false]));
-        // A second queued response would only be consumed by a stray
-        // deleteObjects call.
-        $mock->appendException(new \RuntimeException('should not be called'));
+        $mock->append(function () use (&$calls) {
+            $calls++;
+            return new Result(['Contents' => [], 'IsTruncated' => false]);
+        });
+        // Queued but never reached: only a stray deleteObjects would take
+        // it, and the count below says which of the two actually happened.
+        $mock->append(function () use (&$calls) {
+            $calls++;
+            return new Result([]);
+        });
 
         $this->backendWithMockClient($mock)->deletePrefix('5');
 
-        $this->assertTrue(true);
+        $this->assertSame(1, $calls, 'the empty listing must be the only call issued');
     }
 
     /**

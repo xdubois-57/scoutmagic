@@ -219,8 +219,16 @@ class MigrateAlbumStorageHandlerTest extends TestCase
 
     public function testIsANoOpForADeletedAlbum(): void
     {
+        // An album deleted between the queueing and the run: the album
+        // that is actually migrating must not be moved in its place.
+        $this->createMediaWithFiles();
+        $this->startMigration();
+
         (new MigrateAlbumStorageHandler())->handle(['album_id' => 999999], $this->buildContext());
-        $this->assertTrue(true);
+
+        $album = $this->albumRepository->findById($this->albumId);
+        $this->assertSame(Album::MIGRATION_IN_PROGRESS, $album->migrationStatus);
+        $this->assertSame($this->sourceId, $album->locationId);
     }
 
     public function testIsANoOpWhenTheTargetLocationWasDeletedMidFlight(): void
