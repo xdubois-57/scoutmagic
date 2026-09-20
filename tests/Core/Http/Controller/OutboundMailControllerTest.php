@@ -54,6 +54,7 @@ class OutboundMailControllerTest extends TestCase
     private OutboundMailController $controller;
     /** @var list<mixed> the arguments $controller was built from */
     private array $controllerArguments = [];
+    private \Core\Mail\Transport\DomainPreferences $mailPreferences;
     private string $secretsDirectory = '';
     private SettingService $settings;
     private \Core\Mail\Transport\DeferredMailRepository $deferred;
@@ -110,6 +111,31 @@ class OutboundMailControllerTest extends TestCase
             false,
             58
         );
+        $settings->register(
+            \Core\Mail\Feedback\Seed\DomainRouting::SETTING_AUTOMATIC,
+            '0',
+            'boolean',
+            'Routage automatique',
+            '',
+            null,
+            null,
+            null,
+            false,
+            59
+        );
+        $settings->register(
+            \Core\Mail\Transport\DomainPreferences::SETTING_KEY,
+            '',
+            'text',
+            'Routage par domaine',
+            '',
+            null,
+            null,
+            null,
+            false,
+            60
+        );
+        $this->mailPreferences = new \Core\Mail\Transport\DomainPreferences($settings);
         // Kept as a list rather than spent on the spot, because the two
         // probe arguments are optional and the sub-page has a whole
         // branch for an installation that did not build them. Dropping
@@ -212,6 +238,11 @@ class OutboundMailControllerTest extends TestCase
                 $settings
             ),
             $this->seedCopies,
+            // REAL again, and with a real lane chain behind it: with null
+            // the recommendation table is simply absent and every
+            // assertion about what it offers would hold whatever the code
+            // does.
+            $this->seedRouting($directory),
         ];
         $this->controller = new OutboundMailController(...$this->controllerArguments);
 
@@ -317,6 +348,8 @@ class OutboundMailControllerTest extends TestCase
             'the DMARC reports' => ['GET', '/config/courrier-sortant/dmarc'],
             'the seed mailboxes' => ['GET', '/config/courrier-sortant/temoins'],
             'toggling the seed copies' => ['POST', '/config/courrier-sortant/temoins/activation'],
+            'routing a domain' => ['POST', '/config/courrier-sortant/temoins/routage'],
+            'the automatic routing switch' => ['POST', '/config/courrier-sortant/temoins/routage-automatique'],
         ];
     }
 
@@ -476,6 +509,26 @@ class OutboundMailControllerTest extends TestCase
      * bounce pair instead, and the probe test went on passing while
      * testing something else. Positions move; names do not.
      */
+    /**
+     * The routing, built fresh.
+     *
+     * Rebuilt rather than reused because `DomainRouting` memoises the
+     * mailing chain: a test that adds a relay and then asks the
+     * controller built in `setUp()` would be asking about the chain as it
+     * was when nothing had been configured.
+     */
+    private function seedRouting(\Core\Mail\Transport\MailProviderDirectory $directory):
+        \Core\Mail\Feedback\Seed\DomainRouting
+    {
+        return new \Core\Mail\Feedback\Seed\DomainRouting(
+            $this->seedCopies,
+            $this->settings,
+            $this->mailPreferences,
+            new \Core\Mail\Transport\LaneChainRepository($this->pdo),
+            $directory
+        );
+    }
+
     private function controllerWithout(string ...$omitted): OutboundMailController
     {
         // **Positions read off the constructor itself**, not written
@@ -722,6 +775,181 @@ class OutboundMailControllerTest extends TestCase
         $this->controller->toggleSeeds($stale, []);
 
         $this->assertFalse($this->seedMailboxes->isEnabled());
+    }
+
+    // ── routing by domain, the button and the switch (D13) ────────────
+
+    /**
+     * Two relays on the mailing lane, and a controller that has read
+     * them.
+     */
+    private function controllerWithTwoRelays(): OutboundMailController
+    {
+        $ids = [];
+        foreach (['Premier', 'Second'] as $position => $name) {
+            $statement = $this->pdo->prepare(
+                'INSERT INTO mail_providers (name, secret_prefix, batch_size, batch_interval_minutes)
+                 VALUES (?, ?, 50, 10)'
+            );
+            $statement->execute([$name, 'mail_provider_' . $name]);
+            $ids[] = (int) $this->pdo->lastInsertId();
+
+            $entry = $this->pdo->prepare(
+                'INSERT INTO mail_lane_entries (lane, provider_id, position, is_enabled) VALUES (?, ?, ?, 1)'
+            );
+            $entry->execute([\Core\Mail\Transport\MailLane::Bulk->value, end($ids), $position + 1]);
+        }
+
+        $arguments = $this->controllerArguments;
+        $positions = [];
+        foreach ((new \ReflectionMethod(OutboundMailController::class, '__construct'))->getParameters() as $p) {
+            $positions[$p->getName()] = $p->getPosition();
+        }
+        $arguments[$positions['routing']] = $this->seedRouting($arguments[$positions['directory']]);
+
+        return new OutboundMailController(...$arguments);
+    }
+
+    /** A provider the figures plainly condemn, over enough mailings. */
+    private function recordTrouble(string $address = 'temoin@gmail.com'): void
+    {
+        for ($i = 0; $i < \Core\Mail\Feedback\Seed\DomainRouting::MINIMUM_RUNS; $i++) {
+            $sent = new \DateTimeImmutable('-1 day');
+            $this->seedCopies->claim('envoi-' . $i, $address, $sent);
+            $this->seedCopies->recordLanding('envoi-' . $i, $address, 'Junk', $sent);
+        }
+    }
+
+    /**
+     * **The button D13 asks for by name**: « l'écran affiche le constat
+     * et un bouton pour appliquer ».
+     */
+    public function testTheScreenOffersToRouteATroubledProvider(): void
+    {
+        $this->recordTrouble();
+
+        $body = (string) $this->controllerWithTwoRelays()->seeds($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('Passer par Second', $body);
+    }
+
+    /**
+     * **With one relay there is nowhere to route to**, which is most
+     * units, and the screen says so rather than drawing a button that
+     * would explain nothing when it did nothing.
+     */
+    public function testWithASingleRelayTheScreenSaysSoInsteadOfOfferingAButton(): void
+    {
+        $this->recordTrouble();
+
+        $body = (string) $this->controller->seeds($this->getRequest(), [])->getBody();
+
+        $this->assertStringNotContainsString('Passer par', $body);
+        $this->assertStringContainsString('Un seul relais', $body);
+    }
+
+    /** Applying writes the decision where the transport reads it. */
+    public function testApplyingRoutesTheDomainAndJournalsItAtSecurity(): void
+    {
+        $controller = $this->controllerWithTwoRelays();
+
+        $response = $controller->routeSeeds($this->formRequest(['domain' => 'gmail.com']), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertNotNull($this->mailPreferences->forDomain('gmail.com'));
+
+        $row = $this->journalRow('mail_seed_routing_changed');
+        $this->assertNotNull($row);
+        $this->assertSame('security', $row['level']);
+        $this->assertStringContainsString('gmail.com', (string) $row['context']);
+    }
+
+    /** And undoing it puts the domain back under the lane's own order. */
+    public function testUndoingPutsTheDomainBackUnderTheLanesOrder(): void
+    {
+        $controller = $this->controllerWithTwoRelays();
+        $controller->routeSeeds($this->formRequest(['domain' => 'gmail.com']), []);
+
+        $controller->routeSeeds($this->formRequest(['domain' => 'gmail.com', 'undo' => '1']), []);
+
+        $this->assertNull($this->mailPreferences->forDomain('gmail.com'));
+    }
+
+    /** With nowhere to route to, the answer is an error and no decision. */
+    public function testApplyingWithoutAnAlternativeSaysSoAndWritesNothing(): void
+    {
+        $response = $this->controller->routeSeeds($this->formRequest(['domain' => 'gmail.com']), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertNull($this->mailPreferences->forDomain('gmail.com'));
+    }
+
+    /** A stale token routes nothing, like every other POST here. */
+    public function testAStaleTokenRoutesNothing(): void
+    {
+        $_POST = [];
+        $stale = new Request(
+            'POST',
+            '/config/courrier-sortant/temoins/routage',
+            [],
+            ['_csrf_token' => 'périmé', 'domain' => 'gmail.com'],
+            [],
+            []
+        );
+
+        $this->controllerWithTwoRelays()->routeSeeds($stale, []);
+
+        $this->assertNull($this->mailPreferences->forDomain('gmail.com'));
+    }
+
+    /** The second lock of D13, and it starts off. */
+    public function testTheAutomaticSwitchIsOffUntilSomebodyTurnsItOn(): void
+    {
+        // The switch lives on the recommendation card, so there has to be
+        // something to recommend: an automatism offered before a single
+        // mailing has been measured would be a switch with no reading
+        // behind it.
+        $this->recordTrouble();
+
+        $body = (string) $this->controllerWithTwoRelays()->seeds($this->getRequest(), [])->getBody();
+        $this->assertStringContainsString('Appliquer automatiquement', $body);
+
+        $this->controller->toggleRouting($this->formRequest(['enabled' => '1']), []);
+
+        $this->assertSame(
+            '1',
+            $this->settings->get(\Core\Mail\Feedback\Seed\DomainRouting::SETTING_AUTOMATIC)
+        );
+        $row = $this->journalRow('mail_seed_routing_automatic_toggled');
+        $this->assertNotNull($row);
+        $this->assertSame('security', $row['level']);
+    }
+
+    public function testTurningTheAutomaticSwitchBackOffIsJournalledToo(): void
+    {
+        $this->controller->toggleRouting($this->formRequest(['enabled' => '1']), []);
+        $this->controller->toggleRouting($this->formRequest(['enabled' => '0']), []);
+
+        $this->assertSame(
+            '0',
+            $this->settings->get(\Core\Mail\Feedback\Seed\DomainRouting::SETTING_AUTOMATIC)
+        );
+    }
+
+    /**
+     * **The page says the remedy is not free**, which is the half of D13
+     * a table of figures cannot carry: sending part of the volume
+     * elsewhere gives each relay less of the regular traffic its standing
+     * depends on.
+     */
+    public function testThePageSaysWhatChangingRelayCosts(): void
+    {
+        $this->recordTrouble();
+
+        $body = (string) $this->controllerWithTwoRelays()->seeds($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString("n'est pas gratuit", $body);
     }
 
     /**

@@ -329,6 +329,12 @@ class OutboundMailController extends AbstractController
             'readings' => $this->routing?->readings($since) ?? [],
             'routing_automatic' => $this->routing?->isAutomatic() ?? false,
             'minimum_runs' => \Core\Mail\Feedback\Seed\DomainRouting::MINIMUM_RUNS,
+            // Two relays on the mailing lane is what makes « appliquer »
+            // mean anything. Below that the screen says so rather than
+            // drawing a button that would explain nothing when it did
+            // nothing: a unit with one relay answers a provider filtering
+            // its mail by changing what it sends, not where from.
+            'bulk_relays' => count($this->routing?->bulkChain() ?? []),
             'current_path' => self::SEEDS_URL,
             'inbound_url' => '/config/courrier-entrant',
         ]);
@@ -382,6 +388,119 @@ class OutboundMailController extends AbstractController
         );
 
         return $this->redirect(self::SEEDS_URL);
+    }
+
+    /**
+     * POST .../temoins/routage — apply, or undo, the recommendation for
+     * one recipient domain (D13).
+     *
+     * **A button, not an automatism**, which is what D13 turns on: the
+     * page shows the finding and a person decides, because splitting a
+     * sender's volume costs each relay the regular traffic its reputation
+     * rests on and that price is not the site's to pay unasked.
+     *
+     * Journalled at `security` like every other change to how mail leaves
+     * this site. A recipient domain is a mail provider, not a person —
+     * « gmail.com » names a company the way « Brevo » does — so both ends
+     * of the decision are named and the line is worth reading afterwards.
+     *
+     * @param array<string, string> $params
+     */
+    public function routeSeeds(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, self::SEEDS_URL)) !== null) {
+            return $guard;
+        }
+
+        if ($this->routing === null) {
+            FlashMessage::set('error', self::SEEDS_UNAVAILABLE);
+
+            return $this->redirect(self::SEEDS_URL);
+        }
+
+        $domain = trim((string) $request->getBody('domain', ''));
+        $undo = (string) $request->getBody('undo', '0') === '1';
+
+        if ($undo) {
+            if ($this->routing->clear($domain)) {
+                $this->journalRouting($domain, null);
+                FlashMessage::set('success', 'Ce fournisseur repasse par l\'ordre habituel de la voie masse.');
+            }
+
+            return $this->redirect(self::SEEDS_URL);
+        }
+
+        $moved = $this->routing->apply($domain);
+        if ($moved === null) {
+            FlashMessage::set(
+                'error',
+                'Aucun autre relais disponible sur la voie masse : il n\'y a nulle part où router ces envois.'
+            );
+
+            return $this->redirect(self::SEEDS_URL);
+        }
+
+        $this->journalRouting($domain, $moved->name);
+        FlashMessage::set(
+            'success',
+            'Les publipostages vers ce fournisseur partiront d\'abord par « ' . $moved->name . ' ».'
+        );
+
+        return $this->redirect(self::SEEDS_URL);
+    }
+
+    /**
+     * POST .../temoins/routage-automatique — the second lock of D13.
+     *
+     * **The switch is explicit and it stays off until somebody says
+     * otherwise.** With it on, the daily sweep applies the recommendation
+     * for a provider that has crossed the minimum sample — once per
+     * domain, never undoing — so the two locks the roadmap asks for are
+     * both in force: this switch, and
+     * `DomainRouting::MINIMUM_RUNS`.
+     *
+     * @param array<string, string> $params
+     */
+    public function toggleRouting(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, self::SEEDS_URL)) !== null) {
+            return $guard;
+        }
+
+        $wanted = (string) $request->getBody('enabled', '0') === '1';
+        $this->settings->setInternal(
+            \Core\Mail\Feedback\Seed\DomainRouting::SETTING_AUTOMATIC,
+            $wanted ? '1' : '0'
+        );
+
+        $this->journal->log(
+            'core',
+            'mail_seed_routing_automatic_toggled',
+            'security',
+            $wanted ? 'Routage par domaine automatique activé' : 'Routage par domaine automatique désactivé',
+            ['enabled' => $wanted]
+        );
+
+        FlashMessage::set(
+            'success',
+            $wanted
+                ? 'Le site appliquera de lui-même ce que les boîtes témoins recommandent.'
+                : 'Le site se contente désormais d\'afficher la recommandation.'
+        );
+
+        return $this->redirect(self::SEEDS_URL);
+    }
+
+    /** One shape for both directions, so neither can drift from the other. */
+    private function journalRouting(string $domain, ?string $relay): void
+    {
+        $this->journal->log(
+            'core',
+            'mail_seed_routing_changed',
+            'security',
+            $relay === null ? 'Routage par domaine retiré' : 'Routage par domaine appliqué',
+            ['domain' => $domain, 'relay' => $relay]
+        );
     }
 
     /**

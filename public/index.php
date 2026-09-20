@@ -2222,6 +2222,10 @@ $mailTransport = \Core\Mail\Transport\MailTransportFactory::build(
 $mailTransportChain = $mailTransport['chain'];
 $mailProviderDirectory = $mailTransport['directory'];
 $providerConnections = $mailTransport['connections'];
+// Which relay a recipient domain's mailings try first, on the bulk lane
+// and nowhere else (roadmap IT-07, D13). Read by the chain on every
+// message, written by the « Boîtes témoins » page and by the daily sweep.
+$mailDomainPreferences = $mailTransport['preferences'];
 
 // The queue a message falls into when its whole lane has run out (D9).
 // Built here rather than inside MailServiceFactory because it needs the
@@ -4138,6 +4142,21 @@ $router->addRoute(
     '/config/courrier-sortant/temoins/activation',
     \Core\Http\Controller\OutboundMailController::class,
     'toggleSeeds',
+    'superadmin',
+);
+// D13's « appliquer » button, and the switch that does without it.
+$router->addRoute(
+    'POST',
+    '/config/courrier-sortant/temoins/routage',
+    \Core\Http\Controller\OutboundMailController::class,
+    'routeSeeds',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/courrier-sortant/temoins/routage-automatique',
+    \Core\Http\Controller\OutboundMailController::class,
+    'toggleRouting',
     'superadmin',
 );
 $router->addRoute(
@@ -7086,7 +7105,10 @@ $frontController->registerController(
             ? null
             : new \Core\Mail\Feedback\Seed\DomainRouting(
                 new \Core\Mail\Feedback\Seed\SeedCopyRepository($pdo, $encryptionService),
-                $settingService
+                $settingService,
+                $mailDomainPreferences,
+                new \Core\Mail\Transport\LaneChainRepository($pdo),
+                $mailProviderDirectory
             )
     )
 );

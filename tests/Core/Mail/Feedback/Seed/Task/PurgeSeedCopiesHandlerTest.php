@@ -13,10 +13,13 @@ use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Mail\Feedback\Seed\DomainRouting;
 use Core\Mail\Feedback\Seed\SeedCopyRepository;
 use Core\Mail\Feedback\Seed\SeedVerdict;
 use Core\Mail\Feedback\Seed\Task\PurgeSeedCopiesHandler;
 use Core\Mail\MailService;
+use Core\Mail\Transport\DomainPreferences;
+use Core\Mail\Transport\MailLane;
 use Core\Scheduler\TaskContext;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
@@ -25,13 +28,14 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
 /**
- * « Pas encore » et « jamais » sont deux réponses, et c'est ici qu'on
- * tranche (roadmap IT-07).
+ * « Not yet » and « never » are two different answers, and this is where
+ * the site decides which one it is looking at (roadmap IT-07).
  */
 #[Group('database')]
 class PurgeSeedCopiesHandlerTest extends TestCase
 {
     private \PDO $pdo;
+    private SettingService $settings;
     private TaskContext $context;
     private SeedCopyRepository $copies;
 
@@ -41,15 +45,56 @@ class PurgeSeedCopiesHandlerTest extends TestCase
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->copies = new SeedCopyRepository($this->pdo, $encryption);
 
+        $this->settings = new SettingService(new SettingRepository($this->pdo));
+        foreach (
+            [
+                [DomainRouting::SETTING_AUTOMATIC, '0', 'boolean', 59],
+                [DomainPreferences::SETTING_KEY, '', 'text', 60],
+            ] as [$key, $default, $type, $order]
+        ) {
+            $this->settings->register($key, $default, $type, $key, '', null, null, null, false, $order);
+        }
+
         $this->context = new TaskContext(
             Connection::withPdo($this->pdo),
             $encryption,
             $this->createMock(MailService::class),
             new JournalService(new JournalRepository($this->pdo)),
-            new SettingService(new SettingRepository($this->pdo)),
+            $this->settings,
             new UserAccountRepository($this->pdo, $encryption),
             sys_get_temp_dir()
         );
+    }
+
+    /** Two relays on the mailing lane, so « applying » has somewhere to go. */
+    private function twoRelays(): int
+    {
+        $ids = [];
+        foreach (['Premier', 'Second'] as $position => $name) {
+            $statement = $this->pdo->prepare(
+                'INSERT INTO mail_providers (name, secret_prefix, batch_size, batch_interval_minutes)
+                 VALUES (?, ?, 50, 10)'
+            );
+            $statement->execute([$name, 'mail_provider_' . $name]);
+            $ids[] = $id = (int) $this->pdo->lastInsertId();
+
+            $entry = $this->pdo->prepare(
+                'INSERT INTO mail_lane_entries (lane, provider_id, position, is_enabled) VALUES (?, ?, ?, 1)'
+            );
+            $entry->execute([MailLane::Bulk->value, $id, $position + 1]);
+        }
+
+        return $ids[1];
+    }
+
+    /** A provider that has plainly been filing this unit's mailings away. */
+    private function troubledProvider(string $address = 'temoin@gmail.com'): void
+    {
+        for ($i = 0; $i < DomainRouting::MINIMUM_RUNS; $i++) {
+            $sent = new \DateTimeImmutable('-1 day');
+            $this->copies->claim('envoi-' . $i, $address, $sent);
+            $this->copies->recordLanding('envoi-' . $i, $address, 'Junk', $sent);
+        }
     }
 
     /**
@@ -158,5 +203,146 @@ class PurgeSeedCopiesHandlerTest extends TestCase
         $statement->execute();
 
         return (int) $statement->fetchColumn();
+    }
+
+    // ── the automatism, and its two locks (D13) ───────────────────────
+
+    /**
+     * **With the switch off, nothing moves however bad the figures are.**
+     * That is the default state of every installation, and it is the
+     * whole of D13: the remedy — splitting a sender's volume — costs each
+     * relay the regular traffic its reputation rests on, and that price
+     * is not the site's to pay unasked.
+     */
+    public function testWithTheSwitchOffNothingIsRouted(): void
+    {
+        $this->twoRelays();
+        $this->troubledProvider();
+
+        (new PurgeSeedCopiesHandler())->handle([], $this->context);
+
+        $this->assertNull((new DomainPreferences($this->settings))->forDomain('gmail.com'));
+    }
+
+    public function testWithTheSwitchOnATroubledProviderIsRouted(): void
+    {
+        $second = $this->twoRelays();
+        $this->troubledProvider();
+        $this->settings->setInternal(DomainRouting::SETTING_AUTOMATIC, '1');
+
+        (new PurgeSeedCopiesHandler())->handle([], $this->context);
+
+        $this->assertSame($second, (new DomainPreferences($this->settings))->forDomain('gmail.com'));
+    }
+
+    /**
+     * **Once per domain, and this is the case that matters.** `apply()`
+     * moves a domain to the NEXT relay of the chain, so a sweep that
+     * applied again every day on a provider that stayed troubled would
+     * walk that domain around the chain for ever — changing where a
+     * unit's mail comes from daily, which destroys exactly the regular
+     * traffic D13 weighs the remedy against.
+     */
+    public function testARoutedDomainIsNotRoutedAgainTheNextDay(): void
+    {
+        $second = $this->twoRelays();
+        $this->troubledProvider();
+        $this->settings->setInternal(DomainRouting::SETTING_AUTOMATIC, '1');
+
+        // An EVEN number of further sweeps, deliberately. With two relays
+        // the chain wraps, so three sweeps would land back on the second
+        // one and the assertion would hold whether the guard was there or
+        // not — a test that cannot fail. Two is the discriminating count.
+        (new PurgeSeedCopiesHandler())->handle([], $this->context);
+        (new PurgeSeedCopiesHandler())->handle([], $this->context);
+
+        $this->assertSame(
+            $second,
+            (new DomainPreferences($this->settings))->forDomain('gmail.com'),
+            'Two sweeps, one decision.'
+        );
+    }
+
+    /** A provider that is fine is left where the lane put it. */
+    public function testAProviderWithNothingWrongIsNotRouted(): void
+    {
+        $this->twoRelays();
+        for ($i = 0; $i < DomainRouting::MINIMUM_RUNS; $i++) {
+            $sent = new \DateTimeImmutable('-1 day');
+            $this->copies->claim('envoi-' . $i, 'temoin@gmail.com', $sent);
+            $this->copies->recordLanding('envoi-' . $i, 'temoin@gmail.com', 'INBOX', $sent);
+        }
+        $this->settings->setInternal(DomainRouting::SETTING_AUTOMATIC, '1');
+
+        (new PurgeSeedCopiesHandler())->handle([], $this->context);
+
+        $this->assertNull((new DomainPreferences($this->settings))->forDomain('gmail.com'));
+    }
+
+    /**
+     * The change is journalled at `security`, like every other change to
+     * how mail leaves this site — and it names domains and relays, which
+     * are companies, never an address, which is a person.
+     */
+    public function testRoutingIsJournalledAtSecurityWithoutAnyAddress(): void
+    {
+        $this->twoRelays();
+        $this->troubledProvider();
+        $this->settings->setInternal(DomainRouting::SETTING_AUTOMATIC, '1');
+
+        (new PurgeSeedCopiesHandler())->handle([], $this->context);
+
+        $statement = $this->pdo->prepare(
+            "SELECT level, context FROM event_log WHERE event_type = 'mail_seed_routing_applied'"
+        );
+        $statement->execute();
+        $row = $statement->fetch(\PDO::FETCH_ASSOC);
+
+        $this->assertNotFalse($row);
+        $this->assertSame('security', $row['level']);
+        $this->assertStringContainsString('gmail.com', (string) $row['context']);
+        $this->assertStringNotContainsString('temoin@', (string) $row['context']);
+    }
+
+    /** And a sweep that routed nothing says nothing. */
+    public function testASweepThatRoutedNothingWritesNoRoutingLine(): void
+    {
+        $this->twoRelays();
+        $this->settings->setInternal(DomainRouting::SETTING_AUTOMATIC, '1');
+
+        (new PurgeSeedCopiesHandler())->handle([], $this->context);
+
+        $statement = $this->pdo->prepare(
+            "SELECT COUNT(*) FROM event_log WHERE event_type = 'mail_seed_routing_applied'"
+        );
+        $statement->execute();
+
+        $this->assertSame(0, (int) $statement->fetchColumn());
+    }
+
+    /**
+     * **A unit with one relay is not routed anywhere**, switch or no
+     * switch: there is nowhere to route to, and a sweep that wrote a
+     * decision naming the relay already in use would leave a line on the
+     * screen saying nothing changed.
+     */
+    public function testWithASingleRelayTheSwitchChangesNothing(): void
+    {
+        $statement = $this->pdo->prepare(
+            'INSERT INTO mail_providers (name, secret_prefix, batch_size, batch_interval_minutes)
+             VALUES (?, ?, 50, 10)'
+        );
+        $statement->execute(['Premier', 'mail_provider_premier']);
+        $entry = $this->pdo->prepare(
+            'INSERT INTO mail_lane_entries (lane, provider_id, position, is_enabled) VALUES (?, ?, 1, 1)'
+        );
+        $entry->execute([MailLane::Bulk->value, (int) $this->pdo->lastInsertId()]);
+
+        $this->troubledProvider();
+        $this->settings->setInternal(DomainRouting::SETTING_AUTOMATIC, '1');
+
+        (new PurgeSeedCopiesHandler())->handle([], $this->context);
+
+        $this->assertSame([], (new DomainPreferences($this->settings))->all());
     }
 }

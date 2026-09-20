@@ -148,18 +148,22 @@
         </div>
     </div>
 
-    {# **La recommandation, et le fait que c'en soit une** (D13). Affichée
-       à côté des résultats plutôt qu'appliquée : avec trois à cinq boîtes
-       et quelques envois par an, router sur deux observations c'est
-       router sur du bruit, et fractionner le volume prive chaque relais
-       du trafic régulier dont sa réputation dépend. #}
+    {# **The recommendation, and the fact that it is one** (D13). A button
+       per provider, never a rule the site applies by itself: with three to
+       five boxes and a few mailings a year, routing on two observations is
+       routing on noise, and splitting the volume costs each relay the
+       regular traffic its reputation rests on. The automatism exists, but
+       behind the switch below and behind a minimum sample. #}
     {% if readings is not empty %}
         <div class="card mb-3">
             <div class="card-body">
                 <h2 class="h5">Ce que ces résultats suggèrent</h2>
                 <p class="text-body-secondary small">
-                    Le site n'applique rien de lui-même
-                    {% if routing_automatic %}<strong>— sauf que vous avez activé le routage automatique</strong>{% endif %}.
+                    {% if routing_automatic %}
+                        <strong>Le site applique de lui-même ce qui suit</strong>, parce que vous l'avez demandé.
+                    {% else %}
+                        Le site n'applique rien de lui-même : c'est le bouton de chaque ligne qui décide.
+                    {% endif %}
                     Il faut au moins <strong>{{ minimum_runs }} envois mesurés</strong> chez un fournisseur pour
                     qu'un constat veuille dire quelque chose : en dessous, une seule campagne malchanceuse fait
                     la majorité des observations.
@@ -174,6 +178,7 @@
                                 <th scope="col" class="text-end">Indésirables</th>
                                 <th scope="col" class="text-end">Jamais arrivés</th>
                                 <th scope="col">Constat</th>
+                                <th scope="col">Relais</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -199,11 +204,53 @@
                                             <span class="text-body-secondary small">{{ reading.verdict }}</span>
                                         {% endif %}
                                     </td>
+                                    <td>
+                                        {% if reading.routed_to %}
+                                            <span class="d-block small">{{ reading.routed_to }}</span>
+                                            <form method="post" action="{{ current_path }}/routage" class="d-inline">
+                                                {{ csrf_field()|raw }}
+                                                <input type="hidden" name="domain" value="{{ reading.provider }}">
+                                                <input type="hidden" name="undo" value="1">
+                                                <button type="submit" class="btn btn-link btn-sm p-0">
+                                                    Revenir à l'ordre habituel
+                                                </button>
+                                            </form>
+                                        {% elseif bulk_relays < 2 %}
+                                            <span class="text-body-secondary small">Un seul relais</span>
+                                        {% elseif reading.troubled and reading.alternative %}
+                                            <form method="post" action="{{ current_path }}/routage">
+                                                {{ csrf_field()|raw }}
+                                                <input type="hidden" name="domain" value="{{ reading.provider }}">
+                                                <button type="submit" class="btn btn-outline-primary btn-sm">
+                                                    Passer par {{ reading.alternative }}
+                                                </button>
+                                            </form>
+                                        {% else %}
+                                            <span class="text-body-secondary">—</span>
+                                        {% endif %}
+                                    </td>
                                 </tr>
                             {% endfor %}
                         </tbody>
                     </table>
                 </div>
+                {% if bulk_relays >= 2 %}
+                    <form method="post" action="{{ current_path }}/routage-automatique" class="mb-3">
+                        {{ csrf_field()|raw }}
+                        <input type="hidden" name="enabled" value="{{ routing_automatic ? '0' : '1' }}">
+                        <button type="submit" class="btn btn-sm {{ routing_automatic
+                            ? 'btn-outline-danger'
+                            : 'btn-outline-secondary' }}">
+                            {{ routing_automatic
+                                ? 'Ne plus appliquer automatiquement'
+                                : 'Appliquer automatiquement' }}
+                        </button>
+                        <span class="ms-2 text-body-secondary small">
+                            Une fois par fournisseur, jamais dans l'autre sens : revenir à l'ordre habituel
+                            reste votre décision.
+                        </span>
+                    </form>
+                {% endif %}
                 <p class="text-body-secondary small mb-0">
                     <strong>Changer de relais pour un fournisseur n'est pas gratuit.</strong> La réputation d'un
                     relais se construit sur un trafic régulier : en envoyer une partie ailleurs donne à chacun
