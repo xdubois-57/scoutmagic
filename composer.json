@@ -22,7 +22,8 @@
         "ifsnop/mysqldump-php": "^2.13",
         "webklex/php-imap": "^6.2",
         "setasign/fpdi": "^2.6",
-        "setasign/fpdf": "^1.8"
+        "setasign/fpdf": "^1.8",
+        "setasign/tfpdf": "^1.33"
     },
     "require-dev": {
         "phpunit/phpunit": "^13.3",
@@ -46,6 +47,7 @@
             "Modules\\MassMail\\": "modules/mass_mail/src/",
             "Modules\\MemberStats\\": "modules/member_stats/src/",
             "Modules\\News\\": "modules/news/src/",
+            "Modules\\OfficialDocuments\\": "modules/official_documents/src/",
             "Modules\\Presences\\": "modules/presences/src/",
             "Modules\\Registration\\": "modules/registration/src/",
             "Modules\\Rental\\": "modules/rental/src/",

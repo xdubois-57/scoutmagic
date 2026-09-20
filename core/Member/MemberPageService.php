@@ -20,6 +20,7 @@ use Core\Security\Role;
 use Modules\Calendar\Api\CalendarEventLookupInterface;
 use Modules\Gallery\Api\GalleryAlbumProvider;
 use Modules\MassMail\Api\MassMailQueryInterface;
+use Modules\OfficialDocuments\Api\MemberOfficialDocumentsProvider;
 
 /**
  * Orchestrates every data need of the member page (core/View/templates/
@@ -52,7 +53,20 @@ class MemberPageService
         private ?HookRegistry $hooks = null,
         private ?MassMailQueryInterface $massMailQuery = null,
         private ?GalleryAlbumProvider $galleryAlbumProvider = null,
-        private ?CalendarEventLookupInterface $calendarEventLookup = null
+        private ?CalendarEventLookupInterface $calendarEventLookup = null,
+        /**
+         * The official-documents block (ARCHITECTURE.md §7.5, §44 of the
+         * functional specification): two links and the one sentence that
+         * says why they are drafts. Null when the module is disabled, and
+         * the block is then not built at all — which is also the price
+         * that decision carries, stated in §44: no module, no parental
+         * authorization either.
+         *
+         * Self only, and that is the module's own rule rather than this
+         * page's: what the site stores is an unsigned draft, so an
+         * animateur reading it would be reading a version without value.
+         */
+        private ?MemberOfficialDocumentsProvider $officialDocuments = null
     ) {
     }
 
@@ -142,6 +156,12 @@ class MemberPageService
             'member_email_resend_cooldown_minutes' => $resendCooldownMinutes,
             'member_email_bounces' => $bounces,
             'gallery_albums' => $this->getGalleryAlbums($profile),
+            // Self only — never $showPersonal, which admits a chief. §44.1
+            // of the functional specification makes that an interdiction
+            // rather than a preference.
+            'official_documents' => $isSelf
+                ? $this->officialDocuments?->summaryFor($profile->memberYearId, $profile->memberId)
+                : null,
             'trombinoscope_enabled' => $this->hooks?->getOptional(SectionResponsableProvider::class) !== null,
             'calendar_enabled' => $this->calendarEventLookup !== null,
             // Distinct from the (possibly empty) lists above: the template

@@ -6272,6 +6272,40 @@ if ($isEnabled('calendar')) {
     );
 }
 
+// Documents officiels (specifications.md §44) — the federation's own forms,
+// pre-filled. Placed after the calendar block because its event picker
+// consumes $calendarEventLookupForOthers, which is null while that module
+// is off: the picker then disappears and the two date fields stay.
+//
+// The block this module contributes to a member's own page is wired further
+// down, where MemberPageService is rebuilt — the same place every other
+// optional page block is.
+$memberOfficialDocumentsProvider = null;
+if ($isEnabled('official_documents')) {
+    \Core\Debug\RequestTimeline::mark('module_official_documents');
+    $parentalAuthorizationService = new \Modules\OfficialDocuments\Service\ParentalAuthorizationService(
+        $memberService,
+        $sectionService,
+        $settingService,
+        $moduleHooks
+    );
+    $memberOfficialDocumentsProvider = new \Modules\OfficialDocuments\Service\MemberDocumentsSummaryService();
+
+    $frontController->registerController(
+        \Modules\OfficialDocuments\Controller\ParentalAuthorizationController::class,
+        new \Modules\OfficialDocuments\Controller\ParentalAuthorizationController(
+            $twig,
+            $memberService,
+            $userAccountRepo,
+            $parentalAuthorizationService,
+            new \Modules\OfficialDocuments\Service\ParentalAuthorizationPdfService(
+                \Modules\OfficialDocuments\Pdf\TemplateLibrary::shipped()
+            ),
+            $calendarEventLookupForOthers
+        )
+    );
+}
+
 // Presences declares `"requires": ["calendar"]`, so ModuleManager never
 // reports it enabled while the calendar is off — the null check below is
 // belt and braces, and it is what makes the dependency provable at the
@@ -10753,6 +10787,7 @@ if (
     || $isEnabled('trombinoscope')
     || $isEnabled('leadership')
     || $isEnabled('finance')
+    || $isEnabled('official_documents')
 ) {
     $massMailQueryForMember = $isEnabled('mass_mail')
         ? new \Modules\MassMail\Service\MassMailQueryService(
@@ -10784,6 +10819,7 @@ if (
         $massMailQueryForMember,
         $galleryAlbumProviderForMember,
         $calendarEventLookupForOthers,
+        $memberOfficialDocumentsProvider,
     );
 
     $frontController->registerController(
