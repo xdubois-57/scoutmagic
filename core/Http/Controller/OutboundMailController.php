@@ -303,6 +303,7 @@ class OutboundMailController extends AbstractController
     {
         $since = (new \DateTimeImmutable())->sub(new \DateInterval(self::SEEDS_WINDOW));
         $addresses = $this->seedMailboxes?->addresses() ?? [];
+        $runs = $this->seedRuns($since);
 
         return $this->render('config/outbound_mail/seeds.html.twig', [
             'available' => $this->seedMailboxes !== null && $this->seedCopies !== null,
@@ -314,9 +315,19 @@ class OutboundMailController extends AbstractController
             // (SECURITY.md §11). What the operator acts on is « combien »,
             // and the providers already show up as the result columns.
             'box_count' => count($addresses),
+            // The blind spot the default configuration has, counted so
+            // the screen can name it before the reader trusts a figure it
+            // makes wrong.
+            'blind_boxes' => $this->seedMailboxes?->boxesBlindToSpam() ?? 0,
             'suggested_maximum' => \Core\Mail\Feedback\Seed\SeedMailboxes::SUGGESTED_MAXIMUM,
             'providers' => $this->seedProviders($addresses),
-            'runs' => $this->seedRuns($since),
+            // **The columns come from the measurements, not from the
+            // boxes.** A box removed from the scope — or a module that
+            // cannot answer right now — must not make thirty days of
+            // results vanish from the page while the routing below goes
+            // on acting on them.
+            'columns' => $this->seedColumns($addresses, $runs),
+            'runs' => $runs,
             'window_days' => 30,
             // **The recommendation, and the fact that it is one** (D13).
             // Shown beside the results rather than acted on: with three to
@@ -479,6 +490,28 @@ class OutboundMailController extends AbstractController
         }
 
         $wanted = (string) $request->getBody('enabled', '0') === '1';
+
+        // **An automatism may not be armed on a measurement known to be
+        // blind.** A seed box that watches only its inbox cannot tell
+        // « indésirables » from « jamais arrivé » — it reports the second
+        // for both — and that is precisely the difference this switch
+        // would have the site act on, unattended, by moving a whole
+        // provider's mail to another relay. Refused rather than warned
+        // about: the screen already warns, and a switch that takes a
+        // decision no one will re-read afterwards is the one place where
+        // a warning is not enough. Turning it OFF is always allowed.
+        $blind = $this->seedMailboxes?->boxesBlindToSpam() ?? 0;
+        if ($wanted && $blind > 0) {
+            FlashMessage::set(
+                'error',
+                $blind . ' boîte(s) témoin(s) ne surveille(nt) pas leur dossier « Indésirables » : '
+                . 'un message classé en indésirables y est compté « jamais arrivé ». '
+                . 'Ajoutez ce dossier dans « Courrier entrant » avant d\'automatiser le routage.'
+            );
+
+            return $this->redirect(self::SEEDS_URL);
+        }
+
         $this->settings->setInternal(
             \Core\Mail\Feedback\Seed\DomainRouting::SETTING_AUTOMATIC,
             $wanted ? '1' : '0'
@@ -533,6 +566,44 @@ class OutboundMailController extends AbstractController
         }
 
         $names = array_keys($providers);
+        sort($names);
+
+        return $names;
+    }
+
+    /**
+     * The columns of the results table: every provider the unit measures
+     * with **and** every provider it has measured.
+     *
+     * The two are usually the same list, and the one case where they
+     * differ is the one that matters. `addresses()` answers about the
+     * boxes as they are *now*, and it answers `[]` rather than throwing
+     * when the module cannot be reached — so deriving the columns from it
+     * alone meant that removing one box, or a momentary failure to
+     * resolve `inbound_mail`, silently emptied a table whose rows were
+     * still there. The page would show « aucun résultat » for a period it
+     * had results for, while {@see DomainRouting} below went on
+     * recommending from those very rows.
+     *
+     * @param list<string> $addresses
+     * @param list<array{reference: string, sent_at: string, cells: array<string, mixed>}> $runs
+     *
+     * @return list<string>
+     */
+    private function seedColumns(array $addresses, array $runs): array
+    {
+        $columns = [];
+        foreach ($this->seedProviders($addresses) as $provider) {
+            $columns[$provider] = true;
+        }
+
+        foreach ($runs as $run) {
+            foreach (array_keys($run['cells']) as $provider) {
+                $columns[(string) $provider] = true;
+            }
+        }
+
+        $names = array_keys($columns);
         sort($names);
 
         return $names;

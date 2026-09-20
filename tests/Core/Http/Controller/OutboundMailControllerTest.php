@@ -725,6 +725,115 @@ class OutboundMailControllerTest extends TestCase
     }
 
     /**
+     * **A provider stops being measured; its measurements stay.**
+     *
+     * The columns used to be derived from the boxes as they are now, and
+     * `addresses()` answers `[]` rather than throwing when the module
+     * cannot be reached — so removing one box, or a single failed
+     * resolution, emptied a table whose rows were all still there. The
+     * page would read « rien mesuré » for a period it had measured,
+     * while the recommendation below went on acting on those very rows.
+     */
+    public function testAProviderNoLongerDeclaredKeepsTheResultsItProduced(): void
+    {
+        $now = new \DateTimeImmutable();
+        $this->seedCopies->claim('mass_mail:42', 'b@orange.fr', $now);
+        $this->seedCopies->recordLanding('mass_mail:42', 'b@orange.fr', 'Junk', $now);
+
+        // The box at that provider is gone from the scope since.
+        $controller = $this->controllerWithSeedAddresses(['a@gmail.com']);
+        $body = (string) $controller->seeds($this->getRequest(), [])->getBody();
+
+        // The results table's COLUMN, not merely the name somewhere on the
+        // page: the recommendation table below reads the same stored rows
+        // and would print « orange.fr » in a cell whatever this code does.
+        $this->assertStringContainsString('<th scope="col">orange.fr</th>', $body);
+        $this->assertStringContainsString('Indésirables', $body, 'and the verdict inside it.');
+    }
+
+    /**
+     * **The blind spot the default configuration has, named before the
+     * reader trusts a figure it makes wrong.**
+     *
+     * A mailbox is read in its INBOX and nowhere else until somebody
+     * names more folders. For a seed box that is not a limitation but a
+     * wrong answer: the copy filed as spam is never fetched, never
+     * recorded, and two days later the sweep writes « jamais arrivé » on
+     * it — the gravest verdict this screen has, produced systematically
+     * by the one outcome the screen exists to detect.
+     */
+    public function testABoxThatCannotSeeItsJunkFolderIsSaidSoOnThePage(): void
+    {
+        $controller = $this->controllerWithSeedBoxes(
+            ['a@gmail.com', 'b@outlook.com'],
+            [['INBOX'], ['INBOX', 'Junk']]
+        );
+
+        $body = (string) $controller->seeds($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('1 boîte(s) témoin(s) ne surveille(nt) pas', $body);
+        $this->assertStringContainsString('jamais arrivé', $body, 'and what it costs, in the page\'s own words.');
+    }
+
+    /** A unit that watches its junk folders is told nothing of the sort. */
+    public function testABoxWatchingItsJunkFolderRaisesNothing(): void
+    {
+        $controller = $this->controllerWithSeedBoxes(['a@gmail.com'], [['INBOX', 'Spam']]);
+
+        $body = (string) $controller->seeds($this->getRequest(), [])->getBody();
+
+        $this->assertStringNotContainsString('ne surveille(nt) pas', $body);
+    }
+
+    /**
+     * **And the automatism is refused outright while that is true**,
+     * which is the one place a warning is not enough: this switch moves a
+     * whole provider's mail to another relay, unattended, on the strength
+     * of a measurement that cannot tell « indésirables » from « jamais
+     * arrivé » — the very difference it would act on.
+     */
+    public function testTheAutomaticRoutingCannotBeArmedWhileABoxIsBlind(): void
+    {
+        $controller = $this->controllerWithSeedBoxes(['a@gmail.com'], [['INBOX']]);
+
+        $controller->toggleRouting($this->formRequest(['enabled' => '1']), []);
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame(
+            '0',
+            (string) ($this->settings->get(\Core\Mail\Feedback\Seed\DomainRouting::SETTING_AUTOMATIC) ?? '0'),
+            'and the switch is still off.'
+        );
+    }
+
+    /** Turning it OFF is never refused: that direction removes a risk. */
+    public function testTheAutomaticRoutingCanAlwaysBeTurnedOff(): void
+    {
+        $this->controller->toggleRouting($this->formRequest(['enabled' => '1']), []);
+        $controller = $this->controllerWithSeedBoxes(['a@gmail.com'], [['INBOX']]);
+
+        $controller->toggleRouting($this->formRequest(['enabled' => '0']), []);
+
+        $this->assertSame(
+            '0',
+            $this->settings->get(\Core\Mail\Feedback\Seed\DomainRouting::SETTING_AUTOMATIC)
+        );
+    }
+
+    /** With the junk folders watched, the switch arms as it always did. */
+    public function testTheAutomaticRoutingArmsWhenTheBoxesCanSeeTheirJunkFolder(): void
+    {
+        $controller = $this->controllerWithSeedBoxes(['a@gmail.com'], [['INBOX', 'Indésirables']]);
+
+        $controller->toggleRouting($this->formRequest(['enabled' => '1']), []);
+
+        $this->assertSame(
+            '1',
+            $this->settings->get(\Core\Mail\Feedback\Seed\DomainRouting::SETTING_AUTOMATIC)
+        );
+    }
+
+    /**
      * **The limit the page must state.** A seed box says where ITS copy
      * landed at ITS provider — not what each family saw, since filing
      * also depends on what that person has opened and marked before.
@@ -1001,6 +1110,24 @@ class OutboundMailControllerTest extends TestCase
     {
         $inbound = $this->createStub(\Modules\InboundMail\Api\InboundMailInterface::class);
         $inbound->method('probeAddressesFor')->willReturn($addresses);
+        $this->seedMailboxes->useInboundMail($inbound);
+
+        return $this->controller;
+    }
+
+    /**
+     * The same, saying which folders each of those boxes is read in —
+     * the answer the module gives about boxes it already reads, and the
+     * one that decides whether a spam verdict is observable at all.
+     *
+     * @param list<string> $addresses
+     * @param list<list<string>> $folders box for box, in the same order
+     */
+    private function controllerWithSeedBoxes(array $addresses, array $folders): OutboundMailController
+    {
+        $inbound = $this->createStub(\Modules\InboundMail\Api\InboundMailInterface::class);
+        $inbound->method('probeAddressesFor')->willReturn($addresses);
+        $inbound->method('watchedFoldersFor')->willReturn($folders);
         $this->seedMailboxes->useInboundMail($inbound);
 
         return $this->controller;

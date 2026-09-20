@@ -179,6 +179,56 @@ final class SeedMailboxes
     }
 
     /**
+     * How many seed boxes cannot see their own junk folder.
+     *
+     * **The measurement's blind spot, and it is the default.** A mailbox
+     * declared under « Courrier entrant » is read in its INBOX and
+     * nowhere else unless the operator names more folders
+     * (`Mailbox::watchedFolders()`). For every other consumer that is
+     * right — mail nobody sent to the inbox is mail nobody has to file.
+     * For this one it is the opposite: a copy the provider shelved as
+     * spam is then never fetched, never recorded, and two days later the
+     * sweep writes « jamais arrivé » on it. The screen would show its
+     * gravest badge for a message that was in fact delivered, and the
+     * routing would act on the difference — so a feature whose entire
+     * purpose is telling « réception » from « indésirables » would
+     * systematically report neither.
+     *
+     * It is a count, never a name: what an operator acts on is « two of
+     * your boxes », and a mailbox address has no business on a screen
+     * (SECURITY.md §11).
+     *
+     * A module that cannot answer is « nothing to report », like
+     * {@see self::addresses()}: a warning raised by a hiccup would teach
+     * its reader to ignore the warning.
+     */
+    public function boxesBlindToSpam(): int
+    {
+        try {
+            $watched = $this->module()?->watchedFoldersFor(self::CONSUMER_ID) ?? [];
+        } catch (\Throwable) {
+            return 0;
+        }
+
+        $blind = 0;
+        foreach ($watched as $folders) {
+            foreach ($folders as $folder) {
+                // The same vocabulary the verdict uses, deliberately: a
+                // folder this site would read as « Indésirables » is
+                // exactly the folder it needs to be watching, and two
+                // lists of provider folder names would drift apart.
+                if (SeedVerdict::fromFolder($folder) === SeedVerdict::Spam) {
+                    continue 2;
+                }
+            }
+
+            $blind++;
+        }
+
+        return $blind;
+    }
+
+    /**
      * What the header on a copy of this run must carry.
      *
      * A keyed tag rather than the bare reference, because a reference is

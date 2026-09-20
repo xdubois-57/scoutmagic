@@ -2445,6 +2445,57 @@ plus celle en vigueur est pire que de ne rien lui remettre.
 contrôleur oublie de la fournir, et tous les POST échouent alors au garde
 CSRF sans qu'aucun message ne le dise. `UxConventionsTest` l'a attrapé.
 
+### Ce que la relecture a trouvé
+
+**La cause est une et elle revient**, et je l'ai écrite aux relecteurs
+plutôt que de corriger cinq fois la même chose : presque tous les défauts
+de cette itération viennent d'un *fixture de test qui fabrique une
+condition que la production ne fournit pas*. Le câblage de `cron.php`, le
+réglage non enregistré, le garde de récursion, l'entrée d'envoi local
+absente de la voie, le corps personnalisé jamais exercé — à chaque fois
+le test passait parce qu'il s'était donné ce que le code n'obtient pas
+tout seul.
+
+**La copie arrivée après l'abandon coûtait un corps, pas un verdict.**
+`markMissingBefore()` n'observe rien : au bout de deux jours elle écrit
+« jamais arrivé » sur ce qui est encore en attente. Un fournisseur qui a
+gardé le message en file, ou une boîte relevée plus lentement, le livre
+ensuite — et l'écriture répondait alors faux, donc le consommateur ne
+reconnaissait pas le message, donc il ne demandait pas sa suppression,
+donc `store()` le conservait avec son corps. **Le publipostage complet,
+données des membres comprises, restait dans `inbound_messages`** — ce
+que la notice de confidentialité écrite dans cette même PR dit
+expressément qu'il ne fait pas. Une observation l'emporte désormais sur
+un abandon, et sur lui seul : un verdict lu dans un vrai dossier n'est
+jamais réécrit.
+
+**Une colonne disparaissait avec sa boîte.** Les colonnes du tableau se
+déduisaient des boîtes *actuelles*, et `addresses()` répond « aucune »
+plutôt que de lever quand le module est injoignable : retirer une boîte
+de la portée, ou un seul échec de résolution, vidait un tableau dont
+toutes les lignes étaient pourtant là. La page affichait « rien mesuré »
+pour une période mesurée, pendant que la recommandation, elle, continuait
+d'agir sur ces lignes. Les colonnes viennent maintenant des mesures.
+
+**Et le plus grave : la mesure était aveugle à ce qu'elle mesure.** Une
+boîte déclarée dans « Courrier entrant » est lue dans sa boîte de
+réception et nulle part ailleurs tant qu'on ne lui ajoute pas de
+dossiers. Pour toutes les autres boîtes c'est le bon réglage ; pour une
+boîte témoin c'est l'inverse : la copie classée en indésirables n'est
+jamais relevée, jamais consignée, et le balayage écrit « jamais arrivé »
+dessus deux jours plus tard. Le pire verdict de l'écran était donc
+produit, systématiquement, par le seul résultat que l'écran existe pour
+détecter — et ce faux « jamais arrivé » nourrissait ensuite la
+recommandation de routage.
+
+`Api\InboundMailInterface` gagne `watchedFoldersFor()` — des noms de
+dossiers, jamais une adresse — l'écran nomme les boîtes aveugles avant
+qu'on ne lise ses chiffres, l'aide explique le réglage, et **le routage
+automatique est refusé tant qu'une boîte témoin est aveugle** : c'est le
+seul endroit où un avertissement ne suffit pas, puisque cet interrupteur
+déplace le courrier de toute une unité sans que personne relise la
+décision.
+
 ### Reporté
 
 - **Rapprocher un fournisseur de messagerie d'un domaine destinataire

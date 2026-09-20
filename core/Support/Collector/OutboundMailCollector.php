@@ -105,7 +105,20 @@ class OutboundMailCollector implements SupportCollectorInterface
         private ?\Core\Mail\Feedback\Dmarc\DmarcReportRepository $dmarc = null,
         /** What the seed boxes measured, and where it routed (IT-07). */
         private ?\Core\Mail\Feedback\Seed\DomainRouting $seedRouting = null,
-        private ?\Core\Mail\Transport\DomainPreferences $domainPreferences = null
+        private ?\Core\Mail\Transport\DomainPreferences $domainPreferences = null,
+        /**
+         * Whether those figures could see what they claim to measure
+         * (roadmap IT-07).
+         *
+         * A seed box read only in its INBOX never sees the copy its
+         * provider shelved as spam, so that copy is given up on as
+         * « jamais arrivé » two days later. A third party reading
+         * « perdus : 5 » would diagnose a sender being refused, when in
+         * fact five messages were delivered into a folder nobody was
+         * looking at — so the archive has to say which of the two it is
+         * showing.
+         */
+        private ?\Core\Mail\Feedback\Seed\SeedMailboxes $seedMailboxes = null
     ) {
     }
 
@@ -562,6 +575,13 @@ class OutboundMailCollector implements SupportCollectorInterface
 
         $lines = ['── Boîtes témoins, 30 derniers jours ───────────────────────'];
         $lines[] = 'routage automatique : ' . ($automatic ? 'oui' : 'non');
+        // **The line that says how to read the one beside it.** Printed
+        // even at zero: « aucune » and « la question n'a pas été posée »
+        // are different answers, and a counter that only appears when it
+        // is bad leaves a reader unable to tell them apart.
+        $lines[] = 'boîtes sans dossier « indésirables » : '
+            . ($this->seedMailboxes?->boxesBlindToSpam() ?? 0)
+            . ' (leurs copies classées en indésirables comptent « perdues »)';
 
         $rows = [];
         foreach ($readings as $reading) {

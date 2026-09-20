@@ -489,6 +489,40 @@ class OutboundMailCollectorTest extends TestCase
     }
 
     /**
+     * **The archive says whether those figures could see what they
+     * measure.**
+     *
+     * A seed box read only in its INBOX never sees the copy its provider
+     * shelved as spam, so that copy is given up on as « jamais arrivé »
+     * two days later. A third party reading « perdus : 5 » would
+     * diagnose a sender being refused, when five messages were in fact
+     * delivered into a folder nobody was looking at — the worst kind of
+     * wrong answer an archive can give, because it is precise.
+     */
+    public function testTheArchiveSaysHowManyBoxesCannotSeeTheirJunkFolder(): void
+    {
+        $gateway = $this->createStub(InboundMailInterface::class);
+        $gateway->method('watchedFoldersFor')->willReturn([['INBOX'], ['INBOX', 'Junk'], ['INBOX']]);
+        $this->inboundMail = $gateway;
+
+        $report = $this->collect();
+
+        $this->assertStringContainsString('boîtes sans dossier « indésirables » : 2', $report);
+    }
+
+    /**
+     * Printed at zero as well: « aucune » and « la question n'a pas été
+     * posée » are different answers, and a counter that only appears
+     * when it is bad leaves a reader unable to tell them apart.
+     */
+    public function testThatCounterIsPrintedEvenWhenThereIsNothingToReport(): void
+    {
+        $report = $this->collect();
+
+        $this->assertStringContainsString('boîtes sans dossier « indésirables » : 0', $report);
+    }
+
+    /**
      * A domain whose mail was routed months ago and is no longer measured
      * still steers every mailing it names, so it stays in the archive: a
      * reader who cannot see it is reading the figures of a configuration
@@ -801,7 +835,12 @@ class OutboundMailCollectorTest extends TestCase
                 $this->chains,
                 new MailProviderDirectory($this->providers, $connections, $this->settings)
             ),
-            $this->domainPreferences
+            $this->domainPreferences,
+            new \Core\Mail\Feedback\Seed\SeedMailboxes(
+                $this->seedCopies,
+                $this->settings,
+                $this->inboundMail
+            )
         );
 
         $archivePath = $this->storagePath . '/temp/outbound-' . bin2hex(random_bytes(6)) . '.zip';

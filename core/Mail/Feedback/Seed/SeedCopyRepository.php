@@ -90,6 +90,23 @@ class SeedCopyRepository
      * Records where a copy landed. Ignores a second arrival for the same
      * pair: a mailbox re-read is routine, and the first answer is the one
      * that was true.
+     *
+     * **`missing` is not one of those answers, and it costs a body to
+     * treat it as one.** `markMissingBefore()` does not observe anything;
+     * it gives up after two days. A copy the provider held in a queue,
+     * or a box polled on a slow schedule, can therefore be found AFTER
+     * the sweep has already written « jamais arrivé » on it — and the
+     * first version refused that arrival, which cascaded: the write
+     * answered false, so {@see SeedConsumer} did not recognise the
+     * message, so it was neither deleted from the box nor kept out of
+     * `inbound_messages` — leaving the **full mailing body**, members'
+     * data included, in the message table that the privacy notice
+     * promises it is not in. The verdict stayed `missing` on top, feeding
+     * the routing a failure that never happened.
+     *
+     * So an observation overrides a surrender, and only a surrender: a
+     * row already saying `inbox`, `spam` or `elsewhere` was read off a
+     * real folder and is left exactly as it was.
      */
     public function recordLanding(
         string $runReference,
@@ -97,18 +114,31 @@ class SeedCopyRepository
         string $folder,
         \DateTimeImmutable $now
     ): bool {
+        $landed = SeedVerdict::fromFolder($folder);
+        // **A folder that says nothing is not a landing.** `fromFolder()`
+        // answers `Pending` for « the relay did not say », and writing
+        // that down would stamp `recorded_at` on the row — which is the
+        // guard `markMissingBefore()` reads, so the copy would be neither
+        // found nor ever given up on: `pending` for ever, in a column the
+        // screen shows as « en attente ».
+        if ($landed === SeedVerdict::Pending) {
+            return false;
+        }
+
         $statement = $this->pdo->prepare(
             'UPDATE mail_seed_copies
                 SET verdict = ?, landed_folder = ?, recorded_at = ?
-              WHERE run_reference = ? AND seed_address_blind_index = ? AND verdict = ?'
+              WHERE run_reference = ? AND seed_address_blind_index = ?
+                AND verdict IN (?, ?)'
         );
         $statement->execute([
-            SeedVerdict::fromFolder($folder)->value,
+            $landed->value,
             $folder,
             $now->format('Y-m-d H:i:s'),
             $runReference,
             $this->blindIndex($address),
             SeedVerdict::Pending->value,
+            SeedVerdict::Missing->value,
         ]);
 
         // **Rows MATCHED, not rows changed**, which is why the guard is in

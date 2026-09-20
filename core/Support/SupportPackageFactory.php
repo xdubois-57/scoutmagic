@@ -252,7 +252,18 @@ final class SupportPackageFactory
                     $context->settings
                 )
             ),
-            $domainPreferences
+            $domainPreferences,
+            // And whether those figures could see what they measure: a
+            // box read only in its INBOX turns every copy its provider
+            // shelved as spam into a « jamais arrivé », which a third
+            // party would read as a sender being refused. Built on the
+            // module when there is one — null is then « no boxes », the
+            // same answer the screen gets.
+            new \Core\Mail\Feedback\Seed\SeedMailboxes(
+                new \Core\Mail\Feedback\Seed\SeedCopyRepository($pdo, $context->encryption),
+                $context->settings,
+                $context->getOptional(\Modules\InboundMail\Api\InboundMailInterface::class)
+            )
         );
     }
 

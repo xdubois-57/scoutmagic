@@ -125,6 +125,48 @@ class ProbeAddressesTest extends TestCase
         $this->assertSame([], $service->probeAddressesFor('support'));
     }
 
+    /**
+     * **The folders answer describes the same boxes, in the same order.**
+     *
+     * The seed screen pairs the two — « this box, and what it can see »
+     * — so two loops that agreed until one was edited would have it count
+     * one box's blindness against another box's name.
+     */
+    public function testTheWatchedFoldersLineUpWithTheAddresses(): void
+    {
+        $this->allow($this->mailbox('support@unite.be', folders: ['INBOX', 'Junk']), 'support');
+        $this->allow($this->mailbox('info@unite.be'), 'support');
+
+        $service = $this->service();
+
+        $this->assertSame(['support@unite.be', 'info@unite.be'], $service->probeAddressesFor('support'));
+        $this->assertSame([['INBOX', 'Junk'], ['INBOX']], $service->watchedFoldersFor('support'));
+    }
+
+    /**
+     * And it is scoped exactly as the addresses are: what a consumer may
+     * not probe, it may not be told the shape of either.
+     */
+    public function testTheWatchedFoldersOfABoxAnotherConsumerAnalysesAreNotOffered(): void
+    {
+        $this->allow($this->mailbox('locations@unite.be', folders: ['INBOX', 'Spam']), 'rental');
+
+        $this->assertSame([], $this->service()->watchedFoldersFor('support'));
+    }
+
+    /**
+     * A box read only in its inbox comes back saying so, rather than
+     * coming back empty: « je ne surveille que la réception » is the
+     * answer the seed screen warns about, and an empty list would read as
+     * « je ne surveille rien », which is not a state a mailbox has.
+     */
+    public function testABoxLeftOnItsDefaultSaysItWatchesTheInbox(): void
+    {
+        $this->allow($this->mailbox('support@unite.be', folders: []), 'support');
+
+        $this->assertSame([['INBOX']], $this->service()->watchedFoldersFor('support'));
+    }
+
     private function service(): InboundMailService
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
@@ -138,7 +180,10 @@ class ProbeAddressesTest extends TestCase
         );
     }
 
-    private function mailbox(string $username, bool $enabled = true): int
+    /**
+     * @param list<string> $folders
+     */
+    private function mailbox(string $username, bool $enabled = true, array $folders = ['INBOX']): int
     {
         return $this->mailboxRepository->create(
             'Boîte ' . $username,
@@ -148,7 +193,7 @@ class ProbeAddressesTest extends TestCase
             'ssl',
             $username,
             'secret',
-            ['INBOX'],
+            $folders,
             $enabled
         );
     }

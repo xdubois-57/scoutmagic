@@ -188,6 +188,52 @@ class SeedConsumerTest extends TestCase
     }
 
     /**
+     * **A copy that turns up after the sweep gave up on it is still an
+     * arrival** — and refusing it cost a body, not merely a verdict.
+     *
+     * `markMissingBefore()` does not observe anything: after two days it
+     * writes « jamais arrivé » on whatever is still pending. A provider
+     * that held the message in a queue, or a box polled on a slower
+     * schedule, delivers it afterwards — and the first version's write
+     * answered false, so this consumer did not recognise the message, so
+     * it asked for no deletion, so `MailboxSyncService::store()` kept it
+     * with `$keepBody = true`. The full mailing, members' data included,
+     * stayed in `inbound_messages` — which the privacy notice this
+     * iteration wrote says in as many words it does not.
+     */
+    public function testACopyFoundAfterTheSweepGaveUpIsRecordedAndRemoved(): void
+    {
+        $this->claim();
+        $this->copies->markMissingBefore(new \DateTimeImmutable('-1 minute'));
+        $this->assertSame(SeedVerdict::Missing, $this->verdictOf(), 'the sweep ran first.');
+
+        $late = $this->candidate($this->copies->stamp('mass_mail:42'), 'INBOX');
+        $this->consumer->analyze($late);
+
+        $this->assertSame(SeedVerdict::Inbox, $this->verdictOf(), 'an observation beats a surrender.');
+        $this->assertTrue(
+            $this->consumer->shouldPruneAfterAnalysis($late),
+            'and the body has to leave the mailbox rather than be written down.'
+        );
+    }
+
+    /**
+     * The other half of the same rule: a verdict that WAS observed is
+     * never overwritten, however late a second copy of the message is
+     * read. Only the sweep's surrender gives way.
+     */
+    public function testAnObservedVerdictIsNotOverwrittenByALaterReading(): void
+    {
+        $this->claim();
+        $stamp = $this->copies->stamp('mass_mail:42');
+        $this->consumer->analyze($this->candidate($stamp, 'Junk'));
+
+        $this->consumer->analyze($this->candidate($stamp, 'INBOX', messageId: '<copie-2@unite.be>'));
+
+        $this->assertSame(SeedVerdict::Spam, $this->verdictOf());
+    }
+
+    /**
      * **One instance serves a whole sync pass**, so a value left over
      * from the previous message would be this consumer's answer about a
      * message it never looked at.

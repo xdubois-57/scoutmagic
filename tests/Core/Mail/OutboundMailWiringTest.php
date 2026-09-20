@@ -560,4 +560,26 @@ class OutboundMailWiringTest extends TestCase
             'the bootstrap takes the seed mailboxes and never tells them where to ask.'
         );
     }
+
+    /**
+     * **The archive's seed section says whether it could see what it
+     * measures**, and only the factory can give it the answer.
+     *
+     * The collector's own test builds that argument itself, so it would
+     * go on passing with the factory omitting it — the exact shape of
+     * defect this iteration produced five times: a fixture supplying a
+     * condition production does not. The consequence here is a third
+     * party reading « perdus : 5 » as a sender being refused, when five
+     * messages were delivered into a folder nobody was watching.
+     */
+    public function testTheArchiveIsToldWhetherTheSeedBoxesCanSeeTheirJunkFolder(): void
+    {
+        $source = self::source('core/Support/SupportPackageFactory.php');
+
+        $this->assertStringContainsString(
+            'new \\Core\\Mail\\Feedback\\Seed\\SeedMailboxes(',
+            $source,
+            'the collector is built without the boxes, so its blind-spot counter is always zero.'
+        );
+    }
 }

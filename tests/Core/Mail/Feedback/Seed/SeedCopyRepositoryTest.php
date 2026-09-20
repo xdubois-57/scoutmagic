@@ -141,6 +141,50 @@ class SeedCopyRepositoryTest extends TestCase
     }
 
     /**
+     * **A folder that says nothing is not a landing.** `fromFolder()`
+     * answers `Pending` for « the relay did not say », and writing that
+     * down would stamp `recorded_at` — the very guard the sweep reads —
+     * so the copy would be neither found nor ever given up on. It would
+     * read « en attente » for ever, in the one column of the screen that
+     * is supposed to be temporary.
+     */
+    public function testAFolderThatSaysNothingIsNotRecordedAsALanding(): void
+    {
+        $now = new \DateTimeImmutable('2026-09-20 10:00:00');
+        $this->copies->claim('envoi-1', 'temoin@gmail.com', $now->modify('-2 days'));
+
+        $this->assertFalse($this->copies->recordLanding('envoi-1', 'temoin@gmail.com', '  ', $now));
+
+        $this->assertSame(SeedVerdict::Pending, $this->copies->forRun('envoi-1')[0]->verdict);
+        $this->assertSame(
+            1,
+            $this->copies->markMissingBefore($now->modify('-1 day')),
+            'and the sweep can still reach it, which it could not have if recorded_at had been stamped.'
+        );
+    }
+
+    /**
+     * **A copy found after the sweep gave up on it is still an arrival.**
+     * `markMissingBefore()` observes nothing — it surrenders after two
+     * days — so a message a provider held in a queue may turn up
+     * afterwards, and the verdict must become what was actually seen.
+     * Refusing it left « jamais arrivé » written for a delivered message
+     * and fed that to the routing.
+     */
+    public function testALandingSeenAfterTheSweepReplacesTheSurrender(): void
+    {
+        $now = new \DateTimeImmutable('2026-09-20 10:00:00');
+        $this->copies->claim('envoi-1', 'temoin@gmail.com', $now->modify('-3 days'));
+        $this->copies->markMissingBefore($now->modify('-1 day'));
+
+        $this->assertTrue($this->copies->recordLanding('envoi-1', 'temoin@gmail.com', 'INBOX', $now));
+
+        $copy = $this->copies->forRun('envoi-1')[0];
+        $this->assertSame(SeedVerdict::Inbox, $copy->verdict);
+        $this->assertSame('INBOX', $copy->landedFolder);
+    }
+
+    /**
      * **« Pas encore » et « jamais » sont deux réponses.** A copy sent
      * five minutes ago and not yet seen is the ordinary state of any run
      * still going out; only elapsed time turns it into a refusal, and the
