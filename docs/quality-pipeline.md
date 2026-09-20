@@ -714,6 +714,175 @@ fourth line. What makes the enumeration survivable meanwhile is that the
 launched-against-finished guard catches the truncation every time; the
 cost of a new name is a review to re-run, not a diff nobody read.
 
+**The third name arrived on 2026-09-20, and it has no name.** Between
+2026-09-10 and that day the workflow made 300 runs: 221 green, 41
+cancelled by `concurrency`, and **35 red**. Every one of the fifteen
+sampled was red on the same signal — agents launched and never collected
+— and not one of them had been refused a tool outside the decided list.
+`ScheduleWakeup` and `Monitor` appear in none of them. What the
+transcripts carry instead is a field that was never set:
+
+| run | `requested` | started in background | collected | outcome |
+|---|---|---|---|---|
+| 35514703160 | **unset 2** | 2 | 0 of 2 | stopped in the setup step |
+| 35515224252 | background 5 / foreground 3 | 5 | 2 of 8 | stopped mid-review |
+| 35513770169 | background 1 / **foreground 11** | 1 | 12 of 12 | five findings posted |
+
+Three runs on the same pull request, within two hours, on the same
+allowlist and the same prompt. The only variable that moves is which
+agents were told to run in the foreground — and in the first of them the
+flag was not set to `true`, it was **not set at all**. A subagent whose
+caller says nothing starts in the background, so the mistake no longer
+needs a tool to be spelled with, and an allowlist cannot refuse a
+default. The prompt has asked for `run_in_background false` since
+2026-09-08; asking is what produced those rows.
+
+The first run also shows the reviewer trying to obey and having nothing
+to obey with. It called `ListAgents`, which only reports; then ran
+`Bash true`, described in its own transcript as *"no-op, waiting for
+background agents to complete"*, which returns instantly; then ended its
+turn. Nothing in the allowlist blocks, because everything that blocks had
+been refused as a way of "arranging to be called back later".
+
+So the enumeration stops being the answer, and what replaces it is not a
+name but a default: every `Agent`/`Task` launch in a workflow run now
+starts in the foreground, whether or not its caller said so.
+`.claude/hooks/subagents-in-foreground.sh` rewrites the call before it
+runs, through the `updatedInput` a `PreToolUse` hook may return — and
+that the reviewer's session loads this repository's hooks is a fact about
+the action rather than a hope: its SDK options carry
+`settingSources: ["user", "project", "local"]`, and the `SessionStart`
+hook already fires in every review run. Scoped to `GITHUB_ACTIONS`, it
+leaves interactive sessions their background agents, which they can
+collect because they have a later turn and a person to wake them.
+
+**It is also the cheapest change in this section.** Across twelve
+complete runs, cost tracks **turns** (r = 0.86) and not agent count
+(r = 0.06) — and the high-turn runs are exactly the backgrounded ones,
+because a main thread with no blocking primitive polls its agents turn
+after turn and re-sends the conversation each time:
+
+| run | started in background | turns | cost |
+|---|---|---|---|
+| 35511781916 | 9 | 608 | 24.23 USD |
+| 35510803664 | 7 | 346 | 12.01 USD |
+| 35500543867 | 9 | 305 | 10.14 USD |
+| *eight runs, all foreground* | 0–1 | 15–38 | 3.19–10.98 USD |
+
+So the same defect that leaves part of the diff unread also roughly
+doubles what the run costs. The median complete review is 8.80 USD.
+
+**The hook grants what it rewrites, and that is why a workflow has to opt
+in.** Claude Code applies `updatedInput` only on an `allow` decision, so
+the hook necessarily allows the `Agent`/`Task` call it rewrites. A hook
+that fired on every workflow run would therefore have granted both tools
+inside `issue-triage.yml`, **which denies them on purpose** —
+`--disallowedTools "Agent,Task,ScheduleWakeup,…"`, itself the fix for
+2026-09-05, when a backlog scan spawned three `Agent` subagents,
+scheduled a wake-up, ended its turn, and three reporters got nothing. A
+hook written to stop lost subagents would have re-opened the door to
+exactly that, in another workflow, in silence.
+
+So the hook does nothing unless the job sets
+`CLAUDE_SUBAGENTS_FOREGROUND=true`, and only the review job sets it.
+Adding that variable to a workflow is a decision with two halves — every
+subagent runs in the foreground, **and** `Agent`/`Task` are granted there
+whatever the allowlist says — so it does not belong in a job that means
+to deny them. `Tests\Architecture\SubagentsStartInForegroundTest` pins
+both halves: the hook stays silent without the variable, and
+`issue-triage.yml` neither sets it nor stops denying the tools.
+
+Within the review job the grant changes nothing, since `claude_args`
+grants `Task` and `Agent` outright — but it does mean removing `Agent`
+from that list would no longer stop a launch. The hook's own header says
+to delete it in the same change if that day comes.
+
+**The guard stays, and it is the reason a hook is allowed to be the fix
+at all.** A hook that is absent, unreadable or silently wrong has to be
+caught by something that reads what the run did rather than what it was
+told to do. Three things changed there on the same day, and none of them
+loosened it:
+
+- **`spawned == 0` became its own verdict.** `agent_calls` counts
+  Agent/Task *tool calls*, which a transcript records whether or not the
+  call started anything, while `spawned` counts agents that started. A run
+  whose every launch was refused therefore had `agent_calls` above zero
+  and `spawned` equal to `completed` equal to zero — the green branch. The
+  signal built to catch #208 would have reported #208 as "Reviewed,
+  nothing to report".
+- **Agents that ended early stopped being called "still reading".**
+  `completed != spawned` is true for an agent in flight, for one that
+  failed and for one that was killed; the comment said the first about all
+  three. `failed` and the three `killed` counts are read now, and that
+  ending has its own sentence.
+- **The verdict names the cause.** The status comment carries a
+  `Review agents started in the background` row, because that number is
+  what separates a truncated run from a complete one and it used to live
+  only in a transcript nobody opens.
+
+What did **not** change is the strictness: 154 agents of 155 is still red
+(run 35462506063, 9.08 USD, findings posted). One agent still reading is
+one part of the diff nobody read, and a ratio does not make it read. The
+answer to a review that loses one agent in a hundred is to stop losing it
+— a gate widened until the loss fits through is the failure this whole
+section is about.
+
+**The review procedure cannot be pinned, so it is now reported.** Both
+actions are pinned to a commit, but `plugin_marketplaces` is handed to
+`claude plugin marketplace add <url>`, which takes a URL and not a ref
+(anthropics/claude-code-action, `base-action/src/install-plugins.ts`):
+the procedure that runs is whatever that marketplace's default branch
+holds when the job starts. That is not theoretical — `ReportFindings` and
+`TaskStop` appear in the tool list of runs from 2026-09-14 and in none
+before. The status comment now carries the commit the run actually
+loaded, which turns "the reviewer behaves differently today" from a
+mystery into a diff between two rows.
+
+**And the reviewer was told to stop trying to save the diff to a file.**
+One run on #403 spent 40 refused `Bash` calls on it — `>`, `|`, `tee`, a
+heredoc, twice with `dangerouslyDisableSandbox: true` — before falling
+back on fanning the work out to background agents. The shell operators
+stay denied for the reason the interpreters do, and the prompt now says
+so and names what to use instead: `git diff` per path, `--name-only` for
+the list, `Read` and `Grep` for the contents.
+
+**What the reviewer costs, and where that money actually goes.** A
+complete review has a median cost of 8.80 USD and a median wall-clock of
+11.7 minutes (p90 17.8, longest 25.2) — against a CI median of 18.5
+minutes, so **the review is not the critical path for a merge**, and
+making it faster would not make anything merge sooner. Over the 300 runs
+to 2026-09-20 the bill is of the order of 2 000 USD for ten days, and it
+is not spread evenly: 300 runs fall on 36 branches, median 2 runs each,
+**and the four largest pull requests account for 200 of them**. One
++8 756-line diff was reviewed from scratch 66 times.
+
+That distribution decides which levers are worth pulling, and the two
+cheapest are not in this file:
+
+- **Keep a long-lived pull request in draft while it is being iterated.**
+  The review job already skips drafts and `ready_for_review` picks the
+  pull request up the moment it stops being one, so this costs nothing to
+  adopt and gives up no guarantee — the diff that gets reviewed is the
+  one somebody means to merge. On the window measured it would have
+  removed something like half of all runs.
+- **The `settle` job** above, which moves the existing mid-review
+  cancellation to before the money is spent. Worth about the 13.7% of
+  runs that are cancelled today, and it costs twelve minutes of latency
+  on every push — see the job's own comment for why twelve.
+
+**What is not worth pulling: a cheaper model for the bug-hunting
+agents.** The orchestrator is already Sonnet; only the bug-hunting
+subagents are Opus, and they are the part doing the reasoning the review
+exists for — multi-hop, cross-file findings like *"a late-arriving copy
+after the 2-day sweep is never pruned, causing full mailing content to be
+permanently retained"*, which contradicted a privacy notice written in
+the same pull request. The measurement also says it would not help much:
+cost tracks turns, not agents. And it is not a setting — the plugin asks
+for `"model": "opus"` per agent, `--model` does not override that, and
+the procedure is not pinnable. If the question comes back, answer it with
+an eval over the pull requests where the reviewer has already posted
+verified findings, not with an opinion.
+
 **Two more names went on the list, and they are a different shape — the
 truncation rule above is not what they trip.** Pull request #321 went red
 three times over two tools: `Edit` on run 34735356561 (12 agents launched,
