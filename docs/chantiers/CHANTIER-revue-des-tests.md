@@ -523,6 +523,9 @@ réelle de la divergence entre les deux moteurs.
 - le même, écrit `markTestSkipped("Database not available: " . __FILE__)` → **VERT** tant que le garde ne lisait qu'un littéral entre apostrophes ; rouge depuis qu'il lit l'argument entier. Constat de la revue de la PR #394, reproduit avant correction
 - le même en `sprintf('No %s server (port %d)', 'MySQL', 3306)` → rouge
 - une parenthèse à l'intérieur du message → l'argument est extrait entier et l'analyse continue
+- `markTestSkipped ("…")`, avec l'espace que PHP accepte avant la parenthèse → **VERT** tant que le garde cherchait le nom collé à la parenthèse ; rouge depuis. Second constat de la revue CodeRabbit sur la PR #394
+- `TEST_DB_HOST` cité dans un commentaire d'un fichier qui n'ouvre aucune connexion → **VERT** tant que l'exemption reposait sur la simple présence du nom ; rouge depuis qu'elle exige `getenv('TEST_DB_HOST')`. Premier constat de la même revue
+- un fichier qui lit vraiment `getenv(...)`, guillemets simples ou doubles → toujours exempté : le resserrement ne crée pas de faux positif
 
 *Sur un garde écrit puis retiré (voir plus bas) :*
 

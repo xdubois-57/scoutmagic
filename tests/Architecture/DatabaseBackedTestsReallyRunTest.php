@@ -50,6 +50,9 @@ final class DatabaseBackedTestsReallyRunTest extends TestCase
      */
     private const DATABASE_WORDS = '/Database|MySQL|MariaDB|TEST_DB_/i';
 
+    /** The call whose argument says why a test dropped out of the run. */
+    private const SKIP_CALL = 'markTestSkipped';
+
     /**
      * On a runner, a refused connection is a failure to report.
      *
@@ -138,7 +141,14 @@ final class DatabaseBackedTestsReallyRunTest extends TestCase
 
         foreach ($this->testFiles() as $path) {
             $source = (string) file_get_contents($path);
-            if (str_contains($source, 'TEST_DB_HOST')) {
+            // `getenv('TEST_DB_HOST')` rather than the bare name: a file
+            // that merely says TEST_DB_HOST — in a comment, in a message,
+            // in a docblock like this one — reaches no server, and
+            // exempting it would be the hole this test exists to close.
+            // All twenty-five files carrying the name read it this way
+            // today, so the tightening changes no verdict; what it
+            // removes is a way for a future one to slip through.
+            if (preg_match('/getenv\\(\\s*[\'"]TEST_DB_HOST[\'"]\\s*\\)/', $source) === 1) {
                 continue;
             }
 
@@ -194,43 +204,67 @@ final class DatabaseBackedTestsReallyRunTest extends TestCase
     private function skipArguments(string $source): array
     {
         $arguments = [];
-        $needle = 'markTestSkipped(';
         $offset = 0;
 
-        while (($start = strpos($source, $needle, $offset)) !== false) {
-            $i = $start + strlen($needle);
-            $depth = 1;
-            $quote = null;
-
-            while ($i < strlen($source) && $depth > 0) {
-                $char = $source[$i];
-
-                if ($quote !== null) {
-                    // A bracket inside a message is text, not structure,
-                    // and an escaped quote does not end the literal.
-                    if ($char === '\\') {
-                        $i += 2;
-                        continue;
-                    }
-                    if ($char === $quote) {
-                        $quote = null;
-                    }
-                } elseif ($char === "'" || $char === '"') {
-                    $quote = $char;
-                } elseif ($char === '(') {
-                    $depth++;
-                } elseif ($char === ')') {
-                    $depth--;
-                }
-
-                $i++;
+        while (($found = strpos($source, self::SKIP_CALL, $offset)) !== false) {
+            // PHP accepts `markTestSkipped ('…')`, whitespace and all, and
+            // no formatter here forbids it — matching « name immediately
+            // followed by a bracket » would let that spelling through.
+            $open = $found + strlen(self::SKIP_CALL);
+            while ($open < strlen($source) && ctype_space($source[$open])) {
+                $open++;
             }
 
-            $arguments[] = trim(substr($source, $start + strlen($needle), $i - $start - strlen($needle) - 1));
-            $offset = $i;
+            $offset = $open + 1;
+            if (($source[$open] ?? '') !== '(') {
+                continue;
+            }
+
+            $end = $this->endOfArguments($source, $open + 1);
+            $arguments[] = trim(substr($source, $open + 1, $end - $open - 2));
+            $offset = $end;
         }
 
         return $arguments;
+    }
+
+    /**
+     * The offset just past the bracket closing the one opened at $from.
+     *
+     * String literals are stepped over rather than read, so a bracket
+     * inside a message is text and not structure.
+     */
+    private function endOfArguments(string $source, int $from): int
+    {
+        $length = strlen($source);
+        $depth = 1;
+        $quote = null;
+        $i = $from;
+
+        while ($i < $length && $depth > 0) {
+            $char = $source[$i];
+
+            if ($quote !== null) {
+                if ($char === '\\') {
+                    $i += 2;
+
+                    continue;
+                }
+                if ($char === $quote) {
+                    $quote = null;
+                }
+            } elseif ($char === "'" || $char === '"') {
+                $quote = $char;
+            } elseif ($char === '(') {
+                $depth++;
+            } elseif ($char === ')') {
+                $depth--;
+            }
+
+            $i++;
+        }
+
+        return $i;
     }
 
     /**
