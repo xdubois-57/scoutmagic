@@ -226,6 +226,48 @@ class MenuBuilder
     }
 
     /**
+     * The role floor a menu is displayed at — `public` for « Notre unité »,
+     * `superadmin` for « Configuration ».
+     *
+     * Public for one caller, and the reason is worth stating because this
+     * is the only place a menu's floor is allowed to leave this class as a
+     * value rather than as a filtered list. A free-text page (`text_pages`,
+     * ARCHITECTURE.md §8.116) takes its `role_min` from the menu it was
+     * filed in — choosing the section IS choosing who reads it — and that
+     * floor becomes the `role_min` of a real route, checked by the RBAC
+     * guard before any controller runs. Without this accessor the five
+     * floors would have to be spelled out a second time next to the page
+     * service, and the copy that drifts is the one guarding the route.
+     *
+     * An unknown menu id answers `superadmin`, not `public`: a caller that
+     * has lost track of which menu it is asking about must end up with the
+     * narrowest audience, never the widest. {@see labelFor()} answers ''
+     * for the same input because a missing label is a cosmetic defect and
+     * a missing floor is an open door.
+     */
+    public static function roleMinFor(string $menuId): string
+    {
+        foreach (self::MENUS as $menu) {
+            if ($menu['id'] === $menuId) {
+                return $menu['role_min'];
+            }
+        }
+
+        return 'superadmin';
+    }
+
+    /**
+     * Every menu id, in declaration order — the vocabulary a configuration
+     * screen offers when it asks which section a page belongs to.
+     *
+     * @return array<string>
+     */
+    public static function menuIds(): array
+    {
+        return array_column(self::MENUS, 'id');
+    }
+
+    /**
      * The group ids declared for a menu, in declaration order — empty for
      * an ungrouped menu. Public because module.json's `menu_group` is
      * validated against exactly this list at manifest load

@@ -2384,9 +2384,21 @@ $posterPdfService = new PosterPdfService();
 // Create cookie consent service
 $cookieConsentService = new CookieConsentService();
 
+// Free-text pages a superadmin has added to a menu (issue #368,
+// ARCHITECTURE.md §8.116). Its repository comes first because the
+// editable-content service is handed an authorizer built on it: a page's
+// body is written at the PAGE's role, not at the role of whichever
+// endpoint carries the write (SECURITY.md §3).
+$textPageRepository = new \Core\Page\TextPageRepository($pdo);
+
 // Create editable content service
 $editableContentRepo = new EditableContentRepository($pdo);
-$editableContentService = new EditableContentService($editableContentRepo);
+$editableContentService = new EditableContentService(
+    $editableContentRepo,
+    [new \Core\Page\TextPageContentAuthorizer($textPageRepository)]
+);
+
+$textPageService = new \Core\Page\TextPageService($textPageRepository, $editableContentRepo);
 $sectionRepository = new SectionRepository($pdo);
 
 // Create import-related services
@@ -5229,6 +5241,24 @@ $router->addRoute(
 );
 $router->addRoute('POST', '/config/functions/branch-url', FunctionsController::class, 'updateBranchUrl', 'superadmin');
 
+// **The one place a route is born from a database row.** Each active
+// free-text page registers its own concrete path carrying the role floor
+// of the menu it was filed in, so the RBAC guard — which runs before any
+// controller — is the primary protection, exactly as it is for every
+// route declared above (SECURITY.md §3, ARCHITECTURE.md §2 and §8.116).
+// A single `/pages/{slug}` at `role_min: public` with the check moved
+// into the controller would have violated both.
+//
+// A page that is switched off registers nothing, which is what makes it
+// answer 404 rather than 403: it does not exist, it is not forbidden.
+//
+// The returned list is reused twice below — for the menu entries and for
+// the controller — so the whole feature costs ONE query per request, and
+// a page can never be in a menu without a route behind it. Returns []
+// when the database cannot be read, so an installation whose database is
+// down still answers instead of failing in the front controller.
+$activeTextPages = \Core\Page\TextPageRouteRegistrar::register($router, $textPageRepository);
+
 // Load enabled modules (routes registered AFTER core routes so core takes priority)
 $moduleManager->loadEnabledModules();
 
@@ -5389,6 +5419,39 @@ foreach ($menus as $menu) {
 $twig->addGlobal('active_menu_id', $activeMenuId);
 $twig->addGlobal('active_page_url', $activePageUrl);
 
+// Free-text pages in their menus (issue #368). Same shape as the module
+// blocks further down — register, rebuild, re-derive the highlight — but
+// here rather than there because these are core pages, and because the
+// list they are built from is the one the routes were registered from a
+// few hundred lines above rather than a second query.
+//
+// MenuEntryProvider rather than a plain addPage() loop: it is what
+// already solves ordering against the core and module entries and
+// refreshing which entry is highlighted once entries arrive after the
+// first build (Core\View\DynamicMenuRegistrar).
+if ($activeTextPages !== []) {
+    $textPageMenuEntries = $dynamicMenuRegistrar->register(
+        $menuBuilder,
+        [new \Core\Page\TextPageMenuProvider($activeTextPages)],
+        AuthSession::isAuthenticated() ? AuthSession::getEmail() : null
+    );
+    $menus = $menuBuilder->build();
+    $twig->addGlobal('menus', $menus);
+
+    $textPageMenuActive = $dynamicMenuRegistrar->resolveActive(
+        $textPageMenuEntries,
+        $currentPath,
+        $activeMenuId,
+        $activePageUrl,
+        $bestMatchLength
+    );
+    $activeMenuId = $textPageMenuActive['menuId'];
+    $activePageUrl = $textPageMenuActive['pageUrl'];
+    $bestMatchLength = $textPageMenuActive['matchLength'];
+    $twig->addGlobal('active_menu_id', $activeMenuId);
+    $twig->addGlobal('active_page_url', $activePageUrl);
+}
+
 // The LLM connector other modules consume and its RGPD sub-processor
 // declaration — assigned in the module's single block below, after
 // $frontController exists (its config page registers there too).
@@ -5452,6 +5515,16 @@ $frontController = new FrontController(
 $frontController->registerController(
     \Core\Http\Controller\AuditController::class,
     new \Core\Http\Controller\AuditController($twig, $auditService, $auditAccessResolver)
+);
+
+// One free-text page (issue #368). Registered here rather than next to
+// its routes because those routes are built from database rows before
+// $frontController exists, and because the controller needs the service
+// — it resolves the slug the matched path carries. It checks no role:
+// the route the guard already enforced carries this page's own floor.
+$frontController->registerController(
+    \Core\Http\Controller\TextPageController::class,
+    new \Core\Http\Controller\TextPageController($twig, $textPageService)
 );
 
 // Contextual help pages (Core\Http\Controller\HelpController) — needs the
@@ -6038,7 +6111,17 @@ $photoIngestionService = new \Core\Photo\PhotoIngestionService(
     $imageVariantService,
     $accountPhotoService
 );
-$uploadController = new UploadController($twig, $photoIngestionService, $memberService);
+// The fourth argument is the same question the editable-content endpoint
+// asks: `context=editable_image` writes `editable_contents` under a
+// client-chosen key, so this is a second door onto the same table and it
+// has to refuse what that one refuses (ARCHITECTURE.md §8.116). The
+// service decides; this only lets the upload say no in its own shape.
+$uploadController = new UploadController(
+    $twig,
+    $photoIngestionService,
+    $memberService,
+    $editableContentService
+);
 $uploadController->setJournalService($journalService);
 $frontController->registerController(UploadController::class, $uploadController);
 $frontController->registerController(

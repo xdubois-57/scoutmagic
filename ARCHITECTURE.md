@@ -4922,6 +4922,130 @@ minor's name, telephone number and home address.
 Each served card is journaled at `security` level with **the member's
 identifier and nothing else**.
 
+### 8.116 Free-text pages, and the one route born from a database row (`Core\Page`)
+
+A superadmin adds a page — the ASBL's description, the Bulle Safe —
+chooses which menu it appears in, names it twice (short in the menu,
+explicit on the page), and writes its text with the site's ordinary
+configuration-mode editing. Issue #368. It is not a CMS and has no
+templates: a page is a title and a rich text, and the text is stored in
+`editable_contents` like the home page's introduction, through the same
+`editable()` and the same sanitizer.
+
+**Each active page registers its own route at boot, and that is the whole
+design.** `Core\Page\TextPageRouteRegistrar` reads `text_pages` once per
+request and calls `Router::addRoute()` for every active row, with the path
+`/pages/{slug}` and the `role_min` of the menu the page was filed in. This
+is the only place in the codebase where a route comes from a database row
+rather than from `public/index.php` or a module manifest, which is why it
+is written down here.
+
+The alternative — one `/pages/{slug}` declared `public`, with the real
+check done in the controller — was rejected because it breaks two written
+promises at once: SECURITY.md §3 ("the RBAC guard is called by the Router
+**before** any controller code") and §2 above ("a controller may re-check
+a fine-grained permission, but this is never the primary protection").
+`Core\Http\Controller\TextPageController` therefore checks nothing at
+all, and a test asserts that it never learns to.
+
+Three consequences worth stating:
+
+- **The access level is the menu's, never a column.** The five menus
+  already carry their floor (`MenuBuilder::MENUS`, reachable through
+  `MenuBuilder::roleMinFor()`), so choosing the section IS choosing who
+  reads the page. A role column on `text_pages` would be a second truth
+  and the one that drifts away from the menu it is meant to agree with.
+- **A hidden page registers nothing, so it answers 404 and not 403.** It
+  does not exist rather than being forbidden — nothing confirms to a
+  passer-by that there is something behind the address.
+- **The read must survive the database being unreachable.** This runs in
+  the front controller on every request; an installation mid-install,
+  mid-restore or with rotated credentials must still answer, `/setup` and
+  the page explaining the failure included. A failure registers no routes
+  and rethrows nothing. It is a deliberate silence, and a narrow one: it
+  swallows one optional read, not the request.
+
+The section + column pair is guarded twice, at two different moments, and
+both are needed. **On the way in**, `TextPageService::assertMenuPlacement()`
+validates it server side rather than relying on the form hiding the column
+picker. **Afterwards**, `TextPageMenuProvider` skips a row whose column its
+menu no longer declares — because `MENU_GROUPS` is a PHP constant, so a
+placement that was valid when it was written can be renamed away by a later
+version. Without the second guard the consequence would not be a broken
+page: `MenuBuilder::addPage()` throws on an undeclared column, and that call
+happens while building the navigation of every page of the site, before
+routing, on every request.
+
+The address is derived from the title at creation and **frozen**: it is
+shared the moment the page is published, so correcting a typo in the title
+must not break a link somebody has already sent. The content key is
+`page_content_{id}` — keyed on the id and never on the slug, so a page that
+is ever renamed cannot orphan its own text. Deleting a page deletes that
+row too: rich text left behind with no page to name it is data nobody can
+find, read or erase.
+
+Menu entries come from `Core\Page\TextPageMenuProvider`, a
+`MenuEntryProvider` handed the very list the routes were registered from
+rather than a second query — so the feature costs one query per request,
+and a page can never appear in a menu without a route behind it. That
+provider **skips a page whose column its menu no longer declares**, rather
+than letting `addPage()` throw: `MENU_GROUPS` is a PHP constant, so a
+column validated at write time can be renamed away in a later version, and
+these entries are added while building the navigation every page renders.
+Filtering costs one menu entry; catching around the loop would have cost
+all of them, and throwing would have cost the site.
+
+**The body is written at the page's own role, not at the write
+endpoint's.** `POST /api/editable-content` is `role_min: admin`, which was
+the whole answer for as long as every editable row belonged to a page an
+admin could also read — home, contact, sections, a module's public view. A
+page filed in the Configuration menu is read at `superadmin` while its text
+is written through that same admin endpoint: **the first content on this
+site whose read floor exceeds its write floor.** It was reachable through a
+second door too, `POST /upload` with `context=editable_image`, which writes
+the same table under a client-chosen key.
+
+**Ownership is a column, not a spelling.** `editable_contents.text_page_id`
+names the page a row belongs to, and `EditableContentService::set()` — the
+one point every write passes through — reads the required role off it. The
+obvious alternative, working the owner out of `content_key`, cannot be made
+safe: that column is compared with `utf8mb4_unicode_ci`, which equates
+spellings differing in case, accents, trailing spaces (PAD SPACE),
+fullwidth forms and every primary-ignorable character, so a parser has to
+reproduce that equivalence exactly. Four attempts each left a gap. Asking
+the row with the same `WHERE content_key = ?` the write itself uses removes
+the question: whatever the collation takes a key to be, the row that
+answers is the row that will be written.
+
+Two consequences follow from the column rather than from code. The content
+row is **claimed with the page**, empty and owned, so there is never a
+moment when the key exists unclaimed and whoever writes first decides what
+a page they cannot read says. And deleting a page deletes its text by
+`ON DELETE CASCADE` — a second delete issued from a service could fail on
+its own and leave rich text nobody can name, read or erase behind; the
+constraint cannot.
+
+**Claimed and not inserted**, because the key can already be taken.
+`POST /api/editable-content` is `role_min: admin` and accepts any key the
+client sends; `content_key` is `UNIQUE`; `text_pages.id` is a predictable
+auto-increment. So an admin can write `page_content_{next id}` before that
+page exists — allowed precisely because nothing owns it yet — and a blind
+`INSERT` at creation time would then fail on the duplicate key *after* the
+page's own row is committed. That leaves a live, routed page whose body is
+unowned, and an unowned body is governed by the write endpoint's own floor
+rather than by its section's: the escalation the column exists to close,
+reopened by the one place the column is written.
+`EditableContentRepository::claimForPage()` therefore takes an existing row
+over, blanking it — text written under a page's key before that page
+existed cannot be its content by any legitimate route — and
+`TextPageService::create()` **deletes the page it just made** if the claim
+cannot be completed. A page that does not exist is recoverable; a live page
+whose text belongs to nobody is not.
+
+Explicitly **not** in scope: free-text pages do not join
+`Core\Offline\OfflineWhitelist`. That list is a static server-side
+declaration, and wiring it to a database table is a subject of its own.
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php

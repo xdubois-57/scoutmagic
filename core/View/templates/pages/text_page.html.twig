@@ -1,0 +1,30 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  One free-text page (issue #368, ARCHITECTURE.md §8.116).
+
+  Deliberately this short. A page is a title and a text, and the text is
+  written with the site's ordinary configuration-mode editing — the same
+  `editable()` the home page's introduction uses — so there is no form
+  here, no layout to choose and no template to pick. The chantier is
+  explicit that anything more would have left the feature's perimeter.
+
+  `content_key` is `page_content_{id}` and is passed in by the
+  controller rather than built here: keyed on the page's id, never on
+  its slug, so a page that is ever renamed does not orphan its own text.
+
+  The default is what a page that has just been created shows — a
+  sentence saying it is empty, which a superadmin clicks « Modifier » on,
+  rather than a blank screen that looks broken.
+#}
+{% extends "base.html.twig" %}
+
+{% block title %}{{ page_title }} — {{ site_name }}{% endblock %}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with { title: page_title } only %}
+
+    {{ editable(content_key, '<p>Cette page n\'a pas encore de contenu.</p>') }}
+{% endblock %}

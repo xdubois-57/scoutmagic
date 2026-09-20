@@ -37,6 +37,20 @@ namespace Core\Exception;
 final class UserFacingMessage
 {
     /**
+     * The sentence a refusal carries when it has none of its own.
+     *
+     * It lives here, in the layer that decides what a visitor may be
+     * told, rather than on a controller: a service that refuses a write
+     * needs the same words, and reaching up into `Core\Http\Controller`
+     * for them would invert the one-directional
+     * Controller → Service → Repository dependency AGENTS.md states.
+     * {@see \Core\Http\Controller\AbstractController::FORBIDDEN_MESSAGE}
+     * is this constant, so the HTML 403, its JSON twin and a service's
+     * exception all say exactly the same thing.
+     */
+    public const FORBIDDEN = "Vous n'avez pas les permissions nécessaires pour accéder à cette page.";
+
+    /**
      * @param \Throwable $e        the caught exception
      * @param string     $fallback the French sentence to show when the
      *                             exception's own message is not fit for a
