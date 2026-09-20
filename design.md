@@ -591,6 +591,17 @@ helpers; a page-level primary action that happens to call an AI
   "which view of this page am I on", and a rail folds nothing away.
   Chips remain wrong for sub-navigation; so were pills.
 
+**Une page qui interrompt ne dessine pas la navigation.** L'écran « Avant
+de continuer » (`/account/complete-profile`, specifications.md §2.4) est
+la seule page du site à vider le bloc `nav` de `base.html.twig`, et c'est
+une décision plutôt qu'un oubli : toutes les autres routes y renvoient,
+donc un menu dont chaque entrée ramène ici se lit comme un site cassé
+plutôt que comme un site qui attend quelque chose. La sortie — « Se
+déconnecter » — est alors **sur la page**, puisqu'elle n'est plus dans le
+menu, et elle n'est pas négociable. Ce n'est pas un gabarit parallèle
+pour autant : la page étend `base.html.twig` comme toutes les autres et
+n'ouvre aucun `.container` à elle.
+
 ### 7.7 Empty states
 
 Rendered through the `empty_state` partial, never hand-rolled. Canonical

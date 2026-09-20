@@ -71,6 +71,44 @@ Three methods, all resolving to the same email:
 
 **Passkey (WebAuthn)**: one-tap with biometrics or security key. No email field (discoverable credentials). Multiple keys per account.
 
+### 2.4 An account carries a first and a last name, and both are mandatory
+
+`user_accounts.first_name` / `last_name` used to be optional, and most rows
+carry neither: the setup wizard collects an e-mail address and nothing else, and
+`Core\Import\DeskImportService` creates one account per member e-mail without
+ever writing a name onto it. They are mandatory now, in the application rather
+than in the schema — the columns stay nullable, because the rows that predate
+the rule have nothing to be migrated from.
+
+An identified session missing either name is answered with an **interstitial
+screen** (`/account/complete-profile`) instead of the page it asked for, and
+goes no further until both are filled in. « Mon compte » enforces the same rule
+from the other side: saving with either field empty is refused rather than
+stored as NULL. Existing accounts therefore meet the screen at their next
+connection, once, and never again.
+
+Three properties of the block, each of them a way it could be got wrong:
+
+- **Every identified account, whatever its role.** No exemption for a chef
+  d'unité or a superadmin — the first account of every installation has no name
+  by construction, so an exemption would mean the rule never applies to the one
+  person who administers the site.
+- **Logging out is always possible**, and it is the only way out. A validation
+  that will not let go locks somebody out of their own site.
+- **A public route is never intercepted.** The block applies to a session, not
+  to a visitor: the RGPD page, the cookie preferences, the web manifest and the
+  unit's icons — which the screen itself loads — keep answering. The verdict is
+  read from the route's own declared `role_min`, so a route added later is
+  covered without anybody listing it.
+
+Why it matters beyond tidiness: the name is what the site proposes as the
+signatory of the official documents a parent prints (§44), so a blank one there
+is a blank line on a form the federation expects signed.
+
+**The connection by magic link confirms on one device and signs in another**
+(§2.3), so the screen appears on the device that CARRIES the session, never on
+the one that opened the link.
+
 ## 3. Menus
 
 Five main menus, visibility by role:

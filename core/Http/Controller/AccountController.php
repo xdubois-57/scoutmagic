@@ -16,6 +16,7 @@ use Core\Photo\AccountPhotoService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\PasswordPolicy;
+use Core\Security\ProfileCompletionGate;
 use Core\Security\UserAccountRepository;
 use Core\Security\WebAuthnCredentialRepository;
 use Core\Security\WebAuthnService;
@@ -106,6 +107,12 @@ class AccountController extends AbstractController
     /**
      * POST /account/profile — update name and surname.
      *
+     * Both are mandatory now, so this refuses to empty either one rather
+     * than storing NULL: the name is what the site proposes as the
+     * signatory of an official document (specifications.md §44), and an
+     * account that could blank it would meet Core\Security\
+     * ProfileCompletionGate's screen on its very next click anyway.
+     *
      * @param array<string, string> $params
      */
     public function updateProfile(Request $request, array $params): Response
@@ -122,14 +129,94 @@ class AccountController extends AbstractController
         $firstName = trim((string) $request->getBody('first_name', ''));
         $lastName = trim((string) $request->getBody('last_name', ''));
 
-        $this->userAccountRepo->updateProfile(
-            $userId,
-            $firstName !== '' ? $firstName : null,
-            $lastName !== '' ? $lastName : null
-        );
+        if ($firstName === '' || $lastName === '') {
+            FlashMessage::set('error', 'Votre prénom et votre nom sont obligatoires.');
+            return $this->redirect('/account');
+        }
+
+        $this->userAccountRepo->updateProfile($userId, $firstName, $lastName);
 
         FlashMessage::set('success', 'Profil mis à jour.');
         return $this->redirect('/account');
+    }
+
+    /**
+     * GET /account/complete-profile — the interstitial screen an identified
+     * account meets while its first or last name is missing.
+     *
+     * Rendered rather than redirected-to from nowhere: Core\Security\
+     * ProfileCompletionGate sends every other route here, so this action is
+     * the one place the screen exists. A profile that is already complete
+     * has nothing to answer and goes to the home page — otherwise a
+     * bookmarked URL would be a dead end.
+     *
+     * @param array<string, string> $params
+     */
+    public function completeProfile(Request $request, array $params): Response
+    {
+        $userId = AuthSession::getUserAccountId();
+        if ($userId === null) {
+            return $this->redirect('/login');
+        }
+
+        $account = $this->userAccountRepo->findById($userId);
+        if ($account === null) {
+            return $this->redirect('/login');
+        }
+
+        if (ProfileCompletionGate::isComplete($account)) {
+            return $this->redirect('/');
+        }
+
+        return $this->renderCompleteProfile($account->firstName ?? '', $account->lastName ?? '', null);
+    }
+
+    /**
+     * POST /account/complete-profile — save the two names and let the
+     * session through.
+     *
+     * A refusal re-renders the same screen with what was typed and a
+     * sentence saying what is missing, never a redirect: there is nowhere
+     * to redirect to that is not this screen, and a round trip through the
+     * gate would lose the other field.
+     *
+     * @param array<string, string> $params
+     */
+    public function saveCompleteProfile(Request $request, array $params): Response
+    {
+        $userId = AuthSession::getUserAccountId();
+        if ($userId === null) {
+            return $this->redirect('/login');
+        }
+
+        if (($guard = $this->guardCsrf($request, ProfileCompletionGate::PATH)) !== null) {
+            return $guard;
+        }
+
+        $firstName = trim((string) $request->getBody('first_name', ''));
+        $lastName = trim((string) $request->getBody('last_name', ''));
+
+        if ($firstName === '' || $lastName === '') {
+            return $this->renderCompleteProfile(
+                $firstName,
+                $lastName,
+                'Indiquez votre prénom et votre nom pour continuer.'
+            );
+        }
+
+        $this->userAccountRepo->updateProfile($userId, $firstName, $lastName);
+
+        FlashMessage::set('success', 'Merci, votre profil est complet.');
+        return $this->redirect('/');
+    }
+
+    private function renderCompleteProfile(string $firstName, string $lastName, ?string $error): Response
+    {
+        return $this->render('account/complete_profile.html.twig', [
+            'first_name' => $firstName,
+            'last_name' => $lastName,
+            'submit_error' => $error,
+        ]);
     }
 
     /**
