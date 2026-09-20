@@ -85,6 +85,7 @@ import { expect, test } from '@playwright/test';
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin } from '../support/admin-login.js';
+import { openCard } from '../support/collapsible-card.js';
 import { openSectionEditor } from '../support/section-editor.js';
 import { pngBuffer } from '../support/png.js';
 import { scaled } from '../support/timeouts.js';
@@ -246,7 +247,7 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         // which re-renders the panel, must all leave it open. A box that
         // folded under the manager's hands after every action is the
         // regression this single call is watching for.
-        await openBox(page, 'dossier-documents');
+        await openCard(page, 'dossier-documents');
 
         // A marker on the live document. If any of the presses below makes
         // the browser navigate, the document is replaced and the marker goes
@@ -422,30 +423,6 @@ function milestone(page, label) {
     return page.locator('[data-booking-panel="milestones"] li').filter({ hasText: label });
 }
 
-/**
- * Unfolds one box of « Le dossier » (IT-05), by the id
- * `Booking\BookingBox::anchor()` gives its card.
- *
- * Idempotent, because the interesting property is that a box STAYS open
- * across the panel refreshes that follow: calling it on a box already
- * unfolded must not fold it, and a second call is how a spec would
- * accidentally do exactly that.
- *
- * @param {import('@playwright/test').Page} page
- * @param {string} anchor the card's id, e.g. `dossier-documents`
- */
-async function openBox(page, anchor) {
-    const trigger = page.locator(`#${anchor} [data-bs-toggle="collapse"]`).first();
-    if (await trigger.getAttribute('aria-expanded') === 'true') {
-        return;
-    }
-
-    await trigger.click();
-    // The animation, waited out rather than slept through: Bootstrap adds
-    // `.show` when it starts and the panel has no height until it ends, so
-    // a click aimed inside it now would land on nothing.
-    await expect(page.locator(`#${anchor} .collapse`).first()).toBeVisible();
-}
 
 /**
  * The booking's own URL, taken from the address bar.

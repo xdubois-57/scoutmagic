@@ -304,7 +304,7 @@
 
         <div class="card mb-3" id="{{ boxes.prix.anchor }}">
             {% embed '@rental/management/_dossier_header.html.twig' with {
-                box: boxes.prix, target_id: 'box-prix',
+                box: boxes.prix, target_id: boxes.prix.bodyAnchor,
             } only %}
                 {% block figure %}
                     <span class="text-body-secondary small" data-booking-panel="price-figure">
@@ -312,7 +312,7 @@
                     </span>
                 {% endblock %}
             {% endembed %}
-            <div class="collapse" id="box-prix">
+            <div class="collapse" id="{{ boxes.prix.bodyAnchor }}">
                 <div data-booking-panel="price">
                     {% include '@rental/management/_price.html.twig' %}
                 </div>
@@ -321,7 +321,7 @@
 
         <div class="card mb-3" id="{{ boxes.paiements.anchor }}">
             {% embed '@rental/management/_dossier_header.html.twig' with {
-                box: boxes.paiements, target_id: 'box-paiements',
+                box: boxes.paiements, target_id: boxes.paiements.bodyAnchor,
             } only %}
                 {% block figure %}
                     <span class="text-body-secondary small" data-booking-panel="payment-figure">
@@ -337,7 +337,7 @@
                     </span>
                 {% endblock %}
             {% endembed %}
-            <div class="collapse" id="box-paiements">
+            <div class="collapse" id="{{ boxes.paiements.bodyAnchor }}">
                 <div data-booking-panel="payment">
                     {% include '@rental/management/_payment.html.twig' %}
                 </div>
@@ -346,7 +346,7 @@
 
         <div class="card mb-3" id="{{ boxes.documents.anchor }}">
             {% embed '@rental/management/_dossier_header.html.twig' with {
-                box: boxes.documents, target_id: 'box-documents',
+                box: boxes.documents, target_id: boxes.documents.bodyAnchor,
             } only %}
                 {% block figure %}
                     <span class="text-body-secondary small" data-booking-panel="documents-figure">
@@ -356,7 +356,7 @@
                     </span>
                 {% endblock %}
             {% endembed %}
-            <div class="collapse" id="box-documents">
+            <div class="collapse" id="{{ boxes.documents.bodyAnchor }}">
                 <div data-booking-panel="documents">
                     {% include '@rental/management/_documents.html.twig' %}
                 </div>
@@ -374,7 +374,7 @@
         {% if communications_available %}
             <div class="card mb-3" id="{{ boxes.courrier.anchor }}">
                 {% embed '@rental/management/_dossier_header.html.twig' with {
-                    box: boxes.courrier, target_id: 'box-courrier',
+                    box: boxes.courrier, target_id: boxes.courrier.bodyAnchor,
                 } only %}
                     {% block figure %}
                         <span class="text-body-secondary small" data-booking-panel="communications-figure">
@@ -384,7 +384,7 @@
                         </span>
                     {% endblock %}
                 {% endembed %}
-                <div class="collapse" id="box-courrier">
+                <div class="collapse" id="{{ boxes.courrier.bodyAnchor }}">
                     <div data-booking-panel="communications">
                         {% include '@rental/management/_communications.html.twig' %}
                     </div>
@@ -395,7 +395,7 @@
         {% set pending_changes = change_requests|filter(c => c.isPending)|length %}
         <div class="card mb-3" id="{{ boxes.demandes.anchor }}">
             {% embed '@rental/management/_dossier_header.html.twig' with {
-                box: boxes.demandes, target_id: 'box-demandes',
+                box: boxes.demandes, target_id: boxes.demandes.bodyAnchor,
             } only %}
                 {% block figure %}
                     <span class="text-body-secondary small" data-booking-panel="changes-figure">
@@ -409,7 +409,7 @@
                     </span>
                 {% endblock %}
             {% endembed %}
-            <div class="collapse" id="box-demandes">
+            <div class="collapse" id="{{ boxes.demandes.bodyAnchor }}">
                 <div data-booking-panel="changes">
                     {% include '@rental/management/_changes.html.twig' %}
                 </div>
@@ -436,7 +436,7 @@
 
         <div class="card mb-3" id="{{ boxes.commentaires.anchor }}">
             {% embed '@rental/management/_dossier_header.html.twig' with {
-                box: boxes.commentaires, target_id: 'box-commentaires',
+                box: boxes.commentaires, target_id: boxes.commentaires.bodyAnchor,
             } only %}
                 {% block figure %}
                     <span class="text-body-secondary small" data-booking-panel="comments-figure">
@@ -446,7 +446,7 @@
                     </span>
                 {% endblock %}
             {% endembed %}
-            <div class="collapse" id="box-commentaires">
+            <div class="collapse" id="{{ boxes.commentaires.bodyAnchor }}">
                 <div data-booking-panel="comments">
                     {% include '@rental/management/_comments.html.twig' %}
                 </div>
@@ -455,7 +455,7 @@
 
         <div class="card mb-3" id="{{ boxes.historique.anchor }}">
             {% embed '@rental/management/_dossier_header.html.twig' with {
-                box: boxes.historique, target_id: 'box-historique',
+                box: boxes.historique, target_id: boxes.historique.bodyAnchor,
             } only %}
                 {% block figure %}
                     <span class="text-body-secondary small" data-booking-panel="history-figure">
@@ -463,7 +463,7 @@
                     </span>
                 {% endblock %}
             {% endembed %}
-            <div class="collapse" id="box-historique">
+            <div class="collapse" id="{{ boxes.historique.bodyAnchor }}">
                 <div data-booking-panel="history">
                     <div class="card-body pt-0">
                         {% include 'partials/audit_timeline.html.twig' with {

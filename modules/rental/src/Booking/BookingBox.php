@@ -65,6 +65,20 @@ enum BookingBox: string
     }
 
     /**
+     * The id of the folded panel inside that card.
+     *
+     * `<card>-body` is not a shape invented here: it is the convention
+     * `core/View/templates/config/maintenance.html.twig` writes for every
+     * one of its boxes, and the one `tests/e2e/support/collapsible-card.js`
+     * already knows — so a scenario unfolds a box of this page with the
+     * helper the rest of the suite uses, and learns nothing new.
+     */
+    public function bodyAnchor(): string
+    {
+        return $this->anchor() . '-body';
+    }
+
+    /**
      * Where a milestone is actually settled, or null when it is settled on
      * the journey itself.
      *
