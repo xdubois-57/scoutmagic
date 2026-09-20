@@ -225,8 +225,33 @@ turn waiting for one ends the run — nothing wakes a workflow up, so the SDK
 closes it a success with part of the diff unread. That is what #208 did:
 three spawned, two collected, no comment.
 
+**Read the `Review agents started in the background` row next to it, and
+read it first.** That number is the cause: every truncated run this
+repository has recorded started agents in the background, and the complete
+ones started none or one. A launch that simply omits `run_in_background`
+counts here too — the default is the background, which is why the
+instruction in the prompt has never been enough. Until a `PreToolUse` hook
+forces the foreground (`docs/quality-pipeline.md` § Code review: it needs
+the maintainer's approval to land under `.claude/`), a truncated run is
+the reviewer having omitted the field, not a verdict on the diff: re-run
+the review rather than reading anything into it.
+
+**"Ended without finishing" is a different sentence and a different
+defect.** It means agents failed or were killed rather than being left in
+flight; nothing was waiting on a background agent, so the background row
+will not explain it. Read the run log at the agents that ended early.
+
+**"Nothing was launched" means the calls were made and refused.** Agents
+launched above zero with none started is the #208 shape: look at the first
+tool call in the transcript for what was denied.
+
 A refusal names the tool: grant it in `claude_args`, or write down in that
 file why it must stay denied.
+
+**The `Review procedure` row is the commit of the review plugin this run
+loaded.** It cannot be pinned — the action takes a marketplace URL and no
+ref — so when the reviewer starts behaving differently on an unchanged
+workflow, compare that row against the last run that behaved.
 
 **Its `Took` row is information, not evidence.** That comment used to
 decide on duration — under a minute meant a skip — and it was wrong
