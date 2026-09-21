@@ -774,13 +774,13 @@ class GroupControllerTest extends TestCase
 
     /**
      * partials/breadcrumb_bar.html.twig: the group's own name replaces the
-     * route's static "Groupe" label, and a real link back to "Groupes"
+     * route's static "Groupe" label, and a real link back to "Discussions"
      * (the module's list page) appears ahead of it — once.
      *
      * The declaration comes from the real module.json because that is now
      * the only place naming that ancestor: this controller used to pass
      * the same page again as a `breadcrumb_trail`, and the bar rendered
-     * « Groupes / Groupes ».
+     * « Discussions / Discussions ».
      */
     public function testShowBreadcrumbNamesTheGroupAndLinksBackToTheGroupList(): void
     {
@@ -792,7 +792,7 @@ class GroupControllerTest extends TestCase
             ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
             ->getBody();
 
-        $this->assertMatchesRegularExpression('/<a href="\/groups" class="text-decoration-none">Groupes<\/a>/', $body);
+        $this->assertMatchesRegularExpression('/<a href="\/groups" class="text-decoration-none">Discussions<\/a>/', $body);
         // Named with its scout year, like every other place this module
         // writes the name of a group tied to the year in effect
         // (Support\GroupLabel).
@@ -1320,7 +1320,7 @@ class GroupControllerTest extends TestCase
             ->gallery(new Request('GET', '/groups/' . $groupId . '/gallery', [], [], [], []), ['id' => (string) $groupId])
             ->getBody();
 
-        $this->assertMatchesRegularExpression('/<a href="\/groups" class="text-decoration-none">Groupes<\/a>/', $body);
+        $this->assertMatchesRegularExpression('/<a href="\/groups" class="text-decoration-none">Discussions<\/a>/', $body);
         $this->assertMatchesRegularExpression('/<a href="\/groups\/' . $groupId . '" class="text-decoration-none">Louveteaux<\/a>/', $body);
         $this->assertMatchesRegularExpression('/aria-current="page">\s*Galerie du groupe\s*<\/li>/', $body);
     }

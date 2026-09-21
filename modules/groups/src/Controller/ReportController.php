@@ -271,7 +271,7 @@ class ReportController extends AbstractController
             // "what would it replace?" the group page passes.
             'pinned_post_label' => $this->postService?->pinnedLabel($group->id) ?? '',
             'breadcrumb_trail' => [
-                ['label' => 'Groupes', 'url' => '/groups'],
+                ['label' => 'Discussions', 'url' => '/groups'],
                 ['label' => $group->name, 'url' => '/groups/' . $group->id],
             ],
         ]);
