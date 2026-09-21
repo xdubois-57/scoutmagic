@@ -992,7 +992,7 @@ de **constater sans combler**.
   les `waitForTimeout` qui sont douteux, c'est que **deux scénarios codent
   4 000 ms en dur là où un helper du même dépôt calcule la valeur exacte**.
   Non corrigé ici — deux fichiers de test, et la preuve demanderait de faire
-  varier le réglage côté serveur.
+  varier le réglage côté serveur. Déposé en #453.
 - **Les sélecteurs : le soupçon tient, à sa mesure.** Répartition sur toute
   la suite : **829 adressent ce qu'un utilisateur voit** (`getByRole` 492,
   `getByText` 166, `getByLabel` 166, `getByPlaceholder` 5), **250 un
@@ -1047,6 +1047,17 @@ scenario » que la configuration annonce déjà.
   hand, open an issue » est l'autre, qui vise explicitement « a trap you
   documented in a comment rather than removed ». La seconde ne se déduit pas
   de la première. Constat juste, issue déposée.
+
+- #453 — deux scénarios codent en dur le délai que `Core\Security\HumanCheck`
+  impose, là où `tests/e2e/support/human-check.js` le calcule depuis le jeton
+  du formulaire. Déposée pour la même raison que #452 : le constat est réel,
+  il n'est pas corrigé ici, et la règle ne se satisfait pas de l'avoir écrit
+  dans un journal.
+
+  Non corrigeable sous §0.1 : deux fichiers de test, et surtout aucune preuve
+  possible — établir qu'un test suit le réglage au lieu de le recopier
+  demande de faire varier ce réglage côté serveur pendant que la suite
+  tourne, ce que l'outillage E2E ne permet pas depuis un scénario.
 
 **Une règle perdue en route, et retrouvée par la revue** : `AGENTS.md`
 demande que toute issue porte `**Type: bug**` ou `**Type: enhancement**` sur
