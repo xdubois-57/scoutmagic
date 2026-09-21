@@ -281,6 +281,43 @@ laisser retomber. Le périmètre est d'une ligne.
 — le binaire `chrome-headless-shell` que Playwright attend n'y est pas.
 Utile pour IT-02, qui cassera des specs naviguant par le texte des liens.
 
+### L'instantané « avant » ne l'était pas — troisième et dernière fois
+
+La relecture a trouvé que le fixture, présenté comme pris sur `da64c8b`,
+enregistrait en réalité l'ordre **d'après** pour « Espace membres ›
+Pages ». Elle avait raison, et la cause est plus instructive que le
+symptôme.
+
+Le fixture était généré dans un `git worktree` de `da64c8b`, auquel
+j'avais prêté le `vendor/` du dépôt principal par un lien symbolique.
+Or l'autoloader de Composer calcule `$baseDir` à partir de `__DIR__`,
+qui résout **le vrai chemin** à travers le lien : `Core\` se chargeait
+donc depuis le dépôt modifié. Le worktree exécutait mon nouveau
+`MenuBuilder` — rangs fusionnés compris — et le résultat était enregistré
+comme « avant », puis comparé à lui-même. L'instantané passait et ne
+prouvait rien, exactement là où la fusion des rangs change quelque chose.
+
+Une seule colonne était concernée, et c'est celle où l'ancien tri à deux
+rangs était porteur : « Notifications », page du cœur d'ordre 10, passait
+devant Trombinoscope, Galerie et Groupes, ordres 5, 6 et 7. Impossible
+avec un rang unique. Quatre ordres corrigés : Notifications 40 → 10,
+Trombinoscope 10 → 20, Galerie 20 → 30, Groupes 30 → 40. Partout ailleurs
+mes valeurs étaient justes — par chance, faute d'entrelacement cœur/module.
+
+Le fixture est repris avec un autoloader qui mappe `Core\` sur le
+worktree lui-même, jamais sur un `vendor/` partagé. Et le test porte
+désormais la vérification de sa propre provenance : il exige que
+« Espace membres » commence par « Notifications » pour les quatre rôles
+concernés — une empreinte régénérée avec le nouveau code ne peut pas le
+satisfaire.
+
+**Ce que je retiens.** Trois fois de suite, le défaut n'était pas dans le
+code livré mais dans la chose censée le prouver : d'abord un instantané
+aveugle aux entrées contribuées, puis un garde qui ne couvrait qu'un côté
+de la règle, puis une empreinte générée avec le code qu'elle devait
+contrôler. Un test qui se compare à lui-même est plus dangereux qu'un
+test absent, parce qu'il affiche du vert.
+
 ### Reporté
 
 Rien. IT-02 et IT-03 sont le périmètre annoncé, pas un report.

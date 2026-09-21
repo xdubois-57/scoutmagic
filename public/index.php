@@ -3522,7 +3522,7 @@ $menuBuilder->addPage(
     'Notifications',
     '/notifications',
     'identified',
-    40,
+    10,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,

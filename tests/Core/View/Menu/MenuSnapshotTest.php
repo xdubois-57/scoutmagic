@@ -24,6 +24,24 @@ use PHPUnit\Framework\TestCase;
  * by rendering `MenuInventory` with the offset still applied. Every run
  * since renders the same menus from the declared orders and compares.
  *
+ * **How it was taken, because the first attempt got it wrong in a way
+ * that left no trace.** It was generated in a `git worktree` of that
+ * commit — and the first time, that worktree borrowed the main
+ * checkout's `vendor/`. Composer's `$baseDir` resolves `__DIR__` through
+ * the symlink to the real path, so `Core\` loaded from the *modified*
+ * checkout: the run used the new ranks and produced the new order, which
+ * was then recorded as « before » and compared against itself. The
+ * snapshot passed, and proved nothing for the one column where the rank
+ * merge changes anything.
+ *
+ * Anyone re-recording this fixture must therefore autoload `Core\` from
+ * the worktree itself, never through a shared `vendor/`. The value below
+ * is the check: at `da64c8b`, « Espace membres › Pages » began with
+ * Notifications, a core page ordered 10 sitting ahead of three module
+ * pages ordered 5, 6 and 7 — which is only possible under the two-rank
+ * sort this PR removes. A regenerated fixture that does not start that
+ * column with Notifications was taken with the wrong code.
+ *
  * **IT-02 will change these menus on purpose**, and this fixture is meant
  * to be replaced in that iteration — by the structure the maquette
  * describes, not by whatever the code happens to produce. Re-recording it
@@ -63,6 +81,29 @@ final class MenuSnapshotTest extends TestCase
             "The menus a '{$role}' sees have moved. If that was the intention, the fixture is the "
             . 'thing to change — deliberately, entry by entry — and not this assertion.'
         );
+    }
+
+    /**
+     * **The fixture describes the old sort, not the new one.**
+     *
+     * « Espace membres › Pages » is the one column where the two-rank
+     * sort was load-bearing: a core page ordered 10 rendered ahead of
+     * three module pages ordered 5, 6 and 7, which the merged rank makes
+     * impossible. A fixture whose column starts anywhere else was
+     * recorded with the post-change code, and every other assertion in
+     * this file then compares the new behaviour with itself.
+     */
+    public function testTheFixtureRecordsTheOrderOnlyTheOldRankCouldProduce(): void
+    {
+        foreach (['intendant', 'chief', 'admin', 'superadmin'] as $role) {
+            $this->assertSame(
+                'Pages › Notifications',
+                self::fixture()[$role]['Espace membres'][0] ?? null,
+                "The fixture no longer starts « Espace membres » with Notifications for a '{$role}'. "
+                . 'At da64c8b a core page ordered 10 outranked module pages ordered 5-7; if this '
+                . 'fixture disagrees, it was regenerated with the new code and proves nothing.'
+            );
+        }
     }
 
     /**

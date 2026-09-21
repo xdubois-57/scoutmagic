@@ -2,7 +2,7 @@
   "id": "gallery",
   "name": "Galerie photos et vidéos",
   "description": "Albums photo/vidéo (envoi local avec redimensionnement/transcodage automatique, ou lien vers un album externe) visibles par les membres identifiés.",
-  "version": "1.12.1",
+  "version": "1.12.2",
   "enabled_by_default": false,
   "routes": [
     {
@@ -15,7 +15,7 @@
       "label": "Galerie",
       "menu_icon": "bi-images",
       "menu_group": "pages",
-      "menu_order": 20,
+      "menu_order": 30,
       "breadcrumb": {
         "label": "Galerie",
         "parents": [

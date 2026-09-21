@@ -19,8 +19,8 @@ use Core\Security\CsrfGuard;
 use Twig\Environment;
 
 /**
- * Configuration > Modules — module registry (activation/deactivation,
- * activation). Split out of the former ConfigGeneralController
+ * Configuration > Modules — module registry (activation/deactivation).
+ * Split out of the former ConfigGeneralController
  * (which also carried badges and the configuration-mode toggle) so each
  * page has its own single-concern controller (AGENTS.md).
  */
