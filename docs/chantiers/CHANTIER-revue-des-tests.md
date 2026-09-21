@@ -1214,3 +1214,141 @@ service workers, qui est une question de conception.
   défaut constaté.
 - **Le cycle de vie du service worker**, que §7 demande explicitement de
   constater sans combler. C'est l'objet de #452.
+---
+
+### Itération 8 — Les spécifications elles-mêmes — 2026-09-21
+
+**Périmètre parcouru** : les six vérifications que §8 énumère, menées
+mécaniquement plutôt qu'à la lecture — un document de 3 061 lignes ne se
+relit pas, il se confronte.
+
+**Ce que §8 redoutait le plus n'a pas été trouvé.** « Ce qui est décrit et
+n'existe plus » est le danger que §8 place en tête, parce qu'un agent écrit
+du code contre cette description. Rien de tel :
+
+- **Les 23 chemins cités en toutes lettres dans `specifications.md` ont été
+  confrontés à `public/index.php` et aux 24 `module.json` : les 22 qui sont
+  des routes existent toutes.** Le vingt-troisième, `/members/42`, ne résout
+  pas — c'est un exemple d'adresse, pas une route.
+- **Les 23 clés de réglage citées existent toutes** dans le code.
+- **Aucune ligne de l'index §1.1 ne désigne un module absent**, et aucun
+  module n'y manque — mais cela, un test le tenait déjà (voir plus bas).
+
+**Les nombres tiennent, tous.** Chaque durée, seuil et quota cité a été
+confronté à la constante qui le porte, et pas une ne diverge :
+
+| Spec | Valeur | Constante |
+|---|---|---|
+| §852 message 5 000 / réponse 2 000 caractères | 5000 / 2000 | `PostService::MAX_BODY_LENGTH`, `ReplyService::MAX_BODY_LENGTH` |
+| §852 fenêtre d'édition 15 minutes | 15 | `PostService::EDIT_WINDOW_MINUTES` |
+| §1157 purge des audiences 18 mois / 7 jours | 18 / 7 | `PurgeMergeAudiencesHandler::DEFAULT_RETENTION_MONTHS`, `::ORPHAN_RETENTION_DAYS` |
+| §1116 rétention courrier non rattaché 90 jours | 90 | `PurgeUnlinkedMessagesHandler::DEFAULT_RETENTION_DAYS` |
+| §1801 archive d'album 512 Mo | 512×1024×1024 | `GalleryController::MAX_ZIP_BYTES` |
+| §1888 mot de rétro 120–200, défaut 140 | 120 / 200 / 140 | `BoardService::MIN_`/`MAX_MAX_COMMENT_LENGTH`, `AutoBoardCreationService::DEFAULT_MAX_COMMENT_LENGTH` |
+| §2526 commentaire de présence 500 | 500 | `PresenceRepository::MAX_COMMENT_LENGTH` |
+| §3007 fiche santé 18 mois | 18 | `PurgeHealthSheetsHandler::DEFAULT_RETENTION_MONTHS` |
+| §986 archive 90 jours / 1 an, ticket 2 ans | 90 / 365 / 730 | `SupportTicketRepository::ARCHIVE_RETENTION_DAYS_AFTER_CLOSURE`, `::ARCHIVE_MAX_AGE_DAYS`, `::TICKET_RETENTION_DAYS` |
+| §992 historique 12 mois par défaut | 12 | `SupportHistoryPeriod::DEFAULT_MONTHS` |
+
+C'est le résultat de l'itération 4 qui remonte ici : là où une valeur est
+testée, elle est aussi écrite juste.
+
+**L'écart est ailleurs, et il était invisible parce qu'un test le rendait
+invisible.** `Tests\Integration\ModuleSpecificationCoverageTest` tient
+l'index §1.1 dans les deux sens — tout module a sa ligne, toute ligne a sa
+section, toute section existe. C'est pour cela que les vérifications
+ci-dessus passent. Or §1.1 promet **deux** choses, et la seconde n'était
+tenue par rien :
+
+> « the pages a module adds are also listed, per menu, in §4 »
+
+**Cinq entrées de menu avaient quitté §4**, sans que rien ne le dise :
+
+| Entrée | Module | Ce qu'elle était devenue |
+|---|---|---|
+| §4.3 « Présences » | `presences` | absente — alors que §43 écrit « une seule entrée de menu, dans l'Espace animateurs » |
+| §4.4 « Courrier » | `inbound_mail` | absente — §4.5 ne décrit que la page de *configuration* des boîtes |
+| §4.4 « Réinscription » | `registration` | rangée dans §4.5, alors que son manifeste dit `espace_admin` |
+| §4.5 « Fréquentation » | `usage_stats` | absente |
+| §4.5 « Supervision » | `support_dashboard` | décrite sous le nom du manifeste, jamais sous celui du menu |
+
+La ligne « Réinscription » est la plus intéressante : §4.5 s'ouvre sur
+« All pages in this menu require the `superadmin` role, except Maintenance
+(`admin`) », et cette page est à `admin`. La contradiction était **dans la
+même sous-section, à quatorze lignes d'écart**. La déplacer en §4.4 ne
+corrige pas seulement le classement : elle rend vraie la phrase d'ouverture
+de §4.5.
+
+**Une carte que les clés de menu rendent piégeuse**, consignée dans le test
+parce qu'elle se relit de travers : `espace_animes` est l'Espace **membres**
+(§4.2, `identified`), `espace_chefs` l'Espace **animateurs** (§4.3,
+`intendant`/`chief`), `espace_admin` l'Espace **chefs d'U** (§4.4, `admin`).
+La correspondance a été établie sur le `role_min` de chaque route, puis
+recoupée indépendamment par les `breadcrumb.parents` des manifestes — et non
+sur l'orthographe des clés.
+
+**Mutations tentées** — chacune prouvée appliquée par une comparaison de
+fichiers avant verdict :
+
+- **Retirer la ligne « Présences » de §4.3** → rouge, sur cette seule
+  entrée. Le test voit une ligne manquante.
+- **Renommer le libellé de menu dans `modules/usage_stats/module.json`**
+  (« Fréquentation » → « Audience ») → rouge sur « Audience ». Le test lit
+  le manifeste, pas une liste recopiée dans le test.
+- **Déplacer la ligne « Présences » dans la mauvaise sous-section** (§4.4 au
+  lieu de §4.3) → **rouge**, alors que la ligne est présente dans le
+  document. C'est la mutation qui compte : elle prouve que le test cherche
+  dans la sous-section du menu déclaré et non dans §4 tout entier. Sans
+  elle, un test qui fouille le document entier aurait été vert et aurait eu
+  l'air bon.
+
+**Un piège du test, trouvé par le test.** La première version rapportait la
+première entrée manquante et affichait, comme botte de foin, la sous-section
+entière — plusieurs milliers de caractères pour un nom de page absent.
+Réécrite pour collecter les cinq et n'en faire qu'un message. Le coût d'un
+échec illisible se paie le jour où il tombe, pas le jour où il est écrit.
+
+**Une erreur de manipulation, et ce qu'elle enseigne.** La sonde de mutation
+restaurait le fichier par `git checkout specifications.md` — ce qui a effacé
+les corrections non encore commitées et fait tourner la mutation suivante
+sur le document d'origine. Le symptôme était lisible (cinq écarts au lieu
+d'un), et c'est le test qui l'a signalé. Les sondes suivantes travaillent sur
+une copie. Même famille que la sonde de l'itération 3 qui avait vidé un
+fichier de production : un outil de vérification qui écrit dans l'arbre de
+travail doit être tenu pour dangereux.
+
+**Corrigé dans cette PR** : `specifications.md` (§4.3, §4.4, §4.5 — cinq
+lignes, dont un déplacement) et son test,
+`tests/Integration/ModuleSpecificationCoverageTest.php`
+(`testEveryMenuEntryAModuleAddsHasItsRowInSectionFour`). Les quatre
+conditions de §0.1 sont réunies, la troisième comprise : le test est rouge
+avant et vert après.
+
+**Issues ouvertes** : aucune. Aucun écart de cette itération ne pose la
+question « lequel des deux a raison, le code ou la spec ? » — dans les cinq
+cas le manifeste construit le menu et le document le décrit, donc le
+document seul était en retard.
+
+**Vérifié et tenu** :
+
+- `test_tools` et `support_dashboard` déclarent bien le `visible_when` que
+  §1.1 leur prête (`["reference_installation", "local_installation"]` et
+  `["statistics_receiver"]`).
+- Les 24 modules ont une section, et les 29 renvois portés par les lignes de
+  l'index pointent tous vers une section qui existe.
+- Les libellés « Groupes » et « Intelligence artificielle » de l'index §1.1
+  semblaient contredire les manifestes (« Groupes de discussion », « Connecteur
+  IA ») : ce sont leurs **libellés de menu**, exacts tous les deux. Soupçon
+  levé par la vérification, pas par la lecture — il figure ici parce qu'il
+  aurait fait une correction fausse.
+
+**Non vérifiable, et pourquoi** :
+
+- **Le fond des sections**, par construction. Ce qui est tenu est que
+  chaque page a sa ligne, pas que la ligne dise vrai. §4.5 décrit la page
+  « Courrier sortant » sur 4 000 caractères ; rien ne confronte ces
+  4 000 caractères à l'écran. Un test de couverture est un test de présence.
+- **L'ordre des sous-sections de §18** (18.1, 18.2, 18.3, **18.5**, 18.4)
+  est inversé dans le document. Non corrigé : renuméroter toucherait les
+  renvois croisés qui citent §18.4 et §18.5 depuis d'autres sections, et une
+  correction d'ordre ne se prouve par aucun test. Constaté, laissé tel quel.
