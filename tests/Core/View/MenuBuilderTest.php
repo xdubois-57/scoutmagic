@@ -138,14 +138,6 @@ class MenuBuilderTest extends TestCase
     }
 
     /**
-     * The real bug this sort was fixed for (ARCHITECTURE §7.1): a module
-     * page declaring a very low menu_order (trombinoscope: 5, gallery: 6)
-     * used to sort ahead of dynamic per-member entries and core pages with
-     * a numerically higher order. Group (dynamic → core → module) is now
-     * checked before `order` at all, so this can no longer happen —
-     * however low a module sets its `menu_order`.
-     */
-    /**
      * **Dynamic entries lead; everything else is ordered by its own
      * number.**
      *
