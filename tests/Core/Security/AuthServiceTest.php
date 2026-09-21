@@ -402,6 +402,85 @@ class AuthServiceTest extends TestCase
         $this->assertNull($verified);
     }
 
+    /**
+     * The window is fifteen minutes, and that figure is a promise.
+     *
+     * `specifications.md` §2 states it — « Token: single-use, 15-minute
+     * expiry » — and the RGPD page says it twice, as a retention claim:
+     * « Expirés et supprimés automatiquement après 15 minutes »
+     * (`core/View/rgpd_default.html`). Nothing held it: widening
+     * `TOKEN_EXPIRY_MINUTES` to a full day left the whole suite green,
+     * 19 878 tests, because every test that mentions the window writes
+     * its own `expires_at` instead of reading the one the service wrote.
+     *
+     * The tolerance is seconds, deliberately. A minute of slack would
+     * accept fourteen or sixteen, and the point is the number itself.
+     */
+    public function testAMagicLinkIsValidForFifteenMinutesAndNoLonger(): void
+    {
+        $this->userRepo->create('user@test.com');
+
+        $before = new \DateTimeImmutable();
+        $result = $this->authService->requestMagicLink('user@test.com');
+        $after = new \DateTimeImmutable();
+
+        $this->assertTrue($result->success);
+        $stmt = $this->pdo->prepare('SELECT expires_at FROM magic_links WHERE id = ?');
+        $stmt->execute([$result->magicLinkId]);
+        $expiresAt = new \DateTimeImmutable((string) $stmt->fetchColumn());
+
+        $this->assertGreaterThanOrEqual(
+            $before->modify('+15 minutes')->getTimestamp(),
+            $expiresAt->getTimestamp(),
+            'The link expires sooner than the fifteen minutes the specification and the RGPD page promise.'
+        );
+        $this->assertLessThanOrEqual(
+            $after->modify('+15 minutes')->getTimestamp(),
+            $expiresAt->getTimestamp(),
+            'The link outlives the fifteen minutes the specification and the RGPD page promise.'
+        );
+    }
+
+    /**
+     * And the window is read at the second, not at the day.
+     *
+     * `testVerifyMagicLinkExpired()` below uses 2020, which proves that a
+     * link expired six years ago is refused — true of an implementation
+     * that compared dates, or years, or nothing much. These two are the
+     * borders § of the chantier asks for: the second before, the second
+     * after.
+     */
+    public function testTheExpiryIsEnforcedAtItsBorderRatherThanApproximately(): void
+    {
+        $this->userRepo->create('user@test.com');
+
+        $justExpired = $this->givenMagicLinkExpiringAt('-1 second', 'token_a');
+        $this->assertNull(
+            $this->authService->verifyMagicLink($justExpired, 'token_a'),
+            'A link one second past its expiry was accepted.'
+        );
+
+        $aboutToExpire = $this->givenMagicLinkExpiringAt('+30 seconds', 'token_b');
+        $this->assertNotNull(
+            $this->authService->verifyMagicLink($aboutToExpire, 'token_b'),
+            'A link thirty seconds short of its expiry was refused.'
+        );
+    }
+
+    private function givenMagicLinkExpiringAt(string $modifier, string $rawToken): int
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO magic_links (email_blind_index, token_hash, expires_at) VALUES (?, ?, ?)'
+        );
+        $stmt->execute([
+            $this->encryption->blindIndex('user@test.com', 'email'),
+            password_hash($rawToken, PASSWORD_DEFAULT),
+            (new \DateTimeImmutable($modifier))->format('Y-m-d H:i:s'),
+        ]);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
     public function testVerifyMagicLinkExpired(): void
     {
         $this->userRepo->create('user@test.com');

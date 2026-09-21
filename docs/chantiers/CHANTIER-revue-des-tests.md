@@ -732,3 +732,83 @@ la remise de la branche sur `main`. Aucune ne venait du changement :
 conteneur datait d'avant. `composer install` les fait toutes disparaître.
 Un `phpstan` rouge sur un fichier que l'on n'a pas touché se vérifie
 d'abord contre `composer.lock`.
+
+### Itération 4 — La couverture fonctionnelle, lue depuis les spécifications — 2026-09-21
+
+**Périmètre parcouru** : d'abord ce que `ModuleSpecificationCoverageTest`
+laisse passer, puisque §4 le désigne ; ensuite les règles chiffrées que §4
+énumère, reprises une à une depuis `specifications.md` vers le code, puis
+mises à l'épreuve par mutation.
+
+**Ce que le garde existant ne regarde pas** :
+`Integration\ModuleSpecificationCoverageTest` vérifie **l'index** de
+`specifications.md` §1.1 — chaque module y a une ligne, chaque section
+pointée existe, aucune ligne ne désigne un module mort. Il ne lit jamais le
+**contenu** d'une section. Un module peut donc être parfaitement indexé et
+promettre n'importe quoi : le trajet spec → test s'arrête au sommaire.
+
+**Mutations tentées** :
+
+| Mutation | Tests exécutés | Avant | Après |
+|---|---|---|---|
+| `AuthService::TOKEN_EXPIRY_MINUTES` 15 → 1440 | **la suite entière, 19 878** | **VERT** | **rouge** |
+| idem 15 → 14 | `AuthServiceTest` | VERT | **rouge** |
+| idem 15 → 16 | `AuthServiceTest` | VERT | **rouge** |
+| `if ($now > $record->expiresAt)` → `if (false)` | `AuthServiceTest` | 1 rouge | **2 rouges** |
+| idem, avec une heure de grâce après l'expiration | `AuthServiceTest` | VERT | **rouge** |
+| `CookieConsentService::CONSENT_DURATION_DAYS` 395 → 30 | `tests/Core/Cookie/` | VERT | VERT |
+| idem 395 → 3650 (dix ans) | + `tests/Core/View/`, 638 | VERT | VERT |
+
+Le premier est le constat de l'itération : un lien magique valable **vingt-
+quatre heures** au lieu de quinze minutes laissait la suite complète verte.
+La promesse est écrite deux fois — `specifications.md` ligne 66, « Token:
+single-use, 15-minute expiry », et `core/View/rgpd_default.html`, qui en
+fait une durée de conservation — et rien ne la tenait, parce que chaque
+test qui mentionne la fenêtre écrit son propre `expires_at` au lieu de lire
+celui que le service a écrit.
+
+La mutation « une heure de grâce » sépare les deux tests ajoutés :
+`testVerifyMagicLinkExpired` existait déjà, mais il date son lien de 2020,
+ce qui reste rouge pour une implémentation qui comparerait les années. La
+borne à la seconde est ce qui manquait.
+
+**Corrigé dans cette PR** :
+
+- `tests/Core/Security/AuthServiceTest` — deux tests. Le premier lit le
+  `expires_at` que `requestMagicLink()` a réellement écrit et le compare à
+  quinze minutes, à la seconde près : 14, 16 et 1440 rougissent. Le second
+  vérifie la borne — refusé une seconde après l'expiration, accepté trente
+  secondes avant. Aucun fichier de production touché.
+
+**Issues ouvertes** :
+
+- #444 — la durée du consentement aux cookies (395 jours, « 13 mois per
+  ePrivacy directive ») n'est tenue par rien, et ne peut pas l'être : le
+  banc d'essai remplace `setcookie()` par un bocal qui garde le nom et la
+  valeur et **jette l'expiration**, c'est-à-dire l'attribut que la règle
+  encadre. Dix ans passent aussi bien que treize mois.
+
+**Vérifié et tenu** :
+
+- **Deux prémisses de §4 sont inexactes, et il vaut mieux le savoir avant
+  de les chasser.** La « fenêtre de bascule 1er août – 29 septembre » n'est
+  écrite nulle part dans `specifications.md`, qui place la coupure au
+  1er septembre. Et les « 90 jours des notifications lues » comme le
+  « quota de 5 sauvegardes » ne sont pas des règles mais des **réglages
+  avec valeur par défaut** — `notifications_retention_days` lu par
+  `PurgeNotificationsHandler` avec `?: 90`, le quota de sauvegardes résolu
+  par `BackupRetention::quotaFor()`. Un test qui figerait ces chiffres
+  figerait une valeur par défaut, pas une promesse.
+
+**Non vérifiable, et pourquoi** :
+
+- **Une mutation qui ne s'applique pas se lit exactement comme un test qui
+  tient.** Deux mutations du `if` d'expiration ont d'abord été annoncées
+  vertes ; elles n'avaient simplement pas été appliquées, l'échappement de
+  l'expression `perl` ne correspondant à rien. Le test d'expiration
+  préexistant restait vert lui aussi, ce qui a mis la puce à l'oreille —
+  sans lui, deux fausses preuves de robustesse entraient dans ce journal.
+  L'outil de mutation utilisé au début de ce chantier vérifiait
+  `git diff` après écriture ; la boucle qui l'a contourné ne le faisait
+  pas. Toute mutation doit prouver qu'elle a modifié le fichier avant que
+  son verdict compte.
