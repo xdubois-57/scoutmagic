@@ -50,6 +50,32 @@ use Modules\Rental\Support;
 class RentalOperationsService
 {
     /**
+     * How long each billing field may be, in characters.
+     *
+     * Generous on purpose: a Belgian invoice address fits in a fraction of
+     * this, and the number exists to stop a paste from reaching a `BLOB`
+     * that cannot hold it — not to tell anybody how to write an address.
+     */
+    private const BILLING_LIMITS = [
+        'name' => 200,
+        'address' => 500,
+        'vat_number' => 32,
+        'enterprise_number' => 32,
+        'email' => 254,
+        'reference' => 100,
+    ];
+
+    /** The French name of each, for the refusal. */
+    private const BILLING_LABELS = [
+        'name' => 'Nom ou raison sociale',
+        'address' => 'Adresse',
+        'vat_number' => 'Numéro de TVA',
+        'enterprise_number' => "Numéro d'entreprise",
+        'email' => 'Adresse email de facturation',
+        'reference' => 'Référence à rappeler',
+    ];
+
+    /**
      * How many requests a renter may have waiting at once (§6.16).
      *
      * The renter's form is reached with a tracking token and no login, so
@@ -485,6 +511,7 @@ class RentalOperationsService
 
     public function requestChange(
         RentalBooking $booking,
+        RentalAsset $asset,
         ChangeRequestOrigin $origin,
         ChangeRequestKind $kind,
         ?string $arrivalDate,
@@ -493,7 +520,8 @@ class RentalOperationsService
         ?int $persons,
         ?PriceQuote $price,
         ?string $message,
-        ?int $actorMemberId = null
+        ?int $actorMemberId = null,
+        ?\DateTimeImmutable $now = null
     ): int {
         if ($booking->status->isFinal()) {
             throw new RentalException(self::finalRefusal($booking->status));
@@ -524,7 +552,18 @@ class RentalOperationsService
             }
         }
 
-        if ($kind === ChangeRequestKind::DATES && ($arrivalDate === null || $departureDate === null)) {
+        if ($kind->changesPersons() && $persons === null) {
+            // The mirror of the dates guard below, and missing until a
+            // review found it: without it the capacity check has nothing to
+            // weigh, the request is stored, and `ChangeRequest::summary()`
+            // reads « 0 participants » — while accepting it quietly keeps
+            // the count the booking already had.
+            throw new RentalException(
+                'Une demande de changement du nombre de participants doit préciser ce nombre.'
+            );
+        }
+
+        if ($kind->affectsAvailability() && ($arrivalDate === null || $departureDate === null)) {
             throw new RentalException('Une demande de changement de dates doit préciser les deux dates.');
         }
 
@@ -540,6 +579,76 @@ class RentalOperationsService
 
         if ($arrivalDate !== null && $departureDate !== null && $departureDate < $arrivalDate) {
             throw new RentalException("La date de départ doit suivre la date d'arrivée.");
+        }
+
+        // **The same rules as the public request form, and the same
+        // messages.** Until now this method checked that the dates parsed,
+        // that they were in order, and nothing else: a renter could ask for
+        // a Tuesday on an asset that only starts weekends, for one night
+        // where three are the minimum, or for eighty people in a hall that
+        // holds sixty — and the request was recorded, queued, and only
+        // refused weeks later when a manager pressed « Accepter » and the
+        // acceptance-time check finally spoke. The wrong person found out,
+        // at the wrong moment.
+        //
+        // **That is who this check is for: the renter.** A manager already
+        // sees the calendar, and `acceptChange()` guards the write with
+        // `firmOnly: true` — deliberately, because a competing request's
+        // soft hold is exactly what a manager is there to arbitrate
+        // (`isRangeFree()` says so). Validating their proposal here would
+        // refuse it over another renter's unconfirmed request, and over the
+        // notice period and arrival weekdays that shape what a *visitor*
+        // may ask. None of those were ever about them.
+        //
+        // The acceptance-time check STAYS either way. Between a request and
+        // an answer the dates can be taken by somebody else, and only the
+        // check inside the lock sees that.
+        //
+        // What binds everybody is physical: a hall that holds sixty holds
+        // sixty. So capacity is asked of both, and asked on its own, since
+        // a request that changes only the head count changes nothing about
+        // the period — re-validating the range would answer « Cette date
+        // est déjà passée » about a stay already under way.
+        $errors = $persons !== null
+            ? $this->availabilityService->validatePersons($asset, $persons)
+            : [];
+
+        if ($errors === [] && $origin === ChangeRequestOrigin::RENTER
+            && $arrivalDate !== null && $departureDate !== null
+        ) {
+            $errors = $this->availabilityService->validateRange(
+                $asset,
+                $this->pricingService->loadSettings($asset->id)->billingUnit,
+                DateInput::requireFromStorage($arrivalDate, 'the requested arrival date'),
+                DateInput::requireFromStorage($departureDate, 'the requested departure date'),
+                $units ?? $booking->units,
+                ($now ?? new \DateTimeImmutable())->setTime(0, 0),
+                // **Never the booking's own figure.** Capacity is asked
+                // above, on its own, and only when the head count is what
+                // changed. Filling it in here put it back into
+                // `validateRange()`, which asks it unconditionally — so a
+                // booking that an asset's *lowered* capacity has left over
+                // the limit was refused « La capacité maximum est de 40
+                // personnes. » for a dates-only request, an answer to a
+                // question the renter never asked, and could not move its
+                // dates at all. Which is the lockout the gate above exists
+                // to lift.
+                $persons,
+                // The booking's own period is not an obstacle to moving it:
+                // without this, asking to shift by one night collides with
+                // the nights it already holds.
+                $booking->reference,
+                // Both dates travel together whenever either moves
+                // (`RentalRequestController::requestChange()`), so "is
+                // there an arrival" does not mean "is it a new one".
+                // Extending a departure must not re-ask whether the stay
+                // may begin on the day it began.
+                $arrivalDate !== $booking->arrivalDate
+            );
+        }
+
+        if ($errors !== []) {
+            throw new RentalException(implode(' ', $errors));
         }
 
         $id = $this->changeRequestRepository->create(
@@ -558,8 +667,13 @@ class RentalOperationsService
         $this->bookingAudit->record(
             $booking->id,
             BookingAudit::CHANGE_REQUESTED,
-            $origin->value,
-            $kind->value,
+            // `label()`, not `value`: `Core\Audit` stores what a reader
+            // sees and `partials/audit_timeline.html.twig` never formats a
+            // value, so a `value` here is « renter » on a French page
+            // forever — the lines already written stay as they are, because
+            // a history somebody rewrites proves nothing.
+            $origin->label(),
+            $kind->label(),
             $request?->summary(),
             $actorMemberId
         );
@@ -808,8 +922,8 @@ class RentalOperationsService
         $this->bookingAudit->record(
             $request->bookingId,
             BookingAudit::CHANGE_DECIDED,
-            $request->kind->value,
-            $status->value,
+            $request->kind->label(),
+            $status->label(),
             $request->summary(),
             $actorMemberId
         );
@@ -909,6 +1023,55 @@ class RentalOperationsService
                 ['booking_id' => $booking->id, 'to_cents' => $totalCents]
             );
         }
+    }
+
+    // ── The billing identity (§22.6) ────────────────────────────────────
+
+    /**
+     * What this booking's invoice is to be made out to.
+     *
+     * Here rather than straight from the repository because a controller
+     * does not talk to one (ARCHITECTURE.md § Layering), and because both
+     * the manager's screen and the renter's tracking page now read and
+     * write it — two call sites, one door, so the guard below cannot be
+     * true of one of them and not the other.
+     *
+     * @return array<string, ?string>
+     */
+    public function billingIdentity(int $bookingId): array
+    {
+        return $this->bookingRepository->findBillingIdentity($bookingId);
+    }
+
+    /**
+     * Records it, refusing a value no column could hold.
+     *
+     * **Every field but the country is an encrypted `BLOB`**, and AES-GCM
+     * adds a nonce and a tag to what it is given — so a value near the
+     * column's ceiling comes back over it, and MySQL either refuses the
+     * whole update or truncates it into ciphertext that will never decrypt.
+     * Neither answer reaches the renter as anything they can act on, which
+     * is why the length is checked here and not discovered down there. The
+     * ceiling is far above any real invoice address; it is a guard against
+     * a paste, not a formatting rule.
+     *
+     * @param array<string, ?string> $identity
+     * @throws RentalException
+     */
+    public function saveBillingIdentity(int $bookingId, array $identity): void
+    {
+        foreach (self::BILLING_LIMITS as $field => $limit) {
+            $value = $identity[$field] ?? null;
+            if (is_string($value) && mb_strlen($value) > $limit) {
+                throw new RentalException(sprintf(
+                    'Le champ « %s » dépasse %d caractères.',
+                    self::BILLING_LABELS[$field],
+                    $limit
+                ));
+            }
+        }
+
+        $this->bookingRepository->saveBillingIdentity($bookingId, $identity);
     }
 
     /** `467,50 €` — for a history line a human reads, never for arithmetic. */

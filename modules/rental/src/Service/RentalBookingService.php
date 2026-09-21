@@ -465,8 +465,11 @@ class RentalBookingService implements OccupancyProvider
             $this->bookingAudit?->record(
                 $bookingId,
                 BookingAudit::CHANGE_DECIDED,
-                $pending->kind->value,
-                ChangeRequestStatus::REFUSED->value,
+                // French, like every other line of this history: what
+                // `Core\Audit` stores is what a reader sees, and the
+                // timeline partial never formats a value.
+                $pending->kind->label(),
+                ChangeRequestStatus::REFUSED->label(),
                 $pending->summary(),
                 null
             );

@@ -36,6 +36,7 @@ use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Controller\RentalManagementController;
 use Modules\Rental\Pricing\QuoteEditor;
 use Modules\Rental\Pricing\RentalPricingEngine;
+use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetManagerRepository;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Repository\RentalBlockRepository;
@@ -342,6 +343,20 @@ class RentalManagementControllerTest extends TestCase
     }
 
     // ── Fixtures ────────────────────────────────────────────────────────
+
+    /**
+     * The asset the scenarios work on, as the object
+     * `RentalOperationsService::requestChange()` now takes — it validates a
+     * renter's new dates against the asset's own rules rather than only
+     * parsing them (IT-03).
+     */
+    private function asset(): RentalAsset
+    {
+        $asset = $this->assetRepository->findById($this->assetId);
+        $this->assertNotNull($asset);
+
+        return $asset;
+    }
 
     private function createAsset(string $name, string $slug): int
     {
@@ -1016,6 +1031,7 @@ class RentalManagementControllerTest extends TestCase
         $booking = $this->createBooking();
         $requestId = $this->operationsService->requestChange(
             $booking,
+            $this->asset(),
             \Modules\Rental\Booking\ChangeRequestOrigin::RENTER,
             \Modules\Rental\Booking\ChangeRequestKind::PERSONS,
             null,
@@ -1313,6 +1329,7 @@ class RentalManagementControllerTest extends TestCase
         $booking = $this->createBooking();
         $requestId = $this->operationsService->requestChange(
             $booking,
+            $this->asset(),
             ChangeRequestOrigin::RENTER,
             ChangeRequestKind::DATES,
             '2027-07-08',
@@ -2190,6 +2207,7 @@ class RentalManagementControllerTest extends TestCase
         $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
         $foreignRequestId = $this->operationsService->requestChange(
             $foreign,
+            $this->asset(),
             ChangeRequestOrigin::RENTER,
             ChangeRequestKind::CANCELLATION,
             null,

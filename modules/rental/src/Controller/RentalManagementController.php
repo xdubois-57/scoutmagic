@@ -827,7 +827,7 @@ class RentalManagementController extends AbstractController
                 $this->scoutYearId()
             ) ?? [],
             'uploadable_types' => DocumentType::uploadable(),
-            'billing' => $this->bookingRepository->findBillingIdentity($booking->id),
+            'billing' => $this->operationsService->billingIdentity($booking->id),
             'csrf_token' => CsrfGuard::generateToken(),
             'nav_page' => 'bookings',
             'boxes' => $boxes,
@@ -1307,7 +1307,7 @@ class RentalManagementController extends AbstractController
     public function saveBillingIdentity(Request $request, array $params): Response
     {
         return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
-            $this->bookingRepository->saveBillingIdentity($booking->id, [
+            $this->operationsService->saveBillingIdentity($booking->id, [
                 'name' => Support::optionalString($request->getBody('billing_name')),
                 'address' => Support::optionalString($request->getBody('billing_address')),
                 'country' => Support::optionalString($request->getBody('billing_country')),
@@ -2153,6 +2153,7 @@ class RentalManagementController extends AbstractController
 
             $this->operationsService->requestChange(
                 $booking,
+                $asset,
                 ChangeRequestOrigin::MANAGER,
                 $kind,
                 Support::optionalString($request->getBody('arrival')),
