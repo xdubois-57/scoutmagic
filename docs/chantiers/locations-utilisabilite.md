@@ -378,6 +378,24 @@ questions différentes.
   langue du lecteur. L'assertion vérifie donc que chaque date stockée
   n'apparaît **que** là — ce qu'elle voulait dire depuis le début.
 
+- **Seule une arrivée qui bouge rouvre les règles d'arrivée.** Le
+  contrôleur envoie les deux dates dès que l'une change, si bien que
+  « il y a une arrivée » ne voulait jamais dire « elle est nouvelle ».
+  Valider tout l'intervalle demandait donc si le séjour pouvait
+  *commencer* un jour déjà derrière le locataire, et répondait « Cette
+  date est déjà passée » à quelqu'un qui voulait quatre nuits de plus.
+  D'où le `$arrivalIsNew` de `validateRange()`, qui met de côté le
+  préavis, l'horizon et les jours d'arrivée autorisés — et eux seuls.
+- **Une capacité rabaissée n'enferme pas le locataire.** Un bien ramené de
+  soixante places à quinze laisse une réservation de vingt personnes
+  au-dessus de la limite, et la demande de dates ne doit pas s'entendre
+  répondre « La capacité maximum est de 15 personnes. » : c'est une réponse
+  à une question qu'il n'a pas posée, et dont il ne peut pas sortir, la
+  seule demande qui l'y ramènerait étant celle qu'on refuse. Le nombre de
+  participants ne voyage donc **jamais** vers `validateRange()` avec la
+  valeur de la réservation à défaut de la demande. Les dates sont au
+  locataire ; le dépassement est au gestionnaire, qui voit le calendrier.
+
 **Divergences avec le document de chantier.** Aucune ; l'ambiguïté du
 document portait sur IT-07, pas ici.
 
