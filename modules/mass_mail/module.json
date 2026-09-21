@@ -54,7 +54,7 @@
       "label": "Envoi de mails",
       "menu_icon": "bi-send",
       "menu_group": "communication",
-      "menu_order": 90,
+      "menu_order": 100,
       "breadcrumb": {
         "label": "Envoi de mails",
         "parents": [
@@ -255,7 +255,7 @@
       "label": "Listes de diffusion",
       "menu_icon": "bi-send",
       "menu_group": "services",
-      "menu_order": 90,
+      "menu_order": 110,
       "breadcrumb": {
         "label": "Listes de diffusion",
         "parents": [

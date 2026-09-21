@@ -29,7 +29,7 @@ class BannerMenuHookService extends UnitChiefMenuHook
      * sort group first anyway, so this only orders module entries against
      * each other.
      */
-    private const CONFIG_ORDER = 510;
+    private const CONFIG_ORDER = 80;
 
     protected function entry(): MenuEntry
     {

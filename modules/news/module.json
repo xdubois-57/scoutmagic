@@ -14,7 +14,7 @@
       "role_min": "public",
       "label": "Actualités",
       "menu_icon": "bi-newspaper",
-      "menu_order": 60,
+      "menu_order": 70,
       "breadcrumb": {
         "label": "Actualités",
         "parents": [
@@ -32,7 +32,7 @@
       "label": "Actualités",
       "menu_icon": "bi-pencil-square",
       "menu_group": "communication",
-      "menu_order": 100,
+      "menu_order": 110,
       "breadcrumb": {
         "label": "Actualités",
         "parents": [

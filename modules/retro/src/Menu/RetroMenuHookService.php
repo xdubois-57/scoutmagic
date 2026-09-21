@@ -31,7 +31,7 @@ class RetroMenuHookService extends UnitChiefMenuHook
      * each other. The value the manifest gave this entry before it moved
      * here.
      */
-    private const CONFIG_ORDER = 510;
+    private const CONFIG_ORDER = 100;
 
     protected function entry(): MenuEntry
     {

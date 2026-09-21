@@ -15,7 +15,7 @@
       "label": "Courrier",
       "menu_icon": "bi-envelope",
       "menu_group": "suivi",
-      "menu_order": 150,
+      "menu_order": 170,
       "breadcrumb": {
         "label": "Courrier",
         "parents": [

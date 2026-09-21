@@ -15,7 +15,7 @@
       "label": "SOS Staff d'U",
       "menu_icon": "bi-life-preserver",
       "menu_group": "services",
-      "menu_order": 80,
+      "menu_order": 90,
       "breadcrumb": {
         "label": "SOS Staff d'U",
         "parents": [

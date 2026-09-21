@@ -153,6 +153,56 @@ cessé d'utiliser serait pire qu'aucun garde.
 | 2 × rendu de la liste déplaçable | **Remplacés** par trois tests : la page ne dessine aucune commande de réordonnancement, elle garde son interrupteur, et elle ne charge plus que le script qui le branche |
 | `testConfigurationMenuRendersInTheOrderTheFileIsWrittenIn` | **Retiré, avec sa raison écrite dans la classe** : il affirmait que l'ordre du fichier prédit l'ordre rendu, ce qui cesse d'être vrai dès que les ordres sont groupés par colonne. Ses deux rôles sont mieux couverts — le doublon d'ordre par `testNoTwoConfigurationEntriesShareAnOrderNumber`, le rendu par l'instantané |
 
+### Le défaut que la relecture a trouvé, et pourquoi l'instantané ne le voyait pas
+
+Le premier instantané ne lisait que deux sources : les appels `addPage()`
+de `public/index.php` et les routes étiquetées des manifestes. Il manquait
+la troisième — **les entrées contribuées par un `MenuEntryProvider`**.
+
+Elles sont cinq. Une route dont le contrôleur restreint plus que son
+`role_min` ne peut pas exprimer ne déclare pas de `label` statique : elle
+contribue son entrée par un provider (`ARCHITECTURE.md` §3). Pour la
+personne qui lit le menu, ce sont des pages comme les autres.
+
+Quatre d'entre elles portaient des ordres calibrés sur l'ancienne échelle
+à deux rangs — 500 à 520, choisis pour se placer parmi des pages de
+modules décalées à 1000 et plus. **Fusionner les rangs les envoyait toutes
+en fin de colonne**, et l'instantané, aveugle à leur existence, annonçait
+que rien n'avait bougé. Le menu public perdait « Locations » de sa
+cinquième place ; « Scanner un billet » passait de première à dernière de
+sa colonne.
+
+Deux corrections, pas une :
+
+- **Le harnais lit désormais les providers**, par la même lecture de
+  source que pour `public/index.php` — un provider a besoin des services
+  de son module et d'une requête pour répondre, ce qu'aucun test unitaire
+  n'a. Seules les constructions dont tous les arguments sont littéraux
+  sont prises ; les deux entrées bâties sur le nom d'un membre et une
+  année scoute sont dynamiques et passent devant de toute façon.
+- **Les quatre constantes d'ordre sont recalibrées** sur l'échelle
+  partagée, aux places que le rendu complet de `origin/main` leur donnait :
+  `RentalMenuHookService::INDEX_ORDER` 500 → 50,
+  `BannerMenuHookService::CONFIG_ORDER` 510 → 80,
+  `NewsMenuHookService::SCAN_ORDER` 520 → 90,
+  `RetroMenuHookService::CONFIG_ORDER` 510 → 100.
+
+L'empreinte a été reprise sur un `git worktree` d'`origin/main`, avec le
+harnais complet et les anciens rangs, pour qu'elle décrive vraiment
+l'état d'avant. Les six rôles rendent à nouveau exactement la même chose —
+69 entrées cette fois, pas 64.
+
+Un test vérifie maintenant que l'inventaire voit toujours ces cinq
+entrées, nommées une par une : sans lui, une expression rationnelle qui
+cesserait de correspondre ferait passer tous les autres contrôles de ce
+fichier sur moins d'entrées, sans un échec.
+
+**Un mouvement reste, et il est voulu.** `TextPageMenuProvider` déclare
+ses pages à `SORT_GROUP_CORE`, ordre 600 et plus. Avant, elles
+précédaient donc toutes les pages de modules, qui étaient au rang 2 ;
+maintenant elles viennent après tout ce que le site livre. C'est
+exactement la promesse de D5 — l'ancien comportement était l'accident.
+
 ### Reporté
 
 Rien. IT-02 et IT-03 sont le périmètre annoncé, pas un report.

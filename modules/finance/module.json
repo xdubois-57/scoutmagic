@@ -15,7 +15,7 @@
       "label": "Finances",
       "menu_icon": "bi-cash-coin",
       "menu_group": "gestion",
-      "menu_order": 110,
+      "menu_order": 120,
       "breadcrumb": {
         "label": "Finances",
         "parents": [

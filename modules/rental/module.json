@@ -564,7 +564,7 @@
       "label": "Locations",
       "menu_icon": "bi-house-door",
       "menu_group": "services",
-      "menu_order": 120,
+      "menu_order": 140,
       "breadcrumb": {
         "label": "Locations",
         "parents": [

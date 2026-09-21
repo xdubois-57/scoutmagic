@@ -15,7 +15,7 @@
       "label": "Galerie",
       "menu_icon": "bi-images",
       "menu_group": "pages",
-      "menu_order": 30,
+      "menu_order": 20,
       "breadcrumb": {
         "label": "Galerie",
         "parents": [

@@ -151,12 +151,50 @@ final class MenuEntriesDeclareTheirPlaceTest extends TestCase
     }
 
     /**
+     * **The entries a provider contributes are entries too.**
+     *
+     * They were left out of the first version of this file, and the cost
+     * was immediate: four of them carried orders calibrated against the
+     * old two-rank scale (500–520, chosen to sit among module pages
+     * offset to 1000 and up), and collapsing the ranks sent every one of
+     * them to the end of its column while a snapshot blind to them
+     * reported that nothing had moved.
+     *
+     * This asserts the inventory still finds them, so the guards above
+     * keep covering them. A regex that silently stopped matching would
+     * otherwise make every check in this file pass on fewer entries each
+     * time somebody reformatted a hook service.
+     */
+    public function testTheInventoryStillSeesEveryContributedEntry(): void
+    {
+        $contributed = MenuInventory::providerPages();
+
+        $this->assertGreaterThanOrEqual(
+            5,
+            count($contributed),
+            'No MenuEntry was extracted from the hook services — the extraction broke, and every '
+            . 'other check in this file just stopped covering them.'
+        );
+
+        $urls = array_column($contributed, 'url');
+        foreach (['/locations', '/mes-locations', '/news/scan', '/config/banner', '/config/retro'] as $url) {
+            $this->assertContains($url, $urls, "The contributed entry for {$url} is no longer seen.");
+        }
+    }
+
+    /**
      * @return array<int, array{menu: string, label: string, url: string, order: int, menuGroup: ?string}>
      */
     private static function allEntries(): array
     {
         $entries = [];
-        foreach ([...MenuInventory::corePages(), ...MenuInventory::modulePages(false)] as $page) {
+        $all = [
+            ...MenuInventory::corePages(),
+            ...MenuInventory::modulePages(false),
+            ...MenuInventory::providerPages(),
+        ];
+
+        foreach ($all as $page) {
             $entries[] = [
                 'menu' => $page['menu'],
                 'label' => $page['label'],

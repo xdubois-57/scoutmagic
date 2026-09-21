@@ -14,7 +14,7 @@
       "role_min": "public",
       "label": "Calendrier",
       "menu_icon": "bi-calendar3",
-      "menu_order": 50,
+      "menu_order": 60,
       "breadcrumb": {
         "label": "Calendrier",
         "parents": [

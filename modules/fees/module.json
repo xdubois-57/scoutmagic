@@ -13,7 +13,7 @@
       "label": "Cotisations",
       "menu_icon": "bi-cash-stack",
       "menu_group": "suivi",
-      "menu_order": 140,
+      "menu_order": 160,
       "role_min": "admin",
       "breadcrumb": {
         "label": "Cotisations",

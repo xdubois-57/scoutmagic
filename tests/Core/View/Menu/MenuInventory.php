@@ -176,6 +176,87 @@ final class MenuInventory
     }
 
     /**
+     * The entries contributed at runtime by a `MenuEntryProvider`.
+     *
+     * **These are menu entries like any other, and leaving them out once
+     * cost a whole snapshot its meaning.** A route whose controller
+     * narrows further than its `role_min` can express does not declare a
+     * static `label` — it contributes its entry through a provider
+     * instead (ARCHITECTURE.md §3). Five such entries exist, they are
+     * ordinary pages to the person reading the menu, and a snapshot blind
+     * to them would have reported « nothing moved » while two of them
+     * moved to the end of their column.
+     *
+     * Read from the source for the same reason the core pages are: a
+     * provider needs its module's services and a request to answer, and
+     * no unit test has either. Only constructions whose arguments are all
+     * literals are taken — the two entries built from a member's name and
+     * a scout year are request data, and they are dynamic, so they sort
+     * ahead of everything regardless.
+     *
+     * @return array<int, array{
+     *     menu: string, label: string, url: string, roleMin: string,
+     *     order: int, isDynamic: bool, sortGroup: string, menuGroup: ?string
+     * }>
+     */
+    public static function providerPages(): array
+    {
+        $files = glob(self::root() . '/modules/*/src/*/*MenuHookService.php') ?: [];
+        sort($files);
+
+        $pages = [];
+        foreach ($files as $file) {
+            $source = (string) file_get_contents($file);
+
+            // `new MenuEntry($menu, 'Label', '/url', 'role', $order,
+            //                $isDynamic, $subtitle, $sortGroup, $icon, $group)`
+            $pattern = '/new MenuEntry\(\s*'
+                . 'MenuBuilder::(MENU_[A-Z_]+)\s*,\s*'
+                . "('(?:[^'\\\\]|\\\\.)*')\s*,\s*"
+                . "('(?:[^'\\\\]|\\\\.)*')\s*,\s*"
+                . "'([a-z]+)'\s*,\s*"
+                . '(?:\/\/[^\n]*\n\s*)*'
+                . '(self::[A-Z_]+|\d+)\s*,\s*'
+                . '(true|false)\s*,\s*'
+                . "(null|'(?:[^'\\\\]|\\\\.)*')\s*,\s*"
+                . 'MenuBuilder::(SORT_GROUP_[A-Z]+)\s*,\s*'
+                . '(?:\/\/[^\n]*\n\s*)*'
+                . "(null|'[^']*')\\s*"
+                // The column argument is omitted entirely on a menu
+                // that has no columns — « Notre unité » declares none,
+                // so rental's public entry stops at its icon.
+                . '(?:,\\s*(?:\\/\\/[^\\n]*\\n\\s*)*'
+                . "(null|'[^']*'))?\\s*\\)/s";
+
+            preg_match_all($pattern, $source, $matches, PREG_SET_ORDER);
+
+            foreach ($matches as $match) {
+                $order = $match[5];
+                if (str_starts_with($order, 'self::')) {
+                    $constant = substr($order, 6);
+                    if (preg_match('/private const ' . preg_quote($constant, '/') . ' = (\d+);/', $source, $c) !== 1) {
+                        continue;
+                    }
+                    $order = $c[1];
+                }
+
+                $pages[] = [
+                    'menu' => constant(MenuBuilder::class . '::' . $match[1]),
+                    'label' => stripcslashes(trim($match[2], "'")),
+                    'url' => stripcslashes(trim($match[3], "'")),
+                    'roleMin' => $match[4],
+                    'order' => (int) $order,
+                    'isDynamic' => $match[6] === 'true',
+                    'sortGroup' => (string) constant(MenuBuilder::class . '::' . $match[8]),
+                    'menuGroup' => ($match[10] ?? 'null') === 'null' ? null : trim($match[10], "'"),
+                ];
+            }
+        }
+
+        return $pages;
+    }
+
+    /**
      * What a person of `$role` sees: one line per entry, prefixed by its
      * column when the menu has columns.
      *
@@ -188,7 +269,7 @@ final class MenuInventory
     {
         $builder = new MenuBuilder(Role::fromString($role));
 
-        foreach ([...self::corePages(), ...self::modulePages($legacyOffset)] as $page) {
+        foreach ([...self::corePages(), ...self::modulePages($legacyOffset), ...self::providerPages()] as $page) {
             $builder->addPage(
                 $page['menu'],
                 $page['label'],

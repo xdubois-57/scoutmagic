@@ -45,7 +45,7 @@ class NewsMenuHookService implements MenuEntryProvider
      * group first anyway, so this only orders module entries against each
      * other.
      */
-    private const SCAN_ORDER = 520;
+    private const SCAN_ORDER = 90;
 
     public function __construct(private FormRepository $forms)
     {

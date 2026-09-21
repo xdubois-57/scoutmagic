@@ -14,7 +14,7 @@
       "role_min": "public",
       "label": "Inscriptions",
       "menu_icon": "bi-person-plus",
-      "menu_order": 70,
+      "menu_order": 80,
       "breadcrumb": {
         "label": "Inscriptions",
         "parents": [
@@ -86,7 +86,7 @@
       "label": "Réinscription",
       "menu_icon": "bi-arrow-repeat",
       "menu_group": "services",
-      "menu_order": 100,
+      "menu_order": 120,
       "breadcrumb": {
         "label": "Réinscription",
         "parents": [
@@ -203,7 +203,7 @@
       "label": "Inscriptions",
       "menu_icon": "bi-person-plus",
       "menu_group": "services",
-      "menu_order": 110,
+      "menu_order": 130,
       "breadcrumb": {
         "label": "Inscriptions",
         "parents": [
@@ -530,7 +530,7 @@
       "label": "Prévisions",
       "menu_icon": "bi-graph-up-arrow",
       "menu_group": "gestion",
-      "menu_order": 130,
+      "menu_order": 140,
       "breadcrumb": {
         "label": "Prévisions",
         "parents": [

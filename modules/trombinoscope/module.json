@@ -15,7 +15,7 @@
       "label": "Trombinoscope",
       "menu_icon": "bi-person-badge",
       "menu_group": "pages",
-      "menu_order": 20,
+      "menu_order": 10,
       "breadcrumb": {
         "label": "Trombinoscope",
         "parents": [

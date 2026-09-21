@@ -45,7 +45,7 @@ class RentalMenuHookService implements MenuEntryProvider
      * group first anyway, so this only orders module entries against each
      * other.
      */
-    private const INDEX_ORDER = 500;
+    private const INDEX_ORDER = 50;
 
     public function __construct(
         private RentalAssetRepository $assetRepository,
