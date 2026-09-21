@@ -33,7 +33,17 @@ final class TextField
          * over would be illegible on a document a parent signs.
          */
         public readonly float $width,
-        public readonly float $fontSize = 10.0
+        public readonly float $fontSize = 10.0,
+        /**
+         * Which page of the template this line is printed on.
+         *
+         * One for the parental authorization, which has a single page —
+         * and deliberately not an assumption the health sheet is allowed to
+         * inherit: its « maladies importantes ou opérations subies » runs
+         * over three printed lines, the third of which is at the top of
+         * page 2.
+         */
+        public readonly int $page = 1
     ) {
     }
 

@@ -1,0 +1,424 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The health sheet (specifications.md §44). Sixty fields, so the form is cut
+  into collapsible sections rather than into pages: ONE form, one submit, so
+  a family that fills in half of it and saves loses nothing — which several
+  pages would not give them.
+
+  Every field is optional and nothing here can be refused, so there is no
+  error state to draw. The only messages this screen shows are the flash
+  from a save or a clear.
+
+  Nothing on this page says « Desk », « année de membre » or any other word
+  from the inside of the site: it is read by parents.
+#}
+{% extends 'base.html.twig' %}
+
+{% block title %}Fiche santé — {{ site_name }}{% endblock %}
+
+{% block content %}
+{% set yes_no_options = [
+    { value: '', label: 'Non précisé' },
+    { value: 'yes', label: 'Oui' },
+    { value: 'no', label: 'Non' },
+] %}
+<div class="page-narrow">
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Fiche santé',
+        subtitle: member|display_name,
+    } only %}
+
+    <p>
+        Ces informations permettent de remplir la fiche santé officielle de la fédération.
+        Tout est facultatif : remplissez ce que vous voulez, quand vous voulez.
+        {% if last_used_at %}
+            <span class="d-block small text-body-secondary">
+                Dernière mise à jour le {{ last_used_at|date('d/m/Y') }}.
+            </span>
+        {% endif %}
+    </p>
+
+    <div class="alert alert-warning" role="alert">
+        Le document imprimé n'a aucune valeur tant qu'il n'est pas signé à la main.
+        Seule la version signée et remise à l'animateur compte.
+    </div>
+
+    {% if document_error %}
+        <div class="alert alert-danger" role="alert">{{ document_error }}</div>
+    {% endif %}
+
+    {#
+      What will NOT fit on the federation's form, said here and not
+      discovered on paper. The document stays downloadable — what fits is
+      written, nothing is cut in silence — so this warns rather than blocks:
+      a family whose allergy list runs long still needs their form, and they
+      are the ones who know what can be shortened.
+    #}
+    {% if overflowing is not empty %}
+        <div class="alert alert-warning" role="alert">
+            <p class="mb-1">
+                Le formulaire officiel ne réserve que quelques lignes imprimées à certaines réponses.
+                Ce que vous avez écrit ici ne tiendra pas entièrement sur le document :
+            </p>
+            <ul class="mb-1">
+                {#
+                  Already French sentences when they get here: the
+                  controller resolves each name through
+                  `HealthSheet::LABELS`, precisely so this loop can never
+                  print an internal field name to a parent.
+                #}
+                {% for label in overflowing %}
+                    <li>{{ label }}</li>
+                {% endfor %}
+            </ul>
+            <p class="mb-0">
+                Raccourcissez ces réponses, ou joignez une feuille séparée à la fiche imprimée.
+            </p>
+        </div>
+    {% endif %}
+
+    <form method="post" action="/members/{{ member.memberYearId }}/fiche-sante">
+        {{ csrf_field()|raw }}
+
+        <div class="accordion mb-3" id="health-sheet-sections">
+
+            {# --- Identité : read-only, and not stored by this module --- #}
+            <div class="accordion-item">
+                <h2 class="accordion-header">
+                    <button class="accordion-button" type="button" data-bs-toggle="collapse"
+                            data-bs-target="#section-identity" aria-expanded="true"
+                            aria-controls="section-identity">
+                        Identité
+                    </button>
+                </h2>
+                <div id="section-identity" class="accordion-collapse collapse show"
+                     data-bs-parent="#health-sheet-sections">
+                    <div class="accordion-body">
+                        <p class="small text-body-secondary">
+                            Non modifiable ici. Ces informations viennent de votre inscription à la
+                            fédération. Pour les corriger, prévenez votre animateur.
+                        </p>
+                        <dl class="row mb-0">
+                            <dt class="col-sm-4">Prénom et nom</dt>
+                            <dd class="col-sm-8">{{ member|display_name }}</dd>
+                            {% if member.birthDate %}
+                                <dt class="col-sm-4">Date de naissance</dt>
+                                <dd class="col-sm-8">{{ member.birthDate|date('d/m/Y') }}</dd>
+                            {% endif %}
+                        </dl>
+                    </div>
+                </div>
+            </div>
+
+            {# --- Two emergency contacts --- #}
+            {% for n in [1, 2] %}
+            <div class="accordion-item">
+                <h2 class="accordion-header">
+                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                            data-bs-target="#section-contact{{ n }}" aria-expanded="false"
+                            aria-controls="section-contact{{ n }}">
+                        Personne à contacter en cas d'urgence {{ n }}
+                    </button>
+                </h2>
+                <div id="section-contact{{ n }}" class="accordion-collapse collapse"
+                     data-bs-parent="#health-sheet-sections">
+                    <div class="accordion-body">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'contact' ~ n ~ '-name', field_name: 'contact' ~ n ~ '_name',
+                            label: 'Nom et prénom', value: sheet['contact' ~ n ~ '_name'],
+                            autocomplete: 'off',
+                        } only %}
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'contact' ~ n ~ '-relationship',
+                            field_name: 'contact' ~ n ~ '_relationship',
+                            label: 'Lien de parenté', value: sheet['contact' ~ n ~ '_relationship'],
+                        } only %}
+                        <div class="row g-3">
+                            <div class="col-12 col-sm-6">
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'contact' ~ n ~ '-phone', field_name: 'contact' ~ n ~ '_phone',
+                                    type: 'tel', label: 'Téléphone', value: sheet['contact' ~ n ~ '_phone'],
+                                } only %}
+                            </div>
+                            <div class="col-12 col-sm-6">
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'contact' ~ n ~ '-email', field_name: 'contact' ~ n ~ '_email',
+                                    type: 'email', label: 'Adresse e-mail', value: sheet['contact' ~ n ~ '_email'],
+                                } only %}
+                            </div>
+                        </div>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'contact' ~ n ~ '-note', field_name: 'contact' ~ n ~ '_note',
+                            type: 'textarea', rows: 2, label: 'Remarque',
+                            value: sheet['contact' ~ n ~ '_note'],
+                        } only %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+
+            {# --- Family doctor --- #}
+            <div class="accordion-item">
+                <h2 class="accordion-header">
+                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                            data-bs-target="#section-doctor" aria-expanded="false"
+                            aria-controls="section-doctor">
+                        Médecin traitant
+                    </button>
+                </h2>
+                <div id="section-doctor" class="accordion-collapse collapse"
+                     data-bs-parent="#health-sheet-sections">
+                    <div class="accordion-body">
+                        <div class="row g-3">
+                            <div class="col-12 col-sm-6">
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'doctor-first-name', field_name: 'doctor_first_name',
+                                    label: 'Prénom', value: sheet.doctor_first_name,
+                                } only %}
+                            </div>
+                            <div class="col-12 col-sm-6">
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'doctor-last-name', field_name: 'doctor_last_name',
+                                    label: 'Nom', value: sheet.doctor_last_name,
+                                } only %}
+                            </div>
+                        </div>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'doctor-phone', field_name: 'doctor_phone',
+                            type: 'tel', label: 'Téléphone', value: sheet.doctor_phone,
+                        } only %}
+                    </div>
+                </div>
+            </div>
+
+            {# --- Health --- #}
+            <div class="accordion-item">
+                <h2 class="accordion-header">
+                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                            data-bs-target="#section-health" aria-expanded="false"
+                            aria-controls="section-health">
+                        Santé
+                    </button>
+                </h2>
+                <div id="section-health" class="accordion-collapse collapse"
+                     data-bs-parent="#health-sheet-sections">
+                    <div class="accordion-body">
+                        <div class="row g-3">
+                            <div class="col-12 col-sm-6">
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'height', field_name: 'height',
+                                    label: 'Taille', value: sheet.height,
+                                } only %}
+                            </div>
+                            <div class="col-12 col-sm-6">
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'weight', field_name: 'weight',
+                                    label: 'Poids', value: sheet.weight,
+                                } only %}
+                            </div>
+                        </div>
+
+                        {#
+                          Three questions below are a PAIR OF SQUARES on the
+                          printed form and nothing else, so the screen offers
+                          the same three answers the paper does — including
+                          « Non précisé », which leaves both squares blank.
+                          A free-text box here let a parent answer « oui sauf
+                          la natation » and the document crossed neither.
+                        #}
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'participation', field_name: 'participation',
+                            type: 'select',
+                            label: 'Peut participer à toutes les activités proposées',
+                            value: sheet.participation,
+                            options: yes_no_options,
+                            help: 'Sport, excursions, jeux, baignade… Précisez ci-dessous si besoin.',
+                        } only %}
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'participation-details', field_name: 'participation_details',
+                            type: 'textarea', rows: 2, label: 'Précisions',
+                            value: sheet.participation_details,
+                        } only %}
+
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'swimming-level', field_name: 'swimming_level',
+                            type: 'select', label: 'Niveau de natation',
+                            value: sheet.swimming_level,
+                            options: [
+                                { value: '', label: 'Non précisé' },
+                                { value: 'very_good', label: 'Très bien' },
+                                { value: 'good', label: 'Bien' },
+                                { value: 'fair', label: 'Moyennement bien' },
+                                { value: 'poor', label: 'Difficilement' },
+                                { value: 'not_at_all', label: 'Pas du tout' },
+                            ],
+                        } only %}
+
+                        <fieldset class="mb-3">
+                            <legend class="form-label">Votre enfant souffre-t-il de&nbsp;:</legend>
+                            <div class="row g-2">
+                                {% for condition in conditions %}
+                                <div class="col-12 col-sm-6">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" name="conditions[]"
+                                               id="condition-{{ condition }}" value="{{ condition }}"
+                                               {{ sheet.conditions[condition] ? 'checked' : '' }}>
+                                        <label class="form-check-label tap-target" for="condition-{{ condition }}">
+                                            {#
+                                              The federation's own wording, in
+                                              its own order. A label invented
+                                              here would offer a parent a box
+                                              the printed form does not have.
+                                            #}
+                                            {{ {
+                                                'diabetes': 'Diabète',
+                                                'car_sickness': 'Mal des transports',
+                                                'heart_condition': 'Affection cardiaque',
+                                                'mental_disability': 'Handicap mental',
+                                                'asthma': 'Asthme',
+                                                'rheumatism': 'Rhumatisme',
+                                                'skin_condition': 'Affection cutanée',
+                                                'motor_disability': 'Handicap moteur',
+                                                'epilepsy': 'Épilepsie',
+                                                'bedwetting': 'Énurésie nocturne',
+                                                'sleepwalking': 'Somnambulisme',
+                                                'headaches': 'Maux de tête / migraines',
+                                            }[condition] }}
+                                        </label>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </fieldset>
+
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'conditions-details', field_name: 'conditions_details',
+                            type: 'textarea', rows: 3,
+                            label: 'Fréquence, gravité, mesures à prendre',
+                            value: sheet.conditions_details,
+                        } only %}
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'illnesses', field_name: 'illnesses_and_operations',
+                            type: 'textarea', rows: 3, label: 'Maladies et opérations',
+                            value: sheet.illnesses_and_operations,
+                        } only %}
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'useful-information', field_name: 'useful_information',
+                            type: 'textarea', rows: 3,
+                            label: 'Autres informations utiles',
+                            value: sheet.useful_information,
+                            help: 'Port de lunettes ou de lentilles, appareil dentaire, sommeil, alimentation…',
+                        } only %}
+
+                        <div class="row g-3">
+                            <div class="col-12 col-sm-6">
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'tetanus', field_name: 'tetanus_vaccinated',
+                                    type: 'select',
+                                    label: 'En ordre de vaccination contre le tétanos',
+                                    value: sheet.tetanus_vaccinated,
+                                    options: yes_no_options,
+                                } only %}
+                            </div>
+                            <div class="col-12 col-sm-6">
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'tetanus-booster', field_name: 'tetanus_last_booster',
+                                    label: 'Date du dernier rappel',
+                                    value: sheet.tetanus_last_booster,
+                                } only %}
+                            </div>
+                        </div>
+
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'allergies', field_name: 'allergies',
+                            type: 'textarea', rows: 2, label: 'Allergies',
+                            value: sheet.allergies,
+                            help: 'Médicaments, aliments, piqûres, autres.',
+                        } only %}
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'allergy-consequences', field_name: 'allergy_consequences',
+                            type: 'textarea', rows: 2,
+                            label: 'Conséquences et mesures à prendre',
+                            value: sheet.allergy_consequences,
+                        } only %}
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'diet', field_name: 'diet',
+                            type: 'textarea', rows: 2, label: 'Régime alimentaire',
+                            value: sheet.diet,
+                        } only %}
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'treatment', field_name: 'treatment',
+                            type: 'textarea', rows: 3, label: 'Traitement en cours',
+                            value: sheet.treatment,
+                            help: 'Joignez l\'ordonnance à la fiche imprimée.',
+                        } only %}
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'treatment-autonomy', field_name: 'treatment_autonomy',
+                            type: 'select',
+                            label: 'Votre enfant prend-il ce traitement seul ?',
+                            value: sheet.treatment_autonomy,
+                            options: yes_no_options,
+                        } only %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex flex-column flex-sm-row gap-2">
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-check-lg me-1" aria-hidden="true"></i>Enregistrer
+            </button>
+        </div>
+    </form>
+
+    {#
+      A form of its own, and a POST rather than a link: everything on this
+      document is a child's health, and a GET is what a proxy log, a browser
+      history and a `Referer` header keep.
+
+      Outside the form above on purpose — this downloads what was LAST
+      SAVED, so mixing the two buttons would suggest that unsaved edits come
+      out on the paper. The sentence under the button says so.
+    #}
+    <form method="post" action="/members/{{ member.memberYearId }}/fiche-sante/pdf" class="mt-3">
+        {{ csrf_field()|raw }}
+        <button type="submit" class="btn btn-outline-primary">
+            <i class="bi bi-file-earmark-pdf me-1" aria-hidden="true"></i>Télécharger la fiche à imprimer
+        </button>
+        <span class="d-block small text-body-secondary mt-1">
+            Le formulaire officiel de la fédération, pré-rempli avec ce qui est enregistré ici.
+            Enregistrez d'abord si vous venez de modifier quelque chose.
+        </span>
+    </form>
+
+    {#
+      A separate form: « Tout effacer » destroys data, so it must not be a
+      second button inside the form that saves — a stray Enter key would
+      otherwise be one keystroke away from it.
+
+      A plain dialog, not the retyped keyword of the Maintenance page: that
+      one protects a whole installation, this is a family acting on its own
+      data.
+
+      `data-confirm` rather than an inline `onsubmit`: inline handlers are
+      dead under this site's CSP, so a `confirm()` written there would not
+      ask anything at all — the form would just submit, and the one place
+      that must never happen silently is the button that destroys a child's
+      health data. `Tests\Core\View\UxConventionsTest` is what says so.
+    #}
+    <form method="post" action="/members/{{ member.memberYearId }}/fiche-sante/effacer" class="mt-4"
+          data-confirm="Effacer définitivement toute la fiche santé de {{ member|display_name }} ? Cette opération ne se défait pas."
+          data-confirm-label="Tout effacer">
+        {{ csrf_field()|raw }}
+        <button type="submit" class="btn btn-outline-danger btn-sm">
+            <i class="bi bi-trash me-1" aria-hidden="true"></i>Tout effacer
+        </button>
+        <span class="d-block small text-body-secondary mt-1">
+            Supprime définitivement du site tout ce que vous avez saisi ici.
+        </span>
+    </form>
+</div>
+{% endblock %}

@@ -41,6 +41,19 @@ final class TextPage
     }
 
     /**
+     * The prefix every free-text page's address begins with.
+     *
+     * A constant rather than a literal repeated twice, because one of the
+     * two readers is a test: these routes are born from database rows, so
+     * they never appear in `public/index.php`, and
+     * `Tests\Core\Help\HelpInvariantsTest` — which checks that a help
+     * topic's declared `paths` are served by a real GET route — has to be
+     * told this family exists. Told from here, it cannot be told a shape
+     * the application stopped using.
+     */
+    public const PATH_PREFIX = '/pages/';
+
+    /**
      * The path this page answers on.
      *
      * The `/pages/` prefix is not decoration: it is what guarantees that
@@ -50,7 +63,7 @@ final class TextPage
      */
     public function path(): string
     {
-        return '/pages/' . $this->slug;
+        return self::PATH_PREFIX . $this->slug;
     }
 
     /**

@@ -87,9 +87,12 @@ class ModuleWiringTest extends TestCase
             $this->assertStringContainsString($shortName . '::REFERENCE', $block);
         }
 
-        // rearm(), not schedule(): every page load runs this block, and an
+        // seed(), not schedule(): every page load runs this block, and an
         // unguarded seed would queue another copy of the chain each time.
-        $this->assertStringContainsString('$schedulerService->rearm(', $block);
+        // seed() and not rearm() either — this is a composition root, so
+        // the question is « is this chain alive », `pending` OR
+        // `processing` (ARCHITECTURE.md §8.5, issue #435).
+        $this->assertStringContainsString('$schedulerService->seed(', $block);
     }
 
     /**

@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Tests\Modules\OfficialDocuments\Service;
 
 use Modules\OfficialDocuments\Api\MemberOfficialDocumentsProvider;
+use Modules\OfficialDocuments\Service\HealthSheetService;
 use Modules\OfficialDocuments\Service\MemberDocumentsSummaryService;
 use PHPUnit\Framework\TestCase;
 
@@ -36,14 +37,41 @@ final class MemberDocumentsSummaryServiceTest extends TestCase
      * The link has to be the route `module.json` declares, keyed on the
      * member-year — a block whose link 404s is worse than no block.
      */
-    public function testTheLinkIsThisMembersOwnParentalAuthorizationRoute(): void
+    public function testTheLinksAreThisMembersOwnRoutes(): void
     {
         $summary = (new MemberDocumentsSummaryService())->summaryFor(7, 42);
 
-        $this->assertCount(1, $summary->links);
+        $this->assertCount(2, $summary->links);
         $this->assertSame('/members/7/autorisation-parentale', $summary->links[0]->url);
         $this->assertSame('Autorisation parentale', $summary->links[0]->label);
+        $this->assertSame('/members/7/fiche-sante', $summary->links[1]->url);
+        $this->assertSame('Fiche santé', $summary->links[1]->label);
         $this->assertFalse($summary->isEmpty());
+    }
+
+    /**
+     * The note under the health sheet link says whether there is anything
+     * on file and when — and NOTHING about what is in it. The date comes
+     * from `lastUsedAt()`, which reads it without decrypting a thing.
+     */
+    public function testTheHealthSheetNoteSaysWhetherThereIsOneWithoutSayingWhatIsInIt(): void
+    {
+        $sheets = $this->createStub(HealthSheetService::class);
+        $sheets->method('lastUsedAt')->willReturn(new \DateTimeImmutable('2026-03-12'));
+
+        $note = (new MemberDocumentsSummaryService($sheets))->summaryFor(7, 42)->links[1]->note;
+
+        $this->assertSame('Complétée le 12/03/2026', $note);
+    }
+
+    public function testAMemberWithNoSheetIsInvitedToStartOne(): void
+    {
+        $sheets = $this->createStub(HealthSheetService::class);
+        $sheets->method('lastUsedAt')->willReturn(null);
+
+        $note = (new MemberDocumentsSummaryService($sheets))->summaryFor(7, 42)->links[1]->note;
+
+        $this->assertSame('À compléter une fois, réutilisable ensuite', $note);
     }
 
     /**
@@ -69,5 +97,7 @@ final class MemberDocumentsSummaryServiceTest extends TestCase
 
         $this->assertSame('/members/7/autorisation-parentale', $service->summaryFor(7, 42)->links[0]->url);
         $this->assertSame('/members/9/autorisation-parentale', $service->summaryFor(9, 43)->links[0]->url);
+        $this->assertSame('/members/7/fiche-sante', $service->summaryFor(7, 42)->links[1]->url);
+        $this->assertSame('/members/9/fiche-sante', $service->summaryFor(9, 43)->links[1]->url);
     }
 }

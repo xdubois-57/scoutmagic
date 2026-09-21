@@ -267,6 +267,8 @@ A module that needs to extend a *core* configuration page (e.g. attach flags to 
 
 Because `MenuBuilder::build()` — and the per-request active-menu highlight — must run before module services are wired later in `public/index.php`, the composition root calls back into the builder from inside the module's own conditional block and re-derives `$menus`/`active_menu_id`/`active_page_url` from the updated list; `MenuBuilder::build()` itself is a pure read of its internal page list, so calling it twice is safe. `Core\View\DynamicMenuRegistrar` encapsulates exactly that two-step: `register()` applies a list of providers to the builder and returns what it added, `resolveActive()` re-runs the active-page scan over just those entries, carrying the first scan's best match forward. Use it rather than hand-writing the re-derivation per module — a copy that silently drops the highlight refresh yields a correct page with no nav highlight, a bug no route test would catch.
 
+**One provider is not a module's.** `Core\Page\TextPageMenuProvider` contributes the unit's own free-text pages (§8.116) — the only entries whose *existence*, not just whose visibility, comes from a database row rather than from code. It is handed the very list the routes were built from, so a page can never appear in a menu without a route behind it, nor the reverse, and the whole feature costs one query per request. It also **filters a placement that has gone stale** — a `menu_group` whose column a later version removed — rather than letting `addPage()` throw: the throw would happen while building the navigation of every page of the site, so one aged row would cost every page its menu instead of costing itself its entry.
+
 **A menu entry is never a permission.** `MenuEntry::$roleMin` filters *display* only; the route it points at carries its own `role_min`, and any per-object rule is re-checked server-side in the controller (§12).
 
 **And a menu entry is a promise**, which is the rule in the other direction and the one issue #347 was reported against. A `label` in `module.json` draws the entry from `role_min` and nothing else, so a controller that then narrows further — `/config/retro` and `/config/banner` ask for Staff d'U membership on top of `role_min: admin` — offers a link to somebody it will refuse, and the refusal is all they get. **A route whose controller applies a check `role_min` cannot express therefore does not declare a static `label`**: it drops the label and its entry is contributed by a `MenuEntryProvider` asking the controller's own question (`Modules\Retro\Menu\RetroMenuHookService`, `Modules\Banner\Menu\BannerMenuHookService`). Hiding the entry protects nothing and showing it grants nothing — what changes is whether the site tells the truth about where it will let somebody in. `Tests\Architecture\MenuEntriesAreNotDeadLinksTest` holds the rule statically, and the authorization matrix (SECURITY.md §36) holds it at runtime, where a menu entry refusing a role its `role_min` admits fails the run.
@@ -458,13 +460,15 @@ Generic key-value with type, label, description (NOT NULL), optional regex valid
 
 **A setting the code writes must be declared in the composition root, and an unregistered one fails silently.** `SettingService::setInternal()` throws on a key it does not know — that is the right behaviour, since a typo must not create a row nobody declared. But a service that records what it just did (« l'archive est partie », « la sonde portait cette clé ») has no business turning bookkeeping into a failure the administrator would repeat, so it catches that throw — also the right behaviour. The two together are how `support_last_ticket_archive_reference` and its three neighbours were written from the first day, never registered, and never stored: the archive left, the confirmation was truthful, and Configuration > Support went on saying « Archive non transmise » for ever, because the reference it compares against did not exist. **A unit test cannot catch this**, because every one of them registers in `setUp()` the settings it needs — which is exactly the assumption that was false in production. Only a check against `public/index.php` itself can, which is what `Tests\Architecture\SupportSettingsAreRegisteredTest` does: it reflects the `*_SETTING` constants off the services that write them and fails if the composition root does not declare each one. Adding a written setting means adding a `register()` line in the same commit.
 
+**A module's setting is read with the module's id, and a call that omits it answers the default in silence.** `SettingService` files every setting under a scope — `module_id` for a module's, `_core_` for core's — and every scoped method takes it as an *optional* argument (`get(string $key, ?string $moduleId = null, …)`), which is exactly what makes the omission invisible: `($moduleId ?? '_core_') . '::' . $key` looks up a scope nothing ever wrote to, finds nothing, and hands back the default. Nothing throws, nothing logs, and the feature behaves as though nobody had configured it. `Modules\OfficialDocuments\Service\ParentalAuthorizationService::unitLabel()` read `official_documents_unit_code` that way for three iterations: the federation code a chief typed into the module's settings screen never once reached the parental authorization, while the screen went on showing it as saved (#433). What makes it easy is that these keys are prefixed with their own module's name — they read like global keys, and `'official_documents_unit_code'` looks fully qualified already. **And the service's own unit tests were green over it**, because they registered the setting with no module id either: both halves of one mistake, cancelling out. A fixture can always agree with the code it tests; only a check against the manifests can disagree, which is what `Tests\Architecture\ModuleSettingsAreReadInTheirScopeTest` does — it reads every `settings` key out of every `module.json`, resolves each call's key (literal or class constant, **per fully qualified class**: `SETTING_KEY` is declared in a dozen unrelated classes, and thirteen basenames are declared twice or more under the scanned roots, so a map keyed by bare name lets one namesake overwrite another's constants — `Modules\Groups\Service\ModerationService` and its counterpart in `retro` were one commit away from that) and fails on any of the seven scoped methods called without the scope. It cannot see a key built at runtime, and that blind spot is occupied: **37** `SettingService` calls pass a key known only at run time, 15 of them in module code (`ReenrollmentCampaignService`, `GroupLifecycleService::months()`, `RegistrationConfigController`, `OpenRegistrationHandler`, `RetroChiefController`, `SupportDashboardService`, and their like). All 15 pass their module's scope correctly today — verified, not assumed — so nothing is hiding there now; but this check says nothing about them, and an earlier version of this paragraph claimed the opposite, which is the failure this very section describes, committed in its own text. Issue #443 carries the durable form.
+
 ### 8.5 Scheduler
 
 One trigger (a real crontab), atomic task claim. Modules declare handlers in `module.json`.
 
 **The one engine, and the invariant that replaced three mechanisms.** `public/cron.php`, called every minute by the host's crontab, is the ONLY thing that runs a scheduler pass. Nothing else advances the queue: no page load, no self-directed HTTP hop, no chain. That is a change, and the sections below record what was there instead and why it is gone — the history is worth keeping, because every one of those mechanisms was a correct answer to a real production failure, and the reason they could be deleted is that the failure's cause was fixed rather than worked around. The invariant now is one sentence: **the crontab is the engine, it is verified before an installation can exist, and the queue's worst-case latency is the cron period rather than the interval between two visitors.**
 
-**A recurring chain re-arms through `rearm()`, never through `scheduleAfter()` — and that is not a style rule.** A reference installation's event journal was **91 % « tâche planifiée terminée »**: 1 588 entries in 48 hours, `sync_mailboxes` running NINE times per pass, `analyze_stored_messages` once a minute, half the purges twice a day. The mechanism has two halves and needs both. A duplicate chain is **born** when a page view seeds a task whose row is `processing` at that instant — the seed's guard reads `pending` only, so it finds nothing and queues a second chain, and `public/index.php` runs those seeds on every request. A duplicate chain then **never dies** while each copy re-arms blindly: N rows run, N rows are queued, and the count is stable at N for ever. Closing the second half heals ONE duplicate per pass — and that turned out not to be enough, because the first half births one per REQUEST that lands during a pass. The same installation later reached **24 896** « tâche planifiée terminée » in forty-eight hours, 99 % of its journal, 16 387 of them one hourly task: every extra copy lengthens the next pass, a longer pass is a wider window, a wider window catches more requests, and the loop closes on itself. So the first half is closed on its own side too. **A caller that SEEDS a chain asks a different question from a handler re-arming itself**, and `SchedulerService::seed()`/`seedAfter()` is that question: « cette chaîne est-elle vivante », `pending` **or** `processing`. A running task needs no seed — it re-arms in its own `finally` — while a handler must go on not seeing its own claimed row, or every chain would end after one run. `rearm()` and `seed()` both also COLLAPSE what they find (`SchedulerRepository::collapsePending()`, keeping the earliest queued row), which is what heals an installation that already accumulated them rather than making it drain sixteen thousand no-ops one journal line at a time. `Tests\Architecture\ChainSeedingInvariantTest` fails the build on a `bootstrap()` or `ensureScheduled()` that arms through `rearm()`, since nothing about that call looks wrong at the call site. `SchedulerService::rearmAfter()` is `rearm()` said as a delay, which is the only reason twenty-odd handlers had reached for the unguarded call — every one of them wanted « in N seconds » and `rearm()` could only be told a moment. **The signature of a recurring chain is its fixed reference**; a one-shot follow-up (an update retry carrying a payload, a mailing's next slice, a fan-out) passes none and stays on `schedule()`/`scheduleAfter()`. `Tests\Architecture\RecurringTasksRearmTest` fails the build on a handler that arms a referenced task without the guard.
+**A recurring chain re-arms through `rearm()`, never through `scheduleAfter()` — and that is not a style rule.** A reference installation's event journal was **91 % « tâche planifiée terminée »**: 1 588 entries in 48 hours, `sync_mailboxes` running NINE times per pass, `analyze_stored_messages` once a minute, half the purges twice a day. The mechanism has two halves and needs both. A duplicate chain is **born** when a page view seeds a task whose row is `processing` at that instant — the seed's guard reads `pending` only, so it finds nothing and queues a second chain, and `public/index.php` runs those seeds on every request. A duplicate chain then **never dies** while each copy re-arms blindly: N rows run, N rows are queued, and the count is stable at N for ever. Closing the second half heals ONE duplicate per pass — and that turned out not to be enough, because the first half births one per REQUEST that lands during a pass. The same installation later reached **24 896** « tâche planifiée terminée » in forty-eight hours, 99 % of its journal, 16 387 of them one hourly task: every extra copy lengthens the next pass, a longer pass is a wider window, a wider window catches more requests, and the loop closes on itself. So the first half is closed on its own side too. **A caller that SEEDS a chain asks a different question from a handler re-arming itself**, and `SchedulerService::seed()`/`seedAfter()` is that question: « cette chaîne est-elle vivante », `pending` **or** `processing`. A running task needs no seed — it re-arms in its own `finally` — while a handler must go on not seeing its own claimed row, or every chain would end after one run. `rearm()` and `seed()` both also COLLAPSE what they find (`SchedulerRepository::collapsePending()`, keeping the earliest queued row), which is what heals an installation that already accumulated them rather than making it drain sixteen thousand no-ops one journal line at a time. `Tests\Architecture\ChainSeedingInvariantTest` fails the build on a `bootstrap()` or `ensureScheduled()` that arms through `rearm()`, since nothing about that call looks wrong at the call site — **and on any arming call in an entry point**, which is the half that got away for a year. A seeder written straight into `public/index.php` has no method to name, so a test that looks for seeder METHODS never reads it; twenty-two had accumulated there (issue #435), beside six neighbours that already said `seed()`, which is how the next one gets written — you copy the neighbour you have under your eyes. An entry point is never the handler re-arming itself, so the rule needs no judgement there: any `rearm()`/`rearmAfter()` under `public/`, `bootstrap/` or `scripts/` is a defect. The scan reads TOKENS rather than text, because these very files explain this rule in their comments and a regular expression over the source reports the explanation as a violation of it. `SchedulerService::rearmAfter()` is `rearm()` said as a delay, which is the only reason twenty-odd handlers had reached for the unguarded call — every one of them wanted « in N seconds » and `rearm()` could only be told a moment. **The signature of a recurring chain is its fixed reference**; a one-shot follow-up (an update retry carrying a payload, a mailing's next slice, a fan-out) passes none and stays on `schedule()`/`scheduleAfter()`. `Tests\Architecture\RecurringTasksRearmTest` fails the build on a handler that arms a referenced task without the guard.
 
 **A pass runs alone (`Core\Scheduler\CronPassLock`).** A per-minute crontab starts a pass every sixty seconds; a pass is not bounded by sixty seconds. It migrates the whole declared schema first (`Database\DeploymentMigration`, 900 s budget), then runs every overdue task, and one handler — a full backup, an update install, one LLM call per uncategorised bank movement — can outlast several ticks on its own. `SchedulerRepository::claimOverdue()` guarantees two passes never run the same task; it does nothing about them running *different* tasks at once, each re-introspecting the schema, on a shared-hosting account whose entry processes are capped around twenty. So `cron.php` takes a named `GET_LOCK('scoutmagic_cron_pass', 0)` before it stamps or does anything, **timeout 0 like every other exclusion lock here** (`Maintenance\InstallLock`, `Database\MigrationRunner`) — a pass that cannot have it stands down instantly rather than queueing up and reproducing the pile-up one minute later. The name is deliberately distinct from the migration's and the install's: a cron pass must never exclude, or be excluded by, a schema migration a browser is driving. It exits **silently**, which is the deliberate part: anything a cron script writes to stdout becomes an email from the host's cron daemon, so a ten-minute backup would otherwise send ten "skipped" emails and teach the operator to ignore that mailbox. Skipping is normal operation — `CronHealth` still reads the installation as active throughout, because the heartbeat at the top of `cron.php` is written before the lock is ever asked for. Releasing is belt and braces: a MySQL/MariaDB advisory lock belongs to a CONNECTION and the server drops it the instant that connection closes, which is what happens when the process ends however it ends, so a pass killed mid-flight can never wedge every later one. `Tests\Core\Scheduler\CronPassLockTest` proves that against real connections; `Tests\Architecture\CronPassSingleFlightTest` pins the call site, its ordering and its silence, because no test and no browser ever executes a cron script.
 
@@ -5067,9 +5071,210 @@ existed cannot be its content by any legitimate route — and
 cannot be completed. A page that does not exist is recoverable; a live page
 whose text belongs to nobody is not.
 
+**The screen that creates them** is Configuration › Site › Pages de texte
+(`Core\Http\Controller\TextPageConfigController`), every route
+`superadmin`. It checks no role of its own — the guard the router already
+ran carries the floor, and a re-check here would be a second answer to a
+settled question. Its list is the shared `partials/list_editor.html.twig`
+with no extra checkbox: activation is the toggle, ordering is the drag,
+deletion is the bin. Adding is a link rather than that partial's own
+blind-create button, because a page cannot exist before it has a name, a
+title and a place.
+
+`« Créer et ouvrir »` is one button because it is one intention: it saves,
+switches the session into configuration mode and redirects to the page. A
+page that has just been created is empty by definition, and the only
+sensible next step is to go and write it. The mode grants nothing (§8.2)
+and stays on for the session like everywhere else, with no exception
+carved out here.
+
+The **column picker follows the section** in the browser, filled from
+`MenuBuilder::MENU_GROUPS` and hidden entirely for « Notre unité », which
+declares no columns. That is the convenience;
+`TextPageService::assertMenuPlacement()` is the rule, and it runs again on
+every save — `addPage()` throwing on an undeclared column would not break
+the new page, it would break the navigation of every page of the site.
+The hidden `<select>` is also disabled, because a hidden control still
+submits and an empty string is not the null the service expects.
+
+The **help topic is `docs/help/pages-de-texte.md`**, and it declares
+`/pages/*` alongside the screen's own paths so a superadmin reading a page
+they created gets the help that explains how pages work. A public visitor
+on a public text page gets nothing from it — the topic is `superadmin` —
+and that is correct: it documents managing pages, not reading one. The
+topic is also why `Tests\Core\Help\HelpInvariantsTest` knows about
+`TextPage::PATH_PREFIX`: that check reads `public/index.php` for GET
+routes, and these routes are not written there to be read.
+
 Explicitly **not** in scope: free-text pages do not join
 `Core\Offline\OfflineWhitelist`. That list is a static server-side
 declaration, and wiring it to a database table is a subject of its own.
+### 8.117 Device credentials for contact synchronisation (`Core\Contact\Device`)
+
+The credentials an address-book client authenticates with, and the
+site-wide switch that stops all of them at once. On their own they open
+nothing — §8.118 is what they let a client read — but they are the whole
+of the authentication, and they are testable and shippable without it.
+
+**Why a credential of their own.** None of the site's three ways in fits
+a client that synchronises in the background with no interface: a magic
+link needs a mailbox and a browser, a password belongs to a person rather
+than to a device, and a passkey needs the device to be asked. A CardDAV
+client speaks HTTP Basic and nothing else.
+
+**The secret** is 32 bytes from `random_bytes()`, hex-encoded, shown to
+its owner exactly once at creation and never recoverable — the same
+treatment as the GitHub webhook secret (§8.17), and deliberately **not** a
+row in `settings`, which would make it readable on the Paramètres page.
+Only a SHA-256 of it is stored, compared with `hash_equals()`: at 256 bits
+of entropy a fast hash is as safe as bcrypt, and this is an anonymous
+route a client polls every few minutes, where a wrong guess must cost a
+comparison rather than a bcrypt (`SECURITY.md` §2, the same reasoning the
+triage token and the one-click unsubscribe token already carry).
+
+**The rule that does not bend: the role is re-resolved on EVERY request.**
+`DeviceAuthenticator` never lets a credential authorise anything by
+itself. It says which account is asking; the account's role is then
+computed from the unit's current state by `Core\Security\RoleResolver`,
+over the same set of years the login door judges on
+(`Core\ScoutYear\AuthorizationYearService`), and anything below `admin`
+is refused. A chief who leaves the staff loses the site at the next Desk
+import; a device of theirs dies the same way, at its next poll, without
+waiting for anybody to remember to revoke it.
+
+Four checks, each sufficient on its own to refuse: the site-wide switch,
+the credential (live, and belonging to that account), the account's right
+to sign in at all, and the role. **Every refusal is the identical
+nothing**, so no caller can learn from the answer whether an address has
+an account, whether a credential exists, or whether a role changed.
+
+**Two screens.** « Appareils synchronisés », under Mon compte at
+`role_min: admin` — the list, the creation, the revocation, and the
+unpleasant truth said before the button rather than after it: the copy
+that came down stays on the device, follows its backups, and revoking
+erases none of it. And Configuration > « Synchronisation des contacts »
+at `role_min: superadmin` — the cut-out for the whole site, and every
+device of every account with a revocation on each. A feature that
+replicates personal data onto personal telephones needs both; a superadmin
+who can only see their own devices cannot answer « qui synchronise ? ».
+
+**Revoking never deletes.** The row is the evidence that the device
+existed, and `last_sync_at` is what lets a screen point at a credential
+declared and never used — a valid credential lying around, which the site
+reports and does not clean up on its own.
+
+**The journal records the lifecycle and never a synchronisation.** A
+created credential, a revoked credential, a flipped switch and a failed
+authentication, all at `security` level, carrying identifiers and nothing
+else — no secret, no label somebody typed, no address, no member's name.
+Successful syncs are deliberately absent: they arrive every few minutes
+and would bury everything else. Failures are bounded per source address in
+the rate-limit table under a purpose of their own, so one misconfigured
+client cannot fill the journal, nor be used to bury a real attempt.
+
+### 8.118 The read-only CardDAV server (`Core\Contact\CardDav`)
+
+What an address-book application on a phone actually talks to. The
+credentials of §8.117 are how it gets in; the cards of §8.115 are what it
+reads; this section is the protocol between them.
+
+**The address book is the trombinoscope's set, exactly** — the leaders of
+the current scout year: functions whose role is chef or chef d'unité,
+attached to a section that is active and visible, « Staff d'U » included
+because it is a real section like any other (`UnitStaffSectionService`).
+No animé and no parent's telephone number are in it, and that equality is
+not a convenience: `SECURITY.md` §6 authorises this export on the grounds
+that what leaves is what every identified member already sees on
+`/trombinoscope`, and a set that were merely *similar* would make that
+sentence false. `AddressBookRepository` is the one place it is expressed,
+and `Tests\Core\Contact\CardDav\AddressBookServiceTest` fails on an
+animé reaching it.
+
+**Three paths, and a client walks them in two round trips.**
+`/.well-known/carddav` redirects (RFC 6764); `/carddav/` is at once the
+discovery root, the principal and the address-book home set;
+`/carddav/staff/` is the collection, with one card at
+`/carddav/staff/{member_id}.vcf`. Collapsing principal and home set onto
+one path is what saves the round trips — nothing in the protocol requires
+them to be distinct, and this installation has exactly one address book.
+
+**`OPTIONS` announces `DAV: 1, 3, addressbook`.** Class 2 — locking — is
+deliberately absent: nothing here is writable, and announcing it would
+invite `LOCK` requests to refuse. `PUT` and `DELETE` answer **403 with
+`need-privileges`**, not 405: Desk is the source of truth, nothing ever
+travels back up, and a 403 is what makes a client show its user a
+read-only address book instead of hunting for somewhere else to write.
+The collection also publishes a `current-user-privilege-set` of `read`
+alone, which is the same message one round trip earlier.
+
+**The polling problem, and what the collection tag does about it.** A
+client asks « has anything changed? » every few minutes and is told « no »
+almost every time. Every personal column on this site is an encrypted
+`BLOB`, so answering that by building the cards would make the cheapest
+request the most expensive one. `getctag` and the per-card `getetag` are
+therefore built from identifiers and aggregated timestamps alone —
+`ContactCardRepository::findRevisionsForMembers()`, which decrypts
+nothing — and hashed, so an entity tag says « this card » rather than
+« this person changed at 21:04 » in every proxy and log it passes through.
+Decryption happens only on the two paths that actually hand over a card.
+
+What the tag cannot see is written down rather than discovered later: a
+change that moves none of those timestamps — the unit's name in
+Paramètres, which rides in every card's `ORG`, or a function relabelled on
+Correspondances Desk. Those reach a client at the next Desk import, which
+moves `import_journal.imported_at` for the year and therefore every
+member's revision at once.
+
+**`addressbook-query` answers with the whole collection**, whatever
+filter it carries, and that is a decision rather than an omission: this
+collection is one unit's leaders, a client running a query is enumerating
+rather than searching, and a filter silently mis-evaluated would hide
+cards a client believes it has. Returning more than was asked for is the
+safe direction. `addressbook-multiget` is exact, and an href it cannot
+resolve gets its own 404 response inside the multistatus rather than
+failing the report — one stale path must not break a whole sync.
+
+**The XML is built by hand** (`DavXml`), with no new dependency: what is
+needed is one document shape with three fixed namespace prefixes.
+Reading is the dangerous direction, and `DavRequestParser` is the only
+place in this feature where something a stranger wrote is parsed —
+`LIBXML_NOENT` is never passed (its name reads like « no entities » and
+it means the opposite), `LIBXML_NONET` refuses the network, and the body
+is capped at 256 KB *before* parsing, because this route answers before
+authentication has had a chance to be expensive.
+
+**Two things about the host it runs on**, both of which cost a working
+feature when they are wrong and neither of which produces a message
+anybody can read:
+
+- `/.well-known/` is a standardised public namespace (RFC 8615) that
+  merely looks like a dotfile, and the single-tree `.htaccess`
+  (`bootstrapHtaccessContent()`) denied dotfiles at any depth. It now
+  excepts that prefix — ACME's challenge directory lives there too.
+- Under CGI and FastCGI — most shared hosting, which is this project's
+  target — Apache strips `Authorization` before PHP sees it. Both
+  `.htaccess` files now copy it into an environment variable, and the
+  controller reads `HTTP_AUTHORIZATION`, `REDIRECT_HTTP_AUTHORIZATION`
+  and the `PHP_AUTH_USER`/`PHP_AUTH_PW` pair mod_php hands over instead.
+
+**And a probe for what remains.** Some hosts refuse `PROPFIND` and
+`REPORT` outright or route them into their own WebDAV module; the symptom
+on a phone is « impossible de se connecter » and nothing more, which is
+indistinguishable from a wrong password. The button on « Appareils
+synchronisés » sends both methods at `/api/carddav/probe`
+(`role_min: admin`, session-authenticated, reads nothing, names nobody —
+**not** part of the §4 exception below) and reports which arrived, so the
+failure is explained instead of mysterious, and so the reader is told in
+so many words that the site itself is configured correctly.
+
+**Every CardDAV route is `role_min: public` and none verifies a CSRF
+token** — the second deliberate exception to `SECURITY.md` §4, written
+down there with its scope. `public` is the floor the guard applies, not
+the access the routes grant: the controller answers 401 to everything
+that does not carry a live credential belonging to an account that
+resolves to admin **on this request**. There is nowhere in this feature
+for a stale role to survive between two requests.
+
 
 ## 9. Installation / bootstrap
 

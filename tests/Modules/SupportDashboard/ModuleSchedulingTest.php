@@ -118,13 +118,20 @@ class ModuleSchedulingTest extends TestCase
      * every page load of the receiver would queue another copy of all three
      * tasks.
      *
-     * `SchedulerService::rearm()` is that guard, and holding it in one
+     * `SchedulerService::seed()` is that guard, and holding it in one
      * place is why this now checks for the call rather than for a
      * hand-written `find() === null` around a `schedule()`.
+     *
+     * `seed()` and not `rearm()`: the receiver's composition root is not
+     * the handler re-arming itself, so the question it has to ask is « is
+     * this chain alive » — `pending` OR `processing`. `rearm()`'s guard
+     * sees `pending` only, and this block runs on every page load, so a
+     * request landing during a cron pass queued a fourth, fifth and sixth
+     * copy of all three tasks (ARCHITECTURE.md §8.5, issue #435).
      */
     public function testSeedingIsConditionalOnThereBeingNoOccurrenceYet(): void
     {
-        $this->assertStringContainsString('$schedulerService->rearm(', $this->supportDashboardBlock());
+        $this->assertStringContainsString('$schedulerService->seed(', $this->supportDashboardBlock());
     }
 
     /**

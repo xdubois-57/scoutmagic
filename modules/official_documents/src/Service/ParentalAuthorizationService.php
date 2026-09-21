@@ -38,6 +38,14 @@ class ParentalAuthorizationService
      */
     public const UNIT_CODE_SETTING = 'official_documents_unit_code';
 
+    /**
+     * The scope every setting of this module is filed under — the module's
+     * own id, which is what `ModuleManager::registerModule()` hands
+     * `SettingService::register()`. Named rather than typed out at each
+     * call site so the two can never disagree.
+     */
+    public const MODULE_ID = 'official_documents';
+
     public function __construct(
         private readonly MemberService $memberService,
         private readonly SectionService $sectionService,
@@ -106,8 +114,16 @@ class ParentalAuthorizationService
      */
     public function unitLabel(): string
     {
+        // `site_name` is core's, so it has no module scope. The unit code is
+        // THIS module's, and `SettingService` files a module's setting under
+        // the module's own id — so reading it without one looks up
+        // `_core_::official_documents_unit_code`, finds nothing, and answers
+        // the default with no error anywhere. That is how this line spent
+        // its first three iterations silently dropping the code a chief had
+        // configured (issue #433); the key being prefixed with the module's
+        // own name is what makes it read like a global one.
         $name = trim((string) ($this->settings->get('site_name') ?? ''));
-        $code = trim((string) ($this->settings->get(self::UNIT_CODE_SETTING) ?? ''));
+        $code = trim((string) ($this->settings->get(self::UNIT_CODE_SETTING, self::MODULE_ID) ?? ''));
 
         if ($code === '') {
             return $name;

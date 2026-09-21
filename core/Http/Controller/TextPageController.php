@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
+use Core\Page\TextPage;
 use Core\Page\TextPageService;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -75,7 +76,7 @@ class TextPageController extends AbstractController
      */
     private static function slugFromPath(string $path): string
     {
-        $prefix = '/pages/';
+        $prefix = TextPage::PATH_PREFIX;
         if (!str_starts_with($path, $prefix)) {
             return '';
         }

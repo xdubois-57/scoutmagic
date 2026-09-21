@@ -158,16 +158,21 @@ class TextPageRepository
      * partially applied ordering is its own defect (SECURITY.md §3 says
      * as much about the section-documents reorder).
      *
-     * @param int[] $orderedIds
+     * The caller decides the ranks, because only it knows they are per
+     * section ({@see TextPageService::reorder()}). This writes what it is
+     * given, in one transaction, so a half-applied order cannot survive a
+     * failure halfway through.
+     *
+     * @param array<int, int> $positions page id => its rank in its own menu
      */
-    public function reorder(array $orderedIds): void
+    public function reorder(array $positions): void
     {
         $stmt = $this->pdo->prepare('UPDATE text_pages SET sort_order = ?, updated_at = ? WHERE id = ?');
         $now = self::now();
 
         $this->pdo->beginTransaction();
         try {
-            foreach (array_values($orderedIds) as $position => $id) {
+            foreach ($positions as $id => $position) {
                 $stmt->execute([$position, $now, $id]);
             }
             $this->pdo->commit();

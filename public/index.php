@@ -631,6 +631,24 @@ $settingService->register(
     'Nom de l\'unité',
     'Nom complet de l\'unité, affiché dans le header et le titre du site.'
 );
+// The site-wide cut-out for contact synchronisation (Core\Contact\Device,
+// ARCHITECTURE.md §8.117). Default '1': it is a cut-out, not an opt-in —
+// nothing synchronises until an administrator has registered a device
+// anyway. Not editable from the generic Paramètres page: a bare checkbox
+// there would say nothing about what it stops, and
+// Configuration > Synchronisation des contacts pairs it with the list of
+// devices it would cut off.
+$settingService->register(
+    \Core\Contact\Device\DeviceCredentialService::SETTING_SYNC_ENABLED,
+    '1',
+    'boolean',
+    'Synchronisation des contacts',
+    'Autorise les appareils enregistrés à recopier le carnet d\'adresses du staff.',
+    null,
+    null,
+    null,
+    false
+);
 $settingService->register(
     'short_name',
     '',
@@ -3297,6 +3315,22 @@ $menuBuilder->addPage(
     null,
     'site'
 );
+// Configuration > Site > Pages de texte (ARCHITECTURE.md §8.116). Order 11
+// puts it right after Modules: both answer « what does this site have on
+// it », where the entries below answer « what does this unit have in it ».
+$menuBuilder->addPage(
+    MenuBuilder::MENU_CONFIGURATION,
+    'Pages de texte',
+    '/config/pages-de-texte',
+    'superadmin',
+    11,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-file-text',
+    null,
+    'site'
+);
 $menuBuilder->addPage(
     MenuBuilder::MENU_CONFIGURATION,
     'Badges',
@@ -3466,6 +3500,19 @@ $menuBuilder->addPage(
     null,
     'exploitation'
 );
+$menuBuilder->addPage(
+    MenuBuilder::MENU_CONFIGURATION,
+    'Synchronisation des contacts',
+    '/config/synchronisation-contacts',
+    'superadmin',
+    55,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-phone',
+    null,
+    'exploitation'
+);
 // order 10, not a leftover "after the separator" number — SORT_GROUP_CORE
 // (addPage()'s default) already sorts this after the dynamic member
 // entries/empty-state placeholder above regardless of the numeric order,
@@ -3599,7 +3646,7 @@ scoutmagicBootstrapScheduler(
 // Modules\LlmConnector\Task\RefreshModelsHandler's weekly refresh, since
 // Core\Scheduler has no first-class recurring-task concept), but the very
 // first occurrence needs an initial nudge.
-$schedulerService->rearm('core', 'auto_backup', 'auto', new DateTimeImmutable());
+$schedulerService->seed('core', 'auto_backup', 'auto', new DateTimeImmutable());
 
 // Bootstrap the daily operational pass (Core\Alert\Task\
 // RunOperationalChecksHandler). seed(), not rearm(): this line runs on
@@ -3654,7 +3701,7 @@ $schedulerService->seed(
 
 // Same bootstrap for the notification retention purge (Core\Notification\
 // Task\PurgeNotificationsHandler).
-$schedulerService->rearm(
+$schedulerService->seed(
     'core',
     'purge_notifications',
     \Core\Notification\Task\PurgeNotificationsHandler::REFERENCE,
@@ -3665,11 +3712,11 @@ $schedulerService->rearm(
 // (Core\Maintenance\Task\CheckStableUpdateHandler) — the very first
 // occurrence runs immediately, then it self-reschedules for 01:00 +
 // jitter every day after that.
-$schedulerService->rearm('core', 'check_stable_update', 'daily', new DateTimeImmutable());
+$schedulerService->seed('core', 'check_stable_update', 'daily', new DateTimeImmutable());
 
 // Same bootstrap for the human-check rate-limit purge (Core\Security\
 // HumanCheck\Task\PurgeHumanCheckRateLimitsHandler).
-$schedulerService->rearm(
+$schedulerService->seed(
     'core',
     'purge_human_check_rate_limits',
     \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::REFERENCE,
@@ -3679,7 +3726,7 @@ $schedulerService->rearm(
 // Same bootstrap for the sent-mail claim purge (Core\Mail\Task\
 // PurgeSentEmailClaimsHandler): the replay guards of the background
 // e-mail handlers, once their own occurrence is long past.
-$schedulerService->rearm(
+$schedulerService->seed(
     'core',
     \Core\Mail\Task\PurgeSentEmailClaimsHandler::TASK_KEY,
     \Core\Mail\Task\PurgeSentEmailClaimsHandler::REFERENCE,
@@ -3712,7 +3759,7 @@ $schedulerService->seed(
 // Same bootstrap for the help assistant's own purge (Core\Help\Assistant\
 // Task\PurgeHelpAssistantHandler): rate-limit rows past the quota window
 // and cached answers no running version can still reach.
-$schedulerService->rearm(
+$schedulerService->seed(
     'core',
     \Core\Help\Assistant\Task\PurgeHelpAssistantHandler::TASK_KEY,
     \Core\Help\Assistant\Task\PurgeHelpAssistantHandler::REFERENCE,
@@ -3724,7 +3771,7 @@ $schedulerService->rearm(
 // every guard it can trip (reporting disabled, non-public host, this site
 // IS the receiver) is checked inside the handler, so seeding it here costs
 // nothing on an installation that will never actually report.
-$schedulerService->rearm(
+$schedulerService->seed(
     'core',
     \Core\Statistics\Task\SendStatisticsHandler::TASK_KEY,
     \Core\Statistics\Task\SendStatisticsHandler::REFERENCE,
@@ -3735,7 +3782,7 @@ $schedulerService->rearm(
 // Task\PurgeSupportPackagesHandler) — the archive is the most sensitive
 // artefact this codebase produces on demand, so the purge must be running
 // from the first boot, not from the first generation.
-$schedulerService->rearm(
+$schedulerService->seed(
     'core',
     \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY,
     \Core\Support\Task\PurgeSupportPackagesHandler::REFERENCE,
@@ -3747,7 +3794,7 @@ $schedulerService->rearm(
 // retention hung off the next import would keep its RGPD promise only
 // while the unit keeps importing, and a unit that stops importing is
 // exactly the one whose kept CSVs should stop being kept.
-$schedulerService->rearm(
+$schedulerService->seed(
     'core',
     \Core\Import\Task\PurgeImportsHandler::TASK_KEY,
     \Core\Import\Task\PurgeImportsHandler::REFERENCE,
@@ -3901,6 +3948,39 @@ $router->addRoute(
 $router->addRoute('POST', '/account/passkey/register', AccountController::class, 'passkeyRegister', 'identified');
 $router->addRoute('POST', '/account/passkey/delete', AccountController::class, 'passkeyDelete', 'identified');
 $router->addRoute('POST', '/account/photo/delete', AccountController::class, 'deletePhoto', 'identified');
+// « Appareils synchronisés » (Core\Contact\Device, ARCHITECTURE.md
+// §8.117). `role_min: admin` and not `identified` like the rest of Mon
+// compte: the address book these credentials open is the staff's, and
+// DeviceAuthenticator refuses anything below that floor on every single
+// request anyway — a page offering to register a device that would never
+// be allowed to synchronise would just be a broken promise.
+$router->addRoute(
+    'GET',
+    '/account/devices',
+    \Core\Contact\Controller\DeviceCredentialController::class,
+    'index',
+    'admin',
+    ['label' => 'Appareils synchronisés', 'parents' => [],
+        'ancestors' => [['label' => 'Mon compte', 'path' => '/account']]]
+);
+// JSON, because the answer carries the one cleartext copy of the secret
+// there will ever be and it must not be parked in a flash message on its
+// way through a redirect — same reason
+// MaintenanceController::generateWebhookSecret() is JSON.
+$router->addRoute(
+    'POST',
+    '/api/account/devices',
+    \Core\Contact\Controller\DeviceCredentialController::class,
+    'create',
+    'admin'
+);
+$router->addRoute(
+    'POST',
+    '/account/devices/{id}/revoke',
+    \Core\Contact\Controller\DeviceCredentialController::class,
+    'revoke',
+    'admin'
+);
 // « Revoir les astuces » — forgets every discovery tip this account was
 // shown and releases any delay (§8.95). On HelpDiscoveryController rather
 // than AccountController because it is the discovery feature's own state:
@@ -4885,6 +4965,33 @@ $router->addRoute(
     'superadmin',
     ['label' => 'Support', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
 );
+
+// Synchronisation des contacts (Core\Contact\Device, ARCHITECTURE.md
+// §8.117) — the site-wide cut-out and every device of every account.
+// `superadmin`, like every other page of the Configuration menu.
+$router->addRoute(
+    'GET',
+    '/config/synchronisation-contacts',
+    \Core\Contact\Controller\ContactSyncConfigController::class,
+    'index',
+    'superadmin',
+    ['label' => 'Synchronisation des contacts',
+        'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+);
+$router->addRoute(
+    'POST',
+    '/config/synchronisation-contacts/switch',
+    \Core\Contact\Controller\ContactSyncConfigController::class,
+    'toggle',
+    'superadmin'
+);
+$router->addRoute(
+    'POST',
+    '/config/synchronisation-contacts/{id}/revoke',
+    \Core\Contact\Controller\ContactSyncConfigController::class,
+    'revoke',
+    'superadmin'
+);
 $router->addRoute('POST', '/config/support/statistics', SupportController::class, 'saveStatistics', 'superadmin');
 $router->addRoute('POST', '/config/support/measure', SupportController::class, 'startMeasurement', 'superadmin');
 $router->addRoute('POST', '/config/support/measure/stop', SupportController::class, 'stopMeasurement', 'superadmin');
@@ -5055,6 +5162,142 @@ $router->addRoute(
 // instead. See Core\Http\Controller\WebhookController's own docblock.
 $router->addRoute('POST', '/api/webhook/github', \Core\Http\Controller\WebhookController::class, 'github', 'public');
 
+// ---------------------------------------------------------------------
+// The read-only CardDAV server (Core\Contact\CardDav, ARCHITECTURE.md
+// §8.118).
+//
+// **The second deliberate exception to SECURITY.md §4, after the webhook
+// just above, and it is written down there with its scope.** Every route
+// in this block is `role_min: public` and none of them verifies a CSRF
+// token, for the same reason: the caller is a machine with no session to
+// bind a token to. A CardDAV client speaks HTTP Basic and nothing else —
+// none of this site's three human sign-in methods fits a program that
+// synchronises in the background — so the credential is a device
+// credential, checked by Core\Contact\Device\DeviceAuthenticator on
+// EVERY request, together with the account's role, re-resolved every
+// time.
+//
+// `public` here is the floor the guard applies, not the access the
+// routes grant: the controller answers 401 to everything that does not
+// carry a live credential belonging to a live admin.
+//
+// The router stores a method as a free string and compares it to
+// REQUEST_METHOD, so PROPFIND and REPORT route like any other method
+// with nothing to change in it.
+$router->addRoute(
+    'GET',
+    '/.well-known/carddav',
+    \Core\Contact\CardDav\Controller\CardDavController::class,
+    'wellKnown',
+    'public'
+);
+$router->addRoute(
+    'PROPFIND',
+    '/.well-known/carddav',
+    \Core\Contact\CardDav\Controller\CardDavController::class,
+    'wellKnown',
+    'public'
+);
+$router->addRoute(
+    'OPTIONS',
+    '/carddav/',
+    \Core\Contact\CardDav\Controller\CardDavController::class,
+    'announce',
+    'public'
+);
+$router->addRoute(
+    'PROPFIND',
+    '/carddav/',
+    \Core\Contact\CardDav\Controller\CardDavController::class,
+    'propfind',
+    'public'
+);
+$router->addRoute(
+    'OPTIONS',
+    '/carddav/staff/',
+    \Core\Contact\CardDav\Controller\CardDavController::class,
+    'announce',
+    'public'
+);
+$router->addRoute(
+    'PROPFIND',
+    '/carddav/staff/',
+    \Core\Contact\CardDav\Controller\CardDavController::class,
+    'propfind',
+    'public'
+);
+$router->addRoute(
+    'REPORT',
+    '/carddav/staff/',
+    \Core\Contact\CardDav\Controller\CardDavController::class,
+    'report',
+    'public'
+);
+$router->addRoute(
+    'GET',
+    '/carddav/staff/{member_id}.vcf',
+    \Core\Contact\CardDav\Controller\CardDavController::class,
+    'card',
+    'public'
+);
+$router->addRoute(
+    'PROPFIND',
+    '/carddav/staff/{member_id}.vcf',
+    \Core\Contact\CardDav\Controller\CardDavController::class,
+    'propfind',
+    'public'
+);
+// Desk is the source of truth and nothing travels back up. Declared
+// rather than left to answer 404: a client told « no such route » keeps
+// looking for somewhere to write, and one told 403 shows its user a
+// read-only address book.
+$router->addRoute(
+    'PUT',
+    '/carddav/staff/{member_id}.vcf',
+    \Core\Contact\CardDav\Controller\CardDavController::class,
+    'refuseWrite',
+    'public'
+);
+$router->addRoute(
+    'DELETE',
+    '/carddav/staff/{member_id}.vcf',
+    \Core\Contact\CardDav\Controller\CardDavController::class,
+    'refuseWrite',
+    'public'
+);
+// The hosting probe — NOT part of the exception above. `role_min: admin`,
+// session-authenticated like the page that offers the button, carrying no
+// device credential and reading nothing. It answers the one question a
+// chef d'unité cannot otherwise answer: did this method reach PHP at all,
+// or did the web server eat it first.
+//
+// Written out one method at a time rather than looped: the authorization
+// matrix parses these calls out of this file textually
+// (scripts/authz-support.php) and refuses to run when it finds fewer
+// than the file contains, so a route built from a variable would be a
+// route the matrix never replays.
+$router->addRoute(
+    'GET',
+    '/api/carddav/probe',
+    \Core\Contact\CardDav\Controller\CardDavProbeController::class,
+    'probe',
+    'admin'
+);
+$router->addRoute(
+    'PROPFIND',
+    '/api/carddav/probe',
+    \Core\Contact\CardDav\Controller\CardDavProbeController::class,
+    'probe',
+    'admin'
+);
+$router->addRoute(
+    'REPORT',
+    '/api/carddav/probe',
+    \Core\Contact\CardDav\Controller\CardDavProbeController::class,
+    'probe',
+    'admin'
+);
+
 // Édition du site — shrunk to just the configuration-mode toggle
 // (module registry and badges split out below); moved to "Espace chefs d'U"
 // in the menu (see addPage() above) and widened to admin, same as the
@@ -5081,6 +5324,78 @@ $router->addRoute(
 );
 $router->addRoute('POST', '/config/modules/toggle', ConfigModulesController::class, 'toggleModule', 'superadmin');
 $router->addRoute('POST', '/config/modules/reorder', ConfigModulesController::class, 'reorderModules', 'superadmin');
+
+// Configuration > Pages de texte — the screen that creates the free-text
+// pages of ARCHITECTURE.md §8.116. Every route is `superadmin`, and
+// TextPageConfigController checks no role of its own: the guard here is
+// the protection (SECURITY.md §3).
+//
+// The literal paths are declared BEFORE `/config/pages-de-texte/{id}`
+// (§7.1, literal-before-wildcard). An id-named placeholder matches digits
+// only (SECURITY.md §35), so `nouveau` could not have been taken for one
+// anyway — the order is what keeps that true the day a placeholder's
+// pattern widens.
+$router->addRoute(
+    'GET',
+    '/config/pages-de-texte',
+    \Core\Http\Controller\TextPageConfigController::class,
+    'index',
+    'superadmin',
+    ['label' => 'Pages de texte', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+);
+$router->addRoute(
+    'GET',
+    '/config/pages-de-texte/nouveau',
+    \Core\Http\Controller\TextPageConfigController::class,
+    'createForm',
+    'superadmin',
+    ['label' => 'Nouvelle page de texte', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Pages de texte', 'path' => '/config/pages-de-texte']]],
+);
+$router->addRoute(
+    'POST',
+    '/config/pages-de-texte',
+    \Core\Http\Controller\TextPageConfigController::class,
+    'create',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/pages-de-texte/ordre',
+    \Core\Http\Controller\TextPageConfigController::class,
+    'reorder',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/pages-de-texte/activation',
+    \Core\Http\Controller\TextPageConfigController::class,
+    'toggleActive',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/pages-de-texte/suppression',
+    \Core\Http\Controller\TextPageConfigController::class,
+    'delete',
+    'superadmin',
+);
+$router->addRoute(
+    'GET',
+    '/config/pages-de-texte/{id}',
+    \Core\Http\Controller\TextPageConfigController::class,
+    'editForm',
+    'superadmin',
+    ['label' => 'Modifier une page de texte', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Pages de texte', 'path' => '/config/pages-de-texte']]],
+);
+$router->addRoute(
+    'POST',
+    '/config/pages-de-texte/{id}',
+    \Core\Http\Controller\TextPageConfigController::class,
+    'update',
+    'superadmin',
+);
 
 // Configuration > Badges — badge registry (split out of Configuration
 // générale, ARCHITECTURE §8.11). Stays superadmin, in the Configuration menu.
@@ -5527,6 +5842,15 @@ $frontController->registerController(
     new \Core\Http\Controller\TextPageController($twig, $textPageService)
 );
 
+// Configuration > Pages de texte — the screen that creates them
+// (ARCHITECTURE.md §8.116). Registered next to the controller it manages
+// rather than with the other config screens, because it takes the same
+// TextPageService that one does.
+$frontController->registerController(
+    \Core\Http\Controller\TextPageConfigController::class,
+    new \Core\Http\Controller\TextPageConfigController($twig, $textPageService, $journalService)
+);
+
 // Contextual help pages (Core\Http\Controller\HelpController) — needs the
 // HelpService built next to the registry above, after every enabled
 // module had its chance to register topics.
@@ -5611,7 +5935,7 @@ if ($isEnabled('usage_stats')) {
         \Modules\UsageStats\Task\PurgePageViewsHandler::TASK_KEY =>
             \Modules\UsageStats\Task\PurgePageViewsHandler::REFERENCE,
     ] as $usageTaskKey => $usageTaskReference) {
-        $schedulerService->rearm('usage_stats', $usageTaskKey, $usageTaskReference, new DateTimeImmutable());
+        $schedulerService->seed('usage_stats', $usageTaskKey, $usageTaskReference, new DateTimeImmutable());
     }
 }
 
@@ -5838,6 +6162,80 @@ $frontController->registerController(
         $accountPhotoService,
         $seenHelpTopicRepository
     )
+);
+// Contact synchronisation: the credentials an address-book client
+// authenticates with (Core\Contact\Device, ARCHITECTURE.md §8.117). One
+// service, three surfaces — the owner's page under Mon compte, the
+// superadmin's cut-out under Configuration, and (from IT-03) the CardDAV
+// routes' own authenticator.
+$deviceCredentialService = new \Core\Contact\Device\DeviceCredentialService(
+    new \Core\Contact\Device\DeviceCredentialRepository($pdo),
+    $settingService,
+    $journalService,
+    // Only to name each device's owner on the superadmin's page.
+    $userAccountRepo
+);
+$frontController->registerController(
+    \Core\Contact\Controller\DeviceCredentialController::class,
+    new \Core\Contact\Controller\DeviceCredentialController($twig, $deviceCredentialService)
+);
+$frontController->registerController(
+    \Core\Contact\Controller\ContactSyncConfigController::class,
+    new \Core\Contact\Controller\ContactSyncConfigController(
+        $twig,
+        $deviceCredentialService
+    )
+);
+
+// The read-only CardDAV server (Core\Contact\CardDav, ARCHITECTURE.md
+// §8.118) — what an address-book client actually talks to, and the only
+// consumer of the device credentials above besides the two screens that
+// manage them.
+//
+// The authenticator is built here rather than beside the service because
+// it needs the RBAC machinery: the role is re-resolved on every request
+// through the same RoleResolver the login door uses, so a chef who left
+// the staff stops synchronising at their next poll rather than at their
+// next manual revocation.
+$deviceAuthenticator = new \Core\Contact\Device\DeviceAuthenticator(
+    new \Core\Contact\Device\DeviceCredentialRepository($pdo),
+    $deviceCredentialService,
+    $userAccountRepo,
+    $roleResolver,
+    $authorizationYearService,
+    $encryptionService,
+    $journalService,
+    new \Core\Security\HumanCheck\HumanCheckRateLimitRepository($pdo)
+);
+$frontController->registerController(
+    \Core\Contact\CardDav\Controller\CardDavController::class,
+    new \Core\Contact\CardDav\Controller\CardDavController(
+        $twig,
+        $deviceAuthenticator,
+        new \Core\Contact\CardDav\AddressBookService(
+            new \Core\Contact\CardDav\AddressBookRepository($connection),
+            new \Core\Contact\Repository\ContactCardRepository($connection),
+            new \Core\Contact\ContactCardService(
+                new \Core\Contact\Repository\ContactCardRepository($connection),
+                $settingService,
+                $memberEmailRepository,
+                new \Core\Contact\ContactPhotoResolver(
+                    $memberPhotoService,
+                    $fileRepository,
+                    $imageVariantService,
+                    $storagePath
+                )
+            ),
+            new \Core\Contact\VCardBuilder(),
+            $memberService,
+            $scoutYearService
+        ),
+        new \Core\Contact\CardDav\DavRequestParser()
+    )
+);
+$frontController->registerController(
+    \Core\Contact\CardDav\Controller\CardDavProbeController::class,
+    new \Core\Contact\CardDav\Controller\CardDavProbeController($twig)
 );
 $frontController->registerController(
     PushSubscriptionController::class,
@@ -6506,7 +6904,51 @@ if ($isEnabled('official_documents')) {
         $settingService,
         $moduleHooks
     );
-    $memberOfficialDocumentsProvider = new \Modules\OfficialDocuments\Service\MemberDocumentsSummaryService();
+    // The health sheet's one storage path. Encryption lives in the
+    // Repository and nowhere else (specifications.md §44), so this is the
+    // only place the encryption service reaches it.
+    $healthSheetService = new \Modules\OfficialDocuments\Service\HealthSheetService(
+        new \Modules\OfficialDocuments\Repository\HealthSheetRepository($pdo, $encryptionService),
+        $journalService
+    );
+    $officialDocumentsAccess = new \Modules\OfficialDocuments\Security\OwnMemberOnly($memberService);
+
+    $memberOfficialDocumentsProvider = new \Modules\OfficialDocuments\Service\MemberDocumentsSummaryService(
+        $healthSheetService
+    );
+
+    $frontController->registerController(
+        \Modules\OfficialDocuments\Controller\HealthSheetController::class,
+        new \Modules\OfficialDocuments\Controller\HealthSheetController(
+            $twig,
+            $officialDocumentsAccess,
+            $healthSheetService,
+            new \Modules\OfficialDocuments\Service\HealthSheetPdfService(
+                \Modules\OfficialDocuments\Pdf\TemplateLibrary::shipped()
+            )
+        )
+    );
+
+    // The retention purge's FIRST occurrence has to be seeded here:
+    // declaring a handler in module.json only teaches SchedulerRunner which
+    // class handles the key, and a self-rescheduling task nobody ever
+    // queued reschedules itself never (ARCHITECTURE.md §8.49).
+    // Tests\Modules\OfficialDocuments\ModuleSchedulingTest fails if this
+    // drifts from module.json's `scheduled_tasks`.
+    //
+    // `seed()` and NOT `rearm()`, which is the question this call site asks
+    // (ARCHITECTURE.md §8.5): « cette chaîne est-elle vivante » — `pending`
+    // OR `processing`. `rearm()`'s guard sees `pending` only, so a request
+    // landing while the daily pass is `processing` finds nothing and queues
+    // a SECOND chain; this runs on every page load, so that window is hit
+    // regularly. On a purge, a duplicate chain means duplicate delete
+    // passes and duplicate journal entries about a family's health data.
+    $schedulerService->seed(
+        'official_documents',
+        \Modules\OfficialDocuments\Task\PurgeHealthSheetsHandler::TASK_KEY,
+        \Modules\OfficialDocuments\Task\PurgeHealthSheetsHandler::REFERENCE,
+        new DateTimeImmutable()
+    );
 
     $frontController->registerController(
         \Modules\OfficialDocuments\Controller\ParentalAuthorizationController::class,
@@ -8098,7 +8540,7 @@ if ($isEnabled('mass_mail')) {
     // Bootstrap the daily mail-merge audience retention purge (Task\
     // PurgeMergeAudiencesHandler self-reschedules afterwards — same
     // pattern as registration's purge_registration_requests below).
-    $schedulerService->rearm('mass_mail', 'purge_merge_audiences', 'daily', new DateTimeImmutable());
+    $schedulerService->seed('mass_mail', 'purge_merge_audiences', 'daily', new DateTimeImmutable());
     $frontController->registerController(
         \Modules\MassMail\Controller\MailingListController::class,
         new \Modules\MassMail\Controller\MailingListController(
@@ -8295,7 +8737,7 @@ if ($isEnabled('news')) {
             null,
             false
         );
-        $schedulerService->rearm(
+        $schedulerService->seed(
             'news',
             \Modules\News\Task\GenerateImageVariantsHandler::TASK_KEY,
             \Modules\News\Task\GenerateImageVariantsHandler::REFERENCE,
@@ -8322,7 +8764,7 @@ if ($isEnabled('news')) {
             null,
             false
         );
-        $schedulerService->rearm(
+        $schedulerService->seed(
             'news',
             \Modules\News\Task\RealignCoverImageAccessHandler::TASK_KEY,
             \Modules\News\Task\RealignCoverImageAccessHandler::REFERENCE,
@@ -9210,7 +9652,7 @@ if ($isEnabled('support_dashboard')) {
         \Modules\SupportDashboard\Task\PurgeTicketsHandler::TASK_KEY =>
             \Modules\SupportDashboard\Task\PurgeTicketsHandler::REFERENCE,
     ] as $supportTaskKey => $supportTaskReference) {
-        $schedulerService->rearm('support_dashboard', $supportTaskKey, $supportTaskReference, new DateTimeImmutable());
+        $schedulerService->seed('support_dashboard', $supportTaskKey, $supportTaskReference, new DateTimeImmutable());
     }
 }
 
@@ -9250,7 +9692,7 @@ if ($isEnabled('test_tools')) {
         \Modules\TestTools\Task\PurgeCapturedEmailsHandler::TASK_KEY =>
             \Modules\TestTools\Task\PurgeCapturedEmailsHandler::REFERENCE,
     ] as $testToolsTaskKey => $testToolsTaskReference) {
-        $schedulerService->rearm('test_tools', $testToolsTaskKey, $testToolsTaskReference, new DateTimeImmutable());
+        $schedulerService->seed('test_tools', $testToolsTaskKey, $testToolsTaskReference, new DateTimeImmutable());
     }
 }
 
@@ -9353,15 +9795,17 @@ if ($isEnabled('camps')) {
 
     // The DAILY tasks re-arm themselves to a fixed hour, so each
     // needs seeding exactly once — on the first page load after the module
-    // is enabled. Guarded on find() rather than scheduled blindly, or every
-    // request would queue another copy.
+    // is enabled. seed() rather than scheduled blindly, or every request
+    // would queue another copy; and seed() rather than rearm(), whose
+    // guard sees `pending` only and therefore finds nothing while the
+    // chain's own row is `processing` (ARCHITECTURE.md §8.5).
     foreach ([
         [\Modules\Camps\Task\ReviewReminderHandler::TASK_KEY, \Modules\Camps\Task\ReviewReminderHandler::REFERENCE,
             'tomorrow 06:00'],
         [\Modules\Camps\Task\RefreshPlaceSummariesHandler::TASK_KEY,
             \Modules\Camps\Task\RefreshPlaceSummariesHandler::REFERENCE, 'tomorrow 05:00'],
     ] as [$campsTaskKey, $campsTaskReference, $campsTaskWhen]) {
-        $schedulerService->rearm('camps', $campsTaskKey, $campsTaskReference, $campsTaskWhen);
+        $schedulerService->seed('camps', $campsTaskKey, $campsTaskReference, $campsTaskWhen);
     }
 
     // Geocoding is the one that is NOT periodic, and seeding it like the
@@ -9373,11 +9817,13 @@ if ($isEnabled('camps')) {
     // nothing to do in two milliseconds, and a third of the event journal.
     //
     // So the condition is the work itself. countPendingGeocoding() replaces
-    // the find() that rearm() would have done anyway, and on the ordinary
+    // the find() the guard would have done anyway, and on the ordinary
     // page load — nothing to geocode — this is where the chain stops
-    // instead of restarting.
+    // instead of restarting. The arming below is seed() and not rearm()
+    // for the reason §8.5 gives: one place left to geocode and a pass
+    // already `processing` it is a live chain, not an absent one.
     if ($campsPlaceRepo->countPendingGeocoding() > 0) {
-        $schedulerService->rearm(
+        $schedulerService->seed(
             'camps',
             \Modules\Camps\Task\GeocodePlacesHandler::TASK_KEY,
             \Modules\Camps\Task\GeocodePlacesHandler::REFERENCE,
@@ -9744,7 +10190,7 @@ if ($isEnabled('retro')) {
     // occurrence needs an initial nudge. auto_close_board needs no such
     // bootstrap — it's scheduled per-board by Service\BoardService::
     // create()/update().
-    $schedulerService->rearm('retro', 'purge_rate_limits', 'daily', new DateTimeImmutable());
+    $schedulerService->seed('retro', 'purge_rate_limits', 'daily', new DateTimeImmutable());
 }
 
 // Re-registers calendar's event-facing services/controllers with the
@@ -10302,17 +10748,17 @@ if ($isEnabled('registration')) {
     // themselves hourly at the end of every run (same pattern as
     // Modules\Retro\Task\PurgeRateLimitHandler), but the very first
     // occurrence needs an initial nudge.
-    $schedulerService->rearm('registration', 'open_registration', 'poll', new DateTimeImmutable());
-    $schedulerService->rearm('registration', 'close_registration', 'poll', new DateTimeImmutable());
+    $schedulerService->seed('registration', 'open_registration', 'poll', new DateTimeImmutable());
+    $schedulerService->seed('registration', 'close_registration', 'poll', new DateTimeImmutable());
     // Same bootstrap for the daily retention purge (Task\
     // PurgeRegistrationRequestsHandler) — module-scoped handlers need no
     // manual registerHandler() call in either entry point (auto-resolved
     // via ModuleManager::getTaskHandler()), only this one-time nudge.
-    $schedulerService->rearm('registration', 'purge_registration_requests', 'daily', new DateTimeImmutable());
+    $schedulerService->seed('registration', 'purge_registration_requests', 'daily', new DateTimeImmutable());
     // Same again for the Passage auto-assignment (Task\
     // AutoAssignPassageHandler) — it used to run inside PassageController::
     // index(), i.e. a write on every GET of the page.
-    $schedulerService->rearm('registration', 'auto_assign_passage', 'hourly', new DateTimeImmutable());
+    $schedulerService->seed('registration', 'auto_assign_passage', 'hourly', new DateTimeImmutable());
 
     // Menu hook (Core\Module\MenuEntryProvider, ARCHITECTURE.md §7.4) — one
     // entry per pending registration request linked to the visitor's email.

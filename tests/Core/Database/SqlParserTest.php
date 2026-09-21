@@ -189,7 +189,7 @@ class SqlParserTest extends TestCase
         $schemaPath = dirname(__DIR__, 3) . '/schema/core.sql';
         $tables = $this->parser->parseFile($schemaPath);
 
-        $this->assertCount(65, $tables);
+        $this->assertCount(66, $tables);
 
         $tableNames = array_map(fn($t) => $t->name, $tables);
         $this->assertContains('sent_email_claims', $tableNames);
@@ -203,6 +203,9 @@ class SqlParserTest extends TestCase
         // The outbound transport's three (ARCHITECTURE.md §8.106).
         $this->assertContains('mail_providers', $tableNames);
         $this->assertContains('mail_lane_entries', $tableNames);
+        // The credentials an address-book client authenticates with
+        // (ARCHITECTURE.md §8.116).
+        $this->assertContains('device_credentials', $tableNames);
         $this->assertContains('mail_send_counters', $tableNames);
         // And the two the reserve, the queue and the circuit breaker need.
         $this->assertContains('mail_provider_health', $tableNames);

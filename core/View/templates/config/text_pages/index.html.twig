@@ -1,0 +1,82 @@
+{#
+  Configuration › Site › Pages de texte — the list of free-text pages
+  (ARCHITECTURE.md §8.116).
+
+  The rows carry no extra checkbox: activation is the toggle, as on every
+  other list_editor on the site. Adding is a link rather than this
+  partial's own blind-create button, because a page needs a name, a title
+  and a place before it can exist at all — `add_url` is therefore left
+  undeclared.
+#}
+{% extends "base.html.twig" %}
+
+{% block title %}Pages de texte — {{ site_name }}{% endblock %}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with { title: 'Pages de texte' } only %}
+
+    <p class="text-body-secondary small mb-3">
+        Ajoutez des pages de texte libre — la description de l'ASBL, une charte, une page
+        d'informations pratiques. Chaque page appartient à une section du menu, et c'est
+        cette section qui décide qui peut la lire. Son texte s'écrit sur la page elle-même,
+        en mode configuration, comme celui de l'accueil. L'ordre ci-dessous est celui des
+        entrées dans le menu.
+    </p>
+
+    {#
+      One sortable list PER SECTION, not one flat list of everything.
+      `sort_order` is a rank inside a menu — `TextPageMenuProvider` orders
+      pages within each `menu_id`, and `maxSortOrder()` is scoped to one.
+      A single list spanning every section would let somebody drag a page
+      above a page of another section, post a global 0..n-1 order, and
+      watch the row jump back on reload: the drag changed a rank that is
+      only ever compared with its own section's.
+    #}
+    {% for section in sections %}
+        <h2 class="h6 text-body-secondary mt-4 mb-2">{{ section.label }}</h2>
+
+        {% embed 'partials/list_editor.html.twig' with {
+            list_id: 'text-page-list-' ~ section.id,
+            items: section.pages,
+            reorder_url: '/config/pages-de-texte/ordre',
+            active_url: '/config/pages-de-texte/activation',
+            delete_url: '/config/pages-de-texte/suppression',
+            empty_label: "Aucune page dans cette section."
+        } %}
+            {% block item_content %}
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <span class="fw-semibold">{{ item.menu_label }}</span>
+                    {% if not item.is_active %}
+                        {% include 'partials/status_badge.html.twig' with { status: 'inactive', label: 'Masquée' } only %}
+                    {% endif %}
+                </div>
+                <p class="text-body-secondary small mb-0 mt-1">
+                    {% if item.group_label %}{{ item.group_label }} · {% endif %}
+                    {#
+                      The address is shown as text and not as a link: a
+                      hidden page has no route at all, so the link would
+                      404 — and the one moment you most want to read the
+                      address is while the page is hidden and you are
+                      about to share it.
+                    #}
+                    <code>{{ item.path }}</code>
+                </p>
+            {% endblock %}
+            {% block item_edit %}
+                <a class="btn btn-sm btn-outline-secondary" href="/config/pages-de-texte/{{ item.id }}"
+                   aria-label="Modifier" title="Modifier">
+                    <i class="bi bi-pencil" aria-hidden="true"></i>
+                </a>
+            {% endblock %}
+        {% endembed %}
+    {% endfor %}
+
+    <a class="btn btn-sm btn-primary" href="/config/pages-de-texte/nouveau">
+        <i class="bi bi-plus-lg" aria-hidden="true"></i> Ajouter une page
+    </a>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ asset('/assets/js/sortable.js') }}" defer></script>
+<script src="{{ asset('/assets/js/list-editor.js') }}" defer></script>
+{% endblock %}

@@ -145,3 +145,252 @@ format que `docs/chantiers/courrier-sortant.md`.
   requête préparée. Ce que cela coûte, c'est un déchiffrement qui a deux
   foyers au lieu d'un, et une duplication que le docbloc de
   `MemberFunctionInfo::deduplicate()` constate déjà.
+
+---
+
+## IT-02 — Les identifiants d'appareil
+
+Les deux écrans existent et se visitent dès cette itération ; ce qui
+n'arrive pas avant IT-03, c'est la synchronisation elle-même — rien ne
+lit encore le carnet d'adresses. Entièrement testable seule : c'est le
+socle d'authentification.
+
+**Livré.**
+
+- La table `device_credentials` : compte, libellé donné par l'utilisateur,
+  empreinte du secret, création, dernière synchronisation, révocation.
+- `Core\Contact\Device` : `DeviceCredential` (l'objet de valeur, qui n'a
+  aucune propriété où un secret pourrait tenir), `NewDeviceCredential`
+  (l'unique exemplaire en clair du secret, le temps d'un aller vers
+  l'écran), `DeviceCredentialRepository`, `DeviceCredentialService`,
+  `DeviceAuthenticator` et `AuthenticatedDevice`.
+- Deux écrans : « Appareils synchronisés » sous Mon compte
+  (`/account/devices`, `role_min: admin`) — la liste, la création, la
+  révocation — et Configuration > « Synchronisation des contacts »
+  (`/config/synchronisation-contacts`, `role_min: superadmin`) — le
+  coupe-circuit du site et **tous** les appareils, tous comptes
+  confondus, avec révocation sur chacun.
+- Le réglage `contact_sync_enabled`, exclu de la page Paramètres
+  générique et piloté depuis sa propre page.
+- `public/assets/js/device-credentials.js` : la création passe par une
+  requête JSON parce que la réponse porte l'unique exemplaire en clair du
+  secret, qui ne doit être garé nulle part en route — même raison que
+  `MaintenanceController::generateWebhookSecret()`.
+- Journalisation `security` : `device_credential_created`,
+  `device_credential_revoked`, `device_credential_auth_failed`,
+  `contact_sync_enabled` / `_disabled`. Jamais une synchronisation
+  réussie.
+- Documentation : `ARCHITECTURE.md` §8.117, `SECURITY.md` §2,
+  `specifications.md` §4.5 et le tableau de Mon compte,
+  `core/View/rgpd_default.html` §2.13, et les sujets d'aide
+  `docs/help/appareils-synchronises.md` et
+  `docs/help/synchronisation-contacts.md`.
+- Tests : `tests/Core/Contact/Device/` (trois classes, dont vingt-deux cas
+  sur l'authentificateur), `tests/Core/Contact/Controller/` (les deux
+  écrans plus la frontière RBAC des six routes), et
+  `tests/js/device-credentials.test.js`.
+
+**Décisions prises en autonomie.**
+
+- **Le secret est comparé par SHA-256 et `hash_equals()`, pas par
+  bcrypt.** C'est le précédent que `SECURITY.md` §4 tient déjà pour le
+  jeton de triage et pour le désabonnement en un clic : à 32 octets
+  d'entropie une empreinte rapide vaut bcrypt, et la route est anonyme et
+  sondée toutes les quelques minutes — y mettre un bcrypt donnerait à
+  n'importe qui un levier d'amplification CPU sur un hébergement mutualisé.
+  Le chantier dit « secret haché », sans dire avec quoi ; c'est ce
+  raisonnement-là qui tranche.
+- **Le nom de l'appareil est stocké en clair**, comme
+  `webauthn_credentials.device_label` juste au-dessus dans le même schéma :
+  c'est la même donnée, saisie par la même personne, pour le même usage.
+  Suivre le précédent plutôt qu'inventer une règle plus stricte pour un
+  champ identique.
+- **Pas de `scout_year_id` sur la table**, avec la raison qu'`AGENTS.md`
+  § Database exige quand on l'omet : un identifiant appartient à un
+  *compte*, pas à une saison, et il doit survivre au 1er septembre. Ce que
+  l'année décide, c'est le rôle — recalculé à chaque requête et jamais
+  stocké là.
+- **Le coupe-circuit est actif par défaut.** C'est un coupe-circuit, pas
+  un opt-in : rien ne se synchronise tant qu'un administrateur n'a pas
+  enregistré d'appareil, et un interrupteur qu'il faut d'abord allumer
+  n'est pas un coupe-circuit.
+- **Dix identifiants vivants par compte au maximum.** Pas une frontière de
+  sécurité — ils appartiennent tous à la même personne et meurent avec son
+  rôle — mais une borne sur une liste qu'un écran doit rester capable
+  d'afficher, et sur une table que n'importe quel admin pourrait sinon
+  faire grossir sans fin.
+- **Les échecs d'authentification sont journalisés, mais bornés** à cinq
+  par heure et par adresse source, comptés dans
+  `human_check_rate_limits` sous un `form_key` à eux. Le chantier demande
+  de journaliser les échecs ; un client mal configuré réessaie toutes les
+  quelques minutes indéfiniment, et journaliser chaque refus enterrerait
+  le journal sous un seul mauvais mot de passe — ou permettrait d'y
+  enterrer une vraie tentative. C'est exactement le traitement que
+  `SECURITY.md` décrit déjà pour les refus de l'extrait de triage.
+- **Ni le coupe-circuit ni l'absence d'en-tête `Authorization` ne sont
+  journalisés.** Le premier est un acte unique d'un superadministrateur,
+  déjà dans le journal ; le second est la première requête ordinaire de
+  tout client, qui revient aussitôt avec ses identifiants.
+- **`DeviceAuthenticator` n'est pas encore câblé dans
+  `public/index.php`**, parce qu'aucune route ne l'appelle avant IT-03.
+  Il est couvert par PHPStan et par vingt-deux cas de test ; IT-03
+  n'ajoutera que les routes.
+- **La couverture RBAC des six routes vit dans son propre fichier**,
+  `tests/Core/Contact/Controller/ContactSyncRbacTest.php`, contrairement à
+  IT-01 : il n'existait pas de test de frontière à étendre pour
+  `/account` ni pour `/config`, et deux planchers différents
+  (`admin` et `superadmin`) méritaient d'être affirmés côte à côte.
+
+**Divergences entre le chantier et le dépôt réel.**
+
+- **Aucune ici.** Les trois pièges qu'annonçait IT-02 — le secret jamais
+  récupérable, le refus de `SettingService`, le rôle re-résolu — décrivent
+  exactement ce que le dépôt permet, et le précédent du webhook GitHub
+  s'applique tel quel.
+
+**Reporté.**
+
+- Rien. Aucun problème réel n'a été constaté puis laissé de côté dans
+  cette itération.
+
+---
+
+## IT-03 — Le serveur CardDAV, en lecture seule
+
+La synchronisation existe. IT-02 avait tout le socle d'authentification
+et rien à ouvrir ; cette itération est ce que les identifiants ouvrent.
+
+**Livré.**
+
+- `Core\Contact\CardDav` : `AddressBookRepository` (qui est dans le
+  carnet, sans rien déchiffrer), `AddressBookService` (le carnet, ses
+  étiquettes et ses fiches), `AddressBookEntry`, `DavXml` (l'écriture),
+  `DavRequestParser` (la lecture, le seul endroit où du XML venu de
+  l'extérieur est analysé), `Controller\CardDavController` et
+  `Controller\CardDavProbeController`.
+- Le protocole en lecture seule : `OPTIONS` annonçant
+  `DAV: 1, 3, addressbook` ; `/.well-known/carddav` pour l'autodécouverte ;
+  `PROPFIND` résolvant `current-user-principal` puis
+  `addressbook-home-set` ; la collection avec son `getctag` ; un
+  `PROPFIND Depth: 1` donnant un `getetag` par fiche ; les `REPORT`
+  `addressbook-multiget` et `addressbook-query` ; `PUT` et `DELETE` en
+  403. XML construit à la main, **aucune dépendance nouvelle**.
+- Le carnet : les animateurs et le Staff d'U de l'année en cours, fiches
+  d'IT-01 en variante complète (photo, historique entier).
+- L'adresse à donner au client et la sonde d'hébergement sur « Appareils
+  synchronisés », avec `public/assets/js/carddav-probe.js`.
+- Les deux correctifs `.htaccess` : l'exception `/.well-known/` et le
+  passage de l'en-tête `Authorization`.
+- La documentation : `ARCHITECTURE.md` §8.118, `SECURITY.md` §4
+  (**huitième** exception) et §2, `specifications.md` §4.7 et la ligne
+  Mon compte, `rgpd_default.html` §2.14, `docs/help/appareils-synchronises.md`.
+- Les tests : 22 cas sur le contrôleur (dont le protocole de bout en bout
+  et les cinq refus indistinguables), 21 sur les deux planchers RBAC, 15
+  sur le carnet, 11 sur le parseur, 8 sur l'écriture XML, 5 épinglant les
+  deux correctifs `.htaccess` dans les deux dispositions d'installation,
+  8 cas Vitest sur la sonde.
+
+**Décisions prises en autonomie.**
+
+- **Le principal, le home set et la racine sont un seul chemin**
+  (`/carddav/`). Rien dans le protocole n'exige qu'ils soient distincts
+  et cette installation n'a qu'un carnet ; les fusionner fait résoudre la
+  découverte d'un client en deux allers-retours au lieu de quatre.
+- **`addressbook-query` répond avec la collection entière**, quel que
+  soit son filtre. La collection est l'équipe d'animation d'une unité, un
+  client qui interroge énumère plutôt qu'il ne cherche, et un filtre mal
+  évalué en silence cacherait des fiches qu'il croit avoir. Rendre plus
+  que demandé est le sens sûr ; c'est aussi ce que le `PROPFIND Depth: 1`
+  du même client aurait renvoyé.
+- **`PUT` et `DELETE` répondent 403 et non 405.** Un 405 dit « pas ici »
+  et invite à chercher ailleurs dans la collection ; un 403 avec
+  `need-privileges` dit « vous pouvez lire, pas écrire », ce que les
+  clients montrent à leur utilisateur comme un carnet en lecture seule.
+  La collection publie en outre un `current-user-privilege-set` réduit à
+  `read`, qui dit la même chose un aller-retour plus tôt.
+- **Classe DAV 2 volontairement absente.** Annoncer le verrouillage sur
+  un carnet où rien n'est modifiable inviterait des `LOCK` à refuser.
+- **Le carnet est strictement l'ensemble du trombinoscope** : fonctions
+  de rôle chef ou chef d'unité, rattachées à une section active et
+  visible. Une fonction sans section en est donc exclue, bien qu'on
+  puisse défendre de l'inclure — elle n'est pas au trombinoscope, elle
+  n'est pas ici. C'est la phrase de `SECURITY.md` §6 qui décide : elle
+  autorise cet export parce que ce qui sort est ce que tout membre
+  identifié voit déjà, et un ensemble seulement *voisin* la rendrait
+  fausse.
+- **Les étiquettes sont hachées.** Un `getetag` est recopié dans les
+  journaux et les proxys ; « le membre 412 a changé à 21:04 » est un fait
+  sur une personne que rien n'a besoin de publier pour faire son travail.
+- **La sonde est `role_min: admin`, pas `public`** — elle n'appartient
+  pas à l'exception §4. Elle ne lit rien et ne nomme personne, mais une
+  route publique de plus demanderait sa propre justification écrite pour
+  un bouton qui n'est offert qu'aux connectés.
+- **`site_url` est dérivé de la requête, pas du réglage `base_url`.**
+  Le lecteur regarde la page par l'adresse même dont son téléphone a
+  besoin ; un `base_url` jamais rempli aurait affiché une adresse vide
+  sur l'écran qui existe pour la donner.
+- **Le sujet d'aide a été scindé en deux.** « Appareils synchronisés »
+  documente la gestion des identifiants ; « Carnet d'adresses
+  synchronisé » documente le branchement du client, le sens de
+  circulation et la panne d'hébergement. La charte de l'aide plafonne un
+  sujet à quatre questions et `HelpInvariantsTest` le fait respecter ;
+  son message dit que passé ce seuil le sujet couvre plusieurs tâches et
+  doit être scindé, ce qui était exactement le cas. Les trois questions
+  d'IT-02 restent intactes.
+
+**Divergences constatées entre le chantier et le dépôt réel.**
+
+- **« Il y en aura deux » : il y en a huit.** Le chantier décrit
+  l'exception CSRF du webhook GitHub comme « l'unique exception
+  délibérée » de `SECURITY.md` §4 ; le fichier en documentait **sept**
+  avant cette itération (webhook, intake de statistiques, intake de
+  tickets, archive de ticket, sondes mail, extrait de triage,
+  désabonnement un-clic). Les routes CardDAV sont la **huitième**, et
+  c'est sous ce numéro qu'elle est écrite. Le fond de la consigne est
+  respecté : elle est écrite, avec son périmètre, et non laissée en
+  précédent.
+- **Le `.htaccess` racine interdisait `/.well-known/`.** Le piège
+  annoncé par le chantier (« la disposition arbre unique pose un
+  `.htaccess` à la racine qu'il faut vérifier ») était réel :
+  `RewriteRule (^|/)\. - [F,L]` répond 403 à tout chemin contenant un
+  point en tête de segment, l'autodécouverte CardDAV comprise — et le
+  répertoire de défi d'ACME avec elle. Corrigé par une condition
+  d'exception, pas par la suppression de la règle.
+- **`Core\Http\Request::getRawBody()` existait déjà**, comme IT-02
+  l'avait noté : rien à ajouter pour lire le corps XML, et aucune
+  superglobale touchée hors du contrôleur.
+- **Le routeur accepte bien n'importe quelle méthode**, comme annoncé.
+  En revanche `Router::matchPath()` n'échappe pas les caractères
+  spéciaux d'une expression régulière : le point littéral de
+  `/carddav/staff/{member_id}.vcf` y est un métacaractère, donc
+  `/carddav/staff/1Xvcf` atteint la même route. Sans conséquence ici —
+  la route est publique, en lecture seule, et répond la même chose —
+  mais c'est le défaut déjà déposé en **#409**, laissé à son ticket
+  plutôt qu'élargi dans cette PR : il touche les 260 routes du site.
+- **Les scripts de la matrice d'autorisation lisent `public/index.php`
+  textuellement.** Les trois routes de la sonde sont donc écrites une à
+  une plutôt que dans une boucle : `scripts/authz-support.php` refuse de
+  tourner s'il analyse moins d'appels `addRoute()` que le fichier n'en
+  contient, et une route construite depuis une variable serait une route
+  que la matrice ne rejoue jamais.
+
+**Reporté.**
+
+- **L'échappement des métacaractères dans `Router::matchPath()`** —
+  ticket **#409**, ouvert avant cette itération et toujours ouvert. Il
+  concerne toutes les routes du site, pas seulement les deux que ce
+  chantier ajoute.
+- **`MemberService` et `SectionService` préparent leur propre SQL et
+  déchiffrent hors d'un Repository** — ticket **#413**, ouvert en IT-01.
+  `AddressBookService` passe par `MemberService` comme tout le reste du
+  site ; le jour où #413 est corrigé, ce chemin en bénéficie sans
+  changer.
+- **Le `getctag` ne voit pas un changement qui ne déplace aucun
+  horodatage** — le nom de l'unité dans Paramètres, qui voyage dans le
+  `ORG` de chaque fiche, ou une fonction renommée sur Correspondances
+  Desk. Écrit dans `ARCHITECTURE.md` §8.118 plutôt que corrigé : ces
+  changements arrivent au client au prochain import Desk, qui déplace
+  `import_journal.imported_at` pour l'année et donc la révision de tout
+  le monde d'un coup. Un `getctag` qui ne se stabiliserait jamais
+  coûterait un re-téléchargement complet toutes les quelques minutes, à
+  tous les clients, pour toujours.

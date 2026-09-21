@@ -167,8 +167,18 @@ class TextPageService
         return $this->repository->findById($id) ?? $existing;
     }
 
+    /**
+     * @throws TextPageException when the page no longer exists
+     *
+     * The existence check is not ceremony. `UPDATE … WHERE id = ?` on a
+     * row that is not there succeeds silently, so without it the screen
+     * would answer « done » and the journal would record an activation
+     * for a page that never existed — a fabricated line in the very
+     * audit trail this feature adds.
+     */
     public function setActive(int $id, bool $active): void
     {
+        $this->assertExists($id);
         $this->repository->setActive($id, $active);
     }
 
@@ -185,15 +195,51 @@ class TextPageService
      */
     public function delete(int $id): void
     {
+        $this->assertExists($id);
         $this->repository->delete($id);
     }
 
     /**
+     * **Ranks are per section, so they are computed per section.**
+     *
+     * `sort_order` is only ever compared with the orders of pages in the
+     * same menu — `TextPageMenuProvider` orders within each `menu_id`,
+     * and `maxSortOrder()` is scoped to one. A caller handing this a list
+     * that spans several sections used to have its positions written as
+     * one global 0..n-1 run, which no reader ever reads that way. The
+     * order a section's pages appear in the submitted list is therefore
+     * the order they get, and a section absent from that list is left
+     * alone.
+     *
      * @param int[] $orderedIds
      */
     public function reorder(array $orderedIds): void
     {
-        $this->repository->reorder($orderedIds);
+        $rankPerMenu = [];
+        $positions = [];
+
+        foreach ($orderedIds as $id) {
+            $page = $this->repository->findById((int) $id);
+            if ($page === null) {
+                continue;
+            }
+
+            $rank = $rankPerMenu[$page->menuId] ?? 0;
+            $positions[$page->id] = $rank;
+            $rankPerMenu[$page->menuId] = $rank + 1;
+        }
+
+        $this->repository->reorder($positions);
+    }
+
+    /**
+     * @throws TextPageException
+     */
+    private function assertExists(int $id): void
+    {
+        if ($this->repository->findById($id) === null) {
+            throw new TextPageException("Cette page n'existe plus.");
+        }
     }
 
     /**
