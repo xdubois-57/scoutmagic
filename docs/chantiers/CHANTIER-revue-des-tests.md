@@ -608,3 +608,112 @@ réelle de la divergence entre les deux moteurs.
   n'exécute rien » affirmait qu'un court-circuit court-circuite. C'est très
   exactement ce que ce chantier cherche, écrit par lui ; il est supprimé
   plutôt que livré, et consigné ici pour que personne ne le réécrive.
+
+### Itération 3 — Les doublures qui remplacent le sujet — 2026-09-21
+
+**Périmètre parcouru** : les 308 fichiers qui montent une doublure, puis le
+recensement des classes doublées. `MailService` arrive en tête avec 107
+fichiers — deux fois la suivante — et c'est l'une des quatre que §3 nomme
+comme suspectes. De là, deux questions posées à la doublure la plus
+répandue du dépôt : sait-elle refuser, comme l'objet réel ? et lui
+demande-t-on ce qu'elle a reçu, ou seulement si on l'a appelée ?
+
+**Mutations tentées** :
+
+Sur `tests/Modules/News/Task/SendPendingTicketsHandlerTest`, avant et après
+le renforcement de cette PR :
+
+| Mutation | Avant | Après |
+|---|---|---|
+| `TicketMailService` poste chaque billet à une adresse fixe étrangère | 1 rouge sur 8 | **8 rouges** |
+| le `catch (MailException)` du gestionnaire resserré sur `SuppressedRecipientException` | VERT | **3 erreurs** |
+| l'événement journalisé `ticket_email_failed` renommé | VERT | **1 rouge** |
+| le journal d'échec nomme aussi l'adresse de la famille | — | **1 rouge** |
+| la réclamation `sent_email_claims` prise après l'envoi au lieu d'avant | 2 rouges | 3 rouges |
+
+Les deux « VERT » sont le cœur du sujet : la doublure ne pouvait pas lever,
+alors que `MailService::send()` est documentée `@throws MailException on
+failure`, si bien que la moitié du gestionnaire — journaliser l'échec et
+continuer le lot — n'était atteinte par aucun test. Le « 1 rouge sur 8 »
+est l'autre moitié : sept tests sur huit acceptaient que les billets
+partent chez un inconnu.
+
+Hors de ce fichier, la même mutation du destinataire, sur deux services
+qui ne sont pas corrigés ici :
+
+| Fichier muté | Tests | Verdict |
+|---|---|---|
+| `core/Member/MemberEmailService.php` | 46 | **VERT** |
+| `modules/registration/src/Service/RequestEmailService.php` | 10 | **VERT** |
+
+**Corrigé dans cette PR** :
+
+- `tests/Modules/News/Task/SendPendingTicketsHandlerTest` — la doublure
+  devient un transport qui garde ce qu'on lui confie et refuse ce que le
+  vrai refuse. Les huit tests existants lisent désormais les destinataires
+  au lieu de compter les appels ; trois tests s'ajoutent sur le chemin
+  d'échec : un billet refusé ne coûte pas les leurs aux autres, l'échec est
+  journalisé par identifiants seuls, et un billet refusé n'est pas renvoyé
+  au tour suivant. 8 tests → 11, 14 assertions → 21. Aucun fichier de
+  production touché.
+
+**Issues ouvertes** :
+
+- #439 — les doublures de `MailService` vérifient qu'un envoi a eu lieu,
+  presque jamais à qui, avec les trois mutations ci-dessus. Une centaine de
+  fichiers sur le cœur et une quinzaine de modules : hors des quatre
+  conditions de §0.1.
+
+**Vérifié et tenu** :
+
+- **La réclamation est prise avant le transport, et c'est testé.** La
+  mutation qui la déplace après l'envoi rougissait déjà avant cette PR.
+  Le commentaire du gestionnaire — « Before the transport, never after » —
+  n'était donc pas une intention non gardée.
+- **`SuppressedRecipientException` étend `MailException`.** Hypothèse
+  inverse formulée — un destinataire suspendu ferait tomber tout le lot,
+  puisque le gestionnaire ne rattrape que `MailException` — puis réfutée en
+  lisant la hiérarchie : la classe en hérite, le `catch` couvre les deux.
+  Rien à signaler.
+- **Les chemins d'échec ne sont pas tous morts.** Deux gardes sondés par
+  mutation — `core/Notification/NotificationMailer` et
+  `modules/registration/src/Task/SendReenrollmentEmailsHandler` — rougissent
+  quand on resserre leur `catch` : leurs tests font bien lever la doublure,
+  par `willReturnCallback` plutôt que `willThrowException`. Le défaut de
+  #439 porte sur le destinataire, pas sur l'absence générale de chemin
+  d'échec, et l'issue le dit ainsi.
+
+**Non vérifiable, et pourquoi** :
+
+- **Le compte exact des doublures « qui acceptent tout ».** Une sonde en
+  lot, mutant chaque site d'envoi puis relançant les tests miroirs, est le
+  seul moyen de le chiffrer ; elle écrit successivement dans une vingtaine
+  de fichiers de production et a été refusée par le garde-fou de la
+  session. Les trois mesures ci-dessus sont donc des sondages, pas un
+  recensement : #439 annonce trois fichiers mesurés sur 107 candidats, et
+  ne prétend pas davantage.
+- **Une mesure d'abord fausse, corrigée.** Le premier comptage cherchait
+  `willThrowException(new MailException…)` et concluait « 8 fichiers sur 107
+  laissent la doublure échouer ». La sonde de
+  `SendReenrollmentEmailsHandler` a rougi alors que son test n'était pas
+  dans les huit : il lève depuis un `willReturnCallback`, que le motif ne
+  voyait pas. Le compte réel est d'une vingtaine, et le constat de #439 a
+  été reformulé avant ouverture — le destinataire non lu, qui lui tient.
+
+**Incident de sonde, consigné** : la sonde en lot, avant d'être refusée, a
+laissé `modules/mass_mail/src/Task/SendBatchHandler.php` vide — 653 lignes.
+`open(f, 'w')` tronque le fichier avant que l'argument de `write()` soit
+évalué, l'expression a levé entre les deux, et le script est mort sans
+atteindre son `git checkout`. Rien ne l'a signalé : la suite venait de
+passer, et l'outillage de mutation ne vérifie que l'application de la
+mutation, pas sa réversion. C'est le `git diff --stat` d'avant commit qui
+l'a vu. Un outil qui écrit dans le code de production doit préparer son
+contenu avant d'ouvrir le fichier, et vérifier l'arbre propre en sortie.
+
+**Piège du conteneur, consigné** : `vendor/bin/phpstan analyse` a rapporté
+24 erreurs dans `modules/official_documents/src/Pdf/OverlayPdf.php` après
+la remise de la branche sur `main`. Aucune ne venait du changement :
+`composer.lock` avait gagné `setasign/tfpdf` entre-temps et le `vendor/` du
+conteneur datait d'avant. `composer install` les fait toutes disparaître.
+Un `phpstan` rouge sur un fichier que l'on n'a pas touché se vérifie
+d'abord contre `composer.lock`.
