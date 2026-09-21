@@ -330,7 +330,8 @@
         #}
         {% if not booking.status.isFinal or booking.status.value == 'closed' %}
             {% set billing_is_empty = not (billing.name or billing.address or billing.vat_number
-                or billing.enterprise_number or billing.email or billing.reference) %}
+                or billing.enterprise_number or billing.email or billing.reference
+                or billing.country) %}
             <div class="card mb-4{{ billing_is_empty ? ' border-primary' }}" id="facturation">
                 <h2 class="mb-0">
                     <button type="button"

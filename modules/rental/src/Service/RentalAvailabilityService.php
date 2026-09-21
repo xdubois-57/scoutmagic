@@ -259,17 +259,14 @@ class RentalAvailabilityService
      * Validates a requested range against both the constraints and real
      * availability.
      *
-     * **`$publicFormRules` is the same distinction `isRangeFree()` draws**,
-     * and the reason it exists here rather than as a second method:
-     * minimum notice, booking horizon and allowed arrival weekdays shape
-     * what a *visitor* may ask for. A manager proposing next week on an
-     * asset that asks visitors for two weeks' notice must not be refused by
-     * a rule that was never about them — they could confirm those very
-     * dates directly. What still binds everybody is physical: the asset
-     * cannot be in two places at once, and a hall that holds sixty holds
-     * sixty. Passing `false` drops the three editorial rules and keeps the
-     * rest, rather than duplicating the physical ones at a second call
-     * site where the two copies would drift.
+     * **`$arrivalIsNew`** says whether the stay is being asked to *begin*
+     * on this date, or still begins on the one it already began on. A
+     * request that only extends the departure is the second: re-asking
+     * "may it start then" answers about a day already behind the asker,
+     * which is how extending a stay under way came back « Cette date est
+     * déjà passée ». The length, the group, the quantity and the
+     * availability are asked either way — those are what such a request
+     * really changes.
      *
      * @return string[] User-facing French reasons; empty means valid.
      */
@@ -282,37 +279,9 @@ class RentalAvailabilityService
         \DateTimeImmutable $today,
         ?int $persons = null,
         ?string $excludeReference = null,
-        bool $publicFormRules = true
+        bool $arrivalIsNew = true
     ): array {
-        $constraints = $this->constraintsFor($asset->id);
-
-        if (!$publicFormRules) {
-            $constraints = new BookingConstraints(
-                minNights: $constraints->minNights,
-                maxNights: $constraints->maxNights,
-                minNoticeDays: 0,
-                maxHorizonDays: 0,
-                allowedArrivalWeekdays: [],
-                maxPersons: $constraints->maxPersons,
-                bufferNights: $constraints->bufferNights
-            );
-        }
-
-        // The asset's own capacity is the ceiling when no explicit booking
-        // maximum is configured: an operator who filled in "60 places" has
-        // already said what the hall holds, and making them repeat it in a
-        // second field is how the two end up disagreeing.
-        if ($constraints->maxPersons === null && $asset->capacity !== null) {
-            $constraints = new BookingConstraints(
-                minNights: $constraints->minNights,
-                maxNights: $constraints->maxNights,
-                minNoticeDays: $constraints->minNoticeDays,
-                maxHorizonDays: $constraints->maxHorizonDays,
-                allowedArrivalWeekdays: $constraints->allowedArrivalWeekdays,
-                maxPersons: $asset->capacity,
-                bufferNights: $constraints->bufferNights
-            );
-        }
+        $constraints = $this->constraintsWithCapacity($asset);
 
         return $this->calculator->validateRange(
             $arrival,
@@ -329,7 +298,8 @@ class RentalAvailabilityService
             $billingUnit,
             $constraints,
             $today,
-            $persons
+            $persons,
+            $arrivalIsNew
         );
     }
 

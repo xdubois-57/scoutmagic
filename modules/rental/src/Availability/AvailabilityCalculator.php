@@ -254,7 +254,8 @@ class AvailabilityCalculator
         BillingUnit $billingUnit,
         BookingConstraints $constraints,
         \DateTimeImmutable $today,
-        ?int $persons = null
+        ?int $persons = null,
+        bool $arrivalIsNew = true
     ): array {
         $errors = [];
         $start = $arrival->setTime(0, 0);
@@ -286,25 +287,35 @@ class AvailabilityCalculator
             );
         }
 
-        if ($start < $constraints->earliestArrival($today)) {
-            // Deliberately phrased as "too early to ask", never as
-            // "unavailable": the asset may well be free.
-            $errors[] = $constraints->minNoticeDays > 0
-                ? sprintf(
-                    'Une demande doit être introduite au moins %d jour%s à l\'avance.',
-                    $constraints->minNoticeDays,
-                    $constraints->minNoticeDays > 1 ? 's' : ''
-                )
-                : 'Cette date est déjà passée.';
-        }
+        // **The three rules about WHEN the stay starts**, skipped when the
+        // arrival is one the asker already holds. Extending a departure
+        // does not re-ask "may this stay begin then" — it began, possibly
+        // yesterday — and asking it anyway answers « Cette date est déjà
+        // passée » to somebody who only wanted two more nights. The other
+        // rules above and below still apply: the new period's length, the
+        // group, the quantity and the availability are all genuinely being
+        // changed.
+        if ($arrivalIsNew) {
+            if ($start < $constraints->earliestArrival($today)) {
+                // Deliberately phrased as "too early to ask", never as
+                // "unavailable": the asset may well be free.
+                $errors[] = $constraints->minNoticeDays > 0
+                    ? sprintf(
+                        'Une demande doit être introduite au moins %d jour%s à l\'avance.',
+                        $constraints->minNoticeDays,
+                        $constraints->minNoticeDays > 1 ? 's' : ''
+                    )
+                    : 'Cette date est déjà passée.';
+            }
 
-        $latest = $constraints->latestArrival($today);
-        if ($latest !== null && $start > $latest) {
-            $errors[] = 'Cette date est trop lointaine pour être réservée dès maintenant.';
-        }
+            $latest = $constraints->latestArrival($today);
+            if ($latest !== null && $start > $latest) {
+                $errors[] = 'Cette date est trop lointaine pour être réservée dès maintenant.';
+            }
 
-        if (!$constraints->allowsArrivalOn($start)) {
-            $errors[] = 'Une location ne peut pas commencer ce jour de la semaine.';
+            if (!$constraints->allowsArrivalOn($start)) {
+                $errors[] = 'Une location ne peut pas commencer ce jour de la semaine.';
+            }
         }
 
         $errors = array_merge($errors, $this->validatePersons($persons, $constraints));

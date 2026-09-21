@@ -600,7 +600,8 @@ class RentalOperationsServiceTest extends TestCase
             null,
             null,
             null,
-            'Nous préférons la semaine suivante.'
+            'Nous préférons la semaine suivante.',
+            null, $this->now()
         );
 
         $fresh = $this->reload($booking);
@@ -622,7 +623,8 @@ class RentalOperationsServiceTest extends TestCase
             null,
             25,
             null,
-            'Mon fils est allergique aux arachides.'
+            'Mon fils est allergique aux arachides.',
+            null, $this->now()
         );
 
         $raw = (string) json_encode(
@@ -655,7 +657,8 @@ class RentalOperationsServiceTest extends TestCase
             null,
             null,
             null,
-            null
+            null,
+            null, $this->now()
         );
     }
 
@@ -675,7 +678,8 @@ class RentalOperationsServiceTest extends TestCase
             null,
             null,
             null,
-            null
+            null,
+            null, $this->now()
         );
     }
 
@@ -698,7 +702,8 @@ class RentalOperationsServiceTest extends TestCase
             null,
             null,
             null,
-            null
+            null,
+            null, $this->now()
         );
     }
 
@@ -715,7 +720,8 @@ class RentalOperationsServiceTest extends TestCase
             null,
             null,
             null,
-            null
+            null,
+            null, $this->now()
         );
 
         $request = $this->changeRequestRepository->findById($id);
@@ -750,7 +756,8 @@ class RentalOperationsServiceTest extends TestCase
             null,
             null,
             null,
-            null
+            null,
+            null, $this->now()
         );
         $request = $this->changeRequestRepository->findById($id);
         $this->assertNotNull($request);
@@ -782,7 +789,8 @@ class RentalOperationsServiceTest extends TestCase
             null,
             null,
             'Ces dates nous arrangeraient mieux.',
-            5
+            5,
+            $this->now()
         );
         $request = $this->changeRequestRepository->findById($id);
         $this->assertNotNull($request);
@@ -824,7 +832,8 @@ class RentalOperationsServiceTest extends TestCase
                 null,
                 null,
                 null,
-                'Ces dates nous arrangeraient mieux.'
+                'Ces dates nous arrangeraient mieux.',
+                null, $this->now()
             );
             $this->fail('Asking for dates that are already taken must be refused.');
         } catch (RentalException $e) {
@@ -856,7 +865,8 @@ class RentalOperationsServiceTest extends TestCase
             null,
             null,
             null,
-            'Ces dates nous arrangeraient mieux.'
+            'Ces dates nous arrangeraient mieux.',
+            null, $this->now()
         );
 
         // Somebody else takes them in the meantime.
@@ -901,7 +911,8 @@ class RentalOperationsServiceTest extends TestCase
             null,
             null,
             null,
-            'Notre camp est annulé.'
+            'Notre camp est annulé.',
+            null, $this->now()
         );
         $request = $this->changeRequestRepository->findById($id);
         $this->assertNotNull($request);
@@ -931,7 +942,8 @@ class RentalOperationsServiceTest extends TestCase
             null,
             null,
             null,
-            null
+            null,
+            null, $this->now()
         );
         $request = $this->changeRequestRepository->findById($id);
         $this->assertNotNull($request);
@@ -959,7 +971,8 @@ class RentalOperationsServiceTest extends TestCase
             null,
             30,
             null,
-            null
+            null,
+            null, $this->now()
         );
         $request = $this->changeRequestRepository->findById($id);
         $this->assertNotNull($request);
@@ -991,7 +1004,8 @@ class RentalOperationsServiceTest extends TestCase
             null,
             null,
             null,
-            null
+            null,
+            null, $this->now()
         );
     }
 
@@ -1011,7 +1025,8 @@ class RentalOperationsServiceTest extends TestCase
             null,
             null,
             null,
-            null
+            null,
+            null, $this->now()
         );
         $request = $this->changeRequestRepository->findById($id);
         $this->assertNotNull($request);
@@ -1055,7 +1070,8 @@ class RentalOperationsServiceTest extends TestCase
             null,
             30,
             null,
-            null
+            null,
+            null, $this->now()
         );
         $request = $this->changeRequestRepository->findById($id);
         $this->assertNotNull($request);
@@ -1088,7 +1104,8 @@ class RentalOperationsServiceTest extends TestCase
             null,
             null,
             null,
-            'Notre camp est annulé.'
+            'Notre camp est annulé.',
+            null, $this->now()
         );
         $request = $this->changeRequestRepository->findById($id);
         $this->assertNotNull($request);
@@ -1114,11 +1131,13 @@ class RentalOperationsServiceTest extends TestCase
         $booking = $this->createBooking();
         $first = $this->service->requestChange(
             $booking, $this->asset(), ChangeRequestOrigin::MANAGER, ChangeRequestKind::PERSONS,
-            null, null, null, 30, null, null
+            null, null, null, 30, null, null,
+            null, $this->now()
         );
         $second = $this->service->requestChange(
             $booking, $this->asset(), ChangeRequestOrigin::RENTER, ChangeRequestKind::DATES,
-            '2027-07-08', '2027-07-11', null, null, null, null
+            '2027-07-08', '2027-07-11', null, null, null, null,
+            null, $this->now()
         );
 
         $this->service->changeStatus($booking, BookingStatus::CANCELLED, 1, $this->now());
@@ -1133,7 +1152,8 @@ class RentalOperationsServiceTest extends TestCase
         $booking = $this->createBooking();
         $id = $this->service->requestChange(
             $booking, $this->asset(), ChangeRequestOrigin::RENTER, ChangeRequestKind::CANCELLATION,
-            null, null, null, null, null, 'Notre camp est annulé.'
+            null, null, null, null, null, 'Notre camp est annulé.',
+            null, $this->now()
         );
         $request = $this->changeRequestRepository->findById($id);
         $this->assertNotNull($request);
@@ -1154,14 +1174,16 @@ class RentalOperationsServiceTest extends TestCase
         for ($i = 0; $i < RentalOperationsService::MAX_PENDING_RENTER_REQUESTS; $i++) {
             $this->service->requestChange(
                 $booking, $this->asset(), ChangeRequestOrigin::RENTER, ChangeRequestKind::PERSONS,
-                null, null, null, 20 + $i, null, null
+                null, null, null, 20 + $i, null, null,
+                null, $this->now()
             );
         }
 
         try {
             $this->service->requestChange(
                 $booking, $this->asset(), ChangeRequestOrigin::RENTER, ChangeRequestKind::PERSONS,
-                null, null, null, 40, null, null
+                null, null, null, 40, null, null,
+                null, $this->now()
             );
             $this->fail('The fourth pending request must be refused.');
         } catch (RentalException $e) {
@@ -1181,7 +1203,8 @@ class RentalOperationsServiceTest extends TestCase
         for ($i = 0; $i < RentalOperationsService::MAX_PENDING_RENTER_REQUESTS; $i++) {
             $ids[] = $this->service->requestChange(
                 $booking, $this->asset(), ChangeRequestOrigin::RENTER, ChangeRequestKind::PERSONS,
-                null, null, null, 20 + $i, null, null
+                null, null, null, 20 + $i, null, null,
+                null, $this->now()
             );
         }
 
@@ -1191,7 +1214,8 @@ class RentalOperationsServiceTest extends TestCase
 
         $this->service->requestChange(
             $booking, $this->asset(), ChangeRequestOrigin::RENTER, ChangeRequestKind::PERSONS,
-            null, null, null, 40, null, null
+            null, null, null, 40, null, null,
+            null, $this->now()
         );
 
         $this->assertCount(
@@ -1208,7 +1232,8 @@ class RentalOperationsServiceTest extends TestCase
         for ($i = 0; $i < RentalOperationsService::MAX_PENDING_RENTER_REQUESTS + 2; $i++) {
             $this->service->requestChange(
                 $booking, $this->asset(), ChangeRequestOrigin::MANAGER, ChangeRequestKind::PERSONS,
-                null, null, null, 20 + $i, null, null, 1
+                null, null, null, 20 + $i, null, null, 1,
+                $this->now()
             );
         }
 
@@ -1246,7 +1271,8 @@ class RentalOperationsServiceTest extends TestCase
             null,
             800,
             null,
-            null
+            null,
+            null, $this->now()
         );
     }
 
@@ -1264,7 +1290,8 @@ class RentalOperationsServiceTest extends TestCase
             null,
             45,
             null,
-            null
+            null,
+            null, $this->now()
         );
 
         $this->assertCount(1, $this->changeRequestRepository->findForBooking($booking->id));
@@ -1324,7 +1351,111 @@ class RentalOperationsServiceTest extends TestCase
             null,
             22,
             null,
-            null
+            null,
+            null, $this->now()
+        );
+
+        $this->assertCount(1, $this->changeRequestRepository->findForBooking($booking->id));
+    }
+
+    /**
+     * **Extending a stay under way is not asking it to begin again.**
+     *
+     * `RentalRequestController::requestChange()` sends both dates whenever
+     * either moves — a request carrying only a new arrival would be
+     * accepted against the old departure — so "is there an arrival" never
+     * meant "is it a new one". Validating the whole range anyway asked
+     * whether the stay may *start* on a day that is already behind the
+     * renter, and answered « Cette date est déjà passée » to somebody who
+     * wanted four more nights.
+     */
+    public function testExtendingTheDepartureOfAStayUnderWayIsAccepted(): void
+    {
+        $booking = $this->createBooking(arrival: '2027-07-01', departure: '2027-07-04');
+
+        $this->service->requestChange(
+            $booking,
+            $this->asset(),
+            ChangeRequestOrigin::RENTER,
+            ChangeRequestKind::DATES,
+            // Unchanged, and travelling with the new departure.
+            '2027-07-01',
+            '2027-07-08',
+            null,
+            null,
+            null,
+            null,
+            null,
+            new \DateTimeImmutable('2027-07-06 09:00:00')
+        );
+
+        $this->assertCount(1, $this->changeRequestRepository->findForBooking($booking->id));
+    }
+
+    /**
+     * And moving the arrival IS asking it to begin again, so the rule is
+     * still there — which is what makes the exemption above an exemption
+     * rather than the check going missing.
+     */
+    public function testMovingTheArrivalIntoThePastIsStillRefused(): void
+    {
+        $booking = $this->createBooking(arrival: '2027-07-01', departure: '2027-07-04');
+
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessageMatches('/déjà passée/');
+
+        $this->service->requestChange(
+            $booking,
+            $this->asset(),
+            ChangeRequestOrigin::RENTER,
+            ChangeRequestKind::DATES,
+            '2027-07-02',
+            '2027-07-08',
+            null,
+            null,
+            null,
+            null,
+            null,
+            new \DateTimeImmutable('2027-07-06 09:00:00')
+        );
+    }
+
+    /**
+     * **Two requests for the same week are what a manager is there to
+     * arbitrate**, and `isRangeFree()` says so in as many words — which is
+     * why `acceptChange()` asks it with `firmOnly: true`. Validating a
+     * manager's proposal at request time counted the competing renter's
+     * soft hold as occupancy and refused the very arbitration the module
+     * exists to allow.
+     */
+    public function testAManagersProposalIsNotBlockedByACompetingRequestsHold(): void
+    {
+        // A pending request holds the dates against the public — that is
+        // what `RentalBooking::occupiesTheAsset()` needs an ACTIVE hold to
+        // say, so setting one is what makes this the competing request the
+        // rule is about rather than an inert row.
+        $competitor = $this->createBooking(reference: 'LOC-2027-0002', arrival: '2027-07-10', departure: '2027-07-14');
+        $this->bookingRepository->setHold(
+            $competitor->id,
+            $this->now()->modify('+7 days'),
+            HoldOrigin::AUTOMATIC
+        );
+
+        $booking = $this->createBooking();
+
+        $this->service->requestChange(
+            $booking,
+            $this->asset(),
+            ChangeRequestOrigin::MANAGER,
+            ChangeRequestKind::DATES,
+            '2027-07-10',
+            '2027-07-14',
+            null,
+            null,
+            null,
+            null,
+            null,
+            $this->now()
         );
 
         $this->assertCount(1, $this->changeRequestRepository->findForBooking($booking->id));
@@ -1411,7 +1542,8 @@ class RentalOperationsServiceTest extends TestCase
             null,
             800,
             null,
-            null
+            null,
+            null, $this->now()
         );
     }
 
@@ -1430,7 +1562,8 @@ class RentalOperationsServiceTest extends TestCase
             null,
             null,
             null,
-            null
+            null,
+            null, $this->now()
         );
     }
 

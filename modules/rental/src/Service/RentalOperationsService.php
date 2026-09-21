@@ -554,32 +554,32 @@ class RentalOperationsService
         // acceptance-time check finally spoke. The wrong person found out,
         // at the wrong moment.
         //
-        // The acceptance-time check STAYS. Between a request and an answer
-        // the dates can be taken by somebody else, and only the check
-        // inside the lock sees that. Two checks, two different questions:
-        // "is this askable at all" here, "is it still free" there.
+        // **That is who this check is for: the renter.** A manager already
+        // sees the calendar, and `acceptChange()` guards the write with
+        // `firmOnly: true` — deliberately, because a competing request's
+        // soft hold is exactly what a manager is there to arbitrate
+        // (`isRangeFree()` says so). Validating their proposal here would
+        // refuse it over another renter's unconfirmed request, and over the
+        // notice period and arrival weekdays that shape what a *visitor*
+        // may ask. None of those were ever about them.
         //
-        // **Two things this must NOT do**, and both were got wrong first:
+        // The acceptance-time check STAYS either way. Between a request and
+        // an answer the dates can be taken by somebody else, and only the
+        // check inside the lock sees that.
         //
-        // - It must not check nothing at all when only the head count
-        //   changes. Capacity lives inside `validateRange()`, so gating the
-        //   call on "do the dates move" let eighty people into a hall that
-        //   holds sixty — the very case named above — as long as the dates
-        //   were left alone. The booking's own period is used instead, so
-        //   the question asked is "does this group fit", which is the one
-        //   being changed.
-        // - It must not hold a MANAGER to the public form's rules. Minimum
-        //   notice, booking horizon and allowed arrival weekdays shape what
-        //   a visitor may ask for; a manager proposing next week on an
-        //   asset that asks visitors for a fortnight could confirm those
-        //   dates directly, so refusing their proposal would be refusing a
-        //   rule that was never about them (`isRangeFree()` says so in as
-        //   many words). `$publicFormRules` drops exactly those three and
-        //   keeps the physical ones.
-        $movesDates = $arrivalDate !== null && $departureDate !== null;
+        // What binds everybody is physical: a hall that holds sixty holds
+        // sixty. So capacity is asked of both, and asked on its own, since
+        // a request that changes only the head count changes nothing about
+        // the period — re-validating the range would answer « Cette date
+        // est déjà passée » about a stay already under way.
+        $errors = $persons !== null
+            ? $this->availabilityService->validatePersons($asset, $persons)
+            : [];
 
-        $errors = $movesDates
-            ? $this->availabilityService->validateRange(
+        if ($errors === [] && $origin === ChangeRequestOrigin::RENTER
+            && $arrivalDate !== null && $departureDate !== null
+        ) {
+            $errors = $this->availabilityService->validateRange(
                 $asset,
                 $this->pricingService->loadSettings($asset->id)->billingUnit,
                 DateInput::requireFromStorage($arrivalDate, 'the requested arrival date'),
@@ -591,16 +591,14 @@ class RentalOperationsService
                 // without this, asking to shift by one night collides with
                 // the nights it already holds.
                 $booking->reference,
-                $origin === ChangeRequestOrigin::RENTER
-            )
-            // **Only the question being asked.** Re-running the whole range
-            // validation on dates nobody touched answers about the dates
-            // too, and a stay already under way has an arrival in the past
-            // — so a head-count change on it came back « Cette date est
-            // déjà passée », which is true and beside the point. The
-            // occupancy cannot have moved either, the period being the one
-            // the booking already holds.
-            : $this->availabilityService->validatePersons($asset, $persons);
+                // Both dates travel together whenever either moves
+                // (`RentalRequestController::requestChange()`), so "is
+                // there an arrival" does not mean "is it a new one".
+                // Extending a departure must not re-ask whether the stay
+                // may begin on the day it began.
+                $arrivalDate !== $booking->arrivalDate
+            );
+        }
 
         if ($errors !== []) {
             throw new RentalException(implode(' ', $errors));
