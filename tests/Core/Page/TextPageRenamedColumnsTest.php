@@ -28,23 +28,53 @@ use PHPUnit\Framework\TestCase;
  */
 final class TextPageRenamedColumnsTest extends TestCase
 {
-    /** @return array<string, array{string, string}> */
+    /**
+     * Each renamed column with the MENU it belonged to.
+     *
+     * **The menu matters, and leaving it out made this test weaker than
+     * it read.** « Gestion » was a column of Espace animateurs,
+     * « Contenu du site » and « Exploitation » of Espace chefs d'U and
+     * Configuration. Hydrating all four under Espace membres exercised
+     * the map, but never the thing the map exists for: a real row,
+     * carrying the menu it was actually filed in, coming back placeable.
+     * A successor that belonged to the wrong menu would have passed.
+     *
+     * @return array<string, array{string, string, string}>
+     */
     public static function renamedColumns(): array
     {
         return [
-            '« Pages » became « L\'unité »' => ['pages', 'unite'],
-            '« Gestion » became « Argent »' => ['gestion', 'argent'],
-            '« Contenu du site » became « Communication »' => ['contenu', 'communication'],
-            '« Exploitation » became « État du site »' => ['exploitation', 'etat_du_site'],
+            '« Pages » became « L\'unité »' => [MenuBuilder::MENU_ESPACE_ANIMES, 'pages', 'unite'],
+            '« Gestion » became « Argent »' => [MenuBuilder::MENU_ESPACE_CHEFS, 'gestion', 'argent'],
+            '« Contenu du site » became « Communication »' => [MenuBuilder::MENU_ESPACE_ADMIN, 'contenu', 'communication'],
+            '« Exploitation » became « État du site »' => [MenuBuilder::MENU_CONFIGURATION, 'exploitation', 'etat_du_site'],
         ];
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('renamedColumns')]
-    public function testARowFiledUnderTheOldColumnIsReadAsTheNewOne(string $stored, string $expected): void
+    public function testARowFiledUnderTheOldColumnIsReadAsTheNewOne(string $menuId, string $stored, string $expected): void
     {
-        $page = TextPage::fromRow(self::row($stored));
+        $page = TextPage::fromRow(self::row($stored, $menuId));
 
         $this->assertSame($expected, $page->menuGroup);
+    }
+
+    /**
+     * And the successor belongs to the menu the row was filed in, so the
+     * page comes back PLACEABLE rather than merely renamed. This is the
+     * assertion that makes the map worth having: a successor from
+     * another menu would be dropped by
+     * TextPageMenuProvider::placementIsStillValid(), silently, which is
+     * the exact failure the map exists to prevent.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('renamedColumns')]
+    public function testTheSuccessorIsAColumnOfTheMenuTheRowWasFiledIn(string $menuId, string $stored, string $expected): void
+    {
+        $this->assertContains(
+            $expected,
+            MenuBuilder::groupIdsFor($menuId),
+            "« {$stored} » is mapped onto « {$expected} », which menu {$menuId} does not declare."
+        );
     }
 
     /**
@@ -52,7 +82,7 @@ final class TextPageRenamedColumnsTest extends TestCase
      * id nobody declares would move the silence rather than end it.
      */
     #[\PHPUnit\Framework\Attributes\DataProvider('renamedColumns')]
-    public function testEverySuccessorIsAColumnSomeMenuActuallyDeclares(string $stored, string $expected): void
+    public function testEverySuccessorIsAColumnSomeMenuActuallyDeclares(string $menuId, string $stored, string $expected): void
     {
         $declared = [];
         foreach (MenuBuilder::MENU_GROUPS as $groups) {
@@ -79,14 +109,14 @@ final class TextPageRenamedColumnsTest extends TestCase
     }
 
     /** @return array<string, mixed> */
-    private static function row(?string $menuGroup): array
+    private static function row(?string $menuGroup, string $menuId = MenuBuilder::MENU_ESPACE_ANIMES): array
     {
         return [
             'id' => 1,
             'slug' => 'notre-asbl',
             'menu_label' => 'ASBL',
             'title' => 'Notre ASBL',
-            'menu_id' => MenuBuilder::MENU_ESPACE_ANIMES,
+            'menu_id' => $menuId,
             'menu_group' => $menuGroup,
             'sort_order' => 0,
             'is_active' => 1,

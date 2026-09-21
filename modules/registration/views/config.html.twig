@@ -4,7 +4,7 @@
     <div class="page-wide">
         {% include 'partials/page_header.html.twig' with { title: "Formulaire d'inscription" } only %}
         <p class="text-body-secondary small mb-4">
-            Les autres réglages (adresse d'alerte, textes des emails, rétention...) se trouvent sur la page <a href="/config/settings">Réglages</a>.
+            Les autres réglages (adresse d'alerte, textes des emails, rétention...) se trouvent sur la page <a href="/config/settings">Paramètres</a>.
         </p>
 
         {# Trois encarts sont repliés par défaut : le pilotage du
@@ -48,7 +48,7 @@
                 <p class="text-body-secondary small mb-3">
                     Jour et mois (format MM-JJ, sans année) — le formulaire s'ouvre et se ferme automatiquement à ces dates chaque année scoute, sans devoir reconfigurer. Laisser un champ vide pour piloter cette bascule uniquement à la main.
                     Si la tâche planifiée n'a pas tourné le jour même, la bascule peut encore se déclencher dans les jours qui suivent :
-                    cette fenêtre de rattrapage se règle dans <a href="/config/settings">Configuration &gt; Réglages</a>.
+                    cette fenêtre de rattrapage se règle dans <a href="/config/settings">Configuration &gt; Paramètres</a>.
                 </p>
                 <form method="post" action="/config/inscriptions/schedule" class="row g-2 align-items-end">
                     {{ csrf_field()|raw }}

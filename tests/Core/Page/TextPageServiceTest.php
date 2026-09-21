@@ -186,6 +186,40 @@ class TextPageServiceTest extends TestCase
         }
     }
 
+    /**
+     * **Which column, not merely a valid one.**
+     *
+     * The test above cannot fail while the preselection is wrong, only
+     * while it is invalid — and the difference is exactly what went
+     * unnoticed when the columns were renamed: the preference list
+     * matched nothing, the fallback returned the menu's first column,
+     * and a page about the unit was preselected into « Mes membres ».
+     * Green, and pointing at the wrong place.
+     *
+     * So the intended column is named here, per menu. Changing one is a
+     * deliberate edit in two files, which is the point.
+     */
+    public function testEachMenuPreselectsTheColumnItsPagesBelongIn(): void
+    {
+        $expected = [
+            MenuBuilder::MENU_NOTRE_UNITE => null,
+            MenuBuilder::MENU_ESPACE_ANIMES => 'unite',
+            MenuBuilder::MENU_ESPACE_CHEFS => 'communication',
+            MenuBuilder::MENU_ESPACE_ADMIN => 'communication',
+            MenuBuilder::MENU_CONFIGURATION => 'site',
+        ];
+
+        $this->assertSame(
+            MenuBuilder::menuIds(),
+            array_keys($expected),
+            'A menu was added or removed: name the column its free-text pages belong in.'
+        );
+
+        foreach ($expected as $menuId => $column) {
+            $this->assertSame($column, $this->service->defaultGroupFor($menuId), "menu {$menuId}");
+        }
+    }
+
     public function testBothNamesAreRequired(): void
     {
         try {
