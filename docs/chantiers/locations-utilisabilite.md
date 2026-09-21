@@ -772,6 +772,17 @@ bien dire le jour même.
   rend chaque rappel au défaut de l'unité — ce que fait une installation qui
   n'a jamais ouvert la section — et `saveReminders()` refuse en français
   plutôt que d'écrire nulle part.
+- **Chaque clé de réglage est écrite en entier, pas composée.**
+  `settingKey()` rendait `'reminder_' . $this->value . '_days'`, ce qui
+  attache le nom d'un réglage **enregistré** à la valeur de l'énumération :
+  renommer un cas renomme silencieusement la ligne qu'une unité a déjà
+  sauvegardée, et tous les biens retombent sur la valeur livrée sans que
+  rien ne dise pourquoi. Et une clé composée n'apparaît nulle part dans le
+  source, donc `DeclaredSettingsAreReadTest` — qui cherche chaque clé
+  déclarée dans le module — ne peut pas distinguer un réglage lu d'un
+  réglage décoratif. Il a raison d'insister : c'est la panne qu'on ne voit
+  pas depuis la page de configuration. Les douze clés sont donc littérales,
+  et un test tient les deux listes ensemble, dans les deux sens.
 
 **Divergences avec le document de chantier.**
 
@@ -782,7 +793,10 @@ bien dire le jour même.
   § Schema a retiré cette règle : le schéma d'un module est appliqué sans
   elle. `module.json` passe tout de même en 1.21.0, parce que le module
   gagne douze réglages, une route et un écran — ce qui est, lui, un
-  changement visible.
+  changement visible. Le numéro est **1.23.0** : 1.22.0 appartient à IT-03,
+  qui a fusionné d'abord, et deux branches d'un même chantier réclamant un
+  seul numéro, c'est l'une des deux qui devient un non-changement aux yeux
+  de la comparaison de versions.
 - **`rental.new_request` était une notification déclarée sans personne pour
   l'émettre.** Retirer `NEW_REQUEST` de l'énumération la laissait orpheline
   dans `module.json` ; elle est retirée aussi.

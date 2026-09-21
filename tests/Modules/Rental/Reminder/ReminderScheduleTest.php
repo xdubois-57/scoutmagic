@@ -160,4 +160,45 @@ class ReminderScheduleTest extends TestCase
         $this->assertSame($keys, array_unique($keys));
         $this->assertSame('reminder_unanswered_request_days', ReminderKind::UNANSWERED_REQUEST->settingKey());
     }
+
+    /**
+     * **And the manifest declares exactly those keys, no more and no less.**
+     *
+     * `settingKey()` spells each name out instead of composing it from the
+     * case, which is what makes a renamed case a visible change rather than
+     * a silently orphaned row — but spelling it out is also what makes the
+     * two lists able to drift apart. A key the enum reads and the manifest
+     * never declares is a setting no unit can set; a key the manifest
+     * declares and no enum case claims is a field that saves and changes
+     * nothing, which is the failure `DeclaredSettingsAreReadTest` was
+     * written for. Both directions are asserted, because only one of them
+     * is visible from the configuration page.
+     */
+    public function testTheManifestDeclaresEveryReminderSettingAndNoOthers(): void
+    {
+        $manifest = json_decode(
+            (string) file_get_contents(dirname(__DIR__, 4) . '/modules/rental/module.json'),
+            true
+        );
+        $this->assertIsArray($manifest);
+
+        // This manifest carries `settings` as a list of objects, each with
+        // its own `key` — not as a map keyed by setting name. Both shapes
+        // exist in the tree.
+        $declared = array_values(array_filter(
+            array_map(
+                static fn (array $setting): string => (string) $setting['key'],
+                $manifest['settings'] ?? []
+            ),
+            static fn (string $key): bool => str_starts_with($key, 'reminder_')
+        ));
+        $fromEnum = array_map(
+            static fn (ReminderKind $kind): string => $kind->settingKey(),
+            ReminderKind::cases()
+        );
+
+        sort($declared);
+        sort($fromEnum);
+        $this->assertSame($fromEnum, $declared);
+    }
 }

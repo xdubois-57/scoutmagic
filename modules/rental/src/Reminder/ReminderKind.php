@@ -138,10 +138,34 @@ enum ReminderKind: string
     /**
      * The module setting that carries the unit-wide default, which an asset
      * may then override.
+     *
+     * **Spelled out rather than composed from `$this->value`.** Two reasons,
+     * and the second is the one that bites. A composed key ties the name of
+     * a *stored* setting to the enum's backing value, so renaming a case
+     * silently renames the row a unit already saved: the manifest declares
+     * the old key, `settings` still holds it, and every asset falls back to
+     * `defaultDays()` with nothing anywhere saying why. And a composed key
+     * appears nowhere in the source, so `DeclaredSettingsAreReadTest` — a
+     * grep over the module for each declared key — cannot tell a setting
+     * that is read from one that is decorative. It is right to insist: the
+     * failure it looks for is invisible from the configuration page.
      */
     public function settingKey(): string
     {
-        return 'reminder_' . $this->value . '_days';
+        return match ($this) {
+            self::UNANSWERED_REQUEST => 'reminder_unanswered_request_days',
+            self::HOLD_EXPIRING => 'reminder_hold_expiring_days',
+            self::DEPOSIT_MISSING => 'reminder_deposit_missing_days',
+            self::BALANCE_MISSING => 'reminder_balance_missing_days',
+            self::CONTRACT_MISSING => 'reminder_contract_missing_days',
+            self::SECURITY_DEPOSIT_MISSING => 'reminder_security_deposit_missing_days',
+            self::ARRIVAL_INVENTORY => 'reminder_arrival_inventory_days',
+            self::DEPARTURE_INVENTORY => 'reminder_departure_inventory_days',
+            self::SETTLEMENT_DUE => 'reminder_settlement_due_days',
+            self::SECURITY_DEPOSIT_TO_RETURN => 'reminder_security_deposit_to_return_days',
+            self::COMPLIANCE_EXPIRING => 'reminder_compliance_expiring_days',
+            self::PRACTICAL_INFO => 'reminder_practical_info_days',
+        };
     }
 
     /**
