@@ -373,6 +373,40 @@ et que c'est la raison d'un effet de bord assumé sur la colonne
 réordonnancement des modules, en ne gardant que ce qui parlait de ce
 mécanisme-là. La mise en garde, elle, n'avait pas cessé d'être vraie.
 
+### Deux docblocks contradictoires — sixième tour
+
+Le pied de l'ancien docblock de
+`testDynamicEntriesLeadAndEverythingElseSortsOnOneSharedScale()` était
+resté empilé au-dessus de son remplaçant. Il énonce la règle que cette
+itération supprime — « le groupe est vérifié avant l'ordre, donc cela ne
+peut plus arriver, si bas que soit le `menu_order` d'un module » — et le
+bloc suivant dit l'inverse, pour le même test. L'assertion tranche :
+`['Baloo', 'Kaa', 'Trombinoscope', 'Galerie', 'Notifications']`, les deux
+pages de module devant la page du cœur.
+
+Ce que ce tour ajoute aux cinq autres : **une contradiction entre deux
+commentaires ne fait échouer aucune suite.** Un lecteur qui s'arrête au
+premier bloc repart avec la règle inverse de celle que le code applique,
+et le vert ne dit rien. C'est le pendant, côté documentation, de ce
+qu'était l'empreinte générée avec le code d'après côté tests.
+
+### Bilan des six tours de relecture
+
+| Tour | Défaut | Où il se trouvait |
+|---|---|---|
+| 1 | Instantané aveugle aux entrées des `MenuEntryProvider` | dans la preuve |
+| 2 | Quatre docblocks et quatre commentaires d'ordre périmés | dans la documentation du code |
+| 3 | Empreinte « avant » générée avec le code d'après | dans la preuve |
+| 4 | `docs/help/modules.md` documentait encore le glisser-déposer | dans la documentation utilisateur |
+| 5 | Numérotation par colonne : liste mobile rebattue | dans la preuve |
+| 6 | Deux docblocks contradictoires sur le même test | dans la documentation du code |
+
+**Trois sur six portaient sur ce qui devait prouver le reste, et trois
+sur ce qui devait l'expliquer. Aucun sur le code livré.** Un test qui se
+compare à lui-même est plus dangereux qu'un test absent, parce qu'il
+affiche du vert ; un commentaire qui contredit son code est plus
+dangereux qu'un commentaire absent, pour la même raison.
+
 ### Reporté
 
 Rien. IT-02 et IT-03 sont le périmètre annoncé, pas un report.
