@@ -475,7 +475,17 @@ class RentalRequestController extends AbstractController
             // against the old departure.
             $kind->affectsAvailability() ? ($arrival ?? $booking->arrivalDate) : null,
             $kind->affectsAvailability() ? ($departure ?? $booking->departureDate) : null,
-            $persons,
+            // **Gated the same way, and for a sharper reason.** The form
+            // pre-fills the head count with the booking's own, so a
+            // dates-only request carries it silently — and `acceptChange()`
+            // writes `proposedPersons ?? current` back through `setStay()`.
+            // A request made before a head-count change was accepted would
+            // therefore revert it, weeks later, with nothing on the manager's
+            // screen to warn them: `summary()` renders a DATES request as
+            // dates alone. It also put every dates-only request through the
+            // capacity check, so a booking already over the asset's capacity
+            // could no longer move its dates at all.
+            $kind->changesPersons() ? $persons : null,
             $message,
             $params
         );
@@ -517,6 +527,26 @@ class RentalRequestController extends AbstractController
 
         if ($booking === null) {
             return new Response('Not Found', 404);
+        }
+
+        // **Nothing is invoiced for a letting that never happened.** The
+        // page hides this block on a refused, cancelled or expired booking,
+        // and a hidden form is not a rule: the token reaches this route
+        // whatever the page rendered.
+        //
+        // `isAbandoned()` and not `isFinal()`, deliberately — a CLOSED
+        // booking is final and is exactly the one being invoiced, which is
+        // why the template shows the block there too. And the guard sits
+        // here rather than in the service because it is about who is
+        // writing: a manager keeps the right to correct the coordinates on
+        // any file, including one that went nowhere.
+        if ($booking->status->isAbandoned()) {
+            FlashMessage::set(
+                'error',
+                'Cette réservation n\'a pas eu lieu : ses coordonnées de facturation ne se modifient plus.'
+            );
+
+            return $this->backToTracking($params);
         }
 
         try {

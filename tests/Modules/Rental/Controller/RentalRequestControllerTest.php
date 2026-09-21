@@ -26,6 +26,7 @@ use Core\View\EditableContentService;
 use Core\View\TwigFactory;
 use Modules\Rental\Availability\AvailabilityCalculator;
 use Modules\Rental\Availability\BookingConstraints;
+use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\ChangeRequestKind;
 use Modules\Rental\Controller\RentalRequestController;
 use Modules\Rental\Pricing\PriceLine;
@@ -1311,6 +1312,33 @@ class RentalRequestControllerTest extends TestCase
         );
     }
 
+    /**
+     * **And it carries no head count at all.**
+     *
+     * The form pre-fills the participants box with the booking's own
+     * figure, so a dates-only request submits it whether or not the renter
+     * touched it. Stored as `proposedPersons`, it comes back out of
+     * `acceptChange()` through `proposedPersons ?? current` and is written
+     * by `setStay()` — so a request made before a head-count change was
+     * accepted would revert it, weeks later, with nothing to warn the
+     * manager: `summary()` renders a DATES request as dates alone.
+     */
+    public function testADatesOnlyRequestCarriesNoHeadCount(): void
+    {
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+
+        $this->postToTracking('requestChange', $bookingId, $token, [
+            'arrival' => $this->arrival(60),
+            'departure' => $this->departure(63),
+            // Exactly what the pre-filled box posts back.
+            'persons' => (string) $this->bookingRepository->findById($bookingId)?->estimatedPersons,
+            'message' => 'Nous préférons la semaine suivante.',
+        ]);
+
+        $this->assertNull($this->changeRequestRepository->findForBooking($bookingId)[0]->proposedPersons);
+    }
+
     public function testChangingOnlyTheHeadCountIsAParticipantsRequest(): void
     {
         $this->createAsset();
@@ -1439,6 +1467,53 @@ class RentalRequestControllerTest extends TestCase
         $filled = (string) $this->track($bookingId, $token)->getBody();
         $this->assertStringContainsString('Enregistrées', $filled);
         $this->assertStringNotContainsString('À compléter', $filled);
+    }
+
+    /**
+     * **Nothing is invoiced for a letting that never happened.** The page
+     * hides the block on a refused, cancelled or expired booking, and a
+     * hidden form is not a rule: the token still reaches the route.
+     */
+    public function testBillingCoordinatesAreRefusedOnAnAbandonedBooking(): void
+    {
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+
+        $this->bookingRepository->compareAndSetStatus(
+            $bookingId,
+            BookingStatus::RECEIVED,
+            BookingStatus::REFUSED,
+            new \DateTimeImmutable('2027-02-01 10:00:00')
+        );
+
+        $this->postToTracking('saveBillingIdentity', $bookingId, $token, [
+            'billing_name' => 'Trop tard ASBL',
+        ]);
+
+        $this->assertNull($this->bookingRepository->findBillingIdentity($bookingId)['name']);
+    }
+
+    /**
+     * And a CLOSED booking is exactly the one being invoiced, which is why
+     * the guard reads `isAbandoned()` and not `isFinal()`.
+     */
+    public function testBillingCoordinatesAreStillAcceptedOnAClosedBooking(): void
+    {
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+
+        $now = new \DateTimeImmutable('2027-02-01 10:00:00');
+        $this->bookingRepository->compareAndSetStatus($bookingId, BookingStatus::RECEIVED, BookingStatus::CONFIRMED, $now);
+        $this->bookingRepository->compareAndSetStatus($bookingId, BookingStatus::CONFIRMED, BookingStatus::CLOSED, $now);
+
+        $this->postToTracking('saveBillingIdentity', $bookingId, $token, [
+            'billing_name' => 'Les Amis du Sart ASBL',
+        ]);
+
+        $this->assertSame(
+            'Les Amis du Sart ASBL',
+            $this->bookingRepository->findBillingIdentity($bookingId)['name']
+        );
     }
 
     public function testBillingCoordinatesNeedTheRightToken(): void
