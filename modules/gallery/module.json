@@ -2,7 +2,7 @@
   "id": "gallery",
   "name": "Galerie photos et vidéos",
   "description": "Albums photo/vidéo (envoi local avec redimensionnement/transcodage automatique, ou lien vers un album externe) visibles par les membres identifiés.",
-  "version": "1.12.0",
+  "version": "1.12.1",
   "enabled_by_default": false,
   "routes": [
     {
@@ -15,7 +15,7 @@
       "label": "Galerie",
       "menu_icon": "bi-images",
       "menu_group": "pages",
-      "menu_order": 6,
+      "menu_order": 30,
       "breadcrumb": {
         "label": "Galerie",
         "parents": [
@@ -33,6 +33,7 @@
       "label": "Galerie",
       "menu_icon": "bi-image",
       "menu_group": "activites",
+      "menu_order": 70,
       "breadcrumb": {
         "label": "Galerie",
         "parents": [
@@ -224,6 +225,7 @@
       "label": "Galerie",
       "menu_icon": "bi-images",
       "menu_group": "modules",
+      "menu_order": 110,
       "breadcrumb": {
         "label": "Galerie",
         "parents": [

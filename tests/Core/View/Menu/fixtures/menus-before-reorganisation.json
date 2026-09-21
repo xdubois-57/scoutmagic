@@ -1,0 +1,211 @@
+{
+    "public": {
+        "Notre unité": [
+            "Accueil",
+            "Contact",
+            "Sections",
+            "Protection des données",
+            "Calendrier",
+            "Actualités",
+            "Inscriptions"
+        ]
+    },
+    "identified": {
+        "Notre unité": [
+            "Accueil",
+            "Contact",
+            "Sections",
+            "Protection des données",
+            "Calendrier",
+            "Actualités",
+            "Inscriptions"
+        ],
+        "Espace membres": [
+            "Pages › Notifications",
+            "Pages › Trombinoscope",
+            "Pages › Galerie",
+            "Pages › Groupes"
+        ]
+    },
+    "intendant": {
+        "Notre unité": [
+            "Accueil",
+            "Contact",
+            "Sections",
+            "Protection des données",
+            "Calendrier",
+            "Actualités",
+            "Inscriptions"
+        ],
+        "Espace membres": [
+            "Pages › Notifications",
+            "Pages › Trombinoscope",
+            "Pages › Galerie",
+            "Pages › Groupes"
+        ],
+        "Espace animateurs": [
+            "Ma section › Staffs",
+            "Ma section › Membres par section",
+            "Activités › Rétrospectives",
+            "Gestion › Finances"
+        ]
+    },
+    "chief": {
+        "Notre unité": [
+            "Accueil",
+            "Contact",
+            "Sections",
+            "Protection des données",
+            "Calendrier",
+            "Actualités",
+            "Inscriptions"
+        ],
+        "Espace membres": [
+            "Pages › Notifications",
+            "Pages › Trombinoscope",
+            "Pages › Galerie",
+            "Pages › Groupes"
+        ],
+        "Espace animateurs": [
+            "Ma section › Staffs",
+            "Ma section › Membres par section",
+            "Ma section › Présences",
+            "Ma section › Départs",
+            "Activités › Calendrier",
+            "Activités › Camps",
+            "Activités › Galerie",
+            "Activités › Rétrospectives",
+            "Communication › Envoi de mails",
+            "Communication › Actualités",
+            "Gestion › Finances",
+            "Gestion › Statistiques",
+            "Gestion › Prévisions"
+        ]
+    },
+    "admin": {
+        "Notre unité": [
+            "Accueil",
+            "Contact",
+            "Sections",
+            "Protection des données",
+            "Calendrier",
+            "Actualités",
+            "Inscriptions"
+        ],
+        "Espace membres": [
+            "Pages › Notifications",
+            "Pages › Trombinoscope",
+            "Pages › Galerie",
+            "Pages › Groupes"
+        ],
+        "Espace animateurs": [
+            "Ma section › Staffs",
+            "Ma section › Membres par section",
+            "Ma section › Présences",
+            "Ma section › Départs",
+            "Activités › Calendrier",
+            "Activités › Camps",
+            "Activités › Galerie",
+            "Activités › Rétrospectives",
+            "Communication › Envoi de mails",
+            "Communication › Actualités",
+            "Gestion › Finances",
+            "Gestion › Statistiques",
+            "Gestion › Prévisions"
+        ],
+        "Espace chefs d'U": [
+            "Membres & année › Import Desk",
+            "Membres & année › Points d'attention",
+            "Membres & année › Membres",
+            "Membres & année › Année scoute",
+            "Membres & année › Attestations",
+            "Membres & année › Passage",
+            "Contenu du site › Édition du site",
+            "Services › SOS Staff d'U",
+            "Services › Listes de diffusion",
+            "Services › Réinscription",
+            "Services › Inscriptions",
+            "Services › Locations",
+            "Suivi › Journal",
+            "Suivi › Cotisations",
+            "Suivi › Courrier",
+            "Suivi › Encadrement"
+        ]
+    },
+    "superadmin": {
+        "Notre unité": [
+            "Accueil",
+            "Contact",
+            "Sections",
+            "Protection des données",
+            "Calendrier",
+            "Actualités",
+            "Inscriptions"
+        ],
+        "Espace membres": [
+            "Pages › Notifications",
+            "Pages › Trombinoscope",
+            "Pages › Galerie",
+            "Pages › Groupes"
+        ],
+        "Espace animateurs": [
+            "Ma section › Staffs",
+            "Ma section › Membres par section",
+            "Ma section › Présences",
+            "Ma section › Départs",
+            "Activités › Calendrier",
+            "Activités › Camps",
+            "Activités › Galerie",
+            "Activités › Rétrospectives",
+            "Communication › Envoi de mails",
+            "Communication › Actualités",
+            "Gestion › Finances",
+            "Gestion › Statistiques",
+            "Gestion › Prévisions"
+        ],
+        "Espace chefs d'U": [
+            "Membres & année › Import Desk",
+            "Membres & année › Points d'attention",
+            "Membres & année › Membres",
+            "Membres & année › Année scoute",
+            "Membres & année › Attestations",
+            "Membres & année › Passage",
+            "Contenu du site › Édition du site",
+            "Services › SOS Staff d'U",
+            "Services › Listes de diffusion",
+            "Services › Réinscription",
+            "Services › Inscriptions",
+            "Services › Locations",
+            "Suivi › Journal",
+            "Suivi › Cotisations",
+            "Suivi › Courrier",
+            "Suivi › Encadrement"
+        ],
+        "Configuration": [
+            "Unité & données › Badges",
+            "Unité & données › Correspondances Desk",
+            "Unité & données › RGPD",
+            "Site › Installation & serveur",
+            "Site › Modules",
+            "Site › Pages de texte",
+            "Site › Réglages",
+            "Réglages des modules › Calendrier",
+            "Réglages des modules › Camps",
+            "Réglages des modules › Finances",
+            "Réglages des modules › Galerie",
+            "Réglages des modules › Courrier entrant",
+            "Réglages des modules › Intelligence artificielle",
+            "Réglages des modules › SOS Staff d'U",
+            "Exploitation › Actions planifiées",
+            "Exploitation › Comptes superadmin",
+            "Exploitation › Maintenance",
+            "Exploitation › Notifications",
+            "Exploitation › E-mails",
+            "Exploitation › Courrier sortant",
+            "Exploitation › Stockage",
+            "Exploitation › Support",
+            "Exploitation › Synchronisation des contacts",
+            "Exploitation › Fréquentation"
+        ]
+    }
+}

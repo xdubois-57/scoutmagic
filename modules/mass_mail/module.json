@@ -2,7 +2,7 @@
   "id": "mass_mail",
   "name": "Envoi de mails",
   "description": "Envoi de mails groupés aux membres de l'unité : listes de diffusion par défaut ou personnalisées, publipostage depuis un fichier Excel avec variables personnalisées, mode test, envoi en arrière-plan par lots, suivi détaillé des envois. Accueille aussi, lorsque le module inscriptions est actif, une liste prédéfinie non modifiable pour l'année scoute cible.",
-  "version": "1.17.0",
+  "version": "1.17.1",
   "enabled_by_default": false,
   "routes": [
     {
@@ -13,7 +13,12 @@
       "menu": "espace_animes",
       "role_min": "identified",
       "label": "",
-      "breadcrumb": { "label": "Email reçu", "parents": ["Espace membres"] }
+      "breadcrumb": {
+        "label": "Email reçu",
+        "parents": [
+          "Espace membres"
+        ]
+      }
     },
     {
       "path": "/mass-mail/unsubscribe/{id}",
@@ -23,7 +28,12 @@
       "menu": "notre_unite",
       "role_min": "public",
       "label": "",
-      "breadcrumb": { "label": "Désinscription", "parents": ["Notre unité"] }
+      "breadcrumb": {
+        "label": "Désinscription",
+        "parents": [
+          "Notre unité"
+        ]
+      }
     },
     {
       "path": "/mass-mail/unsubscribe/{id}",
@@ -44,7 +54,13 @@
       "label": "Envoi de mails",
       "menu_icon": "bi-send",
       "menu_group": "communication",
-      "breadcrumb": { "label": "Envoi de mails", "parents": ["Espace animateurs"] }
+      "menu_order": 90,
+      "breadcrumb": {
+        "label": "Envoi de mails",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
     },
     {
       "path": "/mass-mail/new",
@@ -54,7 +70,18 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Nouvel email", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Envoi de mails", "path": "/mass-mail" }] }
+      "breadcrumb": {
+        "label": "Nouvel email",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Envoi de mails",
+            "path": "/mass-mail"
+          }
+        ]
+      }
     },
     {
       "path": "/mass-mail",
@@ -100,7 +127,18 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Composition", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Envoi de mails", "path": "/mass-mail" }] }
+      "breadcrumb": {
+        "label": "Composition",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Envoi de mails",
+            "path": "/mass-mail"
+          }
+        ]
+      }
     },
     {
       "path": "/mass-mail/{id}",
@@ -119,7 +157,18 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Destinataires", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Envoi de mails", "path": "/mass-mail" }] }
+      "breadcrumb": {
+        "label": "Destinataires",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Envoi de mails",
+            "path": "/mass-mail"
+          }
+        ]
+      }
     },
     {
       "path": "/mass-mail/{id}/recipient-count",
@@ -174,7 +223,18 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Suivi de l'envoi", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Envoi de mails", "path": "/mass-mail" }] }
+      "breadcrumb": {
+        "label": "Suivi de l'envoi",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Envoi de mails",
+            "path": "/mass-mail"
+          }
+        ]
+      }
     },
     {
       "path": "/mass-mail/recipients/{id}/resend",
@@ -195,7 +255,13 @@
       "label": "Listes de diffusion",
       "menu_icon": "bi-send",
       "menu_group": "services",
-      "breadcrumb": { "label": "Listes de diffusion", "parents": ["Espace chefs d'U"] }
+      "menu_order": 90,
+      "breadcrumb": {
+        "label": "Listes de diffusion",
+        "parents": [
+          "Espace chefs d'U"
+        ]
+      }
     },
     {
       "path": "/admin/listes-de-diffusion/preview-count",
@@ -359,7 +425,11 @@
       "description": "Un email groupé de l'unité vient de vous être envoyé.",
       "group": "Emails groupés",
       "role_min": "identified",
-      "channels": { "in_app": "default_on", "push": "default_on", "email": "off" }
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "off"
+      }
     }
   ]
 }

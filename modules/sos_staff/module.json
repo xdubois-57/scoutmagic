@@ -2,7 +2,7 @@
   "id": "sos_staff",
   "name": "SOS Staff d'U",
   "description": "Planification des gardes du numéro SOS de l'unité et automatisation des changements de redirection téléphonique.",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "enabled_by_default": false,
   "routes": [
     {
@@ -15,8 +15,13 @@
       "label": "SOS Staff d'U",
       "menu_icon": "bi-life-preserver",
       "menu_group": "services",
-      "menu_order": 50,
-      "breadcrumb": { "label": "SOS Staff d'U", "parents": ["Espace chefs d'U"] }
+      "menu_order": 80,
+      "breadcrumb": {
+        "label": "SOS Staff d'U",
+        "parents": [
+          "Espace chefs d'U"
+        ]
+      }
     },
     {
       "path": "/admin/sos/default-number",
@@ -64,7 +69,13 @@
       "label": "SOS Staff d'U",
       "menu_icon": "bi-life-preserver",
       "menu_group": "modules",
-      "breadcrumb": { "label": "SOS Staff d'U", "parents": ["Configuration"] }
+      "menu_order": 140,
+      "breadcrumb": {
+        "label": "SOS Staff d'U",
+        "parents": [
+          "Configuration"
+        ]
+      }
     },
     {
       "path": "/config/sos/ovh/credentials",

@@ -202,21 +202,24 @@ class DynamicMenuRegistrarTest extends TestCase
         $this->assertSame('Visible', $pages[0]['label']);
     }
 
-    public function testEntriesSortWithinTheirGroupNotAheadOfCorePages(): void
+    /**
+     * A contributed entry is ordered by the number it declares, like every
+     * other entry — including ahead of a core page, which it could not do
+     * before. Only a dynamic entry still leads regardless, and its 999
+     * below is there to say so.
+     */
+    public function testAContributedEntryIsOrderedByItsNumberAndDynamicOnesStillLead(): void
     {
         $builder = new MenuBuilder(Role::fromString('identified'));
         $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Page core', '/core', 'identified', 50, false, null, MenuBuilder::SORT_GROUP_CORE);
 
-        // A module entry with a far lower order must still sort after the
-        // core page — MenuBuilder ranks by group first, order only as a
-        // tie-break inside a group.
         $this->registrar->register($builder, [$this->provider([
             new MenuEntry(MenuBuilder::MENU_ESPACE_ANIMES, 'Page module', '/module', 'identified', 1, false, null, MenuBuilder::SORT_GROUP_MODULE),
             new MenuEntry(MenuBuilder::MENU_ESPACE_ANIMES, 'Entrée dynamique', '/dyn', 'identified', 999, true, null, MenuBuilder::SORT_GROUP_DYNAMIC),
         ])], null);
 
         $labels = array_column($this->pagesOf($builder->build(), MenuBuilder::MENU_ESPACE_ANIMES), 'label');
-        $this->assertSame(['Entrée dynamique', 'Page core', 'Page module'], $labels);
+        $this->assertSame(['Entrée dynamique', 'Page module', 'Page core'], $labels);
     }
 
     public function testResolveActiveMatchesADynamicEntryOnAnExactPathOnly(): void

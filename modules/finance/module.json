@@ -2,7 +2,7 @@
   "id": "finance",
   "name": "Finances",
   "description": "Gestion financière de l'unité : comptes, exercices, catégorisation, import de relevés bancaires, mouvements, reçus.",
-  "version": "1.23.0",
+  "version": "1.23.1",
   "enabled_by_default": false,
   "routes": [
     {
@@ -15,7 +15,7 @@
       "label": "Finances",
       "menu_icon": "bi-cash-coin",
       "menu_group": "gestion",
-      "menu_order": 10,
+      "menu_order": 110,
       "breadcrumb": {
         "label": "Finances",
         "parents": [
@@ -582,6 +582,7 @@
       "label": "Finances",
       "menu_icon": "bi-cash-coin",
       "menu_group": "modules",
+      "menu_order": 100,
       "breadcrumb": {
         "label": "Finances",
         "parents": [

@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques, matériel. Calendrier de disponibilité public, demandes en ligne et suivi des réservations.",
-  "version": "1.21.0",
+  "version": "1.21.1",
   "enabled_by_default": false,
   "routes": [
     {
@@ -564,6 +564,7 @@
       "label": "Locations",
       "menu_icon": "bi-house-door",
       "menu_group": "services",
+      "menu_order": 120,
       "breadcrumb": {
         "label": "Locations",
         "parents": [

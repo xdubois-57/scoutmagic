@@ -145,12 +145,23 @@ class MenuBuilderTest extends TestCase
      * checked before `order` at all, so this can no longer happen —
      * however low a module sets its `menu_order`.
      */
-    public function testDynamicEntriesAlwaysSortBeforeCorePagesWhichAlwaysSortBeforeModulePagesRegardlessOfOrder(): void
+    /**
+     * **Dynamic entries lead; everything else is ordered by its own
+     * number.**
+     *
+     * Core pages used to outrank module pages whatever the two declared,
+     * and the same registrations below used to render Notifications ahead
+     * of the two module pages that ask for 5 and 6. That rank is gone: a
+     * page's order is now the only thing that places it, so a module page
+     * can sit first if its menu wants it first.
+     *
+     * The members linked to this account stay in front, and that one is
+     * about the reader rather than about the code: what concerns me
+     * personally comes before the pages about everybody.
+     */
+    public function testDynamicEntriesLeadAndEverythingElseSortsOnOneSharedScale(): void
     {
         $builder = new MenuBuilder(Role::IDENTIFIED);
-        // Registered out of "natural" order and with module pages using a
-        // numerically LOWER order than the core/dynamic entries, matching
-        // the real trombinoscope (5) / gallery (6) case.
         $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Trombinoscope', '/trombinoscope', 'identified', 5, false, null, MenuBuilder::SORT_GROUP_MODULE);
         $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Galerie', '/gallery', 'identified', 6, false, null, MenuBuilder::SORT_GROUP_MODULE);
         $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Notifications', '/notifications', 'identified', 10, false, null, MenuBuilder::SORT_GROUP_CORE);
@@ -160,7 +171,24 @@ class MenuBuilderTest extends TestCase
         $menus = $builder->build();
 
         $labels = array_column($menus[0]['pages'], 'label');
-        $this->assertSame(['Baloo', 'Kaa', 'Notifications', 'Trombinoscope', 'Galerie'], $labels);
+        $this->assertSame(['Baloo', 'Kaa', 'Trombinoscope', 'Galerie', 'Notifications'], $labels);
+    }
+
+    /**
+     * The half of the old rule that has to be gone, stated on its own: a
+     * module page with a lower order now precedes a core page. This is
+     * the whole reason « Inscriptions » could not be moved out of last
+     * place in the public menu.
+     */
+    public function testAModulePageCanPrecedeACorePageWhenItsOrderSaysSo(): void
+    {
+        $builder = new MenuBuilder(Role::PUBLIC);
+        $builder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Protection des données', '/rgpd', 'public', 40);
+        $builder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Inscriptions', '/inscriptions', 'public', 30, false, null, MenuBuilder::SORT_GROUP_MODULE);
+
+        $labels = array_column($builder->build()[0]['pages'], 'label');
+
+        $this->assertSame(['Inscriptions', 'Protection des données'], $labels);
     }
 
     public function testModuleGroupDefaultsWhenGroupIsOmitted(): void
@@ -301,10 +329,12 @@ class MenuBuilderTest extends TestCase
 
     /**
      * A module page and a core page share a column on purpose (Finances
-     * belongs under "Gestion" whichever registered it) — inside it, the
-     * existing sort applies untouched: sort group first, `order` second.
+     * belongs under "Gestion" whichever registered it) — and inside it
+     * they are ordered by their numbers alone. The core page below
+     * declares 99 and lands last, which is the point: where an entry came
+     * from stopped deciding anything.
      */
-    public function testPagesInsideAGroupKeepTheExistingSortGroupThenOrderSort(): void
+    public function testPagesInsideAGroupAreOrderedByTheirNumbersAlone(): void
     {
         $builder = new MenuBuilder(Role::INTENDANT);
         $builder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Finances', '/finance', 'intendant', 1, false, null, MenuBuilder::SORT_GROUP_MODULE, null, null, 'gestion');
@@ -315,7 +345,7 @@ class MenuBuilderTest extends TestCase
 
         $this->assertCount(1, $groups);
         $this->assertSame('gestion', $groups[0]['id']);
-        $this->assertSame(['Page core', 'Finances', 'Statistiques'], array_column($groups[0]['pages'], 'label'));
+        $this->assertSame(['Finances', 'Statistiques', 'Page core'], array_column($groups[0]['pages'], 'label'));
     }
 
     /**

@@ -20,7 +20,7 @@ use Twig\Environment;
 
 /**
  * Configuration > Modules — module registry (activation/deactivation,
- * drag-and-drop reordering). Split out of the former ConfigGeneralController
+ * activation). Split out of the former ConfigGeneralController
  * (which also carried badges and the configuration-mode toggle) so each
  * page has its own single-concern controller (AGENTS.md).
  */
@@ -134,45 +134,4 @@ class ConfigModulesController extends AbstractController
         return $this->json(['success' => true]);
     }
 
-    /**
-     * POST /config/modules/reorder — persist a new module display/menu
-     * order from the drag-and-drop (or mobile arrow) list (AJAX, JSON).
-     *
-     * @param array<string, string> $params
-     */
-    public function reorderModules(Request $request, array $params): Response
-    {
-        $data = $this->decodeJsonBody($request);
-        if ($data === null) {
-            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
-        }
-
-        $csrf = (string) ($data['_csrf_token'] ?? '');
-        if (($guard = $this->guardCsrfJson($request, $csrf)) !== null) {
-            return $guard;
-        }
-
-        $ids = is_array($data['ids'] ?? null) ? array_map('strval', $data['ids']) : [];
-        $this->moduleManager->reorder($ids);
-
-        $this->journalService->log(
-            'core',
-            'modules_reordered',
-            'info',
-            'Ordre des modules modifié',
-            ['module_ids' => $ids],
-            AuthSession::getUserAccountId()
-        );
-
-        return $this->json(['success' => true]);
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function decodeJsonBody(Request $request): ?array
-    {
-        $data = json_decode($request->getRawBody(), true);
-        return is_array($data) ? $data : null;
-    }
 }

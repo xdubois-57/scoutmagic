@@ -2,8 +2,10 @@
   "id": "presences",
   "name": "Présences",
   "description": "Feuille de présence par évènement de section : quatre états par animé, commentaire chiffré, et registre annuel de la section.",
-  "version": "1.6.0",
-  "requires": ["calendar"],
+  "version": "1.6.1",
+  "requires": [
+    "calendar"
+  ],
   "routes": [
     {
       "path": "/chefs/presences",
@@ -15,7 +17,13 @@
       "label": "Présences",
       "menu_icon": "bi-check2-square",
       "menu_group": "ma_section",
-      "breadcrumb": { "label": "Présences", "parents": ["Espace animateurs"] }
+      "menu_order": 30,
+      "breadcrumb": {
+        "label": "Présences",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
     },
     {
       "path": "/chefs/presences/recherche",
@@ -45,8 +53,15 @@
       "label": "",
       "breadcrumb": {
         "label": "Animé",
-        "parents": ["Espace animateurs"],
-        "ancestors": [{ "label": "Présences", "path": "/chefs/presences" }]
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Présences",
+            "path": "/chefs/presences"
+          }
+        ]
       }
     },
     {
@@ -59,8 +74,15 @@
       "label": "",
       "breadcrumb": {
         "label": "Feuille de présence",
-        "parents": ["Espace animateurs"],
-        "ancestors": [{ "label": "Présences", "path": "/chefs/presences" }]
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Présences",
+            "path": "/chefs/presences"
+          }
+        ]
       }
     },
     {

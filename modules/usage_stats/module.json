@@ -2,7 +2,7 @@
   "id": "usage_stats",
   "name": "Fréquentation du site",
   "description": "Compte les pages ouvertes, par motif de route et par mois. Aucun suivi nominatif, aucun cookie, aucune adresse IP.",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "enabled_by_default": false,
   "routes": [
     {
@@ -15,7 +15,13 @@
       "label": "Fréquentation",
       "menu_icon": "bi-graph-up",
       "menu_group": "exploitation",
-      "breadcrumb": { "label": "Fréquentation", "parents": ["Configuration"] }
+      "menu_order": 240,
+      "breadcrumb": {
+        "label": "Fréquentation",
+        "parents": [
+          "Configuration"
+        ]
+      }
     },
     {
       "path": "/config/usage/modules",
@@ -27,8 +33,15 @@
       "label": "",
       "breadcrumb": {
         "label": "Modules",
-        "parents": ["Configuration"],
-        "ancestors": [{ "label": "Fréquentation", "path": "/config/usage" }]
+        "parents": [
+          "Configuration"
+        ],
+        "ancestors": [
+          {
+            "label": "Fréquentation",
+            "path": "/config/usage"
+          }
+        ]
       }
     },
     {
@@ -41,8 +54,15 @@
       "label": "",
       "breadcrumb": {
         "label": "Pages",
-        "parents": ["Configuration"],
-        "ancestors": [{ "label": "Fréquentation", "path": "/config/usage" }]
+        "parents": [
+          "Configuration"
+        ],
+        "ancestors": [
+          {
+            "label": "Fréquentation",
+            "path": "/config/usage"
+          }
+        ]
       }
     }
   ],

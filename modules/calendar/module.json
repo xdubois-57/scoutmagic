@@ -2,7 +2,7 @@
   "id": "calendar",
   "name": "Calendrier",
   "description": "Calendrier des activités : un calendrier par section (automatique) et des calendriers supplémentaires configurables, avec abonnement ICS.",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "enabled_by_default": true,
   "routes": [
     {
@@ -14,7 +14,13 @@
       "role_min": "public",
       "label": "Calendrier",
       "menu_icon": "bi-calendar3",
-      "breadcrumb": { "label": "Calendrier", "parents": ["Notre unité"] }
+      "menu_order": 50,
+      "breadcrumb": {
+        "label": "Calendrier",
+        "parents": [
+          "Notre unité"
+        ]
+      }
     },
     {
       "path": "/calendar/feed/{token}.ics",
@@ -62,7 +68,13 @@
       "label": "Calendrier",
       "menu_icon": "bi-calendar-week",
       "menu_group": "activites",
-      "breadcrumb": { "label": "Calendrier", "parents": ["Espace animateurs"] }
+      "menu_order": 50,
+      "breadcrumb": {
+        "label": "Calendrier",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
     },
     {
       "path": "/chefs/calendar/event-create",
@@ -101,7 +113,13 @@
       "label": "Calendrier",
       "menu_icon": "bi-calendar3",
       "menu_group": "modules",
-      "breadcrumb": { "label": "Calendrier", "parents": ["Configuration"] }
+      "menu_order": 80,
+      "breadcrumb": {
+        "label": "Calendrier",
+        "parents": [
+          "Configuration"
+        ]
+      }
     },
     {
       "path": "/config/calendar/defaults",
@@ -243,7 +261,11 @@
       "description": "Un nouvel évènement a été ajouté au calendrier.",
       "group": "Calendrier",
       "role_min": "identified",
-      "channels": { "in_app": "default_on", "push": "default_on", "email": "default_off" }
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "default_off"
+      }
     },
     {
       "id": "calendar.event_changed",
@@ -251,7 +273,11 @@
       "description": "Un évènement du calendrier a été modifié (date, heure ou lieu).",
       "group": "Calendrier",
       "role_min": "identified",
-      "channels": { "in_app": "default_on", "push": "default_on", "email": "default_off" }
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "default_off"
+      }
     },
     {
       "id": "calendar.event_reminder",
@@ -259,7 +285,11 @@
       "description": "Rappel la veille d'un évènement du calendrier.",
       "group": "Calendrier",
       "role_min": "identified",
-      "channels": { "in_app": "default_on", "push": "default_on", "email": "default_off" }
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "default_off"
+      }
     }
   ],
   "offline": [

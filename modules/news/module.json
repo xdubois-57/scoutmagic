@@ -2,7 +2,7 @@
   "id": "news",
   "name": "Actualités",
   "description": "Articles d'actualité avec formulaires intégrés (inscriptions, paiements optionnels), référencement SEO et affiche A4 avec QR code.",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "enabled_by_default": true,
   "routes": [
     {
@@ -14,7 +14,13 @@
       "role_min": "public",
       "label": "Actualités",
       "menu_icon": "bi-newspaper",
-      "breadcrumb": { "label": "Actualités", "parents": ["Notre unité"] }
+      "menu_order": 60,
+      "breadcrumb": {
+        "label": "Actualités",
+        "parents": [
+          "Notre unité"
+        ]
+      }
     },
     {
       "path": "/news/manage",
@@ -26,7 +32,13 @@
       "label": "Actualités",
       "menu_icon": "bi-pencil-square",
       "menu_group": "communication",
-      "breadcrumb": { "label": "Actualités", "parents": ["Espace animateurs"] }
+      "menu_order": 100,
+      "breadcrumb": {
+        "label": "Actualités",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
     },
     {
       "path": "/news/create",
@@ -36,7 +48,18 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Nouvel article", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Actualités", "path": "/news/manage" }] }
+      "breadcrumb": {
+        "label": "Nouvel article",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Actualités",
+            "path": "/news/manage"
+          }
+        ]
+      }
     },
     {
       "path": "/news/seo/generate-keywords",
@@ -73,7 +96,12 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Nouvel article", "parents": ["Espace animateurs"] }
+      "breadcrumb": {
+        "label": "Nouvel article",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
     },
     {
       "path": "/news/qr/{reference}/{token}",
@@ -92,7 +120,18 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Scanner un billet", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Actualités", "path": "/news/manage" }] }
+      "breadcrumb": {
+        "label": "Scanner un billet",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Actualités",
+            "path": "/news/manage"
+          }
+        ]
+      }
     },
     {
       "path": "/news/scan/events",
@@ -111,7 +150,18 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Scanner un billet", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Actualités", "path": "/news/manage" }] }
+      "breadcrumb": {
+        "label": "Scanner un billet",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Actualités",
+            "path": "/news/manage"
+          }
+        ]
+      }
     },
     {
       "path": "/news/scan/{form_id}/lookup",
@@ -148,7 +198,18 @@
       "menu": "notre_unite",
       "role_min": "public",
       "label": "",
-      "breadcrumb": { "label": "Actualité", "parents": ["Notre unité"], "ancestors": [{ "label": "Actualités", "path": "/news" }] }
+      "breadcrumb": {
+        "label": "Actualité",
+        "parents": [
+          "Notre unité"
+        ],
+        "ancestors": [
+          {
+            "label": "Actualités",
+            "path": "/news"
+          }
+        ]
+      }
     },
     {
       "path": "/news/{id}/gerer",
@@ -158,7 +219,18 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Gérer l'article", "parents": ["Espace animateurs"], "ancestors": [{ "label": "Actualités", "path": "/news/manage" }] }
+      "breadcrumb": {
+        "label": "Gérer l'article",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Actualités",
+            "path": "/news/manage"
+          }
+        ]
+      }
     },
     {
       "path": "/news/{id}",
@@ -168,7 +240,12 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "",
-      "breadcrumb": { "label": "Gérer l'article", "parents": ["Espace animateurs"] }
+      "breadcrumb": {
+        "label": "Gérer l'article",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
     },
     {
       "path": "/news/{id}",
@@ -196,7 +273,12 @@
       "menu": "notre_unite",
       "role_min": "public",
       "label": "",
-      "breadcrumb": { "label": "Actualité", "parents": ["Notre unité"] }
+      "breadcrumb": {
+        "label": "Actualité",
+        "parents": [
+          "Notre unité"
+        ]
+      }
     },
     {
       "path": "/news/{id}/form/confirmation",
@@ -206,7 +288,12 @@
       "menu": "notre_unite",
       "role_min": "public",
       "label": "",
-      "breadcrumb": { "label": "Actualité", "parents": ["Notre unité"] }
+      "breadcrumb": {
+        "label": "Actualité",
+        "parents": [
+          "Notre unité"
+        ]
+      }
     },
     {
       "path": "/news/{id}/form/responses",
@@ -216,7 +303,12 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "",
-      "breadcrumb": { "label": "Réponses au formulaire", "parents": ["Espace animateurs"] }
+      "breadcrumb": {
+        "label": "Réponses au formulaire",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
     },
     {
       "path": "/news/{id}/form/responses/export",
@@ -244,7 +336,12 @@
       "menu": "notre_unite",
       "role_min": "public",
       "label": "",
-      "breadcrumb": { "label": "Modifier ma réponse", "parents": ["Notre unité"] }
+      "breadcrumb": {
+        "label": "Modifier ma réponse",
+        "parents": [
+          "Notre unité"
+        ]
+      }
     },
     {
       "path": "/news/{id}/form/responses/{response_id}/edit",
@@ -254,7 +351,12 @@
       "menu": "notre_unite",
       "role_min": "public",
       "label": "",
-      "breadcrumb": { "label": "Modifier ma réponse", "parents": ["Notre unité"] }
+      "breadcrumb": {
+        "label": "Modifier ma réponse",
+        "parents": [
+          "Notre unité"
+        ]
+      }
     },
     {
       "path": "/news/{id}/form/fields/reorder",
