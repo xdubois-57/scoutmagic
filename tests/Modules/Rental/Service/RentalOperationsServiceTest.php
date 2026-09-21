@@ -1547,6 +1547,95 @@ class RentalOperationsServiceTest extends TestCase
         );
     }
 
+    /**
+     * The mirror of the dates guard below. Without it the capacity check
+     * has nothing to weigh, the request is stored, and its summary reads
+     * « 0 participants » — while accepting it quietly keeps the count the
+     * booking already had.
+     */
+    public function testAParticipantsRequestWithoutANumberIsRefused(): void
+    {
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessageMatches('/doit préciser ce nombre/');
+
+        $this->service->requestChange(
+            $this->createBooking(),
+            $this->asset(),
+            ChangeRequestOrigin::MANAGER,
+            ChangeRequestKind::PERSONS,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            $this->now()
+        );
+    }
+
+    public function testACombinedRequestWithoutANumberIsRefusedToo(): void
+    {
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessageMatches('/doit préciser ce nombre/');
+
+        $this->service->requestChange(
+            $this->createBooking(),
+            $this->asset(),
+            ChangeRequestOrigin::MANAGER,
+            ChangeRequestKind::DATES_AND_PERSONS,
+            '2027-07-08',
+            '2027-07-11',
+            null,
+            null,
+            null,
+            null,
+            null,
+            $this->now()
+        );
+    }
+
+    // ── The billing identity (§22.6) ────────────────────────────────────
+
+    /**
+     * Every billing field but the country is an encrypted `BLOB`, and
+     * AES-GCM adds a nonce and a tag to what it is given — so a value near
+     * the column's ceiling comes back over it, and the database either
+     * refuses the update or truncates it into ciphertext that will never
+     * decrypt again. Neither reaches the renter as anything actionable.
+     */
+    public function testAnOversizedBillingFieldIsRefusedInFrench(): void
+    {
+        $booking = $this->createBooking();
+
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessageMatches('/Adresse.*dépasse 500/');
+
+        $this->service->saveBillingIdentity($booking->id, [
+            'name' => 'Unité du Petit Ry',
+            'address' => str_repeat('a', 501),
+        ]);
+    }
+
+    public function testAnOrdinaryBillingAddressIsStored(): void
+    {
+        $booking = $this->createBooking();
+
+        $this->service->saveBillingIdentity($booking->id, [
+            'name' => 'Unité du Petit Ry',
+            'address' => "Rue du Village 12\n5100 Jambes",
+            'country' => 'be',
+            'vat_number' => 'BE0123456789',
+        ]);
+
+        $stored = $this->service->billingIdentity($booking->id);
+
+        $this->assertSame('Unité du Petit Ry', $stored['name']);
+        // Two letters, upper-cased by the repository — a country field
+        // holding « Belgique » is a field nothing can use.
+        $this->assertSame('BE', $stored['country']);
+    }
+
     public function testADateRequestWithoutBothDatesIsRefused(): void
     {
         $this->expectException(RentalException::class);

@@ -71,4 +71,16 @@ enum ChangeRequestKind: string
     {
         return $this === self::DATES || $this === self::DATES_AND_PERSONS;
     }
+
+    /**
+     * Whether accepting this changes the head count, and therefore has to
+     * carry one.
+     *
+     * Same shape and same reason as `affectsAvailability()`: a request that
+     * moves the dates *and* the group still moves the group.
+     */
+    public function changesPersons(): bool
+    {
+        return $this === self::PERSONS || $this === self::DATES_AND_PERSONS;
+    }
 }

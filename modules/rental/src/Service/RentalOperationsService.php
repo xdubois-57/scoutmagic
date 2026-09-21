@@ -50,6 +50,32 @@ use Modules\Rental\Support;
 class RentalOperationsService
 {
     /**
+     * How long each billing field may be, in characters.
+     *
+     * Generous on purpose: a Belgian invoice address fits in a fraction of
+     * this, and the number exists to stop a paste from reaching a `BLOB`
+     * that cannot hold it — not to tell anybody how to write an address.
+     */
+    private const BILLING_LIMITS = [
+        'name' => 200,
+        'address' => 500,
+        'vat_number' => 32,
+        'enterprise_number' => 32,
+        'email' => 254,
+        'reference' => 100,
+    ];
+
+    /** The French name of each, for the refusal. */
+    private const BILLING_LABELS = [
+        'name' => 'Nom ou raison sociale',
+        'address' => 'Adresse',
+        'vat_number' => 'Numéro de TVA',
+        'enterprise_number' => "Numéro d'entreprise",
+        'email' => 'Adresse email de facturation',
+        'reference' => 'Référence à rappeler',
+    ];
+
+    /**
      * How many requests a renter may have waiting at once (§6.16).
      *
      * The renter's form is reached with a tracking token and no login, so
@@ -526,6 +552,17 @@ class RentalOperationsService
             }
         }
 
+        if ($kind->changesPersons() && $persons === null) {
+            // The mirror of the dates guard below, and missing until a
+            // review found it: without it the capacity check has nothing to
+            // weigh, the request is stored, and `ChangeRequest::summary()`
+            // reads « 0 participants » — while accepting it quietly keeps
+            // the count the booking already had.
+            throw new RentalException(
+                'Une demande de changement du nombre de participants doit préciser ce nombre.'
+            );
+        }
+
         if ($kind->affectsAvailability() && ($arrivalDate === null || $departureDate === null)) {
             throw new RentalException('Une demande de changement de dates doit préciser les deux dates.');
         }
@@ -976,6 +1013,55 @@ class RentalOperationsService
                 ['booking_id' => $booking->id, 'to_cents' => $totalCents]
             );
         }
+    }
+
+    // ── The billing identity (§22.6) ────────────────────────────────────
+
+    /**
+     * What this booking's invoice is to be made out to.
+     *
+     * Here rather than straight from the repository because a controller
+     * does not talk to one (ARCHITECTURE.md § Layering), and because both
+     * the manager's screen and the renter's tracking page now read and
+     * write it — two call sites, one door, so the guard below cannot be
+     * true of one of them and not the other.
+     *
+     * @return array<string, ?string>
+     */
+    public function billingIdentity(int $bookingId): array
+    {
+        return $this->bookingRepository->findBillingIdentity($bookingId);
+    }
+
+    /**
+     * Records it, refusing a value no column could hold.
+     *
+     * **Every field but the country is an encrypted `BLOB`**, and AES-GCM
+     * adds a nonce and a tag to what it is given — so a value near the
+     * column's ceiling comes back over it, and MySQL either refuses the
+     * whole update or truncates it into ciphertext that will never decrypt.
+     * Neither answer reaches the renter as anything they can act on, which
+     * is why the length is checked here and not discovered down there. The
+     * ceiling is far above any real invoice address; it is a guard against
+     * a paste, not a formatting rule.
+     *
+     * @param array<string, ?string> $identity
+     * @throws RentalException
+     */
+    public function saveBillingIdentity(int $bookingId, array $identity): void
+    {
+        foreach (self::BILLING_LIMITS as $field => $limit) {
+            $value = $identity[$field] ?? null;
+            if (is_string($value) && mb_strlen($value) > $limit) {
+                throw new RentalException(sprintf(
+                    'Le champ « %s » dépasse %d caractères.',
+                    self::BILLING_LABELS[$field],
+                    $limit
+                ));
+            }
+        }
+
+        $this->bookingRepository->saveBillingIdentity($bookingId, $identity);
     }
 
     /** `467,50 €` — for a history line a human reads, never for arithmetic. */

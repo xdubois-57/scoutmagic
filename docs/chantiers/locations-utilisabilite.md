@@ -325,8 +325,13 @@ celle qui loue le local.
   l'accompagne vient de la boîte de dialogue (`data-confirm-note`) et reste
   facultatif.
 - **La validation devient réelle.** `requestChange()` appelle
-  `RentalAvailabilityService::validateRange()` — mêmes règles, même
-  capacité, mêmes messages que le formulaire public.
+  `RentalAvailabilityService::validateRange()` — mêmes règles, mêmes
+  messages que le formulaire public — pour la demande du **locataire**. La
+  capacité passe par `validatePersons()`, seule quand seul le nombre
+  change, et elle est demandée aux deux origines parce qu'elle est
+  physique. La proposition d'un gestionnaire n'est pas validée ici :
+  `acceptChange()` garde l'écriture avec `firmOnly: true`, exprès, pour
+  qu'un blocage concurrent n'empêche pas l'arbitrage.
 - **Les coordonnées de facturation se saisissent par le locataire**, sur sa
   page de suivi, dans les mêmes colonnes chiffrées que le gestionnaire
   remplit à la main. Le bloc se présente comme une tâche tant qu'il est

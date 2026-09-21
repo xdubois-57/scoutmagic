@@ -195,7 +195,6 @@ class RentalRequestControllerTest extends TestCase
             $settingService,
             $this->operationsService,
             $this->changeRequestRepository,
-            $this->bookingRepository,
             // §6.32: the renter's own ICS feed. Both handles are nullable
             // and null without the `calendar` module — only the generator
             // is borrowed, no calendar row is ever involved.
@@ -1469,9 +1468,9 @@ class RentalRequestControllerTest extends TestCase
             'billing_name' => 'Les Amis du Sart ASBL',
         ]);
 
-        $raw = (string) $this->pdo
-            ->query('SELECT billing_name_encrypted FROM rental_bookings WHERE id = ' . $bookingId)
-            ?->fetchColumn();
+        $stmt = $this->pdo->prepare('SELECT billing_name_encrypted FROM rental_bookings WHERE id = ?');
+        $stmt->execute([$bookingId]);
+        $raw = (string) $stmt->fetchColumn();
 
         $this->assertNotSame('', $raw);
         $this->assertStringNotContainsString('Amis du Sart', $raw);

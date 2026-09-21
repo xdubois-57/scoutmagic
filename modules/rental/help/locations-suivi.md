@@ -43,10 +43,10 @@ demande dans une liste : c'est ce que vous modifiez qui le dit.
 
 **Votre demande ne change rien par elle-même** : elle attend la réponse
 des gestionnaires, et votre réservation reste exactement ce qu'elle
-était. En revanche elle est vérifiée tout de suite contre les règles du
-bien — durée minimale, jours d'arrivée autorisés, capacité — et contre
-les dates déjà prises : mieux vaut le savoir maintenant que dans trois
-semaines.
+était. En revanche, ce que vous changez est vérifié tout de suite : de
+nouvelles dates contre les règles du bien et contre les dates déjà
+prises, un nouveau nombre contre la capacité. Mieux vaut le savoir
+maintenant que dans trois semaines.
 
 **L'annulation a son propre bouton**, avec une question de confirmation.
 Elle ne libère vos dates que lorsqu'un gestionnaire l'accepte.

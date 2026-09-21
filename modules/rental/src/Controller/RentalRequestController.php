@@ -29,7 +29,6 @@ use Modules\Rental\Document\AssetConditions;
 use Modules\Rental\Pricing\PricingRequest;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetRepository;
-use Modules\Rental\Repository\RentalBookingRepository;
 use Modules\Rental\Repository\RentalChangeRequestRepository;
 use Modules\Rental\Service\RentalAvailabilityService;
 use Modules\Rental\Service\RentalBookingMailService;
@@ -77,12 +76,6 @@ class RentalRequestController extends AbstractController
         private SettingService $settingService,
         private RentalOperationsService $operationsService,
         private RentalChangeRequestRepository $changeRequestRepository,
-        /**
-         * The renter fills in their own billing coordinates (§22.6), in the
-         * very columns a manager types into by hand today — encrypted at
-         * rest, one write path, no second table.
-         */
-        private RentalBookingRepository $bookingRepository,
         /**
          * Optional (§6.32): null without the `calendar` module, in which
          * case the renter's page simply offers no ICS link. Only the ICS
@@ -357,7 +350,7 @@ class RentalRequestController extends AbstractController
             // the one person entitled to them — a token for THIS booking
             // reaches this page and nothing else. The block presents itself
             // as a task while every field is empty.
-            'billing' => $this->bookingRepository->findBillingIdentity($booking->id),
+            'billing' => $this->operationsService->billingIdentity($booking->id),
             // Echoed back so this page's own forms post to a URL that still
             // carries the capability. It is already in the address bar; it
             // is never journaled and never leaves this page.
@@ -367,7 +360,15 @@ class RentalRequestController extends AbstractController
             'ics_available' => $this->icsBuilder !== null && $this->renterFeedBuilder !== null,
             'csrf_token' => CsrfGuard::generateToken(),
             'breadcrumb_current' => $booking->reference,
-        ]);
+        // **Not kept by anything between here and the renter.** This page
+        // carries their name, their dates and now their billing
+        // coordinates, behind a capability in the URL rather than a
+        // session — so a shared computer, a browser's back button or an
+        // intermediate cache is exactly where a copy would outlive the
+        // link. `no-store` and not `no-cache`, and the same header
+        // `SectionRosterController` and `MemberContactController` already
+        // set for the same reason.
+        ])->setHeader('Cache-Control', 'private, no-store');
     }
 
     /**
@@ -518,15 +519,21 @@ class RentalRequestController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        $this->bookingRepository->saveBillingIdentity($booking->id, [
-            'name' => Support::optionalString($request->getBody('billing_name')),
-            'address' => Support::optionalString($request->getBody('billing_address')),
-            'country' => Support::optionalString($request->getBody('billing_country')),
-            'vat_number' => Support::optionalString($request->getBody('billing_vat_number')),
-            'enterprise_number' => Support::optionalString($request->getBody('billing_enterprise_number')),
-            'email' => Support::optionalString($request->getBody('billing_email')),
-            'reference' => Support::optionalString($request->getBody('billing_reference')),
-        ]);
+        try {
+            $this->operationsService->saveBillingIdentity($booking->id, [
+                'name' => Support::optionalString($request->getBody('billing_name')),
+                'address' => Support::optionalString($request->getBody('billing_address')),
+                'country' => Support::optionalString($request->getBody('billing_country')),
+                'vat_number' => Support::optionalString($request->getBody('billing_vat_number')),
+                'enterprise_number' => Support::optionalString($request->getBody('billing_enterprise_number')),
+                'email' => Support::optionalString($request->getBody('billing_email')),
+                'reference' => Support::optionalString($request->getBody('billing_reference')),
+            ]);
+        } catch (RentalException $e) {
+            FlashMessage::set('error', $e->getMessage());
+
+            return $this->backToTracking($params);
+        }
 
         FlashMessage::set('success', 'Vos coordonnées de facturation ont été enregistrées.');
 
