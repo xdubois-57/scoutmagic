@@ -180,8 +180,30 @@ class RentalReminderServiceTest extends TestCase
             null,
             null,
             null,
-            new \Modules\Rental\Repository\RentalAssetReminderRepository($this->pdo)
+            new \Modules\Rental\Repository\RentalAssetReminderRepository($this->pdo),
+            new SettingService(new SettingRepository($this->pdo))
         );
+    }
+
+    /**
+     * Declare a reminder's unit-wide default the way the module does —
+     * **scoped to `rental`**, which is the whole point of the two tests
+     * below.
+     */
+    private function saveUnitDefault(ReminderKind $kind, int $days): void
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO settings (module_id, setting_key, setting_value, setting_type, label, description)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            'rental',
+            $kind->settingKey(),
+            (string) $days,
+            'number',
+            $kind->label(),
+            'Délai.',
+        ]);
     }
 
     // ── Fixtures ────────────────────────────────────────────────────────
@@ -563,6 +585,40 @@ class RentalReminderServiceTest extends TestCase
             '2027-07-01',
             (new RentalComplianceRepository($this->pdo))->findById($id)?->remindedOn
         );
+    }
+
+    /**
+     * **The unit's own default is read, which it was not.**
+     *
+     * `SettingService::get()` keys its cache on
+     * `($moduleId ?? '_core_') . '::' . $key`, so an unscoped read looks up
+     * a row this module never writes. It does not fail — it returns null —
+     * and every reminder quietly ran on the value shipped in
+     * `ReminderKind::defaultDays()` while the « Rappels » screen displayed
+     * the number the unit had saved. The two disagreed and neither said so.
+     *
+     * Nothing caught it because every other test here sets its delays
+     * through `rental_asset_reminders`, which is a different table and a
+     * different code path. This one goes through the settings, which is
+     * what an installation that never opened an asset's section uses for
+     * all twelve.
+     */
+    public function testTheUnitsOwnDefaultIsWhatDecides(): void
+    {
+        $this->addManagerWithAccount('chef@unite.be');
+        // Shipped: sixty days. The unit says ten.
+        $this->saveUnitDefault(ReminderKind::COMPLIANCE_EXPIRING, 10);
+
+        // Thirty days out: inside the shipped window, outside the unit's.
+        $this->complianceService->add($this->assetId, 'Attestation incendie', '2027-07-31', null);
+
+        $this->serviceWithOverrides($this->notificationService())
+            ->run(new \DateTimeImmutable('2027-07-01'));
+
+        $this->assertSame([], array_values(array_filter(
+            $this->dispatched,
+            static fn(array $e) => $e['typeId'] === ReminderKind::COMPLIANCE_EXPIRING->notificationTypeId()
+        )));
     }
 
     /**

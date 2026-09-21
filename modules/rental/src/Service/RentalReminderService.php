@@ -51,6 +51,8 @@ use Modules\Rental\Repository\RentalReminderRepository;
  */
 class RentalReminderService
 {
+    private const MODULE = 'rental';
+
     public function __construct(
         private RentalBookingRepository $bookingRepository,
         private RentalAssetRepository $assetRepository,
@@ -102,7 +104,14 @@ class RentalReminderService
         if ($this->unitDefaults === null) {
             $defaults = [];
             foreach (ReminderKind::cases() as $kind) {
-                $stored = $this->settingService?->get($kind->settingKey());
+                // **`self::MODULE`, never a bare key.** `SettingService`
+                // keys its cache on `($moduleId ?? '_core_') . '::' . $key`,
+                // so an unscoped read looks under `_core_::` — a row this
+                // module never writes. It does not fail: it returns null,
+                // and every reminder quietly runs on its shipped value while
+                // the « Rappels » screen shows the number the unit saved.
+                // Every other setting this module reads passes the scope.
+                $stored = $this->settingService?->get($kind->settingKey(), self::MODULE);
                 // A setting somebody blanked, or one this installation has
                 // never had, is the shipped value — never zero, which would
                 // silently turn every delay into "today".

@@ -14,6 +14,7 @@ use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\Http\FrontController;
+use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Http\Router;
@@ -287,14 +288,50 @@ class RentalReminderSettingsTest extends TestCase
         $this->assertSame([], $this->reminderRepository->findForAsset($this->assetId));
     }
 
-    public function testANegativeDelayIsBroughtBackToTheDayItself(): void
+    /**
+     * **A delay outside the column's range is refused, never clamped.**
+     *
+     * `delay_days` is `SMALLINT UNSIGNED`. The first version of this action
+     * wrote `max(0, (int) $raw)` — a floor with no ceiling, which is the
+     * idiom SECURITY.md §35 bans by name: the missing half is the reachable
+     * one. A longer number reached MySQL, which refuses it in strict mode,
+     * and the `PDOException` sailed past `guarded()` — which catches
+     * `RentalException` and nothing else — into the generic 500 page.
+     *
+     * Clamping would have been worse than the crash, and this assertion is
+     * the reason the floor went too: storing 65 535, or 0 for a « -5 »,
+     * records a delay the manager never chose and reports success. The
+     * reminder is named, because twelve fields post together.
+     */
+    public function testADelayOutsideTheColumnsRangeIsRefusedInFrench(): void
+    {
+        $this->save($this->formBody(['days_unanswered_request' => '70000']));
+
+        $this->assertSame([], $this->reminderRepository->findForAsset($this->assetId));
+        $this->assertStringContainsString(
+            'Demande de location sans réponse',
+            (string) (FlashMessage::get()['message'] ?? '')
+        );
+    }
+
+    public function testANegativeDelayIsRefusedRatherThanReadAsTheDayItself(): void
     {
         $this->save($this->formBody(['days_unanswered_request' => '-5']));
 
-        $this->assertSame(
-            0,
-            $this->reminderRepository->findForAsset($this->assetId)['unanswered_request']['days']
-        );
+        $this->assertSame([], $this->reminderRepository->findForAsset($this->assetId));
+    }
+
+    /**
+     * `1e10` is what `is_numeric` accepts and a cast turns into ten
+     * billion — a number nobody typed, and the shape SECURITY.md §35 names
+     * alongside the missing ceiling. `IntegerInput::bounded()` reads
+     * « written as a whole number and nothing else ».
+     */
+    public function testANumberInExponentNotationIsNotADelay(): void
+    {
+        $this->save($this->formBody(['days_unanswered_request' => '1e10']));
+
+        $this->assertSame([], $this->reminderRepository->findForAsset($this->assetId));
     }
 
     /**

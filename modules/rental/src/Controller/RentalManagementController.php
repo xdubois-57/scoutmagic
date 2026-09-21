@@ -2578,7 +2578,11 @@ class RentalManagementController extends AbstractController
     {
         $defaults = [];
         foreach (ReminderKind::cases() as $kind) {
-            $stored = $this->settingService?->get($kind->settingKey());
+            // Scoped, for the reason spelled out in
+            // `RentalReminderService::scheduleFor()`: unscoped, this reads a
+            // `_core_` row that does not exist, and the screen would show
+            // shipped values while claiming to show the unit's.
+            $stored = $this->settingService?->get($kind->settingKey(), 'rental');
             if (is_string($stored) && trim($stored) !== '' && is_numeric(trim($stored))) {
                 $defaults[$kind->value] = max(0, (int) trim($stored));
             }

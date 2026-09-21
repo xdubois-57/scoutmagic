@@ -185,12 +185,33 @@ enum ReminderKind: string
      * more when only `CONTRACT_SECOND_CHANCE_DAYS` are left. Deriving it is
      * what keeps a unit that shortened the lead time to five days from
      * getting the two sends on top of each other.
+     *
+     * **The half-window floor is what makes "once more" true.** What comes
+     * back here is a *minimum interval*, and `claim()` re-sends every time
+     * it has elapsed — so the number of sends across a window of `d` days
+     * is `1 + floor($d / $interval)`, not two because the sentence above
+     * says two. `$d − 3` alone holds only while `$d > 6`; under that it
+     * degenerates, and at four days it sends five times. A promise of one
+     * extra nudge that turns into a daily nag for a setting this screen
+     * offers is worse than no second chance, because a unit learns to
+     * ignore the channel that carries the other eleven.
+     *
+     * So the interval is never allowed below `intdiv($d, 2) + 1`, which is
+     * exactly the threshold at which a third send no longer fits. Above six
+     * days — the default fourteen included — the derived value already
+     * clears it and nothing changes; below, the second chance simply lands
+     * a little earlier than three days out, which is the honest answer when
+     * the whole window is shorter than that.
      */
     public function repeatAfterDays(int $configuredDays): ?int
     {
         return match ($this) {
             self::DEPOSIT_MISSING, self::BALANCE_MISSING, self::SECURITY_DEPOSIT_MISSING => 7,
-            self::CONTRACT_MISSING => max(1, $configuredDays - self::CONTRACT_SECOND_CHANCE_DAYS),
+            self::CONTRACT_MISSING => max(
+                1,
+                intdiv($configuredDays, 2) + 1,
+                $configuredDays - self::CONTRACT_SECOND_CHANCE_DAYS
+            ),
             default => null,
         };
     }

@@ -710,7 +710,7 @@ pour une page que les deux déclareraient. C'est l'option 2 de #401, appliquée
   `findAll()` pour la passe quotidienne, `save()` et `clear()`.
 - `RentalReminderRepository::claim()` prend une cadence.
 - `module.json` : douze réglages `reminder_*_days`, la notification orpheline
-  `rental.new_request` retirée, la route de la section, version 1.21.0.
+  `rental.new_request` retirée, la route de la section, version 1.23.0.
 - La section « Rappels » des réglages d'un bien
   (`views/management/_reminders.html.twig`,
   `RentalManagementController::reminderRows()`,
@@ -775,6 +775,44 @@ bien dire le jour même.
   rend chaque rappel au défaut de l'unité — ce que fait une installation qui
   n'a jamais ouvert la section — et `saveReminders()` refuse en français
   plutôt que d'écrire nulle part.
+- **Les réglages se lisent avec la portée du module.**
+  `SettingService::get()` indexe son cache sur
+  `($moduleId ?? '_core_') . '::' . $key` : une lecture sans portée cherche
+  une ligne sous `_core_`, que ce module n'écrit jamais. Elle n'échoue pas
+  — elle rend `null` — et les douze rappels tournaient donc sur leur valeur
+  livrée pendant que l'écran « Rappels » affichait le nombre que l'unité
+  avait enregistré. Les deux se contredisaient et aucun ne le disait. Tous
+  les autres réglages de ce module passaient déjà la portée ; ces deux
+  appels-là étaient les seuls à ne pas le faire. Aucun test ne l'a vu parce
+  qu'ils réglaient tous leurs délais par `rental_asset_reminders`, une
+  autre table et un autre chemin — celui qu'une installation qui n'a jamais
+  ouvert la section n'emprunte pas.
+- **Le contrat est relancé deux fois, quel que soit le délai — compté, pas
+  promis.** `repeatAfterDays()` rend un *intervalle minimum*, et `claim()`
+  renvoie à chaque fois qu'il s'est écoulé : le nombre d'envois sur une
+  fenêtre de `d` jours vaut `1 + floor(d / intervalle)`, pas deux parce que
+  la phrase du docblock dit deux. `d − 3` seul ne tient que tant que
+  `d > 6` ; en dessous il dégénère, et à quatre jours il envoyait cinq
+  fois. Une promesse d'une relance unique qui devient un harcèlement
+  quotidien, sur un réglage que l'écran propose, est pire que pas de
+  seconde chance du tout : l'unité apprend à ignorer le canal qui porte les
+  onze autres. L'intervalle ne descend donc jamais sous
+  `intdiv(d, 2) + 1`, seuil exact où un troisième envoi cesse de tenir.
+  Au-dessus de six jours — les quatorze par défaut compris — la dérivation
+  le dépasse déjà et rien ne change. Le test comptait l'intervalle ; il
+  compte maintenant les envois.
+- **Le délai saisi est borné, pas rogné.** `delay_days` est un
+  `SMALLINT UNSIGNED`, et l'action écrivait `max(0, (int) $raw)` — un
+  plancher sans plafond, exactement l'idiome que SECURITY.md §35 interdit
+  nommément : « la moitié qui manque est celle qu'on atteint ». Un nombre
+  plus long arrivait jusqu'à MySQL, qui le refuse en mode strict, et la
+  `PDOException` passait au-dessus de `guarded()` — qui n'attrape que
+  `RentalException` — jusqu'à la page 500 générique, là où le seul écran
+  capable de dire ce qui n'allait pas ne dit plus rien. Rogner à 65 535
+  aurait été pire que le plantage : cela enregistre un délai que personne
+  n'a choisi et annonce que c'est réussi. `IntegerInput::bounded()` refuse
+  hors bornes, et refuse au passage `1e10` et `12 jours`. Le rappel est
+  nommé dans le refus, parce que douze champs partent d'un seul envoi.
 - **Le délai du rappel de conformité s'applique vraiment.** C'était le seul
   des douze dont le nombre ne faisait rien : le champ s'enregistrait,
   repassait par `rental_asset_reminders` et se réaffichait, pendant que la
@@ -809,7 +847,7 @@ bien dire le jour même.
   `ARCHITECTURE.md` sont corrigés, comme le chantier le demandait.
 - **Le bump de `version` n'est plus imposé par `schema.sql`.** AGENTS.md
   § Schema a retiré cette règle : le schéma d'un module est appliqué sans
-  elle. `module.json` passe tout de même en 1.21.0, parce que le module
+  elle. `module.json` passe tout de même en 1.23.0, parce que le module
   gagne douze réglages, une route et un écran — ce qui est, lui, un
   changement visible. Le numéro est **1.23.0** : 1.22.0 appartient à IT-03,
   qui a fusionné d'abord, et deux branches d'un même chantier réclamant un

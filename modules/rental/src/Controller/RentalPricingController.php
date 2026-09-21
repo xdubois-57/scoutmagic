@@ -423,10 +423,7 @@ class RentalPricingController extends AbstractController
             }
 
             foreach (ReminderKind::cases() as $kind) {
-                $raw = $request->getBody('days_' . $kind->value);
-                $days = is_string($raw) && trim($raw) !== '' && is_numeric(trim($raw))
-                    ? max(0, (int) trim($raw))
-                    : null;
+                $days = self::reminderDays($request->getBody('days_' . $kind->value), $kind);
 
                 $this->assetReminderRepository->save(
                     $asset->id,
@@ -562,6 +559,44 @@ class RentalPricingController extends AbstractController
      * @throws RentalException when the box holds something that is not
      *         one of those numbers
      */
+    /**
+     * A reminder's delay in days, or null when the field was left blank —
+     * which means « reprends le défaut de l'unité », never « jamais ».
+     *
+     * **`delay_days` is `SMALLINT UNSIGNED`, so the bound is 65 535**, and
+     * it is a bound rather than a ceiling on purpose: SECURITY.md §35 bans
+     * exactly the idiom this method replaced, `max(0, (int) $raw)` — a
+     * floor with no top. The missing half is the reachable one. A visitor
+     * who types a longer number reached MySQL, which refuses it in strict
+     * mode, and the `PDOException` sailed past `guarded()` — which catches
+     * `RentalException` and nothing else — into the generic 500 page,
+     * where the one screen that could have said what was wrong says
+     * nothing at all.
+     *
+     * Clamping to 65 535 would have been worse than the crash: it stores a
+     * delay nobody chose and reports success. `IntegerInput::bounded()`
+     * refuses out of range instead, and refuses `1e10` and `12 jours`
+     * besides, both of which `is_numeric` and a cast between them would
+     * have turned into some number the visitor never typed.
+     *
+     * The reminder is named in the refusal because twelve fields are saved
+     * in one post: « ce nombre n'est pas valide » about an unnamed one of
+     * twelve is not an answer anybody can act on.
+     */
+    private static function reminderDays(mixed $value, ReminderKind $kind): ?int
+    {
+        $value = is_string($value) ? trim($value) : $value;
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        return IntegerInput::bounded($value, 0, 65535)
+            ?? throw new RentalException(sprintf(
+                'Le délai du rappel « %s » n\'est pas valide — saisissez un nombre de jours entre 0 et 65535.',
+                $kind->label()
+            ));
+    }
+
     private static function optionalInt(mixed $value): ?int
     {
         $value = is_string($value) ? trim($value) : $value;

@@ -134,12 +134,15 @@ class ReminderScheduleTest extends TestCase
             $shipped->repeatAfterDaysFor(ReminderKind::CONTRACT_MISSING)
         );
 
-        // Five days out, the two sends would otherwise land on top of each
-        // other; the derivation is what keeps them apart.
+        // Five days out, `$days − 3` alone would give 2 — and an interval
+        // of 2 across a five-day window is three sends, not two. This
+        // assertion asserted that 2 before the send count was counted
+        // rather than assumed; the floor at `intdiv($days, 2) + 1` is what
+        // actually keeps the two apart.
         $short = ReminderSchedule::of([], [
             ReminderKind::CONTRACT_MISSING->value => ['days' => 5, 'active' => true],
         ]);
-        $this->assertSame(2, $short->repeatAfterDaysFor(ReminderKind::CONTRACT_MISSING));
+        $this->assertSame(3, $short->repeatAfterDaysFor(ReminderKind::CONTRACT_MISSING));
 
         // And never zero, which would mean "again tomorrow, for ever".
         $sameDay = ReminderSchedule::of([], [
@@ -200,5 +203,71 @@ class ReminderScheduleTest extends TestCase
         sort($declared);
         sort($fromEnum);
         $this->assertSame($fromEnum, $declared);
+    }
+
+    /**
+     * **Two sends, whatever the delay configured — counted, not promised.**
+     *
+     * `repeatAfterDays()` returns a *minimum interval*, and `claim()`
+     * re-sends every time it has elapsed. So what the docblock calls « one
+     * extra nudge » is really `1 + intdiv($days, $interval)` sends across
+     * the window, and asserting the interval — which is all the test above
+     * this one ever did — says nothing about that number. With the first
+     * derivation, `$days − 3`, a four-day lead time sent five times: a
+     * daily nag on a setting this screen offers, and the fastest way to
+     * teach a unit to ignore the channel that carries the other eleven.
+     *
+     * The floor at `intdiv($days, 2) + 1` is exactly the threshold at which
+     * a third send stops fitting. Above six days — the default fourteen
+     * included — the derived value already clears it and nothing changes.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('contractLeadTimes')]
+    public function testTheContractIsSaidExactlyTwiceWhateverTheLeadTime(int $days): void
+    {
+        $interval = ReminderKind::CONTRACT_MISSING->repeatAfterDays($days);
+        $this->assertNotNull($interval);
+        $this->assertGreaterThan(0, $interval);
+
+        // One send when the stay comes into range, then one per elapsed
+        // interval until the arrival — which is what `claim()` does.
+        $this->assertSame(2, 1 + intdiv($days, $interval), sprintf('%d jours', $days));
+    }
+
+    /**
+     * @return array<string, array{int}>
+     */
+    public static function contractLeadTimes(): array
+    {
+        $cases = [];
+        foreach ([1, 2, 3, 4, 5, 6, 7, 10, 14, 21, 30, 60] as $days) {
+            $cases[$days . ' jours'] = [$days];
+        }
+
+        return $cases;
+    }
+
+    /**
+     * The default is untouched by the floor: fourteen days still means the
+     * second chance three days out, which is what `module.json` describes
+     * to a unit that has never changed it.
+     */
+    public function testTheDefaultLeadTimeStillPutsTheSecondChanceThreeDaysOut(): void
+    {
+        $this->assertSame(
+            11,
+            ReminderKind::CONTRACT_MISSING->repeatAfterDays(ReminderKind::CONTRACT_MISSING->defaultDays())
+        );
+    }
+
+    /**
+     * A window of zero days — « le jour même » — is the one case with a
+     * single send, because there is no second day to say it on.
+     */
+    public function testASameDayContractReminderIsSaidOnce(): void
+    {
+        $interval = ReminderKind::CONTRACT_MISSING->repeatAfterDays(0);
+
+        $this->assertSame(1, $interval);
+        $this->assertSame(1, 1 + intdiv(0, $interval));
     }
 }
