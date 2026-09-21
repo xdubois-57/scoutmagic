@@ -631,11 +631,17 @@ class MailTransportChainTest extends TestCase
      * branch that holds it had never been executed: removing its
      * `try`/`catch` entirely left 1 149 mail tests green.
      *
-     * The failure is real rather than simulated — the table the counter
-     * writes to is taken away underneath it, so the repository throws the
-     * PDOException it would throw in production. `SendCounterRepository`
-     * is final, and a double here would be the thing this chantier spends
-     * its §3 on: a stand-in that no longer resembles the subject.
+     * The failure is real rather than simulated — a trigger on the table
+     * the counter writes to refuses the insert while leaving reads
+     * working, so the repository throws the PDOException it would throw
+     * in production. `SendCounterRepository` is final, and a double here
+     * would be the thing this chantier spends its §3 on: a stand-in that
+     * no longer resembles the subject.
+     *
+     * **Not by dropping the table**, which was the first attempt and is
+     * the reason the trigger is there: the quota is read BEFORE the send,
+     * so a missing table makes the lane get skipped and the test proves
+     * nothing about the counter at all.
      */
     public function testACounterThatCannotBeWrittenDoesNotFailTheDeliveredMessage(): void
     {
@@ -658,9 +664,9 @@ class MailTransportChainTest extends TestCase
             'The message was handed to the relay, so the send must be reported as the success it was.'
         );
 
-        $journalled = $this->pdo
-            ->query("SELECT event_type FROM event_log WHERE category = 'core'")
-            ->fetchAll(\PDO::FETCH_COLUMN);
+        $statement = $this->pdo->prepare('SELECT event_type FROM event_log WHERE category = ?');
+        $statement->execute(['core']);
+        $journalled = $statement->fetchAll(\PDO::FETCH_COLUMN);
         $this->assertContains(
             'mail_send_counter_failed',
             $journalled,
