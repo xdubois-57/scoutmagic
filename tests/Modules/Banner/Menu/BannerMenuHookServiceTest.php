@@ -73,7 +73,7 @@ final class BannerMenuHookServiceTest extends TestCase
         $this->assertSame('Bannière', $entry->label);
         $this->assertSame('/config/banner', $entry->url);
         $this->assertSame(MenuBuilder::MENU_ESPACE_ADMIN, $entry->menuId);
-        $this->assertSame('contenu', $entry->menuGroup);
+        $this->assertSame('communication', $entry->menuGroup);
         $this->assertSame('admin', $entry->roleMin);
     }
 

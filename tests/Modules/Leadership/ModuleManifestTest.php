@@ -38,7 +38,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.1.3', $this->manifest->version);
+        $this->assertSame('1.1.4', $this->manifest->version);
     }
 
     /**
@@ -80,9 +80,14 @@ class ModuleManifestTest extends TestCase
         $this->assertSame('Encadrement', $labelled[0]['label']);
         // AGENTS.md: a labelled route names the mega-menu column it is
         // drawn in. Without one it fell into the untitled remainder of
-        // « Espace chefs d'U » — a module about following the staff, next
-        // to nothing, while « Suivi » stood right beside it.
-        $this->assertSame('suivi', $labelled[0]['menu_group']);
+        // « Espace chefs d'U », next to nothing at all.
+        //
+        // It now sits under « Membres et année » rather than « Suivi »:
+        // the reorganisation narrowed « Suivi » to what is going wrong
+        // right now — points d'attention, journal — and encadrement is
+        // about who staffs the unit this year, beside Membres and Année
+        // scoute.
+        $this->assertSame('membres_annee', $labelled[0]['menu_group']);
     }
 
     /**

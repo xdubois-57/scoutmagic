@@ -26,12 +26,18 @@ use Core\View\MenuBuilder;
 class RetroMenuHookService extends UnitChiefMenuHook
 {
     /**
-     * Where this entry sits in « Espace chefs d'U › Services », on the one
-     * scale every entry of that column shares: core and module entries
-     * have the same sort rank, so this number competes with the core pages
-     * beside it rather than only with other modules.
+     * Where this entry sits in « Espace chefs d'U › Communication », on
+     * the one scale every entry of that column shares: core and module
+     * entries have the same sort rank, so this number competes with the
+     * core pages beside it rather than only with other modules.
+     *
+     * It used to sit in « Services », which had become the column for
+     * whatever fitted nowhere else. Setting up a retrospective board is
+     * asking a staff to speak, so it belongs with Communication; the
+     * « Services de l'unité » column now means what its name says — the
+     * hall, the emergency phone.
      */
-    private const CONFIG_ORDER = 90;
+    private const CONFIG_ORDER = 120;
 
     protected function entry(): MenuEntry
     {
@@ -45,7 +51,7 @@ class RetroMenuHookService extends UnitChiefMenuHook
             null,
             MenuBuilder::SORT_GROUP_MODULE,
             'bi-sticky',
-            'services'
+            'communication'
         );
     }
 }

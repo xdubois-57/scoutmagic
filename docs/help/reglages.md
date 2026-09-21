@@ -35,7 +35,7 @@ simple champ ne suffirait pas à en expliquer les conséquences :
   page « Installation & serveur » ;
 - les mises à jour automatiques et les sauvegardes : page
   « Maintenance » ;
-- les statistiques d'utilisation : page « Support » ;
+- les statistiques d'utilisation : page « Diagnostic » ;
 - l'activation des fonctions du site : page « Modules ».
 
 Les valeurs secrètes (mots de passe, clés) n'apparaissent jamais sur

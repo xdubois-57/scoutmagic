@@ -58,7 +58,7 @@ class ConfigBreadcrumbRoutesTest extends TestCase
             '/config/modules' => ['/config/modules', 'Modules'],
             '/config/badges' => ['/config/badges', 'Badges'],
             '/config/functions' => ['/config/functions', 'Correspondances Desk'],
-            '/config/settings' => ['/config/settings', 'Réglages'],
+            '/config/settings' => ['/config/settings', 'Paramètres'],
             '/config/rgpd' => ['/config/rgpd', 'RGPD'],
             '/config/scheduled' => ['/config/scheduled', 'Actions planifiées'],
             '/config/maintenance' => ['/config/maintenance', 'Maintenance'],

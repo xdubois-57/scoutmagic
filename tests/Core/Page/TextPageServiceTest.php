@@ -134,8 +134,8 @@ class TextPageServiceTest extends TestCase
         $this->expectException(TextPageException::class);
         $this->expectExceptionMessage("Cette colonne n'existe pas dans cette section.");
 
-        // 'gestion' is a column of Espace animateurs, never of Configuration.
-        $this->service->create('Page', 'Page', MenuBuilder::MENU_CONFIGURATION, 'gestion');
+        // 'argent' is a column of Espace animateurs, never of Configuration.
+        $this->service->create('Page', 'Page', MenuBuilder::MENU_CONFIGURATION, 'argent');
     }
 
     public function testTheOneSectionWithoutColumnsRefusesAColumn(): void
@@ -265,7 +265,7 @@ class TextPageServiceTest extends TestCase
         $first = $this->service->create('A', 'A', MenuBuilder::MENU_NOTRE_UNITE, null);
         $second = $this->service->create('B', 'B', MenuBuilder::MENU_NOTRE_UNITE, null);
         // A different menu counts its own order from scratch.
-        $other = $this->service->create('C', 'C', MenuBuilder::MENU_ESPACE_ANIMES, 'pages');
+        $other = $this->service->create('C', 'C', MenuBuilder::MENU_ESPACE_ANIMES, 'unite');
 
         $this->assertSame(0, $first->sortOrder);
         $this->assertSame(1, $second->sortOrder);

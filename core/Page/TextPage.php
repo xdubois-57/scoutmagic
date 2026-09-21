@@ -94,10 +94,46 @@ final class TextPage
         return MenuBuilder::roleMinFor($this->menuId);
     }
 
+    /**
+     * Columns that were renamed by the menu reorganisation, old id to new.
+     *
+     * **Why this is not a migration.** `schema/` describes a desired
+     * STRUCTURE — core.sql is compared against the live schema, drops.sql
+     * only drops — so an `UPDATE text_pages SET menu_group = …` has
+     * nowhere to live in this repository, and inventing a data-migration
+     * mechanism for four strings would be the larger change.
+     *
+     * Reading it here instead is not a workaround, it is the safer half
+     * of the trade. `fromRow()` is the single point every page is
+     * hydrated through, so nothing downstream ever sees an old id: in
+     * particular TextPageMenuProvider::placementIsStillValid() never sees
+     * an orphan, and an orphan is silent — a page whose column no longer
+     * exists simply stops being placed where its author put it, with
+     * nothing said to anybody. It is also idempotent and order-free,
+     * where a one-shot UPDATE is neither.
+     *
+     * A row is only ever WRITTEN with a current id: the configuration
+     * form validates against MenuBuilder::MENU_GROUPS. This map is
+     * therefore read-only compatibility for rows written before the
+     * reorganisation, and it stays until nothing can still hold one.
+     *
+     * @var array<string, string>
+     */
+    private const RENAMED_GROUPS = [
+        'pages' => 'unite',
+        'gestion' => 'argent',
+        'contenu' => 'communication',
+        'exploitation' => 'etat_du_site',
+    ];
+
     /** @param array<string, mixed> $row */
     public static function fromRow(array $row): self
     {
         $group = $row['menu_group'] ?? null;
+
+        if (is_string($group) && isset(self::RENAMED_GROUPS[$group])) {
+            $group = self::RENAMED_GROUPS[$group];
+        }
 
         return new self(
             id: (int) $row['id'],

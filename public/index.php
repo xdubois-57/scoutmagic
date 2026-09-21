@@ -4093,7 +4093,7 @@ $router->addRoute(
     \Core\Http\Controller\EmailTemplateController::class,
     'index',
     'superadmin',
-    ['label' => 'E-mails', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+    ['label' => "Modèles d'e-mails", 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
 );
 $router->addRoute(
     'GET',
@@ -4102,7 +4102,7 @@ $router->addRoute(
     'edit',
     'superadmin',
     ['label' => 'Email', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
-        'ancestors' => [['label' => 'E-mails', 'path' => '/config/emails']]]
+        'ancestors' => [['label' => "Modèles d'e-mails", 'path' => '/config/emails']]]
 );
 $router->addRoute(
     'POST',
@@ -4942,7 +4942,7 @@ $router->addRoute(
     SettingsController::class,
     'index',
     'superadmin',
-    ['label' => 'Réglages', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+    ['label' => 'Paramètres', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
 );
 $router->addRoute('POST', '/config/settings/update', SettingsController::class, 'update', 'superadmin');
 $router->addRoute('POST', '/config/settings/logo-delete', SettingsController::class, 'deleteLogo', 'superadmin');
@@ -4961,7 +4961,7 @@ $router->addRoute(
     SupportController::class,
     'index',
     'superadmin',
-    ['label' => 'Support', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+    ['label' => 'Diagnostic', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
 );
 
 // Synchronisation des contacts (Core\Contact\Device, ARCHITECTURE.md
@@ -5456,7 +5456,7 @@ $router->addRoute(
     StaffsController::class,
     'index',
     'intendant',
-    ['label' => 'Staffs', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_CHEFS)]],
+    ['label' => 'Staffs et badges', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_CHEFS)]],
 );
 $router->addRoute('POST', '/chefs/staffs/badge-toggle', StaffsController::class, 'toggleBadge', 'chief');
 $router->addRoute(
@@ -5465,7 +5465,7 @@ $router->addRoute(
     \Core\Http\Controller\SectionRosterController::class,
     'index',
     'intendant',
-    ['label' => 'Membres par section', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_CHEFS)]],
+    ['label' => 'Animés de la section', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_CHEFS)]],
 );
 $router->addRoute(
     'GET',

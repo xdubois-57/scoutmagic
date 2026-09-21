@@ -38,7 +38,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.4.3', $this->manifest->version);
+        $this->assertSame('1.4.4', $this->manifest->version);
     }
 
     /**
@@ -66,7 +66,11 @@ class ModuleManifestTest extends TestCase
         $this->assertCount(1, $labelled);
         $this->assertSame('/admin/fees', $labelled[0]['path']);
         $this->assertSame('Cotisations', $labelled[0]['label']);
-        $this->assertSame('suivi', $labelled[0]['menu_group']);
+        // What a family owes is an effectifs question before it is a
+        // monitoring one: it sits with the enrolment cycle — réinscriptions,
+        // passages, formulaire d'inscription — because that is the order in
+        // which a chef d'unité actually lives the year.
+        $this->assertSame('effectifs', $labelled[0]['menu_group']);
     }
 
     /**

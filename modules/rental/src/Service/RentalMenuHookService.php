@@ -41,15 +41,20 @@ use Modules\Rental\Repository\RentalAssetRepository;
 class RentalMenuHookService implements MenuEntryProvider
 {
     /**
-     * Where both of this module's contributed entries sit — « Locations »
-     * in « Notre unité », « Mes locations » in « Espace membres › Pages »
-     * — on the one scale every entry of those menus shares. Core and
-     * module entries have the same sort rank, so this number competes with
-     * the core pages beside them rather than only with other modules. One
-     * constant for two menus because they happen to want the same place;
-     * split it the day they stop.
+     * Where each contributed entry sits on the one scale every entry of
+     * its menu shares. Core and module entries have the same sort rank,
+     * so these numbers compete with the core pages beside them rather
+     * than only with other modules.
+     *
+     * One constant used to serve both, because they happened to want the
+     * same place. The menu reorganisation is the day they stopped:
+     * « Locations » sits between « Calendrier » and « Contact » in the
+     * public menu, while « Mes locations » moved into « Mes membres »,
+     * right after « Notifications » — it is one of the few pages that is
+     * about the reader rather than about the unit.
      */
-    private const INDEX_ORDER = 50;
+    private const PUBLIC_INDEX_ORDER = 60;
+    private const MY_RENTALS_ORDER = 20;
 
     public function __construct(
         private RentalAssetRepository $assetRepository,
@@ -72,7 +77,7 @@ class RentalMenuHookService implements MenuEntryProvider
                 'Locations',
                 '/locations',
                 'public',
-                self::INDEX_ORDER,
+                self::PUBLIC_INDEX_ORDER,
                 false,
                 null,
                 MenuBuilder::SORT_GROUP_MODULE,
@@ -89,12 +94,12 @@ class RentalMenuHookService implements MenuEntryProvider
                 'Mes locations',
                 '/mes-locations',
                 'identified',
-                self::INDEX_ORDER,
+                self::MY_RENTALS_ORDER,
                 false,
                 null,
                 MenuBuilder::SORT_GROUP_MODULE,
                 'bi-key',
-                'pages'
+                'mes_membres'
             );
         }
 

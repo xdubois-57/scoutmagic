@@ -1,5 +1,5 @@
 {% extends 'base.html.twig' %}
-{% block title %}Prévisions — {{ site_name }}{% endblock %}
+{% block title %}Prévisions d'effectifs — {{ site_name }}{% endblock %}
 
 {% block content %}
     <div class="page-wide">
@@ -8,7 +8,7 @@
            that one year, and reading it first is what makes every figure
            below mean something. #}
         {% include 'partials/page_header.html.twig' with {
-            title: 'Prévisions',
+            title: "Prévisions d'effectifs",
             badge: target_year_label,
             subtitle: "Effectif projeté pour l'année " ~ target_year_label ~ " — toujours calculé sur l'année publique + 1, quelle
                 que soit l'année actuellement prévisualisée. Combine ce qui est déjà encodé dans Desk (certain), les

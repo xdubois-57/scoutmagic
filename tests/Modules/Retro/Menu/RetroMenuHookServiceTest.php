@@ -89,7 +89,7 @@ final class RetroMenuHookServiceTest extends TestCase
         $this->assertSame('Rétrospective', $entry->label);
         $this->assertSame('/config/retro', $entry->url);
         $this->assertSame(MenuBuilder::MENU_ESPACE_ADMIN, $entry->menuId);
-        $this->assertSame('services', $entry->menuGroup);
+        $this->assertSame('communication', $entry->menuGroup);
         $this->assertSame('admin', $entry->roleMin);
     }
 

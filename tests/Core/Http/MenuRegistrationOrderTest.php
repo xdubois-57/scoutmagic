@@ -25,16 +25,41 @@ use PHPUnit\Framework\TestCase;
  * grouped by column. Both halves of that check now live somewhere
  * better: `testNoTwoConfigurationEntriesShareAnOrderNumber` below catches
  * the duplicate order it was really guarding against, and
- * `Tests\Core\View\Menu\MenuSnapshotTest` renders every menu for every
- * role through the real builder.
+ * `Tests\Core\View\Menu\MenuMaquetteTest` renders every menu for every
+ * role through the real builder and compares it to the mockup this
+ * reorganisation was designed from.
  */
 class MenuRegistrationOrderTest extends TestCase
 {
+    /**
+     * A PHP string literal in either quote style.
+     *
+     * **Both, because a label containing an apostrophe cannot use the
+     * first.** Reading only `'…'` made this test blind to every entry
+     * written `"Points d'attention"` — and it was: that page has been
+     * registered in the Configuration-adjacent block for a long time and
+     * never appeared in a single expectation here, because the pattern
+     * could not see it. Nothing failed; the list simply described less of
+     * the file than it seemed to. Tests\Core\View\Menu\MenuInventory
+     * accepts both for the same reason.
+     */
+    private const PHP_STRING = '((?:\'(?:[^\'\\\\]|\\\\.)*\')|(?:"(?:[^"\\\\]|\\\\.)*"))';
+
     private string $indexPhp;
 
     protected function setUp(): void
     {
         $this->indexPhp = (string) file_get_contents(dirname(__DIR__, 3) . '/public/index.php');
+    }
+
+    /** The text of a PHP single- or double-quoted literal, unescaped. */
+    private static function decode(string $literal): string
+    {
+        $body = substr($literal, 1, -1);
+
+        return $literal[0] === '"'
+            ? str_replace(['\\"', '\\\\'], ['"', '\\'], $body)
+            : str_replace(["\\'", '\\\\'], ["'", '\\'], $body);
     }
 
     /**
@@ -43,12 +68,12 @@ class MenuRegistrationOrderTest extends TestCase
     private function addPageLabelsForMenu(string $menuConstant): array
     {
         preg_match_all(
-            '/\$menuBuilder->addPage\(\s*MenuBuilder::' . preg_quote($menuConstant, '/') . ',\s*\'([^\']+)\'/',
+            '/\$menuBuilder->addPage\(\s*MenuBuilder::' . preg_quote($menuConstant, '/') . ',\s*' . self::PHP_STRING . '/',
             $this->indexPhp,
             $matches
         );
 
-        return $matches[1];
+        return array_map(self::decode(...), $matches[1]);
     }
 
     /**
@@ -68,7 +93,7 @@ class MenuRegistrationOrderTest extends TestCase
     {
         preg_match_all(
             '/\$menuBuilder->addPage\(\s*MenuBuilder::' . preg_quote($menuConstant, '/')
-                . ',\s*\'([^\']+)\',\s*\'[^\']*\',\s*\'[^\']*\',\s*(\d+)/',
+                . ',\s*' . self::PHP_STRING . ',\s*\'[^\']*\',\s*\'[^\']*\',\s*(\d+)/',
             $this->indexPhp,
             $matches,
             PREG_SET_ORDER
@@ -77,7 +102,7 @@ class MenuRegistrationOrderTest extends TestCase
         /** @var list<array{string, int}> $entries */
         $entries = [];
         foreach ($matches as $match) {
-            $entries[] = [$match[1], (int) $match[2]];
+            $entries[] = [self::decode($match[1]), (int) $match[2]];
         }
 
         usort($entries, static fn (array $a, array $b): int => $a[1] <=> $b[1]);
@@ -90,7 +115,7 @@ class MenuRegistrationOrderTest extends TestCase
         $labels = $this->addPageLabelsForMenu('MENU_ESPACE_ADMIN');
 
         $this->assertSame(
-            ['Édition du site', 'Import Desk', 'Membres', 'Année scoute', 'Journal'],
+            ['Édition du site', 'Import Desk', "Points d'attention", 'Membres', 'Année scoute', 'Journal'],
             $labels
         );
     }
@@ -102,9 +127,9 @@ class MenuRegistrationOrderTest extends TestCase
         $this->assertSame('Installation & serveur', $labels[0]);
         $this->assertSame(
             [
-                'Modules', 'Pages de texte', 'Badges', 'Correspondances Desk', 'Réglages', 'RGPD',
+                'Modules', 'Pages de texte', 'Badges', 'Correspondances Desk', 'Paramètres', 'RGPD',
                 'Actions planifiées', 'Comptes superadmin', 'Maintenance', 'Notifications',
-                'E-mails', 'Courrier sortant', 'Stockage', 'Support',
+                "Modèles d'e-mails", 'Courrier sortant', 'Stockage', 'Diagnostic',
                 'Synchronisation des contacts',
             ],
             array_slice($labels, 1)

@@ -48,7 +48,7 @@ l'écart, le dernier est tout de même essayé.
 
 Quand aucun fournisseur d'une voie ne peut prendre un message, il est mis
 de côté et réessayé — dans cinq minutes, puis de plus en plus tard,
-pendant la durée fixée dans « Réglages ». La page en donne le compte.
+pendant la durée fixée dans « Paramètres ». La page en donne le compte.
 
 Un report n'est pas un silence : la personne qui a cliqué sur « Envoyer »
 a vu un envoi réussi. Tant que la file ne se vide pas, ces messages ne

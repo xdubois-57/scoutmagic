@@ -368,7 +368,7 @@ test('the whole site transitions to the next scout year through the documented w
     // ---------------------------------------------------------------
     await expect(previewForm.getByRole('button', { name: 'Prévisualiser' })).toBeEnabled();
     await expect(staffForm.getByRole('button', { name: 'Activer pour le staff' })).toBeEnabled();
-    await expect(step(page, 'departures').getByRole('link', { name: 'Aller aux Départs' })).toBeVisible();
+    await expect(step(page, 'departures').getByRole('link', { name: "Aller aux départs de l'unité" })).toBeVisible();
 
     // The one real gate: the public year cannot move before a staff year
     // exists. The page says so in words as well as through the control.

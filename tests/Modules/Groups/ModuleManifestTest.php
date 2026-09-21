@@ -44,7 +44,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.17.3', $this->manifest->version);
+        $this->assertSame('1.17.4', $this->manifest->version);
     }
 
     /**
@@ -124,7 +124,9 @@ class ModuleManifestTest extends TestCase
 
         $this->assertCount(1, $labelled);
         $this->assertSame('/groups', $labelled[0]['path']);
-        $this->assertSame('Groupes', $labelled[0]['label']);
+        // « Groupes » evoked the sections rather than the conversations
+        // the page actually holds; the menu reorganisation renamed it.
+        $this->assertSame('Discussions', $labelled[0]['label']);
     }
 
     public function testTheLiteralArchivesRouteIsDeclaredBeforeTheIdWildcard(): void

@@ -315,18 +315,18 @@ class ScoutYearTransitionService
                 'key' => 'departures',
                 'phase' => self::PHASE_PREPARATION,
                 'title' => "Indiquer les animés qui se désinscrivent en {$targetLabel}",
-                'description' => "Chaque staff coche, sur la page Départs, les animés de sa section qui ne "
+                'description' => "Chaque staff coche, sur la page Départs de l'unité, les animés de sa section qui ne "
                     . "reviendront pas en {$targetLabel}. Le repérage se remet à zéro tout seul au prochain import "
                     . "Desk — il n'y a jamais rien à effacer d'une année à l'autre.",
                 'auto_done' => null,
                 'action_url' => '/departs',
-                'action_label' => 'Aller aux Départs',
+                'action_label' => "Aller aux départs de l'unité",
             ],
             [
                 'key' => 'passage',
                 'phase' => self::PHASE_PREPARATION,
                 'title' => 'Indiquer la section des animés qui changent de branche',
-                'description' => "Sur la page Passage, choisissez la section d'arrivée de chaque animé qui quitte sa "
+                'description' => "Sur la page Passages de branche, choisissez la section d'arrivée de chaque animé qui quitte sa "
                     . "branche en {$targetLabel}.",
                 'auto_done' => $this->passageDone(),
                 'progress' => $this->passageProgress(),
@@ -363,9 +363,9 @@ class ScoutYearTransitionService
                     . "site : cochez-la vous-même une fois faite.",
                 'note' => "Une fois l'import fait (étape suivante), les animateurs peuvent se fier à la "
                     . "prévisualisation de {$targetLabel} et télécharger la liste des membres {$targetLabel} depuis "
-                    . "« Membres par section ». Cette liste permet déjà de communiquer avec les familles par email.",
+                    . "« Animés de la section ». Cette liste permet déjà de communiquer avec les familles par email.",
                 'note_url' => '/chefs/membres',
-                'note_label' => 'Aller aux membres par section',
+                'note_label' => 'Aller aux animés de la section',
                 'auto_done' => null,
             ],
             [
@@ -425,20 +425,20 @@ class ScoutYearTransitionService
                 'phase' => self::PHASE_SITE,
                 'title' => 'Encoder les badges (trésorier·e, infirmier·e, référent·e·s…)',
                 'description' => "Attribuez les badges transversaux de {$targetLabel} aux membres du staff, depuis "
-                    . "la page Staffs.",
+                    . "la page Staffs et badges.",
                 'auto_done' => null,
                 'action_url' => '/chefs/staffs',
-                'action_label' => 'Aller aux staffs',
+                'action_label' => 'Aller aux staffs et badges',
             ],
             [
                 'key' => 'trombinoscope',
                 'phase' => self::PHASE_SITE,
                 'title' => 'Mettre à jour le trombinoscope',
-                'description' => "Le trombinoscope se reconstruit tout seul à partir de l'import Desk : vérifiez les "
+                'description' => "La page « Les animateurs » se reconstruit toute seule à partir de l'import Desk : vérifiez les "
                     . "photos et les responsables de section pour {$targetLabel}.",
                 'auto_done' => null,
                 'action_url' => '/trombinoscope',
-                'action_label' => 'Aller au trombinoscope',
+                'action_label' => 'Aller aux animateurs',
             ],
             [
                 'key' => 'staff_photos',
@@ -449,7 +449,7 @@ class ScoutYearTransitionService
                 'auto_done' => $this->staffPhotosDone($target),
                 'progress' => $this->staffPhotosProgress($target),
                 'action_url' => '/chefs/staffs',
-                'action_label' => 'Aller aux staffs',
+                'action_label' => 'Aller aux staffs et badges',
             ],
             [
                 'key' => 'activate_public',

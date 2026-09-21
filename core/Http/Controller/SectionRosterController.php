@@ -127,7 +127,7 @@ class SectionRosterController extends AbstractController
             )),
         ];
         if ($selectedLabel !== null) {
-            $context['breadcrumb_current'] = 'Membres par section · ' . $selectedLabel;
+            $context['breadcrumb_current'] = 'Animés de la section · ' . $selectedLabel;
         }
 
         return $this->render('chefs/section_roster.html.twig', $context);

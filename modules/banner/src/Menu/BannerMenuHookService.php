@@ -25,12 +25,16 @@ use Core\View\MenuBuilder;
 class BannerMenuHookService extends UnitChiefMenuHook
 {
     /**
-     * Where this entry sits in « Espace chefs d'U › Contenu du site », on
+     * Where this entry sits in « Espace chefs d'U › Communication », on
      * the one scale every entry of that column shares: core and module
      * entries have the same sort rank, so this number competes with the
      * core pages beside it rather than only with other modules.
+     *
+     * The column « Contenu du site » it used to sit in is gone: a banner
+     * is something the unit says to its visitors, which is what the
+     * Communication column now gathers.
      */
-    private const CONFIG_ORDER = 80;
+    private const CONFIG_ORDER = 110;
 
     protected function entry(): MenuEntry
     {
@@ -44,7 +48,7 @@ class BannerMenuHookService extends UnitChiefMenuHook
             null,
             MenuBuilder::SORT_GROUP_MODULE,
             'bi-megaphone',
-            'contenu'
+            'communication'
         );
     }
 }

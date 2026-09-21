@@ -67,7 +67,7 @@ test('config desk auto-saves roles and sections, and a role change reaches the m
 
         // As provisioned: `identified` stops at the intendant boundary.
         await memberPage.goto('/chefs/staffs', { waitUntil: 'domcontentloaded' });
-        await expect(memberPage.getByRole('heading', { level: 1, name: 'Staffs' })).toHaveCount(0);
+        await expect(memberPage.getByRole('heading', { level: 1, name: 'Staffs et badges' })).toHaveCount(0);
 
         // ---------------------------------------------------------------
         // Promote the member's function ('Animé', E2E-FCT) to intendant —
@@ -83,7 +83,7 @@ test('config desk auto-saves roles and sections, and a role change reaches the m
         // The member's NEXT request already carries the new role: the
         // intendant page opens, without any re-login.
         await memberPage.goto('/chefs/staffs', { waitUntil: 'domcontentloaded' });
-        await expect(memberPage.getByRole('heading', { level: 1, name: 'Staffs' })).toBeVisible();
+        await expect(memberPage.getByRole('heading', { level: 1, name: 'Staffs et badges' })).toBeVisible();
 
         // ---------------------------------------------------------------
         // And back. The demotion lands on the next click just as fast.
@@ -94,7 +94,7 @@ test('config desk auto-saves roles and sections, and a role change reaches the m
 
         await memberPage.goto('/chefs/staffs', { waitUntil: 'domcontentloaded' });
         await expect(
-            memberPage.getByRole('heading', { level: 1, name: 'Staffs' }),
+            memberPage.getByRole('heading', { level: 1, name: 'Staffs et badges' }),
             'a demotion must not wait for the session to expire',
         ).toHaveCount(0);
     } finally {

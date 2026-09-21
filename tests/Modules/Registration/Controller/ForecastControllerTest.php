@@ -83,7 +83,7 @@ class ForecastControllerTest extends TestCase
         $response = $this->controller->index(new Request('GET', '/previsions', [], [], [], []), []);
 
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertStringContainsString('Prévisions', $response->getBody());
+        $this->assertStringContainsString('Prévisions d&#039;effectifs', $response->getBody());
         $this->assertStringContainsString('2027-2028', $response->getBody()); // target year label
     }
 
@@ -97,7 +97,7 @@ class ForecastControllerTest extends TestCase
         $body = $this->controller->index(new Request('GET', '/previsions', [], [], [], []), [])->getBody();
 
         $this->assertMatchesRegularExpression(
-            '#<h1[^>]*>Prévisions</h1>\s*<span class="badge text-bg-secondary">2027-2028</span>#',
+            '#<h1[^>]*>Prévisions d&\#039;effectifs</h1>\s*<span class="badge text-bg-secondary">2027-2028</span>#',
             $body
         );
     }
