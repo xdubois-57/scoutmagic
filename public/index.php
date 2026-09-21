@@ -3646,7 +3646,7 @@ scoutmagicBootstrapScheduler(
 // Modules\LlmConnector\Task\RefreshModelsHandler's weekly refresh, since
 // Core\Scheduler has no first-class recurring-task concept), but the very
 // first occurrence needs an initial nudge.
-$schedulerService->rearm('core', 'auto_backup', 'auto', new DateTimeImmutable());
+$schedulerService->seed('core', 'auto_backup', 'auto', new DateTimeImmutable());
 
 // Bootstrap the daily operational pass (Core\Alert\Task\
 // RunOperationalChecksHandler). seed(), not rearm(): this line runs on
@@ -3701,7 +3701,7 @@ $schedulerService->seed(
 
 // Same bootstrap for the notification retention purge (Core\Notification\
 // Task\PurgeNotificationsHandler).
-$schedulerService->rearm(
+$schedulerService->seed(
     'core',
     'purge_notifications',
     \Core\Notification\Task\PurgeNotificationsHandler::REFERENCE,
@@ -3712,11 +3712,11 @@ $schedulerService->rearm(
 // (Core\Maintenance\Task\CheckStableUpdateHandler) — the very first
 // occurrence runs immediately, then it self-reschedules for 01:00 +
 // jitter every day after that.
-$schedulerService->rearm('core', 'check_stable_update', 'daily', new DateTimeImmutable());
+$schedulerService->seed('core', 'check_stable_update', 'daily', new DateTimeImmutable());
 
 // Same bootstrap for the human-check rate-limit purge (Core\Security\
 // HumanCheck\Task\PurgeHumanCheckRateLimitsHandler).
-$schedulerService->rearm(
+$schedulerService->seed(
     'core',
     'purge_human_check_rate_limits',
     \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::REFERENCE,
@@ -3726,7 +3726,7 @@ $schedulerService->rearm(
 // Same bootstrap for the sent-mail claim purge (Core\Mail\Task\
 // PurgeSentEmailClaimsHandler): the replay guards of the background
 // e-mail handlers, once their own occurrence is long past.
-$schedulerService->rearm(
+$schedulerService->seed(
     'core',
     \Core\Mail\Task\PurgeSentEmailClaimsHandler::TASK_KEY,
     \Core\Mail\Task\PurgeSentEmailClaimsHandler::REFERENCE,
@@ -3759,7 +3759,7 @@ $schedulerService->seed(
 // Same bootstrap for the help assistant's own purge (Core\Help\Assistant\
 // Task\PurgeHelpAssistantHandler): rate-limit rows past the quota window
 // and cached answers no running version can still reach.
-$schedulerService->rearm(
+$schedulerService->seed(
     'core',
     \Core\Help\Assistant\Task\PurgeHelpAssistantHandler::TASK_KEY,
     \Core\Help\Assistant\Task\PurgeHelpAssistantHandler::REFERENCE,
@@ -3771,7 +3771,7 @@ $schedulerService->rearm(
 // every guard it can trip (reporting disabled, non-public host, this site
 // IS the receiver) is checked inside the handler, so seeding it here costs
 // nothing on an installation that will never actually report.
-$schedulerService->rearm(
+$schedulerService->seed(
     'core',
     \Core\Statistics\Task\SendStatisticsHandler::TASK_KEY,
     \Core\Statistics\Task\SendStatisticsHandler::REFERENCE,
@@ -3782,7 +3782,7 @@ $schedulerService->rearm(
 // Task\PurgeSupportPackagesHandler) — the archive is the most sensitive
 // artefact this codebase produces on demand, so the purge must be running
 // from the first boot, not from the first generation.
-$schedulerService->rearm(
+$schedulerService->seed(
     'core',
     \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY,
     \Core\Support\Task\PurgeSupportPackagesHandler::REFERENCE,
@@ -3794,7 +3794,7 @@ $schedulerService->rearm(
 // retention hung off the next import would keep its RGPD promise only
 // while the unit keeps importing, and a unit that stops importing is
 // exactly the one whose kept CSVs should stop being kept.
-$schedulerService->rearm(
+$schedulerService->seed(
     'core',
     \Core\Import\Task\PurgeImportsHandler::TASK_KEY,
     \Core\Import\Task\PurgeImportsHandler::REFERENCE,
@@ -5935,7 +5935,7 @@ if ($isEnabled('usage_stats')) {
         \Modules\UsageStats\Task\PurgePageViewsHandler::TASK_KEY =>
             \Modules\UsageStats\Task\PurgePageViewsHandler::REFERENCE,
     ] as $usageTaskKey => $usageTaskReference) {
-        $schedulerService->rearm('usage_stats', $usageTaskKey, $usageTaskReference, new DateTimeImmutable());
+        $schedulerService->seed('usage_stats', $usageTaskKey, $usageTaskReference, new DateTimeImmutable());
     }
 }
 
@@ -8540,7 +8540,7 @@ if ($isEnabled('mass_mail')) {
     // Bootstrap the daily mail-merge audience retention purge (Task\
     // PurgeMergeAudiencesHandler self-reschedules afterwards — same
     // pattern as registration's purge_registration_requests below).
-    $schedulerService->rearm('mass_mail', 'purge_merge_audiences', 'daily', new DateTimeImmutable());
+    $schedulerService->seed('mass_mail', 'purge_merge_audiences', 'daily', new DateTimeImmutable());
     $frontController->registerController(
         \Modules\MassMail\Controller\MailingListController::class,
         new \Modules\MassMail\Controller\MailingListController(
@@ -8737,7 +8737,7 @@ if ($isEnabled('news')) {
             null,
             false
         );
-        $schedulerService->rearm(
+        $schedulerService->seed(
             'news',
             \Modules\News\Task\GenerateImageVariantsHandler::TASK_KEY,
             \Modules\News\Task\GenerateImageVariantsHandler::REFERENCE,
@@ -8764,7 +8764,7 @@ if ($isEnabled('news')) {
             null,
             false
         );
-        $schedulerService->rearm(
+        $schedulerService->seed(
             'news',
             \Modules\News\Task\RealignCoverImageAccessHandler::TASK_KEY,
             \Modules\News\Task\RealignCoverImageAccessHandler::REFERENCE,
@@ -9652,7 +9652,7 @@ if ($isEnabled('support_dashboard')) {
         \Modules\SupportDashboard\Task\PurgeTicketsHandler::TASK_KEY =>
             \Modules\SupportDashboard\Task\PurgeTicketsHandler::REFERENCE,
     ] as $supportTaskKey => $supportTaskReference) {
-        $schedulerService->rearm('support_dashboard', $supportTaskKey, $supportTaskReference, new DateTimeImmutable());
+        $schedulerService->seed('support_dashboard', $supportTaskKey, $supportTaskReference, new DateTimeImmutable());
     }
 }
 
@@ -9692,7 +9692,7 @@ if ($isEnabled('test_tools')) {
         \Modules\TestTools\Task\PurgeCapturedEmailsHandler::TASK_KEY =>
             \Modules\TestTools\Task\PurgeCapturedEmailsHandler::REFERENCE,
     ] as $testToolsTaskKey => $testToolsTaskReference) {
-        $schedulerService->rearm('test_tools', $testToolsTaskKey, $testToolsTaskReference, new DateTimeImmutable());
+        $schedulerService->seed('test_tools', $testToolsTaskKey, $testToolsTaskReference, new DateTimeImmutable());
     }
 }
 
@@ -9795,15 +9795,17 @@ if ($isEnabled('camps')) {
 
     // The DAILY tasks re-arm themselves to a fixed hour, so each
     // needs seeding exactly once — on the first page load after the module
-    // is enabled. Guarded on find() rather than scheduled blindly, or every
-    // request would queue another copy.
+    // is enabled. seed() rather than scheduled blindly, or every request
+    // would queue another copy; and seed() rather than rearm(), whose
+    // guard sees `pending` only and therefore finds nothing while the
+    // chain's own row is `processing` (ARCHITECTURE.md §8.5).
     foreach ([
         [\Modules\Camps\Task\ReviewReminderHandler::TASK_KEY, \Modules\Camps\Task\ReviewReminderHandler::REFERENCE,
             'tomorrow 06:00'],
         [\Modules\Camps\Task\RefreshPlaceSummariesHandler::TASK_KEY,
             \Modules\Camps\Task\RefreshPlaceSummariesHandler::REFERENCE, 'tomorrow 05:00'],
     ] as [$campsTaskKey, $campsTaskReference, $campsTaskWhen]) {
-        $schedulerService->rearm('camps', $campsTaskKey, $campsTaskReference, $campsTaskWhen);
+        $schedulerService->seed('camps', $campsTaskKey, $campsTaskReference, $campsTaskWhen);
     }
 
     // Geocoding is the one that is NOT periodic, and seeding it like the
@@ -9815,11 +9817,13 @@ if ($isEnabled('camps')) {
     // nothing to do in two milliseconds, and a third of the event journal.
     //
     // So the condition is the work itself. countPendingGeocoding() replaces
-    // the find() that rearm() would have done anyway, and on the ordinary
+    // the find() the guard would have done anyway, and on the ordinary
     // page load — nothing to geocode — this is where the chain stops
-    // instead of restarting.
+    // instead of restarting. The arming below is seed() and not rearm()
+    // for the reason §8.5 gives: one place left to geocode and a pass
+    // already `processing` it is a live chain, not an absent one.
     if ($campsPlaceRepo->countPendingGeocoding() > 0) {
-        $schedulerService->rearm(
+        $schedulerService->seed(
             'camps',
             \Modules\Camps\Task\GeocodePlacesHandler::TASK_KEY,
             \Modules\Camps\Task\GeocodePlacesHandler::REFERENCE,
@@ -10186,7 +10190,7 @@ if ($isEnabled('retro')) {
     // occurrence needs an initial nudge. auto_close_board needs no such
     // bootstrap — it's scheduled per-board by Service\BoardService::
     // create()/update().
-    $schedulerService->rearm('retro', 'purge_rate_limits', 'daily', new DateTimeImmutable());
+    $schedulerService->seed('retro', 'purge_rate_limits', 'daily', new DateTimeImmutable());
 }
 
 // Re-registers calendar's event-facing services/controllers with the
@@ -10744,17 +10748,17 @@ if ($isEnabled('registration')) {
     // themselves hourly at the end of every run (same pattern as
     // Modules\Retro\Task\PurgeRateLimitHandler), but the very first
     // occurrence needs an initial nudge.
-    $schedulerService->rearm('registration', 'open_registration', 'poll', new DateTimeImmutable());
-    $schedulerService->rearm('registration', 'close_registration', 'poll', new DateTimeImmutable());
+    $schedulerService->seed('registration', 'open_registration', 'poll', new DateTimeImmutable());
+    $schedulerService->seed('registration', 'close_registration', 'poll', new DateTimeImmutable());
     // Same bootstrap for the daily retention purge (Task\
     // PurgeRegistrationRequestsHandler) — module-scoped handlers need no
     // manual registerHandler() call in either entry point (auto-resolved
     // via ModuleManager::getTaskHandler()), only this one-time nudge.
-    $schedulerService->rearm('registration', 'purge_registration_requests', 'daily', new DateTimeImmutable());
+    $schedulerService->seed('registration', 'purge_registration_requests', 'daily', new DateTimeImmutable());
     // Same again for the Passage auto-assignment (Task\
     // AutoAssignPassageHandler) — it used to run inside PassageController::
     // index(), i.e. a write on every GET of the page.
-    $schedulerService->rearm('registration', 'auto_assign_passage', 'hourly', new DateTimeImmutable());
+    $schedulerService->seed('registration', 'auto_assign_passage', 'hourly', new DateTimeImmutable());
 
     // Menu hook (Core\Module\MenuEntryProvider, ARCHITECTURE.md §7.4) — one
     // entry per pending registration request linked to the visitor's email.
