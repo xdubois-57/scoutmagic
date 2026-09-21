@@ -1317,17 +1317,176 @@ une copie. Même famille que la sonde de l'itération 3 qui avait vidé un
 fichier de production : un outil de vérification qui écrit dans l'arbre de
 travail doit être tenu pour dangereux.
 
-**Corrigé dans cette PR** : `specifications.md` (§4.3, §4.4, §4.5 — cinq
-lignes, dont un déplacement) et son test,
-`tests/Integration/ModuleSpecificationCoverageTest.php`
-(`testEveryMenuEntryAModuleAddsHasItsRowInSectionFour`). Les quatre
-conditions de §0.1 sont réunies, la troisième comprise : le test est rouge
-avant et vert après.
+**Les autres documents, et ce que §8 redoutait le plus.** `specifications.md`
+n'était que le premier des cinq. Les quatre autres ont subi les mêmes
+confrontations mécaniques.
 
-**Issues ouvertes** : aucune. Aucun écart de cette itération ne pose la
-question « lequel des deux a raison, le code ou la spec ? » — dans les cinq
-cas le manifeste construit le menu et le document le décrit, donc le
-document seul était en retard.
+**« Ce qui est décrit et n'existe plus » : rien.** C'est le danger que §8
+place en tête, au motif qu'un agent écrit du code contre cette description.
+Sur **734 références de classe ou d'espace de noms** citées par les cinq
+documents et `docs/quality-pipeline.md`, cinq ne résolvaient pas :
+
+| Référence | Verdict |
+|---|---|
+| `Core\Photo\PwaIconService` | la phrase **raconte le renommage** et nomme `UnitLogoService` deux lignes plus loin |
+| `Core\Photo\StaffThumbnailProcessor` | paragraphe explicitement marqué « retired » |
+| `Modules\Gallery\Service\DiskSpace` | cité au passé, « already documented why » |
+| `Tests\Architecture\PendingMigrationSelfDriveTest` | paragraphe « removed » |
+| `Core\Http\Controller\SchedulerContinuationController` | « There used to be a seventh, and its removal is worth recording » |
+
+Aucune n'est un renvoi périmé : les cinq sont la documentation faisant
+exactement ce qu'on attend d'elle, consigner ce qui a disparu et pourquoi.
+Le soupçon est levé par la vérification, et il est consigné ici parce qu'un
+comptage brut aurait produit cinq « corrections » fausses.
+
+**Les renvois entre sections, eux, ne sont pas tous bons.** Sur **766 renvois
+à une section d'`ARCHITECTURE.md`**, 765 résolvent. Le seul qui ne résout pas
+est `§7.9` — **64 occurrences dans 53 fichiers**, dont 27 dans `modules/`,
+22 dans `tests/`, 6 dans `core/`, 6 dans `public/` et 2 dans
+`ARCHITECTURE.md` lui-même. La section §7 s'arrête à §7.6.
+
+Les 64 ne divaguent pas : ils désignent tous la même règle — rien de
+personnel dans un journal ni dans ce qui s'exporte, et un contenu de
+courriel n'est sûr qu'une fois assaini. La moitié « journal » de cette règle
+*est* écrite, sous un autre numéro : §8.6 « Event journal », « No personal
+data in entries ». Un lecteur qui suit un de ces 64 renvois ne trouve rien,
+en conclut que la règle n'est pas écrite, et n'a aucune raison d'aller
+chercher §8.6 — que rien ne lui désigne.
+
+**Et §7.9 n'est pas seul.** La même confrontation appliquée aux renvois
+**internes** de chaque document — un `§X` écrit sans nom de fichier — fait
+apparaître un second foyer : **`§6.7` (33 occurrences) et `§6.14` (24)**, qui
+ne résolvent dans aucun document non plus. Leur origine est plus lisible :
+plusieurs citations disent « **module spec** §6.7 », c'est-à-dire une
+spécification propre au module locations, avec sa propre numérotation. Ce
+document n'existe plus : la spécification de `rental` est aujourd'hui
+`specifications.md` **§22**, dont les sous-sections vont de §22.1 à §22.13.
+La règle désignée s'y trouve bien — « A manual block and a letting are
+deliberately [indistinguishables] », « A visitor cannot page into the past »
+sont §22.2, et ce que le calendrier publié laisse voir est §22.8 — sous
+d'autres numéros. `SECURITY.md:760` en hérite et écrit « the boundary §6.7
+exists to enforce », dans un fichier dont le §6 s'intitule « File access » et
+n'a aucune sous-section.
+
+**121 renvois au total**, vers trois numérotations disparues, tous propagés
+par copie du commentaire voisin. Tout le reste résout : 765 sur 766 vers
+`ARCHITECTURE.md`, et les renvois internes des cinq documents une fois
+retirés ceux-là et deux renvois à des normes externes (`RFC 7489 §6.6.2`,
+`RGPD §2.10`) — que le comptage avait d'abord signalés, et qui ne sont pas
+des défauts.
+
+**Non corrigé, et déposé en #454**, parce que les deux issues possibles sont
+des arbitrages : écrire §7.9 revient à rédiger la formulation canonique
+d'une règle de protection des données dont 64 emplacements dépendent, et
+réécrire les 64 renvois vers §8.6 suppose que §8.6 couvre les deux thèmes,
+ce qu'il ne fait pas. Le test qui le détecte est écrit, rouge sur §7.9 et
+sur rien d'autre, retiré de cette PR et collé dans l'issue — c'est la
+procédure que §0.2 prévoit pour un test qui tombe sur un défaut qu'on n'a
+pas le droit de corriger.
+
+**Les chiffres de la matrice d'autorisation étaient faux partout.** Quatre
+énoncés, trois documents, rien qui les vérifie :
+
+| Où | Disait | Tient |
+|---|---|---|
+| `README.md` (tableau des profils) | 528 routes | **746** |
+| `README.md` (« rejoue les … routes ») | 528 routes | **746** |
+| `README.md` (liste des jobs) | 534 routes, 3 204 couples | **746**, **4 476** |
+| `SECURITY.md` | 528 routes × 6 rôles = 3 168 paires | **746** × 6 = **4 476** |
+| `SECURITY.md` (paramètres nommés comme un identifiant) | 209 routes | **264** |
+
+README se contredisait lui-même — 528 deux fois, 534 une fois — et aucun des
+trois nombres n'était le bon. Ce n'est pas cosmétique, et c'est la panne que
+`AuthorizationMatrixInventoryTest` existe déjà à détecter, un cran plus
+haut : son propre docblock écrit qu'« a shorter green run reads exactly like
+a complete one ». Le lecteur de ces phrases-là est précisément en train
+d'auditer la couverture ; il compare le chiffre cité à la table des routes.
+Un chiffre trop bas se lit exactement comme un trou dans la matrice.
+
+**Et un job de CI avait quitté la liste du README.** `checks.yml` en définit
+huit ; la section « Intégration continue » n'en nommait que sept.
+L'absent était `database-mariadb` — celui-là même dont le rôle est de
+séparer une divergence de moteur de tout le reste. Le job tournait sur
+chaque PR pendant ce temps : c'est l'inventaire qui était court, ce qui est
+la direction dangereuse.
+
+**Mutations tentées** (second lot), chacune prouvée appliquée par
+comparaison de fichiers avant verdict :
+
+- **Retirer la puce `database-mariadb`** → rouge, sur elle seule.
+- **Ajouter un job au workflow** → rouge, en le nommant.
+- **Renommer une puce** (`security` → `securite`) → rouge.
+- **Ajouter une puce pour un job inexistant** → rouge, par l'autre
+  direction du test.
+
+Les chiffres, eux, ont été rendus rouges d'un coup : le test les a tous les
+sept dénoncés avant correction, ce qui est la preuve qu'il les lit et ne les
+suppose pas.
+
+**Ce que ces deux tests coûtent, et pourquoi c'est le bon prix.** Ajouter une
+route rend `testTheFiguresTheDocumentationQuotesAreTheInventorysOwn` rouge ;
+ajouter un job rend `EveryCiJobIsDocumentedTest` rouge. C'est l'intention :
+le nombre dans la prose fait partie du changement qui ajoute la route, et le
+message d'échec nomme la phrase à corriger. La solution de rechange est
+celle qu'on vient de constater — quatre chiffres faux pendant assez
+longtemps pour que personne ne sache lequel était juste.
+
+**Vérifié et tenu** (second lot) :
+
+- **`design.md`** : `.rich-text img` a bien `max-width: 100%; height: auto`,
+  plafonné à **420px** à partir de 992px, et c'est bien la même valeur que
+  la grille média d'un groupe (`app.css:667`, `components.css:493`).
+  Bootstrap est bien en **5.3.8**. La cible tactile de **44px** est bien
+  posée sous `@media (pointer: coarse)`, et le CSS cite `design.md §7.2` en
+  retour — un renvoi qui va dans les deux sens.
+- **`README.md`** : `PHP >= 8.4` correspond au `^8.4` de `composer.json`,
+  `Node.js >= 22` aux `engines` de `package.json` et au `node-version: '22'`
+  des trois jobs, et « 6 niveaux » de rôles aux six cas de
+  `Core\Security\Role`, dont l'échelle 0–5 est exactement celle de
+  `specifications.md` §2.1. `VERSION` dit bien `1.0.42`.
+
+**Non vérifiable, et pourquoi** (second lot) :
+
+- **« in about a minute »**, que `SECURITY.md` écrit à côté du nombre de
+  paires. Le job `Authorization matrix` a mis cinq minutes sur la dernière
+  exécution, mais il provisionne une instance avant de rejouer quoi que ce
+  soit, et rien dans sa sortie ne sépare les deux. Le chiffre n'est pas
+  corrigé faute de savoir ce qu'il mesure.
+- **Le fond d'`ARCHITECTURE.md`**, 5 507 lignes. Ce qui a été confronté au
+  code, ce sont ses renvois et les classes qu'il nomme — pas ce qu'il en
+  dit.
+- **Un troisième soupçon, levé lui aussi.** Les 24 manifestes déclarent
+  **88 réglages** ; **77** ne sont cités par leur clé nulle part dans
+  `specifications.md`. Le chiffre invite à conclure à 77 réglages non
+  documentés — et ce serait faux. §4.5 décrit les réglages **en français et
+  par ce qu'ils font** (« nombre maximum de médias par album »), jamais par
+  leur clé, et c'est cohérent : la page « Paramètres » montre des libellés,
+  pas des clés. Plusieurs des 77 ne sont d'ailleurs pas des réglages du tout
+  mais de l'état (`inbound_mail_quota_alerted_at`,
+  `inbound_mail_scopes_migrated`, `inbound_mail_refresh_started_at`). Aucune
+  règle écrite n'exige la clé, donc il n'y a pas d'écart — seulement un
+  comptage qui aurait produit 77 faux constats.
+
+**Corrigé dans cette PR**, en trois paires document + test, chacune rouge
+avant et verte après — la troisième condition de §0.1 comprise :
+
+| Document | Test qui le tient |
+|---|---|
+| `specifications.md` §4.3, §4.4, §4.5 — cinq lignes, dont un déplacement | `ModuleSpecificationCoverageTest::testEveryMenuEntryAModuleAddsHasItsRowInSectionFour` |
+| `README.md` et `SECURITY.md` — sept chiffres | `AuthorizationMatrixInventoryTest::testTheFiguresTheDocumentationQuotesAreTheInventorysOwn` |
+| `README.md` — la puce `database-mariadb` | `EveryCiJobIsDocumentedTest` (deux directions) |
+
+**Issues ouvertes** :
+
+- #454 — 121 renvois du code et des tests (`§7.9` ×64, `§6.7` ×33, `§6.14`
+  ×24) pointent vers des sections qui n'existent dans aucun document. Les
+  deux issues possibles — écrire ces sections, ou renuméroter les renvois —
+  sont des arbitrages, et le test qui les détecte est collé dans l'issue.
+
+Aucun des autres écarts de cette itération ne pose la question « lequel des
+deux a raison, le code ou la spec ? » : le manifeste construit le menu, la
+CI définit ses jobs, l'inventaire compte les routes, et le document seul
+était en retard.
 
 **Vérifié et tenu** :
 
