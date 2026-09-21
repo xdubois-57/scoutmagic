@@ -231,6 +231,91 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
         $this->assertNull(self::stringLiteral('self::SOME_CONST'));
     }
 
+    /**
+     * The same quote forms, through the path that actually uses them.
+     *
+     * The test above proves `stringLiteral()`; it proves nothing about
+     * `constantsByClass()` or `resolveKey()`, which is where the gap was.
+     * A helper that works, reached by a caller that does not, is exactly
+     * the shape of the four holes this guard has already had — so the two
+     * callers are asserted here rather than assumed from the helper.
+     */
+    public function testAConstantDeclaredInEitherQuoteFormResolvesThroughTheCallPath(): void
+    {
+        $declared = self::constantsDeclaredIn(
+            <<<'FIXTURE'
+                <?php
+                class Whatever
+                {
+                    public const DOUBLE_QUOTED = "official_documents_unit_code";
+                    public const SINGLE_QUOTED = 'official_documents_retention_months';
+                    public const INTERPOLATING = "prefix_$suffix";
+                }
+                FIXTURE
+        );
+
+        $this->assertSame(
+            [
+                'DOUBLE_QUOTED' => 'official_documents_unit_code',
+                'SINGLE_QUOTED' => 'official_documents_retention_months',
+            ],
+            $declared,
+            'a constant declared with double quotes names a setting key just as one with single quotes does'
+        );
+
+        // And `resolveKey()` reaches it — both through `self::` and through
+        // the declaring class's own name, which are two different branches.
+        $constants = ['Whatever' => $declared];
+
+        $this->assertSame(
+            'official_documents_unit_code',
+            self::resolveKey('self::DOUBLE_QUOTED', 'Whatever', $constants)
+        );
+        $this->assertSame(
+            'official_documents_unit_code',
+            self::resolveKey('Whatever::DOUBLE_QUOTED', 'SomeOtherClass', $constants)
+        );
+    }
+
+    /**
+     * End to end on a real file: a double-quoted key, read with no scope,
+     * is reported.
+     *
+     * This is the assertion the three above cannot make between them. The
+     * scan has to tokenise the call, take argument zero apart, resolve the
+     * literal, match it against a manifest and then judge the scope — and
+     * a break anywhere along that chain looks, from outside, exactly like
+     * a repository with nothing wrong in it.
+     */
+    public function testADoubleQuotedKeyReadWithoutItsScopeIsReportedByTheScan(): void
+    {
+        $fixture = tempnam(sys_get_temp_dir(), 'scope') . '.php';
+        file_put_contents(
+            $fixture,
+            <<<'FIXTURE'
+                <?php
+                class Offender
+                {
+                    public function label(): string
+                    {
+                        return (string) $this->settings->get("official_documents_unit_code");
+                    }
+                }
+                FIXTURE
+        );
+
+        try {
+            $offences = self::unscopedCalls($fixture, ['official_documents_unit_code' => 'official_documents']);
+        } finally {
+            unlink($fixture);
+        }
+
+        $this->assertCount(1, $offences, 'the double-quoted unscoped read must be seen');
+        $this->assertStringContainsString('"official_documents_unit_code"', $offences[0]);
+        $this->assertStringContainsString('official_documents', $offences[0]);
+        $this->assertStringContainsString('no scope at all', $offences[0]);
+    }
+
     // ---------------------------------------------------------------
     // The scan
     // ---------------------------------------------------------------
@@ -610,18 +695,42 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
             if ($class === '') {
                 continue;
             }
-            // Both quote forms, for the same reason `resolveKey()` takes
-            // both: a constant declared with double quotes is no less a
-            // setting key, and skipping it would let the call sites that
-            // name it out of the check entirely.
-            if (preg_match_all('/const\s+([A-Z][A-Z0-9_]*)\s*=\s*((?:\'[^\']*\')|(?:"[^"$\\\\{]*"))/', $source, $m, PREG_SET_ORDER) === 0) {
-                continue;
+            $declared = self::constantsDeclaredIn($source);
+            if ($declared !== []) {
+                $constants[$class] = $declared;
             }
-            foreach ($m as $declaration) {
-                $value = self::stringLiteral($declaration[2]);
-                if ($value !== null) {
-                    $constants[$class][$declaration[1]] = $value;
-                }
+        }
+
+        return $constants;
+    }
+
+    /**
+     * The string constants one source declares, in either quote form.
+     *
+     * Split out of `constantsByClass()` so it can be handed a fixture:
+     * that method reads the whole repository and caches, so nothing could
+     * ask it what it makes of a declaration this repository does not yet
+     * contain — which is the only kind that matters here, since no setting
+     * key is written with double quotes today.
+     *
+     * Both quote forms, for the same reason `resolveKey()` takes both: a
+     * constant declared with double quotes is no less a setting key, and
+     * skipping it would let the call sites that name it out of the check
+     * entirely. An interpolating one is refused by `stringLiteral()`.
+     *
+     * @return array<string, string>
+     */
+    private static function constantsDeclaredIn(string $source): array
+    {
+        if (preg_match_all('/const\s+([A-Z][A-Z0-9_]*)\s*=\s*((?:\'[^\']*\')|(?:"[^"$\\\\{]*"))/', $source, $m, PREG_SET_ORDER) === 0) {
+            return [];
+        }
+
+        $constants = [];
+        foreach ($m as $declaration) {
+            $value = self::stringLiteral($declaration[2]);
+            if ($value !== null) {
+                $constants[$declaration[1]] = $value;
             }
         }
 
