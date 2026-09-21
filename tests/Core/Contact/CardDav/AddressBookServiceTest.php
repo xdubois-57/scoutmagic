@@ -179,7 +179,8 @@ class AddressBookServiceTest extends TestCase
         $stmt->execute(['CU', 'Chef d\'unité', 'admin']);
         $second = (int) $this->pdo->lastInsertId();
         $stmt = $this->pdo->prepare(
-            'INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function) VALUES (?, ?, ?, 0)'
+            'INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function)
+             VALUES (?, ?, ?, 0)'
         );
         $stmt->execute([$memberYearId, $second, $this->visibleSectionId]);
 

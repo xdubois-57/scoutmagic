@@ -75,7 +75,8 @@ class HtaccessAuthorizationTest extends TestCase
      */
     public function testBothSourcesPassTheHeaderThroughIdentically(): void
     {
-        $pattern = '/RewriteCond %\{HTTP:Authorization\} \.\s*\nRewriteRule \^ - \[E=HTTP_AUTHORIZATION:%\{HTTP:Authorization\}\]/';
+        $pattern = '/RewriteCond %\{HTTP:Authorization\} \.\s*\n'
+            . 'RewriteRule \^ - \[E=HTTP_AUTHORIZATION:%\{HTTP:Authorization\}\]/';
 
         $this->assertMatchesRegularExpression($pattern, $this->source('file', 'public/.htaccess'));
         $this->assertMatchesRegularExpression($pattern, $this->source('generated', ''));

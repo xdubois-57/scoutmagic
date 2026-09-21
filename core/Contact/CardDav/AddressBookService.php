@@ -152,11 +152,10 @@ class AddressBookService
             return null;
         }
 
-        return $this->cardFor(new AddressBookEntry(
-            $memberId,
-            $memberYearId,
-            $this->etag($memberId, $this->contactCardRepository->findRevisionsForMembers([$memberId])[$memberId] ?? null)
-        ), $scoutYearId);
+        $revision = $this->contactCardRepository->findRevisionsForMembers([$memberId])[$memberId] ?? null;
+        $entry = new AddressBookEntry($memberId, $memberYearId, $this->etag($memberId, $revision));
+
+        return $this->cardFor($entry, $scoutYearId);
     }
 
     /**

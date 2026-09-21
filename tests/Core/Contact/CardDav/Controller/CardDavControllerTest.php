@@ -80,8 +80,9 @@ class CardDavControllerTest extends TestCase
             null,
             false
         );
-        $settings->register(ScoutYearResolver::SETTING_PUBLIC_YEAR, '0', 'number', 'P', 'P', null, '^[0-9]+$', null, false);
-        $settings->register(ScoutYearResolver::SETTING_STAFF_YEAR, '0', 'number', 'S', 'S', null, '^[0-9]+$', null, false);
+        foreach ([ScoutYearResolver::SETTING_PUBLIC_YEAR, ScoutYearResolver::SETTING_STAFF_YEAR] as $yearSetting) {
+            $settings->register($yearSetting, '0', 'number', 'A', 'A', null, '^[0-9]+$', null, false);
+        }
 
         [$label, $start, $end] = DatabaseTestHelper::scoutYear();
         $stmt = $this->pdo->prepare(
