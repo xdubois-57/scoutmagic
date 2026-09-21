@@ -55,6 +55,14 @@ class CardDavController extends AbstractController
     private const DAV_COMPLIANCE = '1, 3, addressbook';
     private const ALLOWED_METHODS = 'OPTIONS, GET, HEAD, PROPFIND, REPORT';
 
+    /**
+     * The collection, listed once and indexed by member id, for the
+     * lifetime of this request only — see {@see entryFor()}.
+     *
+     * @var array<int, array<int, AddressBookEntry>> scout year => member id => entry
+     */
+    private array $entriesByMember = [];
+
     public function __construct(
         protected Environment $twig,
         private DeviceAuthenticator $authenticator,
@@ -500,16 +508,32 @@ class CardDavController extends AbstractController
      * in the address book — the lookup both `PROPFIND` on a card and
      * `addressbook-multiget` need, and the one place the two agree on
      * what « does not exist » means.
+     *
+     * **The collection is listed once per request, then indexed.** A
+     * multiget names N cards and this is called N times; listing inside
+     * the loop would re-run `findStaffMemberYears()`, re-run the
+     * six-branch `UNION ALL` behind the revisions and re-hash every
+     * member's etag on each iteration — a device synchronising forty
+     * leaders would issue eighty queries where one pair is needed, and
+     * it would contradict what {@see AddressBookService::cardFor()} says
+     * it is for.
+     *
+     * Keyed by scout year rather than memoised flat: no action resolves
+     * two years in one request today, and a cache that quietly answered
+     * the wrong year if one ever did is the kind of bug that surfaces as
+     * « a leader from last year in my phone ».
      */
     private function entryFor(int $memberId, int $scoutYearId): ?AddressBookEntry
     {
-        foreach ($this->addressBook->entries($scoutYearId) as $entry) {
-            if ($entry->memberId === $memberId) {
-                return $entry;
+        if (!isset($this->entriesByMember[$scoutYearId])) {
+            $index = [];
+            foreach ($this->addressBook->entries($scoutYearId) as $entry) {
+                $index[$entry->memberId] = $entry;
             }
+            $this->entriesByMember[$scoutYearId] = $index;
         }
 
-        return null;
+        return $this->entriesByMember[$scoutYearId][$memberId] ?? null;
     }
 
     /**

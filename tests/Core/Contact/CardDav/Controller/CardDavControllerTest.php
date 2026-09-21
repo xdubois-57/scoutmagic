@@ -54,6 +54,8 @@ class CardDavControllerTest extends TestCase
     private \PDO $pdo;
     private EncryptionService $enc;
     private CardDavController $controller;
+    /** The real service, wrapped so a test can count how often the collection is listed. */
+    private AddressBookService $addressBook;
     private DeviceCredentialService $credentials;
     private int $yearId;
     private int $memberId;
@@ -112,21 +114,34 @@ class CardDavControllerTest extends TestCase
             new HumanCheckRateLimitRepository($this->pdo)
         );
 
+        $this->addressBook = new class (
+            new AddressBookRepository($connection),
+            new ContactCardRepository($connection),
+            new ContactCardService(
+                new ContactCardRepository($connection),
+                $settings,
+                new MemberEmailRepository($this->pdo, $this->enc)
+            ),
+            new VCardBuilder(),
+            new MemberService(new MemberYearRepository($this->pdo), $this->enc, $connection),
+            $scoutYearService
+        ) extends AddressBookService {
+            /** How many times the whole collection was listed. */
+            public int $listings = 0;
+
+            /** @return list<\Core\Contact\CardDav\AddressBookEntry> */
+            public function entries(int $scoutYearId): array
+            {
+                $this->listings++;
+
+                return parent::entries($scoutYearId);
+            }
+        };
+
         $this->controller = new CardDavController(
             new Environment(new ArrayLoader([])),
             $authenticator,
-            new AddressBookService(
-                new AddressBookRepository($connection),
-                new ContactCardRepository($connection),
-                new ContactCardService(
-                    new ContactCardRepository($connection),
-                    $settings,
-                    new MemberEmailRepository($this->pdo, $this->enc)
-                ),
-                new VCardBuilder(),
-                new MemberService(new MemberYearRepository($this->pdo), $this->enc, $connection),
-                $scoutYearService
-            ),
+            $this->addressBook,
             new DavRequestParser()
         );
 
@@ -496,6 +511,35 @@ class CardDavControllerTest extends TestCase
 
         $document = new \DOMDocument();
         $this->assertTrue($document->loadXML($response->getBody()));
+    }
+
+    /**
+     * **The collection is listed once, whatever a multiget asks for.**
+     *
+     * Listing it per href would re-run the membership query, re-run the
+     * six-branch `UNION ALL` behind the revisions and re-hash every
+     * member's etag on each iteration — a device synchronising forty
+     * leaders would issue eighty queries where one pair does. It also
+     * contradicts what `AddressBookService::cardFor()` exists for: the
+     * caller already has the entries in hand.
+     */
+    public function testAMultigetListsTheCollectionOnceHoweverManyCardsItNames(): void
+    {
+        $hrefs = '';
+        foreach ([$this->memberId, 999998, 999999, $this->memberId] as $memberId) {
+            $hrefs .= '<D:href>/carddav/staff/' . $memberId . '.vcf</D:href>';
+        }
+
+        $response = $this->controller->report($this->request(
+            'REPORT',
+            '/carddav/staff/',
+            '<C:addressbook-multiget xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:carddav">'
+            . '<D:prop><D:getetag /></D:prop>' . $hrefs . '</C:addressbook-multiget>',
+            $this->signedIn()
+        ));
+
+        $this->assertSame(207, $response->getStatusCode());
+        $this->assertSame(1, $this->addressBook->listings);
     }
 
     public function testAQueryReturnsTheWholeCollection(): void
