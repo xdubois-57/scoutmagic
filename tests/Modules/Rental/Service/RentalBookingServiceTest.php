@@ -764,7 +764,12 @@ class RentalBookingServiceTest extends TestCase
         ));
 
         $this->assertCount(1, $decisions);
-        $this->assertSame('refused', $decisions[0]->toValue);
+        // « Refusée », not `refused`: `Core\Audit` stores what a reader
+        // sees, and `partials/audit_timeline.html.twig` never formats a
+        // value — so an enum's `value` here is an English word on a French
+        // page for good (IT-03).
+        $this->assertSame(ChangeRequestStatus::REFUSED->label(), $decisions[0]->toValue);
+        $this->assertSame(ChangeRequestKind::DATES->label(), $decisions[0]->fromValue);
         $this->assertTrue($decisions[0]->isAutomatic());
     }
 

@@ -214,6 +214,27 @@ class AvailabilityCalculator
     }
 
     /**
+     * Whether this many people fit — the one rule of `validateRange()` that
+     * is about the group rather than about the dates.
+     *
+     * Its own method so it can be asked **alone**. A change request that
+     * touches only the head count has to be held to the asset's capacity,
+     * but re-running the whole range validation on dates nobody touched
+     * refuses a stay already under way with « Cette date est déjà passée »
+     * — an answer to a question that was never asked.
+     *
+     * @return string[] User-facing French reasons; empty means it fits.
+     */
+    public function validatePersons(?int $persons, BookingConstraints $constraints): array
+    {
+        if ($persons !== null && $constraints->maxPersons !== null && $persons > $constraints->maxPersons) {
+            return [sprintf('La capacité maximum est de %d personnes.', $constraints->maxPersons)];
+        }
+
+        return [];
+    }
+
+    /**
      * Full validation of a requested range: constraints first, then
      * availability.
      *
@@ -233,7 +254,8 @@ class AvailabilityCalculator
         BillingUnit $billingUnit,
         BookingConstraints $constraints,
         \DateTimeImmutable $today,
-        ?int $persons = null
+        ?int $persons = null,
+        bool $arrivalIsNew = true
     ): array {
         $errors = [];
         $start = $arrival->setTime(0, 0);
@@ -265,30 +287,38 @@ class AvailabilityCalculator
             );
         }
 
-        if ($start < $constraints->earliestArrival($today)) {
-            // Deliberately phrased as "too early to ask", never as
-            // "unavailable": the asset may well be free.
-            $errors[] = $constraints->minNoticeDays > 0
-                ? sprintf(
-                    'Une demande doit être introduite au moins %d jour%s à l\'avance.',
-                    $constraints->minNoticeDays,
-                    $constraints->minNoticeDays > 1 ? 's' : ''
-                )
-                : 'Cette date est déjà passée.';
+        // **The three rules about WHEN the stay starts**, skipped when the
+        // arrival is one the asker already holds. Extending a departure
+        // does not re-ask "may this stay begin then" — it began, possibly
+        // yesterday — and asking it anyway answers « Cette date est déjà
+        // passée » to somebody who only wanted two more nights. The other
+        // rules above and below still apply: the new period's length, the
+        // group, the quantity and the availability are all genuinely being
+        // changed.
+        if ($arrivalIsNew) {
+            if ($start < $constraints->earliestArrival($today)) {
+                // Deliberately phrased as "too early to ask", never as
+                // "unavailable": the asset may well be free.
+                $errors[] = $constraints->minNoticeDays > 0
+                    ? sprintf(
+                        'Une demande doit être introduite au moins %d jour%s à l\'avance.',
+                        $constraints->minNoticeDays,
+                        $constraints->minNoticeDays > 1 ? 's' : ''
+                    )
+                    : 'Cette date est déjà passée.';
+            }
+
+            $latest = $constraints->latestArrival($today);
+            if ($latest !== null && $start > $latest) {
+                $errors[] = 'Cette date est trop lointaine pour être réservée dès maintenant.';
+            }
+
+            if (!$constraints->allowsArrivalOn($start)) {
+                $errors[] = 'Une location ne peut pas commencer ce jour de la semaine.';
+            }
         }
 
-        $latest = $constraints->latestArrival($today);
-        if ($latest !== null && $start > $latest) {
-            $errors[] = 'Cette date est trop lointaine pour être réservée dès maintenant.';
-        }
-
-        if (!$constraints->allowsArrivalOn($start)) {
-            $errors[] = 'Une location ne peut pas commencer ce jour de la semaine.';
-        }
-
-        if ($persons !== null && $constraints->maxPersons !== null && $persons > $constraints->maxPersons) {
-            $errors[] = sprintf('La capacité maximum est de %d personnes.', $constraints->maxPersons);
-        }
+        $errors = array_merge($errors, $this->validatePersons($persons, $constraints));
 
         if ($units < 1) {
             $errors[] = 'La quantité demandée doit valoir au moins 1.';

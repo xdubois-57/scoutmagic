@@ -20,3 +20,9 @@ ALTER TABLE badges DROP COLUMN icon;
 -- nullable read_at DATETIME, which also carries "when" a notification was
 -- read, not just whether.
 ALTER TABLE notifications DROP COLUMN is_read;
+
+-- Removed with the menu reorganisation: a module's position no longer
+-- decides where its pages land in a menu. Every menu entry now declares
+-- its own order on one shared scale (Core\View\MenuBuilder), so this
+-- column decided nothing and the page that set it is gone.
+ALTER TABLE module_registry DROP COLUMN sort_order;

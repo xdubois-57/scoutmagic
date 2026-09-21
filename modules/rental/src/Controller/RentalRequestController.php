@@ -346,6 +346,11 @@ class RentalRequestController extends AbstractController
             // even load them, which is a stronger guarantee than a template
             // remembering to hide them.
             'change_requests' => $this->changeRequestRepository->findForBooking($booking->id),
+            // The renter's own billing coordinates (§22.6), decrypted for
+            // the one person entitled to them — a token for THIS booking
+            // reaches this page and nothing else. The block presents itself
+            // as a task while every field is empty.
+            'billing' => $this->operationsService->billingIdentity($booking->id),
             // Echoed back so this page's own forms post to a URL that still
             // carries the capability. It is already in the address bar; it
             // is never journaled and never leaves this page.
@@ -355,7 +360,15 @@ class RentalRequestController extends AbstractController
             'ics_available' => $this->icsBuilder !== null && $this->renterFeedBuilder !== null,
             'csrf_token' => CsrfGuard::generateToken(),
             'breadcrumb_current' => $booking->reference,
-        ]);
+        // **Not kept by anything between here and the renter.** This page
+        // carries their name, their dates and now their billing
+        // coordinates, behind a capability in the URL rather than a
+        // session — so a shared computer, a browser's back button or an
+        // intermediate cache is exactly where a copy would outlive the
+        // link. `no-store` and not `no-cache`, and the same header
+        // `SectionRosterController` and `MemberContactController` already
+        // set for the same reason.
+        ])->setHeader('Cache-Control', 'private, no-store');
     }
 
     /**
@@ -388,26 +401,202 @@ class RentalRequestController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        $kind = ChangeRequestKind::tryFrom((string) $request->getBody('kind', ''));
+        $asset = $this->assetRepository->findById($booking->assetId);
+        if ($asset === null) {
+            return new Response('Not Found', 404);
+        }
+
+        // Cancelling is its own button, and it says so in the body rather
+        // than by being one option of a menu: « Annuler ma demande » sat
+        // between « Changer les dates » and « Changer le nombre de
+        // participants » in one `<select>`, which is the surest way to
+        // cancel a stay by mistake. The word that travels with it comes
+        // from the confirmation dialog (`data-confirm-note`), and it is
+        // optional — a renter who has decided must not be held up by a
+        // text field.
+        if ($request->getBody('action') === 'cancel') {
+            return $this->recordChange(
+                $booking,
+                $asset,
+                ChangeRequestKind::CANCELLATION,
+                null,
+                null,
+                null,
+                Support::optionalString($request->getBody('message')),
+                $params
+            );
+        }
+
+        $arrival = Support::optionalString($request->getBody('arrival'));
+        $departure = Support::optionalString($request->getBody('departure'));
+        $persons = $request->getBody('persons') !== null && (int) $request->getBody('persons') > 0
+            ? (int) $request->getBody('persons')
+            : null;
+
+        // **The type is derived, never chosen.** The form is the renter's
+        // own booking, pre-filled; what they changed is what they are
+        // asking for. `rental_change_requests` has always carried the dates
+        // and the head count on one row — only `kind` forbade combining
+        // them, which turned "other dates AND a smaller group" into two
+        // requests a manager had to answer separately, each of them valid
+        // only if the other was accepted too.
+        $kind = ChangeRequestKind::forChange(
+            ($arrival !== null && $arrival !== $booking->arrivalDate)
+                || ($departure !== null && $departure !== $booking->departureDate),
+            $persons !== null && $persons !== $booking->estimatedPersons
+        );
+
         if ($kind === null) {
-            FlashMessage::set('error', "Ce type de demande n'existe pas.");
+            FlashMessage::set(
+                'error',
+                "Votre demande ne change rien à votre réservation. Modifiez les dates ou le nombre "
+                . "de participants avant de l'envoyer."
+            );
+
+            return $this->backToTracking($params);
+        }
+
+        // Mandatory on this form, and only on this one. A manager reading
+        // « du 12/07 au 14/07 » with nothing beside it cannot tell a firm
+        // request from a question, and answers the wrong one.
+        $message = Support::optionalString($request->getBody('message'));
+        if ($message === null) {
+            FlashMessage::set('error', 'Expliquez votre demande en quelques mots avant de l\'envoyer.');
+
+            return $this->backToTracking($params);
+        }
+
+        return $this->recordChange(
+            $booking,
+            $asset,
+            $kind,
+            // The dates always travel together once either moved: a
+            // request carrying only the new arrival would be accepted
+            // against the old departure.
+            $kind->affectsAvailability() ? ($arrival ?? $booking->arrivalDate) : null,
+            $kind->affectsAvailability() ? ($departure ?? $booking->departureDate) : null,
+            // **Gated the same way, and for a sharper reason.** The form
+            // pre-fills the head count with the booking's own, so a
+            // dates-only request carries it silently — and `acceptChange()`
+            // writes `proposedPersons ?? current` back through `setStay()`.
+            // A request made before a head-count change was accepted would
+            // therefore revert it, weeks later, with nothing on the manager's
+            // screen to warn them: `summary()` renders a DATES request as
+            // dates alone. It also put every dates-only request through the
+            // capacity check, so a booking already over the asset's capacity
+            // could no longer move its dates at all.
+            $kind->changesPersons() ? $persons : null,
+            $message,
+            $params
+        );
+    }
+
+    /**
+     * POST /locations/suivi/{id}/{token}/facturation — the renter's own
+     * billing coordinates (§22.6).
+     *
+     * **Asked here rather than on the public request form**, and the
+     * chantier is explicit about why: a visitor enquiring about a weekend
+     * has no reason to type a VAT number, and most never need one at all.
+     * The block only becomes a task once there is a booking to invoice.
+     *
+     * Written to the same encrypted columns a manager fills in by hand, by
+     * the same repository method — one write path, and a manager keeps the
+     * right to correct what a renter typed.
+     *
+     * **No email chases this.** The confirmation already carries the
+     * tracking link and a call to action (`Booking\RenterDecision`); a
+     * dedicated message, and any reminder about it, is written out of the
+     * chantier.
+     *
+     * @param array<string, string> $params
+     */
+    public function saveBillingIdentity(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf(
+            $request,
+            '/locations/suivi/' . (int) ($params['id'] ?? 0) . '/' . (string) ($params['token'] ?? '')
+        )) !== null) {
+            return $guard;
+        }
+
+        $booking = $this->bookingService->findByTrackingToken(
+            (int) ($params['id'] ?? 0),
+            (string) ($params['token'] ?? '')
+        );
+
+        if ($booking === null) {
+            return new Response('Not Found', 404);
+        }
+
+        // **Nothing is invoiced for a letting that never happened.** The
+        // page hides this block on a refused, cancelled or expired booking,
+        // and a hidden form is not a rule: the token reaches this route
+        // whatever the page rendered.
+        //
+        // `isAbandoned()` and not `isFinal()`, deliberately — a CLOSED
+        // booking is final and is exactly the one being invoiced, which is
+        // why the template shows the block there too. And the guard sits
+        // here rather than in the service because it is about who is
+        // writing: a manager keeps the right to correct the coordinates on
+        // any file, including one that went nowhere.
+        if ($booking->status->isAbandoned()) {
+            FlashMessage::set(
+                'error',
+                'Cette réservation n\'a pas eu lieu : ses coordonnées de facturation ne se modifient plus.'
+            );
 
             return $this->backToTracking($params);
         }
 
         try {
+            $this->operationsService->saveBillingIdentity($booking->id, [
+                'name' => Support::optionalString($request->getBody('billing_name')),
+                'address' => Support::optionalString($request->getBody('billing_address')),
+                'country' => Support::optionalString($request->getBody('billing_country')),
+                'vat_number' => Support::optionalString($request->getBody('billing_vat_number')),
+                'enterprise_number' => Support::optionalString($request->getBody('billing_enterprise_number')),
+                'email' => Support::optionalString($request->getBody('billing_email')),
+                'reference' => Support::optionalString($request->getBody('billing_reference')),
+            ]);
+        } catch (RentalException $e) {
+            FlashMessage::set('error', $e->getMessage());
+
+            return $this->backToTracking($params);
+        }
+
+        FlashMessage::set('success', 'Vos coordonnées de facturation ont été enregistrées.');
+
+        return $this->backToTracking($params);
+    }
+
+    /**
+     * The one door both buttons of « Modifier votre demande » go through.
+     *
+     * @param array<string, string> $params
+     */
+    private function recordChange(
+        RentalBooking $booking,
+        RentalAsset $asset,
+        ChangeRequestKind $kind,
+        ?string $arrival,
+        ?string $departure,
+        ?int $persons,
+        ?string $message,
+        array $params
+    ): Response {
+        try {
             $this->operationsService->requestChange(
                 $booking,
+                $asset,
                 ChangeRequestOrigin::RENTER,
                 $kind,
-                Support::optionalString($request->getBody('arrival')),
-                Support::optionalString($request->getBody('departure')),
+                $arrival,
+                $departure,
                 null,
-                $request->getBody('persons') !== null && (int) $request->getBody('persons') > 0
-                    ? (int) $request->getBody('persons')
-                    : null,
+                $persons,
                 null,
-                Support::optionalString($request->getBody('message'))
+                $message
             );
 
             FlashMessage::set(

@@ -51,6 +51,21 @@
       }
     },
     {
+      "path": "/locations/suivi/{id}/{token}/facturation",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalRequestController",
+      "action": "saveBillingIdentity",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": "",
+      "breadcrumb": {
+        "label": "Suivi de votre demande",
+        "parents": [
+          "Notre unité"
+        ]
+      }
+    },
+    {
       "path": "/locations/suivi/{id}/{token}/reponse",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalRequestController",
@@ -564,6 +579,7 @@
       "label": "Locations",
       "menu_icon": "bi-house-door",
       "menu_group": "services",
+      "menu_order": 180,
       "breadcrumb": {
         "label": "Locations",
         "parents": [

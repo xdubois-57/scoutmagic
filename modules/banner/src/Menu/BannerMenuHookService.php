@@ -25,11 +25,12 @@ use Core\View\MenuBuilder;
 class BannerMenuHookService extends UnitChiefMenuHook
 {
     /**
-     * Well clear of the core pages' small orders — MenuBuilder ranks by
-     * sort group first anyway, so this only orders module entries against
-     * each other.
+     * Where this entry sits in « Espace chefs d'U › Contenu du site », on
+     * the one scale every entry of that column shares: core and module
+     * entries have the same sort rank, so this number competes with the
+     * core pages beside it rather than only with other modules.
      */
-    private const CONFIG_ORDER = 510;
+    private const CONFIG_ORDER = 80;
 
     protected function entry(): MenuEntry
     {

@@ -2,9 +2,11 @@
   "id": "support_dashboard",
   "name": "Tableau de bord support",
   "description": "Réception et consultation des rapports d'utilisation envoyés par les installations ScoutMagic.",
-  "version": "1.14.0",
+  "version": "1.14.1",
   "enabled_by_default": false,
-  "visible_when": ["statistics_receiver"],
+  "visible_when": [
+    "statistics_receiver"
+  ],
   "routes": [
     {
       "path": "/api/statistics",
@@ -61,7 +63,13 @@
       "label": "Supervision",
       "menu_icon": "bi-speedometer2",
       "menu_group": "exploitation",
-      "breadcrumb": { "label": "Supervision", "parents": ["Configuration"] }
+      "menu_order": 250,
+      "breadcrumb": {
+        "label": "Supervision",
+        "parents": [
+          "Configuration"
+        ]
+      }
     },
     {
       "path": "/support-dashboard/tickets",
@@ -71,7 +79,12 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": "",
-      "breadcrumb": { "label": "Tickets de support", "parents": ["Configuration"] }
+      "breadcrumb": {
+        "label": "Tickets de support",
+        "parents": [
+          "Configuration"
+        ]
+      }
     },
     {
       "path": "/support-dashboard/tickets/triage-token",
@@ -99,7 +112,12 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": "",
-      "breadcrumb": { "label": "Ticket", "parents": ["Configuration"] }
+      "breadcrumb": {
+        "label": "Ticket",
+        "parents": [
+          "Configuration"
+        ]
+      }
     },
     {
       "path": "/support-dashboard/tickets/{id}/dossier",

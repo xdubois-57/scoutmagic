@@ -1,12 +1,12 @@
 ---
 id: modules
 title: Activer et désactiver les modules
-summary: Choisir les fonctions du site, gérer leurs dépendances et leur ordre dans les menus.
+summary: Choisir les fonctions du site et gérer leurs dépendances.
 category: Configuration
 role_min: superadmin
 question: Comment activer une nouvelle fonction du site ?
 question: Que se passe-t-il si je désactive un module ?
-question: Comment changer l'ordre des entrées dans les menus ?
+question: Pourquoi un module refuse-t-il de se désactiver ?
 paths: /config/modules
 related: reglages
 ---
@@ -30,13 +30,6 @@ introuvables — mais **ne supprime rien** : données et réglages sont
 conservés, et tout revient à la réactivation. Un module dont un autre
 dépend refuse de se désactiver tant que ce dernier est actif ; le
 message vous dit lequel désactiver d'abord.
-
-## L'ordre des menus
-
-Glissez les lignes (ou utilisez les flèches Monter/Descendre sur
-téléphone) pour choisir l'ordre des pages de modules dans les menus.
-Les pages du cœur du site passent toujours en premier ; l'ordre choisi
-ne joue qu'entre modules.
 
 ## Les badges d'état
 
