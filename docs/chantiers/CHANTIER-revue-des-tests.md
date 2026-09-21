@@ -876,3 +876,74 @@ Une personne cherchant « le test qui garantit le refus » dans
   trajet en CI, par le navigateur, et c'est lui qu'il faudrait lire pour
   répondre ; son artefact n'est publié que sur un tag de release, la même
   limite que l'itération 1 a rencontrée et que #393 consigne.
+
+### Itération 6 — Les chemins d'échec — 2026-09-21
+
+**Périmètre parcouru** : la première question de §6 — « chaque `catch` du
+produit a-t-il un test qui l'atteint ? » — posée à l'ensemble du produit
+plutôt qu'à un échantillon, puis deux des retours en arrière que §6 nomme.
+
+**L'instrument, et pourquoi il est légitime ici.** Muter 775 blocs un par un
+demanderait 775 exécutions de treize minutes. La couverture répond
+directement, à condition de ne lui demander que ce qu'elle mesure :
+l'exécution. « Une branche jamais exécutée en test » est littéralement un
+corps de `catch` dont aucune ligne n'a de hit. Ce n'est pas un score de
+qualité, et rien ici ne s'en sert comme tel.
+
+> **775 blocs `catch` dans `core/` et `modules/`. 328 — 42,3 % — n'ont
+> jamais été exécutés par la suite.**
+
+La concentration est dans les contrôleurs : `MassMailController` 12,
+`CampaignController` 8, `MemberEmailAddressController` 7,
+`OutboundMailController` 7, `GalleryChiefController` 7. C'est-à-dire là où
+se décide ce qu'un utilisateur voit quand quelque chose échoue — une
+branche jamais exécutée est aussi un message d'erreur jamais relu.
+
+**Mutations tentées** :
+
+| Mutation | Tests exécutés | Verdict |
+|---|---|---|
+| `InstallUpdateHandler::rollbackToSafetyBackup()` ne fait plus rien | 519 (`Core/Maintenance`) | **7 rouges** |
+| le `try`/`catch` du compteur de `MailTransportChain` retiré | 1 149 (`Core/Mail` + `Modules/MassMail`) | **VERT** |
+| idem, après le test de cette PR | 1 | **erreur** |
+| l'échec du compteur avalé sans être journalisé | 1 | **rouge** |
+
+**Corrigé dans cette PR** :
+
+- `tests/Core/Mail/Transport/MailTransportChainTest` — un test. Le
+  `try`/`catch` qui entoure l'incrémentation du compteur porte une règle
+  écrite à côté de lui : laisser remonter l'échec ferait rapporter en échec
+  un envoi qui a bien eu lieu, et `mass_mail` le rejouerait — **un second
+  exemplaire dans la boîte de quelqu'un**. Retirer la garde laissait
+  1 149 tests verts.
+
+  L'échec est **réel et non simulé** : un déclencheur SQLite refuse les
+  écritures sur `mail_send_counters` tout en laissant les lectures
+  fonctionner, de sorte que le dépôt lève la `PDOException` qu'il lèverait
+  en production. `SendCounterRepository` est `final`, et une doublure ici
+  serait précisément ce que §3 reproche — une doublure qui ne ressemble
+  plus au sujet. La première tentative retirait la table entière : la
+  lecture du quota, qui se fait *avant* l'envoi, échouait aussi et la voie
+  était sautée, si bien que le test ne prouvait plus rien sur le compteur.
+  Le déclencheur sépare les deux.
+
+**Issues ouvertes** :
+
+- #449 — les 327 autres branches, avec la mesure complète et sa méthode.
+
+**Vérifié et tenu** :
+
+- **Le retour en arrière d'une mise à jour est testé.** Vider
+  `rollbackToSafetyBackup()` rougit sept fois. §6 cite ce cas comme
+  suspect (« un rollback non testé est un rollback qui n'existe pas ») ;
+  ici il existe.
+
+**Non vérifiable, et pourquoi** :
+
+- **La mesure porte sur l'exécution, pas sur la vérification.** Les 447
+  blocs exécutés ne sont pas pour autant vérifiés : un `catch` traversé par
+  un test qui n'assure rien de son effet compte comme exécuté. Le chiffre
+  est donc une **borne supérieure de la couverture réelle** des chemins
+  d'échec, et le vrai total des branches non tenues est plus élevé que 328.
+  Le distinguer demanderait de muter chacune des 447, ce que la même
+  arithmétique interdit.
