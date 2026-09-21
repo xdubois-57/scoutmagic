@@ -1357,6 +1357,54 @@ class RentalOperationsServiceTest extends TestCase
 
         $this->assertCount(1, $this->changeRequestRepository->findForBooking($booking->id));
     }
+    /**
+     * **Nor is a capacity lowered under their feet.** The strongest form of
+     * the rule above, and the reason the head count travels to
+     * `validateRange()` as `null` rather than as the booking's own figure:
+     * filling it in put capacity back into a call that asks it
+     * unconditionally, so an asset narrowed from sixty seats to fifteen
+     * answered « La capacité maximum est de 15 personnes. » to a renter who
+     * asked about *dates* — about a head count they had never changed, and
+     * could not bring within the limit by any request either, since the
+     * only one that would have was itself refused. Their dates are theirs
+     * to move; an over-capacity booking is the manager's to arbitrate.
+     */
+    public function testLoweringTheAssetsCapacityDoesNotLockADatesOnlyRequest(): void
+    {
+        // Twenty people, which `createBooking()` records, in a hall the
+        // manager then narrows to fifteen.
+        $booking = $this->createBooking();
+        $this->assertSame(20, $booking->estimatedPersons);
+        $this->assetRepository->updateGeneral(
+            $this->assetId,
+            'Local',
+            'Local Saint-Georges',
+            'local-saint-georges',
+            15,
+            1,
+            null,
+            null,
+            null,
+            true
+        );
+
+        $this->service->requestChange(
+            $booking,
+            $this->asset(),
+            ChangeRequestOrigin::RENTER,
+            ChangeRequestKind::DATES,
+            '2027-07-08',
+            '2027-07-11',
+            null,
+            // Dates only: the head count is not what they came to change.
+            null,
+            null,
+            null,
+            null, $this->now()
+        );
+
+        $this->assertCount(1, $this->changeRequestRepository->findForBooking($booking->id));
+    }
 
     /**
      * **Extending a stay under way is not asking it to begin again.**

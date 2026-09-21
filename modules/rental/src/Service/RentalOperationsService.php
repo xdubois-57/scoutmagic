@@ -623,7 +623,17 @@ class RentalOperationsService
                 DateInput::requireFromStorage($departureDate, 'the requested departure date'),
                 $units ?? $booking->units,
                 ($now ?? new \DateTimeImmutable())->setTime(0, 0),
-                $persons ?? $booking->estimatedPersons,
+                // **Never the booking's own figure.** Capacity is asked
+                // above, on its own, and only when the head count is what
+                // changed. Filling it in here put it back into
+                // `validateRange()`, which asks it unconditionally — so a
+                // booking that an asset's *lowered* capacity has left over
+                // the limit was refused « La capacité maximum est de 40
+                // personnes. » for a dates-only request, an answer to a
+                // question the renter never asked, and could not move its
+                // dates at all. Which is the lockout the gate above exists
+                // to lift.
+                $persons,
                 // The booking's own period is not an obstacle to moving it:
                 // without this, asking to shift by one night collides with
                 // the nights it already holds.
