@@ -141,12 +141,57 @@ final class ParentalAuthorizationServiceTest extends TestCase
 
     // --- unitLabel() ---
 
+    /**
+     * Register a setting the way `ModuleManager::registerModule()` does —
+     * **under the module's own id**.
+     *
+     * This helper exists because its absence hid a real defect for three
+     * iterations (issue #433). The tests below used to register the unit
+     * code with no module id at all, which files it under `_core_`; the
+     * service then read it back with no module id either, and the two
+     * halves of the same mistake cancelled out. Three green tests over a
+     * line that, in production, never once returned the code a chief had
+     * configured.
+     *
+     * So: a module setting is registered here exactly as the application
+     * registers it, and if a call site forgets the scope the test goes red
+     * instead of agreeing with it.
+     */
+    private function registerModuleSetting(string $key, string $value): void
+    {
+        $this->settings->register(
+            $key,
+            $value,
+            'text',
+            'x',
+            'x',
+            ParentalAuthorizationService::MODULE_ID
+        );
+    }
+
     public function testTheUnitLineCarriesTheFederationsCodeBesideTheName(): void
     {
         $this->settings->register('site_name', '25e SV', 'text', 'x', 'x');
-        $this->settings->register(ParentalAuthorizationService::UNIT_CODE_SETTING, 'LgVI/25', 'text', 'x', 'x');
+        $this->registerModuleSetting(ParentalAuthorizationService::UNIT_CODE_SETTING, 'LgVI/25');
 
         $this->assertSame('LgVI/25 — 25e SV', $this->service()->unitLabel());
+    }
+
+    /**
+     * The regression itself, said as a property rather than as a setup
+     * detail: a code stored in the `_core_` scope — where nothing puts it —
+     * must NOT be found. Without this, a call site that dropped the scope
+     * again would still pass the test above the day somebody "simplified"
+     * the helper.
+     */
+    public function testACodeFiledOutsideTheModulesScopeIsNotPickedUp(): void
+    {
+        $this->settings->register('site_name', '25e SV', 'text', 'x', 'x');
+        // No module id: the shape the old tests used, and the shape that
+        // made them agree with a broken call site.
+        $this->settings->register(ParentalAuthorizationService::UNIT_CODE_SETTING, 'LgVI/25', 'text', 'x', 'x');
+
+        $this->assertSame('25e SV', $this->service()->unitLabel());
     }
 
     /**
@@ -157,7 +202,7 @@ final class ParentalAuthorizationServiceTest extends TestCase
     public function testAnEmptyCodeLeavesTheNameAlone(): void
     {
         $this->settings->register('site_name', '25e SV', 'text', 'x', 'x');
-        $this->settings->register(ParentalAuthorizationService::UNIT_CODE_SETTING, '', 'text', 'x', 'x');
+        $this->registerModuleSetting(ParentalAuthorizationService::UNIT_CODE_SETTING, '');
 
         $this->assertSame('25e SV', $this->service()->unitLabel());
     }
@@ -165,7 +210,7 @@ final class ParentalAuthorizationServiceTest extends TestCase
     public function testAUnitWithNeitherIsAnEmptyLineAndNotADash(): void
     {
         $this->settings->register('site_name', '', 'text', 'x', 'x');
-        $this->settings->register(ParentalAuthorizationService::UNIT_CODE_SETTING, '', 'text', 'x', 'x');
+        $this->registerModuleSetting(ParentalAuthorizationService::UNIT_CODE_SETTING, '');
 
         $this->assertSame('', $this->service()->unitLabel());
     }
