@@ -500,3 +500,379 @@ rouges :*
 - **Les 14 autres tests de #387.** Un seul (`RetroChiefController::close()`) a été mué. La mutation qui prouverait les autres n'est pas la même d'un contrôleur à l'autre — sur `MemberEmailAddressController::add()`, par exemple, la vérification d'appartenance *produit* l'identifiant qui sert à écrire, si bien que « refuser après avoir écrit » ne s'exprime pas en une ligne. Chacun demande son propre montage.
 - **La moitié MySQL.** Tout ce qui précède a tourné sur la MariaDB du conteneur (`CLAUDE.md` § This container) ; le verdict du job `test` sur MySQL 8 n'est connu qu'en CI.
 - **Le nombre réel de sauts.** La suite complète n'a sauté que 3 tests ici, là où le dépôt porte 75 `markTestSkipped`. L'écart est l'objet de l'itération 2 ; il n'est pas mesurable depuis ce seul environnement.
+
+### Itération 2 — Le vert qui saute — 2026-09-20
+
+**Périmètre parcouru** : les 75 `markTestSkipped`, motif par motif, mesurés
+plutôt que lus — sur les deux environnements accessibles (MariaDB 10.11 du
+conteneur, MySQL 8 de CI, dont le rapport JUnit a été récupéré depuis
+l'artefact `phpunit-reports` de la PR #389). Puis les `@group` et les
+exclusions de `phpunit.xml`, le périmètre du job MariaDB, et la couverture
+réelle de la divergence entre les deux moteurs.
+
+**Mutations tentées** :
+
+*Sur le garde livré :*
+
+- `TEST_DB_PORT=1`, base promise et absente → `DatabaseBackedTestsReallyRunTest` → rouge, en nommant l'hôte, le port et le refus du pilote
+- les cinq `TEST_DB_*` retirées et `CI=true`, la régression exacte de §2 → rouge, « TEST_DB_HOST unset or empty, CI set »
+- les cinq retirées et pas de `CI` — un portable → sauté, avec son motif
+- `TEST_DB_HOST=` exporté vide et pas de `CI` → sauté, comme les vingt-quatre classes qui retombent alors sur `127.0.0.1` ; la revue de la PR #394 a relevé qu'une première version rougissait ici, et elle avait raison
+- `TEST_DB_HOST=` vide, `CI=true`, serveur présent → vert, pour la même raison
+- un `markTestSkipped('Database not available')` posé dans `Core\View\FormatFiltersTest`, qui n'ouvre aucune connexion → rouge, en citant le fichier et le message
+- le même, écrit `markTestSkipped("Database not available: " . __FILE__)` → **VERT** tant que le garde ne lisait qu'un littéral entre apostrophes ; rouge depuis qu'il lit l'argument entier. Constat de la revue de la PR #394, reproduit avant correction
+- le même en `sprintf('No %s server (port %d)', 'MySQL', 3306)` → rouge
+- une parenthèse à l'intérieur du message → l'argument est extrait entier et l'analyse continue
+- `markTestSkipped ("…")`, avec l'espace que PHP accepte avant la parenthèse → **VERT** tant que le garde cherchait le nom collé à la parenthèse ; rouge depuis. Second constat de la revue CodeRabbit sur la PR #394
+- `TEST_DB_HOST` cité dans un commentaire d'un fichier qui n'ouvre aucune connexion → **VERT** tant que l'exemption reposait sur la simple présence du nom ; rouge depuis qu'elle exige `getenv('TEST_DB_HOST')`. Premier constat de la même revue
+- un fichier qui lit vraiment `getenv(...)`, guillemets simples ou doubles → toujours exempté : le resserrement ne crée pas de faux positif
+
+*Sur un garde écrit puis retiré (voir plus bas) :*
+
+- une colonne `rows` (mot réservé de MariaDB) ajoutée à `modules/banner/schema.sql` → **VERT** : `MigrationRunner` entoure chaque identifiant de backticks, un mot réservé ne passe donc jamais par là
+- un type inconnu (`NOTATYPE`) dans le même fichier → rouge — mais `Tests\Integration\ReferenceDatasetBuildTest` rougit aussi, sur la suite complète, pour la même raison
+- `SchemaIntrospector::decodeDefault()` privé de sa branche MariaDB → **VERT** sur le garde, rouge sur `tests/Core/Database` (3 échecs) : déjà couvert
+- `SchemaComparator` rendu incapable de conclure à l'égalité d'une valeur par défaut → **VERT** sur le garde, rouge 21 fois ailleurs
+
+**Corrigé dans cette PR** :
+
+- `tests/Architecture/DatabaseBackedTestsReallyRunTest.php` — le garde que §2
+  demandait. Il n'essaie pas de compter les sauts du run, ce qu'un test ne
+  peut pas lire : les vingt-quatre classes concernées sautent toutes sur la
+  même chose, une connexion refusée, donc « un saut motivé par la base
+  a-t-il eu lieu ? » est « la connexion était-elle possible ? ». Un second
+  test tient cette équivalence : un saut qui nomme la base depuis un fichier
+  qui n'ouvre aucune connexion serait hors de portée du premier, et il n'y
+  en a pas. Il lit `CI` autant que `TEST_DB_HOST`, précisément parce qu'un
+  job qui a *perdu* ses variables n'a plus de `TEST_DB_HOST` à lire.
+
+**Issues ouvertes** :
+
+- #393 — vingt et une des vingt-quatre classes sautent en silence là où
+  trois refusent de le faire, avec la règle qu'elles enfreignent citée
+  depuis leur propre code et la mesure des 139 tests concernés.
+
+**Vérifié et tenu** :
+
+- **Rien ne saute, ou presque.** CI, job `test` sur MySQL 8, rapport JUnit du
+  run 35497103931 : **2 tests sautés sur 18 551** — un nom NSS en IPv6 seul
+  introuvable, et un décodage d'en-tête IMAP que `ext-imap` rend
+  inobservable. Conteneur, MariaDB 10.11 : **3 sur 18 551** — le même nom
+  NSS, et deux tests de permissions que le compte `root` invalide. Aucun
+  saut motivé par la base, nulle part. Soixante et onze des soixante-quinze
+  sites ne se déclenchent dans aucun des deux environnements : leurs
+  contraintes (chiffrement AES du zip, liens symboliques, `imagick`,
+  libsodium, Ghostscript) sont satisfaites des deux côtés, CI installant
+  Ghostscript et `imagick` explicitement.
+- **Les deux tests de permissions ne tournent que hors du conteneur.**
+  `Core\Storage\DirectorySizeTest` et `Core\Storage\Volume\VolumeInventoryTest`
+  sautent ici parce que la session distante est `root`, et tournent en CI, où
+  le runner ne l'est pas. Une session distante ne les voit donc jamais : à
+  savoir avant de conclure quoi que ce soit sur eux depuis ce conteneur.
+- **Aucun groupe n'est exclu nulle part.** `phpunit.xml` ne porte aucun
+  `<groups><exclude>` et le commentaire qui l'explique est à jour ; le seul
+  groupe du dépôt est `database` (587 attributs, 548 docblocs, les deux
+  ensemble dans presque tous les fichiers) ; le job `database-mariadb` lance
+  `vendor/bin/phpunit` sans filtre, la suite entière. La question « le job
+  MariaDB exclut-il des groupes ? » a pour réponse : non.
+- **Le schéma des modules atteint bien les deux moteurs.** L'hypothèse
+  inverse a été formulée puis réfutée par mutation : un type inconnu glissé
+  dans `modules/banner/schema.sql` rougit `Integration\ReferenceDatasetBuildTest`,
+  qui provisionne par `scripts/e2e-support.php provision` — le chemin de
+  production — dans sa propre base, donc applique `SchemaFiles::all()`, core
+  et 23 modules, sur le moteur que `TEST_DB_*` désigne. Il tourne dans les
+  deux jobs PHP. Il n'y a pas de trou de ce côté.
+- **Un mot réservé dans un `schema.sql` n'est pas un risque.**
+  `MigrationRunner` entoure chaque identifiant de backticks : une colonne
+  `rows` — que MariaDB refuse en SQL nu, vérifié — est créée sans incident.
+  L'incident `last_value` que cite `docs/quality-pipeline.md` venait de
+  requêtes écrites à la main, pas du DDL.
+
+**Non vérifiable, et pourquoi** :
+
+- **Le compte de sauts côté MariaDB en CI.** `.github/workflows/checks.yml`
+  produit `phpunit-mariadb.xml` à chaque exécution et ne le téléverse que
+  sous `if: ${{ inputs.evidence }}`, donc sur un tag de release. Les trois
+  exécutions de `release.yml` du dépôt ont toutes échoué et datent du
+  2026-09-09 : leurs artefacts sont expirés, et `evidence/` n'existe pas
+  dans le dépôt. Le chiffre de cette entrée pour MariaDB vient du conteneur,
+  qui tourne `root` et n'a pas `ext-imap` — deux écarts connus avec le
+  runner. Noté en #393.
+- **Un garde écrit, prouvé inutile, retiré.**
+  `tests/Core/Database/DeclaredSchemaAppliesToTheRealEngineTest` appliquait
+  tout le schéma déclaré au moteur réel et vérifiait qu'une seconde
+  migration ne fasse rien. Les quatre mutations ci-dessus l'ont démonté :
+  sa première moitié double `ReferenceDatasetBuildTest`, et sa seconde ne
+  pouvait pas échouer — `MigrationRunner::migrate()` sort à son étape 0
+  quand le hash du schéma n'a pas bougé, si bien que « la seconde migration
+  n'exécute rien » affirmait qu'un court-circuit court-circuite. C'est très
+  exactement ce que ce chantier cherche, écrit par lui ; il est supprimé
+  plutôt que livré, et consigné ici pour que personne ne le réécrive.
+
+### Itération 3 — Les doublures qui remplacent le sujet — 2026-09-21
+
+**Périmètre parcouru** : les 308 fichiers qui montent une doublure, puis le
+recensement des classes doublées. `MailService` arrive en tête avec 107
+fichiers — deux fois la suivante — et c'est l'une des quatre que §3 nomme
+comme suspectes. De là, deux questions posées à la doublure la plus
+répandue du dépôt : sait-elle refuser, comme l'objet réel ? et lui
+demande-t-on ce qu'elle a reçu, ou seulement si on l'a appelée ?
+
+**Mutations tentées** :
+
+Sur `tests/Modules/News/Task/SendPendingTicketsHandlerTest`, avant et après
+le renforcement de cette PR :
+
+| Mutation | Avant | Après |
+|---|---|---|
+| `TicketMailService` poste chaque billet à une adresse fixe étrangère | 1 rouge sur 8 | **8 rouges** |
+| le `catch (MailException)` du gestionnaire resserré sur `SuppressedRecipientException` | VERT | **3 erreurs** |
+| l'événement journalisé `ticket_email_failed` renommé | VERT | **1 rouge** |
+| le journal d'échec nomme aussi l'adresse de la famille | — | **1 rouge** |
+| la réclamation `sent_email_claims` prise après l'envoi au lieu d'avant | 2 rouges | 3 rouges |
+
+Les deux « VERT » sont le cœur du sujet : la doublure ne pouvait pas lever,
+alors que `MailService::send()` est documentée `@throws MailException on
+failure`, si bien que la moitié du gestionnaire — journaliser l'échec et
+continuer le lot — n'était atteinte par aucun test. Le « 1 rouge sur 8 »
+est l'autre moitié : sept tests sur huit acceptaient que les billets
+partent chez un inconnu.
+
+Hors de ce fichier, la même mutation du destinataire, sur deux services
+qui ne sont pas corrigés ici :
+
+| Fichier muté | Tests | Verdict |
+|---|---|---|
+| `core/Member/MemberEmailService.php` | 46 | **VERT** |
+| `modules/registration/src/Service/RequestEmailService.php` | 10 | **VERT** |
+
+**Corrigé dans cette PR** :
+
+- `tests/Modules/News/Task/SendPendingTicketsHandlerTest` — la doublure
+  devient un transport qui garde ce qu'on lui confie et refuse ce que le
+  vrai refuse. Les huit tests existants lisent désormais les destinataires
+  au lieu de compter les appels ; trois tests s'ajoutent sur le chemin
+  d'échec : un billet refusé ne coûte pas les leurs aux autres, l'échec est
+  journalisé par identifiants seuls, et un billet refusé n'est pas renvoyé
+  au tour suivant. 8 tests → 11, 14 assertions → 21. Aucun fichier de
+  production touché.
+
+**Issues ouvertes** :
+
+- #439 — les doublures de `MailService` vérifient qu'un envoi a eu lieu,
+  presque jamais à qui, avec les trois mutations ci-dessus. Une centaine de
+  fichiers sur le cœur et une quinzaine de modules : hors des quatre
+  conditions de §0.1.
+
+**Vérifié et tenu** :
+
+- **La réclamation est prise avant le transport, et c'est testé.** La
+  mutation qui la déplace après l'envoi rougissait déjà avant cette PR.
+  Le commentaire du gestionnaire — « Before the transport, never after » —
+  n'était donc pas une intention non gardée.
+- **`SuppressedRecipientException` étend `MailException`.** Hypothèse
+  inverse formulée — un destinataire suspendu ferait tomber tout le lot,
+  puisque le gestionnaire ne rattrape que `MailException` — puis réfutée en
+  lisant la hiérarchie : la classe en hérite, le `catch` couvre les deux.
+  Rien à signaler.
+- **Les chemins d'échec ne sont pas tous morts.** Deux gardes sondés par
+  mutation — `core/Notification/NotificationMailer` et
+  `modules/registration/src/Task/SendReenrollmentEmailsHandler` — rougissent
+  quand on resserre leur `catch` : leurs tests font bien lever la doublure,
+  par `willReturnCallback` plutôt que `willThrowException`. Le défaut de
+  #439 porte sur le destinataire, pas sur l'absence générale de chemin
+  d'échec, et l'issue le dit ainsi.
+
+**Non vérifiable, et pourquoi** :
+
+- **Le compte exact des doublures « qui acceptent tout ».** Une sonde en
+  lot, mutant chaque site d'envoi puis relançant les tests miroirs, est le
+  seul moyen de le chiffrer ; elle écrit successivement dans une vingtaine
+  de fichiers de production et a été refusée par le garde-fou de la
+  session. Les trois mesures ci-dessus sont donc des sondages, pas un
+  recensement : #439 annonce trois fichiers mesurés sur 107 candidats, et
+  ne prétend pas davantage.
+- **Une mesure d'abord fausse, corrigée.** Le premier comptage cherchait
+  `willThrowException(new MailException…)` et concluait « 8 fichiers sur 107
+  laissent la doublure échouer ». La sonde de
+  `SendReenrollmentEmailsHandler` a rougi alors que son test n'était pas
+  dans les huit : il lève depuis un `willReturnCallback`, que le motif ne
+  voyait pas. Le compte réel est d'une vingtaine, et le constat de #439 a
+  été reformulé avant ouverture — le destinataire non lu, qui lui tient.
+
+**Une assertion à moi, inefficace, trouvée par la revue** : le test du
+journal d'échec vérifiait d'abord que le contexte JSON *contenait* la
+chaîne de l'identifiant. `claude[bot]` a relevé que dans une base neuve
+l'article, le formulaire et la réponse portent tous l'identifiant 1, si
+bien que « le contexte contient "1" » tient encore quand `response_id` a
+disparu. Reproduit : en retirant la clé, le test restait vert. Corrigé en
+décodant le JSON et en comparant la clé — mais la variante profonde
+restait ouverte, car journaliser `article_id` *à la place* de
+`response_id` passait toujours, 1 valant 1. Le montage crée donc deux
+réponses que personne ne nomme, pour que l'identifiant attendu ne vaille
+plus 1 ; les deux mutations rougissent désormais. Une assertion qui ne
+peut pas échouer, écrite dans l'itération qui les traque : c'est le
+troisième garde de ce chantier démonté par sa propre règle, après celui
+de l'itération 1 et les deux de l'itération 2.
+
+**Incident de sonde, consigné** : la sonde en lot, avant d'être refusée, a
+laissé `modules/mass_mail/src/Task/SendBatchHandler.php` vide — 653 lignes.
+`open(f, 'w')` tronque le fichier avant que l'argument de `write()` soit
+évalué, l'expression a levé entre les deux, et le script est mort sans
+atteindre son `git checkout`. Rien ne l'a signalé : la suite venait de
+passer, et l'outillage de mutation ne vérifie que l'application de la
+mutation, pas sa réversion. C'est le `git diff --stat` d'avant commit qui
+l'a vu. Un outil qui écrit dans le code de production doit préparer son
+contenu avant d'ouvrir le fichier, et vérifier l'arbre propre en sortie.
+
+**Piège du conteneur, consigné** : `vendor/bin/phpstan analyse` a rapporté
+24 erreurs dans `modules/official_documents/src/Pdf/OverlayPdf.php` après
+la remise de la branche sur `main`. Aucune ne venait du changement :
+`composer.lock` avait gagné `setasign/tfpdf` entre-temps et le `vendor/` du
+conteneur datait d'avant. `composer install` les fait toutes disparaître.
+Un `phpstan` rouge sur un fichier que l'on n'a pas touché se vérifie
+d'abord contre `composer.lock`.
+
+### Itération 4 — La couverture fonctionnelle, lue depuis les spécifications — 2026-09-21
+
+**Périmètre parcouru** : d'abord ce que `ModuleSpecificationCoverageTest`
+laisse passer, puisque §4 le désigne ; ensuite les règles chiffrées que §4
+énumère, reprises une à une depuis `specifications.md` vers le code, puis
+mises à l'épreuve par mutation.
+
+**Ce que le garde existant ne regarde pas** :
+`Integration\ModuleSpecificationCoverageTest` vérifie **l'index** de
+`specifications.md` §1.1 — chaque module y a une ligne, chaque section
+pointée existe, aucune ligne ne désigne un module mort. Il ne lit jamais le
+**contenu** d'une section. Un module peut donc être parfaitement indexé et
+promettre n'importe quoi : le trajet spec → test s'arrête au sommaire.
+
+**Mutations tentées** :
+
+| Mutation | Tests exécutés | Avant | Après |
+|---|---|---|---|
+| `AuthService::TOKEN_EXPIRY_MINUTES` 15 → 1440 | **la suite entière, 19 878** | **VERT** | **rouge** |
+| idem 15 → 14 | `AuthServiceTest` | VERT | **rouge** |
+| idem 15 → 16 | `AuthServiceTest` | VERT | **rouge** |
+| `if ($now > $record->expiresAt)` → `if (false)` | `AuthServiceTest` | 1 rouge | **2 rouges** |
+| idem, avec une heure de grâce après l'expiration | `AuthServiceTest` | VERT | **rouge** |
+| `CookieConsentService::CONSENT_DURATION_DAYS` 395 → 30 | `tests/Core/Cookie/` | VERT | VERT |
+| idem 395 → 3650 (dix ans) | + `tests/Core/View/`, 638 | VERT | VERT |
+
+Le premier est le constat de l'itération : un lien magique valable **vingt-
+quatre heures** au lieu de quinze minutes laissait la suite complète verte.
+La promesse est écrite deux fois — `specifications.md` ligne 66, « Token:
+single-use, 15-minute expiry », et `core/View/rgpd_default.html`, qui en
+fait une durée de conservation — et rien ne la tenait, parce que chaque
+test qui mentionne la fenêtre écrit son propre `expires_at` au lieu de lire
+celui que le service a écrit.
+
+La mutation « une heure de grâce » sépare les deux tests ajoutés :
+`testVerifyMagicLinkExpired` existait déjà, mais il date son lien de 2020,
+ce qui reste rouge pour une implémentation qui comparerait les années. La
+borne à la seconde est ce qui manquait.
+
+**Corrigé dans cette PR** :
+
+- `tests/Core/Security/AuthServiceTest` — deux tests. Le premier lit le
+  `expires_at` que `requestMagicLink()` a réellement écrit et le compare à
+  quinze minutes, à la seconde près : 14, 16 et 1440 rougissent. Le second
+  vérifie la borne — refusé une seconde après l'expiration, accepté trente
+  secondes avant. Aucun fichier de production touché.
+
+**Issues ouvertes** :
+
+- #444 — la durée du consentement aux cookies (395 jours, « 13 mois per
+  ePrivacy directive ») n'est tenue par rien, et ne peut pas l'être : le
+  banc d'essai remplace `setcookie()` par un bocal qui garde le nom et la
+  valeur et **jette l'expiration**, c'est-à-dire l'attribut que la règle
+  encadre. Dix ans passent aussi bien que treize mois.
+
+**Vérifié et tenu** :
+
+- **Deux prémisses de §4 sont inexactes, et il vaut mieux le savoir avant
+  de les chasser.** La « fenêtre de bascule 1er août – 29 septembre » n'est
+  écrite nulle part dans `specifications.md`, qui place la coupure au
+  1er septembre. Et les « 90 jours des notifications lues » comme le
+  « quota de 5 sauvegardes » ne sont pas des règles mais des **réglages
+  avec valeur par défaut** — `notifications_retention_days` lu par
+  `PurgeNotificationsHandler` avec `?: 90`, le quota de sauvegardes résolu
+  par `BackupRetention::quotaFor()`. Un test qui figerait ces chiffres
+  figerait une valeur par défaut, pas une promesse.
+
+**Non vérifiable, et pourquoi** :
+
+- **Une mutation qui ne s'applique pas se lit exactement comme un test qui
+  tient.** Deux mutations du `if` d'expiration ont d'abord été annoncées
+  vertes ; elles n'avaient simplement pas été appliquées, l'échappement de
+  l'expression `perl` ne correspondant à rien. Le test d'expiration
+  préexistant restait vert lui aussi, ce qui a mis la puce à l'oreille —
+  sans lui, deux fausses preuves de robustesse entraient dans ce journal.
+  L'outil de mutation utilisé au début de ce chantier vérifiait
+  `git diff` après écriture ; la boucle qui l'a contourné ne le faisait
+  pas. Toute mutation doit prouver qu'elle a modifié le fichier avant que
+  son verdict compte.
+
+### Itération 5 — Les frontières de rôle et d'appartenance — 2026-09-21
+
+**Périmètre parcouru** : les cinq questions de §5, prises une à une, et
+chacune posée au code par mutation plutôt que par lecture — l'inventaire
+des routes, le garde du routeur, les trois règles d'appartenance nommées,
+et une règle négative de §4 restée sans réponse.
+
+**Mutations tentées** :
+
+| Mutation | Tests exécutés | Verdict |
+|---|---|---|
+| `MemberService::canAccess()` accorde tout | 789 (`Core/Member` + `Security`) | **2 rouges** |
+| `FileAccessGuard::isOwnerScopedAgainst()` → `false` | 870 (+ `Core/File`) | **3 rouges** |
+| le garde RBAC du routeur ne s'exécute plus | **suite entière, 19 891** | **258 rouges** |
+| une route déclarée par variables, invisible au parseur | `AuthorizationMatrixInventoryTest` | **refuse de s'exécuter** |
+| `ArticleService::coverImageRoleMin()` → toujours `'public'` | 609 (`Modules/News` + `Security`) | **5 rouges** |
+
+**Corrigé dans cette PR** : rien, et c'est le résultat. Les cinq frontières
+que §5 soupçonne sont tenues. Ajouter un garde de plus là où 258 tests
+rougissent déjà serait écrire le doublon que l'itération 2 a supprimé après
+l'avoir écrit.
+
+**Issues ouvertes** : aucune. Rien de ce qui a été sondé ne constitue un
+défaut au regard d'une règle écrite.
+
+**Vérifié et tenu** :
+
+- **L'inventaire ne se contente pas de ce qu'on lui donne.** Une route
+  ajoutée à `public/index.php` avec un verbe et un chemin passés par
+  variables — une forme que le parseur ne comprend pas — ne rend pas
+  l'audit incomplet : `authzCoreRoutes()` sort en erreur, avec ses propres
+  mots, « A route written in an unfamiliar shape would be invisible to the
+  matrix, so this refuses to run rather than audit an incomplete list ».
+  Le test meurt, donc la CI rougit. C'est la réponse à la première question
+  de §5, et elle est bonne.
+- **Les trois règles d'appartenance résistent à leur annulation complète.**
+  Rendre `canAccess()` toujours vrai, désarmer la portée par propriétaire de
+  `FileAccessGuard`, ouvrir toutes les couvertures d'articles : chacune
+  rougit, sans que rien n'ait eu besoin d'être ajouté.
+
+**Le fait structurel de cette itération** — et il mérite d'être écrit, parce
+qu'il déplace où se trouve le filet : **`tests/Security/`, 238 tests, la
+suite qui porte le nom de la frontière, n'exerce pas le garde RBAC du
+routeur.** Retirer `if (!$skipRbac)` la laisse entièrement verte. Les 258
+tests qui attrapent ce retrait sont les tests RBAC des modules —
+`NewsRbacTest`, `RentalRbacTest`, `MemberSearchRbacTest` et leurs pairs.
+La couverture existe donc, et elle est large, mais elle n'est pas là où §5
+la suppose : ni `AuthorizationMatrixInventoryTest`, qui raisonne sur des
+déclarations, ni le profil DAST, qui tourne en CI seulement, ne la portent.
+Une personne cherchant « le test qui garantit le refus » dans
+`tests/Security/` ne le trouverait pas.
+
+**Non vérifiable, et pourquoi** :
+
+- **« Le cran en dessous, route par route »** ne se mesure pas depuis
+  PHPUnit. Les 258 rouges prouvent que le refus est exercé largement, pas
+  qu'il l'est pour chacune des ~520 routes déclarées ; établir la couverture
+  route par route demanderait de muter le `role_min` de chaque route
+  séparément et de relancer la suite à chaque fois — plusieurs centaines
+  d'exécutions de treize minutes. Le job `Authorization matrix` fait ce
+  trajet en CI, par le navigateur, et c'est lui qu'il faudrait lire pour
+  répondre ; son artefact n'est publié que sur un tag de release, la même
+  limite que l'itération 1 a rencontrée et que #393 consigne.

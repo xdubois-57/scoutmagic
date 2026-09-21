@@ -24,6 +24,9 @@
     "/api/support/tickets/{reference}": {
       "reference": "SUP-ABCDEF"
     },
+    "/account/devices/{id}": {
+      "id": "1"
+    },
     "/admin/attestations/{id}": {
       "id": "1"
     },
@@ -102,10 +105,16 @@
     "/chefs/presences/anime/{memberId}": {
       "memberId": "1"
     },
+    "/carddav/staff/{member_id}": {
+      "member_id": "1"
+    },
     "/chefs/presences/feuille/{eventId}": {
       "eventId": "1"
     },
     "/chefs/staffs/documents/{id}": {
+      "id": "1"
+    },
+    "/config/synchronisation-contacts/{id}": {
       "id": "1"
     },
     "/config/courrier-entrant/boites/{id}": {
@@ -118,6 +127,9 @@
       "id": "1"
     },
     "/config/courrier-sortant/rebonds/{id}": {
+      "id": "1"
+    },
+    "/config/pages-de-texte/{id}": {
       "id": "1"
     },
     "/config/emails/{template}": {

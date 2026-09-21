@@ -140,10 +140,33 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
      * The floor is what the largest real review needs, not what a typical
      * one costs. Raising the number is fine and lowering it below the
      * floor is the edit this catches.
+     *
+     * THE FLOOR IS 30 AND IT IS MEASURED. Over the 221 complete reviews to
+     * 2026-09-20 the median is 11.7 minutes, the p90 is 17.8 and the
+     * longest is 25.2 — and #257 above was cut at 20. So anything at or
+     * below 30 is inside the range real reviews have needed, and the
+     * ceiling was brought from 60 down to 40 against those numbers rather
+     * than against the fear that set it to 60. It bounds a runaway; it
+     * does not bound cost, because the most expensive run measured spent
+     * 24.23 USD in 13.6 minutes.
      */
     public function testTheReviewerIsGivenTimeToFinishALargeDiff(): void
     {
-        [$review] = self::jobs();
+        [$firstHalf] = self::jobs();
+
+        // The review job specifically. Since the `settle` job joined this
+        // file, the first `timeout-minutes:` in that half belongs to a job
+        // that sleeps — reading it would have this test guarding the wrong
+        // ceiling, and passing while the real one went to zero.
+        $begins = strpos($firstHalf, "\n  review:\n");
+
+        self::assertIsInt(
+            $begins,
+            'The review job is no longer where this test expects it to start, so the ceiling it reads '
+            . 'below may belong to another job entirely.',
+        );
+
+        $review = substr($firstHalf, $begins);
 
         $matched = preg_match('/^    timeout-minutes: (\d+)$/m', $review, $found);
 
@@ -155,12 +178,45 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
         );
 
         $this->assertGreaterThanOrEqual(
-            60,
+            30,
             (int) $found[1],
             'The review job is capped at ' . $found[1] . ' minutes. A review of the largest diff this '
             . 'repository has produced does not fit, it is cancelled rather than failed, and because '
             . '`Claude review` is required on `main` that shows up as an unmergeable pull request with '
             . 'nothing wrong in it — see docs/quality-pipeline.md § Code review.',
+        );
+    }
+
+    /**
+     * A JOB NOTHING WAITS FOR IS A JOB THAT DOES NOTHING. The `settle` job
+     * exists so that a push landing during the quiet window cancels a
+     * sleep rather than a review in flight — 41 of the 300 runs to
+     * 2026-09-20 were cancelled mid-review, each having already spent
+     * whatever it had spent. That only holds while the review actually
+     * waits for it: drop the `needs:` and the job still runs, still shows
+     * green, and saves nothing at all.
+     */
+    public function testTheReviewWaitsForTheBranchToSettle(): void
+    {
+        $workflow = self::workflow();
+
+        $this->assertMatchesRegularExpression(
+            '/^  settle:$/m',
+            $workflow,
+            'The `settle` job is gone, so every push pays for a review that the next push cancels '
+            . 'half-way through — see docs/quality-pipeline.md § Code review.',
+        );
+
+        [$firstHalf] = self::jobs();
+        $begins = strpos($firstHalf, "\n  review:\n");
+
+        self::assertIsInt($begins, 'The review job is no longer where this test expects it to start.');
+
+        $this->assertMatchesRegularExpression(
+            '/^    needs: settle$/m',
+            substr($firstHalf, $begins),
+            'The review job no longer waits for `settle`, so the quiet window buys nothing: the review '
+            . 'starts on the push exactly as before, and the sleep is a job that only burns runner time.',
         );
     }
 
@@ -321,6 +377,14 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
         $outputs = [
             'evidence', 'turns', 'denials', 'denied_tools', 'denials_other',
             'agent_calls', 'subagents_spawned', 'subagents_completed',
+            // Added 2026-09-20. The first three numbers said a run had
+            // stopped part-way through and nothing more, so answering
+            // "why" meant opening the transcript by hand — 35 times in
+            // ten days. `background` is the cause in every truncated run
+            // recorded here, `gone` separates an agent that failed from
+            // one still reading, and `nested` names the one case where
+            // the orchestrator was not the one who had to collect.
+            'subagents_background', 'subagents_nested', 'subagents_gone',
         ];
 
         foreach ($outputs as $output) {
@@ -422,6 +486,235 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
             unlink($transcript);
             unlink($program);
         }
+    }
+
+    /**
+     * The verdict chain itself, lifted out of the status job so a test can
+     * run it, exactly as `jqProgram()` lifts the reader.
+     *
+     * It starts at `unreviewed=1` and stops where the chain stops deciding
+     * and starts formatting a comment. Everything between those two points
+     * is the decision; everything after it needs `gh`, a pull request and
+     * a token, and none of that is what these assertions are about.
+     */
+    private static function verdictProgram(): string
+    {
+        [, $status] = self::jobs();
+
+        $opens = strpos($status, 'unreviewed=1');
+        self::assertIsInt($opens, 'The status job no longer starts from "assume nothing was reviewed".');
+
+        $closes = strpos($status, '# `-` rather than an empty cell', $opens);
+        self::assertIsInt(
+            $closes,
+            'The verdict chain no longer ends where this test expects. It reads from `unreviewed=1` to the '
+            . 'first line of the comment formatting; if that boundary moved, this test is running either '
+            . 'less than the decision or more than it.',
+        );
+
+        return "set -uo pipefail\n"
+            . substr($status, $opens, $closes - $opens)
+            . "\necho \"unreviewed=\${unreviewed}\"\necho \"verdict=\${verdict}\"\n";
+    }
+
+    /**
+     * Runs that chain with one run's numbers in the environment, and
+     * returns what it decided.
+     *
+     * @param  array<string, string> $evidence overrides for a complete review
+     * @return array{verdict: string, unreviewed: string}
+     */
+    private static function verdictFor(array $evidence): array
+    {
+        $environment = [
+            'REVIEW_RESULT' => 'success',
+            'REVIEW_CONCLUSION' => 'success',
+            'EVIDENCE' => 'present',
+            'IS_ERROR' => 'false',
+            'SUBTYPE' => 'success',
+            'TURNS' => '30',
+            'DENIALS' => '0',
+            'DENIED_TOOLS' => '',
+            'DENIALS_OTHER' => '0',
+            'AGENT_CALLS' => '12',
+            'SUBAGENTS_SPAWNED' => '12',
+            'SUBAGENTS_COMPLETED' => '12',
+            'SUBAGENTS_BACKGROUND' => '0',
+            'SUBAGENTS_NESTED' => '0',
+            'SUBAGENTS_GONE' => '0',
+            'DELIBERATE_DENIALS' => implode(',', self::deliberateDenials()),
+        ] + [];
+
+        $environment = array_merge($environment, $evidence);
+
+        $script = tempnam(sys_get_temp_dir(), 'claude-review-verdict-');
+        self::assertIsString($script);
+
+        try {
+            file_put_contents($script, self::verdictProgram());
+
+            $exported = '';
+
+            foreach ($environment as $name => $value) {
+                $exported .= $name . '=' . escapeshellarg($value) . ' ';
+            }
+
+            $output = [];
+            $result = 0;
+            exec('env ' . $exported . 'bash ' . escapeshellarg($script) . ' 2>&1', $output, $result);
+
+            self::assertSame(
+                0,
+                $result,
+                "The verdict chain died on these numbers instead of deciding:\n" . implode("\n", $output),
+            );
+
+            $decided = ['verdict' => '', 'unreviewed' => ''];
+
+            foreach ($output as $line) {
+                if (str_starts_with($line, 'unreviewed=')) {
+                    $decided['unreviewed'] = substr($line, strlen('unreviewed='));
+                }
+
+                if (str_starts_with($line, 'verdict=')) {
+                    $decided['verdict'] = substr($line, strlen('verdict='));
+                }
+            }
+
+            return $decided;
+        } finally {
+            unlink($script);
+        }
+    }
+
+    /**
+     * THE ONE ASSERTION THAT RUNS THE DECISION RATHER THAN DESCRIBING IT.
+     *
+     * Every other test here reads the workflow as text and pins a shape,
+     * which is what a regex can do; none of them could have told you what
+     * this check SAYS about a given run. That gap is not academic: between
+     * 2026-09-10 and 2026-09-20 this workflow went red 35 times in 300
+     * runs, every sampled one of them on the launched-against-finished
+     * comparison, and the comment it posted said "at least one was still
+     * reading" whether the agent was reading, had failed or had been
+     * killed. The cases below are real runs, by number, and each one
+     * fixes both halves of the answer: the verdict and the flag.
+     */
+    public function testEachWayToReviewNothingGetsItsOwnVerdict(): void
+    {
+        $cases = [
+            // Run 35513770169 on #403: every agent in the foreground, all
+            // collected, five findings posted. The only shape that may
+            // clear the flag.
+            'a complete review' => [
+                'evidence' => ['SUBAGENTS_SPAWNED' => '12', 'SUBAGENTS_COMPLETED' => '12', 'SUBAGENTS_BACKGROUND' => '1'],
+                'expect' => 'Reviewed, nothing to report',
+                'unreviewed' => '0',
+            ],
+            // Run 35514703160 on the same pull request, 38 seconds earlier
+            // in the day: `run_in_background` was not set on either launch,
+            // both agents started in the background, neither came back.
+            'a run that stopped on the background default' => [
+                'evidence' => ['AGENT_CALLS' => '2', 'SUBAGENTS_SPAWNED' => '2', 'SUBAGENTS_COMPLETED' => '0', 'SUBAGENTS_BACKGROUND' => '2'],
+                'expect' => 'stopped part-way through',
+                'unreviewed' => '1',
+            ],
+            // Run 35515224252: five of eight asked for the background
+            // outright, two collected.
+            'a run that asked for the background' => [
+                'evidence' => ['AGENT_CALLS' => '8', 'SUBAGENTS_SPAWNED' => '8', 'SUBAGENTS_COMPLETED' => '2', 'SUBAGENTS_BACKGROUND' => '5', 'SUBAGENTS_NESTED' => '1'],
+                'expect' => 'stopped part-way through',
+                'unreviewed' => '1',
+            ],
+            // Run 35462506063: 155 launched, 154 collected, 9.08 USD,
+            // findings posted. Red on purpose — see the branch itself.
+            'a review that lost one agent in a hundred and fifty-five' => [
+                'evidence' => ['AGENT_CALLS' => '155', 'SUBAGENTS_SPAWNED' => '155', 'SUBAGENTS_COMPLETED' => '154'],
+                'expect' => 'stopped part-way through',
+                'unreviewed' => '1',
+            ],
+            // Not the truncation, and it used to be reported as one.
+            'agents that ended early' => [
+                'evidence' => ['AGENT_CALLS' => '4', 'SUBAGENTS_SPAWNED' => '4', 'SUBAGENTS_COMPLETED' => '3', 'SUBAGENTS_GONE' => '1'],
+                'expect' => 'without finishing',
+                'unreviewed' => '1',
+            ],
+            // #208 again: the calls were made and refused, so nothing
+            // started. Zero equals zero, which used to be green.
+            'launches that started nothing' => [
+                'evidence' => ['AGENT_CALLS' => '3', 'SUBAGENTS_SPAWNED' => '0', 'SUBAGENTS_COMPLETED' => '0'],
+                'expect' => 'Nothing was launched',
+                'unreviewed' => '1',
+            ],
+            'no launch attempted at all' => [
+                'evidence' => ['AGENT_CALLS' => '0', 'SUBAGENTS_SPAWNED' => '0', 'SUBAGENTS_COMPLETED' => '0'],
+                'expect' => 'The review agents never ran',
+                'unreviewed' => '1',
+            ],
+            'a transcript this reader cannot count' => [
+                'evidence' => ['SUBAGENTS_SPAWNED' => '-1', 'SUBAGENTS_COMPLETED' => '-1', 'SUBAGENTS_GONE' => '-1'],
+                'expect' => 'Unverified',
+                'unreviewed' => '1',
+            ],
+            'a tool refused outside the decided list' => [
+                'evidence' => ['DENIALS' => '2', 'DENIALS_OTHER' => '2', 'DENIED_TOOLS' => 'Skill'],
+                'expect' => 'A tool was refused',
+                'unreviewed' => '1',
+            ],
+            'the action declining to run Claude at all' => [
+                'evidence' => ['REVIEW_CONCLUSION' => ''],
+                'expect' => 'Green without a review',
+                'unreviewed' => '1',
+            ],
+        ];
+
+        foreach ($cases as $label => $case) {
+            $decided = self::verdictFor($case['evidence']);
+
+            $this->assertStringContainsString(
+                $case['expect'],
+                $decided['verdict'],
+                'On ' . $label . ' the check says something else: ' . $decided['verdict'],
+            );
+
+            $this->assertSame(
+                $case['unreviewed'],
+                $decided['unreviewed'],
+                'On ' . $label . ' the check '
+                . ($case['unreviewed'] === '0' ? 'refuses to go green' : 'goes green')
+                . ', which is the opposite of what this run showed.',
+            );
+        }
+    }
+
+    /**
+     * The cause, in the one place a reader will see it. A truncated run
+     * and a complete one differ by which agents started in the background
+     * and by nothing else this check records — so a verdict that says
+     * "stopped part-way through" without that number sends whoever reads
+     * it to the transcript, which is where the last ten days went.
+     */
+    public function testTheTruncationVerdictNamesItsCause(): void
+    {
+        $decided = self::verdictFor([
+            'AGENT_CALLS' => '8',
+            'SUBAGENTS_SPAWNED' => '8',
+            'SUBAGENTS_COMPLETED' => '2',
+            'SUBAGENTS_BACKGROUND' => '5',
+        ]);
+
+        $this->assertStringContainsString(
+            'started in the background',
+            $decided['verdict'],
+            'The truncation verdict no longer says how many agents started in the background, so it names '
+            . 'the symptom and not the cause.',
+        );
+
+        $this->assertStringContainsString(
+            '5',
+            $decided['verdict'],
+            'The truncation verdict carries no count of backgrounded agents.',
+        );
     }
 
     /**
@@ -656,8 +949,16 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
             . 'half-way through the diff is once again indistinguishable from one that finished it.',
         );
 
+        // The comparison is arithmetic rather than a string inequality
+        // since 2026-09-20 — `completed != spawned` was also true for an
+        // agent that failed or was killed, and said "still reading" about
+        // all three. What must not change is that a run with anything
+        // still in flight cannot reach the green branch, and
+        // testEachWayToReviewNothingGetsItsOwnVerdict is what proves it by
+        // running the chain. This assertion holds the shape underneath:
+        // the subtraction, and the fact that it is a strict `> 0`.
         $matched = preg_match(
-            '/elif \[\[ "\$\{SUBAGENTS_COMPLETED\}" != "\$\{SUBAGENTS_SPAWNED\}" \]\]; then\n(?:\s+#[^\n]*\n)*\s+verdict=/',
+            '/elif \[\[ \$\(\( SUBAGENTS_SPAWNED - SUBAGENTS_COMPLETED - SUBAGENTS_GONE \)\) -gt 0 \]\]; then/',
             $status,
             $found,
         );
@@ -665,8 +966,10 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
         $this->assertSame(
             1,
             $matched,
-            'Nothing compares the review agents launched against the ones that finished, so the verdict '
-            . 'can again read "Reviewed, nothing to report" over a run that ended mid-review.',
+            'Nothing compares the review agents launched against the ones that came back, so the verdict '
+            . 'can again read "Reviewed, nothing to report" over a run that ended mid-review. The agents '
+            . 'that ended early are subtracted because they are a different failure with a different '
+            . 'sentence — never because a run may lose some of them.',
         );
     }
 

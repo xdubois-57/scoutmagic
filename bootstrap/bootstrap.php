@@ -638,8 +638,32 @@ RewriteCond %{REQUEST_FILENAME} -f [OR]
 RewriteCond %{REQUEST_FILENAME} -d
 RewriteRule ^(storage|core|modules|config|schema|vendor|tests|scripts)(/|$) - [F,L]
 
-# Deny dotfiles anywhere in the tree.
+# Deny dotfiles anywhere in the tree — except /.well-known/, which is a
+# standardised public namespace (RFC 8615) and only looks like a dotfile.
+# CardDAV autodiscovery asks for /.well-known/carddav before it will
+# accept any other address (ARCHITECTURE.md 8.118), and ACME puts its
+# challenge there too, so an unconditional deny here breaks both with a
+# 403 that no application code can see, let alone explain.
+RewriteCond %{REQUEST_URI} !^/\.well-known/
 RewriteRule (^|/)\. - [F,L]
+
+# HTTP Basic credentials survive to PHP.
+#
+# Under mod_php Apache hands them over as PHP_AUTH_USER/PHP_AUTH_PW and
+# there is nothing to do. Under CGI and FastCGI — which is most shared
+# hosting, the deployment this project targets — the Authorization header
+# is stripped before PHP sees it, because it is how the web server's own
+# authentication would be carried. A CardDAV client speaks Basic and
+# nothing else, so without this line every synchronisation answers 401
+# forever, with correct credentials, and nothing anywhere says why.
+#
+# Copied into an environment variable rather than into a header: mod_php
+# and FastCGI disagree about header rewriting, and both honour E=. What
+# mod_rewrite sets this way reaches PHP as REDIRECT_HTTP_AUTHORIZATION
+# once the request is rewritten, which is why the controller reads both
+# spellings.
+RewriteCond %{HTTP:Authorization} .
+RewriteRule ^ - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 
 # Real, non-PHP files that exist under public/ (assets, etc.) are served
 # directly as static files — safe to route across directories since no PHP

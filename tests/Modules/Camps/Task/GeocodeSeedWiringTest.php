@@ -19,7 +19,7 @@ use PHPUnit\Framework\TestCase;
  * The shape matters. `GeocodePlacesHandler` geocodes ONE place per run and
  * re-arms itself only while more are pending: an empty queue is meant to
  * end the chain. Seeding it the way the module's three daily tasks are
- * seeded — `rearm(..., '+1 minute')` on every page load — restarted that
+ * seeded — unconditionally, `'+1 minute'`, on every page load — restarted that
  * chain a minute after it ended, for ever. The live site ran it 277 times
  * in ten hours, each run finding nothing to do in two milliseconds, and
  * those runs were a third of everything in the event journal.
@@ -68,8 +68,8 @@ class GeocodeSeedWiringTest extends TestCase
 
         $start = strpos($source, 'Task\ReviewReminderHandler::TASK_KEY');
         $this->assertNotFalse($start, 'the daily camps seeding loop must still exist');
-        $end = strpos($source, '$schedulerService->rearm(\'camps\', $campsTaskKey', $start);
-        $this->assertNotFalse($end, 'the daily camps seeding loop must still end in a rearm() call');
+        $end = strpos($source, '$schedulerService->seed(\'camps\', $campsTaskKey', $start);
+        $this->assertNotFalse($end, 'the daily camps seeding loop must still end in a seed() call');
 
         $this->assertStringNotContainsString(
             'GeocodePlacesHandler',

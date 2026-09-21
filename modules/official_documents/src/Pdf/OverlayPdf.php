@@ -51,6 +51,9 @@ final class OverlayPdf extends Fpdi
 
     private const SHRINK_STEP = 0.25;
 
+    /** How far a tick's strokes reach beyond the square they cross. */
+    private const TICK_OVERHANG = 0.35;
+
     public function __construct()
     {
         parent::__construct('P', 'mm', 'A4');
@@ -101,11 +104,20 @@ final class OverlayPdf extends Fpdi
      * Write one value at its declared place, shrinking the type until it
      * fits the room the form leaves for it.
      *
-     * Returns false when even `MIN_FONT_SIZE` is too large — the value is
-     * still written, because a form with a cramped line on it is more use
-     * than a form with a blank one, and the caller is told so it can say on
-     * the web page that this entry will not fit. Silence here is the one
-     * outcome that would be wrong.
+     * Returns false when even `MIN_FONT_SIZE` is too large, and then writes
+     * **what fits and no more**. The caller is told, and the screen tells
+     * the parent; silence is the one outcome that would be wrong.
+     *
+     * **A value never runs past its own line**, and that is not tidiness.
+     * The health sheet's emergency contacts are a two-column printed table:
+     * the left column's « Remarque » line ends at 101 mm, the frame is at
+     * 102.4, and the right column's own answer starts at 122.3. An
+     * eighty-five-character note drawn at full length reaches 133.5 —
+     * through the frame and through the second contact's cell, so the two
+     * people a first-aider would ring overprint each other. An earlier
+     * version of this method drew the whole string on the grounds that a
+     * cramped line beats a blank one; that holds for a line with nothing
+     * beside it, and stops holding the moment something is.
      */
     public function writeText(string $value, TextField $field): bool
     {
@@ -122,9 +134,132 @@ final class OverlayPdf extends Fpdi
             $this->SetFont(self::FONT_FAMILY, '', $size);
         }
 
-        $this->Text($field->x, $field->baselineY, $value);
+        if ($this->GetStringWidth($value) <= $field->width) {
+            $this->Text($field->x, $field->baselineY, $value);
 
-        return $this->GetStringWidth($value) <= $field->width;
+            return true;
+        }
+
+        $this->Text($field->x, $field->baselineY, $this->longestPrefixThatFits($value, $field->width));
+
+        return false;
+    }
+
+    /**
+     * As much of a value as its line holds, cut on a character.
+     *
+     * Only ever reached once the type has already been shrunk as far as it
+     * goes, so this is the last resort rather than the ordinary path — and
+     * the caller always reports it, which is what makes the cut something
+     * the parent reads about on the screen rather than discovers on paper.
+     *
+     * Cut on a character and not on a word: this is the path for a value
+     * the form gives ONE line to — a name, a phone number, an e-mail
+     * address — where there may be no space to break on at all. A free-text
+     * answer with several printed lines goes through `wrapInto()`, which
+     * breaks between words.
+     */
+    private function longestPrefixThatFits(string $value, float $width): string
+    {
+        $low = 0;
+        $high = mb_strlen($value);
+
+        while ($low < $high) {
+            $middle = (int) ceil(($low + $high) / 2);
+            if ($this->GetStringWidth(mb_substr($value, 0, $middle)) <= $width) {
+                $low = $middle;
+            } else {
+                $high = $middle - 1;
+            }
+        }
+
+        return mb_substr($value, 0, $low);
+    }
+
+    /**
+     * Fit a free-text answer onto the printed lines the form gives it, and
+     * say whether it all got there.
+     *
+     * The health sheet asks for allergies, treatments and « toute
+     * information utile » on two or three dotted lines and nothing more, so
+     * a parent who writes a paragraph is writing more than the federation's
+     * form holds. This wraps on word boundaries at each line's own width —
+     * the first of them is often a stub, 11 mm on « Mentionnez toute
+     * information utile » — and reports what did not fit.
+     *
+     * **It never truncates in silence.** The caller is told, and the screen
+     * tells the parent, which is the chantier's rule: discovering on paper
+     * that half a treatment is missing is the one outcome worth building
+     * against.
+     *
+     * A single word longer than its whole line is put on that line anyway
+     * rather than dropped or looped on — `writeText()` then shrinks it, and
+     * the overflow is reported either way.
+     *
+     * @param list<TextField> $lines the form's own lines, in reading order
+     * @return array{lines: list<string>, overflow: bool} one string per
+     *         line (padded with empties), and whether anything was left
+     */
+    public function wrapInto(string $value, array $lines): array
+    {
+        $value = self::sanitise($value);
+        $filled = array_fill(0, count($lines), '');
+        if ($value === '') {
+            return ['lines' => $filled, 'overflow' => false];
+        }
+        if ($lines === []) {
+            // An answer the layout gave no line to. Reported rather than
+            // dropped: silence here is a family's treatment missing from a
+            // document with nothing anywhere to say so.
+            return ['lines' => $filled, 'overflow' => true];
+        }
+
+        $words = explode(' ', $value);
+        $next = 0;
+        foreach ($lines as $index => $line) {
+            $this->SetFont(self::FONT_FAMILY, '', $line->fontSize);
+            $current = '';
+            while ($next < count($words)) {
+                $candidate = $current === '' ? $words[$next] : $current . ' ' . $words[$next];
+                if ($current !== '' && $this->GetStringWidth($candidate) > $line->width) {
+                    break;
+                }
+                $current = $candidate;
+                $next++;
+                // A first word that is already too wide has been taken, so
+                // the loop always advances; it stops here rather than
+                // cramming a second word beside it.
+                if ($this->GetStringWidth($current) > $line->width) {
+                    break;
+                }
+            }
+            $filled[$index] = $current;
+        }
+
+        return ['lines' => $filled, 'overflow' => $next < count($words)];
+    }
+
+    /**
+     * Draw the cross a parent would draw, in a square the form printed.
+     *
+     * Two strokes rather than a glyph: the two box sizes on the health
+     * sheet are 1.35 mm and 2.2 mm, and a « ✗ » sized to sit inside either
+     * of them would depend on font metrics for something that is two lines.
+     *
+     * Deliberately drawn slightly wider than the square. A cross confined
+     * inside a 1.35 mm box is a smudge on paper; overhanging it reads as a
+     * mark somebody made, which is exactly what it is.
+     */
+    public function tick(TickBox $box): void
+    {
+        $left = $box->x - self::TICK_OVERHANG;
+        $top = $box->y - self::TICK_OVERHANG;
+        $right = $box->x + $box->size + self::TICK_OVERHANG;
+        $bottom = $box->y + $box->size + self::TICK_OVERHANG;
+
+        $this->SetLineWidth(0.35);
+        $this->Line($left, $top, $right, $bottom);
+        $this->Line($left, $bottom, $right, $top);
     }
 
     /**

@@ -385,3 +385,139 @@ routeur et n'atteint jamais le contrôleur. Les deux sont supprimées.
 Rien. IT-01 est livrée entière. L'écran de configuration, la
 journalisation, le sujet d'aide et la reprise de `specifications.md` sont
 le périmètre annoncé d'IT-02, pas un report.
+
+---
+
+## IT-02 — L'écran de configuration, l'aide, la clôture
+
+### Livré
+
+- `Core\Http\Controller\TextPageConfigController` — l'écran dans
+  Configuration › colonne « Site », huit routes toutes `superadmin`.
+- `config/text_pages/index.html.twig` — la liste, montée sur le
+  `list_editor` partagé.
+- `config/text_pages/form.html.twig` — l'ajout et la modification.
+- `public/assets/js/text-page-form.js` et sa spec Vitest — la colonne
+  conditionnelle.
+- `docs/help/pages-de-texte.md` — le sujet d'aide, livré dans la même PR
+  que l'écran, comme le chantier l'exige.
+- La journalisation des quatre événements demandés, identifiants seuls.
+- `TextPage::PATH_PREFIX` — la constante qui rend honnête la déclaration
+  d'aide (voir plus bas).
+- `specifications.md` §3.5 et §4.5, `ARCHITECTURE.md` §3 et §8.116.
+
+### Décisions prises en autonomie
+
+**Le contrôleur ne vérifie aucun rôle, et un test le lit.** Les huit
+routes sont déclarées `superadmin` et le garde RBAC tourne avant toute
+méthode. `hasAccess`, `RbacGuard` et `Role::` sont interdits dans la
+classe, comme ils le sont déjà dans `TextPageController` : une seconde
+réponse à une question déjà tranchée est celle qui dérive.
+
+**Le bouton d'ajout est un lien, pas celui du `list_editor`.** Ce
+partial sait créer un élément vide d'un clic, ce qui convient à une
+bannière et pas à une page : une page n'existe pas avant d'avoir un nom,
+un titre et une place. `add_url` n'est donc pas déclaré — le partial
+documente lui-même que les trois URL d'action sont facultatives.
+
+**L'adresse s'affiche en `<code>`, pas en lien.** Une page masquée n'a
+aucune route, donc le lien ferait 404 — et le moment où l'on veut le plus
+lire cette adresse est précisément celui où la page est encore masquée et
+où on s'apprête à la partager.
+
+**La liste déroulante de colonne est cachée *et* désactivée.** Un
+contrôle caché soumet quand même sa valeur, et la chaîne vide n'est pas
+le `null` qu'attend `assertMenuPlacement()` pour « Notre unité ». Le
+contrôleur retraduit de toute façon `''` en `null` avant d'appeler le
+service : trois gardes pour la même valeur, dont un seul — le serveur —
+est la règle.
+
+**Le sujet d'aide déclare aussi `/pages/*`.** Le chantier demande que les
+pages créées pointent vers le sujet de l'écran, « une page écrite par
+l'unité ne pouvant pas avoir d'aide livrée qui lui soit propre ». Comme
+`route_help` filtre sur le rôle du lecteur, le sujet étant `superadmin`,
+un visiteur public sur une page publique n'en voit rien. C'est le bon
+comportement et non une limite : le sujet explique comment **gérer** des
+pages, pas comment en lire une.
+
+**Rien n'est journalisé à la modification.** Le chantier nomme quatre
+événements — création, suppression, activation, désactivation — et pas
+le cinquième. Renommer une page ne change ni qui la lit, ni son adresse,
+ni son existence ; la journaliser reviendrait à tenir l'historique
+éditorial d'un texte que le site ne versionne pas.
+
+### Quatre défauts réels trouvés en revue
+
+La première version de l'écran a été relue et quatre choses en sont
+sorties, toutes justes.
+
+**L'écran entier était inerte.** Le `list_editor` dessine la poignée de
+glissement, l'interrupteur et la corbeille ; c'est `list-editor.js` qui
+les branche, et `base.html.twig` ne charge ni lui ni `sortable.js`. Le
+gabarit ne déclarait aucun `{% block scripts %}` : les trois points
+d'entrée `/ordre`, `/activation` et `/suppression` répondaient
+parfaitement, et aucun bouton de la page ne les appelait. Rien dans la
+suite ne l'aurait vu — un test de gabarit vérifie maintenant que les deux
+scripts sont bien là.
+
+**Un glisser-déposer traversant une section ne pouvait pas être honoré.**
+`sort_order` est un rang **dans** un menu : `TextPageMenuProvider`
+ordonne à l'intérieur de chaque `menu_id` et `maxSortOrder()` est borné à
+un menu. Une liste unique plate laissait poser une page au-dessus d'une
+page d'une autre section, postait un 0..n-1 global, et la ligne
+retournait à sa place au rechargement. L'écran a donc **une liste
+ordonnable par section**, et `reorder()` calcule les rangs par `menu_id`
+plutôt que sur un compteur unique — correct même pour une requête
+bricolée qui mélangerait les sections.
+
+**Activer ou supprimer une page inexistante fabriquait une ligne de
+journal.** `UPDATE … WHERE id = ?` sur une ligne absente réussit en
+silence : l'écran répondait « fait » et le journal enregistrait
+l'activation d'une page qui n'a jamais existé — une entrée inventée dans
+la piste d'audit que cette itération ajoute précisément pour auditer.
+`setActive()` et `delete()` refusent désormais un identifiant inconnu,
+comme `update()` le faisait déjà ; c'était une incohérence, pas un choix.
+
+**Et le raisonnement sur la journalisation était faux à moitié.** « Rien
+n'est journalisé à la modification » tenait pour un renommage — qui ne
+change ni le lecteur, ni l'adresse, ni l'existence. Mais le même
+formulaire déplace une page de section, et **la section est le contrôle
+d'accès** : `roleMin()` en dérive le plancher de la route. Le formulaire
+pouvait donc sortir une page de Configuration et la publier sur
+l'internet ouvert, sans une ligne nulle part, alors que la masquer était
+journalisée deux fois. Un déplacement de section est maintenant
+journalisé au niveau `security`, un renommage continue de ne rien écrire.
+
+### Divergences constatées
+
+**`HelpInvariantsTest` ne pouvait pas connaître ces routes.**
+`testEveryDeclaredPathCorrespondsToARegisteredGetRoute` extrait les
+routes GET en lisant le **source** de `public/index.php` à l'expression
+rationnelle. Les routes des pages de texte naissent de lignes de base de
+données au démarrage : elles n'y figurent pas, et n'y figureront jamais.
+Déclarer `/pages/*` dans un sujet d'aide aurait donc échoué comme une
+faute de frappe.
+
+Le test connaît maintenant cette unique famille dynamique, et il la tient
+de `TextPage::PATH_PREFIX` plutôt que d'un littéral recopié — un garde
+qui affirmerait une forme que l'application a cessé de servir serait pire
+que pas de garde du tout. C'est aussi pour ça que la constante existe :
+elle avait deux lecteurs, le contrôleur et le test, avant d'en avoir un
+troisième.
+
+**`specifications.md` §3.5 intitulait le menu Configuration « (admin) »**
+alors que §4.5, `ARCHITECTURE.md` §3 et `MenuBuilder::MENUS` disent tous
+`superadmin`. Corrigé : c'est la ligne isolée qui avait tort.
+
+**Le `vendor/` du conteneur était en retard d'une dépendance.** PHPStan
+rapportait vingt erreurs dans `modules/official_documents`, dont dix-huit
+existaient déjà sur `main` seul : `setasign/tfpdf` était arrivé avec une
+PR fusionnée pendant cette itération. `composer install` les a toutes
+fait disparaître. À retenir pour le prochain qui voit PHPStan rougir sur
+du code qu'il n'a pas touché : vérifier l'état des dépendances avant de
+chercher la cause dans le code.
+
+### Reporté
+
+Rien. Le chantier est livré entier sur ses deux itérations, et la PR
+d'IT-02 porte « Closes #368 ».

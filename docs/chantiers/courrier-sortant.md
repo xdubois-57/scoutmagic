@@ -721,7 +721,8 @@ Rien de fonctionnel. La cadence « collante » après bascule, refusée en
 IT-01 faute de coupe-circuit, est désormais possible : `ProviderHealth`
 existe. Elle n'est pas faite ici parce qu'elle appartient à `BulkCadence`
 et qu'aucune décision de ce document ne la demande — elle sera proposée
-quand une itération touchera la cadence.
+quand une itération touchera la cadence. **Suivie en #417**, qui est le
+destinataire que cette phrase n'avait pas.
 
 ---
 
@@ -1211,11 +1212,13 @@ deux règles opposées au même fichier, et cela mérite un arbitrage.
 ### Reporté
 
 - L'alignement DMARC d'un envoi « au nom de » (ci-dessus), à l'itération
-  qui touchera le publipostage.
+  qui touchera le publipostage. **Suivi en #418.**
 - La régénération de la clé DKIM depuis la sous-page. Elle reste dans
   l'assistant : tant qu'un seul endroit peut le faire, la règle « pas de
   champ éditable aux deux endroits » tient, et rien dans ce document ne
-  demande de la déplacer.
+  demande de la déplacer. **L'arbitrage appartient à #336**, qui traite
+  précisément du partage des réglages entre l'assistant et les pages de
+  configuration ; il y est commenté.
 
 ## IT-04 — La sonde manuelle
 
@@ -1397,13 +1400,15 @@ faut » de « rien n'entre jamais dedans ».
   leur classe affirme une appartenance au job `database-mariadb` qu'elle
   n'a pas. Découvert en vérifiant que mes propres tests tournaient bien
   sur MariaDB. Hors périmètre d'IT-04 : c'est une reprise de 509
-  fichiers, à faire d'un bloc et sur sa propre PR.
+  fichiers, à faire d'un bloc et sur sa propre PR. **Suivi en #416.**
 - La cadence hebdomadaire optionnelle (ci-dessus), tant que personne ne
-  la demande : l'absence est plus sûre que le défaut.
+  la demande : l'absence est plus sûre que le défaut. **Sans ticket,
+  délibérément** : ouvrir une issue pour une fonctionnalité que l'on ne
+  veut pas, c'est la faire revenir.
 - Le rattachement d'un rebond à une sonde précise. Le code est déjà
   reconnaissable (`MailProbeSender::codeIn()`, préfixe `SM-` distinct du
   `RET-` d'IT-03) ; ce qui manque est le lecteur de `delivery-status`,
-  qui est le sujet d'IT-05.
+  qui est le sujet d'IT-05. **Suivi en #419.**
 
 ---
 
@@ -2079,7 +2084,7 @@ fournisseur est ce fournisseur qui refuse l'unité.
 
 - Le rattachement d'un rebond à une sonde précise reste possible
   (`MailProbeSender::codeIn()`), et reste sans intérêt tant que personne ne
-  le demande.
+  le demande. **Suivi en #419**, avec le report jumeau d'IT-04.
 
 ---
 
@@ -2310,11 +2315,14 @@ rien dire. C'est le test à deux relais qui l'a attrapé.
 
 - Une **tendance** (le taux d'authentification semaine après semaine)
   demanderait une agrégation que rien ne réclame tant que personne n'a
-  regardé la page une deuxième fois.
+  regardé la page une deuxième fois. **Suivie en #420**, avec celle
+  d'IT-07 : même question, même justification, un seul ticket.
 - Le **rapprochement d'une source avec un fournisseur connu par plages
   d'adresses publiées** (les `include:` du SPF) ferait reconnaître un relais
   jamais déclaré. Utile, plus grand que cette itération, et sans intérêt
-  tant que les relais déclarés couvrent le cas courant.
+  tant que les relais déclarés couvrent le cas courant. **Suivi en #421**
+  — le seul report de ce chantier écrit comme souhaitable plutôt que
+  comme délibérément écarté.
 
 ---
 
@@ -2560,11 +2568,13 @@ sur une porte.**
   n'est pas comptée dans « gmail.com ». Le dire serait honnête, le
   résoudre demanderait de lire les enregistrements MX de chaque domaine
   destinataire — une itération à soi seule, et l'écran énonce déjà la
-  limite.
+  limite. **Suivi en #422.**
 - **Une tendance dans le temps** (ce fournisseur se dégrade-t-il ?) :
   même raison qu'en IT-06, rien ne la réclame tant que personne n'a
-  regardé la page deux fois.
+  regardé la page deux fois. **Suivie en #420**, avec celle d'IT-06.
 - **Proposer un relais autrement que « le suivant dans la voie ».** Un
   classement calculé à partir des résultats par relais supposerait
   d'avoir mesuré chaque fournisseur depuis chaque relais, ce qu'une unité
-  qui envoie quelques fois par an n'aura jamais.
+  qui envoie quelques fois par an n'aura jamais. **Suivi en #423**, qui
+  existe surtout pour porter cette raison : sans elle, l'idée revient
+  périodiquement comme une évidence.

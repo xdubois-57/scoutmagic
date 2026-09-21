@@ -2,7 +2,7 @@
   "id": "official_documents",
   "name": "Documents officiels",
   "description": "Les formulaires officiels de la fédération, pré-remplis avec ce que le site sait déjà : autorisation parentale et fiche santé, à imprimer, signer et remettre à l'animateur.",
-  "version": "1.0.0",
+  "version": "1.3.0",
   "routes": [
     {
       "path": "/members/{id}/autorisation-parentale",
@@ -14,13 +14,57 @@
       "label": "",
       "breadcrumb": {
         "label": "Autorisation parentale",
-        "parents": ["Espace membres"]
+        "parents": [
+          "Espace membres"
+        ]
       }
     },
     {
       "path": "/members/{id}/autorisation-parentale",
       "method": "POST",
       "controller": "Modules\\OfficialDocuments\\Controller\\ParentalAuthorizationController",
+      "action": "download",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/members/{id}/fiche-sante",
+      "method": "GET",
+      "controller": "Modules\\OfficialDocuments\\Controller\\HealthSheetController",
+      "action": "show",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Fiche santé",
+        "parents": [
+          "Espace membres"
+        ]
+      }
+    },
+    {
+      "path": "/members/{id}/fiche-sante",
+      "method": "POST",
+      "controller": "Modules\\OfficialDocuments\\Controller\\HealthSheetController",
+      "action": "save",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/members/{id}/fiche-sante/effacer",
+      "method": "POST",
+      "controller": "Modules\\OfficialDocuments\\Controller\\HealthSheetController",
+      "action": "clear",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/members/{id}/fiche-sante/pdf",
+      "method": "POST",
+      "controller": "Modules\\OfficialDocuments\\Controller\\HealthSheetController",
       "action": "download",
       "menu": "espace_animes",
       "role_min": "identified",
@@ -34,9 +78,21 @@
       "type": "text",
       "label": "Code de l'unité à la fédération",
       "description": "Le code que la fédération donne à votre unité, par exemple « LgVI/25 ». Il est écrit à côté du nom de l'unité sur la ligne « de l'unité » de l'autorisation parentale. Laissez vide si vous ne le connaissez pas : seul le nom de l'unité sera écrit."
+    },
+    {
+      "key": "official_documents_health_sheet_retention_months",
+      "default_value": "18",
+      "type": "number",
+      "label": "Conservation des fiches santé (mois)",
+      "description": "Au-delà de ce délai sans mise à jour ni impression, la fiche santé d'un membre est effacée automatiquement du site. La famille peut la ressaisir à tout moment. 18 mois par défaut, ce qui laisse passer une année scoute complète."
     }
   ],
   "cookies": [],
-  "scheduled_tasks": [],
+  "scheduled_tasks": [
+    {
+      "key": "purge_health_sheets",
+      "handler": "Modules\\OfficialDocuments\\Task\\PurgeHealthSheetsHandler"
+    }
+  ],
   "storage": {}
 }

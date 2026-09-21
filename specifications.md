@@ -125,8 +125,9 @@ Filtered by role — intendants see only `role_min: intendant` pages, chiefs see
 ### 3.4 Espace chefs d'U (admin)
 Administrative tools.
 
-### 3.5 Configuration (admin)
-Site-wide settings, modules, functions.
+### 3.5 Configuration (superadmin)
+Site-wide settings, modules, functions, and the free-text pages the unit
+writes itself (§4.5).
 
 ### 3.6 Navigation
 - **Mobile**: hamburger (left), unit name (right). Offcanvas from left. User card, accordion sub-menus, login/logout. Every sub-page entry starts with an icon, in the same box the per-member entries use for their avatar, so all the labels in a menu line up.
@@ -256,6 +257,7 @@ All pages in this menu require the `superadmin` role, except Maintenance (`admin
 | Page | Content |
 |---|---|
 | Configuration générale | Badges (transversal roles, e.g. Infirmier/Trésorier, plus one auto-generated "Référent {section}" badge per visible section, assignable only to Staff d'U members — add/rename/activate/deactivate; default badges and badges already assigned can only be deactivated, never deleted). Module registry + configuration mode toggle. |
+| Pages de texte | The unit's own free-text pages (ARCHITECTURE.md §8.116): a menu name, a page title, the menu section and — where that section has columns — which column. **The section is the access level**: a page filed under « Notre unité » is public, one under Configuration is read by superadmins only, and there is deliberately no separate permission field, since two settings for one question end with the forgotten one deciding. The address is derived from the title at creation and **frozen** afterwards, so a link shared the same afternoon survives a typo being fixed. The list orders the menu entries by drag and drop, its toggle hides a page — hidden means **no route at all**, so its address answers exactly as an address that never existed — and its bin deletes the page together with its text, with no archived-but-kept state. The creation button reads « Créer et ouvrir »: it saves, switches the session into configuration mode and lands on the page, because a page that has just been created empty has exactly one sensible next step. The text itself is written on the page, with the site's ordinary editing mechanism, never in this screen. Creation, deletion, activation and deactivation are journaled with the page's identifier and nothing else. |
 | Correspondances Desk | Map Desk functions to site roles; rename sections, set section email, and toggle section visibility across the site. Per age branch: federation logo (uploaded, falls back to a shipped default per canonical branch, else nothing) and explanation link (defaults to the Les Scouts federation page), shown on the member page's branch card (§4.2). |
 | Paramètres | Key-value settings grouped by module, edit via dialog. |
 | Actions planifiées | Scheduled actions list with status. |
@@ -264,6 +266,7 @@ All pages in this menu require the `superadmin` role, except Maintenance (`admin
 | E-mails | Inventory of every automatic e-mail the site sends, grouped by origin (core first, then each module that declares one), with its state — par défaut, personnalisé, or non modifiable. Each rewordable e-mail has its own page: subject (one line of plain text), body (the shared rich-text editor), the list of the variables it accepts as insertion buttons, a preview filled in with example values, a « m'envoyer un test » button (through the configured delivery path, sandbox included, at most one send per 30 seconds per account), and a « revenir au gabarit par défaut » action that deletes the customisation so the e-mail follows the shipped template's improvements again. The four authentication e-mails (lien de connexion, réinitialisation du mot de passe, confirmation d'adresse) are listed for completeness but carry no editor: a broken login e-mail locks everyone out, including whoever broke it, so a POST naming one is refused with a 403 and a `security` journal entry whatever it came from. The site header, footer and the unit's name belong to the frame and are never customisable. |
 | Réinscription (module registration) | The campaign that asks the families of this year's animés whether the child comes back (§18.5): its recurring MM-JJ window, the two reminder delays, a manual switch that forces the state either way, the current state with the planned close date, and a manual « relancer les familles sans réponse » button — unavailable on a closed campaign, since reminding somebody to fill in a form they can no longer fill in is worse than not reminding them. The tracking is **counts only** — answers received out of total, départs annoncés, sans réponse — never a list: a list here would be a list of children whose parents have said they are leaving, sitting on a configuration screen. Individual decisions belong to « Départs » and « Passage ». |
 | Support | Everything on this page is a box **collapsed by default** except the one that matters first — « Signaler un problème » — because a page whose every block is open is a page nobody reads to the end. Usage-statistics switch, with the plain-language explanation of what is reported and an explicit statement that the report is **not** anonymous (it carries the instance URL). A « envoyer un rapport de test maintenant » button that transmits one report immediately and shows the answer. The destination is deliberately **not** on this page, in any form: it is a project-level fact, not a unit-level choice. Read-only state of the last successful and last failed/skipped send, **inside** the usage-statistics box rather than beside it: it is the state of that switch and belongs with it. Exact JSON preview of what would be sent, collapsed by default, shown whether reporting is on or off. Diagnostic support package: generate on demand (background task, progress indicator, then a download link), and the warning about what an archive can contain. One package is kept at a time, encrypted at rest, superadmin-only, purged after 7 days, never transmitted automatically. **A « Signaler un problème » card**: the direct link to the repository's issues page, the page's only primary button, shown even when the sending form is unavailable — bugs and requests are all reported there, publicly, and **no support address appears anywhere on the page**. **An « Envoyer des informations techniques » form**, for the evidence a public repository cannot carry: a category from the receiver's own closed list, a free-text description, and a contact address pre-filled with the signed-in superadmin's own — plus, stated before the send and not after, exactly what travels with it (the installation identifier, the site version, the PHP version, and nothing else). Sending never switches the daily report on; where a unit refused it, it stays refused and the form says so. After a send the page shows the **reference** to quote in the GitHub issue, and the **five last submissions** stay listed, each collapsed by default; the local status is « Envoyé » — there is no other status, no thread and no later interrogation of the server: the answer comes on the issue. A server that cannot be reached leaves **no local trace of a ticket and the administrator's text on screen**, so they can retry without retyping it. **A « Tester l'acheminement des e-mails » card**: one button that sends a diagnostic probe carrying a correlation key and no personal data, one run an hour with the reopening time said rather than a button greyed out for no stated reason, and the key of the last run so it can be quoted in a signalement. The result is read by the support, not here. No "next scheduled send". |
+| Synchronisation des contacts | Le coupe-circuit du site pour la synchronisation des carnets d'adresses, et la liste de **tous** les appareils autorisés, tous comptes confondus, avec leur propriétaire, leur dernière synchronisation et une révocation sur chacun. Une fonctionnalité qui réplique des données personnelles sur des téléphones personnels doit avoir les deux : un interrupteur qui arrête tout d'un coup sans traquer les identifiants un par un, et une vue qui répond à « qui synchronise ? ». Couper n'efface rien — les copies déjà descendues restent sur les appareils, et la page le dit. Un appareil enregistré et jamais synchronisé est signalé comme tel : c'est un identifiant valide qui traîne. `role_min: superadmin` (ARCHITECTURE.md §8.117). |
 | Outils de test (module) | Present **only** on the ScoutMagic reference installation and on local development installations — the module declares `"visible_when": ["reference_installation", "local_installation"]` and is filtered out of module discovery everywhere else. Index of the available tools; today one: the **bac à sable e-mail**. Armed, no e-mail leaves the server — each message is assembled by the real mailing library, DKIM signature included, then stored here. The page carries the switch, its state in plain French, and — only when armed — the one exception the capture admits, as a checkbox: laisser partir les liens de connexion, so the site stays usable while everything else is captured (those messages are filed here too, marked « Remis au destinataire »). List of captured messages (objet, destinataire, date, taille, pièces jointes, badge DKIM, badge « Remis » le cas échéant) with search on the subject, on the recipient's exact address, and an opt-in bounded search inside the message bodies; pagination. Detail page in five tabs: aperçu HTML (rendered in a sandboxed frame), texte brut, en-têtes, source MIME, pièces jointes — plus a `.eml` download. Retention by count (500 by default, daily purge) and a danger-zone action to empty the sandbox behind a typed confirmation word. `superadmin` only. |
 | Tableau de bord support (module) | Present **only** on the ScoutMagic installation acting as statistics receiver — the module declares `"visible_when": ["statistics_receiver"]` and is filtered out of module discovery everywhere else. Table of the installations reporting in, with filters, free search, sort and pagination; five indicator cards and two current-state charts, all recomputed on the filtered set; a detail dialog carrying every metric, who registered the installation's domain (asked of the registry from the daily report, since a site cannot report that about itself) and the exact raw JSON of the last accepted report; XLSX export of the filtered set; manual deletion behind a confirmation; and a monthly-history chart independent of all of the above. `superadmin` only. |
 | Finances (module) | Accounts, categories, categorization rules, danger zone. An account's section is what ties it to a treasurer (§28), so leaving it empty makes the account the unit's own. |
@@ -284,13 +287,47 @@ All pages in this menu require the `superadmin` role, except Maintenance (`admin
 | Aide | Index of every help topic the visitor's role may see (`/aide`), grouped by category with a `?q=` search, plus one page per topic (`/aide/{id}`). Fed by Markdown files shipped in the release (`docs/help/`, `modules/<id>/help/`) — help is product documentation, never unit-editable content. A per-page help button (right of the breadcrumb bar) opens a panel without leaving the page: the search first, then the topic(s) covering that page; a topic below the visitor's role does not exist anywhere (404 by direct URL). |
 | Recherche dans l'aide | Instant, ranked in the browser from an index shipped in the page, on `/aide` and in the help panel alike. Works offline, at every role, and with no AI provider configured — it never calls anything. A topic opened from a result offers a link to the page it documents. `role_min: public`. |
 | Assistant | `/aide/assistant`, and the same conversation as a state of the help panel. Answers a question in French **from the help topics alone** — it never reads the unit's data, so « où voir ce que les familles doivent encore ? » is answerable and « combien la famille Dupont doit-elle ? » is not. Offered only under the local search's results, and only when an AI provider is configured. The topics it read are shown as links. The conversation lives in the session and is cleared on logout; a per-account hourly quota bounds the spending. `role_min: chief`. |
-| Mon compte | Name, surname. Password. Passkeys. Notification preferences (link). Cookie preferences (link). « Revoir les astuces » — repropose every discovery tip from the top, offered only once some have been seen. |
+| Mon compte | Name, surname. Password. Passkeys. Notification preferences (link). Cookie preferences (link). « Revoir les astuces » — repropose every discovery tip from the top, offered only once some have been seen. **« Appareils synchronisés »**, offert aux seuls `admin` et `superadmin` et menant à sa propre page (`/account/devices`, même plancher) : les identifiants avec lesquels un carnet d'adresses se synchronise — la liste, la création, la révocation. Le mot de passe d'un appareil n'est montré **qu'une seule fois**, à sa création, et n'est jamais récupérable ensuite. La page énonce la vérité désagréable avant le bouton et non après : la copie descendue reste sur l'appareil, suit ses sauvegardes, et révoquer n'efface rien. Elle rappelle aussi que l'accès suit le rôle — un chef qui quitte le staff perd la synchronisation au passage suivant, sans révocation manuelle (ARCHITECTURE.md §8.117). Depuis IT-03 la page donne aussi **l'adresse à taper dans le carnet d'adresses** — le domaine du site suffit, l'autodécouverte fait le reste — et un bouton « Vérifier que cet hébergement laisse passer la synchronisation » : certains hébergements mutualisés refusent `PROPFIND` et `REPORT` avant PHP, et le seul symptôme côté téléphone est « impossible de se connecter », impossible à distinguer d'un mot de passe erroné (§4.7, ARCHITECTURE.md §8.118). |
 | Préférences cookies | Cookie categories with toggles. Accessible from banner, RGPD page, and Mon compte. |
 | Astuces de découverte | « Le saviez-vous ? » — a small dialog offering, from time to time, one help topic this account has never been shown, one card at a time: the question it answers, then the topic, then a link to it. Served from the help corpus itself, so no text is written twice. Never on `/aide`, an `/api/` answer, the login form or the offline page, and never to a visitor with no account. « Pas avant une semaine » and « Ne plus me proposer » are one delay and one refusal, both undone by « Revoir les astuces » on Mon compte. Never on a day the installed application's « Activer les notifications ? » invitation was shown. `role_min: identified`. |
 | Activer les notifications | A dialog the **installed application** offers once, on the first page opened from the home-screen icon by an account that has never answered it: subscribe this device to push notifications now, or « Plus tard » — after which the invitation never returns and « Mon compte » is the only way in. Shown only in the installed application, only where push notifications are configured, and never on Mon compte, an `/api/` answer, the cookie preferences, the login form or the offline page. While it is on screen, and for the rest of that day once answered, no discovery tip is offered. `role_min: identified`. |
 | Upload | Generic file upload (drag-drop, file selection, mobile camera). |
 | Installation | First-run setup (DB, unit settings, email, admin). Same page as Configuration later. |
 | Manifest / Icônes PWA | Progressive Web App manifest (JSON) and adaptive icons (192px, 512px, maskable) for installable app. Offline fallback page. |
+
+### 4.7 La synchronisation des carnets d'adresses (CardDAV)
+
+Un serveur CardDAV **en lecture seule**, pour que le carnet d'adresses d'un
+téléphone contienne les animateurs de l'unité et se tienne à jour tout seul,
+sans que personne ne réexporte un fichier à chaque changement.
+
+**Qui y est.** Les animateurs et le Staff d'U de l'année en cours —
+exactement l'ensemble que le trombinoscope montre déjà à tout membre
+identifié. Aucun animé, aucun numéro de parent, et rien de ce que la liste
+« ce qui ne sort jamais » de la fiche de contact énumère, la donnée de santé
+comprise.
+
+**Qui peut s'y connecter.** Un `admin` ou un `superadmin`, avec un identifiant
+d'appareil créé depuis « Mon compte » (§4.6). Le rôle est revérifié à chaque
+requête : quitter le staff coupe la synchronisation au passage suivant.
+
+**Ce que le client peut faire.** Lire, et rien d'autre. Une modification faite
+dans le téléphone ne remonte jamais — la source de vérité est Desk — et le
+serveur refuse explicitement l'écriture plutôt que de l'ignorer, pour que
+l'application montre un carnet en lecture seule au lieu de laisser croire que
+la modification est partie.
+
+**L'adresse** est le domaine du site : l'autodécouverte standard fait le
+reste. Les applications qui ne savent pas la faire acceptent l'adresse
+complète, affichée sur la même page.
+
+**L'hébergement peut bloquer.** Certains hébergements mutualisés refusent les
+méthodes `PROPFIND` et `REPORT` avant que PHP ne les voie. Le bouton de
+vérification de « Mon compte » le dit en une phrase, et dit aussi que le site,
+lui, est correctement configuré : sans cela le seul symptôme est « impossible
+de se connecter » côté téléphone, impossible à distinguer d'un mot de passe
+erroné (ARCHITECTURE.md §8.118).
+
 
 ## 5. Cookie consent
 
@@ -2777,9 +2814,15 @@ Un test vérifie que chaque champ déclaré tient dans les limites de la page et
 ne manque — un champ déplacé hors de la feuille est invisible sur le PDF produit, et donc exactement
 le genre d'erreur qu'on ne voit pas en relisant une carte de coordonnées.
 
-**Une valeur trop longue pour sa ligne est réduite en corps, jamais coupée** — et si elle ne tient
-toujours pas au plus petit corps admis, ce qui arrive ensuite dépend de **qui peut y faire quelque
-chose**.
+**Une valeur trop longue pour sa ligne est d'abord réduite en corps** ; si elle ne tient toujours pas
+au plus petit corps admis, **ce qui tient est écrit et le reste est signalé — jamais dessiné
+au-delà de la ligne**. Une valeur débordante imprimée en entier passe par-dessus ce que le
+formulaire imprime à côté : sur la fiche santé, une remarque de quatre-vingts caractères dans la
+colonne gauche du tableau des contacts d'urgence traverse le cadre et la cellule du contact 2, et les
+deux personnes qu'un secouriste appellerait se surimpriment. Couper n'est acceptable que parce que
+ce n'est jamais silencieux — voir ci-dessous.
+
+Ce qui arrive ensuite dépend ensuite de **qui peut y faire quelque chose**.
 
 - Une valeur que le parent a tapée — son nom, les dates, le lieu — **réaffiche l'écran** avec ce qui
   était saisi : il peut la raccourcir, et vaut mieux l'apprendre là que sur le papier.
@@ -2793,20 +2836,85 @@ chose**.
 **Rien n'est écrit sur disque** : le PDF sort en mémoire. Sur un hébergement mutualisé, un fichier
 temporaire est un fichier que le processus de quelqu'un d'autre peut lire.
 
-### 44.9 Ce que la page RGPD en dit
+### 44.9 La fiche santé : une ligne par membre, remplacée sur place
+
+`official_documents_health_sheets` : `member_id` unique en `ON DELETE CASCADE`, un `content_encrypted`
+MEDIUMBLOB, `last_used_at`, `created_at`, `updated_at`.
+
+**Un seul BLOB chiffré portant un document JSON**, et non une colonne par champ. Ce contenu n'est
+jamais cherché, jamais filtré, jamais trié : il est lu pour un membre à la fois, par son propre
+foyer. Des colonnes n'achèteraient rien et coûteraient une migration chaque fois que la fédération
+déplace une ligne de son formulaire. Même raisonnement qu'`entity_changes` et que
+`mail_deferred_messages.payload_encrypted`. **Chiffrement et déchiffrement dans le Repository
+uniquement.**
+
+**Pas de `scout_year_id`** — l'exception qu'`AGENTS.md` § Database autorise pour cette forme : la
+fiche décrit une personne telle qu'elle est aujourd'hui, elle est remplacée sur place, et sa
+fraîcheur est portée par `last_used_at`. Clé sur `members.id` comme `member_notes` : les allergies
+d'un enfant ne recommencent pas chaque septembre.
+
+`last_used_at` bouge à l'enregistrement **et** à la génération du document (IT-04) : produire la
+fiche est une famille qui s'en sert, donc cela repousse la purge autant que la retaper.
+
+### 44.10 L'écran de la fiche santé
+
+Les rubriques suivent le formulaire officiel dans son ordre : identité (en lecture seule), deux
+personnes à contacter en cas d'urgence, médecin traitant, puis la santé — taille, poids,
+participation, niveau de natation, les douze cases d'affections, maladies et opérations, tétanos,
+allergies, régime, traitement.
+
+**Un seul formulaire découpé en sections repliables**, jamais plusieurs pages : une famille qui en
+remplit la moitié et enregistre ne doit rien perdre.
+
+**Tout est facultatif et une fiche vide est un état valide.** Il n'y a donc aucune validation qui
+puisse échouer — et par conséquent aucun message d'erreur susceptible de renvoyer une valeur de
+santé. Ce n'est pas une simplification : c'est ce qui rend la règle de §44.12 tenable.
+
+L'identité n'est ni stockée ni modifiable ici : elle vient de l'inscription à la fédération. L'écran
+le dit avec le chemin de correction — « prévenez votre animateur » — et **sans jamais écrire le mot
+« Desk »**, qu'un parent ne connaît pas.
+
+**« Tout effacer »** vide l'enregistrement, derrière une simple boîte de dialogue (`data-confirm`,
+jamais un gestionnaire en ligne, qui serait mort sous la CSP). Pas le mot-clé à retaper de la page
+Maintenance : celui-ci protège une installation entière, pas les données de quelqu'un sur lui-même.
+Le bouton vit dans un **formulaire séparé** de celui qui enregistre, pour qu'une touche Entrée
+égarée ne soit pas à un geste de la destruction.
+
+### 44.11 Aucune donnée de santé hors de la fiche
+
+Ni dans le journal, ni dans un message d'erreur, ni dans une exception, ni dans un paquet de
+support.
+
+Un enregistrement ordinaire **n'est pas journalisé du tout** : la seule chose intéressante à en dire
+serait ce qui a changé, c'est-à-dire exactement ce qui ne doit pas être écrit. « Tout effacer » l'est
+— détruire des données sans pouvoir dire *que* c'est arrivé empêcherait de répondre à une famille
+demandant pourquoi sa fiche a disparu — mais avec **l'identifiant numérique du membre et rien
+d'autre** : pas un nom de rubrique, pas un décompte de champs remplis.
+
+Violer cette règle ne produit aucun symptôme : rien ne devient rouge, le journal se met simplement à
+contenir ce qu'il ne devrait pas. Elle est donc tenue par un test qui lit chaque argument dont
+l'entrée est construite, en tirant la liste des champs du value object plutôt qu'en la retapant.
+
+### 44.12 Ce que la page RGPD en dit
 
 Le module a sa sous-section en 2.4 de la politique de confidentialité, et sa règle dans le prompt de
 régénération (`Core\View\RgpdContentService::buildSystemPrompt()`), parce qu'il écrit des données
 personnelles — le nom du membre, le nom et l'adresse du responsable de section, le nom du parent qui
-signe — même s'il n'en conserve aucune.
+signe — et, depuis la fiche santé, parce qu'il en **conserve**.
 
-Quatre faits y sont tenus par un test plutôt que par la bonne volonté : **seule la version signée
-compte**, **rien de ce que le parent tape n'est enregistré**, **aucune vue staff et aucun
-contournement chef**, et **aucun sous-traitant ni appel à une IA**. Ce sont les promesses de §44.1 ;
-le jour où l'une cesse de tenir, le test est ce qui force le texte et le code à se remettre
-d'accord.
+Les faits y sont tenus par un test plutôt que par la bonne volonté : **seule la version signée
+compte**, **aucune vue staff et aucun contournement chef**, **aucun sous-traitant ni appel à une
+IA** ; côté autorisation parentale **rien de ce que le parent tape n'est enregistré**, et côté fiche
+santé **elle est conservée, chiffrée au repos, effaçable d'un bouton, et invisible à toute l'unité**.
 
-### 44.10 Le bloc sur la page du membre
+Ce test a déjà servi une fois : la notice disait « rien de ce que le parent tape n'est enregistré »
+du module entier, ce qui était vrai de la seule autorisation parentale et que la table de la fiche
+santé a rendu faux. Il est passé au rouge le jour où cette table est arrivée, et c'est ce qui a
+forcé la phrase à être corrigée plutôt que laissée en promesse que le site ne tient plus. **Une
+notice qui ne décrirait que la moitié ne conservant rien serait pire que pas de notice du tout** :
+une famille la lirait et conclurait que le site ne détient aucune donnée de santé sur son enfant.
+
+### 44.13 Le bloc sur la page du membre
 
 La page d'un membre gagne un bloc « Documents officiels », placé avant « Documents privés », qui
 porte le lien vers chaque formulaire et l'avertissement de §44.1. Il n'est rendu que pour **le
@@ -2816,3 +2924,142 @@ le droit de voir par ailleurs.
 Le bloc arrive par `Modules\OfficialDocuments\Api\MemberOfficialDocumentsProvider`, une dépendance
 optionnelle de `Core\Member\MemberPageService` : module absent ou désactivé, le bloc n'existe pas et
 la page est celle d'avant.
+
+
+### 44.14 La fiche santé imprimée : deux pages et une soixantaine d'emplacements
+
+`POST /members/{id}/fiche-sante/pdf`, gardée par le même lien compte ↔ membre que le reste du module
+(§44.4). Un POST et non un lien : tout sur ce document est la santé d'un enfant, et une URL est ce
+que gardent un journal de proxy, un historique de navigateur et un en-tête `Referer`.
+
+Le même moteur qu'§44.7 : le formulaire de la fédération importé en fond, les valeurs écrites
+par-dessus, **rien sur disque**. `Modules\OfficialDocuments\Pdf\HealthSheetLayout` en est la carte
+unique, sur les **deux pages** du document — une page est une propriété de chaque emplacement, et le
+formulaire lui-même fait courir « maladies importantes ou opérations subies » d'une page à l'autre.
+
+**Les coordonnées sont mesurées sur le gabarit aplati par FPDI, pas à l'œil.** Le gabarit est rendu à
+300 dpi après import, et chaque ligne pointillée est trouvée en classant les colonnes de pixels : de
+l'encre au-dessus de la ligne de base est un libellé imprimé, de l'encre seulement là où vit un point
+est une ligne à remplir. Aplatir d'abord n'est pas un détail : une case qui se serait révélée être un
+champ de formulaire plutôt qu'un dessin aurait disparu à l'import, et chaque croix serait tombée sur
+du papier blanc. Elles sont dessinées — vérifié, pas supposé.
+
+Un test relit ces lignes dans le gabarit lui-même et vérifie que chaque emplacement tombe sur l'une
+d'elles. Un formulaire republié avec une marge déplacée de trois millimètres rend le test rouge, là
+où un document produit resterait plausible et faux sur chaque exemplaire imprimé.
+
+### 44.15 Ce que le site répond, et ce qu'il ne répond pas à la place de la famille
+
+Le formulaire imprime huit paires de cases OUI/NON. **Une croix n'est mise que là où la famille a
+répondu.** Une question laissée de côté laisse les deux cases vides — « on ne sait pas », ce qui est
+vrai et qu'un humain lit correctement. Cocher NON sur une question « allergique ? » vide serait le
+site affirmant à un secouriste qu'un enfant n'a pas d'allergie, sur la foi d'un formulaire web que
+personne n'a rempli.
+
+Deux paires sont déduites, dans ce sens-là seulement : « allergique ? » est cochée OUI quand la
+famille a listé une allergie, « prend-elle un traitement ? » OUI quand elle en a décrit un — écrire
+la réponse EST la réponse. Aucune des deux n'est jamais cochée NON.
+
+Ce qui suppose des vocabulaires fermés côté saisie : les trois questions OUI/NON directes
+(participation, tétanos, autonomie) et le niveau de natation sont des listes de choix et non du texte
+libre. Une réponse « oui sauf la natation » ne cocherait aucune case imprimée.
+
+### 44.16 Le texte libre déborde, et l'écran le dit avant l'impression
+
+Le formulaire réserve deux ou trois lignes pointillées aux allergies, aux traitements et aux
+informations utiles. Ce qu'un parent y écrit est découpé sur les lignes disponibles, aux coupures de
+mots, **chaque ligne mesurée à sa propre largeur** — celle de « Mentionnez toute information utile »
+fait onze millimètres.
+
+Ce qui ne tient pas **n'est jamais tronqué en silence** : la page web nomme les réponses concernées,
+sous le libellé que le parent a devant les yeux et non sous le nom d'une ligne du gabarit. Ces
+libellés vivent dans `Value\HealthSheet::LABELS`, à côté des clés qu'ils nomment, et un test tient
+les deux listes ensemble : une réponse sans libellé sortirait telle quelle sur la page, en anglais,
+devant une famille.
+
+La « Remarque » de chaque contact d'urgence suit ce chemin-là comme les autres : c'est une zone de
+texte à l'écran, donc du texte libre, et la traiter comme une valeur d'une seule ligne la faisait
+sortir de sa colonne. Le
+document reste téléchargeable — ce qui tient est écrit, et une famille dont la liste d'allergies est
+longue a besoin de son formulaire ; c'est elle qui sait ce qu'elle peut raccourcir, ou choisir d'y
+joindre une feuille.
+
+Comme en §44.8, un débordement sur une valeur que **le site** fournit (la rue du membre, son adresse
+e-mail) ne dit rien au parent : il ne peut pas la raccourcir, elle est écrite serrée, et c'est un chef
+qui la corrige à la source.
+
+### 44.17 Imprimer, c'est utiliser la fiche
+
+La génération touche `last_used_at`, exactement comme un enregistrement. Une famille qui retélécharge
+son formulaire chaque septembre sans rien y changer n'a pas abandonné sa fiche, et la purge de
+conservation lit cette date-là.
+
+Rien n'est enregistré par un téléchargement : le document est dessiné à partir de ce qui est en base,
+donc une saisie non enregistrée n'apparaît pas dessus. L'écran le dit sous le bouton.
+
+### 44.18 Rien n'est ajouté au document de la fédération
+
+Le pied de la page 2 porte déjà les mentions RGPD de la fédération, y compris la durée de
+conservation et la destruction après le séjour. **Le site n'écrit rien de plus** : l'avertissement de
+§44.1 vit sur la page web, jamais sur le papier. On ne complète pas un document officiel avec ce qui
+n'en fait pas partie.
+
+### 44.19 La conservation : dix-huit mois sans usage, puis l'oubli
+
+`Modules\OfficialDocuments\Task\PurgeHealthSheetsHandler`, quotidienne, auto-replanifiée sur le patron de
+`Core\Notification\Task\PurgeNotificationsHandler`. Elle efface toute fiche dont `last_used_at` remonte à plus de
+`official_documents_health_sheet_retention_months` — réglage du module, **défaut 18 mois**, donc réinitialisable par
+« Paramètres par défaut » comme le reste.
+
+**Ce que « usage » veut dire est toute la conception.** Le compteur repart sur une mise à jour **et** sur la génération
+d'un document (§44.17). Retélécharger le formulaire de septembre dernier sans rien changer n'est pas un geste passif :
+le parent a ouvert la page, vu les valeurs et décidé de les imprimer. Traiter cela comme un abandon effacerait, une
+fois par an et en silence, des données encore utilisées.
+
+**Purge silencieuse**, comme le chantier le décide : aucune notification, aucun avertissement préalable. L'inverse —
+« votre fiche santé sera effacée dans un mois » — ferait voyager une information médicale dans une boîte aux lettres
+que le site ne maîtrise pas, pour éviter une suppression qu'il suffit d'ouvrir la page pour repousser.
+
+**Rien n'est déchiffré pour en décider** : `last_used_at` est une colonne DATETIME indexée pour elle seule
+(§44.9). Une purge qui aurait dû ouvrir soixante champs de données de santé pour lire une date serait le seul
+traitement de cette installation à passer sur les réponses médicales de toutes les familles en une fois, à quatre
+heures du matin, sans personne pour regarder.
+
+**Chaque ligne est supprimée sous sa propre condition revérifiée.** Choisir les identifiants puis supprimer par
+identifiant seul laisse une fenêtre : une famille qui enregistre sa fiche ou imprime son document entre les deux
+requêtes voit ses données effacées quand même, et le journal enregistre alors une purge pour une fiche qui était en
+usage à l'instant où elle est partie. L'effacement est définitif et la donnée n'est nulle part ailleurs. Le `DELETE`
+porte donc `AND last_used_at < ?` et `rowCount()` dit ce qui est réellement parti.
+
+Délibérément **pas** une transaction avec `SELECT … FOR UPDATE` : celle-ci tiendrait un verrou sur toutes les fiches
+périmées le temps de la passe, et prendrait une portée transactionnelle que le dépôt ne possède pas — son appelant
+peut déjà être dans une transaction, et PDO ne s'imbrique pas. La condition revérifiée donne la même garantie sans
+rien verrouiller.
+
+Les identifiants sont tout de même lus d'abord, et cette moitié-là compte aussi : supprimer sur la seule date
+prendrait des lignes devenues périmées après la lecture, sans les nommer, et une suppression non journalisée est une
+suppression dont aucune famille ne pourra jamais obtenir l'explication.
+
+**Le journal porte l'identifiant du membre et rien d'autre** — même forme que « Tout effacer » (§44.11), et pour la
+même raison : la purge ne doit pas écrire ce qu'elle existe pour détruire. Une passe qui n'efface rien n'écrit rien.
+
+La tâche se replanifie **dans un `finally`** : une exécution qui a échoué ne doit pas être une règle de conservation
+qui s'arrête pour de bon. Et sa **première occurrence est amorcée dans `public/index.php`** — déclarer un gestionnaire
+dans `module.json` apprend au planificateur quelle classe traite quelle clé et n'enfile rien du tout, donc une tâche
+auto-replanifiée que personne n'a jamais enfilée ne se replanifie jamais (ARCHITECTURE.md §8.49).
+
+Le réglage est lu **avec l'identifiant du module**. `SettingService` range un réglage de module dans sa propre portée ;
+le relire sans elle cherche `_core_::…`, ne trouve rien et répond la valeur par défaut, sans erreur nulle part. La clé
+étant préfixée du nom du module, la méprise est facile — c'est exactement ce qui a désactivé silencieusement le code
+d'unité de l'autorisation parentale (issue #433).
+
+### 44.20 Ce que l'aide dit de la conservation — **Décidé**
+
+Le formulaire de la fédération demande d'être complété au début de **chaque année scoute**. Les dix-huit mois du site
+sont donc plus permissifs que ce qu'elle attend : une fiche de dix-sept mois se pré-remplira sans que rien ne signale
+qu'elle a sauté une année.
+
+Le site ne corrige pas cet écart — il n'a pas à imposer le calendrier de la fédération — mais **l'aide le dit**, et le
+parent voit les valeurs à l'écran avant de produire le document. C'est là que se repère une taille qui n'est plus la
+bonne ou un traitement terminé depuis.
+
