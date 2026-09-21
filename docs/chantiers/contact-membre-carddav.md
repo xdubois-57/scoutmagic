@@ -252,3 +252,145 @@ socle d'authentification.
 
 - Rien. Aucun problème réel n'a été constaté puis laissé de côté dans
   cette itération.
+
+---
+
+## IT-03 — Le serveur CardDAV, en lecture seule
+
+La synchronisation existe. IT-02 avait tout le socle d'authentification
+et rien à ouvrir ; cette itération est ce que les identifiants ouvrent.
+
+**Livré.**
+
+- `Core\Contact\CardDav` : `AddressBookRepository` (qui est dans le
+  carnet, sans rien déchiffrer), `AddressBookService` (le carnet, ses
+  étiquettes et ses fiches), `AddressBookEntry`, `DavXml` (l'écriture),
+  `DavRequestParser` (la lecture, le seul endroit où du XML venu de
+  l'extérieur est analysé), `Controller\CardDavController` et
+  `Controller\CardDavProbeController`.
+- Le protocole en lecture seule : `OPTIONS` annonçant
+  `DAV: 1, 3, addressbook` ; `/.well-known/carddav` pour l'autodécouverte ;
+  `PROPFIND` résolvant `current-user-principal` puis
+  `addressbook-home-set` ; la collection avec son `getctag` ; un
+  `PROPFIND Depth: 1` donnant un `getetag` par fiche ; les `REPORT`
+  `addressbook-multiget` et `addressbook-query` ; `PUT` et `DELETE` en
+  403. XML construit à la main, **aucune dépendance nouvelle**.
+- Le carnet : les animateurs et le Staff d'U de l'année en cours, fiches
+  d'IT-01 en variante complète (photo, historique entier).
+- L'adresse à donner au client et la sonde d'hébergement sur « Appareils
+  synchronisés », avec `public/assets/js/carddav-probe.js`.
+- Les deux correctifs `.htaccess` : l'exception `/.well-known/` et le
+  passage de l'en-tête `Authorization`.
+- La documentation : `ARCHITECTURE.md` §8.118, `SECURITY.md` §4
+  (**huitième** exception) et §2, `specifications.md` §4.7 et la ligne
+  Mon compte, `rgpd_default.html` §2.14, `docs/help/appareils-synchronises.md`.
+- Les tests : 22 cas sur le contrôleur (dont le protocole de bout en bout
+  et les cinq refus indistinguables), 21 sur les deux planchers RBAC, 15
+  sur le carnet, 11 sur le parseur, 8 sur l'écriture XML, 5 épinglant les
+  deux correctifs `.htaccess` dans les deux dispositions d'installation,
+  8 cas Vitest sur la sonde.
+
+**Décisions prises en autonomie.**
+
+- **Le principal, le home set et la racine sont un seul chemin**
+  (`/carddav/`). Rien dans le protocole n'exige qu'ils soient distincts
+  et cette installation n'a qu'un carnet ; les fusionner fait résoudre la
+  découverte d'un client en deux allers-retours au lieu de quatre.
+- **`addressbook-query` répond avec la collection entière**, quel que
+  soit son filtre. La collection est l'équipe d'animation d'une unité, un
+  client qui interroge énumère plutôt qu'il ne cherche, et un filtre mal
+  évalué en silence cacherait des fiches qu'il croit avoir. Rendre plus
+  que demandé est le sens sûr ; c'est aussi ce que le `PROPFIND Depth: 1`
+  du même client aurait renvoyé.
+- **`PUT` et `DELETE` répondent 403 et non 405.** Un 405 dit « pas ici »
+  et invite à chercher ailleurs dans la collection ; un 403 avec
+  `need-privileges` dit « vous pouvez lire, pas écrire », ce que les
+  clients montrent à leur utilisateur comme un carnet en lecture seule.
+  La collection publie en outre un `current-user-privilege-set` réduit à
+  `read`, qui dit la même chose un aller-retour plus tôt.
+- **Classe DAV 2 volontairement absente.** Annoncer le verrouillage sur
+  un carnet où rien n'est modifiable inviterait des `LOCK` à refuser.
+- **Le carnet est strictement l'ensemble du trombinoscope** : fonctions
+  de rôle chef ou chef d'unité, rattachées à une section active et
+  visible. Une fonction sans section en est donc exclue, bien qu'on
+  puisse défendre de l'inclure — elle n'est pas au trombinoscope, elle
+  n'est pas ici. C'est la phrase de `SECURITY.md` §6 qui décide : elle
+  autorise cet export parce que ce qui sort est ce que tout membre
+  identifié voit déjà, et un ensemble seulement *voisin* la rendrait
+  fausse.
+- **Les étiquettes sont hachées.** Un `getetag` est recopié dans les
+  journaux et les proxys ; « le membre 412 a changé à 21:04 » est un fait
+  sur une personne que rien n'a besoin de publier pour faire son travail.
+- **La sonde est `role_min: admin`, pas `public`** — elle n'appartient
+  pas à l'exception §4. Elle ne lit rien et ne nomme personne, mais une
+  route publique de plus demanderait sa propre justification écrite pour
+  un bouton qui n'est offert qu'aux connectés.
+- **`site_url` est dérivé de la requête, pas du réglage `base_url`.**
+  Le lecteur regarde la page par l'adresse même dont son téléphone a
+  besoin ; un `base_url` jamais rempli aurait affiché une adresse vide
+  sur l'écran qui existe pour la donner.
+- **Le sujet d'aide a été scindé en deux.** « Appareils synchronisés »
+  documente la gestion des identifiants ; « Carnet d'adresses
+  synchronisé » documente le branchement du client, le sens de
+  circulation et la panne d'hébergement. La charte de l'aide plafonne un
+  sujet à quatre questions et `HelpInvariantsTest` le fait respecter ;
+  son message dit que passé ce seuil le sujet couvre plusieurs tâches et
+  doit être scindé, ce qui était exactement le cas. Les trois questions
+  d'IT-02 restent intactes.
+
+**Divergences constatées entre le chantier et le dépôt réel.**
+
+- **« Il y en aura deux » : il y en a huit.** Le chantier décrit
+  l'exception CSRF du webhook GitHub comme « l'unique exception
+  délibérée » de `SECURITY.md` §4 ; le fichier en documentait **sept**
+  avant cette itération (webhook, intake de statistiques, intake de
+  tickets, archive de ticket, sondes mail, extrait de triage,
+  désabonnement un-clic). Les routes CardDAV sont la **huitième**, et
+  c'est sous ce numéro qu'elle est écrite. Le fond de la consigne est
+  respecté : elle est écrite, avec son périmètre, et non laissée en
+  précédent.
+- **Le `.htaccess` racine interdisait `/.well-known/`.** Le piège
+  annoncé par le chantier (« la disposition arbre unique pose un
+  `.htaccess` à la racine qu'il faut vérifier ») était réel :
+  `RewriteRule (^|/)\. - [F,L]` répond 403 à tout chemin contenant un
+  point en tête de segment, l'autodécouverte CardDAV comprise — et le
+  répertoire de défi d'ACME avec elle. Corrigé par une condition
+  d'exception, pas par la suppression de la règle.
+- **`Core\Http\Request::getRawBody()` existait déjà**, comme IT-02
+  l'avait noté : rien à ajouter pour lire le corps XML, et aucune
+  superglobale touchée hors du contrôleur.
+- **Le routeur accepte bien n'importe quelle méthode**, comme annoncé.
+  En revanche `Router::matchPath()` n'échappe pas les caractères
+  spéciaux d'une expression régulière : le point littéral de
+  `/carddav/staff/{member_id}.vcf` y est un métacaractère, donc
+  `/carddav/staff/1Xvcf` atteint la même route. Sans conséquence ici —
+  la route est publique, en lecture seule, et répond la même chose —
+  mais c'est le défaut déjà déposé en **#409**, laissé à son ticket
+  plutôt qu'élargi dans cette PR : il touche les 260 routes du site.
+- **Les scripts de la matrice d'autorisation lisent `public/index.php`
+  textuellement.** Les trois routes de la sonde sont donc écrites une à
+  une plutôt que dans une boucle : `scripts/authz-support.php` refuse de
+  tourner s'il analyse moins d'appels `addRoute()` que le fichier n'en
+  contient, et une route construite depuis une variable serait une route
+  que la matrice ne rejoue jamais.
+
+**Reporté.**
+
+- **L'échappement des métacaractères dans `Router::matchPath()`** —
+  ticket **#409**, ouvert avant cette itération et toujours ouvert. Il
+  concerne toutes les routes du site, pas seulement les deux que ce
+  chantier ajoute.
+- **`MemberService` et `SectionService` préparent leur propre SQL et
+  déchiffrent hors d'un Repository** — ticket **#413**, ouvert en IT-01.
+  `AddressBookService` passe par `MemberService` comme tout le reste du
+  site ; le jour où #413 est corrigé, ce chemin en bénéficie sans
+  changer.
+- **Le `getctag` ne voit pas un changement qui ne déplace aucun
+  horodatage** — le nom de l'unité dans Paramètres, qui voyage dans le
+  `ORG` de chaque fiche, ou une fonction renommée sur Correspondances
+  Desk. Écrit dans `ARCHITECTURE.md` §8.118 plutôt que corrigé : ces
+  changements arrivent au client au prochain import Desk, qui déplace
+  `import_journal.imported_at` pour l'année et donc la révision de tout
+  le monde d'un coup. Un `getctag` qui ne se stabiliserait jamais
+  coûterait un re-téléchargement complet toutes les quelques minutes, à
+  tous les clients, pour toujours.

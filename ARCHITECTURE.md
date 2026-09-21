@@ -5145,6 +5145,109 @@ and would bury everything else. Failures are bounded per source address in
 the rate-limit table under a purpose of their own, so one misconfigured
 client cannot fill the journal, nor be used to bury a real attempt.
 
+### 8.118 The read-only CardDAV server (`Core\Contact\CardDav`)
+
+What an address-book application on a phone actually talks to. The
+credentials of §8.117 are how it gets in; the cards of §8.115 are what it
+reads; this section is the protocol between them.
+
+**The address book is the trombinoscope's set, exactly** — the leaders of
+the current scout year: functions whose role is chef or chef d'unité,
+attached to a section that is active and visible, « Staff d'U » included
+because it is a real section like any other (`UnitStaffSectionService`).
+No animé and no parent's telephone number are in it, and that equality is
+not a convenience: `SECURITY.md` §6 authorises this export on the grounds
+that what leaves is what every identified member already sees on
+`/trombinoscope`, and a set that were merely *similar* would make that
+sentence false. `AddressBookRepository` is the one place it is expressed,
+and `Tests\Core\Contact\CardDav\AddressBookServiceTest` fails on an
+animé reaching it.
+
+**Three paths, and a client walks them in two round trips.**
+`/.well-known/carddav` redirects (RFC 6764); `/carddav/` is at once the
+discovery root, the principal and the address-book home set;
+`/carddav/staff/` is the collection, with one card at
+`/carddav/staff/{member_id}.vcf`. Collapsing principal and home set onto
+one path is what saves the round trips — nothing in the protocol requires
+them to be distinct, and this installation has exactly one address book.
+
+**`OPTIONS` announces `DAV: 1, 3, addressbook`.** Class 2 — locking — is
+deliberately absent: nothing here is writable, and announcing it would
+invite `LOCK` requests to refuse. `PUT` and `DELETE` answer **403 with
+`need-privileges`**, not 405: Desk is the source of truth, nothing ever
+travels back up, and a 403 is what makes a client show its user a
+read-only address book instead of hunting for somewhere else to write.
+The collection also publishes a `current-user-privilege-set` of `read`
+alone, which is the same message one round trip earlier.
+
+**The polling problem, and what the collection tag does about it.** A
+client asks « has anything changed? » every few minutes and is told « no »
+almost every time. Every personal column on this site is an encrypted
+`BLOB`, so answering that by building the cards would make the cheapest
+request the most expensive one. `getctag` and the per-card `getetag` are
+therefore built from identifiers and aggregated timestamps alone —
+`ContactCardRepository::findRevisionsForMembers()`, which decrypts
+nothing — and hashed, so an entity tag says « this card » rather than
+« this person changed at 21:04 » in every proxy and log it passes through.
+Decryption happens only on the two paths that actually hand over a card.
+
+What the tag cannot see is written down rather than discovered later: a
+change that moves none of those timestamps — the unit's name in
+Paramètres, which rides in every card's `ORG`, or a function relabelled on
+Correspondances Desk. Those reach a client at the next Desk import, which
+moves `import_journal.imported_at` for the year and therefore every
+member's revision at once.
+
+**`addressbook-query` answers with the whole collection**, whatever
+filter it carries, and that is a decision rather than an omission: this
+collection is one unit's leaders, a client running a query is enumerating
+rather than searching, and a filter silently mis-evaluated would hide
+cards a client believes it has. Returning more than was asked for is the
+safe direction. `addressbook-multiget` is exact, and an href it cannot
+resolve gets its own 404 response inside the multistatus rather than
+failing the report — one stale path must not break a whole sync.
+
+**The XML is built by hand** (`DavXml`), with no new dependency: what is
+needed is one document shape with three fixed namespace prefixes.
+Reading is the dangerous direction, and `DavRequestParser` is the only
+place in this feature where something a stranger wrote is parsed —
+`LIBXML_NOENT` is never passed (its name reads like « no entities » and
+it means the opposite), `LIBXML_NONET` refuses the network, and the body
+is capped at 256 KB *before* parsing, because this route answers before
+authentication has had a chance to be expensive.
+
+**Two things about the host it runs on**, both of which cost a working
+feature when they are wrong and neither of which produces a message
+anybody can read:
+
+- `/.well-known/` is a standardised public namespace (RFC 8615) that
+  merely looks like a dotfile, and the single-tree `.htaccess`
+  (`bootstrapHtaccessContent()`) denied dotfiles at any depth. It now
+  excepts that prefix — ACME's challenge directory lives there too.
+- Under CGI and FastCGI — most shared hosting, which is this project's
+  target — Apache strips `Authorization` before PHP sees it. Both
+  `.htaccess` files now copy it into an environment variable, and the
+  controller reads `HTTP_AUTHORIZATION`, `REDIRECT_HTTP_AUTHORIZATION`
+  and the `PHP_AUTH_USER`/`PHP_AUTH_PW` pair mod_php hands over instead.
+
+**And a probe for what remains.** Some hosts refuse `PROPFIND` and
+`REPORT` outright or route them into their own WebDAV module; the symptom
+on a phone is « impossible de se connecter » and nothing more, which is
+indistinguishable from a wrong password. The button on « Appareils
+synchronisés » sends both methods at `/api/carddav/probe`
+(`role_min: admin`, session-authenticated, reads nothing, names nobody —
+**not** part of the §4 exception below) and reports which arrived, so the
+failure is explained instead of mysterious, and so the reader is told in
+so many words that the site itself is configured correctly.
+
+**Every CardDAV route is `role_min: public` and none verifies a CSRF
+token** — the second deliberate exception to `SECURITY.md` §4, written
+down there with its scope. `public` is the floor the guard applies, not
+the access the routes grant: the controller answers 401 to everything
+that does not carry a live credential belonging to an account that
+resolves to admin **on this request**. There is nowhere in this feature
+for a stale role to survive between two requests.
+
 
 ## 9. Installation / bootstrap
 

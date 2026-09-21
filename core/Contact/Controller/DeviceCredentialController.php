@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Contact\Controller;
 
+use Core\Contact\CardDav\AddressBookService;
 use Core\Contact\Device\DeviceCredentialService;
 use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
@@ -57,6 +58,19 @@ class DeviceCredentialController extends AbstractController
             'max_per_account' => DeviceCredentialService::MAX_PER_ACCOUNT,
             'max_label_length' => DeviceCredentialService::MAX_LABEL_LENGTH,
             'account_email' => AuthSession::getEmail(),
+            // The address a client is given, spelled out rather than
+            // left for the reader to assemble: autodiscovery from the
+            // bare domain is what most clients do, and the collection
+            // path is what the ones that cannot discover need typed in.
+            //
+            // Taken from the request rather than from a setting, so it
+            // is right on an installation whose `base_url` was never
+            // filled in — the reader is looking at this page through the
+            // very address their phone needs. It is echoed back only to
+            // the browser that sent it, and Twig escapes it like any
+            // other value.
+            'site_url' => $this->siteUrl($request),
+            'carddav_collection_path' => AddressBookService::COLLECTION_PATH,
             'breadcrumb_current' => 'Appareils synchronisés',
         ]);
     }
@@ -133,5 +147,21 @@ class DeviceCredentialController extends AbstractController
         );
 
         return $this->redirect('/account/devices');
+    }
+
+    /**
+     * `https://unite.example.org` — the origin this page was reached
+     * through, with no trailing slash, or an empty string when the host
+     * is unknown (a request that carried no Host header, which is only
+     * ever a test or a probe).
+     */
+    private function siteUrl(Request $request): string
+    {
+        $host = $request->getServer('HTTP_HOST');
+        if (!is_string($host) || $host === '') {
+            return '';
+        }
+
+        return ($request->isHttps() ? 'https://' : 'http://') . $host;
     }
 }

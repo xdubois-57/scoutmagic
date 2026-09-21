@@ -1,5 +1,23 @@
 RewriteEngine On
 
+# HTTP Basic credentials survive to PHP.
+#
+# Under mod_php Apache hands them over as PHP_AUTH_USER/PHP_AUTH_PW and
+# there is nothing to do. Under CGI and FastCGI — which is most shared
+# hosting, the deployment this project targets — the Authorization header
+# is stripped before PHP sees it, because it is how the web server's own
+# authentication would be carried. The CardDAV server (ARCHITECTURE.md
+# 8.118) is the one part of this site authenticated that way: a client
+# speaks HTTP Basic and nothing else, so without this line every
+# synchronisation answers 401 forever, with correct credentials, and
+# nothing anywhere says why.
+#
+# Kept identical to bootstrapHtaccessContent()'s copy, which does the
+# same for the single-tree layout, and pinned to it by
+# Tests\Bootstrap\HtaccessAuthorizationTest.
+RewriteCond %{HTTP:Authorization} .
+RewriteRule ^ - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
 # Redirect all requests to index.php unless the file or directory exists
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d

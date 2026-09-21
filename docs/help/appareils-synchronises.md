@@ -8,7 +8,7 @@ question: Comment retrouver les contacts du staff dans mon téléphone ?
 question: Que se passe-t-il si je révoque un appareil ?
 question: Où retrouver le mot de passe de mon appareil ?
 paths: /account/devices
-related: mon-compte, synchronisation-contacts
+related: mon-compte, synchronisation-contacts, carnet-adresses-synchronise
 ---
 
 Depuis Mon compte, « Gérer mes appareils » ouvre la liste des appareils
@@ -30,6 +30,12 @@ superadministrateur, ne peut le retrouver.
 Les fiches des animateurs et du Staff d'U : nom, totem, section,
 fonction, adresses e-mail, téléphones, adresses postales, photo et
 historique des fonctions. **Aucun animé, aucun numéro de parent.**
+
+## Connecter l'appareil
+
+L'adresse à donner à l'application, le sens de circulation des fiches et
+la marche à suivre quand la connexion échoue sont dans
+« Carnet d'adresses synchronisé », où la même page vous emmène.
 
 ## Ce que cela implique
 
