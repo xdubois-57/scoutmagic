@@ -947,3 +947,71 @@ branche jamais exécutée est aussi un message d'erreur jamais relu.
   d'échec, et le vrai total des branches non tenues est plus élevé que 328.
   Le distinguer demanderait de muter chacune des 447, ce que la même
   arithmétique interdit.
+
+### Itération 7 — Le navigateur : Vitest et Playwright — 2026-09-21
+
+**Périmètre parcouru** : les trois soupçons que §7 formule — une logique
+recopiée plutôt qu'importée, des assertions sur des sélecteurs internes, des
+attentes à délai fixe — puis le dernier point, que §7 demande explicitement
+de **constater sans combler**.
+
+**Les trois soupçons ne tiennent pas** :
+
+- **128 fichiers Vitest sur 128 importent le fichier de production.** Un
+  premier comptage en annonçait cinq sans import ; le motif ratait la forme
+  par effet de bord (`import '../../public/assets/js/x.js';`, sans `from`).
+  Le cinquième, `escape-html-attribute-safety.test.js`, lit délibérément le
+  source comme texte : c'est un garde de source, pas un test recopié.
+- **Trois `waitForTimeout` dans toute la suite Playwright**, et les deux
+  examinés sont justes. Celui de `rental-management.spec.js` attend quatre
+  secondes parce que `Core\Security\HumanCheck` refuse un formulaire soumis
+  plus vite qu'un humain ne l'aurait rempli : le test attend comme un
+  visiteur plutôt que de désactiver la garde, et son commentaire le dit.
+  Une attente fixe sur une règle qui est elle-même une durée n'est pas une
+  fragilité, c'est la seule façon honnête de la vérifier.
+
+**Le constat, lui, tient — et il est plus étroit et plus net que §7 ne le
+formule** :
+
+> `public/sw.js` n'est exécuté comme service worker par **aucune** couche.
+
+Chaque couche documente sa propre moitié, et aucune ne peut nommer l'autre :
+
+- `tests/js/sw.test.js` exerce le vrai fichier, et écrit en tête qu'il n'y a
+  « no real Service Worker runtime: fetch, Response and the Cache Storage
+  API are all mocked below » — ce qui est le bon choix sous jsdom ;
+- `tests/e2e/playwright.config.js` pose `serviceWorkers: 'block'` pour toute
+  la suite, avec sa raison : un worker qui met en cache en arrière-plan
+  rendrait le journal des requêtes non déterministe, et « registering it is
+  its own feature with its own future scenario ».
+
+Les deux affirmations sont vraies et bien raisonnées. Ce qu'aucune ne dit,
+c'est que l'autre existe. La logique *dans* `sw.js` est réellement testée ;
+son **cycle de vie** — install, activate, une requête servie depuis un vrai
+Cache Storage, une navigation hors ligne, le réveil de l'application
+installée — ne l'est par rien, et aucun rouge ne l'annoncerait.
+
+**Corrigé dans cette PR** : `docs/quality-pipeline.md`, section « The
+failure mode this repository keeps meeting ». `AGENTS.md` désigne cet
+endroit sans ambiguïté — « A check that can be green without having run
+belongs in its last section. […] When you find another, write it down
+there ». Le constat y est donc écrit, avec les deux citations qui
+l'établissent. Aucun test n'est ajouté : §7 dit de constater, pas de
+combler, et écrire un scénario de service worker est le « own future
+scenario » que la configuration annonce déjà.
+
+**Issues ouvertes** : aucune. Le manque est désormais écrit dans la carte
+qui existe pour cela ; une issue qui redirait ce que deux commentaires et
+une ligne de configuration disent déjà n'ajouterait rien, et `AGENTS.md`
+demande de vérifier avant de déposer.
+
+**Vérifié et tenu** :
+
+- **La règle « importer le vrai fichier, jamais le recopier » est
+  respectée partout.** C'est la seule des huit itérations où une règle
+  d'`AGENTS.md` se vérifie à 128 sur 128.
+- **Un piège déjà consigné par l'auteur.** `tests/js/sw.test.js` raconte en
+  commentaire qu'un nettoyage supprimait `self`, ce qui faisait lever une
+  `ReferenceError` attrapée par le `catch` du code : les tests passaient
+  sans jamais exercer la reprise. C'est exactement le sujet de ce chantier,
+  trouvé et écrit avant lui.

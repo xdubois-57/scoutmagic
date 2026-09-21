@@ -1647,6 +1647,24 @@ nothing**:
   neutralises this — the same pair that lets members of the public have
   their issues triaged at all.
 
+- **Two layers each documenting their own blind spot can leave a feature
+  with none, and neither comment says so.** `public/sw.js` is never
+  executed as a service worker anywhere in this pipeline.
+  `tests/js/sw.test.js` exercises the real file — and says in its own
+  header that there is « no real Service Worker runtime: fetch, Response
+  and the Cache Storage API are all mocked below », which is the right
+  call for jsdom. `tests/e2e/playwright.config.js` sets
+  `serviceWorkers: 'block'` for the whole suite, and explains why:
+  a worker caching in the background would make the request log
+  non-deterministic, and « registering it is its own feature with its own
+  future scenario ». Both statements are true and well reasoned; what
+  neither can say is that the other exists. The logic inside `sw.js` is
+  genuinely tested; its **lifecycle** — install, activate, a fetch served
+  from a real Cache Storage, a navigation made offline, the installed
+  app's wake — is tested by nothing, and no red anywhere would announce
+  it. The one browser scenario that touches the offline manifest,
+  `pwa-prefetch-once.spec.js`, runs with the worker blocked like the rest.
+
 The habit that catches these is cheap: ask what a green result would look
 like if the thing had not run at all. When the answer is "the same", the
 signal is not a signal. Where that distinction is known, it is written down
