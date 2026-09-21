@@ -357,46 +357,85 @@
                               class="row g-2">
                             {{ csrf_field()|raw }}
                             <div class="col-12 col-md-6">
-                                <label class="form-label" for="renter-billing-name">Raison sociale</label>
-                                <input type="text" class="form-control form-control-sm" id="renter-billing-name"
-                                       name="billing_name" value="{{ billing.name }}">
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'renter-billing-name',
+                                    field_name: 'billing_name',
+                                    label: 'Raison sociale',
+                                    value: billing.name,
+                                    maxlength: 200,
+                                    size: 'sm',
+                                    wrapper_class: 'mb-0',
+                                } only %}
                             </div>
                             <div class="col-12 col-md-6">
-                                <label class="form-label" for="renter-billing-email">Email de facturation</label>
-                                <input type="email" class="form-control form-control-sm" id="renter-billing-email"
-                                       name="billing_email" value="{{ billing.email }}">
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'renter-billing-email',
+                                    field_name: 'billing_email',
+                                    label: 'Email de facturation',
+                                    type: 'email',
+                                    value: billing.email,
+                                    maxlength: 254,
+                                    size: 'sm',
+                                    wrapper_class: 'mb-0',
+                                } only %}
                             </div>
                             <div class="col-12 col-md-8">
-                                <label class="form-label" for="renter-billing-address">Adresse</label>
-                                <input type="text" class="form-control form-control-sm" id="renter-billing-address"
-                                       name="billing_address" value="{{ billing.address }}">
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'renter-billing-address',
+                                    field_name: 'billing_address',
+                                    label: 'Adresse',
+                                    value: billing.address,
+                                    maxlength: 500,
+                                    size: 'sm',
+                                    wrapper_class: 'mb-0',
+                                } only %}
                             </div>
                             <div class="col-6 col-md-4">
-                                <label class="form-label" for="renter-billing-country">Pays</label>
-                                <input type="text" class="form-control form-control-sm" id="renter-billing-country"
-                                       name="billing_country" maxlength="2" placeholder="BE"
-                                       value="{{ billing.country }}"
-                                       aria-describedby="renter-billing-country-help">
-                                <div class="form-text" id="renter-billing-country-help">Deux lettres, par exemple BE.</div>
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'renter-billing-country',
+                                    field_name: 'billing_country',
+                                    label: 'Pays',
+                                    value: billing.country,
+                                    maxlength: 2,
+                                    help: 'Deux lettres, par exemple BE.',
+                                    placeholder: 'BE',
+                                    size: 'sm',
+                                    wrapper_class: 'mb-0',
+                                } only %}
                             </div>
                             <div class="col-6 col-md-4">
-                                <label class="form-label" for="renter-billing-vat">Numéro de TVA</label>
-                                <input type="text" class="form-control form-control-sm" id="renter-billing-vat"
-                                       name="billing_vat_number" value="{{ billing.vat_number }}">
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'renter-billing-vat',
+                                    field_name: 'billing_vat_number',
+                                    label: 'Numéro de TVA',
+                                    value: billing.vat_number,
+                                    maxlength: 32,
+                                    size: 'sm',
+                                    wrapper_class: 'mb-0',
+                                } only %}
                             </div>
                             <div class="col-6 col-md-4">
-                                <label class="form-label" for="renter-billing-enterprise">Numéro d'entreprise</label>
-                                <input type="text" class="form-control form-control-sm" id="renter-billing-enterprise"
-                                       name="billing_enterprise_number" value="{{ billing.enterprise_number }}">
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'renter-billing-enterprise',
+                                    field_name: 'billing_enterprise_number',
+                                    label: 'Numéro d\'entreprise',
+                                    value: billing.enterprise_number,
+                                    maxlength: 32,
+                                    size: 'sm',
+                                    wrapper_class: 'mb-0',
+                                } only %}
                             </div>
                             <div class="col-12 col-md-4">
-                                <label class="form-label" for="renter-billing-reference">Votre référence</label>
-                                <input type="text" class="form-control form-control-sm" id="renter-billing-reference"
-                                       name="billing_reference" value="{{ billing.reference }}"
-                                       aria-describedby="renter-billing-reference-help">
-                                <div class="form-text" id="renter-billing-reference-help">
-                                    Un numéro de bon de commande, si votre comptabilité en demande un.
-                                </div>
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'renter-billing-reference',
+                                    field_name: 'billing_reference',
+                                    label: 'Votre référence',
+                                    value: billing.reference,
+                                    maxlength: 100,
+                                    help: 'Un numéro de bon de commande, si votre comptabilité en demande un.',
+                                    size: 'sm',
+                                    wrapper_class: 'mb-0',
+                                } only %}
                             </div>
                             <div class="col-12">
                                 <button type="submit" class="btn btn-sm btn-outline-secondary">Enregistrer</button>
