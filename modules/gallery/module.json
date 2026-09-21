@@ -2,7 +2,7 @@
   "id": "gallery",
   "name": "Galerie photos et vidéos",
   "description": "Albums photo/vidéo (envoi local avec redimensionnement/transcodage automatique, ou lien vers un album externe) visibles par les membres identifiés.",
-  "version": "1.12.3",
+  "version": "1.12.4",
   "enabled_by_default": false,
   "routes": [
     {
@@ -12,12 +12,12 @@
       "action": "index",
       "menu": "espace_animes",
       "role_min": "identified",
-      "label": "Galerie",
+      "label": "Photos",
       "menu_icon": "bi-images",
-      "menu_group": "pages",
-      "menu_order": 30,
+      "menu_group": "unite",
+      "menu_order": 40,
       "breadcrumb": {
-        "label": "Galerie",
+        "label": "Photos",
         "parents": [
           "Espace membres"
         ]
@@ -30,12 +30,12 @@
       "action": "manage",
       "menu": "espace_chefs",
       "role_min": "chief",
-      "label": "Galerie",
+      "label": "Gérer les photos",
       "menu_icon": "bi-image",
       "menu_group": "activites",
-      "menu_order": 90,
+      "menu_order": 60,
       "breadcrumb": {
-        "label": "Galerie",
+        "label": "Gérer les photos",
         "parents": [
           "Espace animateurs"
         ]
@@ -222,12 +222,12 @@
       "action": "index",
       "menu": "configuration",
       "role_min": "superadmin",
-      "label": "Galerie",
+      "label": "Photos",
       "menu_icon": "bi-images",
       "menu_group": "modules",
-      "menu_order": 200,
+      "menu_order": 230,
       "breadcrumb": {
-        "label": "Galerie",
+        "label": "Photos",
         "parents": [
           "Configuration"
         ]

@@ -2,7 +2,7 @@
   "id": "attestations",
   "name": "Attestations",
   "description": "Découpe le PDF d'attestations envoyé par la fédération et dépose l'attestation de chaque membre sur sa page, visible par lui seul.",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "routes": [
     {
       "path": "/admin/attestations",
@@ -14,7 +14,7 @@
       "label": "Attestations",
       "menu_icon": "bi-file-earmark-text",
       "menu_group": "membres_annee",
-      "menu_order": 100,
+      "menu_order": 70,
       "breadcrumb": {
         "label": "Attestations",
         "parents": [
