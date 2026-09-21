@@ -980,19 +980,31 @@ cinquième point, que §7 demande explicitement de **constater sans combler**.
   partie : on ne peut pas attendre la condition « rien ne se produit », et
   une borne temporelle est la seule forme que cette assertion puisse
   prendre.
-  **Le quatrième est le meilleur des quatre**, et il est la vraie
-  information de ce point. `tests/e2e/support/human-check.js` n'attend pas
-  une durée fixe : il décode l'horodatage porté par le jeton
-  `human_check_token`, calcule ce qu'il reste à courir avant que le serveur
-  accepte, et n'attend que cela — zéro compris. Le helper est importé par
-  cinq scénarios de plus (`rental-lifecycle`, `news-form-payment`,
-  `password-reset`, `registration-flow`, `auth-methods`), de sorte que la
-  barrière `HumanCheck` est franchie bien plus largement que par les deux
-  scénarios nommés ci-dessus. Ce qui retourne le constat : ce ne sont pas
-  les `waitForTimeout` qui sont douteux, c'est que **deux scénarios codent
-  4 000 ms en dur là où un helper du même dépôt calcule la valeur exacte**.
-  Non corrigé ici — deux fichiers de test, et la preuve demanderait de faire
-  varier le réglage côté serveur. Déposé en #453.
+  **Le quatrième attend mieux que les autres, mais pas pour la raison que
+  j'ai d'abord écrite.** `tests/e2e/support/human-check.js` décode
+  l'horodatage porté par le jeton `human_check_token` et n'attend que ce
+  qu'il reste à courir — zéro compris — au lieu d'une durée forfaitaire
+  depuis le clic. J'en avais conclu qu'il « calculait la valeur exacte » là
+  où deux scénarios la codaient en dur. **C'est faux, et c'est exactement la
+  faute que ce chantier poursuit : je l'ai conclu en lisant.** Le jeton ne
+  porte que `{f, t, s}` — champ-piège, horodatage, signature — et aucun
+  délai ; le helper écrit son propre `const DEFAULT_MIN_DELAY_SECONDS = 3`
+  (ligne 21), tandis que le serveur lit
+  `human_check_min_delay_seconds`, par défaut 3
+  (`HumanCheckService.php:108`). **Les trois emplacements redisent le même
+  réglage, aucun ne le lit.**
+
+  Le constat qui reste est plus étroit et vrai : le helper mesure depuis
+  l'émission du jeton, donc il n'attend que le reliquat, là où
+  `rental-management.spec.js` et `rental-request.spec.js` attendent
+  4 000 ms à plat — et les trois cassent si le réglage passe au-dessus de
+  leur constante. Le helper est importé par cinq scénarios de plus
+  (`rental-lifecycle`, `news-form-payment`, `password-reset`,
+  `registration-flow`, `auth-methods`) : la barrière est franchie bien plus
+  largement que par les deux scénarios nommés ci-dessus.
+  Non corrigé ici — trois fichiers de test, et la preuve demanderait de faire
+  varier le réglage côté serveur pendant que la suite tourne. Déposé en #453,
+  dont le corps porte la même correction.
 - **Les parcours ne s'arrêtent pas avant la fin.** Le soupçon que §7 formule
   — « une inscription testée jusqu'au formulaire mais pas jusqu'à la ligne
   créée » — est démenti, et par son propre exemple : `registration-flow.spec.js`
@@ -1001,13 +1013,18 @@ cinquième point, que §7 demande explicitement de **constater sans combler**.
   le nom de l'enfant et son unité précédente dans la gestion côté staff,
   fait prendre la décision, et revient vérifier qu'elle est devenue
   « Retirée » côté famille. La ligne créée est vue des trois côtés.
-  Sur toute la suite : **28 scénarios font un geste de création, et les 28
-  en vérifient la conséquence**. Vingt-six relisent le serveur après une
-  navigation ; les deux autres ont été examinés un par un plutôt que comptés
-  — `mass-mail-merge.spec.js` lit les messages **réellement remis** dans le
-  bac à sable, exige exactement deux envois et finit sur la ligne de suivi
-  rendue par le serveur, et `login-page.spec.js` ne crée rien du tout : il
-  vérifie que le bouton est visible, sans jamais le cliquer.
+  Sur toute la suite : **27 scénarios cliquent un bouton de création, et les
+  27 en vérifient la conséquence**. Vingt-six relisent le serveur après une
+  navigation ; le vingt-septième, `mass-mail-merge.spec.js`, va plus loin
+  qu'une relecture — il ouvre les messages **réellement remis** dans le bac
+  à sable, exige exactement deux envois et finit sur la ligne de suivi rendue
+  par le serveur, sans avoir besoin d'un `goto` parce que la page se met à
+  jour d'elle-même.
+  Le premier comptage annonçait 28 et rangeait `login-page.spec.js` parmi
+  eux : il cherchait le **nom** d'un bouton de création, et ce scénario
+  écrit « Envoyer le lien de connexion » dans un `expect(...).toBeVisible()`
+  sans jamais le cliquer. Compter un clic plutôt qu'une mention le sort de
+  la population — où il n'avait rien à faire, puisqu'il ne crée rien.
 
 - **Les sélecteurs : le soupçon tient, à sa mesure.** Répartition sur toute
   la suite : **829 adressent ce qu'un utilisateur voit** (`getByRole` 492,
@@ -1050,6 +1067,34 @@ l'établissent. Aucun test n'est ajouté : §7 dit de constater, pas de
 combler, et écrire un scénario de service worker est le « own future
 scenario » que la configuration annonce déjà.
 
+**Mutations tentées** : une seule, et son absence était un manquement.
+
+Cette itération ne renforce aucun test — elle en mesure. §0.3 exige
+pourtant qu'une qualité de test soit établie **par mutation ciblée, jamais
+par lecture**, et §0.4 que le journal dise ce qui a été muté et a tenu. Les
+deux affirmations centrales de cette entrée — « 127 fichiers sur 128
+importent le fichier de production » et « les quatre `waitForTimeout` sont
+justes » — ont d'abord été écrites sur la foi d'un comptage et d'une
+lecture. La revue l'a relevé, et elle avait raison : la seconde était
+**fausse** (voir la correction ci-dessus), et c'est précisément ce que la
+lecture ne pouvait pas montrer.
+
+- **Muter `nextSelection()` dans `public/assets/js/rental-calendar.js`**
+  (intervertir l'arrivée et le départ à la reprise d'une sélection),
+  mutation prouvée appliquée par comparaison de fichiers → **4 tests sur 23
+  rouges** dans `tests/js/rental-calendar.test.js`, 23 verts après
+  restauration. Le fichier Vitest exerce donc bien le code de production
+  qu'il importe, et ne le recopie pas : l'affirmation « 127 sur 128 »
+  cesse d'être un comptage d'`import` pour devenir une propriété observée,
+  au moins sur cet exemplaire.
+
+- **Ce qui n'a pas été muté**, et il faut le dire plutôt que le taire : la
+  barrière `HumanCheck`. La mutation juste consiste à porter
+  `human_check_min_delay_seconds` au-dessus de 4 secondes sur l'instance
+  jetable et à observer lesquels des quatre emplacements tombent. Elle
+  demande une exécution Playwright complète par essai, et elle est la
+  reproduction que #453 attend — c'est là qu'elle est consignée, pas ici.
+
 **Issues ouvertes** :
 
 - #452 — le cycle de vie du service worker, exercé par aucune couche.
@@ -1079,7 +1124,9 @@ scenario » que la configuration annonce déjà.
 demande que toute issue porte `**Type: bug**` ou `**Type: enhancement**` sur
 sa **première ligne**, verbatim. Les issues des itérations 1 et 2 la portent
 — #391, #393 et #395 relues et conformes. Les quatre ouvertes ensuite ne
-l'avaient pas : #439, #444, #449 et #452, toutes corrigées. La frontière est
+l'avaient pas : #439, #444, #449 et #452, toutes corrigées. #453, ouverte
+plus tard dans la même passe de revue, la porte dès l'écriture — ce qui est
+le seul effet durable du constat. La frontière est
 nette, et c'est celle d'une reprise de session : l'habitude a été perdue au
 moment où le contexte l'a été, et rien dans le dépôt ne la rappelle au
 moment d'écrire — le workflow de triage accepte l'issue et rend son verdict
@@ -1099,3 +1146,21 @@ service workers, qui est une question de conception.
   `ReferenceError` attrapée par le `catch` du code : les tests passaient
   sans jamais exercer la reprise. C'est exactement le sujet de ce chantier,
   trouvé et écrit avant lui.
+
+**Non vérifiable, et pourquoi** :
+
+- **La justesse des quatre `waitForTimeout`**, au sens du chantier. Ce qui a
+  été établi, c'est ce que chacun attend et d'où il tire sa durée ; ce qui
+  ne l'a pas été, c'est qu'un test tombe quand la règle qu'il contourne
+  change. La mutation qui le montrerait — porter
+  `human_check_min_delay_seconds` au-dessus de leurs constantes — demande
+  une exécution Playwright par essai, et elle appartient à #453.
+- **La fragilité des 120 sélecteurs de classe.** Le chiffre est une mesure,
+  pas un verdict : établir qu'un renommage de composant casse un test sans
+  que rien n'ait changé pour l'utilisateur demanderait de renommer
+  réellement une classe dans la feuille de style et de rejouer la suite
+  navigateur, 120 fois pour en faire une propriété plutôt qu'un exemple.
+  Le constat est donc énoncé comme un risque dimensionné, jamais comme un
+  défaut constaté.
+- **Le cycle de vie du service worker**, que §7 demande explicitement de
+  constater sans combler. C'est l'objet de #452.
