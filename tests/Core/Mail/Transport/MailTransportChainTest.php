@@ -620,6 +620,54 @@ class MailTransportChainTest extends TestCase
         return $row;
     }
 
+    /**
+     * A counter that cannot be written does not turn a delivered message
+     * into a failed one.
+     *
+     * The rule is written where it is enforced, and its reason is a
+     * second copy in somebody's inbox: « letting a counter write
+     * propagate would have `MailService` report a send that did happen as
+     * failed, and the caller — `mass_mail` above all — retry it ». The
+     * branch that holds it had never been executed: removing its
+     * `try`/`catch` entirely left 1 149 mail tests green.
+     *
+     * The failure is real rather than simulated — the table the counter
+     * writes to is taken away underneath it, so the repository throws the
+     * PDOException it would throw in production. `SendCounterRepository`
+     * is final, and a double here would be the thing this chantier spends
+     * its §3 on: a stand-in that no longer resembles the subject.
+     */
+    public function testACounterThatCannotBeWrittenDoesNotFailTheDeliveredMessage(): void
+    {
+        $relay = $this->addRelay('Unique', 'smtp.unique.test');
+        $this->enable(MailLane::Authentication, [$relay]);
+        // Writes fail, reads keep working: the quota check happens before
+        // the send and must still answer, or the lane would be skipped and
+        // the test would prove nothing about the counter at all.
+        $this->pdo->exec(
+            'CREATE TRIGGER refuse_counter_writes BEFORE INSERT ON mail_send_counters
+             BEGIN SELECT RAISE(FAIL, \'compteur indisponible\'); END'
+        );
+
+        $delivery = $this->recordingTransport();
+        $this->chain($delivery)->deliver($this->message(), MailPurpose::MagicLink);
+
+        $this->assertSame(
+            ['smtp.unique.test'],
+            $delivery->attemptedHosts,
+            'The message was handed to the relay, so the send must be reported as the success it was.'
+        );
+
+        $journalled = $this->pdo
+            ->query("SELECT event_type FROM event_log WHERE category = 'core'")
+            ->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertContains(
+            'mail_send_counter_failed',
+            $journalled,
+            'The bookkeeping failure is swallowed for the caller, not for the operator: it belongs in the journal.'
+        );
+    }
+
     private function chain(
         MailTransportInterface $delivery,
         ?ProviderHealthRepository $health = null,
