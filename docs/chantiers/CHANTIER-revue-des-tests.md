@@ -950,12 +950,12 @@ branche jamais exécutée est aussi un message d'erreur jamais relu.
 
 ### Itération 7 — Le navigateur : Vitest et Playwright — 2026-09-21
 
-**Périmètre parcouru** : les trois soupçons que §7 formule — une logique
+**Périmètre parcouru** : les **quatre** soupçons que §7 formule — une logique
 recopiée plutôt qu'importée, des assertions sur des sélecteurs internes, des
-attentes à délai fixe — puis le dernier point, que §7 demande explicitement
-de **constater sans combler**.
+attentes à délai fixe, des parcours qui s'arrêtent avant la fin — puis le
+cinquième point, que §7 demande explicitement de **constater sans combler**.
 
-**Deux des trois soupçons ne tiennent pas ; le troisième tient en partie** :
+**Trois des quatre soupçons ne tiennent pas ; celui des sélecteurs tient en partie** :
 
 - **127 fichiers Vitest sur 128 importent le fichier de production**, et le
   cent-vingt-huitième ne le recopie pas davantage. Un premier comptage en
@@ -993,6 +993,22 @@ de **constater sans combler**.
   4 000 ms en dur là où un helper du même dépôt calcule la valeur exacte**.
   Non corrigé ici — deux fichiers de test, et la preuve demanderait de faire
   varier le réglage côté serveur. Déposé en #453.
+- **Les parcours ne s'arrêtent pas avant la fin.** Le soupçon que §7 formule
+  — « une inscription testée jusqu'au formulaire mais pas jusqu'à la ligne
+  créée » — est démenti, et par son propre exemple : `registration-flow.spec.js`
+  ne s'arrête pas à « Demande envoyée ». Il suit le lien de suivi reçu par
+  courriel, lit « En attente d'examen » sur la page de la famille, retrouve
+  le nom de l'enfant et son unité précédente dans la gestion côté staff,
+  fait prendre la décision, et revient vérifier qu'elle est devenue
+  « Retirée » côté famille. La ligne créée est vue des trois côtés.
+  Sur toute la suite : **28 scénarios font un geste de création, et les 28
+  en vérifient la conséquence**. Vingt-six relisent le serveur après une
+  navigation ; les deux autres ont été examinés un par un plutôt que comptés
+  — `mass-mail-merge.spec.js` lit les messages **réellement remis** dans le
+  bac à sable, exige exactement deux envois et finit sur la ligne de suivi
+  rendue par le serveur, et `login-page.spec.js` ne crée rien du tout : il
+  vérifie que le bouton est visible, sans jamais le cliquer.
+
 - **Les sélecteurs : le soupçon tient, à sa mesure.** Répartition sur toute
   la suite : **829 adressent ce qu'un utilisateur voit** (`getByRole` 492,
   `getByText` 166, `getByLabel` 166, `getByPlaceholder` 5), **250 un
