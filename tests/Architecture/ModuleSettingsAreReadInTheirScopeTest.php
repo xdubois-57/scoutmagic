@@ -297,6 +297,96 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
     }
 
     /**
+     * **Two classes with the same basename are two classes.**
+     *
+     * Thirteen basenames are declared more than once under the scanned
+     * roots. A constants map keyed by bare name lets the file that sorts
+     * last overwrite the others, and the loss is silent in the worst way:
+     * `Modules\\Groups\\Service\\ModerationService::SETTING_ENABLED` holds
+     * the manifest key `groups_ai_moderation_enabled`, its namesake in
+     * `retro` sorts after it, and the day that one declares any string
+     * constant the groups entry is replaced. `resolveKey()` then answers
+     * null for the groups call site, which drops out of the check with
+     * nothing going red — or, on a same-named constant with a different
+     * value, gets attributed to another module's key outright.
+     */
+    public function testTwoClassesSharingABasenameDoNotOverwriteEachOther(): void
+    {
+        $groups = 'Modules\\Groups\\Service\\ModerationService';
+        $retro = 'Modules\\Retro\\Service\\ModerationService';
+        $constants = [
+            $groups => ['SETTING_ENABLED' => 'groups_ai_moderation_enabled'],
+            $retro => ['SETTING_ENABLED' => 'retro_ai_moderation_enabled'],
+        ];
+
+        // A caller importing one of them means that one, and the `use` line
+        // is what says which — exactly as PHP reads it.
+        $this->assertSame(
+            'groups_ai_moderation_enabled',
+            self::resolveKey(
+                'ModerationService::SETTING_ENABLED',
+                'Modules\\Groups\\Controller\\GroupController',
+                $constants,
+                ['ModerationService' => $groups]
+            )
+        );
+        $this->assertSame(
+            'retro_ai_moderation_enabled',
+            self::resolveKey(
+                'ModerationService::SETTING_ENABLED',
+                'Modules\\Retro\\Controller\\RetroController',
+                $constants,
+                ['ModerationService' => $retro]
+            )
+        );
+
+        // A sibling in the caller's own namespace needs no import, which is
+        // also how PHP reads it.
+        $this->assertSame(
+            'retro_ai_moderation_enabled',
+            self::resolveKey('ModerationService::SETTING_ENABLED', $retro, $constants)
+        );
+
+        // And written out, there is nothing to resolve.
+        $this->assertSame(
+            'groups_ai_moderation_enabled',
+            self::resolveKey('\\' . $groups . '::SETTING_ENABLED', 'Whatever\\Else', $constants)
+        );
+
+        // Neither imported nor a sibling, and two classes answer to the
+        // name: **null rather than a guess**. Guessing here attributes a
+        // call site to another module's key, which reads as an offence
+        // that does not exist or as a green nobody earned.
+        $this->assertNull(
+            self::resolveKey('ModerationService::SETTING_ENABLED', 'Somewhere\\Unrelated', $constants)
+        );
+    }
+
+    /**
+     * The namespace is part of the name, and `classDeclaredIn()` is where
+     * that had been dropped.
+     */
+    public function testAClassIsIdentifiedByItsFullyQualifiedName(): void
+    {
+        $this->assertSame(
+            'Modules\\Groups\\Service\\ModerationService',
+            self::classDeclaredIn(
+                "<?php\nnamespace Modules\\Groups\\Service;\n\nfinal class ModerationService\n{\n}\n"
+            )
+        );
+
+        // A `use` line is not a declaration, and must not be mistaken for
+        // the namespace of the class that follows it.
+        $this->assertSame(
+            ['SettingService' => 'Core\\Config\\SettingService', 'Alias' => 'Core\\Member\\MemberService'],
+            self::useMapOf(
+                "<?php\nnamespace X;\n\nuse Core\\Config\\SettingService;\n"
+                . "use Core\\Member\\MemberService as Alias;\n"
+            )
+        );
+    }
+
+    /**
      * End to end on a real file: a double-quoted key, read with no scope,
      * is reported.
      *
@@ -382,8 +472,10 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
      */
     private static function unscopedCalls(string $file, array $moduleKeys): array
     {
+        $source = (string) file_get_contents($file);
         $constants = self::constantsByClass();
-        $ownClass = self::classDeclaredIn((string) file_get_contents($file));
+        $ownClass = self::classDeclaredIn($source);
+        $useMap = self::useMapOf($source);
         $offences = [];
 
         foreach (self::callsToModuleKeys($file, $moduleKeys) as $call) {
@@ -393,7 +485,7 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
             if ($scope === '' || $scope === 'null') {
                 $complaint = 'no scope at all, so it reads `_core_`';
             } else {
-                $resolved = self::resolveKey($scope, $ownClass, $constants);
+                $resolved = self::resolveKey($scope, $ownClass, $constants, $useMap);
                 if ($resolved === null) {
                     $complaint = 'a scope this check cannot resolve (' . $scope . ')';
                 } elseif ($resolved !== $call['owner']) {
@@ -464,6 +556,7 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
         $source = (string) file_get_contents($file);
         $constants = self::constantsByClass();
         $ownClass = self::classDeclaredIn($source);
+        $useMap = self::useMapOf($source);
 
         $tokens = token_get_all($source);
         $count = count($tokens);
@@ -495,7 +588,7 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
             $scope = trim($arguments[self::SCOPED_METHODS[$name[1]]] ?? '');
 
             foreach (self::keyExpressionsOf($name[1], trim($arguments[0] ?? '')) as $expression) {
-                $key = self::resolveKey($expression, $ownClass, $constants);
+                $key = self::resolveKey($expression, $ownClass, $constants, $useMap);
 
                 if ($key === null || !isset($moduleKeys[$key])) {
                     continue;
@@ -609,29 +702,112 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
      * A key expression as its string value, or null when it cannot be known
      * without running the code.
      *
-     * @param array<string, array<string, string>> $constants
+     * **Per class, never by name alone** — and « class » means the fully
+     * qualified one. `SETTING_KEY` is declared in a dozen unrelated classes
+     * here, so a global name→value map resolves
+     * `InstallationDateService::SETTING_KEY` to whatever some module
+     * happened to call its own and invents a dozen offences that do not
+     * exist; that mistake was made while writing this file. Keying by the
+     * BARE class name is the same mistake one level up, and it was made
+     * here too — see `classDeclaredIn()` for the namesake pair that was
+     * one commit away from silently emptying this check.
+     *
+     * @param array<string, array<string, string>> $constants keyed by FQCN
+     * @param array<string, string> $useMap alias → FQCN, from the file's own `use` lines
      */
-    private static function resolveKey(string $expression, string $ownClass, array $constants): ?string
-    {
+    private static function resolveKey(
+        string $expression,
+        string $ownClass,
+        array $constants,
+        array $useMap = []
+    ): ?string {
         $literal = self::stringLiteral($expression);
         if ($literal !== null) {
             return $literal;
         }
 
-        // **Per class, never by name alone.** `SETTING_KEY` is declared in a
-        // dozen unrelated classes here; a global name→value map resolves
-        // `InstallationDateService::SETTING_KEY` to whatever some module
-        // happened to call its own, and invents a dozen offences that do not
-        // exist. That mistake was made while writing this file.
         if (preg_match('/^(?:self|static)::([A-Z][A-Z0-9_]*)$/', $expression, $own) === 1) {
             return $constants[$ownClass][$own[1]] ?? null;
         }
 
-        if (preg_match('/([A-Za-z0-9_]+)::([A-Z][A-Z0-9_]*)$/', $expression, $other) === 1) {
-            return $constants[$other[1]][$other[2]] ?? null;
+        if (preg_match('/^\\\\?([A-Za-z0-9_\\\\]+)::([A-Z][A-Z0-9_]*)$/', $expression, $other) !== 1) {
+            return null;
         }
 
-        return null;
+        $class = self::qualify(ltrim($other[1], '\\'), $ownClass, $constants, $useMap);
+
+        return $class === null ? null : ($constants[$class][$other[2]] ?? null);
+    }
+
+    /**
+     * A class reference as written at a call site, turned into the one FQCN
+     * it can only mean — or null when it could mean more than one.
+     *
+     * Already qualified, imported by a `use` line, or a sibling in the same
+     * namespace: three exact answers, in the order PHP itself would take
+     * them. Only when none applies does it fall back to matching the bare
+     * name against every known class, and **a bare name matching two
+     * classes resolves to neither**: guessing there is how a call site gets
+     * attributed to another module's key, which reads as an offence that
+     * does not exist or as a green that was never earned.
+     *
+     * @param array<string, array<string, string>> $constants keyed by FQCN
+     * @param array<string, string> $useMap
+     */
+    private static function qualify(string $written, string $ownClass, array $constants, array $useMap): ?string
+    {
+        if (str_contains($written, '\\')) {
+            return $written;
+        }
+
+        if (isset($useMap[$written])) {
+            return $useMap[$written];
+        }
+
+        $ownNamespace = strrpos($ownClass, '\\');
+        if ($ownNamespace !== false) {
+            $sibling = substr($ownClass, 0, $ownNamespace + 1) . $written;
+            if (isset($constants[$sibling])) {
+                return $sibling;
+            }
+        }
+
+        $candidates = array_values(array_filter(
+            array_keys($constants),
+            static fn(string $fqcn): bool => $fqcn === $written || str_ends_with($fqcn, '\\' . $written)
+        ));
+
+        return count($candidates) === 1 ? $candidates[0] : null;
+    }
+
+    /**
+     * The `use` lines of one source, as alias → FQCN.
+     *
+     * Only plain class imports: a grouped or function import names nothing
+     * this check resolves, and answering « I do not know » for those is the
+     * posture the rest of this file takes.
+     *
+     * @return array<string, string>
+     */
+    private static function useMapOf(string $source): array
+    {
+        if (preg_match_all(
+            '/(?:^|\n)use\s+([A-Za-z0-9_\\\\]+)(?:\s+as\s+([A-Za-z0-9_]+))?\s*;/',
+            $source,
+            $matches,
+            PREG_SET_ORDER
+        ) === 0) {
+            return [];
+        }
+
+        $map = [];
+        foreach ($matches as $import) {
+            $fqcn = ltrim($import[1], '\\');
+            $alias = ($import[2] ?? '') !== '' ? $import[2] : substr($fqcn, (int) strrpos('\\' . $fqcn, '\\'));
+            $map[$alias] = $fqcn;
+        }
+
+        return $map;
     }
 
     /**
@@ -763,11 +939,32 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
      */
     private static function classDeclaredIn(string $source): string
     {
-        return preg_match(
+        if (preg_match(
             '/(?:^|\n)(?:final\s+|abstract\s+|readonly\s+)*class\s+([A-Za-z0-9_]+)/',
             $source,
             $m
-        ) === 1 ? $m[1] : '';
+        ) !== 1) {
+            return '';
+        }
+
+        // **Fully qualified, because a bare name is not a class.** Thirteen
+        // basenames are declared twice or more under the scanned roots —
+        // `ModerationService`, `ConfigController`, `RateLimitService`,
+        // `ImportController` among them — so a map keyed by basename lets
+        // the file that sorts last overwrite the others' constants.
+        // `Modules\Groups\Service\ModerationService::SETTING_ENABLED` holds
+        // a real manifest key (`groups_ai_moderation_enabled`), and its
+        // namesake in `retro` sorts after it: the day that one declares a
+        // string constant, the groups entry is replaced, `resolveKey()`
+        // answers null for the groups call site, and it leaves the check
+        // without a single test going red.
+        //
+        // The docblock on `resolveKey()` said « per class, never by name
+        // alone » while the class side was resolved by name alone. One
+        // level too shallow, which is the whole lesson of this file.
+        return preg_match('/(?:^|\n)namespace\s+([A-Za-z0-9_\\\\]+)\s*;/', $source, $ns) === 1
+            ? $ns[1] . '\\' . $m[1]
+            : $m[1];
     }
 
     /**
