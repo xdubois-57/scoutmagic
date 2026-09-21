@@ -955,7 +955,9 @@ recopiée plutôt qu'importée, des assertions sur des sélecteurs internes, des
 attentes à délai fixe, des parcours qui s'arrêtent avant la fin — puis le
 cinquième point, que §7 demande explicitement de **constater sans combler**.
 
-**Trois des quatre soupçons ne tiennent pas ; celui des sélecteurs tient en partie** :
+**Deux des quatre soupçons ne tiennent pas — la logique recopiée et les
+parcours inachevés ; celui des sélecteurs tient à sa mesure ; celui des
+attentes n'est ni confirmé ni levé, faute de mutation** :
 
 - **127 fichiers Vitest sur 128 importent le fichier de production**, et le
   cent-vingt-huitième ne le recopie pas davantage. Un premier comptage en
@@ -966,45 +968,54 @@ cinquième point, que §7 demande explicitement de **constater sans combler**.
   **texte**, par `readFileSync` : c'est un garde de source, pas un test
   recopié, mais ce n'est pas un import non plus, et écrire « 128 sur 128 »
   était une facilité que la phrase suivante contredisait.
-- **Quatre `waitForTimeout` dans toute la suite Playwright**, et les quatre
-  sont justes — vérifiés un par un. Trois sont dans des scénarios, le
-  quatrième dans un fichier de support, et c'est lui qu'un premier comptage
-  limité à `specs/` avait manqué.
-  `rental-management.spec.js` et `rental-request.spec.js` attendent quatre
-  secondes parce que `Core\Security\HumanCheck` refuse un formulaire soumis
-  plus vite qu'un humain ne l'aurait rempli : les deux tests attendent comme
-  un visiteur plutôt que de désactiver la garde, et leurs commentaires le
-  disent. Une attente fixe sur une règle qui **est** une durée n'est pas une
-  fragilité. `pwa-prefetch-once.spec.js` attend deux secondes sur chacune de
-  trois pages pour établir qu'**aucune** requête supplémentaire n'est
-  partie : on ne peut pas attendre la condition « rien ne se produit », et
-  une borne temporelle est la seule forme que cette assertion puisse
-  prendre.
-  **Le quatrième attend mieux que les autres, mais pas pour la raison que
-  j'ai d'abord écrite.** `tests/e2e/support/human-check.js` décode
-  l'horodatage porté par le jeton `human_check_token` et n'attend que ce
-  qu'il reste à courir — zéro compris — au lieu d'une durée forfaitaire
-  depuis le clic. J'en avais conclu qu'il « calculait la valeur exacte » là
-  où deux scénarios la codaient en dur. **C'est faux, et c'est exactement la
-  faute que ce chantier poursuit : je l'ai conclu en lisant.** Le jeton ne
-  porte que `{f, t, s}` — champ-piège, horodatage, signature — et aucun
-  délai ; le helper écrit son propre `const DEFAULT_MIN_DELAY_SECONDS = 3`
-  (ligne 21), tandis que le serveur lit
-  `human_check_min_delay_seconds`, par défaut 3
+- **Quatre `waitForTimeout` dans toute la suite Playwright**, et ce que
+  chacun attend est établi. Que chacun soit *juste* ne l'est pas : ce
+  paragraphe a d'abord conclu qu'ils l'étaient, en lisant, et cette
+  conclusion s'est révélée fausse sur l'un d'eux. Les emplacements sont
+  nommés ci-dessous plutôt que numérotés, parce qu'ils ne forment pas une
+  série — trois appartiennent à une même barrière, le dernier à rien du
+  tout.
+
+  Un premier comptage limité à `tests/e2e/specs/` n'en voyait que trois : le
+  quatrième vit dans `tests/e2e/support/`, qui fait partie de la suite et
+  que j'avais exclu sans le décider.
+
+  | Emplacement | Ce qu'il attend |
+  |---|---|
+  | `support/human-check.js:48` | le reliquat avant que `HumanCheck` accepte, calculé depuis l'horodatage du jeton — zéro compris |
+  | `specs/rental-management.spec.js:226` | 4 000 ms à plat, même barrière |
+  | `specs/rental-request.spec.js:211` | 4 000 ms à plat, même barrière |
+  | `specs/pwa-prefetch-once.spec.js:52` | 2 s sur chacune de trois pages, pour établir qu'**aucune** requête supplémentaire n'est partie |
+
+  Le dernier est d'une autre nature et il est hors de cause : on ne peut pas
+  attendre la condition « rien ne se produit », et une borne temporelle est
+  la seule forme que cette assertion puisse prendre. Les trois premiers
+  contournent la même règle — `Core\Security\HumanCheck` refuse un
+  formulaire soumis plus vite qu'un humain ne l'aurait rempli — et attendre
+  comme un visiteur plutôt que désactiver la garde est le bon choix, que
+  leurs commentaires expliquent.
+
+  **Ce que j'ai écrit à tort**, et qu'il faut lire comme l'erreur type de ce
+  chantier : que `support/human-check.js` « calculait la valeur exacte » là
+  où les deux scénarios la codaient en dur. Je l'ai conclu **en lisant** le
+  helper. Le jeton `human_check_token` ne porte que `{f, t, s}` —
+  champ-piège, horodatage, signature — et **aucun délai** ; le helper écrit
+  son propre `const DEFAULT_MIN_DELAY_SECONDS = 3` (ligne 21), pendant que
+  le serveur lit `human_check_min_delay_seconds`, par défaut 3
   (`HumanCheckService.php:108`). **Les trois emplacements redisent le même
   réglage, aucun ne le lit.**
 
-  Le constat qui reste est plus étroit et vrai : le helper mesure depuis
-  l'émission du jeton, donc il n'attend que le reliquat, là où
-  `rental-management.spec.js` et `rental-request.spec.js` attendent
-  4 000 ms à plat — et les trois cassent si le réglage passe au-dessus de
+  Ce qui survit à la correction : le helper mesure depuis l'émission du
+  jeton, donc n'attend que le reliquat, là où les deux scénarios attendent
+  4 000 ms depuis le clic. C'est une meilleure façon d'attendre, pas une
+  façon de ne pas recopier — et les trois cassent dès que le réglage dépasse
   leur constante. Le helper est importé par cinq scénarios de plus
   (`rental-lifecycle`, `news-form-payment`, `password-reset`,
   `registration-flow`, `auth-methods`) : la barrière est franchie bien plus
-  largement que par les deux scénarios nommés ci-dessus.
-  Non corrigé ici — trois fichiers de test, et la preuve demanderait de faire
-  varier le réglage côté serveur pendant que la suite tourne. Déposé en #453,
-  dont le corps porte la même correction.
+  largement que par les deux scénarios qui écrivent 4 000 ms.
+  Non corrigé ici — trois fichiers de test, et la preuve demande de faire
+  varier le réglage côté serveur pendant que la suite tourne. Déposé en
+  #453, dont le corps porte la même correction et le protocole de preuve.
 - **Les parcours ne s'arrêtent pas avant la fin.** Le soupçon que §7 formule
   — « une inscription testée jusqu'au formulaire mais pas jusqu'à la ligne
   créée » — est démenti, et par son propre exemple : `registration-flow.spec.js`
@@ -1018,21 +1029,39 @@ cinquième point, que §7 demande explicitement de **constater sans combler**.
   navigation ; le vingt-septième, `mass-mail-merge.spec.js`, va plus loin
   qu'une relecture — il ouvre les messages **réellement remis** dans le bac
   à sable, exige exactement deux envois et finit sur la ligne de suivi rendue
-  par le serveur, sans avoir besoin d'un `goto` parce que la page se met à
-  jour d'elle-même.
+  par le serveur. S'il n'a aucun `goto` après la création, ce n'est pas que
+  la page se mette à jour d'elle-même : chaque étape est une **navigation
+  provoquée par un clic** et attendue comme telle — `waitForURL(/\/mass-mail\/\d+$/,
+  { waitUntil: 'load' })` après « Lancer l'envoi », puis
+  `waitForURL(/\/mass-mail\/\d+\/tracking/)` après « Suivi ».
   Le premier comptage annonçait 28 et rangeait `login-page.spec.js` parmi
   eux : il cherchait le **nom** d'un bouton de création, et ce scénario
   écrit « Envoyer le lien de connexion » dans un `expect(...).toBeVisible()`
   sans jamais le cliquer. Compter un clic plutôt qu'une mention le sort de
   la population — où il n'avait rien à faire, puisqu'il ne crée rien.
 
-- **Les sélecteurs : le soupçon tient, à sa mesure.** Répartition sur toute
-  la suite : **829 adressent ce qu'un utilisateur voit** (`getByRole` 492,
-  `getByText` 166, `getByLabel` 166, `getByPlaceholder` 5), **250 un
-  identifiant**, et **120 une classe CSS**. Ces 120 sont la part exposée à
-  une retouche de feuille de style. Elles sont moins fragiles qu'il n'y
-  paraît — les classes visées sont des noms de composants
-  (`groups-reply-bubble`, `retro-comment`, `calendar-event-bar`,
+- **Les sélecteurs : le soupçon tient, à sa mesure.** Le premier
+  recensement publié ici ne se reproduisait sous **aucune** portée
+  cohérente : il mêlait un comptage de `tests/e2e/` entier et un comptage de
+  `tests/e2e/specs/` seul, et deux de ses chiffres n'étaient atteignables
+  ni sous l'une ni sous l'autre. La revue l'a refait et a eu raison.
+  Re-dérivé, portée et règle énoncées — **l'arbre `tests/e2e/` entier**,
+  `support/` compris, en comptant les **occurrences** et non les lignes :
+
+  | Ce que le sélecteur adresse | Occurrences |
+  |---|---|
+  | ce qu'un utilisateur voit | **839** — `getByRole` 500, `getByLabel` 169, `getByText` 165, `getByPlaceholder` 5 |
+  | un identifiant (`locator('#…')`) | **258** |
+  | une classe CSS (`locator('.…')`) | **127** |
+
+  Restreint à `specs/` seul, ce serait 823 / 250 / 120 — c'est de ce second
+  comptage que venaient les 250 et 120 publiés à tort « sur toute la suite »,
+  exactement l'exclusion silencieuse de `support/` qui avait déjà fait
+  manquer le `waitForTimeout` de `support/`. Aucun `getByTestId` nulle part.
+
+  Ces 127 sont la part exposée à une retouche de feuille de style. Elles
+  sont moins fragiles qu'il n'y paraît — les classes visées sont des noms de
+  composants (`groups-reply-bubble`, `retro-comment`, `calendar-event-bar`,
   `sos-day-row`) et non des utilitaires de présentation — mais renommer un
   composant casserait le test sans que rien n'ait changé pour
   l'utilisateur. Ce n'est pas rien, et ce n'est pas ce que §7 redoutait.
@@ -1075,9 +1104,15 @@ par lecture**, et §0.4 que le journal dise ce qui a été muté et a tenu. Les
 deux affirmations centrales de cette entrée — « 127 fichiers sur 128
 importent le fichier de production » et « les quatre `waitForTimeout` sont
 justes » — ont d'abord été écrites sur la foi d'un comptage et d'une
-lecture. La revue l'a relevé, et elle avait raison : la seconde était
-**fausse** (voir la correction ci-dessus), et c'est précisément ce que la
-lecture ne pouvait pas montrer.
+lecture. La revue l'a relevé, et elle avait raison.
+
+La seconde a été **retirée** plutôt que corrigée : lire un `waitForTimeout`
+établit ce qu'il attend, jamais qu'il tombera le jour où la règle qu'il
+contourne change. C'est en la relisant qu'une affirmation voisine s'est
+révélée **fausse** — celle sur le helper, corrigée ci-dessus —, et c'est
+exactement ce que la lecture ne pouvait pas montrer. La justesse des quatre
+attentes reste donc ouverte, et figure sous « Non vérifiable » plutôt que
+sous un constat.
 
 - **Muter `nextSelection()` dans `public/assets/js/rental-calendar.js`**
   (intervertir l'arrivée et le départ à la reprise d'une sélection),
@@ -1089,14 +1124,17 @@ lecture ne pouvait pas montrer.
   au moins sur cet exemplaire.
 
 - **Ce qui n'a pas été muté**, et il faut le dire plutôt que le taire : la
-  barrière `HumanCheck`. La mutation juste consiste à porter
-  `human_check_min_delay_seconds` au-dessus de 4 secondes sur l'instance
-  jetable et à observer lequel des **trois** emplacements qui redisent ce
-  réglage tombe — le quatrième `waitForTimeout`, celui de
-  `pwa-prefetch-once.spec.js`, n'a rien à voir avec cette barrière et ne
-  peut pas bouger. Elle demande une exécution Playwright complète par
-  essai, et elle est la reproduction que #453 attend — c'est là qu'elle est
-  consignée, pas ici.
+  barrière `HumanCheck`. La mutation juste demande **deux** valeurs, pas
+  une, parce que les trois emplacements qui redisent ce réglage ne
+  l'écrivent pas à la même hauteur — 3 secondes dans le helper, 4 000 ms
+  dans les deux scénarios. Porter `human_check_min_delay_seconds` à **4**
+  ne doit faire tomber que ce qui passe par le helper ; le porter à **6**
+  doit tout faire tomber. C'est cette asymétrie qui est la preuve : un seuil
+  unique au-dessus de 4 les fait tomber tous les trois et ne distingue rien.
+  Le `waitForTimeout` de `pwa-prefetch-once.spec.js` n'a rien à voir avec
+  cette barrière et ne doit bouger dans aucun des deux cas — c'est le
+  témoin. Deux exécutions Playwright complètes, donc : c'est la reproduction
+  que #453 attend, et elle y est consignée avec ce protocole, pas ici.
 
 **Issues ouvertes** :
 
@@ -1160,17 +1198,18 @@ service workers, qui est une question de conception.
 
 **Non vérifiable, et pourquoi** :
 
-- **La justesse des quatre `waitForTimeout`**, au sens du chantier. Ce qui a
-  été établi, c'est ce que chacun attend et d'où il tire sa durée ; ce qui
-  ne l'a pas été, c'est qu'un test tombe quand la règle qu'il contourne
-  change. La mutation qui le montrerait — porter
-  `human_check_min_delay_seconds` au-dessus de leurs constantes — demande
-  une exécution Playwright par essai, et elle appartient à #453.
-- **La fragilité des 120 sélecteurs de classe.** Le chiffre est une mesure,
+- **La justesse des quatre `waitForTimeout`**, au sens du chantier — et
+  c'est la seule affirmation de cette entrée qui a été **retirée** plutôt
+  que corrigée. Ce qui est établi : ce que chacun attend, d'où il tire sa
+  durée, et que celui de `pwa-prefetch-once.spec.js` est d'une autre nature.
+  Ce qui ne l'est pas : qu'un test tombe le jour où la règle qu'il contourne
+  change. La mutation qui le montrerait demande deux seuils et deux
+  exécutions Playwright, et elle appartient à #453.
+- **La fragilité des 127 sélecteurs de classe.** Le chiffre est une mesure,
   pas un verdict : établir qu'un renommage de composant casse un test sans
   que rien n'ait changé pour l'utilisateur demanderait de renommer
   réellement une classe dans la feuille de style et de rejouer la suite
-  navigateur, 120 fois pour en faire une propriété plutôt qu'un exemple.
+  navigateur, 127 fois pour en faire une propriété plutôt qu'un exemple.
   Le constat est donc énoncé comme un risque dimensionné, jamais comme un
   défaut constaté.
 - **Le cycle de vie du service worker**, que §7 demande explicitement de
