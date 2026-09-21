@@ -24,6 +24,14 @@ use PHPUnit\Framework\TestCase;
  * by rendering `MenuInventory` with the offset still applied. Every run
  * since renders the same menus from the declared orders and compares.
  *
+ * **Both renderings, because there are two.** The desktop mega-menu is
+ * built from a menu's `groups`, the mobile offcanvas from its `pages` —
+ * the flat, globally sorted list. Numbering entries column by column
+ * reproduces the first and quietly reshuffles the second; numbering them
+ * along the flat list reproduces both, since a column is that same
+ * sequence restricted to its own entries. That is why the orders in this
+ * PR run along the flat list.
+ *
  * **How it was taken, because the first attempt got it wrong in a way
  * that left no trace.** It was generated in a `git worktree` of that
  * commit — and the first time, that worktree borrowed the main
@@ -103,6 +111,40 @@ final class MenuSnapshotTest extends TestCase
                 . 'At da64c8b a core page ordered 10 outranked module pages ordered 5-7; if this '
                 . 'fixture disagrees, it was regenerated with the new code and proves nothing.'
             );
+        }
+    }
+
+    /**
+     * **The fixture covers both renderings of every menu.**
+     *
+     * `partials/nav.html.twig` draws the desktop mega-menu from `groups`
+     * and the mobile offcanvas from `pages`, the flat list — two
+     * different sequences from one menu. An earlier version of this
+     * fixture recorded only the columns, and « zero visible change » held
+     * on desktop while Finances and Rétrospectives swapped places on a
+     * phone.
+     *
+     * Every menu must therefore appear twice, and a fixture regenerated
+     * without its `(mobile)` half would silently halve what this file
+     * proves.
+     */
+    public function testTheFixtureCoversTheMobileListAndNotOnlyTheColumns(): void
+    {
+        foreach (self::fixture() as $role => $menus) {
+            $desktop = array_filter(
+                array_keys($menus),
+                static fn(string $label): bool => !str_ends_with($label, ' (mobile)')
+            );
+
+            foreach ($desktop as $label) {
+                $this->assertArrayHasKey(
+                    $label . ' (mobile)',
+                    $menus,
+                    "The fixture records « {$label} » for a '{$role}' without its flat mobile list."
+                );
+            }
+
+            $this->assertNotSame([], $desktop, "The fixture records no menu at all for a '{$role}'.");
         }
     }
 

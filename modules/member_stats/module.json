@@ -2,7 +2,7 @@
   "id": "member_stats",
   "name": "Statistiques des membres",
   "description": "Statistiques du nombre d'animés par branche d'âge et par année scoute.",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "routes": [
     {
       "path": "/chiefs/stats",
@@ -13,7 +13,7 @@
       "label": "Statistiques",
       "menu_icon": "bi-bar-chart",
       "menu_group": "gestion",
-      "menu_order": 130,
+      "menu_order": 40,
       "role_min": "chief",
       "breadcrumb": {
         "label": "Statistiques",

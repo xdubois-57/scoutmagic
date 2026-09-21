@@ -2,7 +2,7 @@
   "id": "calendar",
   "name": "Calendrier",
   "description": "Calendrier des activités : un calendrier par section (automatique) et des calendriers supplémentaires configurables, avec abonnement ICS.",
-  "version": "1.8.1",
+  "version": "1.8.2",
   "enabled_by_default": true,
   "routes": [
     {
@@ -68,7 +68,7 @@
       "label": "Calendrier",
       "menu_icon": "bi-calendar-week",
       "menu_group": "activites",
-      "menu_order": 50,
+      "menu_order": 70,
       "breadcrumb": {
         "label": "Calendrier",
         "parents": [
@@ -113,7 +113,7 @@
       "label": "Calendrier",
       "menu_icon": "bi-calendar3",
       "menu_group": "modules",
-      "menu_order": 80,
+      "menu_order": 170,
       "breadcrumb": {
         "label": "Calendrier",
         "parents": [

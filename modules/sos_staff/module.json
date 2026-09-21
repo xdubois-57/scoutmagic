@@ -2,7 +2,7 @@
   "id": "sos_staff",
   "name": "SOS Staff d'U",
   "description": "Planification des gardes du numéro SOS de l'unité et automatisation des changements de redirection téléphonique.",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "enabled_by_default": false,
   "routes": [
     {
@@ -15,7 +15,7 @@
       "label": "SOS Staff d'U",
       "menu_icon": "bi-life-preserver",
       "menu_group": "services",
-      "menu_order": 90,
+      "menu_order": 70,
       "breadcrumb": {
         "label": "SOS Staff d'U",
         "parents": [
@@ -69,7 +69,7 @@
       "label": "SOS Staff d'U",
       "menu_icon": "bi-life-preserver",
       "menu_group": "modules",
-      "menu_order": 140,
+      "menu_order": 230,
       "breadcrumb": {
         "label": "SOS Staff d'U",
         "parents": [

@@ -2,7 +2,7 @@
   "id": "mass_mail",
   "name": "Envoi de mails",
   "description": "Envoi de mails groupés aux membres de l'unité : listes de diffusion par défaut ou personnalisées, publipostage depuis un fichier Excel avec variables personnalisées, mode test, envoi en arrière-plan par lots, suivi détaillé des envois. Accueille aussi, lorsque le module inscriptions est actif, une liste prédéfinie non modifiable pour l'année scoute cible.",
-  "version": "1.17.1",
+  "version": "1.17.2",
   "enabled_by_default": false,
   "routes": [
     {
@@ -255,7 +255,7 @@
       "label": "Listes de diffusion",
       "menu_icon": "bi-send",
       "menu_group": "services",
-      "menu_order": 110,
+      "menu_order": 140,
       "breadcrumb": {
         "label": "Listes de diffusion",
         "parents": [

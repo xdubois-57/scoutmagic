@@ -2,7 +2,7 @@
   "id": "fees",
   "name": "Cotisations",
   "description": "Vérifie les cotisations que la fédération facture : justesse des catégories tarifaires encodées dans Desk, et lecture des factures reçues. Le module n'écrit jamais dans Desk.",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "routes": [
     {
       "path": "/admin/fees",
@@ -13,7 +13,7 @@
       "label": "Cotisations",
       "menu_icon": "bi-cash-stack",
       "menu_group": "suivi",
-      "menu_order": 160,
+      "menu_order": 110,
       "role_min": "admin",
       "breadcrumb": {
         "label": "Cotisations",

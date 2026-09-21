@@ -341,6 +341,38 @@ qu'IT-02 leur donnera de toute façon — « État du site » y est
 *Fréquentation, Diagnostic, Supervision*. C'est une décision, pas une
 conservation, et elle est ici pour qu'on ne la prenne pas pour l'autre.
 
+### Le menu mobile — cinquième tour, et la plus utile des cinq trouvailles
+
+`partials/nav.html.twig` dessine **deux listes différentes** depuis un
+même menu : le méga-menu de bureau itère `groups`, l'offcanvas mobile
+itère `pages`, la liste plate triée globalement. Mon instantané ne lisait
+que la première.
+
+Numéroter colonne par colonne reproduit le rendu de bureau et **rebat le
+mobile** : pour un intendant, « Espace animateurs » passait de
+*Staffs, Membres par section, Finances, Rétrospectives* à
+*Staffs, Membres par section, Rétrospectives, Finances*. Vérifié sur le
+rendu authentique de `da64c8b`, les deux entrées échangeaient bien leur
+place.
+
+Le correctif est une seule idée : **numéroter le long de la liste plate**.
+Une colonne est cette même séquence restreinte à ses entrées, donc un
+numéro qui reproduit l'ordre plat reproduit aussi l'ordre de chaque
+colonne. Les deux rendus à la fois, avec un seul nombre par entrée.
+Cinquante ordres corrigés, et la constante partagée de `rental` n'a pas
+eu besoin d'être scindée — les deux entrées veulent encore la même place.
+
+L'instantané enregistre désormais les deux, sous « Espace membres » et
+« Espace membres (mobile) », et un test échoue si une empreinte
+régénérée perdait sa moitié mobile.
+
+**Le paragraphe supprimé d'`ARCHITECTURE.md` §7.1 nommait ce piège.** Il
+expliquait que l'offcanvas mobile dessine `menu.pages` et pas `groups`,
+et que c'est la raison d'un effet de bord assumé sur la colonne
+« Gestion ». Je l'ai retiré avec le reste du paragraphe sur le
+réordonnancement des modules, en ne gardant que ce qui parlait de ce
+mécanisme-là. La mise en garde, elle, n'avait pas cessé d'être vraie.
+
 ### Reporté
 
 Rien. IT-02 et IT-03 sont le périmètre annoncé, pas un report.

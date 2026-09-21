@@ -46,7 +46,7 @@ class NewsMenuHookService implements MenuEntryProvider
      * entries have the same sort rank, so this number competes with the
      * core pages beside it rather than only with other modules.
      */
-    private const SCAN_ORDER = 90;
+    private const SCAN_ORDER = 60;
 
     public function __construct(private FormRepository $forms)
     {

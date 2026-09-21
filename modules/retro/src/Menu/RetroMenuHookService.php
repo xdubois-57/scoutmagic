@@ -31,7 +31,7 @@ class RetroMenuHookService extends UnitChiefMenuHook
      * have the same sort rank, so this number competes with the core pages
      * beside it rather than only with other modules.
      */
-    private const CONFIG_ORDER = 100;
+    private const CONFIG_ORDER = 90;
 
     protected function entry(): MenuEntry
     {

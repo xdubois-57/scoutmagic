@@ -267,8 +267,17 @@ final class MenuInventory
     }
 
     /**
-     * What a person of `$role` sees: one line per entry, prefixed by its
-     * column when the menu has columns.
+     * What a person of `$role` sees — **both renderings of it**.
+     *
+     * `partials/nav.html.twig` draws two different lists from the same
+     * menu: the desktop mega-menu iterates `groups`, the mobile
+     * offcanvas iterates `pages`, the flat globally-sorted list. They are
+     * not the same sequence, and a change can move one while leaving the
+     * other alone — which is exactly what an earlier version of this
+     * inventory missed, by only ever reading `groups`.
+     *
+     * So each menu yields two keys: « Espace membres » for the columns,
+     * « Espace membres (mobile) » for the flat list.
      *
      * Built by the shipped `MenuBuilder`, so a change to the sort, to the
      * role filter or to the column split moves these lines.
@@ -307,6 +316,10 @@ final class MenuInventory
                 }
             }
             $rendered[$menu['label']] = $lines;
+            $rendered[$menu['label'] . ' (mobile)'] = array_map(
+                static fn(array $page): string => (string) $page['label'],
+                $menu['pages']
+            );
         }
 
         return $rendered;
