@@ -1033,6 +1033,19 @@ scenario » que la configuration annonce déjà.
   documented in a comment rather than removed ». La seconde ne se déduit pas
   de la première. Constat juste, issue déposée.
 
+**Une règle perdue en route, et retrouvée par la revue** : `AGENTS.md`
+demande que toute issue porte `**Type: bug**` ou `**Type: enhancement**` sur
+sa **première ligne**, verbatim. Les issues des itérations 1 et 2 la portent
+— #391, #393 et #395 relues et conformes. Les quatre ouvertes ensuite ne
+l'avaient pas : #439, #444, #449 et #452, toutes corrigées. La frontière est
+nette, et c'est celle d'une reprise de session : l'habitude a été perdue au
+moment où le contexte l'a été, et rien dans le dépôt ne la rappelle au
+moment d'écrire — le workflow de triage accepte l'issue et rend son verdict
+sans elle. #452 proposait en outre son correctif, ce que §0.1 de ce chantier
+interdit aux issues qu'il ouvre ; la section nomme désormais l'endroit du
+test, que `AGENTS.md` exige, sans prescrire comment lever le blocage des
+service workers, qui est une question de conception.
+
 **Vérifié et tenu** :
 
 - **La règle « importer le vrai fichier, jamais le recopier » est
