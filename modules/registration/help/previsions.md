@@ -36,7 +36,7 @@ c'est une seule et même source.
 Les enfants comptés dans le total mais placés dans aucune section :
 passages sans destination, inscriptions sans section prévue. Tant que
 cette carte n'est pas vide, les chiffres par section sous-estiment la
-réalité — le bouton « Aller à la page Passage » mène là où ces
+réalité — le bouton « Aller à la page Passages de branche » mène là où ces
 décisions se prennent. Carte vide : les prévisions par section sont à
 jour.
 

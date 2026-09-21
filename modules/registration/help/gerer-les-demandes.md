@@ -43,7 +43,7 @@ les Réglages, sans quoi le bouton reste gris.
 
 Tout ce que la famille a soumis, en lecture seule, plus trois champs
 du staff : la **section prévue** (jamais montrée à la famille — c'est
-le même champ que sur la page Passage), la **catégorie tarifaire**
+le même champ que sur la page Passages de branche), la **catégorie tarifaire**
 (avec une suggestion selon la taille du foyer, à confirmer
 explicitement) et des **notes internes**, jamais visibles ni
 journalisées.

@@ -1,6 +1,6 @@
 ---
 id: support
-title: La page Support
+title: La page Diagnostic
 summary: Les statistiques d'utilisation et le paquet de diagnostic.
 category: Configuration
 role_min: superadmin
@@ -10,7 +10,7 @@ paths: /config/support
 related: support-github, support-mesure, support-sondes-email, mises-a-jour, installation-serveur
 ---
 
-La page Support réunit le rapport d'utilisation que votre site peut
+La page Diagnostic réunit le rapport d'utilisation que votre site peut
 envoyer à l'équipe qui développe le logiciel, et l'archive de
 diagnostic que vous générez pour demander de l'aide.
 

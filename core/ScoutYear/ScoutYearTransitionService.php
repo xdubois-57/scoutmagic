@@ -331,7 +331,7 @@ class ScoutYearTransitionService
                 'auto_done' => $this->passageDone(),
                 'progress' => $this->passageProgress(),
                 'action_url' => '/passage',
-                'action_label' => 'Aller au Passage',
+                'action_label' => 'Aller aux passages de branche',
             ],
             [
                 'key' => 'confirm_registrations',
@@ -339,7 +339,7 @@ class ScoutYearTransitionService
                 'title' => 'Confirmer les inscriptions et indiquer la branche cible',
                 'description' => "Acceptez ou refusez les demandes d'inscription pour {$targetLabel}, puis "
                     . "renseignez la « section prévue » de chaque demande acceptée — c'est elle qui alimente le bloc "
-                    . "« nouvelles inscriptions » de la page Passage.",
+                    . "« nouvelles inscriptions » de la page Passages de branche.",
                 'auto_done' => null,
                 'action_url' => '/config/inscriptions',
                 'action_label' => 'Aller aux inscriptions',

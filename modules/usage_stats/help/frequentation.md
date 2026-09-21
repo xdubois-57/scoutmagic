@@ -58,6 +58,6 @@ route — `/members/{id}` et non `/members/42`.
 
 Aucun écran ne peut donc dire qui a ouvert quelle page, ni combien de fois
 une personne est revenue. Le partage de ces chiffres avec l'équipe qui
-développe le logiciel se règle ailleurs, sur la page Support.
+développe le logiciel se règle ailleurs, sur la page Diagnostic.
 
 Les compteurs sont conservés trois années scoutes, puis supprimés.

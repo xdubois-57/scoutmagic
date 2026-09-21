@@ -11,7 +11,7 @@ paths: /passage
 related: passage, previsions, config-reinscription
 ---
 
-Le bouton **« Optimiser la répartition »** de la page Passage place d'un
+Le bouton **« Optimiser la répartition »** de la page Passages de branche place d'un
 seul geste tous ceux que personne n'a encore placés — nouvelles
 inscriptions et changements de branche ensemble.
 

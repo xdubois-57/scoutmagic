@@ -10,10 +10,10 @@ paths: /passage
 related: passage-repartition-automatique, departs, previsions, gerer-les-demandes
 ---
 
-La page Passage prépare la composition des sections de l'année
-prochaine — elle regarde toujours l'année qui suit l'année publique,
-quelle que soit l'année que vous prévisualisez. Deux blocs
-indépendants, chacun à enregistrement immédiat.
+La page Passages de branche prépare les sections de l'année prochaine —
+elle regarde toujours l'année qui suit l'année publique, quelle que soit
+celle que vous prévisualisez. Deux blocs indépendants, chacun à
+enregistrement immédiat.
 
 ## Les nouvelles inscriptions
 
