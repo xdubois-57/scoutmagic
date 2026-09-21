@@ -53,9 +53,16 @@ final class MenuInventory
     /**
      * The core pages, in the order `public/index.php` registers them.
      *
+     * `orderDeclared` says whether the call wrote an order at all. It
+     * matters because `addPage()`'s own default is 100: without the flag,
+     * a core page that stopped declaring one would read as « declares
+     * 100 », pass the architecture test, and pass the snapshot too on any
+     * menu where 100 happens to land it in the same place.
+     *
      * @return array<int, array{
      *     menu: string, label: string, url: string, roleMin: string,
-     *     order: int, isDynamic: bool, sortGroup: string, menuGroup: ?string
+     *     order: int, orderDeclared: bool, isDynamic: bool,
+     *     sortGroup: string, menuGroup: ?string
      * }>
      */
     public static function corePages(): array
@@ -93,12 +100,15 @@ final class MenuInventory
 
             $tail = self::splitArguments($match[5]);
 
+            $declared = isset($tail[0]) && $tail[0] !== 'null' && $tail[0] !== '';
+
             $pages[] = [
                 'menu' => constant(MenuBuilder::class . '::' . $match[1]),
                 'label' => $label,
                 'url' => $url,
                 'roleMin' => $match[4],
-                'order' => isset($tail[0]) && $tail[0] !== 'null' ? (int) $tail[0] : 100,
+                'order' => $declared ? (int) $tail[0] : 100,
+                'orderDeclared' => $declared,
                 'isDynamic' => ($tail[1] ?? 'false') === 'true',
                 'sortGroup' => self::literal($tail[3] ?? null) ?? MenuBuilder::SORT_GROUP_CORE,
                 'menuGroup' => self::literal($tail[6] ?? null),

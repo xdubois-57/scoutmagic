@@ -124,8 +124,15 @@ des manifestes. `MenuSnapshotTest` compare les six rôles à une empreinte
 prise **avant** la première ligne modifiée, avec le décalage d'alors.
 
 Les six rôles rendent exactement les mêmes menus après la modification
-qu'avant. C'est la preuve qu'IT-01 ne change rien de visible, et c'est ce
-qui rendra IT-02 relisible.
+qu'avant, **pour les 69 entrées que le site livre**. C'est ce qui rendra
+IT-02 relisible.
+
+La formulation compte : les pages de texte qu'une unité écrit elle-même
+**bougent**, et c'est voulu (voir plus bas). Elles ne sont pas dans
+l'instantané parce qu'elles n'existent dans aucun dépôt — ce sont des
+lignes de base de données, propres à chaque installation. « Rien ne
+change » serait donc faux ; « les 69 entrées livrées gardent leur
+ordre » est exact.
 
 Les entrées dynamiques — les membres liés au compte — sont hors
 instantané : leur libellé vient d'une ligne de base de données et leur
@@ -189,8 +196,8 @@ Deux corrections, pas une :
 
 L'empreinte a été reprise sur un `git worktree` d'`origin/main`, avec le
 harnais complet et les anciens rangs, pour qu'elle décrive vraiment
-l'état d'avant. Les six rôles rendent à nouveau exactement la même chose —
-69 entrées cette fois, pas 64.
+l'état d'avant. Les six rôles rendent à nouveau exactement la même chose
+— 69 entrées livrées cette fois, pas 64.
 
 Un test vérifie maintenant que l'inventaire voit toujours ces cinq
 entrées, nommées une par une : sans lui, une expression rationnelle qui
@@ -202,6 +209,46 @@ ses pages à `SORT_GROUP_CORE`, ordre 600 et plus. Avant, elles
 précédaient donc toutes les pages de modules, qui étaient au rang 2 ;
 maintenant elles viennent après tout ce que le site livre. C'est
 exactement la promesse de D5 — l'ancien comportement était l'accident.
+
+### Six constats de la seconde relecture
+
+Cinq retenus, un décliné.
+
+**Quatre commentaires étaient devenus faux par ma faute.** Renuméroter
+sans relire ce que les commentaires voisins affirment, c'est laisser des
+phrases qui citent des valeurs qui n'existent plus : « order 5 »,
+« Order 11 », « order 10 » dans `public/index.php`, et le même docblock
+recopié dans les quatre services de hook — « ceci n'ordonne que les
+entrées de modules entre elles », ce que la fusion des rangs rend
+exactement faux. Corrigés, en décrivant la position plutôt qu'en citant un
+nombre là où le nombre n'apportait rien.
+
+**Un vrai trou dans le garde.** `addPage()` donne 100 par défaut, donc une
+page du cœur qui cesserait de déclarer son ordre se lisait « déclare
+100 » : le test d'architecture serait passé, et l'instantané aussi partout
+où 100 tombe au même endroit. L'inventaire retient désormais *si* l'ordre a
+été écrit, et un test l'exige — la règle s'appliquait déjà à moitié sans
+que rien ne le dise.
+
+**Une phrase trop large dans ce journal.** « Ne change rien de visible »
+contredisait le mouvement des pages de texte documenté dix lignes plus
+bas. La formulation exacte est « les 69 entrées livrées gardent leur
+ordre » : les pages qu'une unité écrit elle-même ne sont dans aucun dépôt,
+donc dans aucun instantané.
+
+**La page Modules dit que ses changements s'enregistrent seuls.** Un écran
+à interrupteurs sans bouton d'enregistrement doit le dire. Ce n'est pas un
+texte sur un état antérieur du site — D8 vise les phrases du genre
+« l'ordre ne se règle plus ici », pas une phrase sur ce que fait la page
+maintenant.
+
+**Décliné : réécrire le commentaire d'en-tête de `maquette-menus.jsx`.**
+Il décrit pourquoi « Inscriptions » finit dernière aujourd'hui, ce qui
+cesse d'être vrai après cette PR. Mais cette maquette est une **pièce
+datée** : sa colonne « Aujourd'hui » est l'état d'avant, et c'est
+précisément la comparaison qu'elle existe pour montrer. La roadmap demande
+de la déposer telle quelle. La corriger pour qu'elle décrive l'après
+détruirait ce qu'elle documente.
 
 ### Reporté
 

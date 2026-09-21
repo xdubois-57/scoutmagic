@@ -3207,7 +3207,7 @@ $menuBuilder->addPage(
 // admin (see /config-mode/activate|deactivate's own role_min and
 // Core\View\ConfigurationMode, widened the same way) so every chief
 // d'unité, not only a superadmin, can edit site content. First in this
-// menu (order 10) — the most-used entry for a chief d'unité.
+// menu — the most-used entry for a chief d'unité.
 $menuBuilder->addPage(
     MenuBuilder::MENU_ESPACE_ADMIN,
     'Édition du site',
@@ -3286,9 +3286,9 @@ $menuBuilder->addPage(
     null,
     'suivi'
 );
-// Installation & serveur first (order 5, ahead of Modules/Badges below) —
-// the most-used entry for a superadmin; the rest of this menu keeps its
-// existing relative order.
+// Installation & serveur opens the « Site » column, ahead of Modules and
+// Pages de texte — the most-used entry for a superadmin; the rest of this
+// menu keeps its existing relative order.
 $menuBuilder->addPage(
     MenuBuilder::MENU_CONFIGURATION,
     'Installation & serveur',
@@ -3315,9 +3315,9 @@ $menuBuilder->addPage(
     null,
     'site'
 );
-// Configuration > Site > Pages de texte (ARCHITECTURE.md §8.116). Order 11
-// puts it right after Modules: both answer « what does this site have on
-// it », where the entries below answer « what does this unit have in it ».
+// Configuration > Site > Pages de texte (ARCHITECTURE.md §8.116), right
+// after Modules: both answer « what does this site have on it », where the
+// entries below answer « what does this unit have in it ».
 $menuBuilder->addPage(
     MenuBuilder::MENU_CONFIGURATION,
     'Pages de texte',
@@ -3513,10 +3513,10 @@ $menuBuilder->addPage(
     null,
     'exploitation'
 );
-// order 10, not a leftover "after the separator" number — SORT_GROUP_CORE
-// (addPage()'s default) already sorts this after the dynamic member
-// entries/empty-state placeholder above regardless of the numeric order,
-// and it's currently the only core static page in this menu.
+// SORT_GROUP_CORE (addPage()'s default) already sorts this after the
+// dynamic member entries and the empty-state placeholder above, whatever
+// its number: only dynamic entries have a rank of their own. It is
+// currently the only core static page in this menu.
 $menuBuilder->addPage(
     MenuBuilder::MENU_ESPACE_ANIMES,
     'Notifications',

@@ -81,6 +81,34 @@ final class MenuEntriesDeclareTheirPlaceTest extends TestCase
         );
     }
 
+    /**
+     * **The same rule, on the side of the fence where it is harder to
+     * see.** A module route without `menu_order` is visibly missing a
+     * key. A core `addPage()` call without its fifth argument is not: the
+     * method defaults it to 100, so the entry reads as « declares 100 »
+     * and both the check above and the snapshot can stay green while the
+     * rule quietly stops applying to half the entries.
+     */
+    public function testEveryCorePageDeclaresItsOrderRatherThanTakingTheDefault(): void
+    {
+        $silent = [];
+
+        foreach (MenuInventory::corePages() as $page) {
+            if (!$page['orderDeclared']) {
+                $silent[] = "{$page['menu']} › {$page['label']} ({$page['url']})";
+            }
+        }
+
+        sort($silent);
+
+        $this->assertSame(
+            [],
+            $silent,
+            "These core pages take addPage()'s default order instead of choosing one:\n  "
+            . implode("\n  ", $silent)
+        );
+    }
+
     public function testEveryEntryOfAMenuWithColumnsNamesItsColumn(): void
     {
         $homeless = [];
