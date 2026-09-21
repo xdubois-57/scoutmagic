@@ -801,6 +801,20 @@ bien dire le jour même.
   Au-dessus de six jours — les quatorze par défaut compris — la dérivation
   le dépasse déjà et rien ne change. Le test comptait l'intervalle ; il
   compte maintenant les envois.
+- **Un refus est total, jamais partiel.** Corollaire du précédent, et
+  introduit par lui : tant que rien ne levait dans cette boucle, valider en
+  écrivant ne coûtait rien. `save()` valide une ligne à la fois et rien
+  n'ouvre de transaction ici, donc un refus sur le douzième champ laissait
+  les onze premiers enregistrés pendant que l'écran affichait une erreur.
+  Une sauvegarde partielle annoncée comme un échec est pire que l'un ou
+  l'autre : l'écran et la base ne sont plus d'accord sur ce qui a été
+  demandé. Les douze triplets se résolvent donc avant qu'une seule ligne ne
+  bouge. Mes trois tests de refus mettaient tous la valeur invalide sur le
+  **premier** rappel et ne prouvaient donc rien du tout : l'assertion
+  passait faute de tentative. Deux tests de plus la mettent en dernier,
+  avec une valeur valable devant — ce qu'un gestionnaire produit
+  réellement — et vérifient aussi qu'une surcharge enregistrée hier
+  survit à un formulaire refusé aujourd'hui.
 - **Le délai saisi est borné, pas rogné.** `delay_days` est un
   `SMALLINT UNSIGNED`, et l'action écrivait `max(0, (int) $raw)` — un
   plancher sans plafond, exactement l'idiome que SECURITY.md §35 interdit

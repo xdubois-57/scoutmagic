@@ -335,6 +335,52 @@ class RentalReminderSettingsTest extends TestCase
     }
 
     /**
+     * **A refusal is total, not partial.**
+     *
+     * The three assertions above put the bad value on the *first* reminder,
+     * so they proved nothing about the write loop: the throw happened
+     * before anything ran, and `findForAsset()` was empty for want of any
+     * attempt. This one puts a good value first and the bad one last, which
+     * is what a manager filling in a twelve-field form actually produces.
+     *
+     * `save()` commits one row at a time and nothing here opens a
+     * transaction, so validating inside the write loop stored the first
+     * eleven and then showed an error — a partial save reported as a
+     * failure, which leaves the screen and the database disagreeing about
+     * what was asked for. Reading all twelve before writing any is what
+     * makes the refusal mean what it says.
+     */
+    public function testARefusalOnTheLastFieldLeavesTheFirstElevenUnwritten(): void
+    {
+        $body = $this->formBody([
+            'days_unanswered_request' => '10',
+            'days_practical_info' => '70000',
+        ]);
+
+        $this->save($body);
+
+        $this->assertSame([], $this->reminderRepository->findForAsset($this->assetId));
+    }
+
+    /**
+     * And the mirror: nothing already stored is wiped either. An override
+     * saved yesterday must survive a form refused today, or a typo in the
+     * last field silently undoes a setting the manager never touched.
+     */
+    public function testARefusedFormLeavesYesterdaysOverridesAlone(): void
+    {
+        $this->save($this->formBody(['days_unanswered_request' => '10']));
+        $this->assertSame(10, $this->reminderRepository->findForAsset($this->assetId)['unanswered_request']['days']);
+
+        $this->save($this->formBody([
+            'days_unanswered_request' => '20',
+            'days_practical_info' => '70000',
+        ]));
+
+        $this->assertSame(10, $this->reminderRepository->findForAsset($this->assetId)['unanswered_request']['days']);
+    }
+
+    /**
      * Two things at once, which is what a manager setting up a remorque
      * actually does: a longer delay on one reminder and two others off.
      */

@@ -422,18 +422,32 @@ class RentalPricingController extends AbstractController
                 throw new RentalException('Les rappels ne sont pas disponibles.');
             }
 
+            // **Read all twelve before writing any of them.** `save()`
+            // commits one row at a time and nothing here opens a
+            // transaction, so validating inside the write loop means a
+            // refusal on the twelfth field leaves the first eleven already
+            // stored — and `guarded()` shows the manager an error, with
+            // nothing saying that most of the form went through anyway. A
+            // partial save reported as a failure is worse than either
+            // outcome on its own, because the screen now disagrees with the
+            // database about what was asked for.
+            //
+            // Resolving first makes the refusal total: `reminderDays()`
+            // throws before the first row moves.
+            $resolved = [];
             foreach (ReminderKind::cases() as $kind) {
-                $days = self::reminderDays($request->getBody('days_' . $kind->value), $kind);
-
-                $this->assetReminderRepository->save(
-                    $asset->id,
+                $resolved[] = [
                     $kind,
-                    $days,
+                    self::reminderDays($request->getBody('days_' . $kind->value), $kind),
                     // An unchecked box posts nothing at all, which is
                     // exactly how a checkbox says "off" — so absence is the
                     // signal here, not a missing field to fall back on.
-                    $request->getBody('active_' . $kind->value) !== null
-                );
+                    $request->getBody('active_' . $kind->value) !== null,
+                ];
+            }
+
+            foreach ($resolved as [$kind, $days, $isActive]) {
+                $this->assetReminderRepository->save($asset->id, $kind, $days, $isActive);
             }
 
             return 'Les rappels de ce bien ont été enregistrés.';
