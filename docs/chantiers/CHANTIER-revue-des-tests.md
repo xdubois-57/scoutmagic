@@ -966,8 +966,10 @@ de **constater sans combler**.
   **texte**, par `readFileSync` : c'est un garde de source, pas un test
   recopié, mais ce n'est pas un import non plus, et écrire « 128 sur 128 »
   était une facilité que la phrase suivante contredisait.
-- **Trois `waitForTimeout` dans toute la suite Playwright**, et les trois
-  sont justes — vérifiés un par un, cette fois.
+- **Quatre `waitForTimeout` dans toute la suite Playwright**, et les quatre
+  sont justes — vérifiés un par un. Trois sont dans des scénarios, le
+  quatrième dans un fichier de support, et c'est lui qu'un premier comptage
+  limité à `specs/` avait manqué.
   `rental-management.spec.js` et `rental-request.spec.js` attendent quatre
   secondes parce que `Core\Security\HumanCheck` refuse un formulaire soumis
   plus vite qu'un humain ne l'aurait rempli : les deux tests attendent comme
@@ -978,6 +980,19 @@ de **constater sans combler**.
   partie : on ne peut pas attendre la condition « rien ne se produit », et
   une borne temporelle est la seule forme que cette assertion puisse
   prendre.
+  **Le quatrième est le meilleur des quatre**, et il est la vraie
+  information de ce point. `tests/e2e/support/human-check.js` n'attend pas
+  une durée fixe : il décode l'horodatage porté par le jeton
+  `human_check_token`, calcule ce qu'il reste à courir avant que le serveur
+  accepte, et n'attend que cela — zéro compris. Le helper est importé par
+  cinq scénarios de plus (`rental-lifecycle`, `news-form-payment`,
+  `password-reset`, `registration-flow`, `auth-methods`), de sorte que la
+  barrière `HumanCheck` est franchie bien plus largement que par les deux
+  scénarios nommés ci-dessus. Ce qui retourne le constat : ce ne sont pas
+  les `waitForTimeout` qui sont douteux, c'est que **deux scénarios codent
+  4 000 ms en dur là où un helper du même dépôt calcule la valeur exacte**.
+  Non corrigé ici — deux fichiers de test, et la preuve demanderait de faire
+  varier le réglage côté serveur.
 - **Les sélecteurs : le soupçon tient, à sa mesure.** Répartition sur toute
   la suite : **829 adressent ce qu'un utilisateur voit** (`getByRole` 492,
   `getByText` 166, `getByLabel` 166, `getByPlaceholder` 5), **250 un
