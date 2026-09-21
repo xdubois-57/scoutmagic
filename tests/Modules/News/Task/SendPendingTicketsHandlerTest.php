@@ -296,7 +296,15 @@ class SendPendingTicketsHandlerTest extends TestCase
      */
     public function testARefusedTicketIsJournalledByIdentifiersAlone(): void
     {
+        // Two responses nobody names, for the sole purpose of pushing the
+        // third one's id past the article's and the form's — both 1 in a
+        // fresh database. Without them, journalling `article_id` where
+        // `response_id` belongs reads as correct, since 1 == 1: verified
+        // by making exactly that substitution, which stayed green.
+        $this->ticketedResponse('quelconque-a@test.com');
+        $this->ticketedResponse('quelconque-b@test.com');
         $responseId = $this->ticketedResponse('refuse@test.com');
+        $this->assertGreaterThan(1, $responseId);
         $this->refused = ['refuse@test.com'];
 
         $this->handle([$responseId]);
@@ -307,7 +315,14 @@ class SendPendingTicketsHandlerTest extends TestCase
 
         $this->assertCount(1, $entries);
         $this->assertSame('ticket_email_failed', $entries[0]['event_type']);
-        $this->assertStringContainsString((string) $responseId, (string) $entries[0]['context']);
+        // The decoded key, not a substring of the JSON: with one article,
+        // one form and one response in a fresh database, every identifier
+        // is 1, so « le contexte contient "1" » holds just as well when
+        // response_id has been dropped altogether. Verified by removing it
+        // — the substring form stayed green.
+        $context = json_decode((string) $entries[0]['context'], true);
+        $this->assertIsArray($context);
+        $this->assertSame($responseId, $context['response_id'] ?? null);
         $this->assertStringNotContainsString(
             'refuse@test.com',
             (string) $entries[0]['context'] . (string) $entries[0]['description'],

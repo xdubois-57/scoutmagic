@@ -700,6 +700,21 @@ qui ne sont pas corrigés ici :
   voyait pas. Le compte réel est d'une vingtaine, et le constat de #439 a
   été reformulé avant ouverture — le destinataire non lu, qui lui tient.
 
+**Une assertion à moi, inefficace, trouvée par la revue** : le test du
+journal d'échec vérifiait d'abord que le contexte JSON *contenait* la
+chaîne de l'identifiant. `claude[bot]` a relevé que dans une base neuve
+l'article, le formulaire et la réponse portent tous l'identifiant 1, si
+bien que « le contexte contient "1" » tient encore quand `response_id` a
+disparu. Reproduit : en retirant la clé, le test restait vert. Corrigé en
+décodant le JSON et en comparant la clé — mais la variante profonde
+restait ouverte, car journaliser `article_id` *à la place* de
+`response_id` passait toujours, 1 valant 1. Le montage crée donc deux
+réponses que personne ne nomme, pour que l'identifiant attendu ne vaille
+plus 1 ; les deux mutations rougissent désormais. Une assertion qui ne
+peut pas échouer, écrite dans l'itération qui les traque : c'est le
+troisième garde de ce chantier démonté par sa propre règle, après celui
+de l'itération 1 et les deux de l'itération 2.
+
 **Incident de sonde, consigné** : la sonde en lot, avant d'être refusée, a
 laissé `modules/mass_mail/src/Task/SendBatchHandler.php` vide — 653 lignes.
 `open(f, 'w')` tronque le fichier avant que l'argument de `write()` soit
