@@ -262,6 +262,14 @@ test.describe('Rentals', () => {
         const comment = page.locator('form[action="/mes-locations/commentaire"]');
         await comment.locator('textarea[name="body"]').fill(INTERNAL_NOTE);
         await comment.getByRole('button', { name: 'Enregistrer' }).click();
+
+        // Saving is a plain form POST, so the page comes back folded —
+        // support/collapsible-card.js says so in as many words: « a reload
+        // folds everything back, so a spec calls this again after each ».
+        // Without this the comment is in the DOM and hidden, and the
+        // assertion below waits out its ceiling reporting « hidden » while
+        // the feature works perfectly.
+        await openCard(page, 'dossier-comments');
         await expect(page.getByText(INTERNAL_NOTE)).toBeVisible();
 
         await renter.context().clearCookies();

@@ -250,6 +250,37 @@ précisément la comparaison qu'elle existe pour montrer. La roadmap demande
 de la déposer telle quelle. La corriger pour qu'elle décrive l'après
 détruirait ce qu'elle documente.
 
+### Un spec de location rendu robuste, qui n'est pas de cette PR
+
+`Dynamic scan (passive)` est tombé sur `rental-request.spec.js`, alors que
+le job `End-to-end (browser)` passait sur **le même commit**. La
+différence entre les deux : le second fait passer le navigateur par un
+proxy, donc plus lentement.
+
+Le spec enregistre un commentaire interne par un POST de formulaire
+classique, puis affirme que le texte est visible. Or
+`tests/e2e/support/collapsible-card.js` le dit lui-même : « *a reload
+folds everything back, so a spec calls this again after each* ». Le
+journal d'échec le confirmait — l'élément était trouvé 82 fois et
+**masqué**, pas absent.
+
+Le spec était donc **flaky par construction** : il dépendait de ce que la
+page n'ait pas eu le temps de recharger. Reproduit localement dans les
+deux sens — il passe avec le correctif, et il passe aussi sans, parce
+qu'à la vitesse locale le rechargement n'a pas lieu. C'est précisément
+pourquoi seul le job sous proxy le voyait.
+
+Le correctif rouvre l'encart après l'enregistrement, comme le spec le
+fait déjà trois lignes plus bas pour son voisin. Ce n'est pas un défaut de
+cette PR ; je l'ai corrigé parce que relancer le job m'a été refusé (403)
+et que la règle est alors de rendre le test robuste plutôt que de le
+laisser retomber. Le périmètre est d'une ligne.
+
+*Note de méthode* : exécuter l'E2E dans ce conteneur demande
+`E2E_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium-1194/chrome-linux/chrome`
+— le binaire `chrome-headless-shell` que Playwright attend n'y est pas.
+Utile pour IT-02, qui cassera des specs naviguant par le texte des liens.
+
 ### Reporté
 
 Rien. IT-02 et IT-03 sont le périmètre annoncé, pas un report.
