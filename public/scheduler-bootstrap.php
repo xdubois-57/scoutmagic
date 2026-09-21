@@ -912,9 +912,9 @@ function scoutmagicBootstrapScheduler(
 
     // ── Recurring-task seeds that used to live on the web path only ─────
     //
-    // rearm() is idempotent (one indexed lookup when the occurrence is
-    // already queued), so seeding from both entry points costs nothing and
-    // means a site reached only by its crontab still runs them. The rental
+    // seed() is idempotent (one indexed lookup when the chain is already
+    // live), so seeding from both entry points costs nothing and means a
+    // site reached only by its crontab still runs them. The rental
     // handlers themselves are auto-resolved from the manifest: their
     // self-built services read the finance and inbound-mail capabilities
     // off the context, so the web path and the crontab now produce the
