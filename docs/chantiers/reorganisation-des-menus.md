@@ -318,6 +318,29 @@ de la règle, puis une empreinte générée avec le code qu'elle devait
 contrôler. Un test qui se compare à lui-même est plus dangereux qu'un
 test absent, parce qu'il affiche du vert.
 
+### Deux constats du quatrième tour
+
+**Le sujet d'aide de la page Modules n'avait pas suivi.** Il décrivait le
+glisser-déposer et affirmait que « les pages du cœur du site passent
+toujours en premier » — deux phrases que cette itération rend fausses, sur
+une page que `CONTRIBUTING.md` demande de documenter dans le même
+changement. `tests/Core/Help/` ne l'a pas vu : il vérifie les libellés
+cités entre guillemets, pas la prose descriptive. La section est retirée
+sans être remplacée (D8), le résumé et l'une des questions avec elle.
+
+**Les deux modules à `visible_when` n'avaient pas d'ordre antérieur à
+préserver.** « Fréquentation » et « Supervision » n'en déclaraient aucun :
+elles dépendaient de `module_registry.sort_order`, donc d'une donnée
+propre à chaque installation. Il n'existe pas d'ordre « d'avant » à
+reproduire pour elles, et l'instantané ne peut pas en juger puisqu'il
+décrit l'installation d'une unité ordinaire, où `support_dashboard`
+n'existe pas.
+
+J'ai donc choisi, plutôt que préservé : 240 puis 250, soit l'ordre
+qu'IT-02 leur donnera de toute façon — « État du site » y est
+*Fréquentation, Diagnostic, Supervision*. C'est une décision, pas une
+conservation, et elle est ici pour qu'on ne la prenne pas pour l'autre.
+
 ### Reporté
 
 Rien. IT-02 et IT-03 sont le périmètre annoncé, pas un report.
