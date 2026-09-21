@@ -40,8 +40,27 @@ use PHPUnit\Framework\TestCase;
  *
  * **What it cannot see**, said plainly rather than left to be discovered:
  * a key built at runtime (`$this->settings->get($key)`) is invisible to a
- * static scan. The check covers a literal and a class constant, which is
- * how every call site in this repository is written today.
+ * static scan. The check covers a literal and a class constant, and
+ * nothing else.
+ *
+ * That blind spot is **occupied**, and the first version of this docblock
+ * claimed it was empty — a false claim about coverage, in the one file
+ * whose whole subject is that a claim about coverage gets believed.
+ * Counted rather than guessed: **37** `SettingService` calls in this
+ * repository pass a key that is only known at run time, 15 of them in
+ * module code — `ReenrollmentCampaignService` choosing between two
+ * reminder constants, `GroupLifecycleService::months()` taking its key as
+ * a parameter, `RegistrationConfigController` writing a threshold picked
+ * from a loop, and their like in `OpenRegistrationHandler`,
+ * `RetroChiefController`, `SupportDashboardService`,
+ * `GalleryConfigController`, `CalendarConfigController` and
+ * `ReenrollmentConfigController`.
+ *
+ * Every one of those 15 passes its module's scope correctly today — which
+ * was verified, not assumed. So there is no bug hiding there right now;
+ * there is only a part of the codebase this test says nothing about, and
+ * the next person is meant to know that rather than be reassured. Issue
+ * #443 carries the durable form.
  */
 class ModuleSettingsAreReadInTheirScopeTest extends TestCase
 {
