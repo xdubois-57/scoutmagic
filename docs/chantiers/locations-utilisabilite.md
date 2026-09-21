@@ -677,10 +677,13 @@ pour une page que les deux déclareraient. C'est l'option 2 de #401, appliquée
 
 **Reporté.** Deux choses.
 
-- **#401** reste ouverte : `gerer-les-locations` est à 487 mots, toujours
-  au-dessus des ~400 de la charte, et couvre encore huit écrans. Le
-  découpage restant — un sujet par écran — appartient à IT-05, qui
-  réorganise la page d'une réservation.
+- **#401** reste ouverte. Ce paragraphe a d'abord dit « 487 mots » et
+  « huit écrans », en décrivant un état antérieur au découpage d'IT-05 et
+  en renvoyant le reste du travail à une itération déjà fusionnée. Mesuré
+  sur le fichier tel qu'il est — corps seul, l'entête YAML exclu, comme le
+  compte `HelpInvariantsTest` — `gerer-les-locations` est à **399 mots** et
+  couvre six chemins. Sous les ~400 de la charte, donc, mais d'un seul mot :
+  fermer sur cette marge, c'est rouvrir à la prochaine phrase ajoutée.
 - **La course entre enregistrer le texte et envoyer le document** (#405).
   `saveBookingText()` vérifie le verrou, puis écrit ; `sendDocument()`
   envoie le PDF existant et n'appelle `markSent()` qu'après. Entre les
