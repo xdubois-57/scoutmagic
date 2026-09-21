@@ -500,3 +500,111 @@ rouges :*
 - **Les 14 autres tests de #387.** Un seul (`RetroChiefController::close()`) a été mué. La mutation qui prouverait les autres n'est pas la même d'un contrôleur à l'autre — sur `MemberEmailAddressController::add()`, par exemple, la vérification d'appartenance *produit* l'identifiant qui sert à écrire, si bien que « refuser après avoir écrit » ne s'exprime pas en une ligne. Chacun demande son propre montage.
 - **La moitié MySQL.** Tout ce qui précède a tourné sur la MariaDB du conteneur (`CLAUDE.md` § This container) ; le verdict du job `test` sur MySQL 8 n'est connu qu'en CI.
 - **Le nombre réel de sauts.** La suite complète n'a sauté que 3 tests ici, là où le dépôt porte 75 `markTestSkipped`. L'écart est l'objet de l'itération 2 ; il n'est pas mesurable depuis ce seul environnement.
+
+### Itération 2 — Le vert qui saute — 2026-09-20
+
+**Périmètre parcouru** : les 75 `markTestSkipped`, motif par motif, mesurés
+plutôt que lus — sur les deux environnements accessibles (MariaDB 10.11 du
+conteneur, MySQL 8 de CI, dont le rapport JUnit a été récupéré depuis
+l'artefact `phpunit-reports` de la PR #389). Puis les `@group` et les
+exclusions de `phpunit.xml`, le périmètre du job MariaDB, et la couverture
+réelle de la divergence entre les deux moteurs.
+
+**Mutations tentées** :
+
+*Sur le garde livré :*
+
+- `TEST_DB_PORT=1`, base promise et absente → `DatabaseBackedTestsReallyRunTest` → rouge, en nommant l'hôte, le port et le refus du pilote
+- les cinq `TEST_DB_*` retirées et `CI=true`, la régression exacte de §2 → rouge, « TEST_DB_HOST unset or empty, CI set »
+- les cinq retirées et pas de `CI` — un portable → sauté, avec son motif
+- `TEST_DB_HOST=` exporté vide et pas de `CI` → sauté, comme les vingt-quatre classes qui retombent alors sur `127.0.0.1` ; la revue de la PR #394 a relevé qu'une première version rougissait ici, et elle avait raison
+- `TEST_DB_HOST=` vide, `CI=true`, serveur présent → vert, pour la même raison
+- un `markTestSkipped('Database not available')` posé dans `Core\View\FormatFiltersTest`, qui n'ouvre aucune connexion → rouge, en citant le fichier et le message
+- le même, écrit `markTestSkipped("Database not available: " . __FILE__)` → **VERT** tant que le garde ne lisait qu'un littéral entre apostrophes ; rouge depuis qu'il lit l'argument entier. Constat de la revue de la PR #394, reproduit avant correction
+- le même en `sprintf('No %s server (port %d)', 'MySQL', 3306)` → rouge
+- une parenthèse à l'intérieur du message → l'argument est extrait entier et l'analyse continue
+- `markTestSkipped ("…")`, avec l'espace que PHP accepte avant la parenthèse → **VERT** tant que le garde cherchait le nom collé à la parenthèse ; rouge depuis. Second constat de la revue CodeRabbit sur la PR #394
+- `TEST_DB_HOST` cité dans un commentaire d'un fichier qui n'ouvre aucune connexion → **VERT** tant que l'exemption reposait sur la simple présence du nom ; rouge depuis qu'elle exige `getenv('TEST_DB_HOST')`. Premier constat de la même revue
+- un fichier qui lit vraiment `getenv(...)`, guillemets simples ou doubles → toujours exempté : le resserrement ne crée pas de faux positif
+
+*Sur un garde écrit puis retiré (voir plus bas) :*
+
+- une colonne `rows` (mot réservé de MariaDB) ajoutée à `modules/banner/schema.sql` → **VERT** : `MigrationRunner` entoure chaque identifiant de backticks, un mot réservé ne passe donc jamais par là
+- un type inconnu (`NOTATYPE`) dans le même fichier → rouge — mais `Tests\Integration\ReferenceDatasetBuildTest` rougit aussi, sur la suite complète, pour la même raison
+- `SchemaIntrospector::decodeDefault()` privé de sa branche MariaDB → **VERT** sur le garde, rouge sur `tests/Core/Database` (3 échecs) : déjà couvert
+- `SchemaComparator` rendu incapable de conclure à l'égalité d'une valeur par défaut → **VERT** sur le garde, rouge 21 fois ailleurs
+
+**Corrigé dans cette PR** :
+
+- `tests/Architecture/DatabaseBackedTestsReallyRunTest.php` — le garde que §2
+  demandait. Il n'essaie pas de compter les sauts du run, ce qu'un test ne
+  peut pas lire : les vingt-quatre classes concernées sautent toutes sur la
+  même chose, une connexion refusée, donc « un saut motivé par la base
+  a-t-il eu lieu ? » est « la connexion était-elle possible ? ». Un second
+  test tient cette équivalence : un saut qui nomme la base depuis un fichier
+  qui n'ouvre aucune connexion serait hors de portée du premier, et il n'y
+  en a pas. Il lit `CI` autant que `TEST_DB_HOST`, précisément parce qu'un
+  job qui a *perdu* ses variables n'a plus de `TEST_DB_HOST` à lire.
+
+**Issues ouvertes** :
+
+- #393 — vingt et une des vingt-quatre classes sautent en silence là où
+  trois refusent de le faire, avec la règle qu'elles enfreignent citée
+  depuis leur propre code et la mesure des 139 tests concernés.
+
+**Vérifié et tenu** :
+
+- **Rien ne saute, ou presque.** CI, job `test` sur MySQL 8, rapport JUnit du
+  run 35497103931 : **2 tests sautés sur 18 551** — un nom NSS en IPv6 seul
+  introuvable, et un décodage d'en-tête IMAP que `ext-imap` rend
+  inobservable. Conteneur, MariaDB 10.11 : **3 sur 18 551** — le même nom
+  NSS, et deux tests de permissions que le compte `root` invalide. Aucun
+  saut motivé par la base, nulle part. Soixante et onze des soixante-quinze
+  sites ne se déclenchent dans aucun des deux environnements : leurs
+  contraintes (chiffrement AES du zip, liens symboliques, `imagick`,
+  libsodium, Ghostscript) sont satisfaites des deux côtés, CI installant
+  Ghostscript et `imagick` explicitement.
+- **Les deux tests de permissions ne tournent que hors du conteneur.**
+  `Core\Storage\DirectorySizeTest` et `Core\Storage\Volume\VolumeInventoryTest`
+  sautent ici parce que la session distante est `root`, et tournent en CI, où
+  le runner ne l'est pas. Une session distante ne les voit donc jamais : à
+  savoir avant de conclure quoi que ce soit sur eux depuis ce conteneur.
+- **Aucun groupe n'est exclu nulle part.** `phpunit.xml` ne porte aucun
+  `<groups><exclude>` et le commentaire qui l'explique est à jour ; le seul
+  groupe du dépôt est `database` (587 attributs, 548 docblocs, les deux
+  ensemble dans presque tous les fichiers) ; le job `database-mariadb` lance
+  `vendor/bin/phpunit` sans filtre, la suite entière. La question « le job
+  MariaDB exclut-il des groupes ? » a pour réponse : non.
+- **Le schéma des modules atteint bien les deux moteurs.** L'hypothèse
+  inverse a été formulée puis réfutée par mutation : un type inconnu glissé
+  dans `modules/banner/schema.sql` rougit `Integration\ReferenceDatasetBuildTest`,
+  qui provisionne par `scripts/e2e-support.php provision` — le chemin de
+  production — dans sa propre base, donc applique `SchemaFiles::all()`, core
+  et 23 modules, sur le moteur que `TEST_DB_*` désigne. Il tourne dans les
+  deux jobs PHP. Il n'y a pas de trou de ce côté.
+- **Un mot réservé dans un `schema.sql` n'est pas un risque.**
+  `MigrationRunner` entoure chaque identifiant de backticks : une colonne
+  `rows` — que MariaDB refuse en SQL nu, vérifié — est créée sans incident.
+  L'incident `last_value` que cite `docs/quality-pipeline.md` venait de
+  requêtes écrites à la main, pas du DDL.
+
+**Non vérifiable, et pourquoi** :
+
+- **Le compte de sauts côté MariaDB en CI.** `.github/workflows/checks.yml`
+  produit `phpunit-mariadb.xml` à chaque exécution et ne le téléverse que
+  sous `if: ${{ inputs.evidence }}`, donc sur un tag de release. Les trois
+  exécutions de `release.yml` du dépôt ont toutes échoué et datent du
+  2026-09-09 : leurs artefacts sont expirés, et `evidence/` n'existe pas
+  dans le dépôt. Le chiffre de cette entrée pour MariaDB vient du conteneur,
+  qui tourne `root` et n'a pas `ext-imap` — deux écarts connus avec le
+  runner. Noté en #393.
+- **Un garde écrit, prouvé inutile, retiré.**
+  `tests/Core/Database/DeclaredSchemaAppliesToTheRealEngineTest` appliquait
+  tout le schéma déclaré au moteur réel et vérifiait qu'une seconde
+  migration ne fasse rien. Les quatre mutations ci-dessus l'ont démonté :
+  sa première moitié double `ReferenceDatasetBuildTest`, et sa seconde ne
+  pouvait pas échouer — `MigrationRunner::migrate()` sort à son étape 0
+  quand le hash du schéma n'a pas bougé, si bien que « la seconde migration
+  n'exécute rien » affirmait qu'un court-circuit court-circuite. C'est très
+  exactement ce que ce chantier cherche, écrit par lui ; il est supprimé
+  plutôt que livré, et consigné ici pour que personne ne le réécrive.
