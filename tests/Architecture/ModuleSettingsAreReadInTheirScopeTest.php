@@ -114,6 +114,41 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
     }
 
     /**
+     * **And it reads the nullsafe ones**, which is a separate claim because
+     * it was separately false.
+     *
+     * PHP tokenises `?->` as `T_NULLSAFE_OBJECT_OPERATOR`, a constant of
+     * its own. The first version of this file matched `T_OBJECT_OPERATOR`
+     * alone, so `$this->settingService?->get(…)` never reached the key
+     * resolution, let alone the scope check — and because every nullsafe
+     * call in this repository happens to be correctly scoped, the guard
+     * stayed green while no longer looking at them.
+     *
+     * Asserted against the real files rather than a fixture: what has to
+     * hold is that THESE call sites are seen.
+     */
+    public function testTheScanReadsCallsWrittenWithTheNullsafeOperator(): void
+    {
+        $moduleKeys = self::declaredModuleKeys();
+        $nullsafe = [];
+
+        foreach (self::phpFiles() as $file) {
+            foreach (self::callsToModuleKeys($file, $moduleKeys) as $call) {
+                if ($call['nullsafe'] === true) {
+                    $nullsafe[] = $call['file'] . ':' . $call['line'];
+                }
+            }
+        }
+
+        $this->assertNotSame(
+            [],
+            $nullsafe,
+            'Not one module setting read through `?->` was seen, although this repository '
+            . 'has several — the scan is matching `->` only.'
+        );
+    }
+
+    /**
      * **The hole this check nearly shipped with**, pinned where it can be
      * seen: `setMany()` is inspected entry by entry.
      *
@@ -229,7 +264,16 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
         $calls = [];
 
         for ($i = 0; $i < $count; $i++) {
-            if (!is_array($tokens[$i]) || $tokens[$i][0] !== T_OBJECT_OPERATOR) {
+            // BOTH operators. PHP tokenises `?->` as its own constant, so
+            // matching only `T_OBJECT_OPERATOR` skips every settings call
+            // written nullsafe — and this repository has a dozen, several
+            // of them on module settings (`RentalManagerService`,
+            // `GroupController`, `SupportDashboardService`). They are all
+            // correctly scoped today, which is precisely what makes the
+            // omission invisible: the guard stays green while no longer
+            // looking.
+            $operator = is_array($tokens[$i]) ? $tokens[$i][0] : null;
+            if ($operator !== T_OBJECT_OPERATOR && $operator !== T_NULLSAFE_OBJECT_OPERATOR) {
                 continue;
             }
 
@@ -258,6 +302,7 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
                     'key_expression' => $expression,
                     'owner' => $moduleKeys[$key],
                     'scope' => $scope,
+                    'nullsafe' => $operator === T_NULLSAFE_OBJECT_OPERATOR,
                 ];
             }
         }
