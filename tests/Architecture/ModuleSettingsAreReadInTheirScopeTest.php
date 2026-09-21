@@ -50,6 +50,12 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
      * is (zero-based). All seven, not just `get()`: writing a module's
      * setting into `_core_` is the same defect seen from the other side,
      * and it creates a row nothing will ever read.
+     *
+     * **`setMany()` is the odd one and was nearly the hole in this check.**
+     * Its first argument is an array of `key => value` pairs, not a single
+     * key, so a scan that reads argument 0 as a scalar resolves nothing and
+     * skips the call — silently, while the docblock above claims to cover
+     * it. `keyExpressionsOf()` takes it apart entry by entry instead.
      */
     private const SCOPED_METHODS = [
         'get' => 1,
@@ -105,6 +111,42 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
             'The scan found almost no calls carrying a module scope, so it is not '
             . 'reading the call sites it claims to judge.'
         );
+    }
+
+    /**
+     * **The hole this check nearly shipped with**, pinned where it can be
+     * seen: `setMany()` is inspected entry by entry.
+     *
+     * The first version of this file read argument 0 as a scalar key. For
+     * `setMany(['a' => 1, 'b' => 2], …)` that resolves nothing, so the call
+     * was skipped before its scope was ever looked at — and the docblock
+     * went on claiming all seven methods were covered. A guard that quietly
+     * inspects six of the seven it advertises is worse than one that
+     * advertises six.
+     *
+     * Asserted on the parser directly rather than through a fixture file:
+     * what broke was the taking-apart, and this is the smallest thing that
+     * can say it works.
+     */
+    public function testSetManyIsTakenApartEntryByEntry(): void
+    {
+        $this->assertSame(
+            ['MailIdentity::SETTING_FROM_ADDRESS', "'dkim_selector'"],
+            self::keyExpressionsOf('setMany', "[MailIdentity::SETTING_FROM_ADDRESS=>\$a,'dkim_selector'=>\$b,]")
+        );
+
+        // `array(…)` spelling, and a value that itself contains a comma.
+        $this->assertSame(
+            ["'first'", "'second'"],
+            self::keyExpressionsOf('setMany', "array('first'=>implode(',', \$x),'second'=>\$y)")
+        );
+
+        // Not a literal array: nothing can be known, and saying « no keys »
+        // is honest where saying « argument zero » was wrong.
+        $this->assertSame([], self::keyExpressionsOf('setMany', '$values'));
+
+        // Every other method still names exactly one key.
+        $this->assertSame(["'a_key'"], self::keyExpressionsOf('get', "'a_key'"));
     }
 
     // ---------------------------------------------------------------
@@ -200,24 +242,116 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
             }
 
             $arguments = self::argumentsAt($tokens, $i + 2);
-            $first = trim($arguments[0] ?? '');
-            $key = self::resolveKey($first, $ownClass, $constants);
+            $scope = trim($arguments[self::SCOPED_METHODS[$name[1]]] ?? '');
 
-            if ($key === null || !isset($moduleKeys[$key])) {
-                continue;
+            foreach (self::keyExpressionsOf($name[1], trim($arguments[0] ?? '')) as $expression) {
+                $key = self::resolveKey($expression, $ownClass, $constants);
+
+                if ($key === null || !isset($moduleKeys[$key])) {
+                    continue;
+                }
+
+                $calls[] = [
+                    'file' => substr($file, strlen(self::root()) + 1),
+                    'line' => $name[2],
+                    'method' => $name[1],
+                    'key_expression' => $expression,
+                    'owner' => $moduleKeys[$key],
+                    'scope' => $scope,
+                ];
             }
-
-            $calls[] = [
-                'file' => substr($file, strlen(self::root()) + 1),
-                'line' => $name[2],
-                'method' => $name[1],
-                'key_expression' => $first,
-                'owner' => $moduleKeys[$key],
-                'scope' => trim($arguments[self::SCOPED_METHODS[$name[1]]] ?? ''),
-            ];
         }
 
         return $calls;
+    }
+
+    /**
+     * The setting keys one call names — one for six of the seven methods,
+     * and **one per entry** for `setMany()`.
+     *
+     * Returns expressions, still unresolved: `resolveKey()` turns each into
+     * a value. An argument that is not a literal array — a variable, a
+     * spread — yields nothing, because nothing about it can be known
+     * without running the code, and answering « no keys » is honest where
+     * answering « argument zero » was wrong.
+     *
+     * @return list<string>
+     */
+    private static function keyExpressionsOf(string $method, string $firstArgument): array
+    {
+        if ($method !== 'setMany') {
+            return [$firstArgument];
+        }
+
+        $inner = trim($firstArgument);
+        if (str_starts_with($inner, '[') && str_ends_with($inner, ']')) {
+            $inner = substr($inner, 1, -1);
+        } elseif (preg_match('/^array\s*\((.*)\)$/s', $inner, $literal) === 1) {
+            $inner = $literal[1];
+        } else {
+            return [];
+        }
+
+        $expressions = [];
+        foreach (self::splitAtDepthZero($inner, ',') as $entry) {
+            $pair = self::splitAtDepthZero($entry, '=>');
+            if (count($pair) >= 2 && trim($pair[0]) !== '') {
+                $expressions[] = trim($pair[0]);
+            }
+        }
+
+        return $expressions;
+    }
+
+    /**
+     * Split on a separator that is not inside brackets, parentheses or a
+     * quoted string.
+     *
+     * @return list<string>
+     */
+    private static function splitAtDepthZero(string $text, string $separator): array
+    {
+        $parts = [''];
+        $depth = 0;
+        $quote = null;
+        $length = strlen($text);
+        $step = strlen($separator);
+
+        for ($i = 0; $i < $length; $i++) {
+            $char = $text[$i];
+
+            if ($quote !== null) {
+                $parts[count($parts) - 1] .= $char;
+                if ($char === '\\' && $i + 1 < $length) {
+                    $parts[count($parts) - 1] .= $text[++$i];
+                } elseif ($char === $quote) {
+                    $quote = null;
+                }
+                continue;
+            }
+
+            if ($char === "'" || $char === '"') {
+                $quote = $char;
+                $parts[count($parts) - 1] .= $char;
+                continue;
+            }
+
+            if ($char === '[' || $char === '(') {
+                $depth++;
+            } elseif ($char === ']' || $char === ')') {
+                $depth--;
+            }
+
+            if ($depth === 0 && substr($text, $i, $step) === $separator) {
+                $parts[] = '';
+                $i += $step - 1;
+                continue;
+            }
+
+            $parts[count($parts) - 1] .= $char;
+        }
+
+        return $parts;
     }
 
     /**
