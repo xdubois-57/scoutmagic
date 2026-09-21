@@ -528,8 +528,8 @@ défaut qu'il a fallu trois tours de relecture pour trouver dans IT-01,
 sous une forme neuve et plus difficile à voir.
 
 La valeur attendue vient donc du document de conception.
-`MenuMaquette` lit `maquette-menus.jsx` comme `MenuInventory` lit
-`public/index.php`, et `MenuMaquetteTest` compare au vrai `MenuBuilder` :
+`MenuMockup` lit `maquette-menus.jsx` comme `MenuInventory` lit
+`public/index.php`, et `MenuMockupTest` compare au vrai `MenuBuilder` :
 les colonnes de chaque menu dans l'ordre, les entrées de chaque colonne
 dans l'ordre, **pour les six rôles**, et l'accord du rendu mobile avec
 le rendu de bureau.
@@ -557,7 +557,7 @@ reprise, en mieux, par le test ci-dessus.
 **`GestionMenuColumnTest` est supprimé** : sa colonne n'existe plus, et
 son `effectiveMenuOrder()` lisait encore `MODULE_ORDER_BASE`, constante
 retirée par IT-01. Ses deux propriétés sont couvertes ailleurs — le
-contenu de chaque colonne par `MenuMaquetteTest`, l'indépendance vis-à-vis
+contenu de chaque colonne par `MenuMockupTest`, l'indépendance vis-à-vis
 de l'ordre des modules par la suppression du mécanisme lui-même et par
 `MenuEntriesDeclareTheirPlaceTest`.
 

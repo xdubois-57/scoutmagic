@@ -15,10 +15,10 @@ use PHPUnit\Framework\TestCase;
 /**
  * The menus this iteration produces must be the menus the mockup draws.
  *
- * See Tests\Core\View\Menu\MenuMaquette for why the expected value is read
+ * See Tests\Core\View\Menu\MenuMockup for why the expected value is read
  * from a design document instead of a fixture regenerated from the code.
  */
-final class MenuMaquetteTest extends TestCase
+final class MenuMockupTest extends TestCase
 {
     /**
      * Entries the mockup does not draw, each with the decision taken for
@@ -53,7 +53,7 @@ final class MenuMaquetteTest extends TestCase
      */
     public function testTheMockupStillReadsAsFiveMenusAndNineteenColumns(): void
     {
-        $proposed = MenuMaquette::proposed();
+        $proposed = MenuMockup::proposed();
 
         $this->assertCount(5, $proposed);
 
@@ -76,7 +76,7 @@ final class MenuMaquetteTest extends TestCase
      */
     public function testEveryMenuDeclaresTheColumnsTheMockupDrawsInThatOrder(): void
     {
-        foreach (MenuMaquette::proposed() as $menuId => $columns) {
+        foreach (MenuMockup::proposed() as $menuId => $columns) {
             $drawn = array_values(array_filter(array_keys($columns), static fn(string $c): bool => $c !== ''));
 
             $declared = array_map(
@@ -100,7 +100,7 @@ final class MenuMaquetteTest extends TestCase
     {
         $rendered = MenuInventory::render('superadmin', false);
 
-        foreach (MenuMaquette::proposed() as $menuId => $columns) {
+        foreach (MenuMockup::proposed() as $menuId => $columns) {
             $menuLabel = MenuBuilder::labelFor($menuId);
             $this->assertArrayHasKey($menuLabel, $rendered);
 
@@ -148,7 +148,7 @@ final class MenuMaquetteTest extends TestCase
     public function testWhatThisRoleSeesIsWhatTheMockupDrawsForThem(string $role): void
     {
         $rendered = MenuInventory::render($role, false);
-        $proposed = MenuMaquette::proposed($role);
+        $proposed = MenuMockup::proposed($role);
 
         $this->assertSame(
             array_map(MenuBuilder::labelFor(...), array_keys($proposed)),
@@ -185,7 +185,7 @@ final class MenuMaquetteTest extends TestCase
     public static function roles(): array
     {
         $cases = [];
-        foreach (MenuMaquette::ROLES as $role) {
+        foreach (MenuMockup::ROLES as $role) {
             $cases[$role] = [$role];
         }
 
@@ -220,7 +220,7 @@ final class MenuMaquetteTest extends TestCase
     {
         $rendered = MenuInventory::render($role, false);
 
-        foreach (array_keys(MenuMaquette::proposed($role)) as $menuId) {
+        foreach (array_keys(MenuMockup::proposed($role)) as $menuId) {
             $menuLabel = MenuBuilder::labelFor($menuId);
 
             $flattenedColumns = array_map(
@@ -248,7 +248,7 @@ final class MenuMaquetteTest extends TestCase
     public function testEveryShippedEntryIsEitherDrawnOrNamedWithItsReason(): void
     {
         $drawn = [];
-        foreach (MenuMaquette::proposed() as $columns) {
+        foreach (MenuMockup::proposed() as $columns) {
             foreach ($columns as $entries) {
                 $drawn = [...$drawn, ...$entries];
             }
@@ -281,7 +281,7 @@ final class MenuMaquetteTest extends TestCase
         $shipped[] = 'Outils de test';
 
         $drawn = [];
-        foreach (MenuMaquette::proposed() as $columns) {
+        foreach (MenuMockup::proposed() as $columns) {
             foreach ($columns as $entries) {
                 $drawn = [...$drawn, ...$entries];
             }

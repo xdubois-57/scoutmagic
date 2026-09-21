@@ -25,7 +25,7 @@ use PHPUnit\Framework\TestCase;
  * grouped by column. Both halves of that check now live somewhere
  * better: `testNoTwoConfigurationEntriesShareAnOrderNumber` below catches
  * the duplicate order it was really guarding against, and
- * `Tests\Core\View\Menu\MenuMaquetteTest` renders every menu for every
+ * `Tests\Core\View\Menu\MenuMockupTest` renders every menu for every
  * role through the real builder and compares it to the mockup this
  * reorganisation was designed from.
  */
