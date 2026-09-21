@@ -812,3 +812,67 @@ borne à la seconde est ce qui manquait.
   `git diff` après écriture ; la boucle qui l'a contourné ne le faisait
   pas. Toute mutation doit prouver qu'elle a modifié le fichier avant que
   son verdict compte.
+
+### Itération 5 — Les frontières de rôle et d'appartenance — 2026-09-21
+
+**Périmètre parcouru** : les cinq questions de §5, prises une à une, et
+chacune posée au code par mutation plutôt que par lecture — l'inventaire
+des routes, le garde du routeur, les trois règles d'appartenance nommées,
+et une règle négative de §4 restée sans réponse.
+
+**Mutations tentées** :
+
+| Mutation | Tests exécutés | Verdict |
+|---|---|---|
+| `MemberService::canAccess()` accorde tout | 789 (`Core/Member` + `Security`) | **2 rouges** |
+| `FileAccessGuard::isOwnerScopedAgainst()` → `false` | 870 (+ `Core/File`) | **3 rouges** |
+| le garde RBAC du routeur ne s'exécute plus | **suite entière, 19 891** | **258 rouges** |
+| une route déclarée par variables, invisible au parseur | `AuthorizationMatrixInventoryTest` | **refuse de s'exécuter** |
+| `ArticleService::coverImageRoleMin()` → toujours `'public'` | 609 (`Modules/News` + `Security`) | **5 rouges** |
+
+**Corrigé dans cette PR** : rien, et c'est le résultat. Les cinq frontières
+que §5 soupçonne sont tenues. Ajouter un garde de plus là où 258 tests
+rougissent déjà serait écrire le doublon que l'itération 2 a supprimé après
+l'avoir écrit.
+
+**Issues ouvertes** : aucune. Rien de ce qui a été sondé ne constitue un
+défaut au regard d'une règle écrite.
+
+**Vérifié et tenu** :
+
+- **L'inventaire ne se contente pas de ce qu'on lui donne.** Une route
+  ajoutée à `public/index.php` avec un verbe et un chemin passés par
+  variables — une forme que le parseur ne comprend pas — ne rend pas
+  l'audit incomplet : `authzCoreRoutes()` sort en erreur, avec ses propres
+  mots, « A route written in an unfamiliar shape would be invisible to the
+  matrix, so this refuses to run rather than audit an incomplete list ».
+  Le test meurt, donc la CI rougit. C'est la réponse à la première question
+  de §5, et elle est bonne.
+- **Les trois règles d'appartenance résistent à leur annulation complète.**
+  Rendre `canAccess()` toujours vrai, désarmer la portée par propriétaire de
+  `FileAccessGuard`, ouvrir toutes les couvertures d'articles : chacune
+  rougit, sans que rien n'ait eu besoin d'être ajouté.
+
+**Le fait structurel de cette itération** — et il mérite d'être écrit, parce
+qu'il déplace où se trouve le filet : **`tests/Security/`, 238 tests, la
+suite qui porte le nom de la frontière, n'exerce pas le garde RBAC du
+routeur.** Retirer `if (!$skipRbac)` la laisse entièrement verte. Les 258
+tests qui attrapent ce retrait sont les tests RBAC des modules —
+`NewsRbacTest`, `RentalRbacTest`, `MemberSearchRbacTest` et leurs pairs.
+La couverture existe donc, et elle est large, mais elle n'est pas là où §5
+la suppose : ni `AuthorizationMatrixInventoryTest`, qui raisonne sur des
+déclarations, ni le profil DAST, qui tourne en CI seulement, ne la portent.
+Une personne cherchant « le test qui garantit le refus » dans
+`tests/Security/` ne le trouverait pas.
+
+**Non vérifiable, et pourquoi** :
+
+- **« Le cran en dessous, route par route »** ne se mesure pas depuis
+  PHPUnit. Les 258 rouges prouvent que le refus est exercé largement, pas
+  qu'il l'est pour chacune des ~520 routes déclarées ; établir la couverture
+  route par route demanderait de muter le `role_min` de chaque route
+  séparément et de relancer la suite à chaque fois — plusieurs centaines
+  d'exécutions de treize minutes. Le job `Authorization matrix` fait ce
+  trajet en CI, par le navigateur, et c'est lui qu'il faudrait lire pour
+  répondre ; son artefact n'est publié que sur un tag de release, la même
+  limite que l'itération 1 a rencontrée et que #393 consigne.
