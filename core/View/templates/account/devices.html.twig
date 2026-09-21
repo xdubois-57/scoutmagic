@@ -41,6 +41,40 @@
         </div>
     </div>
 
+    {# What to type into a phone, and the one button that answers « est-ce
+       que cet hébergeur laisse passer la synchronisation ? » — a question
+       nobody can answer from the other end, where the only symptom is a
+       client that says « impossible de se connecter ». #}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5 mb-3">Adresse à donner à votre carnet d'adresses</h2>
+            <dl class="row small mb-3">
+                <dt class="col-sm-4">Type de compte</dt>
+                <dd class="col-sm-8">CardDAV</dd>
+                <dt class="col-sm-4">Serveur</dt>
+                <dd class="col-sm-8"><code class="user-select-all">{{ site_url }}</code></dd>
+                <dt class="col-sm-4">Nom d'utilisateur</dt>
+                <dd class="col-sm-8"><code class="user-select-all">{{ account_email }}</code></dd>
+                <dt class="col-sm-4">Mot de passe</dt>
+                <dd class="col-sm-8">celui affiché une seule fois à l'enregistrement de l'appareil</dd>
+            </dl>
+            <p class="small text-body-secondary mb-3">
+                Si votre application demande une adresse complète plutôt qu'un domaine, donnez-lui
+                <code class="user-select-all">{{ site_url }}{{ carddav_collection_path }}</code>.
+                Le carnet est en <strong>lecture seule</strong> : les modifications faites sur
+                l'appareil ne remontent jamais, et seront écrasées à la synchronisation suivante.
+            </p>
+
+            <div id="carddav-probe-section">
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="carddav-probe-btn">
+                    <i class="bi bi-activity" aria-hidden="true"></i>
+                    Vérifier que cet hébergement laisse passer la synchronisation
+                </button>
+                <output id="carddav-probe-result" class="d-block small mt-2"></output>
+            </div>
+        </div>
+    </div>
+
     <div class="card mb-3">
         <div class="card-body">
             <h2 class="h5 mb-3">Mes appareils</h2>
@@ -125,4 +159,5 @@
 
 {% block scripts %}
 <script src="{{ asset('/assets/js/device-credentials.js') }}" defer></script>
+<script src="{{ asset('/assets/js/carddav-probe.js') }}" defer></script>
 {% endblock %}

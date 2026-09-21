@@ -287,13 +287,47 @@ All pages in this menu require the `superadmin` role, except Maintenance (`admin
 | Aide | Index of every help topic the visitor's role may see (`/aide`), grouped by category with a `?q=` search, plus one page per topic (`/aide/{id}`). Fed by Markdown files shipped in the release (`docs/help/`, `modules/<id>/help/`) — help is product documentation, never unit-editable content. A per-page help button (right of the breadcrumb bar) opens a panel without leaving the page: the search first, then the topic(s) covering that page; a topic below the visitor's role does not exist anywhere (404 by direct URL). |
 | Recherche dans l'aide | Instant, ranked in the browser from an index shipped in the page, on `/aide` and in the help panel alike. Works offline, at every role, and with no AI provider configured — it never calls anything. A topic opened from a result offers a link to the page it documents. `role_min: public`. |
 | Assistant | `/aide/assistant`, and the same conversation as a state of the help panel. Answers a question in French **from the help topics alone** — it never reads the unit's data, so « où voir ce que les familles doivent encore ? » is answerable and « combien la famille Dupont doit-elle ? » is not. Offered only under the local search's results, and only when an AI provider is configured. The topics it read are shown as links. The conversation lives in the session and is cleared on logout; a per-account hourly quota bounds the spending. `role_min: chief`. |
-| Mon compte | Name, surname. Password. Passkeys. Notification preferences (link). Cookie preferences (link). « Revoir les astuces » — repropose every discovery tip from the top, offered only once some have been seen. **« Appareils synchronisés »**, offert aux seuls `admin` et `superadmin` et menant à sa propre page (`/account/devices`, même plancher) : les identifiants avec lesquels un carnet d'adresses se synchronise — la liste, la création, la révocation. Le mot de passe d'un appareil n'est montré **qu'une seule fois**, à sa création, et n'est jamais récupérable ensuite. La page énonce la vérité désagréable avant le bouton et non après : la copie descendue reste sur l'appareil, suit ses sauvegardes, et révoquer n'efface rien. Elle rappelle aussi que l'accès suit le rôle — un chef qui quitte le staff perd la synchronisation au passage suivant, sans révocation manuelle (ARCHITECTURE.md §8.117). |
+| Mon compte | Name, surname. Password. Passkeys. Notification preferences (link). Cookie preferences (link). « Revoir les astuces » — repropose every discovery tip from the top, offered only once some have been seen. **« Appareils synchronisés »**, offert aux seuls `admin` et `superadmin` et menant à sa propre page (`/account/devices`, même plancher) : les identifiants avec lesquels un carnet d'adresses se synchronise — la liste, la création, la révocation. Le mot de passe d'un appareil n'est montré **qu'une seule fois**, à sa création, et n'est jamais récupérable ensuite. La page énonce la vérité désagréable avant le bouton et non après : la copie descendue reste sur l'appareil, suit ses sauvegardes, et révoquer n'efface rien. Elle rappelle aussi que l'accès suit le rôle — un chef qui quitte le staff perd la synchronisation au passage suivant, sans révocation manuelle (ARCHITECTURE.md §8.117). Depuis IT-03 la page donne aussi **l'adresse à taper dans le carnet d'adresses** — le domaine du site suffit, l'autodécouverte fait le reste — et un bouton « Vérifier que cet hébergement laisse passer la synchronisation » : certains hébergements mutualisés refusent `PROPFIND` et `REPORT` avant PHP, et le seul symptôme côté téléphone est « impossible de se connecter », impossible à distinguer d'un mot de passe erroné (§4.7, ARCHITECTURE.md §8.118). |
 | Préférences cookies | Cookie categories with toggles. Accessible from banner, RGPD page, and Mon compte. |
 | Astuces de découverte | « Le saviez-vous ? » — a small dialog offering, from time to time, one help topic this account has never been shown, one card at a time: the question it answers, then the topic, then a link to it. Served from the help corpus itself, so no text is written twice. Never on `/aide`, an `/api/` answer, the login form or the offline page, and never to a visitor with no account. « Pas avant une semaine » and « Ne plus me proposer » are one delay and one refusal, both undone by « Revoir les astuces » on Mon compte. Never on a day the installed application's « Activer les notifications ? » invitation was shown. `role_min: identified`. |
 | Activer les notifications | A dialog the **installed application** offers once, on the first page opened from the home-screen icon by an account that has never answered it: subscribe this device to push notifications now, or « Plus tard » — after which the invitation never returns and « Mon compte » is the only way in. Shown only in the installed application, only where push notifications are configured, and never on Mon compte, an `/api/` answer, the cookie preferences, the login form or the offline page. While it is on screen, and for the rest of that day once answered, no discovery tip is offered. `role_min: identified`. |
 | Upload | Generic file upload (drag-drop, file selection, mobile camera). |
 | Installation | First-run setup (DB, unit settings, email, admin). Same page as Configuration later. |
 | Manifest / Icônes PWA | Progressive Web App manifest (JSON) and adaptive icons (192px, 512px, maskable) for installable app. Offline fallback page. |
+
+### 4.7 La synchronisation des carnets d'adresses (CardDAV)
+
+Un serveur CardDAV **en lecture seule**, pour que le carnet d'adresses d'un
+téléphone contienne les animateurs de l'unité et se tienne à jour tout seul,
+sans que personne ne réexporte un fichier à chaque changement.
+
+**Qui y est.** Les animateurs et le Staff d'U de l'année en cours —
+exactement l'ensemble que le trombinoscope montre déjà à tout membre
+identifié. Aucun animé, aucun numéro de parent, et rien de ce que la liste
+« ce qui ne sort jamais » de la fiche de contact énumère, la donnée de santé
+comprise.
+
+**Qui peut s'y connecter.** Un `admin` ou un `superadmin`, avec un identifiant
+d'appareil créé depuis « Mon compte » (§4.6). Le rôle est revérifié à chaque
+requête : quitter le staff coupe la synchronisation au passage suivant.
+
+**Ce que le client peut faire.** Lire, et rien d'autre. Une modification faite
+dans le téléphone ne remonte jamais — la source de vérité est Desk — et le
+serveur refuse explicitement l'écriture plutôt que de l'ignorer, pour que
+l'application montre un carnet en lecture seule au lieu de laisser croire que
+la modification est partie.
+
+**L'adresse** est le domaine du site : l'autodécouverte standard fait le
+reste. Les applications qui ne savent pas la faire acceptent l'adresse
+complète, affichée sur la même page.
+
+**L'hébergement peut bloquer.** Certains hébergements mutualisés refusent les
+méthodes `PROPFIND` et `REPORT` avant que PHP ne les voie. Le bouton de
+vérification de « Mon compte » le dit en une phrase, et dit aussi que le site,
+lui, est correctement configuré : sans cela le seul symptôme est « impossible
+de se connecter » côté téléphone, impossible à distinguer d'un mot de passe
+erroné (ARCHITECTURE.md §8.118).
+
 
 ## 5. Cookie consent
 

@@ -105,6 +105,9 @@
     "/chefs/presences/anime/{memberId}": {
       "memberId": "1"
     },
+    "/carddav/staff/{member_id}": {
+      "member_id": "1"
+    },
     "/chefs/presences/feuille/{eventId}": {
       "eventId": "1"
     },

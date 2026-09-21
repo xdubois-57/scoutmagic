@@ -5162,6 +5162,142 @@ $router->addRoute(
 // instead. See Core\Http\Controller\WebhookController's own docblock.
 $router->addRoute('POST', '/api/webhook/github', \Core\Http\Controller\WebhookController::class, 'github', 'public');
 
+// ---------------------------------------------------------------------
+// The read-only CardDAV server (Core\Contact\CardDav, ARCHITECTURE.md
+// §8.118).
+//
+// **The second deliberate exception to SECURITY.md §4, after the webhook
+// just above, and it is written down there with its scope.** Every route
+// in this block is `role_min: public` and none of them verifies a CSRF
+// token, for the same reason: the caller is a machine with no session to
+// bind a token to. A CardDAV client speaks HTTP Basic and nothing else —
+// none of this site's three human sign-in methods fits a program that
+// synchronises in the background — so the credential is a device
+// credential, checked by Core\Contact\Device\DeviceAuthenticator on
+// EVERY request, together with the account's role, re-resolved every
+// time.
+//
+// `public` here is the floor the guard applies, not the access the
+// routes grant: the controller answers 401 to everything that does not
+// carry a live credential belonging to a live admin.
+//
+// The router stores a method as a free string and compares it to
+// REQUEST_METHOD, so PROPFIND and REPORT route like any other method
+// with nothing to change in it.
+$router->addRoute(
+    'GET',
+    '/.well-known/carddav',
+    \Core\Contact\CardDav\Controller\CardDavController::class,
+    'wellKnown',
+    'public'
+);
+$router->addRoute(
+    'PROPFIND',
+    '/.well-known/carddav',
+    \Core\Contact\CardDav\Controller\CardDavController::class,
+    'wellKnown',
+    'public'
+);
+$router->addRoute(
+    'OPTIONS',
+    '/carddav/',
+    \Core\Contact\CardDav\Controller\CardDavController::class,
+    'announce',
+    'public'
+);
+$router->addRoute(
+    'PROPFIND',
+    '/carddav/',
+    \Core\Contact\CardDav\Controller\CardDavController::class,
+    'propfind',
+    'public'
+);
+$router->addRoute(
+    'OPTIONS',
+    '/carddav/staff/',
+    \Core\Contact\CardDav\Controller\CardDavController::class,
+    'announce',
+    'public'
+);
+$router->addRoute(
+    'PROPFIND',
+    '/carddav/staff/',
+    \Core\Contact\CardDav\Controller\CardDavController::class,
+    'propfind',
+    'public'
+);
+$router->addRoute(
+    'REPORT',
+    '/carddav/staff/',
+    \Core\Contact\CardDav\Controller\CardDavController::class,
+    'report',
+    'public'
+);
+$router->addRoute(
+    'GET',
+    '/carddav/staff/{member_id}.vcf',
+    \Core\Contact\CardDav\Controller\CardDavController::class,
+    'card',
+    'public'
+);
+$router->addRoute(
+    'PROPFIND',
+    '/carddav/staff/{member_id}.vcf',
+    \Core\Contact\CardDav\Controller\CardDavController::class,
+    'propfind',
+    'public'
+);
+// Desk is the source of truth and nothing travels back up. Declared
+// rather than left to answer 404: a client told « no such route » keeps
+// looking for somewhere to write, and one told 403 shows its user a
+// read-only address book.
+$router->addRoute(
+    'PUT',
+    '/carddav/staff/{member_id}.vcf',
+    \Core\Contact\CardDav\Controller\CardDavController::class,
+    'refuseWrite',
+    'public'
+);
+$router->addRoute(
+    'DELETE',
+    '/carddav/staff/{member_id}.vcf',
+    \Core\Contact\CardDav\Controller\CardDavController::class,
+    'refuseWrite',
+    'public'
+);
+// The hosting probe — NOT part of the exception above. `role_min: admin`,
+// session-authenticated like the page that offers the button, carrying no
+// device credential and reading nothing. It answers the one question a
+// chef d'unité cannot otherwise answer: did this method reach PHP at all,
+// or did the web server eat it first.
+//
+// Written out one method at a time rather than looped: the authorization
+// matrix parses these calls out of this file textually
+// (scripts/authz-support.php) and refuses to run when it finds fewer
+// than the file contains, so a route built from a variable would be a
+// route the matrix never replays.
+$router->addRoute(
+    'GET',
+    '/api/carddav/probe',
+    \Core\Contact\CardDav\Controller\CardDavProbeController::class,
+    'probe',
+    'admin'
+);
+$router->addRoute(
+    'PROPFIND',
+    '/api/carddav/probe',
+    \Core\Contact\CardDav\Controller\CardDavProbeController::class,
+    'probe',
+    'admin'
+);
+$router->addRoute(
+    'REPORT',
+    '/api/carddav/probe',
+    \Core\Contact\CardDav\Controller\CardDavProbeController::class,
+    'probe',
+    'admin'
+);
+
 // Édition du site — shrunk to just the configuration-mode toggle
 // (module registry and badges split out below); moved to "Espace chefs d'U"
 // in the menu (see addPage() above) and widened to admin, same as the
@@ -6049,6 +6185,57 @@ $frontController->registerController(
         $twig,
         $deviceCredentialService
     )
+);
+
+// The read-only CardDAV server (Core\Contact\CardDav, ARCHITECTURE.md
+// §8.118) — what an address-book client actually talks to, and the only
+// consumer of the device credentials above besides the two screens that
+// manage them.
+//
+// The authenticator is built here rather than beside the service because
+// it needs the RBAC machinery: the role is re-resolved on every request
+// through the same RoleResolver the login door uses, so a chef who left
+// the staff stops synchronising at their next poll rather than at their
+// next manual revocation.
+$deviceAuthenticator = new \Core\Contact\Device\DeviceAuthenticator(
+    new \Core\Contact\Device\DeviceCredentialRepository($pdo),
+    $deviceCredentialService,
+    $userAccountRepo,
+    $roleResolver,
+    $authorizationYearService,
+    $encryptionService,
+    $journalService,
+    new \Core\Security\HumanCheck\HumanCheckRateLimitRepository($pdo)
+);
+$frontController->registerController(
+    \Core\Contact\CardDav\Controller\CardDavController::class,
+    new \Core\Contact\CardDav\Controller\CardDavController(
+        $twig,
+        $deviceAuthenticator,
+        new \Core\Contact\CardDav\AddressBookService(
+            new \Core\Contact\CardDav\AddressBookRepository($connection),
+            new \Core\Contact\Repository\ContactCardRepository($connection),
+            new \Core\Contact\ContactCardService(
+                new \Core\Contact\Repository\ContactCardRepository($connection),
+                $settingService,
+                $memberEmailRepository,
+                new \Core\Contact\ContactPhotoResolver(
+                    $memberPhotoService,
+                    $fileRepository,
+                    $imageVariantService,
+                    $storagePath
+                )
+            ),
+            new \Core\Contact\VCardBuilder(),
+            $memberService,
+            $scoutYearService
+        ),
+        new \Core\Contact\CardDav\DavRequestParser()
+    )
+);
+$frontController->registerController(
+    \Core\Contact\CardDav\Controller\CardDavProbeController::class,
+    new \Core\Contact\CardDav\Controller\CardDavProbeController($twig)
 );
 $frontController->registerController(
     PushSubscriptionController::class,
