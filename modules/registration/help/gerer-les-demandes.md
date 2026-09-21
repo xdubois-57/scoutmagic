@@ -10,7 +10,7 @@ paths: /config/inscriptions, /config/inscriptions/demandes/*
 related: inscrire-un-enfant, passage, annee-scoute
 ---
 
-La page « Gestion des inscriptions » rassemble tout le traitement des
+La page « Formulaire d'inscription » rassemble tout le traitement des
 demandes : l'ouverture du formulaire, les capacités par branche, la
 liste des demandes et leur fiche.
 

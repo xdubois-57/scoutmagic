@@ -158,7 +158,7 @@ class SettingsControllerTest extends TestCase
         $response = $this->controller->index($request, []);
 
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertStringContainsString('Réglages', $response->getBody());
+        $this->assertStringContainsString('Paramètres', $response->getBody());
         $this->assertStringContainsString('Test Key', $response->getBody());
     }
 
