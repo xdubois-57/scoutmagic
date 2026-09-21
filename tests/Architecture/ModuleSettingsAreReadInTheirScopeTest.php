@@ -184,6 +184,53 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
         $this->assertSame(["'a_key'"], self::keyExpressionsOf('get', "'a_key'"));
     }
 
+    /**
+     * **A wrong scope is as silent as no scope**, so the rule is equality
+     * with the owner rather than mere presence.
+     *
+     * `get('groups_draft_ttl_minutes', 'rental')` passes any « was a scope
+     * given? » test and looks up `rental::groups_draft_ttl_minutes`, where
+     * nothing was ever written — the same default, the same silence, the
+     * same invisible defect as #433.
+     *
+     * `(null)` is here because an expression can be parenthesised and still
+     * be null; a check that compares text has to say so.
+     */
+    public function testAScopeThatIsNotTheOwnersIsAnOffenceToo(): void
+    {
+        $this->assertSame('null', self::normalise('(null)'));
+        $this->assertSame('null', self::normalise('((null))'));
+        $this->assertSame("'rental'", self::normalise("('rental')"));
+
+        // And a genuine argument list is not mistaken for a wrapped one.
+        $this->assertSame("('a', 'b')", self::normalise("('a', 'b')"));
+    }
+
+    /**
+     * Both quote forms resolve — for a key written inline and for the
+     * constant that names it.
+     *
+     * None of this repository's setting keys is written with double quotes
+     * today, which is exactly why the gap was worth closing: a guard whose
+     * coverage depends on a spelling nobody has used yet is a guard that
+     * works by luck.
+     *
+     * A double-quoted string that interpolates is refused rather than taken
+     * at face value: its value is not knowable here, and guessing would be
+     * worse than declining.
+     */
+    public function testAKeyResolvesInEitherQuoteForm(): void
+    {
+        $this->assertSame('a_key', self::stringLiteral("'a_key'"));
+        $this->assertSame('a_key', self::stringLiteral('"a_key"'));
+        $this->assertSame('', self::stringLiteral("''"));
+
+        $this->assertNull(self::stringLiteral('"prefix_$suffix"'));
+        $this->assertNull(self::stringLiteral('"{$computed}"'));
+        $this->assertNull(self::stringLiteral('$key'));
+        $this->assertNull(self::stringLiteral('self::SOME_CONST'));
+    }
+
     // ---------------------------------------------------------------
     // The scan
     // ---------------------------------------------------------------
@@ -211,27 +258,78 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
     }
 
     /**
+     * Every call whose scope is not the one the setting belongs to.
+     *
+     * **Not merely « a scope was passed ».** An earlier version of this
+     * method accepted anything that was not empty or the literal `null`,
+     * which let `get('groups_draft_ttl_minutes', 'rental')` through — a
+     * scope that exists, is wrong, and looks up `rental::…` where nothing
+     * was ever written. That fails in exactly the same silent way as
+     * passing none, so the rule is equality with the owner, not presence.
+     *
+     * A scope this scan cannot resolve is an offence too, and deliberately
+     * so: the whole point of this file is that a wrong scope has no
+     * symptom, and a value only known at runtime cannot be checked. There
+     * is no such call site today; the day one is wanted, this failure is
+     * where the decision gets made rather than avoided.
+     *
      * @param array<string, string> $moduleKeys
      * @return list<string>
      */
     private static function unscopedCalls(string $file, array $moduleKeys): array
     {
+        $constants = self::constantsByClass();
+        $ownClass = self::classDeclaredIn((string) file_get_contents($file));
         $offences = [];
 
         foreach (self::callsToModuleKeys($file, $moduleKeys) as $call) {
-            if ($call['scope'] === '' || $call['scope'] === 'null') {
+            $scope = self::normalise($call['scope']);
+            $complaint = null;
+
+            if ($scope === '' || $scope === 'null') {
+                $complaint = 'no scope at all, so it reads `_core_`';
+            } else {
+                $resolved = self::resolveKey($scope, $ownClass, $constants);
+                if ($resolved === null) {
+                    $complaint = 'a scope this check cannot resolve (' . $scope . ')';
+                } elseif ($resolved !== $call['owner']) {
+                    $complaint = 'the scope « ' . $resolved .' », which is not that module';
+                }
+            }
+
+            if ($complaint !== null) {
                 $offences[] = sprintf(
-                    '%s:%d — %s(%s), a setting of module « %s »',
+                    '%s:%d — %s(%s) is a setting of module « %s » and is read with %s',
                     $call['file'],
                     $call['line'],
                     $call['method'],
                     $call['key_expression'],
-                    $call['owner']
+                    $call['owner'],
+                    $complaint
                 );
             }
         }
 
         return $offences;
+    }
+
+    /**
+     * An expression with its redundant outer parentheses removed, so
+     * `(null)` is recognised as the `null` it is.
+     */
+    private static function normalise(string $expression): string
+    {
+        $expression = trim($expression);
+
+        while (
+            str_starts_with($expression, '(')
+            && str_ends_with($expression, ')')
+            && count(self::splitAtDepthZero(substr($expression, 1, -1), ',')) === 1
+        ) {
+            $expression = trim(substr($expression, 1, -1));
+        }
+
+        return $expression;
     }
 
     /**
@@ -242,7 +340,11 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
     {
         return array_values(array_filter(
             self::callsToModuleKeys($file, $moduleKeys),
-            static fn(array $call): bool => $call['scope'] !== '' && $call['scope'] !== 'null'
+            static function (array $call): bool {
+                $scope = self::normalise($call['scope']);
+
+                return $scope !== '' && $scope !== 'null';
+            }
         ));
     }
 
@@ -407,8 +509,9 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
      */
     private static function resolveKey(string $expression, string $ownClass, array $constants): ?string
     {
-        if (preg_match("/^'([^']+)'$/", $expression, $literal) === 1) {
-            return $literal[1];
+        $literal = self::stringLiteral($expression);
+        if ($literal !== null) {
+            return $literal;
         }
 
         // **Per class, never by name alone.** `SETTING_KEY` is declared in a
@@ -422,6 +525,31 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
 
         if (preg_match('/([A-Za-z0-9_]+)::([A-Z][A-Z0-9_]*)$/', $expression, $other) === 1) {
             return $constants[$other[1]][$other[2]] ?? null;
+        }
+
+        return null;
+    }
+
+    /**
+     * The value of a string literal, in either quote form, or null when the
+     * expression is not one.
+     *
+     * A double-quoted string carrying `$` or `{` is refused rather than
+     * taken at face value: it interpolates, so its value is not knowable
+     * here, and guessing would be worse than declining.
+     */
+    private static function stringLiteral(string $expression): ?string
+    {
+        $expression = trim($expression);
+
+        if (preg_match("/^'([^']*)'$/", $expression, $single) === 1) {
+            return $single[1];
+        }
+
+        if (preg_match('/^"([^"]*)"$/', $expression, $double) === 1) {
+            return str_contains($double[1], '$') || str_contains($double[1], '{')
+                ? null
+                : $double[1];
         }
 
         return null;
@@ -482,17 +610,29 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
             if ($class === '') {
                 continue;
             }
-            if (preg_match_all("/const\s+([A-Z][A-Z0-9_]*)\s*=\s*'([^']*)'/", $source, $m, PREG_SET_ORDER) === 0) {
+            // Both quote forms, for the same reason `resolveKey()` takes
+            // both: a constant declared with double quotes is no less a
+            // setting key, and skipping it would let the call sites that
+            // name it out of the check entirely.
+            if (preg_match_all('/const\s+([A-Z][A-Z0-9_]*)\s*=\s*((?:\'[^\']*\')|(?:"[^"$\\\\{]*"))/', $source, $m, PREG_SET_ORDER) === 0) {
                 continue;
             }
             foreach ($m as $declaration) {
-                $constants[$class][$declaration[1]] = $declaration[2];
+                $value = self::stringLiteral($declaration[2]);
+                if ($value !== null) {
+                    $constants[$class][$declaration[1]] = $value;
+                }
             }
         }
 
         return $constants;
     }
 
+    /**
+     * The name of the class a file declares, or an empty string when it
+     * declares none — which is how `self::` is resolved against the right
+     * class rather than against a name that happens to match.
+     */
     private static function classDeclaredIn(string $source): string
     {
         return preg_match(
@@ -503,6 +643,9 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
     }
 
     /**
+     * Every PHP file this check reads, sorted so a failure names them in a
+     * stable order. Cached: the scan walks them several times.
+     *
      * @return list<string>
      */
     private static function phpFiles(): array
@@ -534,6 +677,7 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
         return $files;
     }
 
+    /** The repository root, which every path in this file is relative to. */
     private static function root(): string
     {
         return dirname(__DIR__, 2);
