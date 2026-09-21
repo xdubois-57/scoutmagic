@@ -139,21 +139,40 @@ class MenuRegistrationOrderTest extends TestCase
     /**
      * The rule that keeps the test above meaningful: as soon as two
      * entries share a number, the file's order silently becomes load-bearing.
+     *
+     * **Reads both quote styles, like the two methods above**, and this
+     * one is why the rule is worth stating three times rather than
+     * twice. It was left single-quote-only when they were fixed, so
+     * renaming the core « E-mails » entry to `"Modèles d'e-mails"` —
+     * double-quoted, because of the apostrophe — silently took order 130
+     * out of the duplicate check. `assertNotSame([], $matches)` still
+     * passed on the fifteen remaining entries, so the coverage shrank
+     * with nothing to show for it. An extraction that narrows is never
+     * red; it is only smaller.
      */
     public function testNoTwoConfigurationEntriesShareAnOrderNumber(): void
     {
         preg_match_all(
             '/\$menuBuilder->addPage\(\s*MenuBuilder::MENU_CONFIGURATION,'
-                . '\s*\'([^\']+)\',\s*\'[^\']*\',\s*\'[^\']*\',\s*(\d+)/',
+                . '\s*' . self::PHP_STRING . ',\s*\'[^\']*\',\s*\'[^\']*\',\s*(\d+)/',
             $this->indexPhp,
             $matches,
             PREG_SET_ORDER
         );
         $this->assertNotSame([], $matches, 'No Configuration menu entry was parsed at all.');
 
+        // Every Configuration entry, not merely the ones a narrower
+        // pattern happens to reach: the count is asserted so a future
+        // extraction cannot quietly cover less.
+        $this->assertCount(
+            substr_count($this->indexPhp, 'MenuBuilder::MENU_CONFIGURATION,'),
+            $matches,
+            'The extraction no longer reaches every Configuration entry of public/index.php.'
+        );
+
         $byOrder = [];
         foreach ($matches as $match) {
-            $byOrder[(int) $match[2]][] = $match[1];
+            $byOrder[(int) $match[2]][] = self::decode($match[1]);
         }
         $shared = array_filter($byOrder, static fn (array $labels): bool => count($labels) > 1);
 

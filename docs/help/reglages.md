@@ -1,7 +1,7 @@
 ---
 id: reglages
-title: Modifier les réglages du site
-summary: La page Réglages : les paramètres du site et des modules, groupe par groupe.
+title: Modifier les paramètres du site
+summary: La page Paramètres : les réglages du site et des modules, groupe par groupe.
 category: Configuration
 role_min: superadmin
 question: Où change-t-on le nom ou les couleurs du site ?
@@ -10,7 +10,7 @@ paths: /config/settings
 related: modules, installation-serveur
 ---
 
-La page Réglages rassemble les paramètres du cœur du site et de chaque
+La page Paramètres rassemble les réglages du cœur du site et de chaque
 module actif, en sections repliables. Le badge de chaque section
 indique combien de réglages elle contient.
 

@@ -2,7 +2,7 @@
   "id": "groups",
   "name": "Groupes de discussion",
   "description": "Groupes de discussion privés pour l'unité : un groupe par section et par année scoute, ou des groupes sur invitation. Visibles uniquement par leurs membres.",
-  "version": "1.17.4",
+  "version": "1.17.5",
   "enabled_by_default": false,
   "requires": [
     "gallery"
@@ -41,7 +41,7 @@
         ],
         "ancestors": [
           {
-            "label": "Groupes",
+            "label": "Discussions",
             "path": "/groups"
           }
         ]
@@ -62,7 +62,7 @@
         ],
         "ancestors": [
           {
-            "label": "Groupes",
+            "label": "Discussions",
             "path": "/groups"
           }
         ]

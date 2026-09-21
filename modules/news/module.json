@@ -2,7 +2,7 @@
   "id": "news",
   "name": "Actualités",
   "description": "Articles d'actualité avec formulaires intégrés (inscriptions, paiements optionnels), référencement SEO et affiche A4 avec QR code.",
-  "version": "1.7.3",
+  "version": "1.7.4",
   "enabled_by_default": true,
   "routes": [
     {
@@ -55,7 +55,7 @@
         ],
         "ancestors": [
           {
-            "label": "Actualités",
+            "label": "Rédiger les actualités",
             "path": "/news/manage"
           }
         ]
@@ -127,7 +127,7 @@
         ],
         "ancestors": [
           {
-            "label": "Actualités",
+            "label": "Rédiger les actualités",
             "path": "/news/manage"
           }
         ]
@@ -157,7 +157,7 @@
         ],
         "ancestors": [
           {
-            "label": "Actualités",
+            "label": "Rédiger les actualités",
             "path": "/news/manage"
           }
         ]
@@ -226,7 +226,7 @@
         ],
         "ancestors": [
           {
-            "label": "Actualités",
+            "label": "Rédiger les actualités",
             "path": "/news/manage"
           }
         ]
