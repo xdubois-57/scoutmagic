@@ -955,20 +955,39 @@ recopiée plutôt qu'importée, des assertions sur des sélecteurs internes, des
 attentes à délai fixe — puis le dernier point, que §7 demande explicitement
 de **constater sans combler**.
 
-**Les trois soupçons ne tiennent pas** :
+**Deux des trois soupçons ne tiennent pas ; le troisième tient en partie** :
 
-- **128 fichiers Vitest sur 128 importent le fichier de production.** Un
-  premier comptage en annonçait cinq sans import ; le motif ratait la forme
-  par effet de bord (`import '../../public/assets/js/x.js';`, sans `from`).
-  Le cinquième, `escape-html-attribute-safety.test.js`, lit délibérément le
-  source comme texte : c'est un garde de source, pas un test recopié.
-- **Trois `waitForTimeout` dans toute la suite Playwright**, et les deux
-  examinés sont justes. Celui de `rental-management.spec.js` attend quatre
+- **127 fichiers Vitest sur 128 importent le fichier de production**, et le
+  cent-vingt-huitième ne le recopie pas davantage. Un premier comptage en
+  annonçait cinq sans import ; le motif ratait la forme par effet de bord
+  (`import '../../public/assets/js/x.js';`, sans `from`), qui explique
+  quatre d'entre eux. Le cinquième,
+  `escape-html-attribute-safety.test.js`, lit délibérément le source comme
+  **texte**, par `readFileSync` : c'est un garde de source, pas un test
+  recopié, mais ce n'est pas un import non plus, et écrire « 128 sur 128 »
+  était une facilité que la phrase suivante contredisait.
+- **Trois `waitForTimeout` dans toute la suite Playwright**, et les trois
+  sont justes — vérifiés un par un, cette fois.
+  `rental-management.spec.js` et `rental-request.spec.js` attendent quatre
   secondes parce que `Core\Security\HumanCheck` refuse un formulaire soumis
-  plus vite qu'un humain ne l'aurait rempli : le test attend comme un
-  visiteur plutôt que de désactiver la garde, et son commentaire le dit.
-  Une attente fixe sur une règle qui est elle-même une durée n'est pas une
-  fragilité, c'est la seule façon honnête de la vérifier.
+  plus vite qu'un humain ne l'aurait rempli : les deux tests attendent comme
+  un visiteur plutôt que de désactiver la garde, et leurs commentaires le
+  disent. Une attente fixe sur une règle qui **est** une durée n'est pas une
+  fragilité. `pwa-prefetch-once.spec.js` attend deux secondes sur chacune de
+  trois pages pour établir qu'**aucune** requête supplémentaire n'est
+  partie : on ne peut pas attendre la condition « rien ne se produit », et
+  une borne temporelle est la seule forme que cette assertion puisse
+  prendre.
+- **Les sélecteurs : le soupçon tient, à sa mesure.** Répartition sur toute
+  la suite : **829 adressent ce qu'un utilisateur voit** (`getByRole` 492,
+  `getByText` 166, `getByLabel` 166, `getByPlaceholder` 5), **250 un
+  identifiant**, et **120 une classe CSS**. Ces 120 sont la part exposée à
+  une retouche de feuille de style. Elles sont moins fragiles qu'il n'y
+  paraît — les classes visées sont des noms de composants
+  (`groups-reply-bubble`, `retro-comment`, `calendar-event-bar`,
+  `sos-day-row`) et non des utilitaires de présentation — mais renommer un
+  composant casserait le test sans que rien n'ait changé pour
+  l'utilisateur. Ce n'est pas rien, et ce n'est pas ce que §7 redoutait.
 
 **Le constat, lui, tient — et il est plus étroit et plus net que §7 ne le
 formule** :
@@ -1000,16 +1019,26 @@ l'établissent. Aucun test n'est ajouté : §7 dit de constater, pas de
 combler, et écrire un scénario de service worker est le « own future
 scenario » que la configuration annonce déjà.
 
-**Issues ouvertes** : aucune. Le manque est désormais écrit dans la carte
-qui existe pour cela ; une issue qui redirait ce que deux commentaires et
-une ligne de configuration disent déjà n'ajouterait rien, et `AGENTS.md`
-demande de vérifier avant de déposer.
+**Issues ouvertes** :
+
+- #452 — le cycle de vie du service worker, exercé par aucune couche.
+
+  Cette entrée disait d'abord « aucune », au motif que le constat était
+  désormais écrit dans `docs/quality-pipeline.md` et qu'une issue redirait
+  ce que deux commentaires disent déjà. La revue a relevé que c'est une
+  confusion entre deux règles distinctes d'`AGENTS.md` : consigner un angle
+  mort dans la carte du pipeline est l'une, et « the moment a real problem
+  is identified and the decision is taken **not** to fix it in the change at
+  hand, open an issue » est l'autre, qui vise explicitement « a trap you
+  documented in a comment rather than removed ». La seconde ne se déduit pas
+  de la première. Constat juste, issue déposée.
 
 **Vérifié et tenu** :
 
 - **La règle « importer le vrai fichier, jamais le recopier » est
-  respectée partout.** C'est la seule des huit itérations où une règle
-  d'`AGENTS.md` se vérifie à 128 sur 128.
+  respectée partout.** Aucun des 128 fichiers ne réimplémente la logique
+  qu'il teste : 127 importent le fichier de production, le dernier le lit
+  comme source pour en vérifier la forme.
 - **Un piège déjà consigné par l'auteur.** `tests/js/sw.test.js` raconte en
   commentaire qu'un nettoyage supprimait `self`, ce qui faisait lever une
   `ReferenceError` attrapée par le `catch` du code : les tests passaient
