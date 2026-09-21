@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques, matériel. Calendrier de disponibilité public, demandes en ligne et suivi des réservations.",
-  "version": "1.22.0",
+  "version": "1.23.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -759,6 +759,15 @@
       "label": ""
     },
     {
+      "path": "/mes-locations/{slug}/reglages/rappels",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalPricingController",
+      "action": "saveReminders",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
       "path": "/locations/{slug}/demande",
       "method": "GET",
       "controller": "Modules\\Rental\\Controller\\RentalRequestController",
@@ -839,6 +848,90 @@
       "type": "number",
       "label": "Âge minimum d'un gestionnaire de bien",
       "description": "Âge à partir duquel un membre peut être désigné gestionnaire d'un bien en location. Un gestionnaire n'est pas forcément un chef — c'est souvent l'intendant, un parent ou un ancien — mais il accède aux coordonnées des locataires, à l'argent et aux contrats, ce qui n'a pas à être proposé pour un louveteau de 8 ans. L'âge est calculé sur la date de naissance réelle ; un membre dont la date n'est pas encodée dans Desk reste proposé, plutôt que de disparaître sans explication. Une valeur vide ou nulle n'est pas appliquée : c'est 16 ans qui vaut alors."
+    },
+    {
+      "key": "reminder_unanswered_request_days",
+      "default_value": "3",
+      "type": "number",
+      "label": "Demande sans réponse — délai (jours)",
+      "description": "Nombre de jours après l'arrivée d'une demande avant de prévenir les gestionnaires que personne n'y a répondu. 0 prévient le jour même. Le rappel n'est dit qu'une fois : une demande toujours sans réponse la semaine suivante est le même fait, et le répéter apprend à ignorer le canal. Un bien peut donner sa propre valeur, ou désactiver ce rappel, dans ses réglages."
+    },
+    {
+      "key": "reminder_hold_expiring_days",
+      "default_value": "1",
+      "type": "number",
+      "label": "Blocage de dates bientôt expiré — délai (jours)",
+      "description": "Nombre de jours avant l'échéance d'un blocage de dates pour prévenir les gestionnaires. Passé le blocage, les dates redeviennent libres pour tout le monde, et c'est une décision que l'unité devrait prendre plutôt que découvrir. La tâche tourne une fois par jour : un délai en heures serait une précision que la machine ne peut pas tenir. Un bien peut donner sa propre valeur, ou désactiver ce rappel, dans ses réglages."
+    },
+    {
+      "key": "reminder_deposit_missing_days",
+      "default_value": "0",
+      "type": "number",
+      "label": "Acompte non reçu — délai (jours)",
+      "description": "Nombre de jours après l'échéance de l'acompte avant de le signaler. 0 le signale dès le lendemain de l'échéance. Ce rappel se répète chaque semaine tant que l'argent n'est pas arrivé et que le séjour n'a pas commencé : la réponse peut changer d'un lundi à l'autre. Un bien peut donner sa propre valeur, ou désactiver ce rappel, dans ses réglages."
+    },
+    {
+      "key": "reminder_balance_missing_days",
+      "default_value": "0",
+      "type": "number",
+      "label": "Solde non reçu — délai (jours)",
+      "description": "Nombre de jours après l'échéance du solde avant de le signaler. 0 le signale dès le lendemain de l'échéance. Répété chaque semaine tant que le solde n'est pas reçu et que le séjour n'a pas commencé. Un bien peut donner sa propre valeur, ou désactiver ce rappel, dans ses réglages."
+    },
+    {
+      "key": "reminder_security_deposit_missing_days",
+      "default_value": "0",
+      "type": "number",
+      "label": "Caution non reçue — délai (jours)",
+      "description": "Nombre de jours après l'échéance de la caution avant de la signaler. 0 la signale dès le lendemain de l'échéance. Répété chaque semaine tant que la caution n'est pas reçue et que le séjour n'a pas commencé. Un bien peut donner sa propre valeur, ou désactiver ce rappel, dans ses réglages."
+    },
+    {
+      "key": "reminder_contract_missing_days",
+      "default_value": "14",
+      "type": "number",
+      "label": "Contrat non établi — délai (jours)",
+      "description": "Nombre de jours avant le séjour à partir desquels un séjour sans contrat est signalé. Le rappel est dit une seconde fois lorsqu'il ne reste plus que trois jours ; cette seconde fois se déduit du délai réglé ici, de sorte qu'un délai court ne fasse pas tomber les deux envois l'un sur l'autre. Un bien peut donner sa propre valeur, ou désactiver ce rappel, dans ses réglages."
+    },
+    {
+      "key": "reminder_arrival_inventory_days",
+      "default_value": "0",
+      "type": "number",
+      "label": "État des lieux d'entrée à faire — délai (jours)",
+      "description": "Nombre de jours après l'arrivée des locataires avant de signaler qu'aucun état des lieux d'entrée n'a été enregistré. 0 le signale le jour de l'arrivée. Dit une seule fois. Un bien peut donner sa propre valeur, ou désactiver ce rappel, dans ses réglages."
+    },
+    {
+      "key": "reminder_departure_inventory_days",
+      "default_value": "0",
+      "type": "number",
+      "label": "État des lieux de sortie à faire — délai (jours)",
+      "description": "Nombre de jours après le départ avant de signaler qu'aucun état des lieux de sortie n'a été enregistré. 0 le signale le lendemain du départ. Dit une seule fois. Un bien peut donner sa propre valeur, ou désactiver ce rappel, dans ses réglages."
+    },
+    {
+      "key": "reminder_settlement_due_days",
+      "default_value": "7",
+      "type": "number",
+      "label": "Décompte final à établir — délai (jours)",
+      "description": "Nombre de jours après le départ avant de rappeler qu'aucun décompte final n'a été établi. Dit une seule fois. Un bien peut donner sa propre valeur, ou désactiver ce rappel, dans ses réglages."
+    },
+    {
+      "key": "reminder_security_deposit_to_return_days",
+      "default_value": "14",
+      "type": "number",
+      "label": "Caution à restituer — délai (jours)",
+      "description": "Nombre de jours après le départ avant de rappeler qu'une caution est toujours détenue par l'unité. Le locataire attend son argent, et personne d'autre que l'unité ne sait qu'il dort sur son compte. Dit une seule fois. Un bien peut donner sa propre valeur, ou désactiver ce rappel, dans ses réglages."
+    },
+    {
+      "key": "reminder_compliance_expiring_days",
+      "default_value": "60",
+      "type": "number",
+      "label": "Document de conformité expirant — délai (jours)",
+      "description": "Nombre de jours avant l'échéance d'une entrée du registre de conformité pour la signaler. Le rappel énonce une date, jamais un verdict : le site ne sait pas si le bien peut être loué sans ce papier. Un bien peut donner sa propre valeur, ou désactiver ce rappel, dans ses réglages."
+    },
+    {
+      "key": "reminder_practical_info_days",
+      "default_value": "7",
+      "type": "number",
+      "label": "Informations pratiques au locataire — délai (jours)",
+      "description": "Nombre de jours avant le séjour pour envoyer au locataire les horaires, les clés et les contacts. C'est le seul rappel qui s'adresse au locataire, et il part par email : un locataire n'a pas de compte sur le site. Dit une seule fois. Un bien peut donner sa propre valeur, ou désactiver ce rappel, dans ses réglages."
     }
   ],
   "cookies": [],
@@ -862,18 +955,6 @@
     }
   },
   "notifications": [
-    {
-      "id": "rental.new_request",
-      "label": "Nouvelle demande de location",
-      "description": "Une demande de location vient d'arriver pour un bien que vous gérez.",
-      "group": "Locations",
-      "role_min": "identified",
-      "channels": {
-        "in_app": "default_on",
-        "push": "default_on",
-        "email": "off"
-      }
-    },
     {
       "id": "rental.unanswered_request",
       "label": "Demande de location sans réponse",

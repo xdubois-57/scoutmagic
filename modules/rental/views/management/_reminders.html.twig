@@ -1,0 +1,86 @@
+{#
+  The « Rappels » section of an asset's settings (§6.29, §22.11).
+
+  One line per reminder: what it is called, how long before it is said, and
+  whether it is said at all for this asset.
+
+  **An empty delay means « prends le défaut de l'unité », never « jamais ».**
+  Twelve fields on every asset are twelve fields nobody fills in, so a blank
+  one has to keep working — and the unit's number is written underneath, so
+  what a manager reads is what would actually apply rather than a value they
+  would have to keep in step by hand. Turning a reminder off is the
+  checkbox's job: a remorque has neither an inventory nor a security deposit,
+  and those reminders on it are guaranteed noise.
+
+  Requires `asset`, `reminders` and `csrf_token`.
+#}
+<div class="card mb-4" id="rappels">
+    <div class="card-body">
+        <h2 class="h5 mb-2">Rappels</h2>
+        <p class="text-body-secondary small">
+            Ce que ce bien change aux rappels de l'unité. Un champ vide reprend la valeur
+            de l'unité, indiquée en dessous ; <strong>0</strong> veut dire « le jour même ».
+            Décochez pour ne pas envoyer un rappel du tout sur ce bien.
+        </p>
+
+        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/rappels">
+            {{ csrf_field()|raw }}
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-3">
+                    <thead>
+                        <tr>
+                            <th scope="col">Rappel</th>
+                            <th scope="col" style="width: 10rem;">Délai (jours)</th>
+                            <th scope="col" style="width: 7rem;">Actif</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for reminder in reminders %}
+                            <tr>
+                                <td>
+                                    <label class="form-label mb-0" for="reminder-days-{{ reminder.key }}">
+                                        {{ reminder.label }}
+                                    </label>
+                                    {% if reminder.repeats %}
+                                        <span class="text-body-secondary small d-block">Répété tant que la situation dure.</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <input type="number" inputmode="numeric" min="0"
+                                           class="form-control form-control-sm"
+                                           id="reminder-days-{{ reminder.key }}"
+                                           name="days_{{ reminder.key }}"
+                                           value="{{ reminder.days is null ? '' : reminder.days }}"
+                                           placeholder="{{ reminder.default_days }}"
+                                           aria-describedby="reminder-default-{{ reminder.key }}">
+                                    <div class="form-text" id="reminder-default-{{ reminder.key }}">
+                                        défaut : {{ reminder.default_days }} jour{{ reminder.default_days > 1 ? 's' : '' }}
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox"
+                                               id="reminder-active-{{ reminder.key }}"
+                                               name="active_{{ reminder.key }}" value="1"
+                                               {{ reminder.active ? 'checked' : '' }}>
+                                        <label class="form-check-label visually-hidden"
+                                               for="reminder-active-{{ reminder.key }}">
+                                            Envoyer « {{ reminder.label }} » pour ce bien
+                                        </label>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <button type="submit" class="btn btn-outline-secondary">Enregistrer les rappels</button>
+            <span class="form-text d-block">
+                Les valeurs par défaut de l'unité se règlent dans « Configuration &gt; Réglages »,
+                section Locations. La passe tourne une fois par jour : un délai se compte en
+                jours, jamais en heures.
+            </span>
+        </form>
+    </div>
+</div>

@@ -2284,13 +2284,27 @@ costs one text field rather than a release. The page says all of this in as
 many words, above everything else on it.
 
 **Reminders know their audience before they exist.** `Reminder\ReminderKind`
-encodes it: twelve go to the unit's own people through `NotificationService`,
+encodes it: eleven go to the unit's own people through `NotificationService`,
 and one — the practical-info email — goes to the renter through
 `MailService`. That distinction is structural because getting it wrong fails
 silently: `NotificationService` targets `user_accounts`, a renter has none,
 and dispatching to them would reach nobody rather than error. Each reminder
 is its own declared notification type, so a unit that wants to hear about
 unpaid deposits but not about inventories can say so.
+
+**Every delay is configurable, at three levels.** The shipped value lives on
+the enum (`ReminderKind::defaultDays()`), the unit's own default in a module
+setting, and an asset's override in `rental_asset_reminders` —
+`Reminder\ReminderSchedule` is the one place that resolution lives, and it
+is pure for the same reason the planner is. **An empty delay at asset level
+means "take the default", never "never"**: twelve fields on every asset are
+twelve fields nobody fills in, so a blank one has to keep working, and the
+screen writes the number that would actually apply underneath rather than
+pre-filling it. Switching a reminder off is a separate flag, because a
+remorque has neither an inventory nor a security deposit and folding "off"
+into an empty number field puts `0` — the day itself — one typo away from
+"never". Only the differences are stored: a row saying nothing is deleted
+rather than written.
 
 **`Reminder\ReminderPlanner` is pure** — every input a parameter, no
 repository, no clock. That is what makes "does this fire on the right day" a
@@ -2302,10 +2316,21 @@ which is `RentalReminderService`'s job.
 **Nothing fires "on" a date.** Every rule is "is this true today", so a
 shared host whose cron ran six hours late — or not at all yesterday — sends
 today rather than never. What stops a repeat is `rental_reminders_sent`, and
-the claim is an **insert**, not a check-then-write: two overlapping ticks
-would otherwise both read "not sent" and both send. A reminder that could
-not actually be delivered releases its claim, so a failure nobody saw does
-not suppress it forever.
+the claim is a **compare-and-set**, never a check-then-write: two overlapping
+ticks would otherwise both read "not sent" and both send. A reminder that
+could not actually be delivered releases its claim, so a failure nobody saw
+does not suppress it forever.
+
+**The four that repeat carry their row forward rather than adding one.**
+Money that has not arrived is worth asking about again — the answer can
+change between two Mondays — while an inventory nobody recorded will still
+be true next week, and repeating it teaches a unit to ignore the channel.
+The cadence therefore lives in the claim's `WHERE` clause (a guarded
+`UPDATE`, then the `INSERT` as the fallback), and **not** in a loosened
+unique index: `SchemaComparator` matches an index by NAME only and nothing
+ever drops one, so redefining `idx_rental_reminder_once` would have left
+every installed site exactly as it was while passing on a fresh install
+(AGENTS.md § Schema). The index keeps doing the one job it was written for.
 
 **Reminders are addressed, never broadcast**: to the managers of *that*
 asset. And **no personal data travels in one** — a title and body name a

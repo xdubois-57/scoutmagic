@@ -1093,7 +1093,13 @@ Per asset: a free-text label, an optional document, an optional expiry, a remark
 
 ### 22.11 Reminders
 
-Thirteen of them, from "a request nobody answered" to "a deposit still held after the stay". Twelve go to the managers of that asset through the notification centre; **one goes to the renter, by email**, because a renter has no account and a notification would reach nobody. None of them carries a name: a reference and an asset, and a link to the file where everything is.
+Twelve of them, from "a request nobody answered" to "a deposit still held after the stay". Eleven go to the managers of that asset through the notification centre; **one goes to the renter, by email**, because a renter has no account and a notification would reach nobody. None of them carries a name: a reference and an asset, and a link to the file where everything is.
+
+**Every delay is a setting, and an asset may differ from the unit.** Each reminder has a unit-wide default, and the asset's own « Réglages » page carries a « Rappels » section where one may be delayed, brought forward or switched off — a remorque has neither an inventory nor a security deposit, and those reminders on it are noise. A field left empty takes the unit's number, which is written underneath so what a manager reads is what would actually apply; **0** means "the day itself". Switching a reminder off is a separate checkbox, never an empty field.
+
+Money that has not arrived is asked about again every week, because the answer can change between two Mondays — and the asking stops once the renters have arrived. **The missing contract is the one exception**: it gets a single second chance, once the stay is close, because a contract is a thing somebody has to sit down and produce rather than a payment that may already be in flight. Everything else is said once: an inventory nobody recorded will still be true next week, and repeating it teaches a unit to ignore the whole channel.
+
+That second chance is **derived from the delay in force**, not fixed at three days out, so a unit that shortened the lead time does not get both sends on top of each other — nor, below a week, a daily nag where one extra nudge was promised. Two sends, whatever the number configured.
 
 Nothing fires *on* a date — every rule is "is this true today" — so a host whose scheduled task ran late sends today rather than never. The configuration page says plainly when no real cron is detected, because on shared hosting a reminder can then arrive hours late and a unit that does not know that reads the delay as a bug.
 

@@ -31,23 +31,17 @@ use Modules\Rental\Repository\RentalAsset;
  */
 class ReminderPlanner
 {
-    /** A request nobody has answered after this long is chased. */
-    public const UNANSWERED_AFTER_DAYS = 3;
-
-    /** A hold lapsing inside this window is worth mentioning. */
-    public const HOLD_EXPIRING_WITHIN_HOURS = 24;
-
-    /** The practical-info email goes out this far ahead of arrival. */
-    public const PRACTICAL_INFO_DAYS_BEFORE = 7;
-
-    /** A confirmed stay this close with no contract is chased. */
-    public const CONTRACT_MISSING_DAYS_BEFORE = 14;
-
-    /** After the stay: how long before the settlement is chased. */
-    public const SETTLEMENT_AFTER_DAYS = 7;
-
-    /** And how long a security deposit may sit before somebody is nudged. */
-    public const DEPOSIT_RETURN_AFTER_DAYS = 14;
+    /**
+     * Every delay used below now comes from the asset's own schedule
+     * (`ReminderSchedule`), which resolves the shipped value, the unit's
+     * default and the asset's override in that order. The constants that
+     * used to sit here are `ReminderKind::defaultDays()`, where the other
+     * two levels can find them.
+     *
+     * A reminder an asset has switched off never becomes due at all — it is
+     * not emitted and then filtered later, because "due but suppressed" is a
+     * state nothing needs and one more thing a reader has to hold.
+     */
 
     /**
      * Everything due for one booking today.
@@ -63,35 +57,42 @@ class ReminderPlanner
         array $inventory,
         bool $hasContract,
         bool $hasSettlement,
-        \DateTimeImmutable $today
+        \DateTimeImmutable $today,
+        ?ReminderSchedule $schedule = null
     ): array {
+        $schedule ??= ReminderSchedule::shipped();
         $due = [];
         $arrival = DateInput::requireFromStorage($booking->arrivalDate, 'rental_bookings.arrival_date');
         $departure = DateInput::requireFromStorage($booking->departureDate, 'rental_bookings.departure_date');
         $midnight = $today->setTime(0, 0);
 
         // ── While the request is still being handled ──────────────────
-        if ($booking->status === BookingStatus::RECEIVED) {
-            if ($booking->receivedAt <= $today->modify('-' . self::UNANSWERED_AFTER_DAYS . ' days')) {
-                $due[] = $this->booking(
-                    $booking,
-                    $asset,
-                    ReminderKind::UNANSWERED_REQUEST,
-                    sprintf(
-                        'La demande %s attend une réponse depuis %d jours.',
-                        $booking->reference,
-                        self::UNANSWERED_AFTER_DAYS
-                    )
-                );
-            }
+        $unansweredDays = $schedule->daysFor(ReminderKind::UNANSWERED_REQUEST);
+        if ($booking->status === BookingStatus::RECEIVED
+            && $schedule->isActive(ReminderKind::UNANSWERED_REQUEST)
+            && $booking->receivedAt <= $today->modify('-' . $unansweredDays . ' days')
+        ) {
+            $due[] = $this->booking(
+                $booking,
+                $asset,
+                ReminderKind::UNANSWERED_REQUEST,
+                sprintf(
+                    'La demande %s attend une réponse depuis %d jours.',
+                    $booking->reference,
+                    $unansweredDays
+                )
+            );
         }
 
         // A hold about to lapse: the dates are about to become free again
         // for everybody, which is a decision the unit should make rather
         // than discover.
         if ($booking->holdIsActive($today)
+            && $schedule->isActive(ReminderKind::HOLD_EXPIRING)
             && $booking->holdUntil !== null
-            && $booking->holdUntil <= $today->modify('+' . self::HOLD_EXPIRING_WITHIN_HOURS . ' hours')
+            && $booking->holdUntil <= $today->modify(
+                '+' . $schedule->daysFor(ReminderKind::HOLD_EXPIRING) . ' days'
+            )
         ) {
             $due[] = $this->booking(
                 $booking,
@@ -110,11 +111,14 @@ class ReminderPlanner
         }
 
         // ── Money ────────────────────────────────────────────────────
-        $due = array_merge($due, $this->paymentReminders($booking, $asset, $payment, $midnight));
+        $due = array_merge($due, $this->paymentReminders($booking, $asset, $payment, $midnight, $schedule, $arrival));
 
         // ── Paperwork and the stay itself ────────────────────────────
         if (!$hasContract
-            && $arrival <= $midnight->modify('+' . self::CONTRACT_MISSING_DAYS_BEFORE . ' days')
+            && $schedule->isActive(ReminderKind::CONTRACT_MISSING)
+            && $arrival <= $midnight->modify(
+                '+' . $schedule->daysFor(ReminderKind::CONTRACT_MISSING) . ' days'
+            )
             && $arrival >= $midnight
         ) {
             $due[] = $this->booking(
@@ -131,7 +135,10 @@ class ReminderPlanner
         // The renter's own reminder — email, never the notification centre
         // (§6.29). Sent from the day it comes into range rather than
         // exactly on J-7, so a scheduler that missed a day still sends it.
-        if ($arrival <= $midnight->modify('+' . self::PRACTICAL_INFO_DAYS_BEFORE . ' days') && $arrival >= $midnight) {
+        if ($schedule->isActive(ReminderKind::PRACTICAL_INFO)
+            && $arrival <= $midnight->modify('+' . $schedule->daysFor(ReminderKind::PRACTICAL_INFO) . ' days')
+            && $arrival >= $midnight
+        ) {
             $due[] = $this->booking(
                 $booking,
                 $asset,
@@ -143,7 +150,11 @@ class ReminderPlanner
             );
         }
 
-        if (!$inventory['arrival'] && $midnight >= $arrival && $midnight <= $departure) {
+        if (!$inventory['arrival']
+            && $schedule->isActive(ReminderKind::ARRIVAL_INVENTORY)
+            && $midnight >= $arrival->modify('+' . $schedule->daysFor(ReminderKind::ARRIVAL_INVENTORY) . ' days')
+            && $midnight <= $departure
+        ) {
             $due[] = $this->booking(
                 $booking,
                 $asset,
@@ -155,7 +166,10 @@ class ReminderPlanner
             );
         }
 
-        if (!$inventory['departure'] && $midnight > $departure) {
+        if (!$inventory['departure']
+            && $schedule->isActive(ReminderKind::DEPARTURE_INVENTORY)
+            && $midnight > $departure->modify('+' . $schedule->daysFor(ReminderKind::DEPARTURE_INVENTORY) . ' days')
+        ) {
             $due[] = $this->booking(
                 $booking,
                 $asset,
@@ -167,7 +181,10 @@ class ReminderPlanner
             );
         }
 
-        if (!$hasSettlement && $midnight >= $departure->modify('+' . self::SETTLEMENT_AFTER_DAYS . ' days')) {
+        if (!$hasSettlement
+            && $schedule->isActive(ReminderKind::SETTLEMENT_DUE)
+            && $midnight >= $departure->modify('+' . $schedule->daysFor(ReminderKind::SETTLEMENT_DUE) . ' days')
+        ) {
             $due[] = $this->booking(
                 $booking,
                 $asset,
@@ -190,7 +207,9 @@ class ReminderPlanner
         RentalBooking $booking,
         RentalAsset $asset,
         array $payment,
-        \DateTimeImmutable $midnight
+        \DateTimeImmutable $midnight,
+        ReminderSchedule $schedule,
+        \DateTimeImmutable $arrival
     ): array {
         if (($payment['enabled'] ?? false) !== true) {
             // Money is not tracked for this asset; there is nothing
@@ -200,8 +219,19 @@ class ReminderPlanner
 
         $due = [];
 
+        // **They stop at arrival.** A weekly chase about an unpaid deposit
+        // is worth saying while it can still change something; the same
+        // sentence repeated after the renters have moved in is a channel
+        // teaching the unit to ignore it (§6.29).
+        $stillWorthAsking = $midnight <= $arrival;
+
         $depositDue = self::dateOrNull($payment['deposit_due_date'] ?? null);
-        if ($depositDue !== null && $depositDue < $midnight && ($payment['deposit_received'] ?? false) !== true) {
+        if ($depositDue !== null
+            && $stillWorthAsking
+            && $schedule->isActive(ReminderKind::DEPOSIT_MISSING)
+            && $depositDue->modify('+' . $schedule->daysFor(ReminderKind::DEPOSIT_MISSING) . ' days') < $midnight
+            && ($payment['deposit_received'] ?? false) !== true
+        ) {
             $due[] = $this->booking(
                 $booking,
                 $asset,
@@ -214,7 +244,12 @@ class ReminderPlanner
         }
 
         $balanceDue = self::dateOrNull($payment['balance_due_date'] ?? null);
-        if ($balanceDue !== null && $balanceDue < $midnight && ($payment['fully_paid'] ?? false) !== true) {
+        if ($balanceDue !== null
+            && $stillWorthAsking
+            && $schedule->isActive(ReminderKind::BALANCE_MISSING)
+            && $balanceDue->modify('+' . $schedule->daysFor(ReminderKind::BALANCE_MISSING) . ' days') < $midnight
+            && ($payment['fully_paid'] ?? false) !== true
+        ) {
             $due[] = $this->booking(
                 $booking,
                 $asset,
@@ -232,7 +267,11 @@ class ReminderPlanner
         $securityReceived = (int) ($security['received_cents'] ?? 0);
 
         if ($securityDue !== null
-            && $securityDue < $midnight
+            && $stillWorthAsking
+            && $schedule->isActive(ReminderKind::SECURITY_DEPOSIT_MISSING)
+            && $securityDue->modify(
+                '+' . $schedule->daysFor(ReminderKind::SECURITY_DEPOSIT_MISSING) . ' days'
+            ) < $midnight
             && $securityAmount !== null
             && $securityReceived < (int) $securityAmount
         ) {
@@ -252,8 +291,11 @@ class ReminderPlanner
         // it is sitting there.
         $departure = DateInput::requireFromStorage($booking->departureDate, 'rental_bookings.departure_date');
         if ($securityReceived > 0
+            && $schedule->isActive(ReminderKind::SECURITY_DEPOSIT_TO_RETURN)
             && ($security['returned_at'] ?? null) === null
-            && $midnight >= $departure->modify('+' . self::DEPOSIT_RETURN_AFTER_DAYS . ' days')
+            && $midnight >= $departure->modify(
+                '+' . $schedule->daysFor(ReminderKind::SECURITY_DEPOSIT_TO_RETURN) . ' days'
+            )
         ) {
             $due[] = $this->booking(
                 $booking,
@@ -279,14 +321,37 @@ class ReminderPlanner
     public function forComplianceItem(
         ComplianceItem $item,
         RentalAsset $asset,
-        \DateTimeImmutable $today
+        \DateTimeImmutable $today,
+        ?ReminderSchedule $schedule = null
     ): ?DueReminder {
         if ($item->expiresOn === null) {
             return null;
         }
 
+        $resolved = $schedule ?? ReminderSchedule::shipped();
+        if (!$resolved->isActive(ReminderKind::COMPLIANCE_EXPIRING)) {
+            return null;
+        }
+
         $days = $item->daysUntilExpiry($today);
         if ($days === null) {
+            return null;
+        }
+
+        // **The configured lead time, applied here and nowhere else.** The
+        // query upstream widens to whatever the most generous asset asks
+        // for, because it has to run before it knows which assets it will
+        // find; this is where it narrows to the one in hand. Without it the
+        // « Document de conformité expirant » field saved, round-tripped
+        // and redisplayed while the reminder kept firing sixty days out —
+        // the only reminder of the twelve whose number did nothing, and the
+        // kind of failure a manager cannot see from the page that offers
+        // the field.
+        //
+        // An entry already past its date is never held back by a window:
+        // the lead time says how early to warn, not how long expired paper
+        // stops mattering.
+        if ($days > $resolved->daysFor(ReminderKind::COMPLIANCE_EXPIRING)) {
             return null;
         }
 

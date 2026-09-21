@@ -44,6 +44,18 @@ class ModuleManifestTest extends TestCase
      * previous one did — and this assertion keeps that judgement visible in
      * a diff instead of letting the number drift.
      *
+     * 1.23.0 has one behind it — `rental_asset_reminders`, the per-asset
+     * reminder overrides (§6.29) — and the manifest also stops declaring
+     * `rental.new_request`, a notification type nothing ever dispatched.
+     * That pruning is what the version comparison still drives, and the
+     * twelve `reminder_*_days` settings and the « Rappels » route arrive
+     * with it.
+     *
+     * It follows 1.22.0 rather than sharing it: that number belongs to the
+     * tracking page's own iteration, which merged first, and two branches
+     * of one worksite claiming a single version is how one of them ends up
+     * being the no-op the comparison above describes.
+     *
      * 1.18.0 is a bump with no schema change behind it: the module now
      * names its own receivables on « Paiements attendus »
      * (Finance\RentalReceivableDescriber), which is something a unit sees.
@@ -57,7 +69,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.22.0', $this->manifest->version);
+        $this->assertSame('1.23.0', $this->manifest->version);
     }
 
     /**

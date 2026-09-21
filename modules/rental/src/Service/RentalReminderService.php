@@ -10,14 +10,17 @@ namespace Modules\Rental\Service;
 
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalService;
+use Core\Config\SettingService;
 use Core\Notification\NotificationService;
 use Core\Security\UserAccountRepository;
 use Modules\Rental\Reminder\DueReminder;
 use Modules\Rental\Stay\InventoryState;
 use Modules\Rental\Reminder\ReminderKind;
 use Modules\Rental\Reminder\ReminderPlanner;
+use Modules\Rental\Reminder\ReminderSchedule;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetManagerRepository;
+use Modules\Rental\Repository\RentalAssetReminderRepository;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Repository\RentalBookingRepository;
 use Modules\Rental\Repository\RentalReminderRepository;
@@ -48,6 +51,8 @@ use Modules\Rental\Repository\RentalReminderRepository;
  */
 class RentalReminderService
 {
+    private const MODULE = 'rental';
+
     public function __construct(
         private RentalBookingRepository $bookingRepository,
         private RentalAssetRepository $assetRepository,
@@ -62,8 +67,89 @@ class RentalReminderService
         private ?RentalPaymentService $paymentService = null,
         private ?RentalDocumentService $documentService = null,
         private ?RentalStayService $stayService = null,
-        private ?RentalBookingMailService $mailService = null
+        private ?RentalBookingMailService $mailService = null,
+        /**
+         * What each asset changed about its reminders (§6.29). Optional so
+         * the constructor stays additive; a null simply means every asset
+         * runs on the unit's defaults, which is what an installation that
+         * has never opened the screen does anyway.
+         */
+        private ?RentalAssetReminderRepository $assetReminderRepository = null,
+        /**
+         * The unit-wide defaults, one setting per reminder. Null falls back
+         * to the values shipped in `ReminderKind::defaultDays()`.
+         */
+        private ?SettingService $settingService = null
     ) {
+    }
+
+    /**
+     * The unit's defaults, read once per pass rather than per asset: twelve
+     * settings times every hall, every morning, for numbers that cannot
+     * change while the pass runs.
+     *
+     * @var array<string, int>|null
+     */
+    private ?array $unitDefaults = null;
+
+    /**
+     * Every asset's overrides, likewise read once.
+     *
+     * @var array<int, array<string, array{days: int|null, active: bool}>>|null
+     */
+    private ?array $overrides = null;
+
+    private function scheduleFor(int $assetId): ReminderSchedule
+    {
+        if ($this->unitDefaults === null) {
+            $defaults = [];
+            foreach (ReminderKind::cases() as $kind) {
+                // **`self::MODULE`, never a bare key.** `SettingService`
+                // keys its cache on `($moduleId ?? '_core_') . '::' . $key`,
+                // so an unscoped read looks under `_core_::` — a row this
+                // module never writes. It does not fail: it returns null,
+                // and every reminder quietly runs on its shipped value while
+                // the « Rappels » screen shows the number the unit saved.
+                // Every other setting this module reads passes the scope.
+                $stored = $this->settingService?->get($kind->settingKey(), self::MODULE);
+                // A setting somebody blanked, or one this installation has
+                // never had, is the shipped value — never zero, which would
+                // silently turn every delay into "today".
+                if (is_string($stored) && trim($stored) !== '' && is_numeric(trim($stored))) {
+                    $defaults[$kind->value] = max(0, (int) trim($stored));
+                }
+            }
+            $this->unitDefaults = $defaults;
+        }
+
+        $this->overrides ??= $this->assetReminderRepository?->findAll() ?? [];
+
+        return ReminderSchedule::of($this->unitDefaults, $this->overrides[$assetId] ?? []);
+    }
+
+    /**
+     * The widest compliance window any asset is configured for.
+     *
+     * `RentalComplianceService::dueForReminder()` narrows the query by a
+     * date, so it has to choose that date before it knows whose entries it
+     * will get back. Asking for the most generous window and letting
+     * `ReminderPlanner` reject what falls outside each asset's own is the
+     * only order that works: the other way round, an asset configured for
+     * ninety days would never even be offered the entries it cares about.
+     *
+     * The unit's own default counts too — it is what every asset without an
+     * override uses.
+     */
+    private function widestComplianceWindow(): int
+    {
+        $this->overrides ??= $this->assetReminderRepository?->findAll() ?? [];
+
+        $widest = $this->scheduleFor(0)->daysFor(ReminderKind::COMPLIANCE_EXPIRING);
+        foreach (array_keys($this->overrides) as $assetId) {
+            $widest = max($widest, $this->scheduleFor($assetId)->daysFor(ReminderKind::COMPLIANCE_EXPIRING));
+        }
+
+        return $widest;
     }
 
     /**
@@ -101,11 +187,12 @@ class RentalReminderService
                 $this->inventoryState($booking),
                 $this->documentService?->latest($booking->id, \Modules\Rental\Document\DocumentType::CONTRACT) !== null,
                 ($this->stayService?->settlementsFor($booking->id) ?? []) !== [],
-                $today
+                $today,
+                $schedule = $this->scheduleFor($asset->id)
             );
 
             foreach ($due as $reminder) {
-                if ($this->send($reminder, $booking->renterEmail, $today)) {
+                if ($this->send($reminder, $booking->renterEmail, $today, $schedule)) {
                     $sent++;
                 }
             }
@@ -118,18 +205,19 @@ class RentalReminderService
     {
         $sent = 0;
 
-        foreach ($this->complianceService->dueForReminder($today) as $item) {
+        foreach ($this->complianceService->dueForReminder($today, $this->widestComplianceWindow()) as $item) {
             $asset = $this->assetRepository->findById($item->assetId);
             if ($asset === null) {
                 continue;
             }
 
-            $reminder = $this->planner->forComplianceItem($item, $asset, $today);
+            $schedule = $this->scheduleFor($asset->id);
+            $reminder = $this->planner->forComplianceItem($item, $asset, $today, $schedule);
             if ($reminder === null) {
                 continue;
             }
 
-            if ($this->send($reminder, null, $today)) {
+            if ($this->send($reminder, null, $today, $schedule)) {
                 // Stamped on the entry as well as in the sent table: the
                 // entry's own stamp is what a manager sees on the page
                 // ("last warned on…"), and the table is what stops a repeat.
@@ -149,13 +237,18 @@ class RentalReminderService
      * otherwise both find "not sent yet" and both send. The insert is the
      * compare-and-set, and the loser simply does nothing.
      */
-    private function send(DueReminder $reminder, ?string $renterEmail, \DateTimeImmutable $today): bool
-    {
+    private function send(
+        DueReminder $reminder,
+        ?string $renterEmail,
+        \DateTimeImmutable $today,
+        ?ReminderSchedule $schedule = null
+    ): bool {
         if (!$this->reminderRepository->claim(
             $reminder->subjectType(),
             $reminder->subjectId,
             $reminder->kind,
-            $today
+            $today,
+            ($schedule ?? ReminderSchedule::shipped())->repeatAfterDaysFor($reminder->kind)
         )) {
             return false;
         }
@@ -167,7 +260,10 @@ class RentalReminderService
         if (!$delivered) {
             // Nothing went out, so nothing has been said: release the claim
             // rather than leaving the reminder permanently suppressed by a
-            // failure nobody saw.
+            // failure nobody saw. For one that repeats, this also drops the
+            // record of the earlier sends — which is the right answer, not
+            // a loss: the next pass says it again tomorrow rather than in a
+            // week, and a send nobody received is not a send.
             $this->reminderRepository->forget($reminder->subjectType(), $reminder->subjectId, $reminder->kind);
 
             return false;

@@ -21,8 +21,10 @@ use Core\Service\IntegerInput;
 use Modules\Rental\Document\AssetConditions;
 use Modules\Rental\Payment\DepositMode;
 use Modules\Rental\Payment\PaymentSettings;
+use Modules\Rental\Reminder\ReminderKind;
 use Modules\Rental\Pricing\PricingSettings;
 use Modules\Rental\Repository\RentalAsset;
+use Modules\Rental\Repository\RentalAssetReminderRepository;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Service\RentalAuthorizationService;
 use Modules\Rental\Service\RentalAvailabilityService;
@@ -70,7 +72,14 @@ class RentalPricingController extends AbstractController
          * module, where the payments block explains that instead of
          * offering a picker with nothing in it.
          */
-        private ?RentalPaymentService $paymentService = null
+        private ?RentalPaymentService $paymentService = null,
+        /**
+         * The « Rappels » section (§6.29). Nullable so the controller stays
+         * constructible in tests that do not reach that action; the module
+         * always wires one, and `saveReminders()` refuses in French rather
+         * than writing nowhere.
+         */
+        private ?RentalAssetReminderRepository $assetReminderRepository = null
     ) {
         parent::__construct($twig);
     }
@@ -391,6 +400,61 @@ class RentalPricingController extends AbstractController
     }
 
     /**
+     * POST /mes-locations/{slug}/reglages/rappels — what this asset changes
+     * about its reminders (§6.29).
+     *
+     * **An empty delay means "take the unit's default", never "never".**
+     * Twelve fields on every asset are twelve fields nobody fills in, so a
+     * blank one has to keep working; switching a reminder off is the
+     * checkbox's job. Folding the two into one number field is how 0 — the
+     * day itself — and "never" end up one typo apart.
+     *
+     * Only the differences are stored, and a line that says nothing at all
+     * deletes its row rather than storing "no change"
+     * (`RentalAssetReminderRepository::save()`).
+     *
+     * @param array<string, string> $params
+     */
+    public function saveReminders(Request $request, array $params): Response
+    {
+        return $this->guarded($request, $params, 'rappels', function (RentalAsset $asset) use ($request): string {
+            if ($this->assetReminderRepository === null) {
+                throw new RentalException('Les rappels ne sont pas disponibles.');
+            }
+
+            // **Read all twelve before writing any of them.** `save()`
+            // commits one row at a time and nothing here opens a
+            // transaction, so validating inside the write loop means a
+            // refusal on the twelfth field leaves the first eleven already
+            // stored — and `guarded()` shows the manager an error, with
+            // nothing saying that most of the form went through anyway. A
+            // partial save reported as a failure is worse than either
+            // outcome on its own, because the screen now disagrees with the
+            // database about what was asked for.
+            //
+            // Resolving first makes the refusal total: `reminderDays()`
+            // throws before the first row moves.
+            $resolved = [];
+            foreach (ReminderKind::cases() as $kind) {
+                $resolved[] = [
+                    $kind,
+                    self::reminderDays($request->getBody('days_' . $kind->value), $kind),
+                    // An unchecked box posts nothing at all, which is
+                    // exactly how a checkbox says "off" — so absence is the
+                    // signal here, not a missing field to fall back on.
+                    $request->getBody('active_' . $kind->value) !== null,
+                ];
+            }
+
+            foreach ($resolved as [$kind, $days, $isActive]) {
+                $this->assetReminderRepository->save($asset->id, $kind, $days, $isActive);
+            }
+
+            return 'Les rappels de ce bien ont été enregistrés.';
+        });
+    }
+
+    /**
      * The shape every action here shares: CSRF, then **the per-asset
      * authorization check**, then the one operation, turning a
      * RentalException into a flash rather than a stack trace, and back to
@@ -509,6 +573,44 @@ class RentalPricingController extends AbstractController
      * @throws RentalException when the box holds something that is not
      *         one of those numbers
      */
+    /**
+     * A reminder's delay in days, or null when the field was left blank —
+     * which means « reprends le défaut de l'unité », never « jamais ».
+     *
+     * **`delay_days` is `SMALLINT UNSIGNED`, so the bound is 65 535**, and
+     * it is a bound rather than a ceiling on purpose: SECURITY.md §35 bans
+     * exactly the idiom this method replaced, `max(0, (int) $raw)` — a
+     * floor with no top. The missing half is the reachable one. A visitor
+     * who types a longer number reached MySQL, which refuses it in strict
+     * mode, and the `PDOException` sailed past `guarded()` — which catches
+     * `RentalException` and nothing else — into the generic 500 page,
+     * where the one screen that could have said what was wrong says
+     * nothing at all.
+     *
+     * Clamping to 65 535 would have been worse than the crash: it stores a
+     * delay nobody chose and reports success. `IntegerInput::bounded()`
+     * refuses out of range instead, and refuses `1e10` and `12 jours`
+     * besides, both of which `is_numeric` and a cast between them would
+     * have turned into some number the visitor never typed.
+     *
+     * The reminder is named in the refusal because twelve fields are saved
+     * in one post: « ce nombre n'est pas valide » about an unnamed one of
+     * twelve is not an answer anybody can act on.
+     */
+    private static function reminderDays(mixed $value, ReminderKind $kind): ?int
+    {
+        $value = is_string($value) ? trim($value) : $value;
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        return IntegerInput::bounded($value, 0, 65535)
+            ?? throw new RentalException(sprintf(
+                'Le délai du rappel « %s » n\'est pas valide — saisissez un nombre de jours entre 0 et 65535.',
+                $kind->label()
+            ));
+    }
+
     private static function optionalInt(mixed $value): ?int
     {
         $value = is_string($value) ? trim($value) : $value;

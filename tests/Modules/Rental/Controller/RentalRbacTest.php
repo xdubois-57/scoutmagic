@@ -370,7 +370,9 @@ class RentalRbacTest extends TestCase
                     $this->authorizationService,
                     $this->assetRepository,
                     $this->scoutYearResolver,
-                    new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo))
+                    new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo)),
+                    null,
+                    new \Modules\Rental\Repository\RentalAssetReminderRepository($this->pdo)
                 ),
             default => $this->publicController,
         };
@@ -1098,6 +1100,7 @@ class RentalRbacTest extends TestCase
             'frais supprimé' => ['frais-supprimer', 'deleteFee'],
             'paiements' => ['paiements', 'savePayments'],
             'conditions' => ['conditions', 'saveConditions'],
+            'rappels' => ['rappels', 'saveReminders'],
         ];
     }
 

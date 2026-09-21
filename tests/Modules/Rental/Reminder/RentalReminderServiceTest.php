@@ -157,6 +157,55 @@ class RentalReminderServiceTest extends TestCase
         );
     }
 
+    /**
+     * The same service, with the per-asset overrides wired — which is how
+     * `public/index.php` builds it, and the only way the compliance window
+     * can be anything but the shipped sixty days.
+     */
+    private function serviceWithOverrides(
+        ?\Core\Notification\NotificationService $notifications = null
+    ): RentalReminderService {
+        return new RentalReminderService(
+            $this->bookingRepository,
+            $this->assetRepository,
+            $this->managerRepository,
+            $this->complianceService,
+            $this->reminderRepository,
+            new ReminderPlanner(),
+            new MemberYearRepository($this->pdo),
+            new UserAccountRepository($this->pdo, $this->encryption),
+            new JournalService(new JournalRepository($this->pdo)),
+            $notifications,
+            null,
+            null,
+            null,
+            null,
+            new \Modules\Rental\Repository\RentalAssetReminderRepository($this->pdo),
+            new SettingService(new SettingRepository($this->pdo))
+        );
+    }
+
+    /**
+     * Declare a reminder's unit-wide default the way the module does —
+     * **scoped to `rental`**, which is the whole point of the two tests
+     * below.
+     */
+    private function saveUnitDefault(ReminderKind $kind, int $days): void
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO settings (module_id, setting_key, setting_value, setting_type, label, description)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            'rental',
+            $kind->settingKey(),
+            (string) $days,
+            'number',
+            $kind->label(),
+            'Délai.',
+        ]);
+    }
+
     // ── Fixtures ────────────────────────────────────────────────────────
 
     private function addManagerWithAccount(string $email): int
@@ -401,6 +450,102 @@ class RentalReminderServiceTest extends TestCase
         $this->assertTrue($this->reminderRepository->claim('booking', $booking->id, ReminderKind::CONTRACT_MISSING, $today));
     }
 
+    // ── …unless it is worth asking again (IT-07) ────────────────────────
+
+    /**
+     * Money that has not arrived is worth asking about a second time: the
+     * answer can change between two Mondays. The cadence lives in the
+     * claim's WHERE clause rather than in a loosened unique index — that
+     * index is matched by NAME and never dropped, so redefining it would
+     * have changed nothing at all on an installed site.
+     */
+    public function testAnUnpaidDepositIsChasedAgainAfterTheCadenceHasPassed(): void
+    {
+        $booking = $this->createBooking();
+
+        $this->assertTrue($this->reminderRepository->claim(
+            'booking',
+            $booking->id,
+            ReminderKind::DEPOSIT_MISSING,
+            new \DateTimeImmutable('2027-06-01'),
+            7
+        ));
+
+        $this->assertTrue($this->reminderRepository->claim(
+            'booking',
+            $booking->id,
+            ReminderKind::DEPOSIT_MISSING,
+            new \DateTimeImmutable('2027-06-08'),
+            7
+        ));
+    }
+
+    public function testTheSameReminderIsStillRefusedBeforeTheCadenceHasPassed(): void
+    {
+        $booking = $this->createBooking();
+
+        $this->reminderRepository->claim(
+            'booking',
+            $booking->id,
+            ReminderKind::DEPOSIT_MISSING,
+            new \DateTimeImmutable('2027-06-01'),
+            7
+        );
+
+        $this->assertFalse($this->reminderRepository->claim(
+            'booking',
+            $booking->id,
+            ReminderKind::DEPOSIT_MISSING,
+            new \DateTimeImmutable('2027-06-05'),
+            7
+        ));
+    }
+
+    /**
+     * Carried forward, never duplicated: a table growing one row per send
+     * is a table `RentalRetentionService` then has to purge, and the unique
+     * index is what stops two overlapping ticks both sending.
+     */
+    public function testARepeatedReminderCarriesItsRowForwardRatherThanAddingOne(): void
+    {
+        $booking = $this->createBooking();
+
+        $this->reminderRepository->claim('booking', $booking->id, ReminderKind::DEPOSIT_MISSING, new \DateTimeImmutable('2027-06-01'), 7);
+        $this->reminderRepository->claim('booking', $booking->id, ReminderKind::DEPOSIT_MISSING, new \DateTimeImmutable('2027-06-08'), 7);
+
+        $stmt = $this->pdo->prepare(
+            'SELECT sent_on FROM rental_reminders_sent
+             WHERE subject_type = ? AND subject_id = ? AND reminder_key = ?'
+        );
+        $stmt->execute(['booking', $booking->id, ReminderKind::DEPOSIT_MISSING->value]);
+        $rows = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+
+        $this->assertSame(['2027-06-08'], $rows);
+    }
+
+    /**
+     * An inventory nobody recorded will still be true next week, and saying
+     * it every Monday teaches the unit to ignore the whole channel — which
+     * is worse than not reminding at all (§6.29).
+     */
+    public function testAReminderWithNoCadenceIsStillSaidOnlyOnce(): void
+    {
+        $booking = $this->createBooking();
+
+        $this->assertTrue($this->reminderRepository->claim(
+            'booking',
+            $booking->id,
+            ReminderKind::ARRIVAL_INVENTORY,
+            new \DateTimeImmutable('2027-06-01')
+        ));
+        $this->assertFalse($this->reminderRepository->claim(
+            'booking',
+            $booking->id,
+            ReminderKind::ARRIVAL_INVENTORY,
+            new \DateTimeImmutable('2027-08-01')
+        ));
+    }
+
     // ── The compliance register (§6.33) ─────────────────────────────────
 
     public function testAnExpiringRegisterEntryReachesTheAssetsManagers(): void
@@ -440,6 +585,113 @@ class RentalReminderServiceTest extends TestCase
             '2027-07-01',
             (new RentalComplianceRepository($this->pdo))->findById($id)?->remindedOn
         );
+    }
+
+    /**
+     * **The unit's own default is read, which it was not.**
+     *
+     * `SettingService::get()` keys its cache on
+     * `($moduleId ?? '_core_') . '::' . $key`, so an unscoped read looks up
+     * a row this module never writes. It does not fail — it returns null —
+     * and every reminder quietly ran on the value shipped in
+     * `ReminderKind::defaultDays()` while the « Rappels » screen displayed
+     * the number the unit had saved. The two disagreed and neither said so.
+     *
+     * Nothing caught it because every other test here sets its delays
+     * through `rental_asset_reminders`, which is a different table and a
+     * different code path. This one goes through the settings, which is
+     * what an installation that never opened an asset's section uses for
+     * all twelve.
+     */
+    public function testTheUnitsOwnDefaultIsWhatDecides(): void
+    {
+        $this->addManagerWithAccount('chef@unite.be');
+        // Shipped: sixty days. The unit says ten.
+        $this->saveUnitDefault(ReminderKind::COMPLIANCE_EXPIRING, 10);
+
+        // Thirty days out: inside the shipped window, outside the unit's.
+        $this->complianceService->add($this->assetId, 'Attestation incendie', '2027-07-31', null);
+
+        $this->serviceWithOverrides($this->notificationService())
+            ->run(new \DateTimeImmutable('2027-07-01'));
+
+        $this->assertSame([], array_values(array_filter(
+            $this->dispatched,
+            static fn(array $e) => $e['typeId'] === ReminderKind::COMPLIANCE_EXPIRING->notificationTypeId()
+        )));
+    }
+
+    /**
+     * **An asset that asks to be warned earlier is actually asked earlier.**
+     *
+     * The window is applied per asset, but the query that finds the entries
+     * runs before any asset is known — so it has to widen to the most
+     * generous one configured anywhere. Without that, an asset set to
+     * ninety days would never even be offered the entry: the planner would
+     * have accepted it and never seen it, and the setting would look like
+     * it did nothing for the second time in this file's history.
+     */
+    public function testAnAssetConfiguredWiderThanTheShippedWindowIsStillServed(): void
+    {
+        $this->addManagerWithAccount('chef@unite.be');
+        (new \Modules\Rental\Repository\RentalAssetReminderRepository($this->pdo))->save(
+            $this->assetId,
+            ReminderKind::COMPLIANCE_EXPIRING,
+            90,
+            true
+        );
+
+        // Eighty days out: outside the shipped sixty, inside this asset's
+        // ninety.
+        $this->complianceService->add($this->assetId, 'Attestation incendie', '2027-09-19', null);
+
+        $this->serviceWithOverrides($this->notificationService())
+            ->run(new \DateTimeImmutable('2027-07-01'));
+
+        $compliance = array_values(array_filter(
+            $this->dispatched,
+            static fn(array $e) => $e['typeId'] === ReminderKind::COMPLIANCE_EXPIRING->notificationTypeId()
+        ));
+
+        $this->assertCount(1, $compliance);
+        $this->assertStringContainsString('Attestation incendie', (string) $compliance[0]['payload']['body']);
+    }
+
+    /**
+     * And one that asks to be warned later stays quiet until then — the
+     * direction a manager notices, because it is the one they changed the
+     * setting for.
+     */
+    public function testAnAssetConfiguredNarrowerStaysQuietUntilItsOwnWindow(): void
+    {
+        $this->addManagerWithAccount('chef@unite.be');
+        (new \Modules\Rental\Repository\RentalAssetReminderRepository($this->pdo))->save(
+            $this->assetId,
+            ReminderKind::COMPLIANCE_EXPIRING,
+            10,
+            true
+        );
+
+        // Thirty days out: inside the shipped sixty, outside this asset's
+        // ten.
+        $this->complianceService->add($this->assetId, 'Attestation incendie', '2027-07-31', null);
+
+        $service = $this->serviceWithOverrides($this->notificationService());
+        $service->run(new \DateTimeImmutable('2027-07-01'));
+
+        $this->assertSame([], array_values(array_filter(
+            $this->dispatched,
+            static fn(array $e) => $e['typeId'] === ReminderKind::COMPLIANCE_EXPIRING->notificationTypeId()
+        )));
+
+        // And speaks up once the date comes into its own range.
+        $this->serviceWithOverrides($this->notificationService())
+            ->run(new \DateTimeImmutable('2027-07-25'));
+
+        $this->assertCount(1, array_values(array_filter(
+            $this->dispatched,
+            static fn(array $e) => $e['typeId'] === ReminderKind::COMPLIANCE_EXPIRING->notificationTypeId()
+        )));
     }
 
     // ── Nothing personal reaches a notification (§6.29) ──────────────────

@@ -677,10 +677,13 @@ pour une page que les deux déclareraient. C'est l'option 2 de #401, appliquée
 
 **Reporté.** Deux choses.
 
-- **#401** reste ouverte : `gerer-les-locations` est à 487 mots, toujours
-  au-dessus des ~400 de la charte, et couvre encore huit écrans. Le
-  découpage restant — un sujet par écran — appartient à IT-05, qui
-  réorganise la page d'une réservation.
+- **#401** reste ouverte. Ce paragraphe a d'abord dit « 487 mots » et
+  « huit écrans », en décrivant un état antérieur au découpage d'IT-05 et
+  en renvoyant le reste du travail à une itération déjà fusionnée. Mesuré
+  sur le fichier tel qu'il est — corps seul, l'entête YAML exclu, comme le
+  compte `HelpInvariantsTest` — `gerer-les-locations` est à **399 mots** et
+  couvre six chemins. Sous les ~400 de la charte, donc, mais d'un seul mot :
+  fermer sur cette marge, c'est rouvrir à la prochaine phrase ajoutée.
 - **La course entre enregistrer le texte et envoyer le document** (#405).
   `saveBookingText()` vérifie le verrou, puis écrit ; `sendDocument()`
   envoie le PDF existant et n'appelle `markSent()` qu'après. Entre les
@@ -690,3 +693,204 @@ pour une page que les deux déclareraient. C'est l'option 2 de #401, appliquée
   transition durable — une colonne sur `rental_booking_document_texts` —
   donc une modification de `schema.sql`, que le chantier réserve à IT-07,
   et qui ferait du verrou un drapeau stocké là où tout le module dérive.
+
+## IT-07 — Les rappels
+
+**Livré.**
+
+- `Reminder\ReminderKind` : `NEW_REQUEST` retiré, `defaultDays()`,
+  `settingKey()` et `repeatAfterDays()` ajoutés. Les six constantes de
+  `ReminderPlanner` disparaissent — un délai vit sur le rappel, pas à côté.
+- `Reminder\ReminderSchedule` — les trois niveaux (valeur livrée, défaut de
+  l'unité, valeur du bien) résolus en un seul endroit, et pur comme le
+  planificateur : on lui passe les réglages et les surcharges déjà lus.
+- `schema.sql` : `rental_asset_reminders (asset_id, reminder_key,
+  delay_days NULL, is_active)`, une ligne par différence.
+- `Repository\RentalAssetReminderRepository` — `findForAsset()`,
+  `findAll()` pour la passe quotidienne, `save()` et `clear()`.
+- `RentalReminderRepository::claim()` prend une cadence.
+- `module.json` : douze réglages `reminder_*_days`, la notification orpheline
+  `rental.new_request` retirée, la route de la section, version 1.23.0.
+- La section « Rappels » des réglages d'un bien
+  (`views/management/_reminders.html.twig`,
+  `RentalManagementController::reminderRows()`,
+  `RentalPricingController::saveReminders()`).
+- Documentation : `ARCHITECTURE.md` §8.60, `specifications.md` §22.11,
+  `modules/rental/help/locations-reglages.md`.
+- Tests : `ReminderScheduleTest` (11), `RentalAssetReminderRepositoryTest`
+  (12), `RentalReminderSettingsTest` (11), cinq de plus sur
+  `ReminderPlannerTest`, quatre sur `RentalReminderServiceTest`, quatre sur
+  `RentalManagementControllerTest`.
+
+**La clé unique ne pouvait pas être desserrée**, et c'est la divergence la
+plus lourde du chantier. `SchemaComparator` compare les index **par leur
+nom**, jamais par leurs colonnes, et rien dans ce dépôt n'en supprime un —
+`drops.sql` est pour les colonnes et les clés étrangères, et le dit.
+Redéfinir `idx_rental_reminder_once` sur `sent_on` aurait donc laissé
+l'ancien index exactement en place sur chaque site installé, refusant la
+seconde insertion, pendant qu'une installation neuve fonctionnait. La panne
+aurait été invisible précisément là où elle comptait.
+
+Un rappel qui se répète **reporte sa ligne** au lieu d'en ajouter une :
+`claim()` tente d'abord un `UPDATE` gardé par `sent_on <= aujourd'hui −
+cadence`, et retombe sur l'`INSERT`. L'index continue de faire le seul
+travail pour lequel il a été écrit — deux passes qui se chevauchent ne
+peuvent pas envoyer toutes les deux — et la cadence vit dans une clause
+`WHERE` plutôt que dans l'absence d'une contrainte. La table ne grossit pas
+non plus d'une ligne par envoi, ce que `RentalRetentionService` aurait ensuite
+dû purger.
+
+**Le point 4 du chantier a été abandonné, sur arbitrage.** Il demandait
+« pas de case à cocher supplémentaire : un délai vide veut dire *jamais* » —
+et le point 2, deux lignes plus haut, demande qu'un champ vide affiche
+« (défaut : 14 jours) ». Les deux ne peuvent pas être vrais du même champ.
+Arbitré : **vide = hérite du défaut de l'unité**, et la case « Actif »
+éteint. C'est la lecture que le reste du chantier impose — douze champs sur
+chaque bien sont douze champs que personne ne remplit, donc un champ laissé
+vide doit continuer de fonctionner — et elle évite que `0`, « le jour même »,
+soit à une faute de frappe de « jamais ». Le reste du point 4 tient : `0` veut
+bien dire le jour même.
+
+**Décisions prises seul.**
+
+- **Le champ affiche la valeur du bien, jamais la valeur héritée.**
+  Pré-remplir le nombre de l'unité fige ce défaut le jour où quelqu'un
+  enregistre sans rien changer, et le bien cesse alors de suivre l'unité. Le
+  nombre est écrit **sous** le champ.
+- **Une ligne qui ne dit rien supprime sa ligne en base.** Une table de
+  lignes signifiant « aucun changement » est une table dont la taille
+  n'apprend plus rien à personne.
+- **Une case décochée ne poste rien du tout** : c'est l'absence qui est le
+  signal. Lire un champ manquant comme « laisse comme c'était » aurait rendu
+  l'extinction impossible.
+- **La seconde chance du contrat est dérivée du délai en vigueur**
+  (`délai − 3 jours`, jamais moins de 1) plutôt que fixée à J-3 : une unité
+  qui raccourcit son délai à cinq jours recevrait sinon les deux envois l'un
+  sur l'autre.
+- **La relance des trois rappels d'argent s'arrête à l'arrivée.** Le chantier
+  dit « jusqu'à réception ou jusqu'à l'arrivée » ; la même phrase répétée une
+  fois les locataires installés est un canal qui apprend à l'unité à
+  l'ignorer.
+- **Les deux dépendances des contrôleurs sont facultatives.** Nulles, l'écran
+  rend chaque rappel au défaut de l'unité — ce que fait une installation qui
+  n'a jamais ouvert la section — et `saveReminders()` refuse en français
+  plutôt que d'écrire nulle part.
+- **Les réglages se lisent avec la portée du module.**
+  `SettingService::get()` indexe son cache sur
+  `($moduleId ?? '_core_') . '::' . $key` : une lecture sans portée cherche
+  une ligne sous `_core_`, que ce module n'écrit jamais. Elle n'échoue pas
+  — elle rend `null` — et les douze rappels tournaient donc sur leur valeur
+  livrée pendant que l'écran « Rappels » affichait le nombre que l'unité
+  avait enregistré. Les deux se contredisaient et aucun ne le disait. Tous
+  les autres réglages de ce module passaient déjà la portée ; ces deux
+  appels-là étaient les seuls à ne pas le faire. Aucun test ne l'a vu parce
+  qu'ils réglaient tous leurs délais par `rental_asset_reminders`, une
+  autre table et un autre chemin — celui qu'une installation qui n'a jamais
+  ouvert la section n'emprunte pas.
+- **Le contrat est relancé deux fois, quel que soit le délai — compté, pas
+  promis.** `repeatAfterDays()` rend un *intervalle minimum*, et `claim()`
+  renvoie à chaque fois qu'il s'est écoulé : le nombre d'envois sur une
+  fenêtre de `d` jours vaut `1 + floor(d / intervalle)`, pas deux parce que
+  la phrase du docblock dit deux. `d − 3` seul ne tient que tant que
+  `d > 6` ; en dessous il dégénère, et à quatre jours il envoyait cinq
+  fois. Une promesse d'une relance unique qui devient un harcèlement
+  quotidien, sur un réglage que l'écran propose, est pire que pas de
+  seconde chance du tout : l'unité apprend à ignorer le canal qui porte les
+  onze autres. L'intervalle ne descend donc jamais sous
+  `intdiv(d, 2) + 1`, seuil exact où un troisième envoi cesse de tenir.
+  Au-dessus de six jours — les quatorze par défaut compris — la dérivation
+  le dépasse déjà et rien ne change. Le test comptait l'intervalle ; il
+  compte maintenant les envois.
+- **Un refus est total, jamais partiel.** Corollaire du précédent, et
+  introduit par lui : tant que rien ne levait dans cette boucle, valider en
+  écrivant ne coûtait rien. `save()` valide une ligne à la fois et rien
+  n'ouvre de transaction ici, donc un refus sur le douzième champ laissait
+  les onze premiers enregistrés pendant que l'écran affichait une erreur.
+  Une sauvegarde partielle annoncée comme un échec est pire que l'un ou
+  l'autre : l'écran et la base ne sont plus d'accord sur ce qui a été
+  demandé. Les douze triplets se résolvent donc avant qu'une seule ligne ne
+  bouge. Mes trois tests de refus mettaient tous la valeur invalide sur le
+  **premier** rappel et ne prouvaient donc rien du tout : l'assertion
+  passait faute de tentative. Deux tests de plus la mettent en dernier,
+  avec une valeur valable devant — ce qu'un gestionnaire produit
+  réellement — et vérifient aussi qu'une surcharge enregistrée hier
+  survit à un formulaire refusé aujourd'hui.
+- **Le délai saisi est borné, pas rogné.** `delay_days` est un
+  `SMALLINT UNSIGNED`, et l'action écrivait `max(0, (int) $raw)` — un
+  plancher sans plafond, exactement l'idiome que SECURITY.md §35 interdit
+  nommément : « la moitié qui manque est celle qu'on atteint ». Un nombre
+  plus long arrivait jusqu'à MySQL, qui le refuse en mode strict, et la
+  `PDOException` passait au-dessus de `guarded()` — qui n'attrape que
+  `RentalException` — jusqu'à la page 500 générique, là où le seul écran
+  capable de dire ce qui n'allait pas ne dit plus rien. Rogner à 65 535
+  aurait été pire que le plantage : cela enregistre un délai que personne
+  n'a choisi et annonce que c'est réussi. `IntegerInput::bounded()` refuse
+  hors bornes, et refuse au passage `1e10` et `12 jours`. Le rappel est
+  nommé dans le refus, parce que douze champs partent d'un seul envoi.
+- **Le délai du rappel de conformité s'applique vraiment.** C'était le seul
+  des douze dont le nombre ne faisait rien : le champ s'enregistrait,
+  repassait par `rental_asset_reminders` et se réaffichait, pendant que la
+  fenêtre restait les soixante jours livrés — parce qu'elle vivait dans
+  `RentalComplianceService::EXPIRY_WARNING_DAYS` et que rien ne lui passait
+  l'horaire. Seule la case « Actif » avait un effet, ce qui est la pire
+  forme de la panne : depuis la page qui propose le champ, le réglage a
+  l'air de marcher. Trois endroits, dans cet ordre — la requête s'élargit
+  au plus généreux des biens, parce qu'elle tourne avant de savoir de quel
+  bien il s'agira ; `ReminderPlanner` resserre au bien qu'il a en main ;
+  et la pastille de la page « Conformité » lit la même valeur, sans quoi
+  elle et le rappel se contrediraient sous les yeux du gestionnaire. Un
+  document déjà expiré n'est jamais retenu par une fenêtre : le délai dit
+  à quelle avance prévenir, pas combien de temps un papier périmé compte
+  encore.
+- **Chaque clé de réglage est écrite en entier, pas composée.**
+  `settingKey()` rendait `'reminder_' . $this->value . '_days'`, ce qui
+  attache le nom d'un réglage **enregistré** à la valeur de l'énumération :
+  renommer un cas renomme silencieusement la ligne qu'une unité a déjà
+  sauvegardée, et tous les biens retombent sur la valeur livrée sans que
+  rien ne dise pourquoi. Et une clé composée n'apparaît nulle part dans le
+  source, donc `DeclaredSettingsAreReadTest` — qui cherche chaque clé
+  déclarée dans le module — ne peut pas distinguer un réglage lu d'un
+  réglage décoratif. Il a raison d'insister : c'est la panne qu'on ne voit
+  pas depuis la page de configuration. Les douze clés sont donc littérales,
+  et un test tient les deux listes ensemble, dans les deux sens.
+
+**Divergences avec le document de chantier.**
+
+- **« Treize rappels »** : il y en a douze une fois « Nouvelle demande »
+  partie, onze internes et un au locataire. `specifications.md` §22.11 et
+  `ARCHITECTURE.md` sont corrigés, comme le chantier le demandait.
+- **Le bump de `version` n'est plus imposé par `schema.sql`.** AGENTS.md
+  § Schema a retiré cette règle : le schéma d'un module est appliqué sans
+  elle. `module.json` passe tout de même en 1.23.0, parce que le module
+  gagne douze réglages, une route et un écran — ce qui est, lui, un
+  changement visible. Le numéro est **1.23.0** : 1.22.0 appartient à IT-03,
+  qui a fusionné d'abord, et deux branches d'un même chantier réclamant un
+  seul numéro, c'est l'une des deux qui devient un non-changement aux yeux
+  de la comparaison de versions.
+- **`rental.new_request` était une notification déclarée sans personne pour
+  l'émettre.** Retirer `NEW_REQUEST` de l'énumération la laissait orpheline
+  dans `module.json` ; elle est retirée aussi.
+
+**Reporté.**
+
+- **#405** reste ouverte : la course entre `saveBookingText()` et
+  `sendDocument()`. L'issue recommandait de la fermer **ici**, IT-07 étant
+  l'itération qui touche `schema.sql` — et en la relisant avec le code sous
+  les yeux, cette recommandation est fausse. La colonne qu'elle propose
+  serait écrite là où `markSent()` l'est déjà,
+  `RentalManagementController::sendDocument()` ligne 1183, c'est-à-dire
+  **après** l'appel qui poste l'email ligne 1175 : la fenêtre resterait
+  exactement où elle est. Ce qui la ferme n'est pas une colonne mais le
+  choix du moment où l'envoi prend le verrou — avant l'email, au risque
+  d'un texte gelé sur un envoi qui a échoué, ou après, en gardant la
+  fenêtre. C'est un arbitrage visible par l'utilisateur, pas une ligne de
+  schéma, et il n'a pas sa place en passant dans l'itération des rappels.
+  L'issue a été corrigée en ce sens.
+- **#401** reste ouverte, et délibérément. Après le découpage d'IT-05 le
+  sujet `gerer-les-locations` est à **399 mots** de corps — sous les ~400 de
+  la charte, mais d'un seul mot, et il couvre encore six chemins. La
+  première phrase qu'on y ajoutera le repassera au-dessus. Compté comme
+  `HelpInvariantsTest` compte, c'est-à-dire le corps sans l'en-tête YAML ;
+  un `wc -w` sur le fichier entier en annonce 460 et ne dit rien de la
+  charte. Fermer l'issue sur cette marge-là, c'est la rouvrir à la
+  prochaine itération qui touche un de ces six écrans.

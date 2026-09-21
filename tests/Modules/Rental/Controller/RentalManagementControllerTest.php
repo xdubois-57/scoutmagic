@@ -38,6 +38,7 @@ use Modules\Rental\Pricing\QuoteEditor;
 use Modules\Rental\Pricing\RentalPricingEngine;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetManagerRepository;
+use Modules\Rental\Repository\RentalAssetReminderRepository;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Repository\RentalBlockRepository;
 use Modules\Rental\Repository\RentalBookingCommentRepository;
@@ -266,7 +267,10 @@ class RentalManagementControllerTest extends TestCase
                 $this->changeRequestRepository
             ),
             // Only « Régénérer le lien de suivi » reaches it.
-            new RentalBookingService($this->bookingRepository, $journal)
+            new RentalBookingService($this->bookingRepository, $journal),
+            // The « Rappels » section of the settings page (§6.29).
+            new RentalAssetReminderRepository($this->pdo),
+            $settingService
         );
 
         $this->assetId = $this->createAsset('Local Saint-Georges', 'local-saint-georges');
@@ -2382,5 +2386,96 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringContainsString('<div class="form-text" id="new-document-help">', $html);
         // The datalist the intitulé field reads still reaches it.
         $this->assertStringContainsString('list="compliance-suggestions"', $html);
+    }
+
+    // ── The « Rappels » section of the settings page (IT-07, §6.29) ──────
+
+    private function settingsPage(): string
+    {
+        return (string) $this->get(
+            '/mes-locations/{slug}/reglages',
+            '/mes-locations/local-saint-georges/reglages',
+            'settings'
+        )->getBody();
+    }
+
+    public function testTheSettingsPageListsEveryReminderWithItsOwnField(): void
+    {
+        $this->loginAsManager();
+
+        $html = $this->settingsPage();
+
+        $this->assertStringContainsString('id="rappels"', $html);
+        foreach (\Modules\Rental\Reminder\ReminderKind::cases() as $kind) {
+            $this->assertStringContainsString(
+                'name="days_' . $kind->value . '"',
+                $html,
+                $kind->value . ' must have a field of its own.'
+            );
+            $this->assertStringContainsString('name="active_' . $kind->value . '"', $html, $kind->value);
+        }
+    }
+
+    /**
+     * The field is **empty** and the unit's number is written underneath,
+     * never pre-filled into it: pre-filling is how a screen freezes a
+     * default the day somebody presses « Enregistrer » without changing
+     * anything, and the number then stops following the unit's setting.
+     */
+    public function testAnInheritedDelayLeavesTheFieldEmptyAndShowsTheDefaultUnderIt(): void
+    {
+        $this->loginAsManager();
+
+        $html = $this->settingsPage();
+
+        $this->assertMatchesRegularExpression(
+            '#name="days_unanswered_request"\s+value=""#',
+            $html
+        );
+        $this->assertMatchesRegularExpression(
+            '#id="reminder-default-unanswered_request">\s*défaut : 3 jours#u',
+            $html
+        );
+    }
+
+    public function testAnAssetsOwnDelayIsShownInTheFieldItself(): void
+    {
+        (new RentalAssetReminderRepository($this->pdo))->save(
+            $this->assetId,
+            \Modules\Rental\Reminder\ReminderKind::UNANSWERED_REQUEST,
+            10,
+            true
+        );
+        $this->loginAsManager();
+
+        $this->assertMatchesRegularExpression(
+            '#name="days_unanswered_request"\s+value="10"#',
+            $this->settingsPage()
+        );
+    }
+
+    /**
+     * An unchecked box posts nothing at all, so the checkbox's state is the
+     * only record of a reminder being off — it has to survive the round
+     * trip through the page.
+     */
+    public function testAReminderSwitchedOffComesBackUnchecked(): void
+    {
+        (new RentalAssetReminderRepository($this->pdo))->save(
+            $this->assetId,
+            \Modules\Rental\Reminder\ReminderKind::ARRIVAL_INVENTORY,
+            null,
+            false
+        );
+        $this->loginAsManager();
+
+        $html = $this->settingsPage();
+        $checkbox = substr($html, (int) strpos($html, 'name="active_arrival_inventory"'), 120);
+
+        $this->assertStringNotContainsString('checked', $checkbox);
+        // …while one nobody touched is still on: a reminder that has to be
+        // switched on is one a unit discovers it never had.
+        $other = substr($html, (int) strpos($html, 'name="active_departure_inventory"'), 120);
+        $this->assertStringContainsString('checked', $other);
     }
 }
