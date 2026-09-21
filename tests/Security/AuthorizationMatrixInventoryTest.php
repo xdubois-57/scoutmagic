@@ -226,4 +226,106 @@ class AuthorizationMatrixInventoryTest extends TestCase
 
         $this->assertSame([], $unknown);
     }
+
+    /**
+     * The documentation quotes the matrix's size in four places. Nothing
+     * checked those figures, and all four had gone stale — README said
+     * 528 routes twice and 534 once, SECURITY.md said 528 × 6 = 3 168,
+     * while the inventory above held 746.
+     *
+     * A stale figure here is not cosmetic, and it is the same failure
+     * this class already exists to catch, one level up. The reader these
+     * sentences are written for is auditing coverage: they compare the
+     * quoted count to the route table and decide whether the matrix is
+     * looking at everything. A count that understates it reads exactly
+     * like a hole in the matrix — and a count that overstates it hides
+     * one.
+     *
+     * The figures are therefore derived here and nowhere else: from
+     * `authzRoutes()`, from `AUTHZ_ROLES`, and — for the identifier rule
+     * SECURITY.md quotes beside them — from the same inventory walked
+     * with `Tests\Core\Http\RouterIdentifierParametersTest`'s own
+     * predicate, since that is the rule the sentence is about.
+     *
+     * **Adding a route makes this test red.** That is the intent: the
+     * number in the prose is part of the change that added the route,
+     * and the failure message says which sentence to edit.
+     */
+    public function testTheFiguresTheDocumentationQuotesAreTheInventorysOwn(): void
+    {
+        $routes = count(\authzRoutes());
+        $pairs = $routes * count(AUTHZ_ROLES);
+        $identifierRoutes = $this->routesCarryingAnIdentifierPlaceholder();
+
+        $claims = [
+            ['README.md', "La matrice d'autorisation : les ", ' routes rejouées', $routes],
+            ['README.md', 'rejoue les ', ' routes, et compare', $routes],
+            ['README.md', '--profile=standard` — les ', ' routes rejouées', $routes],
+            ['README.md', ' rôles — ', ' couples (route, rôle)', $pairs],
+            ['SECURITY.md', 'the route declares. ', ' routes × 6 roles', $routes],
+            ['SECURITY.md', ' × 6 roles = ', ' pairs', $pairs],
+            ['SECURITY.md', 'can still reach — ', ' routes, and it also checks', $identifierRoutes],
+        ];
+
+        $wrong = [];
+
+        foreach ($claims as [$file, $before, $after, $expected]) {
+            $matched = preg_match(
+                '/' . preg_quote($before, '/') . '([0-9][0-9 ]*[0-9]|[0-9])' . preg_quote($after, '/') . '/u',
+                $this->read($file),
+                $found
+            );
+
+            $this->assertSame(
+                1,
+                $matched,
+                "{$file} no longer carries the sentence « {$before}… {$after} ». "
+                . 'Either restore it or update this claim.'
+            );
+
+            $quoted = (int) str_replace(' ', '', $found[1]);
+            if ($quoted !== $expected) {
+                $wrong[] = "{$file}: « {$before}{$found[1]}{$after} » — the inventory holds {$expected}";
+            }
+        }
+
+        $this->assertSame(
+            [],
+            $wrong,
+            "Figures the documentation quotes that the inventory contradicts:\n  "
+            . implode("\n  ", $wrong)
+        );
+    }
+
+    /**
+     * How many routes carry a placeholder named like a row identifier —
+     * the figure SECURITY.md quotes for the router rule. The predicate is
+     * Tests\Core\Http\RouterIdentifierParametersTest's, restated rather
+     * than imported because that class keeps it private; it is three
+     * comparisons, and a drift between the two would make this test red
+     * rather than silently agree with nothing.
+     */
+    private function routesCarryingAnIdentifierPlaceholder(): int
+    {
+        $paths = [];
+
+        foreach (\authzRoutes() as $route) {
+            foreach (\authzPlaceholders($route['path']) as $name) {
+                $isIdentifier = $name === 'id'
+                    || str_ends_with($name, '_id')
+                    || (str_ends_with($name, 'Id') && $name !== 'Id');
+
+                if ($isIdentifier) {
+                    $paths[$route['path']] = true;
+                }
+            }
+        }
+
+        return count($paths);
+    }
+
+    private function read(string $relativePath): string
+    {
+        return (string) file_get_contents(dirname(__DIR__, 2) . '/' . $relativePath);
+    }
 }
