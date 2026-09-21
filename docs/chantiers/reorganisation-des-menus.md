@@ -390,6 +390,43 @@ premier bloc repart avec la règle inverse de celle que le code applique,
 et le vert ne dit rien. C'est le pendant, côté documentation, de ce
 qu'était l'empreinte générée avec le code d'après côté tests.
 
+### « Aucun effet visible » était trop absolu — septième tour
+
+La relecture a relevé que la fusion des rangs **change bien quelque
+chose de visible**, pour une unité qui a des pages de texte. Le fait est
+exact, vérifié en rejouant les deux `MenuBuilder` côte à côte :
+
+| | Avant IT-01 | Après IT-01 |
+|---|---|---|
+| Colonne « Espace membres › Pages » | *Page libre*, Photos | Photos, *Page libre* |
+
+`TextPageMenuProvider` enregistre ses entrées en `SORT_GROUP_CORE` avec
+`600 + sortOrder`. Sous le tri à deux rangs, le rang était comparé avant
+l'ordre : une page libre à 600 passait donc **devant** toute page de
+module, quel que soit le nombre déclaré de part et d'autre.
+
+**Ce n'est pas une régression, c'est la fin d'une intention non tenue.**
+Le docblock d'`ORDER_BASE` dit depuis toujours ce que cette borne veut
+dire : « they are additions to a menu somebody curated, so they follow
+what the site shipped rather than interleaving with it ». La réservation
+de 600 ne séparait en réalité les pages d'unité que des pages du cœur ;
+face aux modules, elle ne décidait rien. La fusion des rangs est ce qui
+la rend enfin vraie.
+
+**Mais la formulation de la PR était fausse**, et elle l'était de la
+pire façon : trop absolue pour le seul cas qu'elle ne pouvait pas voir.
+Les pages de texte sont des lignes de base, donc `MenuInventory`, qui lit
+les sources, n'en produit aucune — aucun instantané des menus livrés n'en
+contient une. C'est le même angle mort que les tours 1, 3 et 5, sur un
+troisième support : après les entrées de providers et le rendu mobile,
+les données.
+
+`TextPageSitAfterWhatTheSiteShippedTest` fait passer le vrai provider
+dans le vrai constructeur et vérifie les deux choses : une page d'unité
+suit toute entrée livrée, modules compris, et les pages d'unité gardent
+entre elles l'ordre que leur auteur a choisi. Le test échoue si l'on
+restaure l'ancien rang.
+
 ### Bilan des six tours de relecture
 
 | Tour | Défaut | Où il se trouvait |
@@ -400,8 +437,9 @@ qu'était l'empreinte générée avec le code d'après côté tests.
 | 4 | `docs/help/modules.md` documentait encore le glisser-déposer | dans la documentation utilisateur |
 | 5 | Numérotation par colonne : liste mobile rebattue | dans la preuve |
 | 6 | Deux docblocks contradictoires sur le même test | dans la documentation du code |
+| 7 | Les pages de texte passent derrière les entrées de modules | dans la preuve, et dans la description |
 
-**Trois sur six portaient sur ce qui devait prouver le reste, et trois
+**Quatre sur sept portaient sur ce qui devait prouver le reste, trois
 sur ce qui devait l'expliquer. Aucun sur le code livré.** Un test qui se
 compare à lui-même est plus dangereux qu'un test absent, parce qu'il
 affiche du vert ; un commentaire qui contredit son code est plus
