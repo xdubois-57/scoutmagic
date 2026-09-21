@@ -508,7 +508,7 @@ test('the whole site transitions to the next scout year through the documented w
     // ---------------------------------------------------------------
     await expect(step(page, 'ephemerides').getByRole('link', { name: 'Aller au calendrier' })).toBeVisible();
     await expect(step(page, 'badges').getByRole('link', { name: 'Aller aux staffs' })).toBeVisible();
-    await expect(step(page, 'trombinoscope').getByRole('link', { name: 'Aller au trombinoscope' })).toBeVisible();
+    await expect(step(page, 'trombinoscope').getByRole('link', { name: 'Aller aux animateurs' })).toBeVisible();
 
     for (const key of ['ephemerides', 'badges', 'trombinoscope', 'staff_photos']) {
         await toggleStep(page, key);
