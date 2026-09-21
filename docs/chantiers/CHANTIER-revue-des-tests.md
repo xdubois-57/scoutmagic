@@ -1091,9 +1091,12 @@ lecture ne pouvait pas montrer.
 - **Ce qui n'a pas été muté**, et il faut le dire plutôt que le taire : la
   barrière `HumanCheck`. La mutation juste consiste à porter
   `human_check_min_delay_seconds` au-dessus de 4 secondes sur l'instance
-  jetable et à observer lesquels des quatre emplacements tombent. Elle
-  demande une exécution Playwright complète par essai, et elle est la
-  reproduction que #453 attend — c'est là qu'elle est consignée, pas ici.
+  jetable et à observer lequel des **trois** emplacements qui redisent ce
+  réglage tombe — le quatrième `waitForTimeout`, celui de
+  `pwa-prefetch-once.spec.js`, n'a rien à voir avec cette barrière et ne
+  peut pas bouger. Elle demande une exécution Playwright complète par
+  essai, et elle est la reproduction que #453 attend — c'est là qu'elle est
+  consignée, pas ici.
 
 **Issues ouvertes** :
 
@@ -1109,16 +1112,24 @@ lecture ne pouvait pas montrer.
   documented in a comment rather than removed ». La seconde ne se déduit pas
   de la première. Constat juste, issue déposée.
 
-- #453 — deux scénarios codent en dur le délai que `Core\Security\HumanCheck`
-  impose, là où `tests/e2e/support/human-check.js` le calcule depuis le jeton
-  du formulaire. Déposée pour la même raison que #452 : le constat est réel,
-  il n'est pas corrigé ici, et la règle ne se satisfait pas de l'avoir écrit
-  dans un journal.
+- #453 — **trois** emplacements redisent le délai minimum que
+  `Core\Security\HumanCheck` impose, et aucun ne le lit :
+  `tests/e2e/support/human-check.js` avec son `DEFAULT_MIN_DELAY_SECONDS = 3`,
+  `rental-management.spec.js` et `rental-request.spec.js` avec leurs
+  4 000 ms. Le helper attend mieux — il mesure depuis l'émission du jeton et
+  n'attend que le reliquat — mais il recopie la valeur comme les deux autres.
+  Déposée pour la même raison que #452 : le constat est réel, il n'est pas
+  corrigé ici, et la règle ne se satisfait pas de l'avoir écrit dans un
+  journal.
 
-  Non corrigeable sous §0.1 : deux fichiers de test, et surtout aucune preuve
-  possible — établir qu'un test suit le réglage au lieu de le recopier
+  Non corrigeable sous §0.1 : trois fichiers de test, et surtout aucune preuve
+  possible d'ici — établir qu'un test suit le réglage au lieu de le recopier
   demande de faire varier ce réglage côté serveur pendant que la suite
   tourne, ce que l'outillage E2E ne permet pas depuis un scénario.
+
+  Le corps de l'issue portait d'abord la formulation fausse corrigée plus
+  haut ; il est réécrit, la rétractation restant visible plutôt que
+  l'ancienne version remplacée en silence.
 
 **Une règle perdue en route, et retrouvée par la revue** : `AGENTS.md`
 demande que toute issue porte `**Type: bug**` ou `**Type: enhancement**` sur
