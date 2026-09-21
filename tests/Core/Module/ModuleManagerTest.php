@@ -338,34 +338,6 @@ class ModuleManagerTest extends TestCase
         $entry = $this->registryRepo->findByModuleId('auto_enabled_module');
         $this->assertFalse($entry['enabled']);
     }
-
-    public function testLoadEnabledModulesUsesCustomMenuOrderOnlyWithinTheModuleGroup(): void
-    {
-        // auto_enabled_module declares menu_order: 3 — a real, very low
-        // value (same shape as trombinoscope's 5 / gallery's 6, see
-        // ARCHITECTURE §7.1). Core\View\MenuBuilder::buildPages() now
-        // sorts by entry type first (dynamic, then core, then module), so
-        // however low this module's menu_order is, it can never sort
-        // ahead of a core page anymore — only against other modules.
-        $this->menuBuilder->addPage('espace_animes', 'Placeholder', '/placeholder', 'identified', 10);
-
-        $this->manager->loadEnabledModules();
-
-        $menus = $this->menuBuilder->build();
-        $espaceAnimes = null;
-        foreach ($menus as $menu) {
-            if ($menu['id'] === 'espace_animes') {
-                $espaceAnimes = $menu;
-                break;
-            }
-        }
-        $this->assertNotNull($espaceAnimes);
-
-        $labels = array_map(fn($p) => $p['label'] ?? '', $espaceAnimes['pages']);
-        $this->assertSame('Placeholder', $labels[0], 'core page must sort before the module page regardless of the module\'s low menu_order');
-        $this->assertContains('Auto Enabled', $labels);
-    }
-
     public function testGetEnabledModuleIds(): void
     {
         $this->registryRepo->upsert('valid_module', true, '1.0.0', null);
@@ -374,20 +346,6 @@ class ModuleManagerTest extends TestCase
         $ids = $this->manager->getEnabledModuleIds();
         $this->assertContains('valid_module', $ids);
     }
-
-    public function testDiscoverModulesOrdersBySortOrder(): void
-    {
-        $this->registryRepo->upsert('valid_module', true, '1.0.0', null);
-        $this->registryRepo->upsert('second_module', true, '1.0.0', null);
-        // Flip the natural (append) order: second_module first.
-        $this->registryRepo->reorder(['second_module', 'valid_module']);
-
-        $ids = array_map(fn($m) => $m->manifest->id, $this->manager->discoverModules());
-        $known = array_values(array_intersect($ids, ['second_module', 'valid_module']));
-
-        $this->assertSame(['second_module', 'valid_module'], $known);
-    }
-
     public function testDiscoverModulesSortsUntouchedModulesLastAlphabetically(): void
     {
         // No registry rows for either — neither has ever been toggled.
@@ -396,47 +354,6 @@ class ModuleManagerTest extends TestCase
 
         $this->assertSame(['second_module', 'valid_module'], $known);
     }
-
-    public function testReorderCreatesRegistryRowForNeverToggledModuleWithoutEnablingIt(): void
-    {
-        $this->assertNull($this->registryRepo->findByModuleId('valid_module'));
-
-        $this->manager->reorder(['valid_module', 'second_module']);
-
-        $entry = $this->registryRepo->findByModuleId('valid_module');
-        $this->assertNotNull($entry);
-        $this->assertFalse($entry['enabled']);
-        $this->assertSame(0, $entry['sort_order']);
-        $this->assertSame('1.0.0', $entry['installed_version']);
-
-        $second = $this->registryRepo->findByModuleId('second_module');
-        $this->assertSame(1, $second['sort_order']);
-    }
-
-    public function testModuleReorderChangesDefaultMenuOrderAcrossModules(): void
-    {
-        $this->registryRepo->upsert('valid_module', true, '1.0.0', null);
-        $this->registryRepo->upsert('second_module', true, '1.0.0', null);
-        // Both routes use the plain default menu_order, in the
-        // 'configuration' menu — only the module's own position (append
-        // order here: valid_module then second_module) should decide which
-        // sorts first.
-
-        $labelsBefore = $this->configurationMenuLabels();
-        $this->assertLessThan(
-            array_search('Second Module Config', $labelsBefore, true),
-            array_search('Test Module Config', $labelsBefore, true)
-        );
-
-        $this->manager->reorder(['second_module', 'valid_module']);
-
-        $labelsAfter = $this->configurationMenuLabels();
-        $this->assertLessThan(
-            array_search('Test Module Config', $labelsAfter, true),
-            array_search('Second Module Config', $labelsAfter, true)
-        );
-    }
-
     public function testLoadEnabledModulesLoadsAModuleWhoseHardDependencyIsEnabled(): void
     {
         $this->registryRepo->upsert('valid_module', true, '1.0.0', null);
@@ -477,11 +394,11 @@ class ModuleManagerTest extends TestCase
     {
         $this->registryRepo->upsert('valid_module', true, '1.0.0', null);
         $this->registryRepo->upsert('dependent_module', true, '1.0.0', null);
-        // The admin dragged the dependent module above the one it requires:
-        // resolution must look at the whole discovered set, not at whatever
-        // has already been loaded by this point in the loop.
-        $this->manager->reorder(['dependent_module', 'valid_module']);
 
+        // Modules load in alphabetical order, so « dependent_module »
+        // comes first — before the module it requires. Dependency
+        // resolution must therefore look at the whole discovered set, not
+        // at whatever the loop has loaded by this point.
         $this->manager->loadEnabledModules();
 
         $this->assertSame(

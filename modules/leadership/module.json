@@ -2,7 +2,7 @@
   "id": "leadership",
   "name": "Encadrement",
   "description": "Transforme l'import Desk en listes de personnes à contacter : parcours de formation, obligations légales des animateurs et inscriptions des intendants.",
-  "version": "1.1.1",
+  "version": "1.1.3",
   "routes": [
     {
       "path": "/admin/leadership",
@@ -13,8 +13,14 @@
       "label": "Encadrement",
       "menu_icon": "bi-mortarboard",
       "menu_group": "suivi",
+      "menu_order": 130,
       "role_min": "admin",
-      "breadcrumb": { "label": "Encadrement", "parents": ["Espace chefs d'U"] }
+      "breadcrumb": {
+        "label": "Encadrement",
+        "parents": [
+          "Espace chefs d'U"
+        ]
+      }
     },
     {
       "path": "/admin/leadership/training",
@@ -24,7 +30,18 @@
       "menu": "espace_admin",
       "label": "",
       "role_min": "admin",
-      "breadcrumb": { "label": "Formations", "parents": ["Espace chefs d'U"], "ancestors": [{ "label": "Encadrement", "path": "/admin/leadership" }] }
+      "breadcrumb": {
+        "label": "Formations",
+        "parents": [
+          "Espace chefs d'U"
+        ],
+        "ancestors": [
+          {
+            "label": "Encadrement",
+            "path": "/admin/leadership"
+          }
+        ]
+      }
     },
     {
       "path": "/admin/leadership/obligations",
@@ -34,7 +51,18 @@
       "menu": "espace_admin",
       "label": "",
       "role_min": "admin",
-      "breadcrumb": { "label": "Obligations", "parents": ["Espace chefs d'U"], "ancestors": [{ "label": "Encadrement", "path": "/admin/leadership" }] }
+      "breadcrumb": {
+        "label": "Obligations",
+        "parents": [
+          "Espace chefs d'U"
+        ],
+        "ancestors": [
+          {
+            "label": "Encadrement",
+            "path": "/admin/leadership"
+          }
+        ]
+      }
     },
     {
       "path": "/admin/leadership/stewards",
@@ -44,7 +72,18 @@
       "menu": "espace_admin",
       "label": "",
       "role_min": "admin",
-      "breadcrumb": { "label": "Intendants", "parents": ["Espace chefs d'U"], "ancestors": [{ "label": "Encadrement", "path": "/admin/leadership" }] }
+      "breadcrumb": {
+        "label": "Intendants",
+        "parents": [
+          "Espace chefs d'U"
+        ],
+        "ancestors": [
+          {
+            "label": "Encadrement",
+            "path": "/admin/leadership"
+          }
+        ]
+      }
     },
     {
       "path": "/admin/leadership/training/mapping",

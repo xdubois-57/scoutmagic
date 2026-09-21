@@ -18,6 +18,8 @@ trouve être exécutable ailleurs.
 | `maquette-courrier-entrant.jsx` | Courrier entrant transversal | `/courrier` — Chef d'Unité, et le composant de tri métier | IT-06, IT-07 |
 | `maquette-trombinoscope-pdf.jsx` | Trombinoscope imprimable | Le PDF A4 — page d'annuaire et page de section | IT-02, IT-03 |
 | `maquette-courrier-sortant.jsx` | Courrier sortant | `/config/courrier-sortant` — superadmin, les sept sous-pages | IT-01 à IT-07 |
+| `maquette-menus.jsx` | Réorganisation des menus | Les cinq menus, persona par persona, aujourd'hui et proposés | IT-02 |
+| `maquette-modules.jsx` | Réorganisation des menus | `/config/modules` — superadmin | IT-03 |
 | `maquette-stockage.jsx` | Emplacements de stockage | `/config/stockage` — superadmin, les deux sous-pages | IT-02, IT-07 |
 | `maquette-galerie-config.jsx` | Emplacements de stockage | `/config/gallery` — superadmin, les quatre onglets | IT-02 |
 

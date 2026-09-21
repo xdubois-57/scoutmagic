@@ -2,7 +2,7 @@
   "id": "test_tools",
   "name": "Outils de test",
   "description": "Boîte à outils réservée à l'installation de référence et aux installations locales de développement. Le bac à sable e-mail, qui capture les messages sortants au lieu de les envoyer, et de quoi provoquer une vraie erreur pour vérifier qu'elle atterrit bien dans le journal du site.",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "enabled_by_default": false,
   "visible_when": [
     "reference_installation",
@@ -19,6 +19,7 @@
       "label": "Outils de test",
       "menu_icon": "bi-tools",
       "menu_group": "modules",
+      "menu_order": 260,
       "breadcrumb": {
         "label": "Outils de test",
         "parents": [
@@ -43,7 +44,18 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": "",
-      "breadcrumb": { "label": "Bac à sable e-mail", "parents": ["Configuration"], "ancestors": [{ "label": "Outils de test", "path": "/test-tools" }] }
+      "breadcrumb": {
+        "label": "Bac à sable e-mail",
+        "parents": [
+          "Configuration"
+        ],
+        "ancestors": [
+          {
+            "label": "Outils de test",
+            "path": "/test-tools"
+          }
+        ]
+      }
     },
     {
       "path": "/test-tools/mail-sandbox/capture",
@@ -80,7 +92,22 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": "",
-      "breadcrumb": { "label": "Message capturé", "parents": ["Configuration"], "ancestors": [{ "label": "Outils de test", "path": "/test-tools" }, { "label": "Bac à sable e-mail", "path": "/test-tools/mail-sandbox" }] }
+      "breadcrumb": {
+        "label": "Message capturé",
+        "parents": [
+          "Configuration"
+        ],
+        "ancestors": [
+          {
+            "label": "Outils de test",
+            "path": "/test-tools"
+          },
+          {
+            "label": "Bac à sable e-mail",
+            "path": "/test-tools/mail-sandbox"
+          }
+        ]
+      }
     }
   ],
   "settings": [

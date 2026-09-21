@@ -1,3 +1,16 @@
+{#
+  Configuration › Site › Modules.
+
+  A plain list, not `partials/list_editor.html.twig`: that partial draws a
+  drag handle and mobile move buttons unconditionally, and this page has
+  nothing left to reorder — a module's position decides nothing about
+  where its pages land in a menu (Core\View\MenuBuilder). Keeping the
+  embed would have shipped a handle that does nothing, which is worse than
+  no handle.
+
+  The activation switch is unchanged, and `config-modules.js` binds it
+  directly by class rather than through any list chrome.
+#}
 {% extends "base.html.twig" %}
 
 {% block title %}Modules — {{ site_name }}{% endblock %}
@@ -7,82 +20,81 @@
 
     <p class="text-body-secondary small mb-3">
         Activez ou désactivez les fonctionnalités du site. Les pages et paramètres d'un module
-        n'apparaissent que lorsqu'il est actif. L'ordre ci-dessous (glisser-déposer, ou les
-        flèches sur mobile) détermine l'ordre des pages des modules dans les menus — les pages
-        du cœur du site apparaissent toujours en premier.
+        n'apparaissent que lorsqu'il est actif. Chaque changement est enregistré immédiatement.
     </p>
 
-    {% embed 'partials/list_editor.html.twig' with {
-        list_id: 'module-list',
-        items: modules,
-        reorder_url: '/config/modules/reorder',
-        empty_label: "Aucun module disponible. Placez des modules dans le répertoire modules/ pour les voir apparaître ici."
-    } %}
-        {% block item_content %}
-            <div class="d-flex align-items-center gap-2 flex-wrap">
-                <span class="fw-semibold">{{ item.info.manifest.name }}</span>
-                {% if item.info.enabled %}
-                    {% include 'partials/status_badge.html.twig' with { status: 'active', label: 'Actif' } only %}
-                {% else %}
-                    {% include 'partials/status_badge.html.twig' with { status: 'inactive', label: 'Inactif' } only %}
-                {% endif %}
-                <span class="text-body-tertiary" style="font-size:0.75rem;">
-                    v{{ item.info.manifest.version }}
-                </span>
-                {% if item.info.validationError %}
-                    {# Keeps its title tooltip (the validation error text),
-                       which the shared status_badge cannot carry. #}
-                    <span class="badge text-bg-danger"
-                          title="{{ item.info.validationError }}">Erreur</span>
-                {% endif %}
-                {% if not item.info.presentOnDisk %}
-                    <span class="badge text-bg-warning">Manquant</span>
-                {% endif %}
-            </div>
-            {% if item.info.manifest.description %}
-                <p class="text-body-secondary small mb-0 mt-1">{{ item.info.manifest.description }}</p>
-            {% endif %}
-            {% if item.info.manifest.requires is not empty %}
-                {% set required_names = [] %}
-                {% for required_id in item.info.manifest.requires %}
-                    {% set required_names = required_names|merge([module_names[required_id]|default(required_id)]) %}
-                {% endfor %}
-                <p class="text-body-secondary small mb-0 mt-1">
-                    Nécessite : {{ required_names|join(', ') }}
-                </p>
-                {% if not item.requirements_met %}
-                    <p class="text-warning-emphasis small mb-0 mt-1">
+    <div class="d-flex flex-column gap-2" id="module-list">
+        {% for item in modules %}
+            <div class="border rounded-3 p-3 d-flex align-items-start gap-2 flex-wrap">
+                <div class="flex-grow-1">
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <span class="fw-semibold">{{ item.info.manifest.name }}</span>
                         {% if item.info.enabled %}
-                            Ce module n'est pas chargé : un module requis est absent, invalide ou désactivé.
+                            {% include 'partials/status_badge.html.twig' with { status: 'active', label: 'Actif' } only %}
                         {% else %}
-                            Activation impossible : activez d'abord le ou les modules requis.
+                            {% include 'partials/status_badge.html.twig' with { status: 'inactive', label: 'Inactif' } only %}
                         {% endif %}
-                    </p>
-                {% endif %}
-            {% endif %}
-        {% endblock %}
-        {% block item_edit %}
-            {% if item.info.presentOnDisk and not item.info.validationError %}
-                {# A module whose requirements are unmet cannot be activated
-                   (ModuleManager::activate() refuses it anyway), but one that
-                   is already enabled must always stay deactivatable. #}
-                <div class="form-check form-switch">
-                    <input class="form-check-input module-toggle"
-                           type="checkbox" data-module="{{ item.info.manifest.id }}"
-                           id="module-toggle-{{ item.info.manifest.id }}"
-                           aria-label="Activer ou désactiver le module {{ item.info.manifest.name }}"
-                           {{ item.info.enabled ? 'checked' : '' }}
-                           {% if not item.info.enabled and not item.requirements_met %}
-                               disabled title="Activez d'abord le ou les modules requis."
-                           {% endif %}>
+                        <span class="text-body-tertiary" style="font-size:0.75rem;">
+                            v{{ item.info.manifest.version }}
+                        </span>
+                        {% if item.info.validationError %}
+                            {# Keeps its title tooltip (the validation error text),
+                               which the shared status_badge cannot carry. #}
+                            <span class="badge text-bg-danger"
+                                  title="{{ item.info.validationError }}">Erreur</span>
+                        {% endif %}
+                        {% if not item.info.presentOnDisk %}
+                            <span class="badge text-bg-warning">Manquant</span>
+                        {% endif %}
+                    </div>
+                    {% if item.info.manifest.description %}
+                        <p class="text-body-secondary small mb-0 mt-1">{{ item.info.manifest.description }}</p>
+                    {% endif %}
+                    {% if item.info.manifest.requires is not empty %}
+                        {% set required_names = [] %}
+                        {% for required_id in item.info.manifest.requires %}
+                            {% set required_names = required_names|merge([module_names[required_id]|default(required_id)]) %}
+                        {% endfor %}
+                        <p class="text-body-secondary small mb-0 mt-1">
+                            Nécessite : {{ required_names|join(', ') }}
+                        </p>
+                        {% if not item.requirements_met %}
+                            <p class="text-warning-emphasis small mb-0 mt-1">
+                                {% if item.info.enabled %}
+                                    Ce module n'est pas chargé : un module requis est absent, invalide ou désactivé.
+                                {% else %}
+                                    Activation impossible : activez d'abord le ou les modules requis.
+                                {% endif %}
+                            </p>
+                        {% endif %}
+                    {% endif %}
                 </div>
-            {% endif %}
-        {% endblock %}
-    {% endembed %}
+                <div class="flex-shrink-0">
+                    {% if item.info.presentOnDisk and not item.info.validationError %}
+                        {# A module whose requirements are unmet cannot be activated
+                           (ModuleManager::activate() refuses it anyway), but one that
+                           is already enabled must always stay deactivatable. #}
+                        <div class="form-check form-switch">
+                            <input class="form-check-input module-toggle"
+                                   type="checkbox" data-module="{{ item.info.manifest.id }}"
+                                   id="module-toggle-{{ item.info.manifest.id }}"
+                                   aria-label="Activer ou désactiver le module {{ item.info.manifest.name }}"
+                                   {{ item.info.enabled ? 'checked' : '' }}
+                                   {% if not item.info.enabled and not item.requirements_met %}
+                                       disabled title="Activez d'abord le ou les modules requis."
+                                   {% endif %}>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        {% else %}
+            <p class="text-body-secondary fst-italic mb-0">
+                Aucun module disponible. Placez des modules dans le répertoire modules/ pour les voir apparaître ici.
+            </p>
+        {% endfor %}
+    </div>
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ asset('/assets/js/sortable.js') }}" defer></script>
-<script src="{{ asset('/assets/js/list-editor.js') }}" defer></script>
 <script src="{{ asset('/assets/js/config-modules.js') }}" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

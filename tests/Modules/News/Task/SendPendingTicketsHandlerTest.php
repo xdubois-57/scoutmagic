@@ -309,9 +309,11 @@ class SendPendingTicketsHandlerTest extends TestCase
 
         $this->handle([$responseId]);
 
-        $entries = $this->pdo
-            ->query("SELECT event_type, description, context FROM event_log WHERE category = 'news'")
-            ->fetchAll(\PDO::FETCH_ASSOC);
+        $statement = $this->pdo->prepare(
+            'SELECT event_type, description, context FROM event_log WHERE category = ?'
+        );
+        $statement->execute(['news']);
+        $entries = $statement->fetchAll(\PDO::FETCH_ASSOC);
 
         $this->assertCount(1, $entries);
         $this->assertSame('ticket_email_failed', $entries[0]['event_type']);

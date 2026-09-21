@@ -41,11 +41,15 @@ use Modules\Rental\Repository\RentalAssetRepository;
 class RentalMenuHookService implements MenuEntryProvider
 {
     /**
-     * Well clear of the core pages' small orders — MenuBuilder ranks by
-     * group first anyway, so this only orders module entries against each
-     * other.
+     * Where both of this module's contributed entries sit — « Locations »
+     * in « Notre unité », « Mes locations » in « Espace membres › Pages »
+     * — on the one scale every entry of those menus shares. Core and
+     * module entries have the same sort rank, so this number competes with
+     * the core pages beside them rather than only with other modules. One
+     * constant for two menus because they happen to want the same place;
+     * split it the day they stop.
      */
-    private const INDEX_ORDER = 500;
+    private const INDEX_ORDER = 50;
 
     public function __construct(
         private RentalAssetRepository $assetRepository,

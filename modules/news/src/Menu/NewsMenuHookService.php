@@ -41,11 +41,12 @@ use Modules\News\Repository\FormRepository;
 class NewsMenuHookService implements MenuEntryProvider
 {
     /**
-     * Well clear of the core pages' small orders — MenuBuilder ranks by
-     * group first anyway, so this only orders module entries against each
-     * other.
+     * Where this entry sits in « Espace animateurs › Communication », on
+     * the one scale every entry of that column shares: core and module
+     * entries have the same sort rank, so this number competes with the
+     * core pages beside it rather than only with other modules.
      */
-    private const SCAN_ORDER = 520;
+    private const SCAN_ORDER = 60;
 
     public function __construct(private FormRepository $forms)
     {

@@ -17,6 +17,16 @@ use PHPUnit\Framework\TestCase;
  * (group-then-order) — this test only pins down the specific `order`
  * values chosen here, which is the part a future edit could silently
  * get wrong without any other test catching it.
+ *
+ * **What an administrator actually sees is no longer checked here.** This
+ * file used to assert that the Configuration menu rendered in the order
+ * its `addPage` calls are written in, which was true while those orders
+ * were ad hoc and stopped being true the moment every entry declared one
+ * grouped by column. Both halves of that check now live somewhere
+ * better: `testNoTwoConfigurationEntriesShareAnOrderNumber` below catches
+ * the duplicate order it was really guarding against, and
+ * `Tests\Core\View\Menu\MenuSnapshotTest` renders every menu for every
+ * role through the real builder.
  */
 class MenuRegistrationOrderTest extends TestCase
 {
@@ -98,20 +108,6 @@ class MenuRegistrationOrderTest extends TestCase
                 'Synchronisation des contacts',
             ],
             array_slice($labels, 1)
-        );
-    }
-
-    /**
-     * What the administrator actually sees, which the test above does not
-     * check and cannot: the file's statement order only decides ties.
-     */
-    public function testConfigurationMenuRendersInTheOrderTheFileIsWrittenIn(): void
-    {
-        $this->assertSame(
-            $this->addPageLabelsForMenu('MENU_CONFIGURATION'),
-            $this->renderedPageLabelsForMenu('MENU_CONFIGURATION'),
-            'Two entries sharing an order number render by registration order, '
-                . 'which is how « Stockage » once landed between E-mails and Courrier sortant.'
         );
     }
 

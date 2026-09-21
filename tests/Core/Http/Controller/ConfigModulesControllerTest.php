@@ -192,57 +192,6 @@ class ConfigModulesControllerTest extends TestCase
 
         $this->assertSame(403, $response->getStatusCode());
     }
-
-    public function testIndexRendersModuleListAsADraggableListEditor(): void
-    {
-        $request = new Request('GET', '/config/modules', [], [], [], []);
-        $response = $this->controller->index($request, []);
-
-        $body = $response->getBody();
-        $this->assertStringContainsString('id="module-list"', $body);
-        $this->assertStringContainsString('data-reorder-url="/config/modules/reorder"', $body);
-        $this->assertStringContainsString('list-editor-move-up', $body);
-        $this->assertStringContainsString('list-editor-move-down', $body);
-        // No active/delete/add affordances for modules — only reorder chrome.
-        $this->assertStringNotContainsString('list-editor-delete-btn', $body);
-        $this->assertStringNotContainsString('list-editor-add-btn', $body);
-    }
-
-    public function testReorderModulesPersistsNewOrder(): void
-    {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
-        $token = bin2hex(random_bytes(32));
-        $_SESSION['_csrf_token'] = $token;
-        AuthSession::login(1, 'admin@test.com', 'admin');
-
-        $this->registryRepo->upsert('valid_module', true, '1.0.0', 1);
-
-        $request = $this->createJsonRequest([
-            'ids' => ['second_module', 'valid_module'],
-            '_csrf_token' => $token,
-        ]);
-        $response = $this->controller->reorderModules($request, []);
-
-        $decoded = json_decode($response->getBody(), true);
-        $this->assertTrue($decoded['success']);
-
-        $this->assertSame(0, $this->registryRepo->findByModuleId('second_module')['sort_order']);
-        $this->assertSame(1, $this->registryRepo->findByModuleId('valid_module')['sort_order']);
-    }
-
-    public function testReorderModulesWithInvalidCsrfReturns403(): void
-    {
-        $request = $this->createJsonRequest([
-            'ids' => ['valid_module'],
-            '_csrf_token' => 'invalid',
-        ]);
-        $response = $this->controller->reorderModules($request, []);
-
-        $this->assertSame(403, $response->getStatusCode());
-    }
-
     public function testIndexListsAModulesHardDependenciesByName(): void
     {
         $request = new Request('GET', '/config/modules', [], [], [], []);
@@ -259,6 +208,58 @@ class ConfigModulesControllerTest extends TestCase
         $body = $this->controller->index($request, [])->getBody();
 
         $this->assertStringContainsString('Nécessite : not_on_disk_module', $body);
+    }
+
+    /**
+     * **The page draws no control it cannot honour.**
+     *
+     * It used to embed `partials/list_editor.html.twig` for its
+     * drag-to-reorder chrome. A module's position decides nothing any
+     * more — every menu entry declares its own order — so the embed went
+     * with the endpoint. That partial draws its drag handle and its
+     * mobile move buttons unconditionally, so keeping it would have left
+     * a handle that moves a row and saves nothing, which is worse than no
+     * handle at all.
+     */
+    public function testIndexDrawsNoReorderingAffordance(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/modules', [], [], [], []), [])->getBody();
+
+        foreach ([
+            'list-editor-drag-handle',
+            'list-editor-move-up',
+            'list-editor-move-down',
+            'data-reorder-url',
+            '/config/modules/reorder',
+        ] as $gone) {
+            $this->assertStringNotContainsString($gone, $body, "The page still draws '{$gone}'.");
+        }
+    }
+
+    /**
+     * And it keeps the one control it does honour: activation, as the
+     * switch it has always been rather than a checkbox.
+     */
+    public function testIndexKeepsTheActivationSwitchForEveryModuleOnDisk(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/modules', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('form-check form-switch', $body);
+        $this->assertStringContainsString('class="form-check-input module-toggle"', $body);
+        $this->assertStringContainsString('data-module="valid_module"', $body);
+    }
+
+    /**
+     * The script that binds that switch is still loaded — and the one
+     * that only ever drove the list chrome no longer is.
+     */
+    public function testIndexLoadsTheScriptThatBindsItsSwitchAndNoOther(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/modules', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('/assets/js/config-modules.js', $body);
+        $this->assertStringNotContainsString('/assets/js/list-editor.js', $body);
+        $this->assertStringNotContainsString('/assets/js/sortable.js', $body);
     }
 
     public function testIndexBlocksTheToggleOfAModuleWithUnmetRequirements(): void
@@ -279,17 +280,6 @@ class ConfigModulesControllerTest extends TestCase
 
         $this->assertStringNotContainsString('disabled', $this->toggleTagFor($body, 'dependent_module'));
     }
-
-    public function testIndexKeepsTheToggleAndReorderChromeIntactForAModuleWithoutRequires(): void
-    {
-        $request = new Request('GET', '/config/modules', [], [], [], []);
-        $body = $this->controller->index($request, [])->getBody();
-
-        $this->assertStringNotContainsString('disabled', $this->toggleTagFor($body, 'valid_module'));
-        // The drag-and-drop reorder chrome is untouched by any of this.
-        $this->assertStringContainsString('data-reorder-url="/config/modules/reorder"', $body);
-    }
-
     public function testToggleModuleReturnsTheRefusalMessageForAnUnmetRequirement(): void
     {
         if (session_status() === PHP_SESSION_NONE) {
