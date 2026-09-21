@@ -3194,7 +3194,7 @@ $menuBuilder->addPage(
     'Membres par section',
     '/chefs/membres',
     'intendant',
-    11,
+    20,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3207,7 +3207,7 @@ $menuBuilder->addPage(
 // admin (see /config-mode/activate|deactivate's own role_min and
 // Core\View\ConfigurationMode, widened the same way) so every chief
 // d'unité, not only a superadmin, can edit site content. First in this
-// menu (order 10) — the most-used entry for a chief d'unité.
+// menu — the most-used entry for a chief d'unité.
 $menuBuilder->addPage(
     MenuBuilder::MENU_ESPACE_ADMIN,
     'Édition du site',
@@ -3239,7 +3239,7 @@ $menuBuilder->addPage(
     "Points d'attention",
     '/admin/points-attention',
     'admin',
-    21,
+    30,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3252,7 +3252,7 @@ $menuBuilder->addPage(
     'Membres',
     '/admin/members',
     'admin',
-    30,
+    40,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3265,7 +3265,7 @@ $menuBuilder->addPage(
     'Année scoute',
     '/admin/scout-year',
     'admin',
-    40,
+    50,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3278,7 +3278,7 @@ $menuBuilder->addPage(
     'Journal',
     '/admin/journal',
     'admin',
-    50,
+    60,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3286,15 +3286,15 @@ $menuBuilder->addPage(
     null,
     'suivi'
 );
-// Installation & serveur first (order 5, ahead of Modules/Badges below) —
-// the most-used entry for a superadmin; the rest of this menu keeps its
-// existing relative order.
+// Installation & serveur opens the « Site » column, ahead of Modules and
+// Pages de texte — the most-used entry for a superadmin; the rest of this
+// menu keeps its existing relative order.
 $menuBuilder->addPage(
     MenuBuilder::MENU_CONFIGURATION,
     'Installation & serveur',
     '/setup',
     'superadmin',
-    5,
+    10,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3307,7 +3307,7 @@ $menuBuilder->addPage(
     'Modules',
     '/config/modules',
     'superadmin',
-    10,
+    20,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3315,15 +3315,15 @@ $menuBuilder->addPage(
     null,
     'site'
 );
-// Configuration > Site > Pages de texte (ARCHITECTURE.md §8.116). Order 11
-// puts it right after Modules: both answer « what does this site have on
-// it », where the entries below answer « what does this unit have in it ».
+// Configuration > Site > Pages de texte (ARCHITECTURE.md §8.116), right
+// after Modules: both answer « what does this site have on it », where the
+// entries below answer « what does this unit have in it ».
 $menuBuilder->addPage(
     MenuBuilder::MENU_CONFIGURATION,
     'Pages de texte',
     '/config/pages-de-texte',
     'superadmin',
-    11,
+    30,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3336,7 +3336,7 @@ $menuBuilder->addPage(
     'Badges',
     '/config/badges',
     'superadmin',
-    12,
+    40,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3349,7 +3349,7 @@ $menuBuilder->addPage(
     'Correspondances Desk',
     '/config/functions',
     'superadmin',
-    20,
+    50,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3362,7 +3362,7 @@ $menuBuilder->addPage(
     'Réglages',
     '/config/settings',
     'superadmin',
-    30,
+    60,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3375,7 +3375,7 @@ $menuBuilder->addPage(
     'RGPD',
     '/config/rgpd',
     'superadmin',
-    35,
+    70,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3388,7 +3388,7 @@ $menuBuilder->addPage(
     'Actions planifiées',
     '/config/scheduled',
     'superadmin',
-    40,
+    80,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3401,7 +3401,7 @@ $menuBuilder->addPage(
     'Comptes superadmin',
     '/config/superadmins',
     'superadmin',
-    44,
+    90,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3414,7 +3414,7 @@ $menuBuilder->addPage(
     'Maintenance',
     '/config/maintenance',
     'admin',
-    45,
+    100,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3427,7 +3427,7 @@ $menuBuilder->addPage(
     'Notifications',
     '/config/notifications',
     'superadmin',
-    46,
+    110,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3440,7 +3440,7 @@ $menuBuilder->addPage(
     'E-mails',
     '/config/emails',
     'superadmin',
-    47,
+    120,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3453,7 +3453,7 @@ $menuBuilder->addPage(
     'Courrier sortant',
     '/config/courrier-sortant',
     'superadmin',
-    48,
+    130,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3479,7 +3479,7 @@ $menuBuilder->addPage(
     'Stockage',
     '/config/stockage',
     'superadmin',
-    49,
+    140,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3492,7 +3492,7 @@ $menuBuilder->addPage(
     'Support',
     '/config/support',
     'superadmin',
-    50,
+    150,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3505,7 +3505,7 @@ $menuBuilder->addPage(
     'Synchronisation des contacts',
     '/config/synchronisation-contacts',
     'superadmin',
-    55,
+    160,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3513,10 +3513,10 @@ $menuBuilder->addPage(
     null,
     'exploitation'
 );
-// order 10, not a leftover "after the separator" number — SORT_GROUP_CORE
-// (addPage()'s default) already sorts this after the dynamic member
-// entries/empty-state placeholder above regardless of the numeric order,
-// and it's currently the only core static page in this menu.
+// SORT_GROUP_CORE (addPage()'s default) already sorts this after the
+// dynamic member entries and the empty-state placeholder above, whatever
+// its number: only dynamic entries have a rank of their own. It is
+// currently the only core static page in this menu.
 $menuBuilder->addPage(
     MenuBuilder::MENU_ESPACE_ANIMES,
     'Notifications',
@@ -5323,7 +5323,6 @@ $router->addRoute(
     ['label' => 'Modules', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
 );
 $router->addRoute('POST', '/config/modules/toggle', ConfigModulesController::class, 'toggleModule', 'superadmin');
-$router->addRoute('POST', '/config/modules/reorder', ConfigModulesController::class, 'reorderModules', 'superadmin');
 
 // Configuration > Pages de texte — the screen that creates the free-text
 // pages of ARCHITECTURE.md §8.116. Every route is `superadmin`, and

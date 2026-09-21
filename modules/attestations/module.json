@@ -2,7 +2,7 @@
   "id": "attestations",
   "name": "Attestations",
   "description": "Découpe le PDF d'attestations envoyé par la fédération et dépose l'attestation de chaque membre sur sa page, visible par lui seul.",
-  "version": "1.5.0",
+  "version": "1.5.2",
   "routes": [
     {
       "path": "/admin/attestations",
@@ -14,9 +14,12 @@
       "label": "Attestations",
       "menu_icon": "bi-file-earmark-text",
       "menu_group": "membres_annee",
+      "menu_order": 100,
       "breadcrumb": {
         "label": "Attestations",
-        "parents": ["Espace chefs d'U"]
+        "parents": [
+          "Espace chefs d'U"
+        ]
       }
     },
     {
@@ -38,8 +41,15 @@
       "label": "",
       "breadcrumb": {
         "label": "Couverture",
-        "parents": ["Espace chefs d'U"],
-        "ancestors": [{ "label": "Attestations", "path": "/admin/attestations" }]
+        "parents": [
+          "Espace chefs d'U"
+        ],
+        "ancestors": [
+          {
+            "label": "Attestations",
+            "path": "/admin/attestations"
+          }
+        ]
       }
     },
     {
@@ -52,8 +62,15 @@
       "label": "",
       "breadcrumb": {
         "label": "Lot d'attestations",
-        "parents": ["Espace chefs d'U"],
-        "ancestors": [{ "label": "Attestations", "path": "/admin/attestations" }]
+        "parents": [
+          "Espace chefs d'U"
+        ],
+        "ancestors": [
+          {
+            "label": "Attestations",
+            "path": "/admin/attestations"
+          }
+        ]
       }
     },
     {

@@ -2,7 +2,7 @@
   "id": "registration",
   "name": "Inscriptions",
   "description": "Parcours d'inscription complet : page publique avec disponibilité des places et gestion des listes d'attente, formulaire de demande, accusés de réception par email, page de suivi pour les familles, gestion des demandes côté staff (acceptation, refus, rapprochement automatique à l'import Desk, rétention), préparation de l'année suivante (départs, passage entre sections, prévisions d'effectifs), veto sur la bascule d'année scoute tant que des demandes restent ouvertes, et liste de diffusion pour le module d'envoi de mails.",
-  "version": "6.9.0",
+  "version": "6.9.2",
   "enabled_by_default": false,
   "routes": [
     {
@@ -14,6 +14,7 @@
       "role_min": "public",
       "label": "Inscriptions",
       "menu_icon": "bi-person-plus",
+      "menu_order": 80,
       "breadcrumb": {
         "label": "Inscriptions",
         "parents": [
@@ -68,7 +69,12 @@
       "menu": "espace_animes",
       "role_min": "identified",
       "label": "",
-      "breadcrumb": { "label": "Ma demande", "parents": ["Espace membres"] }
+      "breadcrumb": {
+        "label": "Ma demande",
+        "parents": [
+          "Espace membres"
+        ]
+      }
     },
     {
       "path": "/config/reinscription",
@@ -80,7 +86,13 @@
       "label": "Réinscription",
       "menu_icon": "bi-arrow-repeat",
       "menu_group": "services",
-      "breadcrumb": { "label": "Réinscription", "parents": ["Espace chefs d'U"] }
+      "menu_order": 150,
+      "breadcrumb": {
+        "label": "Réinscription",
+        "parents": [
+          "Espace chefs d'U"
+        ]
+      }
     },
     {
       "path": "/config/reinscription",
@@ -108,7 +120,12 @@
       "menu": "espace_animes",
       "role_min": "identified",
       "label": "",
-      "breadcrumb": { "label": "Réinscription", "parents": ["Espace membres"] }
+      "breadcrumb": {
+        "label": "Réinscription",
+        "parents": [
+          "Espace membres"
+        ]
+      }
     },
     {
       "path": "/reinscription",
@@ -127,7 +144,12 @@
       "menu": "notre_unite",
       "role_min": "public",
       "label": "",
-      "breadcrumb": { "label": "Suivi de la demande", "parents": ["Notre unité"] }
+      "breadcrumb": {
+        "label": "Suivi de la demande",
+        "parents": [
+          "Notre unité"
+        ]
+      }
     },
     {
       "path": "/inscriptions/suivi/demande/{id}/emails",
@@ -155,7 +177,12 @@
       "menu": "notre_unite",
       "role_min": "public",
       "label": "",
-      "breadcrumb": { "label": "Confirmation d'adresse", "parents": ["Notre unité"] }
+      "breadcrumb": {
+        "label": "Confirmation d'adresse",
+        "parents": [
+          "Notre unité"
+        ]
+      }
     },
     {
       "path": "/inscriptions/suivi/emails/confirm/{id}",
@@ -176,6 +203,7 @@
       "label": "Inscriptions",
       "menu_icon": "bi-person-plus",
       "menu_group": "services",
+      "menu_order": 160,
       "breadcrumb": {
         "label": "Inscriptions",
         "parents": [
@@ -263,7 +291,18 @@
       "menu": "espace_admin",
       "role_min": "admin",
       "label": "",
-      "breadcrumb": { "label": "Demande", "parents": ["Espace chefs d'U"], "ancestors": [{ "label": "Inscriptions", "path": "/config/inscriptions" }] }
+      "breadcrumb": {
+        "label": "Demande",
+        "parents": [
+          "Espace chefs d'U"
+        ],
+        "ancestors": [
+          {
+            "label": "Inscriptions",
+            "path": "/config/inscriptions"
+          }
+        ]
+      }
     },
     {
       "path": "/config/inscriptions/demandes/{id}/accept",
@@ -365,6 +404,7 @@
       "label": "Départs",
       "menu_icon": "bi-box-arrow-right",
       "menu_group": "ma_section",
+      "menu_order": 130,
       "breadcrumb": {
         "label": "Départs",
         "parents": [
@@ -391,6 +431,7 @@
       "label": "Passage",
       "menu_icon": "bi-arrow-left-right",
       "menu_group": "membres_annee",
+      "menu_order": 170,
       "breadcrumb": {
         "label": "Passage",
         "parents": [
@@ -489,7 +530,7 @@
       "label": "Prévisions",
       "menu_icon": "bi-graph-up-arrow",
       "menu_group": "gestion",
-      "menu_order": 30,
+      "menu_order": 50,
       "breadcrumb": {
         "label": "Prévisions",
         "parents": [

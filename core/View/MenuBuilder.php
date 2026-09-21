@@ -31,11 +31,26 @@ class MenuBuilder
     public const SORT_GROUP_CORE = 'core';
     public const SORT_GROUP_MODULE = 'module';
 
-    /** @var array<string, int> */
+    /**
+     * **Core and module entries share one rank, deliberately.**
+     *
+     * They used to be 1 and 2, which meant a module page could never
+     * precede a core page however low its `menu_order` — and that is why
+     * « Inscriptions » sat last in the public menu, behind a legal page,
+     * with no value a module could declare to move it. Where an entry
+     * comes from is an implementation detail of this repository; it has
+     * no business deciding what a parent sees first.
+     *
+     * Dynamic entries stay in front, and that one IS about the reader:
+     * the members linked to this account come before the pages about
+     * everybody.
+     *
+     * @var array<string, int>
+     */
     private const SORT_GROUP_RANK = [
         self::SORT_GROUP_DYNAMIC => 0,
         self::SORT_GROUP_CORE => 1,
-        self::SORT_GROUP_MODULE => 2,
+        self::SORT_GROUP_MODULE => 1,
     ];
 
     /**
@@ -185,10 +200,11 @@ class MenuBuilder
      *        only orders the flat list. Must be a group declared for
      *        $menuId; anything else is refused here rather than falling
      *        back silently, so a typo'd id cannot ship as a page that
-     *        quietly moved column. Null on a grouped menu means the *last*
-     *        declared group: a core page added later and forgotten lands in
-     *        "Exploitation"/"Suivi", where the omission is visible, rather
-     *        than inventing an unnamed column of its own.
+     *        quietly moved column. Null on a grouped menu falls back to the
+     *        *last* declared column rather than inventing an unnamed one —
+     *        but nothing ships relying on that fallback any more, and
+     *        `Tests\Architecture\MenuEntriesDeclareTheirPlaceTest` fails
+     *        on an entry that starts to.
      *
      * @throws \InvalidArgumentException when $menuGroup is not a group declared for $menuId.
      */
@@ -348,13 +364,11 @@ class MenuBuilder
 
     /**
      * Filter a menu's registered entries by role and sort them. Sorted by
-     * SORT_GROUP_RANK first (dynamic entries, e.g. per-member pages,
-     * always before core static pages, always before module-provided
-     * pages), then by `order` within each sort group — a module's
-     * `menu_order` (however low) can no longer place it ahead of core
-     * pages or dynamic entries, only ahead of other modules. usort() has
-     * been stable since PHP 8.0, so two entries with the same sort group
-     * and order keep their registration order.
+     * SORT_GROUP_RANK first — dynamic entries, e.g. per-member pages,
+     * before everything else — then by `order`, on one scale shared by
+     * core pages and module pages alike. usort() has been stable since
+     * PHP 8.0, so two entries with the same rank and order keep their
+     * registration order.
      *
      * @return array<array{
      *     label: string,

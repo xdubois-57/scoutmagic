@@ -2,7 +2,7 @@
   "id": "trombinoscope",
   "name": "Trombinoscope",
   "description": "Annuaire photo des animés, classé par section, avec leurs coordonnées et leur fonction.",
-  "version": "1.2.0",
+  "version": "1.2.2",
   "enabled_by_default": true,
   "routes": [
     {
@@ -15,8 +15,13 @@
       "label": "Trombinoscope",
       "menu_icon": "bi-person-badge",
       "menu_group": "pages",
-      "menu_order": 5,
-      "breadcrumb": { "label": "Trombinoscope", "parents": ["Espace membres"] }
+      "menu_order": 20,
+      "breadcrumb": {
+        "label": "Trombinoscope",
+        "parents": [
+          "Espace membres"
+        ]
+      }
     },
     {
       "path": "/trombinoscope/pdf",
