@@ -211,7 +211,7 @@ class CardDavController extends AbstractController
                     // card that has since gone must still receive the
                     // others.
                     $responses[] = [
-                        'href' => $href,
+                        'href' => $this->canonicalHref($href, $memberId),
                         'found' => [],
                         'missing' => [],
                         'status' => 'HTTP/1.1 404 Not Found',
@@ -466,6 +466,33 @@ class CardDavController extends AbstractController
             DavXml::NS_CALENDARSERVER => 'CS:' . $local,
             default => $local . ' xmlns="' . DavXml::escape($namespace) . '"',
         };
+    }
+
+    /**
+     * The path to echo back for an href a client sent and this
+     * collection could not resolve.
+     *
+     * **Not the raw value.** RFC 4918 lets a client send an absolute URI
+     * where it was given a path, and {@see DavXml::href()} encodes what
+     * it is handed segment by segment — so echoing
+     * `http://host/carddav/staff/9.vcf` verbatim would emit
+     * `http%3A//host/…` and leave the client unable to match the 404
+     * against the href it asked for, which is the one thing this
+     * response exists to let it do.
+     *
+     * A member id that resolved is rebuilt into this collection's own
+     * canonical path; anything else keeps its path component, decoded so
+     * the writer's re-encoding round-trips.
+     */
+    private function canonicalHref(string $href, ?int $memberId): string
+    {
+        if ($memberId !== null) {
+            return AddressBookService::COLLECTION_PATH . $memberId . '.vcf';
+        }
+
+        $path = parse_url(trim($href), PHP_URL_PATH);
+
+        return is_string($path) && $path !== '' ? rawurldecode($path) : trim($href);
     }
 
     /**

@@ -449,6 +449,54 @@ class CardDavControllerTest extends TestCase
         $this->assertStringContainsString('BEGIN:VCARD', $response->getBody());
     }
 
+    /**
+     * RFC 4918 lets a client send an absolute URI where it was given a
+     * path, and the 404 it gets back has to be matchable against the
+     * href it asked for — echoing the value verbatim through an encoder
+     * that works segment by segment would turn `http://` into
+     * `http%3A//` and leave the client unable to correlate it.
+     */
+    public function testAMultigetHrefThatIsAnAbsoluteUriComesBackAsAUsablePath(): void
+    {
+        $response = $this->controller->report($this->request(
+            'REPORT',
+            '/carddav/staff/',
+            '<C:addressbook-multiget xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:carddav">'
+            . '<D:prop><C:address-data /></D:prop>'
+            . '<D:href>https://unite.example.org/carddav/staff/999999.vcf</D:href>'
+            . '</C:addressbook-multiget>',
+            $this->signedIn()
+        ));
+
+        $this->assertStringNotContainsString('http%3A', $response->getBody());
+        $this->assertStringNotContainsString('https%3A', $response->getBody());
+        $this->assertStringContainsString('<D:href>/carddav/staff/999999.vcf</D:href>', $response->getBody());
+        $this->assertStringContainsString('HTTP/1.1 404 Not Found', $response->getBody());
+    }
+
+    /**
+     * And an href pointing somewhere else entirely keeps its own path,
+     * so the client can still see which of its requests this answers.
+     */
+    public function testAMultigetHrefOutsideTheCollectionKeepsItsPath(): void
+    {
+        $response = $this->controller->report($this->request(
+            'REPORT',
+            '/carddav/staff/',
+            '<C:addressbook-multiget xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:carddav">'
+            . '<D:prop><C:address-data /></D:prop>'
+            . '<D:href>https://unite.example.org/autre/collection/1.vcf</D:href>'
+            . '</C:addressbook-multiget>',
+            $this->signedIn()
+        ));
+
+        $this->assertStringContainsString('<D:href>/autre/collection/1.vcf</D:href>', $response->getBody());
+        $this->assertStringContainsString('HTTP/1.1 404 Not Found', $response->getBody());
+
+        $document = new \DOMDocument();
+        $this->assertTrue($document->loadXML($response->getBody()));
+    }
+
     public function testAQueryReturnsTheWholeCollection(): void
     {
         $response = $this->controller->report($this->request(
