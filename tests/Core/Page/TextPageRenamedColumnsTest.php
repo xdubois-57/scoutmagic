@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Tests\Core\Page;
 
 use Core\Page\TextPage;
+use Core\Page\TextPageMenuProvider;
 use Core\View\MenuBuilder;
 use PHPUnit\Framework\TestCase;
 
@@ -92,6 +93,30 @@ final class TextPageRenamedColumnsTest extends TestCase
         }
 
         $this->assertContains($expected, $declared, "« {$stored} » is mapped onto an undeclared column.");
+    }
+
+    /**
+     * **The end of the chain, which is the only place the map is really
+     * proved.** The two tests above say the successor is right and that
+     * its menu declares it; this one hands the hydrated page to the real
+     * `TextPageMenuProvider` and checks an entry actually comes out.
+     *
+     * That provider is where the silence would happen:
+     * `placementIsStillValid()` drops a page whose column its menu does
+     * not declare, without an exception, a log line or a mark on the
+     * page. Asserting the group string can be right while the page still
+     * vanishes — only running the provider rules that out.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('renamedColumns')]
+    public function testTheRehydratedPageIsStillOfferedByTheMenuProvider(string $menuId, string $stored, string $expected): void
+    {
+        $page = TextPage::fromRow(self::row($stored, $menuId));
+
+        $entries = (new TextPageMenuProvider([$page]))->getMenuEntries(null);
+
+        $this->assertCount(1, $entries, "A page filed under « {$stored} » is no longer placed anywhere.");
+        $this->assertSame($menuId, $entries[0]->menuId);
+        $this->assertSame($expected, $entries[0]->menuGroup);
     }
 
     /** A current id is passed straight through, never translated twice. */
