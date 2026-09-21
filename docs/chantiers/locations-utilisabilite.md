@@ -775,6 +775,21 @@ bien dire le jour même.
   rend chaque rappel au défaut de l'unité — ce que fait une installation qui
   n'a jamais ouvert la section — et `saveReminders()` refuse en français
   plutôt que d'écrire nulle part.
+- **Le délai du rappel de conformité s'applique vraiment.** C'était le seul
+  des douze dont le nombre ne faisait rien : le champ s'enregistrait,
+  repassait par `rental_asset_reminders` et se réaffichait, pendant que la
+  fenêtre restait les soixante jours livrés — parce qu'elle vivait dans
+  `RentalComplianceService::EXPIRY_WARNING_DAYS` et que rien ne lui passait
+  l'horaire. Seule la case « Actif » avait un effet, ce qui est la pire
+  forme de la panne : depuis la page qui propose le champ, le réglage a
+  l'air de marcher. Trois endroits, dans cet ordre — la requête s'élargit
+  au plus généreux des biens, parce qu'elle tourne avant de savoir de quel
+  bien il s'agira ; `ReminderPlanner` resserre au bien qu'il a en main ;
+  et la pastille de la page « Conformité » lit la même valeur, sans quoi
+  elle et le rappel se contrediraient sous les yeux du gestionnaire. Un
+  document déjà expiré n'est jamais retenu par une fenêtre : le délai dit
+  à quelle avance prévenir, pas combien de temps un papier périmé compte
+  encore.
 - **Chaque clé de réglage est écrite en entier, pas composée.**
   `settingKey()` rendait `'reminder_' . $this->value . '_days'`, ce qui
   attache le nom d'un réglage **enregistré** à la valeur de l'énumération :

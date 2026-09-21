@@ -328,12 +328,30 @@ class ReminderPlanner
             return null;
         }
 
-        if (!($schedule ?? ReminderSchedule::shipped())->isActive(ReminderKind::COMPLIANCE_EXPIRING)) {
+        $resolved = $schedule ?? ReminderSchedule::shipped();
+        if (!$resolved->isActive(ReminderKind::COMPLIANCE_EXPIRING)) {
             return null;
         }
 
         $days = $item->daysUntilExpiry($today);
         if ($days === null) {
+            return null;
+        }
+
+        // **The configured lead time, applied here and nowhere else.** The
+        // query upstream widens to whatever the most generous asset asks
+        // for, because it has to run before it knows which assets it will
+        // find; this is where it narrows to the one in hand. Without it the
+        // « Document de conformité expirant » field saved, round-tripped
+        // and redisplayed while the reminder kept firing sixty days out —
+        // the only reminder of the twelve whose number did nothing, and the
+        // kind of failure a manager cannot see from the page that offers
+        // the field.
+        //
+        // An entry already past its date is never held back by a window:
+        // the lead time says how early to warn, not how long expired paper
+        // stops mattering.
+        if ($days > $resolved->daysFor(ReminderKind::COMPLIANCE_EXPIRING)) {
             return null;
         }
 

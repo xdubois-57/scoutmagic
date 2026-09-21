@@ -119,6 +119,31 @@ class RentalReminderService
     }
 
     /**
+     * The widest compliance window any asset is configured for.
+     *
+     * `RentalComplianceService::dueForReminder()` narrows the query by a
+     * date, so it has to choose that date before it knows whose entries it
+     * will get back. Asking for the most generous window and letting
+     * `ReminderPlanner` reject what falls outside each asset's own is the
+     * only order that works: the other way round, an asset configured for
+     * ninety days would never even be offered the entries it cares about.
+     *
+     * The unit's own default counts too — it is what every asset without an
+     * override uses.
+     */
+    private function widestComplianceWindow(): int
+    {
+        $this->overrides ??= $this->assetReminderRepository?->findAll() ?? [];
+
+        $widest = $this->scheduleFor(0)->daysFor(ReminderKind::COMPLIANCE_EXPIRING);
+        foreach (array_keys($this->overrides) as $assetId) {
+            $widest = max($widest, $this->scheduleFor($assetId)->daysFor(ReminderKind::COMPLIANCE_EXPIRING));
+        }
+
+        return $widest;
+    }
+
+    /**
      * One pass over everything that could be due.
      *
      * @return int how many reminders actually went out
@@ -171,7 +196,7 @@ class RentalReminderService
     {
         $sent = 0;
 
-        foreach ($this->complianceService->dueForReminder($today) as $item) {
+        foreach ($this->complianceService->dueForReminder($today, $this->widestComplianceWindow()) as $item) {
             $asset = $this->assetRepository->findById($item->assetId);
             if ($asset === null) {
                 continue;

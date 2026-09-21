@@ -663,4 +663,89 @@ class ReminderPlannerTest extends TestCase
             $this->assertStringNotContainsStringIgnoringCase($verdict, $reminder->body);
         }
     }
+
+    /**
+     * **The configured lead time is the one that decides.**
+     *
+     * This was the only reminder of the twelve whose number did nothing:
+     * the field saved, round-tripped through `rental_asset_reminders` and
+     * redisplayed, while the window stayed the shipped sixty days because
+     * it lived in `RentalComplianceService::EXPIRY_WARNING_DAYS` and
+     * nothing threaded the schedule into it. Only the « Actif » box had any
+     * effect — which is the worst shape of the failure, because the setting
+     * looks like it works from the page that offers it.
+     */
+    public function testAComplianceEntryOutsideTheConfiguredWindowIsNotYetDue(): void
+    {
+        // Ten days, and an entry expiring in thirty. Under the shipped
+        // sixty it was due; under what this asset asks for it is not.
+        $schedule = ReminderSchedule::of([], [
+            ReminderKind::COMPLIANCE_EXPIRING->value => ['days' => 10, 'active' => true],
+        ]);
+
+        $this->assertNull($this->planner->forComplianceItem(
+            $this->item('2027-07-31'),
+            $this->asset(),
+            new \DateTimeImmutable('2027-07-01'),
+            $schedule
+        ));
+    }
+
+    public function testAComplianceEntryInsideTheConfiguredWindowIsDue(): void
+    {
+        $schedule = ReminderSchedule::of([], [
+            ReminderKind::COMPLIANCE_EXPIRING->value => ['days' => 10, 'active' => true],
+        ]);
+
+        $reminder = $this->planner->forComplianceItem(
+            $this->item('2027-07-08'),
+            $this->asset(),
+            new \DateTimeImmutable('2027-07-01'),
+            $schedule
+        );
+
+        $this->assertNotNull($reminder);
+        $this->assertStringContainsString('expire le 08/07/2027', $reminder->body);
+    }
+
+    /**
+     * And a window never holds back paper that has already expired: the
+     * lead time says how early to warn, not how long an expired document
+     * stops mattering. A one-day window that swallowed « a expiré le… »
+     * would be the reminder going quiet exactly when it counts.
+     */
+    public function testAnExpiredEntryIsDueHoweverShortTheWindow(): void
+    {
+        $schedule = ReminderSchedule::of([], [
+            ReminderKind::COMPLIANCE_EXPIRING->value => ['days' => 0, 'active' => true],
+        ]);
+
+        $reminder = $this->planner->forComplianceItem(
+            $this->item('2027-06-01'),
+            $this->asset(),
+            new \DateTimeImmutable('2027-07-01'),
+            $schedule
+        );
+
+        $this->assertNotNull($reminder);
+        $this->assertStringContainsString('a expiré le 01/06/2027', $reminder->body);
+    }
+
+    /**
+     * With no schedule at all — a caller that has none, and the shipped
+     * defaults — the window is the sixty days this module has always used,
+     * so nothing about an installation that never opened the section
+     * changes.
+     */
+    public function testTheShippedWindowIsStillSixtyDays(): void
+    {
+        $today = new \DateTimeImmutable('2027-07-01');
+
+        $this->assertNotNull(
+            $this->planner->forComplianceItem($this->item('2027-08-29'), $this->asset(), $today)
+        );
+        $this->assertNull(
+            $this->planner->forComplianceItem($this->item('2027-09-01'), $this->asset(), $today)
+        );
+    }
 }

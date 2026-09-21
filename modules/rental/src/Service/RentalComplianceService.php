@@ -214,11 +214,21 @@ class RentalComplianceService
      * inside the warning window, and not already warned about since the
      * last change.
      *
+     * `$windowDays` is the **widest** window any asset is configured for,
+     * not one asset's own: this query cannot know whose entries it is about
+     * until it has them. Narrowing per asset is `ReminderPlanner`'s job,
+     * with that asset's schedule in hand. Passing the widest here and
+     * filtering there is what keeps a unit that shortened its lead time
+     * from also shortening everybody else's — and a unit that lengthened it
+     * from never being asked at all, which is the failure that does not
+     * announce itself.
+     *
      * @return ComplianceItem[]
      */
-    public function dueForReminder(\DateTimeImmutable $today): array
+    public function dueForReminder(\DateTimeImmutable $today, ?int $windowDays = null): array
     {
-        $limit = $today->setTime(0, 0)->modify('+' . self::EXPIRY_WARNING_DAYS . ' days')->format('Y-m-d');
+        $window = max(0, $windowDays ?? self::EXPIRY_WARNING_DAYS);
+        $limit = $today->setTime(0, 0)->modify('+' . $window . ' days')->format('Y-m-d');
 
         return array_values(array_filter(
             $this->repository->findExpiringBy($limit),

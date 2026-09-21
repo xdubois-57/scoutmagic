@@ -157,6 +157,33 @@ class RentalReminderServiceTest extends TestCase
         );
     }
 
+    /**
+     * The same service, with the per-asset overrides wired — which is how
+     * `public/index.php` builds it, and the only way the compliance window
+     * can be anything but the shipped sixty days.
+     */
+    private function serviceWithOverrides(
+        ?\Core\Notification\NotificationService $notifications = null
+    ): RentalReminderService {
+        return new RentalReminderService(
+            $this->bookingRepository,
+            $this->assetRepository,
+            $this->managerRepository,
+            $this->complianceService,
+            $this->reminderRepository,
+            new ReminderPlanner(),
+            new MemberYearRepository($this->pdo),
+            new UserAccountRepository($this->pdo, $this->encryption),
+            new JournalService(new JournalRepository($this->pdo)),
+            $notifications,
+            null,
+            null,
+            null,
+            null,
+            new \Modules\Rental\Repository\RentalAssetReminderRepository($this->pdo)
+        );
+    }
+
     // ── Fixtures ────────────────────────────────────────────────────────
 
     private function addManagerWithAccount(string $email): int
@@ -536,6 +563,79 @@ class RentalReminderServiceTest extends TestCase
             '2027-07-01',
             (new RentalComplianceRepository($this->pdo))->findById($id)?->remindedOn
         );
+    }
+
+    /**
+     * **An asset that asks to be warned earlier is actually asked earlier.**
+     *
+     * The window is applied per asset, but the query that finds the entries
+     * runs before any asset is known — so it has to widen to the most
+     * generous one configured anywhere. Without that, an asset set to
+     * ninety days would never even be offered the entry: the planner would
+     * have accepted it and never seen it, and the setting would look like
+     * it did nothing for the second time in this file's history.
+     */
+    public function testAnAssetConfiguredWiderThanTheShippedWindowIsStillServed(): void
+    {
+        $this->addManagerWithAccount('chef@unite.be');
+        (new \Modules\Rental\Repository\RentalAssetReminderRepository($this->pdo))->save(
+            $this->assetId,
+            ReminderKind::COMPLIANCE_EXPIRING,
+            90,
+            true
+        );
+
+        // Eighty days out: outside the shipped sixty, inside this asset's
+        // ninety.
+        $this->complianceService->add($this->assetId, 'Attestation incendie', '2027-09-19', null);
+
+        $this->serviceWithOverrides($this->notificationService())
+            ->run(new \DateTimeImmutable('2027-07-01'));
+
+        $compliance = array_values(array_filter(
+            $this->dispatched,
+            static fn(array $e) => $e['typeId'] === ReminderKind::COMPLIANCE_EXPIRING->notificationTypeId()
+        ));
+
+        $this->assertCount(1, $compliance);
+        $this->assertStringContainsString('Attestation incendie', (string) $compliance[0]['payload']['body']);
+    }
+
+    /**
+     * And one that asks to be warned later stays quiet until then — the
+     * direction a manager notices, because it is the one they changed the
+     * setting for.
+     */
+    public function testAnAssetConfiguredNarrowerStaysQuietUntilItsOwnWindow(): void
+    {
+        $this->addManagerWithAccount('chef@unite.be');
+        (new \Modules\Rental\Repository\RentalAssetReminderRepository($this->pdo))->save(
+            $this->assetId,
+            ReminderKind::COMPLIANCE_EXPIRING,
+            10,
+            true
+        );
+
+        // Thirty days out: inside the shipped sixty, outside this asset's
+        // ten.
+        $this->complianceService->add($this->assetId, 'Attestation incendie', '2027-07-31', null);
+
+        $service = $this->serviceWithOverrides($this->notificationService());
+        $service->run(new \DateTimeImmutable('2027-07-01'));
+
+        $this->assertSame([], array_values(array_filter(
+            $this->dispatched,
+            static fn(array $e) => $e['typeId'] === ReminderKind::COMPLIANCE_EXPIRING->notificationTypeId()
+        )));
+
+        // And speaks up once the date comes into its own range.
+        $this->serviceWithOverrides($this->notificationService())
+            ->run(new \DateTimeImmutable('2027-07-25'));
+
+        $this->assertCount(1, array_values(array_filter(
+            $this->dispatched,
+            static fn(array $e) => $e['typeId'] === ReminderKind::COMPLIANCE_EXPIRING->notificationTypeId()
+        )));
     }
 
     // ── Nothing personal reaches a notification (§6.29) ──────────────────

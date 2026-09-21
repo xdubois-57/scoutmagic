@@ -351,7 +351,15 @@ class RentalManagementController extends AbstractController
             'items' => $this->complianceService->forAsset($asset->id),
             'label_suggestions' => $this->complianceService->labelSuggestions(),
             'today' => new \DateTimeImmutable('today'),
-            'warning_days' => RentalComplianceService::EXPIRY_WARNING_DAYS,
+            // This asset's own lead time, not the shipped constant: the
+            // badge on this page and the reminder that goes out have to
+            // agree, or a manager who shortened « Document de conformité
+            // expirant » to ten days still sees orange two months out and
+            // concludes the setting did nothing.
+            'warning_days' => ReminderSchedule::of(
+                $this->unitReminderDefaults(),
+                $this->assetReminderRepository?->findForAsset($asset->id) ?? []
+            )->daysFor(ReminderKind::COMPLIANCE_EXPIRING),
             'csrf_token' => CsrfGuard::generateToken(),
             'nav_page' => 'compliance',
         ]);
