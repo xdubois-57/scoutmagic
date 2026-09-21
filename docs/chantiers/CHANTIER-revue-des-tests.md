@@ -947,3 +947,270 @@ branche jamais exécutée est aussi un message d'erreur jamais relu.
   d'échec, et le vrai total des branches non tenues est plus élevé que 328.
   Le distinguer demanderait de muter chacune des 447, ce que la même
   arithmétique interdit.
+
+### Itération 7 — Le navigateur : Vitest et Playwright — 2026-09-21
+
+**Périmètre parcouru** : les **quatre** soupçons que §7 formule — une logique
+recopiée plutôt qu'importée, des assertions sur des sélecteurs internes, des
+attentes à délai fixe, des parcours qui s'arrêtent avant la fin — puis le
+cinquième point, que §7 demande explicitement de **constater sans combler**.
+
+**Deux des quatre soupçons ne tiennent pas — la logique recopiée et les
+parcours inachevés ; celui des sélecteurs tient à sa mesure ; celui des
+attentes n'est ni confirmé ni levé, faute de mutation** :
+
+- **127 fichiers Vitest sur 128 importent le fichier de production**, et le
+  cent-vingt-huitième ne le recopie pas davantage. Un premier comptage en
+  annonçait cinq sans import ; le motif ratait la forme par effet de bord
+  (`import '../../public/assets/js/x.js';`, sans `from`), qui explique
+  quatre d'entre eux. Le cinquième,
+  `escape-html-attribute-safety.test.js`, lit délibérément le source comme
+  **texte**, par `readFileSync` : c'est un garde de source, pas un test
+  recopié, mais ce n'est pas un import non plus, et écrire « 128 sur 128 »
+  était une facilité que la phrase suivante contredisait.
+- **Quatre `waitForTimeout` dans toute la suite Playwright**, et ce que
+  chacun attend est établi. Que chacun soit *juste* ne l'est pas : ce
+  paragraphe a d'abord conclu qu'ils l'étaient, en lisant, et cette
+  conclusion s'est révélée fausse sur l'un d'eux. Les emplacements sont
+  nommés ci-dessous plutôt que numérotés, parce qu'ils ne forment pas une
+  série — trois appartiennent à une même barrière, le dernier à rien du
+  tout.
+
+  Un premier comptage limité à `tests/e2e/specs/` n'en voyait que trois : le
+  quatrième vit dans `tests/e2e/support/`, qui fait partie de la suite et
+  que j'avais exclu sans le décider.
+
+  | Emplacement | Ce qu'il attend |
+  |---|---|
+  | `support/human-check.js:48` | le reliquat avant que `HumanCheck` accepte, calculé depuis l'horodatage du jeton — zéro compris |
+  | `specs/rental-management.spec.js:226` | 4 000 ms à plat, même barrière |
+  | `specs/rental-request.spec.js:211` | 4 000 ms à plat, même barrière |
+  | `specs/pwa-prefetch-once.spec.js:52` | 2 s sur chacune de trois pages, pour établir qu'**aucune** requête supplémentaire n'est partie |
+
+  Le dernier est d'une autre nature et il est hors de cause : on ne peut pas
+  attendre la condition « rien ne se produit », et une borne temporelle est
+  la seule forme que cette assertion puisse prendre. Les trois premiers
+  contournent la même règle — `Core\Security\HumanCheck` refuse un
+  formulaire soumis plus vite qu'un humain ne l'aurait rempli — et attendre
+  comme un visiteur plutôt que désactiver la garde est le bon choix, que
+  leurs commentaires expliquent.
+
+  **Ce que j'ai écrit à tort**, et qu'il faut lire comme l'erreur type de ce
+  chantier : que `support/human-check.js` « calculait la valeur exacte » là
+  où les deux scénarios la codaient en dur. Je l'ai conclu **en lisant** le
+  helper. Le jeton `human_check_token` ne porte que `{f, t, s}` —
+  champ-piège, horodatage, signature — et **aucun délai** ; le helper écrit
+  son propre `const DEFAULT_MIN_DELAY_SECONDS = 3` (ligne 21), pendant que
+  le serveur lit `human_check_min_delay_seconds`, par défaut 3
+  (`HumanCheckService.php:108`). **Les trois emplacements redisent le même
+  réglage, aucun ne le lit.**
+
+  Ce qui survit à la correction : le helper mesure depuis l'émission du
+  jeton, donc n'attend que le reliquat, là où les deux scénarios attendent
+  4 000 ms depuis le clic. C'est une meilleure façon d'attendre, pas une
+  façon de ne pas recopier — et les trois cassent dès que le réglage dépasse
+  leur constante. Le helper est importé par cinq scénarios de plus
+  (`rental-lifecycle`, `news-form-payment`, `password-reset`,
+  `registration-flow`, `auth-methods`) : la barrière est franchie bien plus
+  largement que par les deux scénarios qui écrivent 4 000 ms.
+  Non corrigé ici — trois fichiers de test, et la preuve demande de faire
+  varier le réglage côté serveur pendant que la suite tourne. Déposé en
+  #453, dont le corps porte la même correction et le protocole de preuve.
+- **Les parcours ne s'arrêtent pas avant la fin.** Le soupçon que §7 formule
+  — « une inscription testée jusqu'au formulaire mais pas jusqu'à la ligne
+  créée » — est démenti, et par son propre exemple : `registration-flow.spec.js`
+  ne s'arrête pas à « Demande envoyée ». Il suit le lien de suivi reçu par
+  courriel, lit « En attente d'examen » sur la page de la famille, retrouve
+  le nom de l'enfant et son unité précédente dans la gestion côté staff,
+  fait prendre la décision, et revient vérifier qu'elle est devenue
+  « Retirée » côté famille. La ligne créée est vue des trois côtés.
+  Sur toute la suite : **27 scénarios cliquent un bouton de création, et les
+  27 en vérifient la conséquence**. Vingt-six relisent le serveur après une
+  navigation ; le vingt-septième, `mass-mail-merge.spec.js`, va plus loin
+  qu'une relecture — il ouvre les messages **réellement remis** dans le bac
+  à sable, exige exactement deux envois et finit sur la ligne de suivi rendue
+  par le serveur. S'il n'a aucun `goto` après la création, ce n'est pas que
+  la page se mette à jour d'elle-même : chaque étape est une **navigation
+  provoquée par un clic** et attendue comme telle — `waitForURL(/\/mass-mail\/\d+$/,
+  { waitUntil: 'load' })` après « Lancer l'envoi », puis
+  `waitForURL(/\/mass-mail\/\d+\/tracking/)` après « Suivi ».
+  Le premier comptage annonçait 28 et rangeait `login-page.spec.js` parmi
+  eux : il cherchait le **nom** d'un bouton de création, et ce scénario
+  écrit « Envoyer le lien de connexion » dans un `expect(...).toBeVisible()`
+  sans jamais le cliquer. Compter un clic plutôt qu'une mention le sort de
+  la population — où il n'avait rien à faire, puisqu'il ne crée rien.
+
+- **Les sélecteurs : le soupçon tient, à sa mesure.** Le premier
+  recensement publié ici ne se reproduisait sous **aucune** portée
+  cohérente : il mêlait un comptage de `tests/e2e/` entier et un comptage de
+  `tests/e2e/specs/` seul, et deux de ses chiffres n'étaient atteignables
+  ni sous l'une ni sous l'autre. La revue l'a refait et a eu raison.
+  Re-dérivé, portée et règle énoncées — **l'arbre `tests/e2e/` entier**,
+  `support/` compris, en comptant les **occurrences** et non les lignes :
+
+  | Ce que le sélecteur adresse | Occurrences |
+  |---|---|
+  | ce qu'un utilisateur voit | **839** — `getByRole` 500, `getByLabel` 169, `getByText` 165, `getByPlaceholder` 5 |
+  | un identifiant (`locator('#…')`) | **258** |
+  | une classe CSS (`locator('.…')`) | **127** |
+
+  Restreint à `specs/` seul, ce serait 823 / 250 / 120 — c'est de ce second
+  comptage que venaient les 250 et 120 publiés à tort « sur toute la suite »,
+  exactement l'exclusion silencieuse de `support/` qui avait déjà fait
+  manquer le `waitForTimeout` de `support/`. Aucun `getByTestId` nulle part.
+
+  Ces 127 sont la part exposée à une retouche de feuille de style. Elles
+  sont moins fragiles qu'il n'y paraît — les classes visées sont des noms de
+  composants (`groups-reply-bubble`, `retro-comment`, `calendar-event-bar`,
+  `sos-day-row`) et non des utilitaires de présentation — mais renommer un
+  composant casserait le test sans que rien n'ait changé pour
+  l'utilisateur. Ce n'est pas rien, et ce n'est pas ce que §7 redoutait.
+
+**Le constat, lui, tient — et il est plus étroit et plus net que §7 ne le
+formule** :
+
+> `public/sw.js` n'est exécuté comme service worker par **aucune** couche.
+
+Chaque couche documente sa propre moitié, et aucune ne peut nommer l'autre :
+
+- `tests/js/sw.test.js` exerce le vrai fichier, et écrit en tête qu'il n'y a
+  « no real Service Worker runtime: fetch, Response and the Cache Storage
+  API are all mocked below » — ce qui est le bon choix sous jsdom ;
+- `tests/e2e/playwright.config.js` pose `serviceWorkers: 'block'` pour toute
+  la suite, avec sa raison : un worker qui met en cache en arrière-plan
+  rendrait le journal des requêtes non déterministe, et « registering it is
+  its own feature with its own future scenario ».
+
+Les deux affirmations sont vraies et bien raisonnées. Ce qu'aucune ne dit,
+c'est que l'autre existe. La logique *dans* `sw.js` est réellement testée ;
+son **cycle de vie** — install, activate, une requête servie depuis un vrai
+Cache Storage, une navigation hors ligne, le réveil de l'application
+installée — ne l'est par rien, et aucun rouge ne l'annoncerait.
+
+**Corrigé dans cette PR** : `docs/quality-pipeline.md`, section « The
+failure mode this repository keeps meeting ». `AGENTS.md` désigne cet
+endroit sans ambiguïté — « A check that can be green without having run
+belongs in its last section. […] When you find another, write it down
+there ». Le constat y est donc écrit, avec les deux citations qui
+l'établissent. Aucun test n'est ajouté : §7 dit de constater, pas de
+combler, et écrire un scénario de service worker est le « own future
+scenario » que la configuration annonce déjà.
+
+**Mutations tentées** : une seule, et son absence était un manquement.
+
+Cette itération ne renforce aucun test — elle en mesure. §0.3 exige
+pourtant qu'une qualité de test soit établie **par mutation ciblée, jamais
+par lecture**, et §0.4 que le journal dise ce qui a été muté et a tenu. Les
+deux affirmations centrales de cette entrée — « 127 fichiers sur 128
+importent le fichier de production » et « les quatre `waitForTimeout` sont
+justes » — ont d'abord été écrites sur la foi d'un comptage et d'une
+lecture. La revue l'a relevé, et elle avait raison.
+
+La seconde a été **retirée** plutôt que corrigée : lire un `waitForTimeout`
+établit ce qu'il attend, jamais qu'il tombera le jour où la règle qu'il
+contourne change. C'est en la relisant qu'une affirmation voisine s'est
+révélée **fausse** — celle sur le helper, corrigée ci-dessus —, et c'est
+exactement ce que la lecture ne pouvait pas montrer. La justesse des quatre
+attentes reste donc ouverte, et figure sous « Non vérifiable » plutôt que
+sous un constat.
+
+- **Muter `nextSelection()` dans `public/assets/js/rental-calendar.js`**
+  (intervertir l'arrivée et le départ à la reprise d'une sélection),
+  mutation prouvée appliquée par comparaison de fichiers → **4 tests sur 23
+  rouges** dans `tests/js/rental-calendar.test.js`, 23 verts après
+  restauration. Le fichier Vitest exerce donc bien le code de production
+  qu'il importe, et ne le recopie pas : l'affirmation « 127 sur 128 »
+  cesse d'être un comptage d'`import` pour devenir une propriété observée,
+  au moins sur cet exemplaire.
+
+- **Ce qui n'a pas été muté**, et il faut le dire plutôt que le taire : la
+  barrière `HumanCheck`. La mutation juste demande **deux** valeurs, pas
+  une, parce que les trois emplacements qui redisent ce réglage ne
+  l'écrivent pas à la même hauteur — 3 secondes dans le helper, 4 000 ms
+  dans les deux scénarios. Porter `human_check_min_delay_seconds` à **4**
+  ne doit faire tomber que ce qui passe par le helper ; le porter à **6**
+  doit tout faire tomber. C'est cette asymétrie qui est la preuve : un seuil
+  unique au-dessus de 4 les fait tomber tous les trois et ne distingue rien.
+  Le `waitForTimeout` de `pwa-prefetch-once.spec.js` n'a rien à voir avec
+  cette barrière et ne doit bouger dans aucun des deux cas — c'est le
+  témoin. Deux exécutions Playwright complètes, donc : c'est la reproduction
+  que #453 attend, et elle y est consignée avec ce protocole, pas ici.
+
+**Issues ouvertes** :
+
+- #452 — le cycle de vie du service worker, exercé par aucune couche.
+
+  Cette entrée disait d'abord « aucune », au motif que le constat était
+  désormais écrit dans `docs/quality-pipeline.md` et qu'une issue redirait
+  ce que deux commentaires disent déjà. La revue a relevé que c'est une
+  confusion entre deux règles distinctes d'`AGENTS.md` : consigner un angle
+  mort dans la carte du pipeline est l'une, et « the moment a real problem
+  is identified and the decision is taken **not** to fix it in the change at
+  hand, open an issue » est l'autre, qui vise explicitement « a trap you
+  documented in a comment rather than removed ». La seconde ne se déduit pas
+  de la première. Constat juste, issue déposée.
+
+- #453 — **trois** emplacements redisent le délai minimum que
+  `Core\Security\HumanCheck` impose, et aucun ne le lit :
+  `tests/e2e/support/human-check.js` avec son `DEFAULT_MIN_DELAY_SECONDS = 3`,
+  `rental-management.spec.js` et `rental-request.spec.js` avec leurs
+  4 000 ms. Le helper attend mieux — il mesure depuis l'émission du jeton et
+  n'attend que le reliquat — mais il recopie la valeur comme les deux autres.
+  Déposée pour la même raison que #452 : le constat est réel, il n'est pas
+  corrigé ici, et la règle ne se satisfait pas de l'avoir écrit dans un
+  journal.
+
+  Non corrigeable sous §0.1 : trois fichiers de test, et surtout aucune preuve
+  possible d'ici — établir qu'un test suit le réglage au lieu de le recopier
+  demande de faire varier ce réglage côté serveur pendant que la suite
+  tourne, ce que l'outillage E2E ne permet pas depuis un scénario.
+
+  Le corps de l'issue portait d'abord la formulation fausse corrigée plus
+  haut ; il est réécrit, la rétractation restant visible plutôt que
+  l'ancienne version remplacée en silence.
+
+**Une règle perdue en route, et retrouvée par la revue** : `AGENTS.md`
+demande que toute issue porte `**Type: bug**` ou `**Type: enhancement**` sur
+sa **première ligne**, verbatim. Les issues des itérations 1 et 2 la portent
+— #391, #393 et #395 relues et conformes. Les quatre ouvertes ensuite ne
+l'avaient pas : #439, #444, #449 et #452, toutes corrigées. #453, ouverte
+plus tard dans la même passe de revue, la porte dès l'écriture — ce qui est
+le seul effet durable du constat. La frontière est
+nette, et c'est celle d'une reprise de session : l'habitude a été perdue au
+moment où le contexte l'a été, et rien dans le dépôt ne la rappelle au
+moment d'écrire — le workflow de triage accepte l'issue et rend son verdict
+sans elle. #452 proposait en outre son correctif, ce que §0.1 de ce chantier
+interdit aux issues qu'il ouvre ; la section nomme désormais l'endroit du
+test, que `AGENTS.md` exige, sans prescrire comment lever le blocage des
+service workers, qui est une question de conception.
+
+**Vérifié et tenu** :
+
+- **La règle « importer le vrai fichier, jamais le recopier » est
+  respectée partout.** Aucun des 128 fichiers ne réimplémente la logique
+  qu'il teste : 127 importent le fichier de production, le dernier le lit
+  comme source pour en vérifier la forme.
+- **Un piège déjà consigné par l'auteur.** `tests/js/sw.test.js` raconte en
+  commentaire qu'un nettoyage supprimait `self`, ce qui faisait lever une
+  `ReferenceError` attrapée par le `catch` du code : les tests passaient
+  sans jamais exercer la reprise. C'est exactement le sujet de ce chantier,
+  trouvé et écrit avant lui.
+
+**Non vérifiable, et pourquoi** :
+
+- **La justesse des quatre `waitForTimeout`**, au sens du chantier — et
+  c'est la seule affirmation de cette entrée qui a été **retirée** plutôt
+  que corrigée. Ce qui est établi : ce que chacun attend, d'où il tire sa
+  durée, et que celui de `pwa-prefetch-once.spec.js` est d'une autre nature.
+  Ce qui ne l'est pas : qu'un test tombe le jour où la règle qu'il contourne
+  change. La mutation qui le montrerait demande deux seuils et deux
+  exécutions Playwright, et elle appartient à #453.
+- **La fragilité des 127 sélecteurs de classe.** Le chiffre est une mesure,
+  pas un verdict : établir qu'un renommage de composant casse un test sans
+  que rien n'ait changé pour l'utilisateur demanderait de renommer
+  réellement une classe dans la feuille de style et de rejouer la suite
+  navigateur, 127 fois pour en faire une propriété plutôt qu'un exemple.
+  Le constat est donc énoncé comme un risque dimensionné, jamais comme un
+  défaut constaté.
+- **Le cycle de vie du service worker**, que §7 demande explicitement de
+  constater sans combler. C'est l'objet de #452.
