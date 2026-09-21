@@ -2,7 +2,7 @@
   "id": "trombinoscope",
   "name": "Trombinoscope",
   "description": "Annuaire photo des animés, classé par section, avec leurs coordonnées et leur fonction.",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "enabled_by_default": true,
   "routes": [
     {
@@ -48,7 +48,7 @@
   "offline": [
     {
       "path": "/trombinoscope",
-      "label": "Trombinoscope",
+      "label": "Les animateurs",
       "match": "exact",
       "role_min": "identified",
       "prefetch": false

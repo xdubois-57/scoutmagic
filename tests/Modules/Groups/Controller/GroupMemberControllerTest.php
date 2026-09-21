@@ -242,7 +242,7 @@ class GroupMemberControllerTest extends TestCase
     }
 
     /**
-     * partials/breadcrumb_bar.html.twig: "Groupes" and the group's own
+     * partials/breadcrumb_bar.html.twig: "Discussions" and the group's own
      * name both link back, same trail as GroupController's own pages.
      */
     public function testMembersPageBreadcrumbLinksBackToTheGroupListAndTheGroupItself(): void
@@ -250,7 +250,7 @@ class GroupMemberControllerTest extends TestCase
         $body = $this->controller([$this->plainMemberId], 'identified', ['label' => 'Membres', 'parents' => ['Espace membres']])
             ->index(new Request('GET', '/g', [], [], [], []), $this->params())->getBody();
 
-        $this->assertMatchesRegularExpression('/<a href="\/groups" class="text-decoration-none">Groupes<\/a>/', $body);
+        $this->assertMatchesRegularExpression('/<a href="\/groups" class="text-decoration-none">Discussions<\/a>/', $body);
         $this->assertMatchesRegularExpression('/<a href="\/groups\/' . $this->groupId . '" class="text-decoration-none">Louveteaux<\/a>/', $body);
         $this->assertMatchesRegularExpression('/aria-current="page">\s*Membres\s*<\/li>/', $body);
     }

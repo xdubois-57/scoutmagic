@@ -52,6 +52,57 @@ final class BreadcrumbAncestorLabelsTest extends TestCase
     }
 
     /**
+     * **A third copy of the same name: the offline list.**
+     *
+     * `offline[]` declares which pages a phone keeps for reading without
+     * a signal, and each entry carries its own `label` — shown to the
+     * reader in that list. It is neither the route's label nor a crumb,
+     * so neither check above reaches it, and the rename of « Groupes »
+     * left it behind: the offline list offered « Groupes » for a page
+     * the whole rest of the site had started calling « Discussions ».
+     *
+     * Three declarations of one name is two too many, but they are what
+     * the manifest format has; holding them equal is what this file is
+     * for.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('manifests')]
+    public function testEveryOfflineEntryNamesItsPageTheSameWay(string $manifestPath): void
+    {
+        /** @var array{routes?: list<array<string, mixed>>, offline?: list<array<string, mixed>>} $manifest */
+        $manifest = json_decode((string) file_get_contents($manifestPath), true);
+
+        $pageNames = [];
+        foreach ($manifest['routes'] ?? [] as $route) {
+            if (strtoupper((string) ($route['method'] ?? 'GET')) !== 'GET') {
+                continue;
+            }
+            $name = $route['label'] ?? null;
+            if (is_string($name) && $name !== '' && !isset($pageNames[$route['path']])) {
+                $pageNames[(string) $route['path']] = $name;
+            }
+        }
+
+        $stale = [];
+        foreach ($manifest['offline'] ?? [] as $entry) {
+            if (!isset($entry['path'], $entry['label'])) {
+                continue;
+            }
+
+            $target = $pageNames[(string) $entry['path']] ?? null;
+            if ($target !== null && $target !== $entry['label']) {
+                $stale[] = sprintf(
+                    'offline %s is offered as « %s », the page calls itself « %s »',
+                    (string) $entry['path'],
+                    (string) $entry['label'],
+                    $target
+                );
+            }
+        }
+
+        $this->assertSame([], $stale, implode("\n", $stale));
+    }
+
+    /**
      * **The same crumb, built in PHP instead of declared.**
      *
      * A manifest is not the only place a trail is written: a controller
