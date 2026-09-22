@@ -10,7 +10,7 @@ paths: /config/inscriptions, /config/inscriptions/demandes/*
 related: inscrire-un-enfant, passage, annee-scoute
 ---
 
-La page « Gestion des inscriptions » rassemble tout le traitement des
+La page « Formulaire d'inscription » rassemble tout le traitement des
 demandes : l'ouverture du formulaire, les capacités par branche, la
 liste des demandes et leur fiche.
 
@@ -43,7 +43,7 @@ les Réglages, sans quoi le bouton reste gris.
 
 Tout ce que la famille a soumis, en lecture seule, plus trois champs
 du staff : la **section prévue** (jamais montrée à la famille — c'est
-le même champ que sur la page Passage), la **catégorie tarifaire**
+le même champ que sur la page Passages de branche), la **catégorie tarifaire**
 (avec une suggestion selon la taille du foyer, à confirmer
 explicitement) et des **notes internes**, jamais visibles ni
 journalisées.

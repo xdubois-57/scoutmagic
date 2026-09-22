@@ -136,7 +136,7 @@ class GroupMemberController extends AbstractController
             // see that controller's own comment for why a direct link is
             // safe here.
             'breadcrumb_trail' => [
-                ['label' => 'Groupes', 'url' => '/groups'],
+                ['label' => 'Discussions', 'url' => '/groups'],
                 ['label' => $group->name, 'url' => '/groups/' . $group->id],
             ],
         ]);

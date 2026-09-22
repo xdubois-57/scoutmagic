@@ -153,7 +153,7 @@ class SosConfigControllerTest extends TestCase
         $response = $this->controller->index(new Request('GET', '/config/sos', [], [], [], []), []);
 
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertStringContainsString('SOS Staff', $response->getBody());
+        $this->assertStringContainsString("Téléphone d&#039;urgence", $response->getBody());
         $this->assertStringContainsString('OVH Télécom', $response->getBody());
     }
 

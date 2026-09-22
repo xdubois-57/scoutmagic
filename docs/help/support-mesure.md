@@ -35,7 +35,7 @@ cinq cents pages ; le bouton « Arrêter la mesure » les arrête avant.
 1. Appuyez sur « Mesurer une lenteur » et confirmez.
 2. Pendant les cinq minutes, parcourez les pages qui vous paraissent
    lentes — vous, ou la personne qui s'en plaint.
-3. Revenez sur la page Support : elle dit combien de pages ont été
+3. Revenez sur la page Diagnostic : elle dit combien de pages ont été
    enregistrées.
 4. Générez un **nouveau** paquet de support, puis joignez-le à un
    ticket. C'est l'archive qui emporte les mesures, sous la rubrique

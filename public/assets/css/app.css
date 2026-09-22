@@ -627,9 +627,17 @@ body:has(> #cookie-banner) {
 .desktop-megamenu-grid {
     display: grid;
     /* auto-fit collapses the tracks a menu has no group for, so the real
-       column count is the number of groups — at most four, the widest
-       Core\View\MenuBuilder::MENU_GROUPS declares. 200px is the point
-       below which a two-word French label starts wrapping. */
+       column count is the number of groups — at most six, the widest
+       Core\View\MenuBuilder::MENU_GROUPS declares. That number is a
+       tripwire, not a decoration: Tests\Core\View\MegaMenuColumnCeilingTest
+       fails when it stops matching, because the last time it drifted
+       nothing said so.
+
+       Six is a count auto-fit handles rather than a limit it enforces:
+       below roughly 1360px the tracks wrap to a second row instead of
+       shrinking under the minimum, which is the intended degradation.
+       200px is the point below which a two-word French label starts
+       wrapping. */
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 0.25rem 2rem;
     align-items: start;

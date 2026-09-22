@@ -134,8 +134,8 @@ class TextPageServiceTest extends TestCase
         $this->expectException(TextPageException::class);
         $this->expectExceptionMessage("Cette colonne n'existe pas dans cette section.");
 
-        // 'gestion' is a column of Espace animateurs, never of Configuration.
-        $this->service->create('Page', 'Page', MenuBuilder::MENU_CONFIGURATION, 'gestion');
+        // 'argent' is a column of Espace animateurs, never of Configuration.
+        $this->service->create('Page', 'Page', MenuBuilder::MENU_CONFIGURATION, 'argent');
     }
 
     public function testTheOneSectionWithoutColumnsRefusesAColumn(): void
@@ -183,6 +183,40 @@ class TextPageServiceTest extends TestCase
             $this->assertContains($default, $declared, "menu {$menuId}");
             // And the pair survives the real validator.
             $this->service->assertMenuPlacement($menuId, $default);
+        }
+    }
+
+    /**
+     * **Which column, not merely a valid one.**
+     *
+     * The test above cannot fail while the preselection is wrong, only
+     * while it is invalid — and the difference is exactly what went
+     * unnoticed when the columns were renamed: the preference list
+     * matched nothing, the fallback returned the menu's first column,
+     * and a page about the unit was preselected into « Mes membres ».
+     * Green, and pointing at the wrong place.
+     *
+     * So the intended column is named here, per menu. Changing one is a
+     * deliberate edit in two files, which is the point.
+     */
+    public function testEachMenuPreselectsTheColumnItsPagesBelongIn(): void
+    {
+        $expected = [
+            MenuBuilder::MENU_NOTRE_UNITE => null,
+            MenuBuilder::MENU_ESPACE_ANIMES => 'unite',
+            MenuBuilder::MENU_ESPACE_CHEFS => 'communication',
+            MenuBuilder::MENU_ESPACE_ADMIN => 'communication',
+            MenuBuilder::MENU_CONFIGURATION => 'site',
+        ];
+
+        $this->assertSame(
+            MenuBuilder::menuIds(),
+            array_keys($expected),
+            'A menu was added or removed: name the column its free-text pages belong in.'
+        );
+
+        foreach ($expected as $menuId => $column) {
+            $this->assertSame($column, $this->service->defaultGroupFor($menuId), "menu {$menuId}");
         }
     }
 
@@ -265,7 +299,7 @@ class TextPageServiceTest extends TestCase
         $first = $this->service->create('A', 'A', MenuBuilder::MENU_NOTRE_UNITE, null);
         $second = $this->service->create('B', 'B', MenuBuilder::MENU_NOTRE_UNITE, null);
         // A different menu counts its own order from scratch.
-        $other = $this->service->create('C', 'C', MenuBuilder::MENU_ESPACE_ANIMES, 'pages');
+        $other = $this->service->create('C', 'C', MenuBuilder::MENU_ESPACE_ANIMES, 'unite');
 
         $this->assertSame(0, $first->sortOrder);
         $this->assertSame(1, $second->sortOrder);

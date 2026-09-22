@@ -334,7 +334,7 @@ class TextPageConfigControllerTest extends TestCase
 
         $body = $this->controller->index(new Request('GET', '/config/pages-de-texte', [], [], [], []), [])->getBody();
 
-        $this->assertStringContainsString('|' . MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION) . '|Site|', $body);
+        $this->assertStringContainsString('|' . MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION) . '|Le site|', $body);
         $this->assertStringContainsString('|/pages/notre-asbl|', $body);
     }
 

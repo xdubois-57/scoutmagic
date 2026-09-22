@@ -11,7 +11,7 @@ question: Comment imprimer la liste d'appel pour la cérémonie de passage ?
 paths: /chefs/membres
 ---
 
-La page « Membres par section » montre, pour l'année scoute en cours,
+La page « Animés de la section » montre, pour l'année scoute en cours,
 qui compose chaque section : les animateurs, les intendants et les
 animés, avec leurs coordonnées. Elle sert uniquement à consulter — rien
 ne s'y modifie. Les données viennent du dernier import Desk réalisé par

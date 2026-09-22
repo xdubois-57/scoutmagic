@@ -303,11 +303,11 @@ class ModuleManifestTest extends TestCase
             'name' => 'Test',
             'version' => '1.0.0',
             'routes' => [
-                ['path' => '/test', 'controller' => 'C', 'action' => 'a', 'menu' => 'espace_animes', 'role_min' => 'identified', 'menu_group' => 'pages'],
+                ['path' => '/test', 'controller' => 'C', 'action' => 'a', 'menu' => 'espace_animes', 'role_min' => 'identified', 'menu_group' => 'unite'],
             ],
         ]);
 
-        $this->assertSame('pages', $manifest->routes[0]['menu_group']);
+        $this->assertSame('unite', $manifest->routes[0]['menu_group']);
     }
 
     /**
@@ -339,14 +339,14 @@ class ModuleManifestTest extends TestCase
     public function testRouteMenuGroupRejectsAnyValueOnAnUngroupedMenu(): void
     {
         $this->expectException(ModuleException::class);
-        $this->expectExceptionMessage("invalid menu_group value 'pages' for menu 'notre_unite'");
+        $this->expectExceptionMessage("invalid menu_group value 'unite' for menu 'notre_unite'");
 
         ModuleManifest::fromArray([
             'id' => 'test',
             'name' => 'Test',
             'version' => '1.0.0',
             'routes' => [
-                ['path' => '/test', 'controller' => 'C', 'action' => 'a', 'menu' => 'notre_unite', 'role_min' => 'public', 'menu_group' => 'pages'],
+                ['path' => '/test', 'controller' => 'C', 'action' => 'a', 'menu' => 'notre_unite', 'role_min' => 'public', 'menu_group' => 'unite'],
             ],
         ]);
     }

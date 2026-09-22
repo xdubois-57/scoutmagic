@@ -448,3 +448,151 @@ dangereux qu'un commentaire absent, pour la même raison.
 ### Reporté
 
 Rien. IT-02 et IT-03 sont le périmètre annoncé, pas un report.
+
+---
+
+## IT-02 — Les menus tels que la maquette les dessine
+
+### Livré
+
+**Six colonnes créées, quatre supprimées.** `pages`, `gestion`, `contenu`
+et `exploitation` disparaissent ; `unite`, `effectifs`, `argent`,
+`communication` (dans deux menus), `donnees_sauvegardes` et
+`etat_du_site` les remplacent. Cinq colonnes gardent leur id et changent
+de libellé — « Unité & données » devient « L'unité », « Site » devient
+« Le site », « Membres & année » devient « Membres et année »,
+« Services » devient « Services de l'unité ».
+
+**Vingt entrées renommées**, et le renommage ne s'arrête pas au menu :
+le titre de la page, son fil d'Ariane et la prose qui la nomme suivent.
+Vingt-neuf titres de template, six fils d'Ariane du cœur, et la
+`ScoutYearTransitionService` qui guide le chef d'unité en nommant les
+pages — « sur la page Départs », « depuis « Membres par section » »,
+« Aller aux staffs ». Sans cela, la transition d'année scoute, suivie à
+la lettre une fois par an, aurait envoyé vers des noms qui n'existent
+plus.
+
+**« Protection des données » quitte le menu public.** La page ne bouge
+pas : sa route est déclarée séparément, le pied de page la référence
+depuis toutes les pages du site, et `Core\Offline\OfflineWhitelist`
+continue de la mettre en cache hors ligne. Seule sa place en fin de menu
+public disparaît — celle où elle s'intercalait entre un parent et
+« Inscriptions ».
+
+**Vingt-cinq versions de modules montées**, dont quatre pour des
+providers dont seule la constante d'ordre change.
+
+### Décisions prises en autonomie
+
+**Le reclassement des pages de texte se fait à la lecture, pas par
+migration.** `schema/` ne sait migrer qu'une *structure* : `core.sql`
+décrit un état désiré comparé au schéma vivant, `drops.sql` ne fait que
+des `DROP`. Un `UPDATE text_pages SET menu_group = …` n'a nulle part où
+vivre, et inventer un mécanisme de migration de données pour quatre
+chaînes serait le plus gros changement des deux.
+
+`TextPage::fromRow()` porte donc une carte `RENAMED_GROUPS`. Ce n'est
+pas un contournement, c'est la moitié la plus sûre du marché : c'est le
+point d'hydratation unique — les quatre lectures du dépôt y passent —
+donc rien en aval ne voit jamais un ancien id, et surtout
+`placementIsStillValid()` ne voit jamais d'orphelin. **Un orphelin est
+silencieux** : la page qu'un chef d'unité a écrite cesse simplement
+d'apparaître où il l'avait mise, sans que rien ne soit dit à personne.
+C'est de plus idempotent et sans ordre d'exécution, là où un `UPDATE`
+unique n'est ni l'un ni l'autre.
+
+**Les sept entrées que la maquette ne dessine pas.** Cinq viennent d'un
+`MenuEntryProvider` — elles n'apparaissent que pour une unité qui a la
+donnée derrière, ce qu'un dessin de menu ne peut pas montrer — et deux
+portent un `visible_when`, donc relèvent d'un profil d'installation. Le
+compte de six noté au plan initial était faux : il oubliait que les deux
+modules à `visible_when` sont eux aussi hors maquette. Elles sont
+nommées une par une dans le test, avec leur décision, jamais écartées
+par une règle générale qui les aurait laissées se multiplier en silence.
+
+**La constante d'ordre partagée de `rental` est scindée.** IT-01 notait
+« une constante pour deux menus parce qu'elles veulent la même place ;
+scindez-la le jour où elles cesseront ». Ce jour est arrivé :
+« Locations » se place entre « Calendrier » et « Contact » dans le menu
+public, « Mes locations » rejoint « Mes membres », juste après
+« Notifications » — c'est l'une des rares pages qui parle du lecteur
+plutôt que de l'unité.
+
+### La preuve : la maquette est la spécification
+
+IT-01 prouvait une **identité** — avant égale après — et une empreinte
+prise sur l'ancien code était une valeur attendue légitime. IT-02
+**change** les menus : une empreinte régénérée depuis le nouveau code ne
+prouverait plus rien, ce serait le code d'accord avec lui-même. C'est le
+défaut qu'il a fallu trois tours de relecture pour trouver dans IT-01,
+sous une forme neuve et plus difficile à voir.
+
+La valeur attendue vient donc du document de conception.
+`MenuMockup` lit `maquette-menus.jsx` comme `MenuInventory` lit
+`public/index.php`, et `MenuMockupTest` compare au vrai `MenuBuilder` :
+les colonnes de chaque menu dans l'ordre, les entrées de chaque colonne
+dans l'ordre, **pour les six rôles**, et l'accord du rendu mobile avec
+le rendu de bureau.
+
+Les planchers de rôle de la maquette ont été confrontés au `role_min`
+réel des 68 entrées livrées avant d'écrire le test : ils concordent
+partout. Le dessin peut donc dire ce que voit un parent et ce que voit
+un superadmin, et se tromper à voix haute quand le code n'est pas
+d'accord.
+
+**Deux gardes, sans lesquelles le test se comparerait encore à
+lui-même** : un test échoue si l'extraction cesse de trouver cinq menus
+et dix-neuf colonnes — une maquette devenue illisible vaudrait sinon
+« tout correspond » — et les sept entrées hors maquette sont listées
+nommément. Muté quatre fois pour vérifier qu'il mord : un ordre qui
+inverse deux entrées, une colonne renommée, un `role_min` déplacé, et
+une maquette illisible. Les quatre sont attrapés.
+
+**`MenuSnapshotTest` est retiré avec son empreinte.** Il prouvait
+l'identité d'IT-01, délibérément fausse à partir d'ici, et son propre
+docblock disait comment le remplacer : « par la structure que décrit la
+maquette, pas par ce que le code produit ». Sa couverture par rôle est
+reprise, en mieux, par le test ci-dessus.
+
+**`GestionMenuColumnTest` est supprimé** : sa colonne n'existe plus, et
+son `effectiveMenuOrder()` lisait encore `MODULE_ORDER_BASE`, constante
+retirée par IT-01. Ses deux propriétés sont couvertes ailleurs — le
+contenu de chaque colonne par `MenuMockupTest`, l'indépendance vis-à-vis
+de l'ordre des modules par la suppression du mécanisme lui-même et par
+`MenuEntriesDeclareTheirPlaceTest`.
+
+### Un extracteur aveugle depuis toujours
+
+`MenuRegistrationOrderTest` n'acceptait que les libellés entre
+apostrophes simples. Un libellé contenant une apostrophe ne peut pas
+s'écrire ainsi : **« Points d'attention » était donc invisible à ce test
+depuis qu'elle existe**, et n'apparaissait dans aucune de ses attentes.
+Rien n'échouait ; la liste décrivait simplement moins de fichier qu'elle
+n'en avait l'air.
+
+Découvert parce qu'IT-02 renomme « E-mails » en « Modèles d'e-mails »,
+qui prend des guillemets doubles et disparaissait à son tour. Les deux
+extracteurs acceptent désormais les deux styles, comme le fait déjà
+`MenuInventory`, et le test couvre une entrée de plus qu'avant.
+
+### Ce que le changement a cassé
+
+Vingt-huit tests, tous pour une bonne raison, et aucun n'a demandé de
+contourner quoi que ce soit :
+
+- **Les exemples de colonnes** dans `MenuBuilderTest` et
+  `NavRenderingTest` : ils nommaient `gestion` et `exploitation`. Le
+  vocabulaire fermé a levé une exception au lieu de dériver — le
+  mécanisme a fait exactement son travail.
+- **Les fils-pièges de version** : six littéraux, lus sur les manifestes
+  réels plutôt que recopiés.
+- **Trois assertions de placement** — Cotisations, Encadrement, la
+  campagne de réinscription — dont la raison a été réécrite, pas
+  seulement l'id.
+- **Deux titres de page** vérifiés par expression régulière, où
+  l'apostrophe est échappée en `&#039;` par Twig.
+- **Trois specs e2e** qui naviguent par le texte des liens.
+
+### Reporté pour IT-02
+
+Rien.

@@ -307,21 +307,21 @@ class MenuBuilderTest extends TestCase
     public function testGroupOrderFollowsTheDeclarationOrderNotThePagesOrder(): void
     {
         $builder = new MenuBuilder(Role::SUPERADMIN);
-        // "Exploitation" is declared last but registered first, and with
-        // the lowest `order` of the three.
-        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Maintenance', '/config/maintenance', 'superadmin', 1, false, null, MenuBuilder::SORT_GROUP_CORE, null, null, 'exploitation');
-        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Réglages', '/config/settings', 'superadmin', 20, false, null, MenuBuilder::SORT_GROUP_CORE, null, null, 'site');
+        // "Réglages des modules" is declared last but registered first,
+        // and with the lowest `order` of the three.
+        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Calendrier', '/config/calendar', 'superadmin', 1, false, null, MenuBuilder::SORT_GROUP_MODULE, null, null, 'modules');
+        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Paramètres', '/config/settings', 'superadmin', 20, false, null, MenuBuilder::SORT_GROUP_CORE, null, null, 'site');
         $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Desk', '/config/functions', 'superadmin', 30, false, null, MenuBuilder::SORT_GROUP_CORE, null, null, 'unite_donnees');
 
         $groups = $builder->build()[0]['groups'];
 
-        $this->assertSame(['unite_donnees', 'site', 'exploitation'], array_column($groups, 'id'));
-        $this->assertSame(['Unité & données', 'Site', 'Exploitation'], array_column($groups, 'label'));
+        $this->assertSame(['unite_donnees', 'site', 'modules'], array_column($groups, 'id'));
+        $this->assertSame(["L'unité", 'Le site', 'Réglages des modules'], array_column($groups, 'label'));
     }
 
     /**
-     * A module page and a core page share a column on purpose (Finances
-     * belongs under "Gestion" whichever registered it) — and inside it
+     * A module page and a core page share a column on purpose (Statistiques
+     * belongs under "Effectifs" whichever registered it) — and inside it
      * they are ordered by their numbers alone. The core page below
      * declares 99 and lands last, which is the point: where an entry came
      * from stopped deciding anything.
@@ -329,15 +329,15 @@ class MenuBuilderTest extends TestCase
     public function testPagesInsideAGroupAreOrderedByTheirNumbersAlone(): void
     {
         $builder = new MenuBuilder(Role::INTENDANT);
-        $builder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Finances', '/finance', 'intendant', 1, false, null, MenuBuilder::SORT_GROUP_MODULE, null, null, 'gestion');
-        $builder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Statistiques', '/chiefs/stats', 'intendant', 2, false, null, MenuBuilder::SORT_GROUP_MODULE, null, null, 'gestion');
-        $builder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Page core', '/chefs/core', 'intendant', 99, false, null, MenuBuilder::SORT_GROUP_CORE, null, null, 'gestion');
+        $builder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Statistiques', '/chiefs/stats', 'intendant', 1, false, null, MenuBuilder::SORT_GROUP_MODULE, null, null, 'effectifs');
+        $builder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, "Prévisions d'effectifs", '/previsions', 'intendant', 2, false, null, MenuBuilder::SORT_GROUP_MODULE, null, null, 'effectifs');
+        $builder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Page core', '/chefs/core', 'intendant', 99, false, null, MenuBuilder::SORT_GROUP_CORE, null, null, 'effectifs');
 
         $groups = $builder->build()[0]['groups'];
 
         $this->assertCount(1, $groups);
-        $this->assertSame('gestion', $groups[0]['id']);
-        $this->assertSame(['Finances', 'Statistiques', 'Page core'], array_column($groups[0]['pages'], 'label'));
+        $this->assertSame('effectifs', $groups[0]['id']);
+        $this->assertSame(['Statistiques', "Prévisions d'effectifs", 'Page core'], array_column($groups[0]['pages'], 'label'));
     }
 
     /**
@@ -348,8 +348,8 @@ class MenuBuilderTest extends TestCase
     public function testAGroupWhoseEveryPageIsRoleFilteredIsAbsentRatherThanEmpty(): void
     {
         $builder = new MenuBuilder(Role::INTENDANT);
-        $builder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Staffs', '/chefs/staffs', 'intendant', 10, false, null, MenuBuilder::SORT_GROUP_CORE, null, null, 'ma_section');
-        $builder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Finances', '/finance', 'chief', 10, false, null, MenuBuilder::SORT_GROUP_MODULE, null, null, 'gestion');
+        $builder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Staffs et badges', '/chefs/staffs', 'intendant', 10, false, null, MenuBuilder::SORT_GROUP_CORE, null, null, 'ma_section');
+        $builder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Camps', '/chefs/camps', 'chief', 10, false, null, MenuBuilder::SORT_GROUP_MODULE, null, null, 'activites');
 
         $groups = $builder->build()[0]['groups'];
 
@@ -358,19 +358,19 @@ class MenuBuilderTest extends TestCase
 
     /**
      * A page that names no group lands in the menu's *last* declared one —
-     * a core page added later and forgotten shows up under "Exploitation",
-     * where the omission is visible, rather than inventing an unnamed
-     * column of its own.
+     * a core page added later and forgotten shows up under "Réglages des
+     * modules", where the omission is visible, rather than inventing an
+     * unnamed column of its own.
      */
     public function testAPageWithNoMenuGroupLandsInTheLastDeclaredGroup(): void
     {
         $builder = new MenuBuilder(Role::SUPERADMIN);
-        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Réglages', '/config/settings', 'superadmin', 10, false, null, MenuBuilder::SORT_GROUP_CORE, null, null, 'site');
+        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Paramètres', '/config/settings', 'superadmin', 10, false, null, MenuBuilder::SORT_GROUP_CORE, null, null, 'site');
         $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Page oubliée', '/config/oops', 'superadmin', 20);
 
         $groups = $builder->build()[0]['groups'];
 
-        $this->assertSame(['site', 'exploitation'], array_column($groups, 'id'));
+        $this->assertSame(['site', 'modules'], array_column($groups, 'id'));
         $this->assertSame(['Page oubliée'], array_column($groups[1]['pages'], 'label'));
     }
 
@@ -429,12 +429,12 @@ class MenuBuilderTest extends TestCase
     public function testPagesStaysTheFlatListItAlwaysWasAlongsideGroups(): void
     {
         $builder = new MenuBuilder(Role::SUPERADMIN);
-        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Maintenance', '/config/maintenance', 'superadmin', 30, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-tools', null, 'exploitation');
-        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Réglages', '/config/settings', 'superadmin', 10, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-gear-wide-connected', null, 'site');
+        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Maintenance', '/config/maintenance', 'superadmin', 30, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-tools', null, 'donnees_sauvegardes');
+        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Paramètres', '/config/settings', 'superadmin', 10, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-gear-wide-connected', null, 'site');
 
         $menu = $builder->build()[0];
 
-        $this->assertSame(['Réglages', 'Maintenance'], array_column($menu['pages'], 'label'));
+        $this->assertSame(['Paramètres', 'Maintenance'], array_column($menu['pages'], 'label'));
         $this->assertSame(
             ['label', 'url', 'isDynamic', 'subtitle', 'icon', 'avatarMemberId'],
             array_keys($menu['pages'][0])

@@ -3148,7 +3148,7 @@ $menuBuilder->addPage(
     'Contact',
     '/contact',
     'public',
-    20,
+    70,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3159,29 +3159,27 @@ $menuBuilder->addPage(
     'Sections',
     '/sections',
     'public',
-    30,
+    20,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
     'bi-diagram-3'
 );
-$menuBuilder->addPage(
-    MenuBuilder::MENU_NOTRE_UNITE,
-    'Protection des données',
-    '/rgpd',
-    'public',
-    40,
-    false,
-    null,
-    MenuBuilder::SORT_GROUP_CORE,
-    'bi-shield-check'
-);
+// « Protection des données » is deliberately NOT a menu entry.
+//
+// It is a legal page, and it was the last item of the public menu —
+// standing between a parent and « Inscriptions », the one thing they came
+// for. The page itself is untouched: its route is registered below, the
+// footer links to it from every page of the site
+// (templates/base.html.twig), and Core\Offline\OfflineWhitelist still
+// caches it for offline reading. Only its place in a navigation menu
+// nobody used to reach it is gone.
 $menuBuilder->addPage(
     MenuBuilder::MENU_ESPACE_CHEFS,
-    'Staffs',
+    'Staffs et badges',
     '/chefs/staffs',
     'intendant',
-    10,
+    30,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3191,7 +3189,7 @@ $menuBuilder->addPage(
 );
 $menuBuilder->addPage(
     MenuBuilder::MENU_ESPACE_CHEFS,
-    'Membres par section',
+    'Animés de la section',
     '/chefs/membres',
     'intendant',
     20,
@@ -3213,20 +3211,20 @@ $menuBuilder->addPage(
     'Édition du site',
     '/config/general',
     'admin',
-    10,
+    80,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
     'bi-pencil-square',
     null,
-    'contenu'
+    'communication'
 );
 $menuBuilder->addPage(
     MenuBuilder::MENU_ESPACE_ADMIN,
     'Import Desk',
     '/admin/import',
     'admin',
-    20,
+    30,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3239,13 +3237,13 @@ $menuBuilder->addPage(
     "Points d'attention",
     '/admin/points-attention',
     'admin',
-    30,
+    10,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
     'bi-exclamation-triangle',
     null,
-    'membres_annee'
+    'suivi'
 );
 $menuBuilder->addPage(
     MenuBuilder::MENU_ESPACE_ADMIN,
@@ -3278,7 +3276,7 @@ $menuBuilder->addPage(
     'Journal',
     '/admin/journal',
     'admin',
-    60,
+    20,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3294,7 +3292,7 @@ $menuBuilder->addPage(
     'Installation & serveur',
     '/setup',
     'superadmin',
-    10,
+    50,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3307,7 +3305,7 @@ $menuBuilder->addPage(
     'Modules',
     '/config/modules',
     'superadmin',
-    20,
+    60,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3323,7 +3321,7 @@ $menuBuilder->addPage(
     'Pages de texte',
     '/config/pages-de-texte',
     'superadmin',
-    30,
+    70,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3336,7 +3334,7 @@ $menuBuilder->addPage(
     'Badges',
     '/config/badges',
     'superadmin',
-    40,
+    20,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3349,7 +3347,7 @@ $menuBuilder->addPage(
     'Correspondances Desk',
     '/config/functions',
     'superadmin',
-    50,
+    10,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3359,10 +3357,10 @@ $menuBuilder->addPage(
 );
 $menuBuilder->addPage(
     MenuBuilder::MENU_CONFIGURATION,
-    'Réglages',
+    'Paramètres',
     '/config/settings',
     'superadmin',
-    60,
+    80,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3375,7 +3373,7 @@ $menuBuilder->addPage(
     'RGPD',
     '/config/rgpd',
     'superadmin',
-    70,
+    30,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3388,13 +3386,13 @@ $menuBuilder->addPage(
     'Actions planifiées',
     '/config/scheduled',
     'superadmin',
-    80,
+    160,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
     'bi-clock-history',
     null,
-    'exploitation'
+    'donnees_sauvegardes'
 );
 $menuBuilder->addPage(
     MenuBuilder::MENU_CONFIGURATION,
@@ -3407,59 +3405,59 @@ $menuBuilder->addPage(
     MenuBuilder::SORT_GROUP_CORE,
     'bi-shield-lock',
     null,
-    'exploitation'
+    'site'
 );
 $menuBuilder->addPage(
     MenuBuilder::MENU_CONFIGURATION,
     'Maintenance',
     '/config/maintenance',
     'admin',
-    100,
+    150,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
     'bi-tools',
     null,
-    'exploitation'
+    'donnees_sauvegardes'
 );
 $menuBuilder->addPage(
     MenuBuilder::MENU_CONFIGURATION,
     'Notifications',
     '/config/notifications',
     'superadmin',
-    110,
+    120,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
     'bi-bell',
     null,
-    'exploitation'
+    'communication'
 );
 $menuBuilder->addPage(
     MenuBuilder::MENU_CONFIGURATION,
-    'E-mails',
+    "Modèles d'e-mails",
     '/config/emails',
     'superadmin',
-    120,
+    130,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
     'bi-envelope',
     null,
-    'exploitation'
+    'communication'
 );
 $menuBuilder->addPage(
     MenuBuilder::MENU_CONFIGURATION,
     'Courrier sortant',
     '/config/courrier-sortant',
     'superadmin',
-    130,
+    110,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
     'bi-send',
     null,
-    'exploitation'
+    'communication'
 );
 // « Stockage » — just before Support inside « Exploitation »: it is an
 // operations page like the two mail ones, and the question it answers
@@ -3485,33 +3483,33 @@ $menuBuilder->addPage(
     MenuBuilder::SORT_GROUP_CORE,
     'bi-hdd-stack',
     null,
-    'exploitation'
+    'donnees_sauvegardes'
 );
 $menuBuilder->addPage(
     MenuBuilder::MENU_CONFIGURATION,
-    'Support',
+    'Diagnostic',
     '/config/support',
     'superadmin',
-    150,
+    180,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
     'bi-life-preserver',
     null,
-    'exploitation'
+    'etat_du_site'
 );
 $menuBuilder->addPage(
     MenuBuilder::MENU_CONFIGURATION,
     'Synchronisation des contacts',
     '/config/synchronisation-contacts',
     'superadmin',
-    160,
+    40,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
     'bi-phone',
     null,
-    'exploitation'
+    'unite_donnees'
 );
 // SORT_GROUP_CORE (addPage()'s default) already sorts this after the
 // dynamic member entries and the empty-state placeholder above, whatever
@@ -3528,7 +3526,7 @@ $menuBuilder->addPage(
     MenuBuilder::SORT_GROUP_CORE,
     'bi-bell',
     null,
-    'pages'
+    'mes_membres'
 );
 
 // Create router early so ModuleManager can register routes
@@ -4095,7 +4093,7 @@ $router->addRoute(
     \Core\Http\Controller\EmailTemplateController::class,
     'index',
     'superadmin',
-    ['label' => 'E-mails', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+    ['label' => "Modèles d'e-mails", 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
 );
 $router->addRoute(
     'GET',
@@ -4104,7 +4102,7 @@ $router->addRoute(
     'edit',
     'superadmin',
     ['label' => 'Email', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
-        'ancestors' => [['label' => 'E-mails', 'path' => '/config/emails']]]
+        'ancestors' => [['label' => "Modèles d'e-mails", 'path' => '/config/emails']]]
 );
 $router->addRoute(
     'POST',
@@ -4944,7 +4942,7 @@ $router->addRoute(
     SettingsController::class,
     'index',
     'superadmin',
-    ['label' => 'Réglages', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+    ['label' => 'Paramètres', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
 );
 $router->addRoute('POST', '/config/settings/update', SettingsController::class, 'update', 'superadmin');
 $router->addRoute('POST', '/config/settings/logo-delete', SettingsController::class, 'deleteLogo', 'superadmin');
@@ -4963,7 +4961,7 @@ $router->addRoute(
     SupportController::class,
     'index',
     'superadmin',
-    ['label' => 'Support', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+    ['label' => 'Diagnostic', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
 );
 
 // Synchronisation des contacts (Core\Contact\Device, ARCHITECTURE.md
@@ -5458,7 +5456,7 @@ $router->addRoute(
     StaffsController::class,
     'index',
     'intendant',
-    ['label' => 'Staffs', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_CHEFS)]],
+    ['label' => 'Staffs et badges', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_CHEFS)]],
 );
 $router->addRoute('POST', '/chefs/staffs/badge-toggle', StaffsController::class, 'toggleBadge', 'chief');
 $router->addRoute(
@@ -5467,7 +5465,7 @@ $router->addRoute(
     \Core\Http\Controller\SectionRosterController::class,
     'index',
     'intendant',
-    ['label' => 'Membres par section', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_CHEFS)]],
+    ['label' => 'Animés de la section', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_CHEFS)]],
 );
 $router->addRoute(
     'GET',

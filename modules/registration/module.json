@@ -2,7 +2,7 @@
   "id": "registration",
   "name": "Inscriptions",
   "description": "Parcours d'inscription complet : page publique avec disponibilité des places et gestion des listes d'attente, formulaire de demande, accusés de réception par email, page de suivi pour les familles, gestion des demandes côté staff (acceptation, refus, rapprochement automatique à l'import Desk, rétention), préparation de l'année suivante (départs, passage entre sections, prévisions d'effectifs), veto sur la bascule d'année scoute tant que des demandes restent ouvertes, et liste de diffusion pour le module d'envoi de mails.",
-  "version": "6.9.2",
+  "version": "6.9.7",
   "enabled_by_default": false,
   "routes": [
     {
@@ -14,7 +14,7 @@
       "role_min": "public",
       "label": "Inscriptions",
       "menu_icon": "bi-person-plus",
-      "menu_order": 80,
+      "menu_order": 30,
       "breadcrumb": {
         "label": "Inscriptions",
         "parents": [
@@ -83,12 +83,12 @@
       "action": "index",
       "menu": "espace_admin",
       "role_min": "admin",
-      "label": "Réinscription",
+      "label": "Réinscriptions",
       "menu_icon": "bi-arrow-repeat",
-      "menu_group": "services",
-      "menu_order": 150,
+      "menu_group": "effectifs",
+      "menu_order": 130,
       "breadcrumb": {
-        "label": "Réinscription",
+        "label": "Réinscriptions",
         "parents": [
           "Espace chefs d'U"
         ]
@@ -200,12 +200,12 @@
       "action": "index",
       "menu": "espace_admin",
       "role_min": "admin",
-      "label": "Inscriptions",
+      "label": "Formulaire d'inscription",
       "menu_icon": "bi-person-plus",
-      "menu_group": "services",
-      "menu_order": 160,
+      "menu_group": "effectifs",
+      "menu_order": 150,
       "breadcrumb": {
-        "label": "Inscriptions",
+        "label": "Formulaire d'inscription",
         "parents": [
           "Espace chefs d'U"
         ]
@@ -298,7 +298,7 @@
         ],
         "ancestors": [
           {
-            "label": "Inscriptions",
+            "label": "Formulaire d'inscription",
             "path": "/config/inscriptions"
           }
         ]
@@ -401,12 +401,12 @@
       "action": "index",
       "menu": "espace_chefs",
       "role_min": "chief",
-      "label": "Départs",
+      "label": "Départs de l'unité",
       "menu_icon": "bi-box-arrow-right",
-      "menu_group": "ma_section",
+      "menu_group": "effectifs",
       "menu_order": 130,
       "breadcrumb": {
-        "label": "Départs",
+        "label": "Départs de l'unité",
         "parents": [
           "Espace animateurs"
         ]
@@ -428,12 +428,12 @@
       "action": "index",
       "menu": "espace_admin",
       "role_min": "admin",
-      "label": "Passage",
+      "label": "Passages de branche",
       "menu_icon": "bi-arrow-left-right",
-      "menu_group": "membres_annee",
-      "menu_order": 170,
+      "menu_group": "effectifs",
+      "menu_order": 140,
       "breadcrumb": {
-        "label": "Passage",
+        "label": "Passages de branche",
         "parents": [
           "Espace chefs d'U"
         ]
@@ -527,12 +527,12 @@
       "action": "index",
       "menu": "espace_chefs",
       "role_min": "chief",
-      "label": "Prévisions",
+      "label": "Prévisions d'effectifs",
       "menu_icon": "bi-graph-up-arrow",
-      "menu_group": "gestion",
-      "menu_order": 50,
+      "menu_group": "effectifs",
+      "menu_order": 120,
       "breadcrumb": {
-        "label": "Prévisions",
+        "label": "Prévisions d'effectifs",
         "parents": [
           "Espace animateurs"
         ]
@@ -726,7 +726,7 @@
   "offline": [
     {
       "path": "/previsions",
-      "label": "Prévisions",
+      "label": "Prévisions d'effectifs",
       "match": "exact",
       "role_min": "chief",
       "prefetch": false

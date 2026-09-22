@@ -56,7 +56,7 @@ triage l'archive d'une autre unité.
 > référence suffit : c'est elle qui donne accès à la copie anonymisée,
 > et rien d'autre ne doit sortir de votre serveur.
 
-Ce que la case d'acceptation, sur la page Support, vous demande d'accepter
+Ce que la case d'acceptation, sur la page Diagnostic, vous demande d'accepter
 avant l'envoi d'une archive couvre aussi cette copie anonymisée — et
 c'est elle qui compte : un envoi fait depuis une version du site dont
 la case ne mentionnait pas encore le triage ne donne accès à aucune

@@ -44,7 +44,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.17.3', $this->manifest->version);
+        $this->assertSame('1.17.7', $this->manifest->version);
     }
 
     /**
@@ -124,7 +124,9 @@ class ModuleManifestTest extends TestCase
 
         $this->assertCount(1, $labelled);
         $this->assertSame('/groups', $labelled[0]['path']);
-        $this->assertSame('Groupes', $labelled[0]['label']);
+        // « Groupes » evoked the sections rather than the conversations
+        // the page actually holds; the menu reorganisation renamed it.
+        $this->assertSame('Discussions', $labelled[0]['label']);
     }
 
     public function testTheLiteralArchivesRouteIsDeclaredBeforeTheIdWildcard(): void
@@ -184,7 +186,7 @@ class ModuleManifestTest extends TestCase
     public function testItCachesTheGroupListOfflineButNeverAGroupsConversation(): void
     {
         $this->assertSame(
-            [['path' => '/groups', 'label' => 'Groupes', 'match' => 'exact', 'role_min' => 'identified', 'prefetch' => true]],
+            [['path' => '/groups', 'label' => 'Discussions', 'match' => 'exact', 'role_min' => 'identified', 'prefetch' => true]],
             $this->manifest->offline
         );
 
@@ -278,7 +280,7 @@ class ModuleManifestTest extends TestCase
         );
 
         foreach ($byId as $id => $type) {
-            $this->assertSame('Groupes', $type['group'], "{$id} must sit in the Groupes preferences group");
+            $this->assertSame('Discussions', $type['group'], "{$id} must sit in the Discussions preferences group");
             $this->assertSame('identified', $type['role_min'], "{$id} audience is membership, so its floor is identified");
             $this->assertNotSame('', trim($type['label']));
             $this->assertNotSame('', trim($type['description']));

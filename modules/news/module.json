@@ -2,7 +2,7 @@
   "id": "news",
   "name": "Actualités",
   "description": "Articles d'actualité avec formulaires intégrés (inscriptions, paiements optionnels), référencement SEO et affiche A4 avec QR code.",
-  "version": "1.7.1",
+  "version": "1.7.4",
   "enabled_by_default": true,
   "routes": [
     {
@@ -14,7 +14,7 @@
       "role_min": "public",
       "label": "Actualités",
       "menu_icon": "bi-newspaper",
-      "menu_order": 70,
+      "menu_order": 40,
       "breadcrumb": {
         "label": "Actualités",
         "parents": [
@@ -29,12 +29,12 @@
       "action": "manage",
       "menu": "espace_chefs",
       "role_min": "chief",
-      "label": "Actualités",
+      "label": "Rédiger les actualités",
       "menu_icon": "bi-pencil-square",
       "menu_group": "communication",
-      "menu_order": 110,
+      "menu_order": 80,
       "breadcrumb": {
-        "label": "Actualités",
+        "label": "Rédiger les actualités",
         "parents": [
           "Espace animateurs"
         ]
@@ -55,7 +55,7 @@
         ],
         "ancestors": [
           {
-            "label": "Actualités",
+            "label": "Rédiger les actualités",
             "path": "/news/manage"
           }
         ]
@@ -127,7 +127,7 @@
         ],
         "ancestors": [
           {
-            "label": "Actualités",
+            "label": "Rédiger les actualités",
             "path": "/news/manage"
           }
         ]
@@ -157,7 +157,7 @@
         ],
         "ancestors": [
           {
-            "label": "Actualités",
+            "label": "Rédiger les actualités",
             "path": "/news/manage"
           }
         ]
@@ -226,7 +226,7 @@
         ],
         "ancestors": [
           {
-            "label": "Actualités",
+            "label": "Rédiger les actualités",
             "path": "/news/manage"
           }
         ]

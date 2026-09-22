@@ -702,7 +702,7 @@ class PassageControllerTest extends TestCase
         $this->assertSame(
             0,
             preg_match('/\son[a-z]+\s*=\s*["\']/i', $html),
-            'La page Passage ne doit contenir aucun gestionnaire d\'événement inline (bloqué par la CSP).'
+            'La page Passages de branche ne doit contenir aucun gestionnaire d\'événement inline (bloqué par la CSP).'
         );
         $this->assertStringContainsString('passage-save', $html);
     }

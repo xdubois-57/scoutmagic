@@ -1,9 +1,9 @@
 {% extends 'base.html.twig' %}
-{% block title %}Passage — {{ site_name }}{% endblock %}
+{% block title %}Passages de branche — {{ site_name }}{% endblock %}
 {% block content %}
     <div class="page-wide">
         {% include 'partials/page_header.html.twig' with {
-            title: 'Passage',
+            title: 'Passages de branche',
             subtitle: "Répartit les arrivants de l'année " ~ target_year_label ~ " entre les sections — toujours calculé sur
                 l'année " ~ target_year_label ~ " (l'année publique + 1), quelle que soit l'année actuellement prévisualisée.",
         } only %}

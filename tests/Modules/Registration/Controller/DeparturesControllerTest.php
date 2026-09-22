@@ -238,7 +238,7 @@ class DeparturesControllerTest extends TestCase
         $body = $this->controller->index(new Request('GET', '/departs', [], [], [], []), [])->getBody();
 
         $this->assertMatchesRegularExpression(
-            '#<h1[^>]*>Départs</h1>\s*<span class="badge text-bg-secondary">2026-2027</span>#',
+            '#<h1[^>]*>Départs de l&\#039;unité</h1>\s*<span class="badge text-bg-secondary">2026-2027</span>#',
             $body
         );
     }

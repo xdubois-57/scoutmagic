@@ -61,7 +61,7 @@ class ReenrollmentCampaignPlacementTest extends TestCase
         $page = $this->page();
 
         $this->assertSame('espace_admin', $page['menu']);
-        $this->assertSame('services', $page['menu_group'], 'beside « Inscriptions », which is the same job a year apart');
+        $this->assertSame('effectifs', $page['menu_group'], 'beside « Formulaire d\'inscription », which is the same job a year apart');
         $this->assertSame("Espace chefs d'U", $page['breadcrumb']['parents'][0]);
     }
 

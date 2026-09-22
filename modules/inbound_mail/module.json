@@ -2,7 +2,7 @@
   "id": "inbound_mail",
   "name": "Courrier entrant",
   "description": "Passerelle de courrier entrant en lecture seule : connecte une ou plusieurs boîtes IMAP, détecte les nouveaux messages et les met à disposition des autres modules. Ne modifie jamais la boîte distante.",
-  "version": "1.12.2",
+  "version": "1.12.4",
   "enabled_by_default": false,
   "routes": [
     {
@@ -12,12 +12,12 @@
       "action": "index",
       "menu": "espace_admin",
       "role_min": "admin",
-      "label": "Courrier",
+      "label": "Courrier reçu",
       "menu_icon": "bi-envelope",
-      "menu_group": "suivi",
-      "menu_order": 120,
+      "menu_group": "communication",
+      "menu_order": 100,
       "breadcrumb": {
-        "label": "Courrier",
+        "label": "Courrier reçu",
         "parents": [
           "Espace chefs d'U"
         ]
@@ -56,7 +56,7 @@
         ],
         "ancestors": [
           {
-            "label": "Courrier",
+            "label": "Courrier reçu",
             "path": "/courrier"
           }
         ]
@@ -107,8 +107,8 @@
       "role_min": "superadmin",
       "label": "Courrier entrant",
       "menu_icon": "bi-envelope-open",
-      "menu_group": "modules",
-      "menu_order": 210,
+      "menu_group": "communication",
+      "menu_order": 100,
       "breadcrumb": {
         "label": "Courrier entrant",
         "parents": [

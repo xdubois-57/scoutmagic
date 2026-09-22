@@ -96,7 +96,7 @@ class TrombinoscopeControllerTest extends TestCase
     {
         $router = new Router();
         $router->addRoute('GET', '/trombinoscope', TrombinoscopeController::class, 'index', 'identified', [
-            'label' => 'Trombinoscope',
+            'label' => 'Les animateurs',
             'parents' => ['Espace membres'],
         ]);
         // Same role as the page it is downloaded from, deliberately: a
@@ -244,7 +244,7 @@ class TrombinoscopeControllerTest extends TestCase
         $response = $this->buildFrontController()->handle(new Request('GET', '/trombinoscope', [], [], [], []));
 
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertStringContainsString('Trombinoscope', $response->getBody());
+        $this->assertStringContainsString('Les animateurs', $response->getBody());
         $this->assertStringContainsString('Éclaireurs 1', $response->getBody());
     }
 
@@ -262,7 +262,7 @@ class TrombinoscopeControllerTest extends TestCase
         );
 
         $this->assertMatchesRegularExpression(
-            '/aria-current="page">\s*Trombinoscope · Éclaireurs 1\s*</',
+            '/aria-current="page">\s*Les animateurs · Éclaireurs 1\s*</',
             $response->getBody()
         );
     }

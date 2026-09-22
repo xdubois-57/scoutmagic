@@ -135,7 +135,7 @@ test('the departures and passage grids save on change, with no save button anywh
     // row, and the comment saves on blur — each as its own request.
     // ---------------------------------------------------------------
     await page.goto('/departs', { waitUntil: 'domcontentloaded' });
-    await expect(page.getByRole('heading', { level: 1, name: 'Départs' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: "Départs de l'unité" })).toBeVisible();
 
     // An admin staffs every section; walk to the one the harness seeded
     // both members into. The section picker is a select bar, so its

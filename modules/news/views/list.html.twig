@@ -1,11 +1,11 @@
 {% extends "base.html.twig" %}
 
-{% block title %}Actualités — {{ site_name }}{% endblock %}
+{% block title %}{{ manage ? 'Rédiger les actualités' : 'Actualités' }} — {{ site_name }}{% endblock %}
 
 {% block content %}
     {% if manage %}
         {% include 'partials/page_header.html.twig' with {
-            title: 'Actualités',
+            title: 'Rédiger les actualités',
             action_label: 'Nouvel article',
             action_url: '/news/create',
         } only %}

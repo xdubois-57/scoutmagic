@@ -72,25 +72,29 @@ class MenuBuilder
         self::MENU_NOTRE_UNITE => [],
         self::MENU_ESPACE_ANIMES => [
             ['id' => 'mes_membres', 'label' => 'Mes membres'],
-            ['id' => 'pages',       'label' => 'Pages'],
+            ['id' => 'unite',       'label' => "L'unité"],
         ],
         self::MENU_ESPACE_CHEFS => [
             ['id' => 'ma_section',    'label' => 'Ma section'],
             ['id' => 'activites',     'label' => 'Activités'],
             ['id' => 'communication', 'label' => 'Communication'],
-            ['id' => 'gestion',       'label' => 'Gestion'],
+            ['id' => 'effectifs',     'label' => 'Effectifs'],
+            ['id' => 'argent',        'label' => 'Argent'],
         ],
         self::MENU_ESPACE_ADMIN => [
-            ['id' => 'membres_annee', 'label' => 'Membres & année'],
-            ['id' => 'contenu',       'label' => 'Contenu du site'],
-            ['id' => 'services',      'label' => 'Services'],
             ['id' => 'suivi',         'label' => 'Suivi'],
+            ['id' => 'membres_annee', 'label' => 'Membres et année'],
+            ['id' => 'communication', 'label' => 'Communication'],
+            ['id' => 'effectifs',     'label' => 'Effectifs'],
+            ['id' => 'services',      'label' => "Services de l'unité"],
         ],
         self::MENU_CONFIGURATION => [
-            ['id' => 'unite_donnees', 'label' => 'Unité & données'],
-            ['id' => 'site',          'label' => 'Site'],
-            ['id' => 'modules',       'label' => 'Réglages des modules'],
-            ['id' => 'exploitation',  'label' => 'Exploitation'],
+            ['id' => 'unite_donnees',       'label' => "L'unité"],
+            ['id' => 'site',                'label' => 'Le site'],
+            ['id' => 'communication',       'label' => 'Communication'],
+            ['id' => 'donnees_sauvegardes', 'label' => 'Données et sauvegardes'],
+            ['id' => 'etat_du_site',        'label' => 'État du site'],
+            ['id' => 'modules',             'label' => 'Réglages des modules'],
         ],
     ];
 

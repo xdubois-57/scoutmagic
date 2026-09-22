@@ -2,7 +2,7 @@
   "id": "usage_stats",
   "name": "Fréquentation du site",
   "description": "Compte les pages ouvertes, par motif de route et par mois. Aucun suivi nominatif, aucun cookie, aucune adresse IP.",
-  "version": "1.1.1",
+  "version": "1.1.3",
   "enabled_by_default": false,
   "routes": [
     {
@@ -14,8 +14,8 @@
       "role_min": "superadmin",
       "label": "Fréquentation",
       "menu_icon": "bi-graph-up",
-      "menu_group": "exploitation",
-      "menu_order": 240,
+      "menu_group": "etat_du_site",
+      "menu_order": 170,
       "breadcrumb": {
         "label": "Fréquentation",
         "parents": [

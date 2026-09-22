@@ -1,6 +1,6 @@
 {% extends 'base.html.twig' %}
 
-{% block title %}{{ message.subject }} — Courrier — {{ site_name }}{% endblock %}
+{% block title %}{{ message.subject }} — Courrier reçu — {{ site_name }}{% endblock %}
 
 {% block content %}
 {% include 'partials/page_header.html.twig' with { title: message.subject ?: 'Sans objet' } only %}

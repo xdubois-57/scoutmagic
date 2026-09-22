@@ -1,10 +1,10 @@
 {% extends 'base.html.twig' %}
-{% block title %}Staffs — {{ site_name }}{% endblock %}
+{% block title %}Staffs et badges — {{ site_name }}{% endblock %}
 {% block stylesheets %}
 <link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">
 {% endblock %}
 {% block content %}
-    {% include 'partials/page_header.html.twig' with { title: 'Staffs' } only %}
+    {% include 'partials/page_header.html.twig' with { title: 'Staffs et badges' } only %}
 
     {% if sections|length > 0 %}
         {% include 'partials/section_picker.html.twig' with {

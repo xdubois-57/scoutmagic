@@ -2,7 +2,7 @@
   "id": "trombinoscope",
   "name": "Trombinoscope",
   "description": "Annuaire photo des animés, classé par section, avec leurs coordonnées et leur fonction.",
-  "version": "1.2.2",
+  "version": "1.2.4",
   "enabled_by_default": true,
   "routes": [
     {
@@ -12,12 +12,12 @@
       "action": "index",
       "menu": "espace_animes",
       "role_min": "identified",
-      "label": "Trombinoscope",
+      "label": "Les animateurs",
       "menu_icon": "bi-person-badge",
-      "menu_group": "pages",
-      "menu_order": 20,
+      "menu_group": "unite",
+      "menu_order": 30,
       "breadcrumb": {
-        "label": "Trombinoscope",
+        "label": "Les animateurs",
         "parents": [
           "Espace membres"
         ]
@@ -48,7 +48,7 @@
   "offline": [
     {
       "path": "/trombinoscope",
-      "label": "Trombinoscope",
+      "label": "Les animateurs",
       "match": "exact",
       "role_min": "identified",
       "prefetch": false

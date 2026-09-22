@@ -2,7 +2,7 @@
   "id": "presences",
   "name": "Présences",
   "description": "Feuille de présence par évènement de section : quatre états par animé, commentaire chiffré, et registre annuel de la section.",
-  "version": "1.6.2",
+  "version": "1.6.3",
   "requires": [
     "calendar"
   ],
@@ -17,7 +17,7 @@
       "label": "Présences",
       "menu_icon": "bi-check2-square",
       "menu_group": "ma_section",
-      "menu_order": 120,
+      "menu_order": 10,
       "breadcrumb": {
         "label": "Présences",
         "parents": [

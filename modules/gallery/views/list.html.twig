@@ -1,9 +1,9 @@
 {% extends "base.html.twig" %}
 
-{% block title %}Galerie — {{ site_name }}{% endblock %}
+{% block title %}Photos — {{ site_name }}{% endblock %}
 
 {% block content %}
-    {% include 'partials/page_header.html.twig' with { title: 'Galerie' } only %}
+    {% include 'partials/page_header.html.twig' with { title: 'Photos' } only %}
 
     {% if albums is empty %}
         {% include 'partials/empty_state.html.twig' with {

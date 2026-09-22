@@ -146,7 +146,7 @@ class TrombinoscopeController extends AbstractController
             'scout_year_label' => $effectiveYear->label,
         ];
         if ($selectedLabel !== null) {
-            $context['breadcrumb_current'] = 'Trombinoscope · ' . $selectedLabel;
+            $context['breadcrumb_current'] = 'Les animateurs · ' . $selectedLabel;
         }
 
         return $this->render('@trombinoscope/index.html.twig', $context);

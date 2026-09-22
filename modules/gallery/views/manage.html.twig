@@ -1,16 +1,16 @@
 {% extends "base.html.twig" %}
 
-{% block title %}Gérer la galerie — {{ site_name }}{% endblock %}
+{% block title %}Gérer les photos — {{ site_name }}{% endblock %}
 
 {% block content %}
     {% if allow_local or allow_external %}
         {% include 'partials/page_header.html.twig' with {
-            title: 'Gérer la galerie',
+            title: 'Gérer les photos',
             action_label: 'Nouvel album',
             action_url: '/gallery/create',
         } only %}
     {% else %}
-        {% include 'partials/page_header.html.twig' with { title: 'Gérer la galerie' } only %}
+        {% include 'partials/page_header.html.twig' with { title: 'Gérer les photos' } only %}
     {% endif %}
 
     <p class="text-body-secondary small">

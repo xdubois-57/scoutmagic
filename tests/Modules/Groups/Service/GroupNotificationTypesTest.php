@@ -63,7 +63,7 @@ class GroupNotificationTypesTest extends TestCase
     }
 
     /**
-     * They all appear on the preferences page — grouped under "Groupes",
+     * They all appear on the preferences page — grouped under "Discussions",
      * with the French labels a member actually reads.
      */
     public function testEveryTypeReachesTheRegistryUnderTheGroupesHeading(): void
@@ -72,7 +72,7 @@ class GroupNotificationTypesTest extends TestCase
 
         $this->assertCount(6, $types);
         foreach ($types as $type) {
-            $this->assertSame('Groupes', $type->group);
+            $this->assertSame('Discussions', $type->group);
         }
 
         $this->assertSame(

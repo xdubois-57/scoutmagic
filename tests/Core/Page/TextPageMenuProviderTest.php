@@ -35,15 +35,15 @@ class TextPageMenuProviderTest extends TestCase
     public function testAnEntryLandsInItsSectionItsColumnAndItsOrder(): void
     {
         $provider = new TextPageMenuProvider([
-            self::page(1, MenuBuilder::MENU_ESPACE_ANIMES, 'pages', 'a', 0),
-            self::page(2, MenuBuilder::MENU_ESPACE_ANIMES, 'pages', 'b', 1),
+            self::page(1, MenuBuilder::MENU_ESPACE_ANIMES, 'unite', 'a', 0),
+            self::page(2, MenuBuilder::MENU_ESPACE_ANIMES, 'unite', 'b', 1),
         ]);
 
         $entries = $provider->getMenuEntries(null);
 
         $this->assertCount(2, $entries);
         $this->assertSame(MenuBuilder::MENU_ESPACE_ANIMES, $entries[0]->menuId);
-        $this->assertSame('pages', $entries[0]->menuGroup);
+        $this->assertSame('unite', $entries[0]->menuGroup);
         $this->assertSame('/pages/a', $entries[0]->url);
         $this->assertLessThan($entries[1]->order, $entries[0]->order, 'sort_order must decide the order');
     }
@@ -92,7 +92,7 @@ class TextPageMenuProviderTest extends TestCase
     public function testAColumnThatNoLongerExistsCostsTheEntryAndNotTheSite(): void
     {
         $stale = self::page(1, MenuBuilder::MENU_ESPACE_ANIMES, 'colonne-supprimee', 'a');
-        $sound = self::page(2, MenuBuilder::MENU_ESPACE_ANIMES, 'pages', 'b');
+        $sound = self::page(2, MenuBuilder::MENU_ESPACE_ANIMES, 'unite', 'b');
 
         $entries = (new TextPageMenuProvider([$stale, $sound]))->getMenuEntries(null);
 

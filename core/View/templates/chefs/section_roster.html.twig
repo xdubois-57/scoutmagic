@@ -1,5 +1,5 @@
 {% extends 'base.html.twig' %}
-{% block title %}Membres par section — {{ site_name }}{% endblock %}
+{% block title %}Animés de la section — {{ site_name }}{% endblock %}
 
 {% block content %}
     {% set movement_bg_classes = {
@@ -22,7 +22,7 @@
     } %}
 
     {% include 'partials/page_header.html.twig' with {
-        title: 'Membres par section',
+        title: 'Animés de la section',
         subtitle: 'Année scoute ' ~ scout_year_label,
     } only %}
 

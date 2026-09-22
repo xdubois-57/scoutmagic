@@ -1432,7 +1432,7 @@ class SetupController extends AbstractController
                 'Envoi automatique des statistiques '
                 . 'd\'utilisation',
                 'Autorise l\'envoi quotidien d\'un rapport d\'utilisation agrégé vers ScoutMagic. Le rapport contient '
-                    . 'l\'adresse de ce site, jamais de donnée de membre. Géré depuis la page Support.',
+                    . 'l\'adresse de ce site, jamais de donnée de membre. Géré depuis la page Diagnostic.',
                 null,
                 null,
                 null,

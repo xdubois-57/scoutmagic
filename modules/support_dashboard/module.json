@@ -2,7 +2,7 @@
   "id": "support_dashboard",
   "name": "Tableau de bord support",
   "description": "Réception et consultation des rapports d'utilisation envoyés par les installations ScoutMagic.",
-  "version": "1.14.1",
+  "version": "1.14.2",
   "enabled_by_default": false,
   "visible_when": [
     "statistics_receiver"
@@ -62,8 +62,8 @@
       "role_min": "superadmin",
       "label": "Supervision",
       "menu_icon": "bi-speedometer2",
-      "menu_group": "exploitation",
-      "menu_order": 250,
+      "menu_group": "etat_du_site",
+      "menu_order": 190,
       "breadcrumb": {
         "label": "Supervision",
         "parents": [

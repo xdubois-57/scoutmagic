@@ -276,14 +276,36 @@ class TextPageService
     }
 
     /**
-     * The column a form should preselect for a section — the one the
-     * chantier names as the obvious home for a text page: « Pages » in
-     * Espace membres, « Contenu du site » in Espace chefs d'U.
+     * The column a form should preselect for a section — the obvious home
+     * for a page somebody wrote themselves, named per menu.
      *
-     * Falls back to the menu's first declared column rather than to
-     * nothing, so a menu whose columns are renamed later still opens the
-     * form on something valid instead of on an empty picker.
+     * **One entry per menu, not a list tried in turn.** It used to be a
+     * shared preference list, `['pages', 'contenu', 'site']`, scanned for
+     * the first id the menu declared. That reads as if each menu had a
+     * chosen column, and it silently stopped being true the day two of
+     * those three ids were renamed: the loop matched nothing and fell
+     * through to the first declared column, so a new page in Espace
+     * membres was preselected into « Mes membres » — pages about the
+     * unit, filed under what concerns me personally — and one in Espace
+     * chefs d'U into « Suivi ». Nothing failed, because the fallback is
+     * always a valid column; only the wrong one.
+     *
+     * Keyed by menu, the intent is written down per menu and
+     * TextPageServiceTest asserts the exact column rather than merely a
+     * declared one. A menu missing from this map is a deliberate absence
+     * — `notre_unite` has no columns at all — and anything else is
+     * caught by the test that every key here is a column its menu really
+     * declares.
+     *
+     * @var array<string, string>
      */
+    private const PREFERRED_GROUP = [
+        MenuBuilder::MENU_ESPACE_ANIMES => 'unite',
+        MenuBuilder::MENU_ESPACE_CHEFS => 'communication',
+        MenuBuilder::MENU_ESPACE_ADMIN => 'communication',
+        MenuBuilder::MENU_CONFIGURATION => 'site',
+    ];
+
     public function defaultGroupFor(string $menuId): ?string
     {
         $declared = MenuBuilder::groupIdsFor($menuId);
@@ -291,12 +313,15 @@ class TextPageService
             return null;
         }
 
-        foreach (['pages', 'contenu', 'site'] as $preferred) {
-            if (in_array($preferred, $declared, true)) {
-                return $preferred;
-            }
+        $preferred = self::PREFERRED_GROUP[$menuId] ?? null;
+        if ($preferred !== null && in_array($preferred, $declared, true)) {
+            return $preferred;
         }
 
+        // A menu nobody named a column for, or one whose named column was
+        // removed without this map following. Still a valid column, so the
+        // form opens on something rather than on an empty picker — but the
+        // test above is what keeps this branch unreachable in practice.
         return $declared[0];
     }
 

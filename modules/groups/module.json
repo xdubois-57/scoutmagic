@@ -2,7 +2,7 @@
   "id": "groups",
   "name": "Groupes de discussion",
   "description": "Groupes de discussion privés pour l'unité : un groupe par section et par année scoute, ou des groupes sur invitation. Visibles uniquement par leurs membres.",
-  "version": "1.17.3",
+  "version": "1.17.7",
   "enabled_by_default": false,
   "requires": [
     "gallery"
@@ -15,12 +15,12 @@
       "action": "index",
       "menu": "espace_animes",
       "role_min": "identified",
-      "label": "Groupes",
+      "label": "Discussions",
       "menu_icon": "bi-chat-dots",
-      "menu_group": "pages",
-      "menu_order": 40,
+      "menu_group": "unite",
+      "menu_order": 50,
       "breadcrumb": {
-        "label": "Groupes",
+        "label": "Discussions",
         "parents": [
           "Espace membres"
         ]
@@ -41,7 +41,7 @@
         ],
         "ancestors": [
           {
-            "label": "Groupes",
+            "label": "Discussions",
             "path": "/groups"
           }
         ]
@@ -62,7 +62,7 @@
         ],
         "ancestors": [
           {
-            "label": "Groupes",
+            "label": "Discussions",
             "path": "/groups"
           }
         ]
@@ -559,7 +559,7 @@
       "id": "groups.post_published",
       "label": "Nouveau message dans un groupe",
       "description": "Quand un nouveau message est publié dans un de vos groupes de discussion.",
-      "group": "Groupes",
+      "group": "Discussions",
       "role_min": "identified",
       "channels": {
         "in_app": "default_on",
@@ -571,7 +571,7 @@
       "id": "groups.reply_received",
       "label": "Réponse à votre message",
       "description": "Quand quelqu'un répond à un message que vous avez publié.",
-      "group": "Groupes",
+      "group": "Discussions",
       "role_min": "identified",
       "channels": {
         "in_app": "default_on",
@@ -583,7 +583,7 @@
       "id": "groups.reaction_received",
       "label": "Réaction à votre message",
       "description": "Quand quelqu'un réagit à un de vos messages ou à une de vos réponses. Les réactions reçues coup sur coup sur un même message sont regroupées en une seule notification.",
-      "group": "Groupes",
+      "group": "Discussions",
       "role_min": "identified",
       "channels": {
         "in_app": "default_on",
@@ -595,7 +595,7 @@
       "id": "groups.mentioned",
       "label": "Vous êtes cité dans un groupe",
       "description": "Quand quelqu'un écrit votre nom précédé d'un @ dans un message ou une réponse d'un de vos groupes. Utile si vous avez désactivé la notification de chaque nouveau message : celle-ci ne vous prévient que lorsqu'on s'adresse à vous.",
-      "group": "Groupes",
+      "group": "Discussions",
       "role_min": "identified",
       "channels": {
         "in_app": "default_on",
@@ -607,7 +607,7 @@
       "id": "groups.invited",
       "label": "Invitation à un groupe",
       "description": "Quand un modérateur vous invite dans un groupe de discussion et choisit de vous prévenir. Une invitation ne notifie jamais d'elle-même : c'est la personne qui invite qui décide, invitation par invitation.",
-      "group": "Groupes",
+      "group": "Discussions",
       "role_min": "identified",
       "channels": {
         "in_app": "default_on",
@@ -619,7 +619,7 @@
       "id": "groups.item_reported",
       "label": "Contenu signalé dans un groupe",
       "description": "Quand un membre signale un message ou une réponse dans un groupe dont vous êtes modérateur. Réservé aux modérateurs du groupe : cette notification ne peut pas être désactivée dans le centre de notifications.",
-      "group": "Groupes",
+      "group": "Discussions",
       "role_min": "identified",
       "channels": {
         "in_app": "on",
@@ -631,7 +631,7 @@
   "offline": [
     {
       "path": "/groups",
-      "label": "Groupes",
+      "label": "Discussions",
       "match": "exact",
       "role_min": "identified"
     }

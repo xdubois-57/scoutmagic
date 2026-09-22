@@ -229,14 +229,14 @@ class NavRenderingTest extends TestCase
     {
         $builder = new MenuBuilder(Role::SUPERADMIN);
         $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Desk', '/config/functions', 'superadmin', 10, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-diagram-2', null, 'unite_donnees');
-        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Réglages', '/config/settings', 'superadmin', 20, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-gear-wide-connected', null, 'site');
-        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Maintenance', '/config/maintenance', 'superadmin', 30, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-tools', null, 'exploitation');
+        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Paramètres', '/config/settings', 'superadmin', 20, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-gear-wide-connected', null, 'site');
+        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Maintenance', '/config/maintenance', 'superadmin', 30, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-tools', null, 'donnees_sauvegardes');
 
         $panel = $this->panelOf($this->renderNavFrom($builder), 'configuration');
 
         $this->assertSame(3, substr_count($panel, 'desktop-megamenu-title'));
         $this->assertMatchesRegularExpression(
-            '/Unité &amp; données.*Site.*Exploitation/s',
+            '/L&#039;unité.*Le site.*Données et sauvegardes/s',
             $panel,
             'columns follow MENU_GROUPS declaration order'
         );
@@ -251,13 +251,13 @@ class NavRenderingTest extends TestCase
     public function testAGroupLeftEmptyByRoleFilteringRendersNoColumn(): void
     {
         $builder = new MenuBuilder(Role::INTENDANT);
-        $builder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Staffs', '/chefs/staffs', 'intendant', 10, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-people-fill', null, 'ma_section');
-        $builder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Finances', '/finance', 'chief', 20, false, null, MenuBuilder::SORT_GROUP_MODULE, 'bi-cash', null, 'gestion');
+        $builder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Staffs et badges', '/chefs/staffs', 'intendant', 10, false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-people-fill', null, 'ma_section');
+        $builder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Finances', '/finance', 'chief', 20, false, null, MenuBuilder::SORT_GROUP_MODULE, 'bi-cash', null, 'argent');
 
         $panel = $this->panelOf($this->renderNavFrom($builder), 'espace_chefs');
 
         $this->assertStringContainsString('Ma section', $panel);
-        $this->assertStringNotContainsString('Gestion', $panel);
+        $this->assertStringNotContainsString('Argent', $panel);
         $this->assertSame(1, substr_count($panel, 'desktop-megamenu-title'));
     }
 
