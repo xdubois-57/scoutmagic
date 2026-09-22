@@ -122,4 +122,95 @@ describe('config-modules.js', () => {
             expect(toggle('rental').disabled).toBe(false);
         });
     });
+
+    // The Tous / Actifs / Inactifs filter — its own block in the
+    // implementation, and its own here, because it must keep working on
+    // a page whose modules all failed validation and therefore render no
+    // switch at all.
+    describe('the Tous / Actifs / Inactifs filter', () => {
+        const SHELVES = `
+            <button type="button" data-module-filter="all" class="active" aria-pressed="true">Tous (3)</button>
+            <button type="button" data-module-filter="on" aria-pressed="false">Actifs (1)</button>
+            <button type="button" data-module-filter="off" aria-pressed="false">Inactifs (2)</button>
+            <section data-module-shelf="argent">
+                <div data-module-row data-module-enabled="yes" id="row-finance"></div>
+            </section>
+            <section data-module-shelf="services">
+                <div data-module-row data-module-enabled="no" id="row-rental"></div>
+                <div data-module-row data-module-enabled="no" id="row-sos"></div>
+            </section>
+            <p data-module-empty class="d-none">Aucun module ne correspond à ce filtre.</p>`;
+
+        const row = (id) => document.getElementById('row-' + id);
+        const shelf = (id) => document.querySelector(`[data-module-shelf="${id}"]`);
+        const chip = (f) => document.querySelector(`[data-module-filter="${f}"]`);
+        const hidden = (el) => el.classList.contains('d-none');
+
+        beforeEach(() => {
+            document.body.innerHTML = SHELVES;
+        });
+
+        it('shows every module under « Tous »', async () => {
+            await boot();
+            chip('on').click();
+            chip('all').click();
+
+            expect(hidden(row('finance'))).toBe(false);
+            expect(hidden(row('rental'))).toBe(false);
+            expect(hidden(shelf('argent'))).toBe(false);
+            expect(hidden(shelf('services'))).toBe(false);
+        });
+
+        it('keeps only the active ones under « Actifs »', async () => {
+            await boot();
+            chip('on').click();
+
+            expect(hidden(row('finance'))).toBe(false);
+            expect(hidden(row('rental'))).toBe(true);
+            expect(hidden(row('sos'))).toBe(true);
+        });
+
+        it('hides a shelf the filter empties, rather than leaving a title alone', async () => {
+            await boot();
+            chip('on').click();
+
+            expect(hidden(shelf('argent'))).toBe(false);
+            expect(hidden(shelf('services'))).toBe(true);
+        });
+
+        it('says so when a filter matches nothing at all', async () => {
+            document.body.innerHTML = SHELVES.replace('data-module-enabled="yes"', 'data-module-enabled="no"');
+            await boot();
+            chip('on').click();
+
+            expect(hidden(document.querySelector('[data-module-empty]'))).toBe(false);
+        });
+
+        it('carries the pressed state on the chip, for a screen reader', async () => {
+            await boot();
+            chip('off').click();
+
+            expect(chip('off').getAttribute('aria-pressed')).toBe('true');
+            expect(chip('all').getAttribute('aria-pressed')).toBe('false');
+            expect(chip('all').classList.contains('active')).toBe(false);
+        });
+
+        it('never asks the server anything — the list is already rendered', async () => {
+            await boot();
+            chip('on').click();
+            chip('off').click();
+            chip('all').click();
+
+            expect(fetch).not.toHaveBeenCalled();
+        });
+
+        it('still filters on a page whose modules render no switch', async () => {
+            // Every module invalid: no `.module-toggle` anywhere, so the
+            // toggle block returns early. The filter must not go with it.
+            await boot();
+            chip('on').click();
+
+            expect(hidden(row('rental'))).toBe(true);
+        });
+    });
 });

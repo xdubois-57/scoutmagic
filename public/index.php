@@ -195,7 +195,7 @@ $secretManager = new SecretManager(
 $dkimManager = new DkimManager(__DIR__ . '/../storage/keys');
 $schemaPath = __DIR__ . '/../schema/core.sql';
 
-// A measurement window opened from Configuration > Support records the
+// A measurement window opened from Configuration > Diagnostic records the
 // timeline of every request while it lasts (Core\Debug\MeasurementWindow).
 // One stat on an absent file when there is none — checked here, before
 // the database and the settings exist, because the window is about the
@@ -1547,7 +1547,7 @@ $settingService->register(
     'boolean',
     'Envoi automatique des statistiques d\'utilisation',
     'Autorise l\'envoi quotidien d\'un rapport d\'utilisation agrégé vers ScoutMagic. Le rapport contient '
-        . 'l\'adresse de ce site, jamais de donnée de membre. Géré depuis la page Support.',
+        . 'l\'adresse de ce site, jamais de donnée de membre. Géré depuis la page Diagnostic.',
     null,
     null,
     null,
@@ -1587,7 +1587,7 @@ $settingService->register(
     'support@scoutmagic.be',
     'email',
     'Adresse du support ScoutMagic',
-    'Adresse à laquelle envoyer une archive de support. Affichée sur la page Support.',
+    'Adresse à laquelle envoyer une archive de support. Affichée sur la page Diagnostic.',
     null,
     null,
     null,

@@ -37,7 +37,7 @@ use Core\Support\Task\SendTicketArchiveHandler;
 use Twig\Environment;
 
 /**
- * Configuration > Support (`/config/support`, `role_min: superadmin`) —
+ * Configuration > Diagnostic (`/config/support`, `role_min: superadmin`) —
  * ARCHITECTURE.md §8.47/§8.48.
  *
  * One page for the two things a unit can do about support: decide whether

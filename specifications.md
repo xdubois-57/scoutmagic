@@ -16,24 +16,24 @@ Everything beyond the core site is a module (`modules/<id>/`, ARCHITECTURE.md §
 | `camps` | Camps | §26 |
 | `fees` | Cotisations | §31 |
 | `finance` | Finances | §28, §30 |
-| `gallery` | Galerie photos et vidéos | §33 |
+| `gallery` | Photos et vidéos | §33 |
 | `groups` | Groupes | §20 |
 | `inbound_mail` | Courrier entrant | §23 |
 | `leadership` | Encadrement | §25 |
 | `llm_connector` | Intelligence artificielle | §39 |
 | `mass_mail` | Envoi de mails | §24, §29 |
-| `member_stats` | Statistiques des membres | §35 |
+| `member_stats` | Statistiques | §35 |
 | `news` | Actualités | §32, §29 |
 | `official_documents` | Documents officiels | §44 |
 | `presences` | Présences | §43 |
 | `registration` | Inscriptions | §17, §18, §19 |
 | `rental` | Locations | §22 |
 | `retro` | Rétrospectives | §37 |
-| `sos_staff` | SOS Staff d'U | §38 |
+| `sos_staff` | Téléphone d'urgence | §38 |
 | `support_dashboard` | Tableau de bord support | §21.3 |
 | `test_tools` | Outils de test | §40 |
 | `trombinoscope` | Trombinoscope | §34 |
-| `usage_stats` | Fréquentation du site | §42 |
+| `usage_stats` | Fréquentation | §42 |
 
 Two of them never exist on a unit's installation: `test_tools` (reference and development installations only) and `support_dashboard` (the statistics receiver only). Both declare that in their manifest — see §21.3 and §40.
 
@@ -191,7 +191,7 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 | Année scoute | admin | The whole scout-year transition, as a workflow of three phases and fourteen steps (§16.3): preparing next year with the staffs, encoding it into Desk, then updating the site. The order is advice, not a gate; steps are either observed by the site or ticked off by hand, per target year. Steps belonging to a disabled module are absent. Displays effective year, public year, staff year, member/section counts. Public year activation is manual-only and available year-round; a non-blocking warning appears when the current public year is past its end date. When the Inscriptions module is active: the final step is refused server-side while any registration request is still pending/accepted (any target year); the staff-year step shows the same count as a non-blocking warning — see §19.2. |
 | Membres | admin | Member search (name/email/phone), with a membership filter (**actifs** by default, inactifs, tous) and an on-demand widening to every past scout year. Results are grouped by person. Excel export of all results or of a checked selection, in the canonical member-export format — reusable as-is as a mail-merge audience (§24). A result opens **the member's own page**, `/admin/members/{id}` (below). |
 | Bannière (module) | admin | Homepage banner messages: rich text, minimum viewer role, active/inactive, delete. One of them is drawn at random on every homepage load — the list's own order is for the administrator's convenience and decides nothing on screen (§36) |
-| SOS Staff d'U (module) | admin | On-call duty roster (month grid), default forwarding number, live redirect status, scheduled redirection list |
+| Téléphone d'urgence (module) | admin | On-call duty roster (month grid), default forwarding number, live redirect status, scheduled redirection list |
 | Rétrospectives — Config (module) | admin | The rules common to every board: minimum role to create one and to close one, the defaults a new board starts from (word length, vote budget, refresh interval) and the automatic AI moderation mode. Each board then keeps its own settings — see §37 |
 | Inscriptions (module) | admin | See §17 — request management: capacities/year code (age brackets are read-only, federation-fixed, shared with the Statistiques module), year selector, capacity-verification table, request list (filter/search), "non rapprochées"/"non clôturées" encarts with bulk refuse/withdraw, and a per-request fiche (status transitions, section prévue, tarif, internal notes, acceptance/refusal emails, manual Desk linking) |
 | Passage (module registration) | admin | Split arriving families and promoted animés between sections ahead of next scout year — see §18.2. Chef d'unité only (not a per-section chief), since spreading arrivals across sections needs the whole unit at once |
@@ -276,7 +276,7 @@ All pages in this menu require the `superadmin` role, except Maintenance (`admin
 | Courrier sortant | Par où partent les messages du site. **Fournisseurs** : un relais par fiche — nom, serveur SMTP, port, identifiants (conservés chiffrés hors de la base, jamais réaffichés), et derrière un dépliant « Avancé » sa cadence et son quota journalier. L'**envoi local** y figure toujours, en dernier recours : il n'a ni identifiants ni quota — aucun n'est connu — et sa cadence a un défaut volontairement prudent. **Acheminement** : trois listes ordonnées, une par voie (Authentification, Transactionnel, Masse), chacune donnant la chaîne de repli — on essaie le premier actif, puis le suivant s'il échoue ou atteint son quota. Glisser-déposer sur grand écran, flèches sur mobile. Une voie garde toujours au moins un fournisseur actif : vider la voie « Authentification » laisserait tout le monde à la porte du site. L'envoi local ne peut jamais être supprimé, seulement déplacé ou désactivé. La cadence ne s'applique **qu'à** la voie « Masse » ; quand une voie bascule sur le fournisseur suivant, elle adopte sa cadence et son quota, jamais ceux du précédent. **Une part du quota d'un fournisseur partagé entre la voie « Masse » et une autre est réservée au courrier hors publipostage** — les liens de connexion, mais aussi le transactionnel qui partage le même fournisseur : elle est retranchée du plafond que voit la voie « Masse » et d'aucune autre, calculée sur la pointe quotidienne hors publipostage des trente derniers jours plus une marge, plancher pour un site sans historique, plafond à la moitié du quota — et « Acheminement » l'affiche sous la voie « Authentification » **avec la phrase qui dit d'où elle sort**. **Un fournisseur qui échoue trois fois d'affilée pour une raison qui lui appartient est mis à l'écart** quelques minutes, plus longtemps à chaque rechute jusqu'à quatre heures, remis en service au premier succès ; une adresse refusée ne compte pas, et une voie n'est jamais vidée par ce mécanisme — sa dernière entrée est essayée quoi qu'il arrive. **Un message qu'aucun fournisseur d'une voie n'a pu prendre est mis de côté chiffré et réessayé** — cinq minutes, puis de plus en plus tard, jusqu'à une durée de vie réglable —, la page en donnant le compte voie par voie ; **la voie « Authentification » ne diffère jamais**, un lien livré demain n'étant plus un lien de connexion. Passé ce délai, un message est abandonné, conservé un temps puis purgé avec son contenu, et **une relance manuelle** les remet en file par fenêtre d'âge et par voie, la fenêtre proposée par défaut étant la plus courte. Deux alertes opérationnelles, hors e-mail : voie d'authentification épuisée, file différée qui ne se vide plus. **Tableau de bord** : trois lignes — authentification du domaine, un fournisseur d'envoi, retours relevés — et une phrase disant que tout le reste est facultatif ; les options avancées sont listées en dessous avec leur état, jamais masquées, et l'écran dit sa propre limite (« Un message classé en indésirables n'apparaît nulle part ici : il a été accepté »). **Authentification** : les adresses d'expédition, de réponse (facultative) et des rapports DMARC, le sélecteur DKIM, et le tableau disant ce qu'une même adresse fait quatre fois — expéditeur affiché, réponses, retour des rebonds, rapports DMARC — parce qu'un bénévole ne déduira jamais seul que **c'est sur le domaine du retour des rebonds que le SPF est vérifié**, et non sur celui de l'expéditeur affiché. La vérification DNS vit ici et nulle part ailleurs : l'assistant d'installation garde la saisie initiale puis pointe vers cette page, et ces champs n'y sont plus modifiables — un même champ à deux endroits finit par avoir deux valeurs. Elle est lancée par un bouton explicite plutôt qu'à l'ouverture de la page, exige que le SPF autorise **tous** les relais actifs des chaînes et non seulement le premier, et retient ce qu'elle a vu pour que le tableau de bord annonce un état daté. **Les retours se vérifient par aller-retour réel** : le site s'écrit à lui-même et attend de voir le message revenir dans une boîte relevée par le courrier entrant — jamais une comparaison d'adresses, une adresse d'unité étant très souvent un alias délivrant dans une boîte portant un autre nom. Trois états — vérifié (avec la boîte et la date), jamais arrivé, jamais vérifié — et modifier une adresse remet son état à « jamais vérifié ». Sans le module « Courrier entrant », ou sans boîte qui lui soit ouverte, la vérification annonce qu'elle est impossible et le reste de la page fonctionne. **Sonde** : un message de test **identique à un vrai envoi de l'unité** — même gabarit, même expéditeur affiché, même signature DKIM, parce qu'un message dépouillé serait classé autrement — envoyé vers une destination libre, **par un fournisseur choisi et par lui seul** (aucun repli : basculer discrètement sur un autre relais mesurerait le mauvais chemin) et par une voie choisie, « Masse » par défaut puisque c'est celle qui pose problème. Un code court dans le sujet permet de retrouver le message dans une boîte encombrée. **Le verdict est saisi à la main** — réception, indésirables, jamais reçu — parce qu'aucun site ne peut voir l'intérieur de la boîte d'un autre, et **il est consigné** avec la date, la destination, le fournisseur et la voie : c'est l'historique qui tranche un débat, deux lignes disant « même destinataire, réception via l'un, indésirables via l'autre » valant toutes les explications. Le nom du fournisseur est conservé tel quel, pour qu'un relais supprimé plus tard n'emporte pas la preuve de ce qu'il a fait. L'écran indique qu'on peut y coller l'adresse témoin d'un service d'analyse extérieur pour obtenir un verdict chez plusieurs fournisseurs d'un coup. **Aucune cadence périodique** : un message de test qui tombe en indésirables et y reste renforce ce classement à chaque envoi, et l'instrument deviendrait la cause de ce qu'il mesure ; l'écran dit aussi de ne jamais sortir le message des indésirables, ce qui fausserait la mesure suivante. Voir ARCHITECTURE.md §8.106. |
 | Courrier entrant (module) | The unit's own mailboxes, read-only, that other modules attach replies from: several at once, a mailbox may feed several modules and a module read several mailboxes. Passwords encrypted, never redisplayed, never in an error message. See §23 |
 | Camps (module) | Default country for a new place; how many past stays a place sheet shows. The dedicated camps mailboxes (empty by default, with the warning that any mailbox listed there must be excluded from the other modules that read mail); automatic creation of a stay from a message; unsorted-mail retention in months. Automatic geocoding of a place's address through OpenStreetMap; AI summaries of what a place's stays and reviews add up to. |
-| SOS Staff d'U (module) | Telephony provider credentials (OVH: application key/secret, consumer key, line selection), excluded sections |
+| Téléphone d'urgence (module) | Telephony provider credentials (OVH: application key/secret, consumer key, line selection), excluded sections |
 | Intelligence artificielle (module) | The AI provider and its API key — one provider active at a time, key stored encrypted and never redisplayed. Saving tests the connection and discovers the provider's models; the three capability tiers are assigned automatically, with no model to pick by hand. Consumed optionally by other modules (RGPD text, retro moderation and summaries, finance receipt extraction and categorization, news keywords/summaries, group moderation, camps summaries) — see §39 |
 
 ### 4.6 Pages outside menus
@@ -1848,7 +1848,7 @@ Nobody prints all of it. A parent of Louveteaux prints page one and their own se
 A section can be preselected (`?section={id}`) — which is what the "Trombinoscope de la section" button on a member's page uses. The page is available offline to identified visitors.
 
 
-## 35. Statistiques des membres (module member_stats)
+## 35. Statistiques (module member_stats)
 
 A photograph of the unit's animés for the scout year in view: four counters (animés, boys, girls, other), then one block per branch — Baladins, Louveteaux, Éclaireurs, Pionniers — with **one bar per year within the branch**, its birth year facing it, and the gender breakdown of that year one tap away. All the bars share one scale, so a thin branch is visible at a glance, and **a hollow birth year is the point of the page**: it announces a section that will empty out in two or three years, in time to do something about it.
 
@@ -1916,7 +1916,7 @@ When the AI connector is active, a word can be checked before publication in one
 **Hiding a word is a chef d'unité's decision and a last resort**: it is reversible, and it never reveals an author, because there is none to reveal. Together with the automatic moderation, that is the entirety of the safety net — which is why the warning mode is the sensible minimum on a board open to young participants.
 
 
-## 38. SOS Staff d'U (module sos_staff)
+## 38. Téléphone d'urgence (module sos_staff)
 
 The unit's emergency number always rings somewhere. This module decides where, day by day, and programmes the operator's call forwarding itself.
 
@@ -1947,7 +1947,7 @@ The telephony provider is pluggable; OVH is the one implemented. Its credentials
 Consecutive duty days appear as single read-only events on the animateurs' calendar (§27) — **computed live from the duty grid** as virtual events, never written into the calendar's own storage, so the grid stays the single source of truth and the two can never disagree. They are consequently not editable from the calendar page: the duty grid is where the rota changes, and a calendar-side edit could never reach the telephony forwarding anyway. With the Calendrier module disabled, this does nothing at all.
 
 
-## 39. Connecteur IA (module llm_connector)
+## 39. Intelligence artificielle (module llm_connector)
 
 One module owns every provider-specific detail — endpoints, request shapes, model names, error handling — so that no other module ever contains any. It gives the site an assistant for narrow tasks: reading an invoice or a receipt, suggesting an accounting category, summarising a retrospective, proposing keywords for an article, checking a message for personal attacks, explaining a storage error. **The AI proposes; it never decides**: every suggestion waits for a human, and without this module those features simply stay quiet — nothing breaks.
 
@@ -2259,7 +2259,7 @@ un PDF qu'on lui fournit. Une attestation de présence après camp entre donc da
 arrive sous forme de PDF groupé, pas si elle doit être composée par le site.
 
 
-## 42. Fréquentation du site (module usage_stats)
+## 42. Fréquentation (module usage_stats)
 
 Le module répond à deux questions, et à rien d'autre.
 
@@ -2442,7 +2442,7 @@ qui servent — et c'est le constat qu'aucune unité ne peut produire seule.
 
 **Trois compteurs par module, et le troisième tient le deuxième.** `activé` : combien
 d'installations l'ont allumé. `utilisé` : combien de celles-là rapportent au moins une ouverture.
-`ne mesure pas` : combien **ne peuvent pas répondre**, leur propre module « Fréquentation du site »
+`ne mesure pas` : combien **ne peuvent pas répondre**, leur propre module « Fréquentation »
 étant éteint. Confondre le troisième avec « zéro ouverture » ferait lire « nous ne mesurons pas »
 comme « personne ne s'en sert » — la seule erreur, ici, qui ferait abandonner un module utilisé
 toutes les semaines. Quand aucune installation affichée ne mesure, le bloc le dit au lieu de

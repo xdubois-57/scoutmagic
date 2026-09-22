@@ -10,7 +10,7 @@ namespace Core\Debug;
 
 /**
  * A few minutes during which EVERY request journals its RequestTimeline —
- * opened by a superadmin from Configuration > Support, so that « le site
+ * opened by a superadmin from Configuration > Diagnostic, so that « le site
  * est lent » can be measured by the person who sees it, on the pages they
  * see it on, and shipped to the support with the next ticket
  * (Core\Support\Collector\RequestTimelinesCollector).

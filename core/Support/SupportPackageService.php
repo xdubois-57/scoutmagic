@@ -318,7 +318,7 @@ class SupportPackageService
         Cette archive a été générée localement par votre site ScoutMagic, à la
         demande d'un administrateur. Rien n'est transmis automatiquement :
         elle se trouve uniquement sur votre serveur tant qu'un administrateur
-        ne la transmet pas lui-même, depuis Configuration > Support, en la
+        ne la transmet pas lui-même, depuis Configuration > Diagnostic, en la
         joignant à un ticket et en cochant explicitement qu'il en accepte le
         contenu.
 
@@ -376,7 +376,7 @@ class SupportPackageService
         Aucun envoi automatique n'est effectué, sous aucune forme : ni tâche
         planifiée, ni courriel, ni envoi déclenché par le site. Un
         administrateur peut en revanche la transmettre lui-même, depuis
-        Configuration > Support, en la joignant à un ticket de support :
+        Configuration > Diagnostic, en la joignant à un ticket de support :
         la page liste alors ce que contient l'archive et sa taille, et
         demande de cocher que vous acceptez de la transmettre. C'est le seul
         chemin par lequel cette archive peut quitter votre serveur.

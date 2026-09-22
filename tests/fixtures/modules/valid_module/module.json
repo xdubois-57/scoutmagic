@@ -57,5 +57,6 @@
       "match": "exact",
       "role_min": "identified"
     }
-  ]
+  ],
+  "category": "communication"
 }

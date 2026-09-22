@@ -237,6 +237,86 @@ class ConfigModulesControllerTest extends TestCase
     }
 
     /**
+     * **The modules are drawn on titled shelves**, in the order
+     * `ModuleManifest::CATEGORIES` declares them — not in the order the
+     * directory happens to be scanned.
+     */
+    public function testIndexDrawsOneTitledShelfPerCategoryInUse(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/modules', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('data-module-shelf="communication"', $body);
+        $this->assertStringContainsString('data-module-shelf="argent"', $body);
+        $this->assertStringContainsString('data-module-shelf="technique"', $body);
+
+        // Declaration order, whatever order the modules were discovered in.
+        $this->assertMatchesRegularExpression(
+            '/data-module-shelf="communication".*data-module-shelf="argent".*data-module-shelf="technique"/s',
+            $body
+        );
+    }
+
+    /**
+     * **A shelf nobody is on is not drawn at all.** None of these
+     * fixtures declares « Services de l'unité », and a titled section
+     * with nothing under it reads as something broken rather than as
+     * something absent — the rule the mega-menu follows for an empty
+     * column.
+     */
+    public function testIndexDrawsNoShelfForACategoryNoModuleDeclares(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/modules', [], [], [], []), [])->getBody();
+
+        $this->assertStringNotContainsString('data-module-shelf="services"', $body);
+        $this->assertStringNotContainsString("Services de l'unité", $body);
+    }
+
+    /**
+     * Each row carries the server's answer about whether it is on, which
+     * is what the filter reads. Client-side, so it must not invent the
+     * state: a successful toggle reloads the page rather than patching
+     * it, which keeps this attribute truthful.
+     */
+    public function testIndexMarksEachRowWithTheStateTheServerKnows(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/modules', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('data-module-row', $body);
+        $this->assertMatchesRegularExpression('/data-module-enabled="(yes|no)"/', $body);
+    }
+
+    /**
+     * The three filter chips, each with its own count. The counts come
+     * from the server rather than from JavaScript so they are right on
+     * first paint and right without JavaScript at all.
+     */
+    public function testIndexOffersTheThreeFiltersWithTheirCounts(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/modules', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('data-module-filter="all"', $body);
+        $this->assertStringContainsString('data-module-filter="on"', $body);
+        $this->assertStringContainsString('data-module-filter="off"', $body);
+
+        $total = count($this->moduleManager->discoverModules());
+        $this->assertStringContainsString("Tous ({$total})", $body);
+    }
+
+    /**
+     * **Deactivating a module keeps its data**, and the page says so.
+     *
+     * The sentence is the whole reason somebody dares touch a switch: an
+     * intro that only says the pages disappear reads as a threat to
+     * whatever is behind them.
+     */
+    public function testIndexPromisesThatDeactivatingKeepsTheData(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/modules', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('données sont conservées', $body);
+    }
+
+    /**
      * And it keeps the one control it does honour: activation, as the
      * switch it has always been rather than a checkbox.
      */

@@ -117,7 +117,7 @@ class SettingsController extends AbstractController
         // to offer « Inbound_mail », « Mass_mail », « Sos_staff » and
         // « Llm_connector » to somebody who has only ever read
         // « Courrier entrant », « Envoi de mails », « SOS Staff d'U » and
-        // « Connecteur IA » in the menu. The map is the manifests' own
+        // « Intelligence artificielle » in the menu. The map is the manifests' own
         // answer, and a module whose settings outlived its removal from
         // disk keeps the id it had.
         foreach ($this->moduleManager?->moduleNames() ?? [] as $moduleId => $name) {

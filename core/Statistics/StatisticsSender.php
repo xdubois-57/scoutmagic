@@ -23,7 +23,7 @@ use Core\Service\DateInput;
  * a setting or the journal.
  *
  * Two entry points share that POST: send(), the daily task, and sendTest(),
- * the button on Configuration > Support. They differ only in which guards
+ * the button on Configuration > Diagnostic. They differ only in which guards
  * apply and in whether the outcome is written to the send-state settings —
  * see sendTest() for why each of those two differences exists.
  */
