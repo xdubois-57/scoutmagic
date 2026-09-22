@@ -1,8 +1,8 @@
 {
   "id": "groups",
-  "name": "Groupes de discussion",
-  "description": "Groupes de discussion privés pour l'unité : un groupe par section et par année scoute, ou des groupes sur invitation. Visibles uniquement par leurs membres.",
-  "version": "1.17.7",
+  "name": "Discussions",
+  "description": "Groupes de discussion privés, un par section.",
+  "version": "1.17.8",
   "enabled_by_default": false,
   "requires": [
     "gallery"
@@ -635,5 +635,6 @@
       "match": "exact",
       "role_min": "identified"
     }
-  ]
+  ],
+  "category": "membres"
 }

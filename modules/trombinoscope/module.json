@@ -1,8 +1,8 @@
 {
   "id": "trombinoscope",
   "name": "Trombinoscope",
-  "description": "Annuaire photo des animés, classé par section, avec leurs coordonnées et leur fonction.",
-  "version": "1.2.4",
+  "description": "Les animateurs de chaque section, en photo.",
+  "version": "1.2.5",
   "enabled_by_default": true,
   "routes": [
     {
@@ -53,5 +53,6 @@
       "role_min": "identified",
       "prefetch": false
     }
-  ]
+  ],
+  "category": "membres"
 }

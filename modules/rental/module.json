@@ -1,8 +1,8 @@
 {
   "id": "rental",
   "name": "Locations",
-  "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques, matériel. Calendrier de disponibilité public, demandes en ligne et suivi des réservations.",
-  "version": "1.23.1",
+  "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques.",
+  "version": "1.23.2",
   "enabled_by_default": false,
   "routes": [
     {
@@ -1370,5 +1370,6 @@
         }
       ]
     }
-  ]
+  ],
+  "category": "services"
 }

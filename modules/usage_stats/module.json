@@ -1,8 +1,8 @@
 {
   "id": "usage_stats",
-  "name": "Fréquentation du site",
-  "description": "Compte les pages ouvertes, par motif de route et par mois. Aucun suivi nominatif, aucun cookie, aucune adresse IP.",
-  "version": "1.1.3",
+  "name": "Fréquentation",
+  "description": "Les pages les plus consultées, par mois. Aucun suivi des personnes.",
+  "version": "1.1.4",
   "enabled_by_default": false,
   "routes": [
     {
@@ -74,5 +74,6 @@
       "handler": "Modules\\UsageStats\\Task\\PurgePageViewsHandler"
     }
   ],
-  "storage": {}
+  "storage": {},
+  "category": "site"
 }

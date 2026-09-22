@@ -1,8 +1,8 @@
 {
   "id": "inbound_mail",
   "name": "Courrier entrant",
-  "description": "Passerelle de courrier entrant en lecture seule : connecte une ou plusieurs boîtes IMAP, détecte les nouveaux messages et les met à disposition des autres modules. Ne modifie jamais la boîte distante.",
-  "version": "1.12.4",
+  "description": "Relève les boîtes mail de l'unité et répartit les messages.",
+  "version": "1.12.5",
   "enabled_by_default": false,
   "routes": [
     {
@@ -317,5 +317,6 @@
     "inbound_mail/attachments": {
       "role_min": "intendant"
     }
-  }
+  },
+  "category": "communication"
 }

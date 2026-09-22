@@ -1,8 +1,8 @@
 {
   "id": "presences",
   "name": "Présences",
-  "description": "Feuille de présence par évènement de section : quatre états par animé, commentaire chiffré, et registre annuel de la section.",
-  "version": "1.6.3",
+  "description": "Une feuille de présence par réunion.",
+  "version": "1.6.4",
   "requires": [
     "calendar"
   ],
@@ -98,5 +98,6 @@
   "settings": [],
   "cookies": [],
   "scheduled_tasks": [],
-  "storage": {}
+  "storage": {},
+  "category": "activites"
 }

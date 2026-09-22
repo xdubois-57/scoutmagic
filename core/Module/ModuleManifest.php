@@ -12,6 +12,42 @@ use Core\View\MenuBuilder;
 
 class ModuleManifest
 {
+    /**
+     * The shelves the Modules page sorts modules onto, in the order it
+     * draws them — the closed vocabulary of `module.json`'s `category`.
+     *
+     * **Named for what a chef d'unité is looking for**, not for how the
+     * code is organised: somebody who wants to stop the photo albums
+     * looks under « Activités », not under « Media ». That is the whole
+     * reason the list is short and this comment exists.
+     *
+     * Ordered, because the page draws the shelves in this order and a
+     * hash map would leave that order to chance.
+     *
+     * @var array<string, string>
+     */
+    public const CATEGORIES = [
+        'communication' => 'Communication',
+        'activites' => 'Activités',
+        'membres' => 'Membres et effectifs',
+        'argent' => 'Argent',
+        'services' => "Services de l'unité",
+        'site' => 'Le site',
+        'technique' => 'Technique',
+    ];
+
+    /**
+     * Where a module lands when its manifest names no category.
+     *
+     * **Absent is a legitimate default; unknown is a mistake.** A module
+     * that does not say where it belongs is a tool, and « Technique » is
+     * the honest shelf for one. But a module declaring `"argnet"` has a
+     * typo, and filing that silently under « Technique » would hide it
+     * for good — so an unknown value throws at load time, exactly as an
+     * unknown `menu` does.
+     */
+    private const DEFAULT_CATEGORY = 'technique';
+
     private const VALID_MENUS = [
         'notre_unite',
         'espace_animes',
@@ -158,7 +194,14 @@ class ModuleManifest
         // with a default" rule as the three above, and for the same
         // reason: discoverModules() builds placeholder manifests
         // positionally.
-        public readonly array $emails = []
+        public readonly array $emails = [],
+        // Which shelf the Modules page sorts this module onto
+        // (module.json's `category`, self::CATEGORIES). Defaults to
+        // « Technique » for a module that names none. Same "last
+        // parameter with a default" rule as the four above, and for the
+        // same reason: discoverModules() builds placeholder manifests
+        // positionally.
+        public readonly string $category = self::DEFAULT_CATEGORY
     ) {
     }
 
@@ -396,6 +439,19 @@ class ModuleManifest
             }
         }
 
+        $category = self::DEFAULT_CATEGORY;
+        if (isset($data['category'])) {
+            if (!is_string($data['category']) || !isset(self::CATEGORIES[$data['category']])) {
+                $known = implode(', ', array_keys(self::CATEGORIES));
+                throw new ModuleException(
+                    "Module '{$id}' invalid category value '"
+                        . (is_string($data['category']) ? $data['category'] : gettype($data['category']))
+                        . "' (known: {$known})"
+                );
+            }
+            $category = $data['category'];
+        }
+
         return new self(
             $id,
             $data['name'],
@@ -412,7 +468,8 @@ class ModuleManifest
             $requires,
             $visibleWhen,
             $helpDirectory,
-            $emails
+            $emails,
+            $category
         );
     }
 

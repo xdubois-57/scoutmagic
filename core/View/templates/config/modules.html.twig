@@ -1,5 +1,5 @@
 {#
-  Configuration › Site › Modules.
+  Configuration › Le site › Modules.
 
   A plain list, not `partials/list_editor.html.twig`: that partial draws a
   drag handle and mobile move buttons unconditionally, and this page has
@@ -7,6 +7,12 @@
   where its pages land in a menu (Core\View\MenuBuilder). Keeping the
   embed would have shipped a handle that does nothing, which is worse than
   no handle.
+
+  The modules are grouped onto the shelves each declares in its
+  `category`, sorted by name inside, and the shelf order is
+  Core\Module\ModuleManifest::CATEGORIES' declaration order — the
+  controller does both, because sorting French names needs a collation
+  Twig's `sort` does not offer.
 
   The activation switch is unchanged, and `config-modules.js` binds it
   directly by class rather than through any list chrome.
@@ -20,12 +26,31 @@
 
     <p class="text-body-secondary small mb-3">
         Activez ou désactivez les fonctionnalités du site. Les pages et paramètres d'un module
-        n'apparaissent que lorsqu'il est actif. Chaque changement est enregistré immédiatement.
+        n'apparaissent que lorsqu'il est actif ; <strong>ses données sont conservées</strong>
+        s'il est désactivé. Chaque changement est enregistré immédiatement.
     </p>
 
-    <div class="d-flex flex-column gap-2" id="module-list">
-        {% for item in modules %}
-            <div class="border rounded-3 p-3 d-flex align-items-start gap-2 flex-wrap">
+    {# The filter is a client-side view of a list already fully rendered:
+       no request, no spinner, and the page still reads correctly with
+       JavaScript off — every module is in the DOM, the chips simply do
+       nothing. `config-modules.js` owns the behaviour. #}
+    <div class="btn-group btn-group-sm mb-4" role="group" aria-label="Filtrer les modules">
+        <button type="button" class="btn btn-outline-secondary active" data-module-filter="all"
+                aria-pressed="true">Tous ({{ modules|length }})</button>
+        <button type="button" class="btn btn-outline-secondary" data-module-filter="on"
+                aria-pressed="false">Actifs ({{ active_count }})</button>
+        <button type="button" class="btn btn-outline-secondary" data-module-filter="off"
+                aria-pressed="false">Inactifs ({{ modules|length - active_count }})</button>
+    </div>
+
+    <div id="module-list">
+        {% for shelf in categories %}
+            <section class="mb-4" data-module-shelf="{{ shelf.id }}">
+                <h2 class="desktop-megamenu-title">{{ shelf.label }}</h2>
+                <div class="d-flex flex-column gap-2">
+        {% for item in shelf.modules %}
+            <div class="border rounded-3 p-3 d-flex align-items-start gap-2 flex-wrap"
+                 data-module-row data-module-enabled="{{ item.info.enabled ? 'yes' : 'no' }}">
                 <div class="flex-grow-1">
                     <div class="d-flex align-items-center gap-2 flex-wrap">
                         <span class="fw-semibold">{{ item.info.manifest.name }}</span>
@@ -87,11 +112,19 @@
                     {% endif %}
                 </div>
             </div>
+        {% endfor %}
+                </div>
+            </section>
         {% else %}
             <p class="text-body-secondary fst-italic mb-0">
                 Aucun module disponible. Placez des modules dans le répertoire modules/ pour les voir apparaître ici.
             </p>
         {% endfor %}
+
+        {# Shown by config-modules.js when a filter empties every shelf. #}
+        <p class="text-body-secondary fst-italic mb-0 d-none" data-module-empty>
+            Aucun module ne correspond à ce filtre.
+        </p>
     </div>
 {% endblock %}
 
