@@ -342,7 +342,7 @@ class SupportPackageServiceTest extends TestCase
         // way it can leave, not merely forbid the automatic ones.
         $this->assertStringContainsString('Rien n\'est transmis automatiquement', $readme);
         $this->assertStringContainsString('Aucun envoi automatique', $readme);
-        $this->assertStringContainsString('Configuration > Support', $readme);
+        $this->assertStringContainsString('Configuration > Diagnostic', $readme);
         $this->assertStringContainsString('cocher que vous acceptez de la transmettre', $readme);
         $this->assertStringNotContainsString('sous aucune forme.', $readme, 'the absolute claim is retired');
         $this->assertStringContainsString('cela ne peut pas être garanti', $readme);

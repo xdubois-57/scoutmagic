@@ -7,13 +7,22 @@ role_min: superadmin
 question: Comment activer une nouvelle fonction du site ?
 question: Que se passe-t-il si je désactive un module ?
 question: Pourquoi un module refuse-t-il de se désactiver ?
+question: Où trouver un module dans la liste ?
 paths: /config/modules
 related: reglages
 ---
 
 Les modules sont les fonctions optionnelles du site : calendrier,
-galerie, groupes, finances, inscriptions... La page Modules les liste
-avec leur version, leur description et un interrupteur.
+photos, discussions, finances, inscriptions... La page Modules les
+liste avec leur version, leur description et un interrupteur.
+
+## Trouver un module
+
+Les modules sont groupés par thème — Communication, Activités, Membres
+et effectifs, Argent, Services de l'unité, Le site, Technique — et
+classés par ordre alphabétique dans chaque groupe. Les trois boutons en
+haut réduisent la liste aux modules actifs ou inactifs ; un thème dont
+plus rien n'est affiché disparaît de l'écran.
 
 ## Activer
 

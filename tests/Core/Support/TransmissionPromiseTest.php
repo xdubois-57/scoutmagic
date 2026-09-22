@@ -33,7 +33,7 @@ final class TransmissionPromiseTest extends TestCase
             'the architecture note' => ['ARCHITECTURE.md', ['administrator', 'explicit']],
             'the security note' => ['SECURITY.md', ['IT-26', 'server-side']],
             'the specification' => ['specifications.md', ['archive non transmise']],
-            "the archive's own README" => ['core/Support/SupportPackageService.php', ['Configuration > Support']],
+            "the archive's own README" => ['core/Support/SupportPackageService.php', ['Configuration > Diagnostic']],
             'the RGPD default content' => ['core/View/rgpd_default.html', ['sous-traitante']],
             'the RGPD prompt' => ['core/View/RgpdContentService.php', ['sous-traitante']],
             'the support page' => ['core/View/templates/config/support.html.twig', ['Envoyer des informations techniques']],
