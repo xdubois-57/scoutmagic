@@ -67,17 +67,22 @@ class ReenrollmentCampaignServiceTest extends TestCase
         $this->sectionId = (int) $this->pdo->lastInsertId();
 
         $this->settingService = new SettingService(new SettingRepository($this->pdo));
-        foreach ([
-            [ReenrollmentCampaignService::SETTING_OPEN, '0', 'boolean'],
-            [ReenrollmentCampaignService::SETTING_OPEN_AT, '03-01', 'text'],
-            [ReenrollmentCampaignService::SETTING_CLOSE_AT, '05-15', 'text'],
-            [ReenrollmentCampaignService::SETTING_REMINDER_1_DAYS, '14', 'number'],
-            [ReenrollmentCampaignService::SETTING_REMINDER_2_DAYS, '2', 'number'],
-            [ReenrollmentCampaignService::MARKER_OPENED, '', 'text'],
-            [ReenrollmentCampaignService::MARKER_CLOSED, '', 'text'],
-        ] as [$key, $default, $type]) {
-            $this->settingService->register($key, $default, $type, $key, 'Test.', 'registration');
-        }
+        // **From the manifest, never by hand.** Registering the settings
+        // this test happens to need is what hid the bug it now catches:
+        // `setInternal()` refuses a key no manifest declares, and the two
+        // campaign markers were declared nowhere — so every automatic
+        // opening, closing and email batch threw at the moment it tried
+        // to record that it had run, in production only, while this
+        // fixture quietly supplied the rows. Reading `module.json` is what
+        // makes the fixture unable to lie about it.
+        RegistrationTestHelper::registerManifestSettings($this->settingService);
+
+        // Only the campaign's own dates are set here, since the manifest
+        // ships them empty.
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_OPEN_AT, '03-01', 'registration');
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_CLOSE_AT, '05-15', 'registration');
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_REMINDER_1_DAYS, '14', 'registration');
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_REMINDER_2_DAYS, '2', 'registration');
         $this->settingService->register(
             ScoutYearResolver::SETTING_PUBLIC_YEAR,
             (string) $this->currentYearId,
@@ -124,6 +129,89 @@ class ReenrollmentCampaignServiceTest extends TestCase
         $this->assertNull(
             $this->campaign->openingDueToday(new \DateTimeImmutable('2027-03-02')),
             'A missed date is missed: a campaign that opened four days late would announce a deadline closer than it says.'
+        );
+    }
+
+    /**
+     * **Every marker this campaign writes is declared in `module.json`.**
+     *
+     * `SettingService::setInternal()` refuses a key no manifest declares,
+     * and `ModuleManager::loadModule()` registers a module's settings from
+     * its manifest and from nowhere else. The six markers below were
+     * declared nowhere, so on any real installation:
+     *
+     *  - the automatic opening set the campaign open, then threw recording
+     *    that it had — leaving the next scheduler tick to open it again,
+     *    log it again and queue the opening emails again;
+     *  - a batch of emails went out in full, then threw before marking the
+     *    type done — so the next run wrote to every silent family a second
+     *    time, and a third.
+     *
+     * Nothing caught it because every test registered by hand the keys it
+     * needed. The fixture now reads the manifest
+     * (`RegistrationTestHelper::registerManifestSettings()`), which is why
+     * this assertion can be about writing rather than about a list.
+     *
+     * The keys are exercised, not compared to a hard-coded list: four of
+     * the six are built at runtime by `emailMarker()` and so are invisible
+     * to any grep over the source (#443).
+     */
+    public function testEveryCampaignMarkerCanActuallyBeWritten(): void
+    {
+        $markers = [
+            ReenrollmentCampaignService::MARKER_OPENED,
+            ReenrollmentCampaignService::MARKER_CLOSED,
+        ];
+        foreach ([
+            ReenrollmentCampaignService::EMAIL_OPENING,
+            ReenrollmentCampaignService::EMAIL_REMINDER_1,
+            ReenrollmentCampaignService::EMAIL_REMINDER_2,
+            ReenrollmentCampaignService::EMAIL_CLOSING,
+        ] as $type) {
+            $markers[] = ReenrollmentCampaignService::emailMarker($type);
+        }
+
+        foreach ($markers as $marker) {
+            $this->campaign->markDone($marker, '2027-05-15');
+
+            $this->assertTrue(
+                $this->campaign->alreadyDone($marker, '2027-05-15'),
+                $marker . ' was written but does not read back'
+            );
+            $this->assertNotNull(
+                $this->campaign->doneAt($marker),
+                $marker . ' recorded no moment'
+            );
+        }
+    }
+
+    /**
+     * And the moment is the moment, not the campaign.
+     *
+     * The marker holds a campaign key — the campaign's CLOSING date — under
+     * a setting named `..._sent_on`, which reads like a send date and is
+     * not one: a reminder that goes out in March for a campaign closing in
+     * May stores `2027-05-15`. Showing that under the word « envoyé » is a
+     * wrong answer, which is worse than none, so the moment lives in its
+     * own setting and only `markDone()` writes it.
+     */
+    public function testTheMomentIsWhenItRanAndNotWhenTheCampaignCloses(): void
+    {
+        $ranAt = new \DateTimeImmutable('2027-03-02 09:14:00');
+        $marker = ReenrollmentCampaignService::emailMarker(ReenrollmentCampaignService::EMAIL_REMINDER_1);
+
+        $this->campaign->markDone($marker, '2027-05-15', $ranAt);
+
+        $this->assertSame(
+            '2027-03-02 09:14:00',
+            $this->campaign->doneAt($marker)?->format('Y-m-d H:i:s')
+        );
+    }
+
+    public function testAMarkerThatNeverRanHasNoMoment(): void
+    {
+        $this->assertNull(
+            $this->campaign->doneAt(ReenrollmentCampaignService::MARKER_CLOSED)
         );
     }
 

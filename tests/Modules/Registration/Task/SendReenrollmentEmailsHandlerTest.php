@@ -103,15 +103,12 @@ class SendReenrollmentEmailsHandlerTest extends TestCase
         $this->settingService->register('site_name', 'Unité test', 'text', 'Nom du site', 'Test.');
         $this->settingService->register('base_url', 'https://exemple.be', 'text', 'URL', 'Test.');
 
-        foreach ([
-            ReenrollmentCampaignService::EMAIL_OPENING,
-            ReenrollmentCampaignService::EMAIL_REMINDER_1,
-            ReenrollmentCampaignService::EMAIL_REMINDER_2,
-            ReenrollmentCampaignService::EMAIL_CLOSING,
-        ] as $type) {
-            $marker = ReenrollmentCampaignService::emailMarker($type);
-            $this->settingService->register($marker, '', 'text', $marker, 'Test.', 'registration');
-        }
+        // From the manifest, never by hand: registering the markers this
+        // test happens to need is exactly what hid them being declared
+        // nowhere, and `setInternal()` refuses those in production only —
+        // so every batch here went out in full and then threw before
+        // marking the type done.
+        RegistrationTestHelper::registerManifestSettings($this->settingService);
 
         $this->context = new TaskContext(
             Connection::withPdo($this->pdo),

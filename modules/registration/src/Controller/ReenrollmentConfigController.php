@@ -87,9 +87,36 @@ class ReenrollmentConfigController extends AbstractController
                 ''
             ),
             'close_date' => $closeDate?->format('d/m/Y'),
+            // When each email of this campaign actually went out. A chief
+            // who has just clicked « Relancer » gets a scheduled job and a
+            // success message; without this the page never told them
+            // whether it ran, so the only way to find out was to click
+            // again.
+            'emails_sent_at' => $this->emailsSentAt(),
             'tracking' => $this->campaign->tracking(),
             'csrf_token' => CsrfGuard::generateToken(),
         ]);
+    }
+
+    /**
+     * The moment each of the campaign's four emails last finished going
+     * out, keyed by type — null for one that has not run.
+     *
+     * @return array<string, ?\DateTimeImmutable>
+     */
+    private function emailsSentAt(): array
+    {
+        $moments = [];
+        foreach ([
+            ReenrollmentCampaignService::EMAIL_OPENING,
+            ReenrollmentCampaignService::EMAIL_REMINDER_1,
+            ReenrollmentCampaignService::EMAIL_REMINDER_2,
+            ReenrollmentCampaignService::EMAIL_CLOSING,
+        ] as $type) {
+            $moments[$type] = $this->campaign->doneAt(ReenrollmentCampaignService::emailMarker($type));
+        }
+
+        return $moments;
     }
 
     /**
