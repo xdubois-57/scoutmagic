@@ -78,9 +78,29 @@ class BootstrapRequestHandlersTest extends TestCase
             $handler();
         } finally {
             stream_wrapper_restore('php');
-            while (ob_get_level() < $level) {
-                ob_start();
+
+            // The handler opens exactly one buffer of its own and unwinds
+            // to the level it found, so anything still above that level is
+            // ours to close — and the buffers below are the ones PHPUnit
+            // was holding, untouched.
+            //
+            // This used to re-open buffers to make the COUNT match, which
+            // is not the same thing as leaving them alone: the originals
+            // had been destroyed with their contents, PHPUnit compares the
+            // state rather than the cardinal, and fifteen tests here were
+            // reported « Test code or tested code closed output buffers
+            // other than its own » on every run. Risky, never failure, and
+            // nothing in phpunit.xml turns that into an exit code — so it
+            // said so for months into a green CI.
+            while (ob_get_level() > $level) {
+                ob_end_clean();
             }
+
+            $this->assertSame(
+                $level,
+                ob_get_level(),
+                'the handler must leave the output buffering stack as it found it'
+            );
         }
     }
 
@@ -149,6 +169,72 @@ class BootstrapRequestHandlersTest extends TestCase
     // -------------------------------------------------------------------
 
     #[RunInSeparateProcess]
+    // -------------------------------------------------------------------
+    // bootstrapSendJson()
+    // -------------------------------------------------------------------
+
+    /**
+     * **The response is exactly one JSON document, whatever else printed.**
+     *
+     * This is the whole reason the function exists rather than a bare
+     * `echo json_encode()`: a host with `display_errors` on, or an
+     * unsuppressed `mkdir()` hitting an edge case, prints a warning ahead
+     * of the JSON and `response.json()` fails client-side with an opaque
+     * "did not match the expected pattern" — on the install screen, where
+     * the operator has no other channel.
+     *
+     * Serving a request the handler is alone on the stack, its floor is
+     * 0, and the whole stack unwinds — taking the stray output with it.
+     * That is what this pins: the floor added for #426 protects buffers
+     * the function did not open and must not weaken this.
+     *
+     * **In a subprocess on purpose.** Proving it means letting the
+     * function unwind to zero, which is exactly what destroys PHPUnit's
+     * own buffer — the defect this test accompanies. A test that caused
+     * it to prove it had been fixed would be its own counter-example.
+     */
+    public function testAStrayWarningNeverReachesTheJsonBody(): void
+    {
+        $bootstrap = dirname(__DIR__, 2) . '/bootstrap/bootstrap.php';
+        $script = <<<'PHP'
+            define('BOOTSTRAP_TEST', true);
+            require %s;
+            ob_start();
+            echo 'Warning: mkdir(): File exists in /htdocs/x.php on line 1';
+            ob_start();
+            bootstrapSendJson(['done' => true]);
+            PHP;
+
+        $output = shell_exec(sprintf(
+            '%s -r %s 2>&1',
+            escapeshellarg(PHP_BINARY),
+            escapeshellarg(sprintf($script, var_export($bootstrap, true)))
+        ));
+
+        $this->assertSame(
+            '{"done":true}',
+            trim((string) $output),
+            'the warning printed before the handler must not reach the body'
+        );
+    }
+
+    /**
+     * And the other half, which is what #426 was about: given a floor, it
+     * unwinds to the floor and no further. Fifteen tests in this file
+     * reported « closed output buffers other than its own » on every run
+     * because "as far down as I opened" and "as far down as there is"
+     * were the same sentence.
+     */
+    public function testAFloorIsRespectedSoACallersBuffersSurvive(): void
+    {
+        $floor = ob_get_level();
+
+        ob_start();
+        \bootstrapSendJson(['done' => true], $floor);
+
+        $this->assertSame($floor, ob_get_level());
+    }
+
     public function testAStepRunsAndItsNewStateIsWrittenBack(): void
     {
         $state = $this->installedLayoutB();

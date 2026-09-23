@@ -784,7 +784,9 @@ Core publishes `Core\Http\LinkPreviewFetcher` for Open Graph title/description/i
 - Personal data fields must use `BLOB` type and be encrypted/decrypted via `EncryptionService`.
 - Include a `scout_year_id` foreign key on member-related data tables.
 - A module that stores confidential *files* (not just database fields) — receipts, private documents, anything that must never be readable directly off disk — should use `Core\File\EncryptedFileStorageService` (`store()`/`retrieve()`/`delete()`) instead of `UploadHandler`. It uses the same master key as `EncryptionService` and integrates transparently with `FileAccessGuard`/`/files/{id}` — the caller never handles decryption itself.
-- **Editing `schema.sql` for a module that may already be enabled somewhere (i.e. any change after the module's first release — new column, new table, changed default, etc.)? Bump `version` in `module.json` in the same change.** `ModuleManager::loadEnabledModules()` only re-diffs and re-applies a module's `schema.sql` when the manifest's `version` compares greater than the version recorded in the module registry (`ModuleManager.php`, the "Auto-migrate when module version is newer than installed version" block). Editing `schema.sql` without bumping `version` is silently a no-op on every already-enabled installation — the new column/table only ever gets created for a *fresh* activation, never retrofitted onto an existing one. This has caused real `Unknown column` / `PDOException` production errors from schema changes that looked complete in code review but were never actually applied to the running database. There is no separate reminder or lint for this — bumping the version is the only signal that triggers migration, so treat "I touched schema.sql" and "I bump version" as inseparable.
+- **Editing a module's `schema.sql` is enough — no `version` bump is needed for it to take effect.** It used to be, and that was a rule nothing enforced: `ModuleManager` re-applied a module's schema only when the declared `version` exceeded the one in the registry, so editing `schema.sql` alone was silently a no-op on every already-enabled install, and produced real `Unknown column`/`PDOException` errors in production from changes that looked complete in review. The whole declared schema — `schema/core.sql` plus every `modules/*/schema.sql`, enabled or not — is now migrated as one set by whatever deploys the code (`Core\Database\SchemaFiles`, ARCHITECTURE.md §10).
+
+  Bump the module `version` when **the module itself changes in a way its users should see**, or when **the new manifest stops declaring a setting the old one did** — that pruning is the one thing the version comparison still drives (`ModuleManager::pruneUndeclaredSettings()`). See AGENTS.md § Schema, which is the source of truth for this.
 
 ### Timestamps: one clock, `Europe/Brussels`
 
@@ -1206,7 +1208,7 @@ If your form has its own, differently-scoped rate limiting already (e.g. a per-e
 
 ## Important rules
 
-- **Any edit to a module's `schema.sql` must bump `version` in that module's `module.json` in the same change** — otherwise the migration never runs against an already-enabled install (see Database section above). Check this before finishing any task that touches a module's schema.
+- **Editing a module's `schema.sql` needs no `version` bump** — the whole declared schema is migrated in one pass at deploy time (see the Database section above). Bump `version` when the module changes in a way its users should see, or when the manifest stops declaring a setting it used to.
 - Never duplicate core functionality (auth, session, encryption, journal, mail, scheduler, cookie consent).
 - Never modify `schema/core.sql` for module-specific needs.
 - Never write your own log table — use `JournalService`.

@@ -1947,7 +1947,10 @@ function bootstrapHandleStepRequest(string $docRoot, string $stateFile): void
     header('Content-Type: application/json; charset=utf-8');
     // See bootstrapSendJson() — every exit point below goes through it
     // rather than a bare echo json_encode(), so a stray PHP warning never
-    // corrupts the JSON response.
+    // corrupts the JSON response. The level found here is the floor it
+    // unwinds to: zero when serving a request, and whatever a harness
+    // holds when one is running us.
+    $buffering = ob_get_level();
     ob_start();
     $input = json_decode((string) file_get_contents('php://input'), true);
     $step = (int) (is_array($input) ? ($input['step'] ?? 0) : 0);
@@ -1966,11 +1969,11 @@ function bootstrapHandleStepRequest(string $docRoot, string $stateFile): void
             bootstrapSendJson(['error' => "Une installation est déjà en cours (ou une tentative précédente n'a pas "
                 . "été nettoyée). Réessayez dans 10 minutes, ou supprimez immédiatement le fichier "
                 . BOOTSTRAP_LOCK_FILE
-                . " via FTP à la racine du site pour débloquer tout de suite."]);
+                . " via FTP à la racine du site pour débloquer tout de suite."], $buffering);
             return;
         }
     } elseif (!is_file($lockFile)) {
-        bootstrapSendJson(['error' => 'Aucune installation en cours. Rechargez la page.']);
+        bootstrapSendJson(['error' => 'Aucune installation en cours. Rechargez la page.'], $buffering);
         return;
     }
 
@@ -2011,10 +2014,10 @@ function bootstrapHandleStepRequest(string $docRoot, string $stateFile): void
             case 11:
                 $state = bootstrapStepCleanup($docRoot, $state);
                 bootstrapReleaseLock($lockFile);
-                bootstrapSendJson(bootstrapPublicState($state));
+                bootstrapSendJson(bootstrapPublicState($state), $buffering);
                 return;
             default:
-                bootstrapSendJson(['error' => 'Étape inconnue.']);
+                bootstrapSendJson(['error' => 'Étape inconnue.'], $buffering);
                 return;
         }
 
@@ -2023,7 +2026,7 @@ function bootstrapHandleStepRequest(string $docRoot, string $stateFile): void
         }
 
         bootstrapWriteState($stateFile, $state);
-        bootstrapSendJson(bootstrapPublicState($state));
+        bootstrapSendJson(bootstrapPublicState($state), $buffering);
     } catch (\Throwable $e) {
         $state['error'] = bootstrapSanitizeErrorForClient($e->getMessage(), $docRoot);
         $state['failed_step'] = $step;
@@ -2049,7 +2052,7 @@ function bootstrapHandleStepRequest(string $docRoot, string $stateFile): void
         }
         bootstrapWriteState($stateFile, $state);
         bootstrapReleaseLock($lockFile);
-        bootstrapSendJson(['done' => true, 'error' => $state['error'], 'step' => $step]);
+        bootstrapSendJson(['done' => true, 'error' => $state['error'], 'step' => $step], $buffering);
     }
 }
 
@@ -2070,6 +2073,7 @@ function bootstrapHandleStepRequest(string $docRoot, string $stateFile): void
 function bootstrapHandleAbortRequest(string $docRoot, string $stateFile): void
 {
     header('Content-Type: application/json; charset=utf-8');
+    $buffering = ob_get_level();
     ob_start();
 
     try {
@@ -2082,7 +2086,7 @@ function bootstrapHandleAbortRequest(string $docRoot, string $stateFile): void
             'ok' => true,
             'message' => "Installation abandonnée : les fichiers déjà copiés ont été retirés. Rechargez la page pour "
                 . "recommencer.",
-        ]);
+        ], $buffering);
     } catch (\Throwable $e) {
         // Even the recovery path itself must degrade to a parseable
         // response rather than a raw fatal error the browser can't read
@@ -2091,13 +2095,14 @@ function bootstrapHandleAbortRequest(string $docRoot, string $stateFile): void
         bootstrapSendJson([
             'ok' => false,
             'message' => bootstrapSanitizeErrorForClient($e->getMessage(), $docRoot),
-        ]);
+        ], $buffering);
     }
 }
 
 function bootstrapHandleGateReport(string $docRoot, string $stateFile): void
 {
     header('Content-Type: application/json; charset=utf-8');
+    $buffering = ob_get_level();
     ob_start();
     $lockFile = $docRoot . '/' . BOOTSTRAP_LOCK_FILE;
     $input = json_decode((string) file_get_contents('php://input'), true);
@@ -2105,7 +2110,7 @@ function bootstrapHandleGateReport(string $docRoot, string $stateFile): void
 
     $state = bootstrapReadState($stateFile);
     if (empty($state['awaiting_gate_report'])) {
-        bootstrapSendJson(['error' => 'Aucun contrôle en attente.']);
+        bootstrapSendJson(['error' => 'Aucun contrôle en attente.'], $buffering);
         return;
     }
 
@@ -2117,7 +2122,7 @@ function bootstrapHandleGateReport(string $docRoot, string $stateFile): void
         }
 
         bootstrapWriteState($stateFile, $state);
-        bootstrapSendJson(bootstrapPublicState($state));
+        bootstrapSendJson(bootstrapPublicState($state), $buffering);
     } catch (\Throwable $e) {
         // Same guarantee as bootstrapHandleStepRequest's catch block —
         // an unexpected failure here must never leave the lock file
@@ -2128,7 +2133,7 @@ function bootstrapHandleGateReport(string $docRoot, string $stateFile): void
         bootstrapRollbackInstall($docRoot, $state);
         bootstrapWriteState($stateFile, $state);
         bootstrapReleaseLock($lockFile);
-        bootstrapSendJson(['done' => true, 'error' => $state['error']]);
+        bootstrapSendJson(['done' => true, 'error' => $state['error']], $buffering);
     }
 }
 
@@ -2144,11 +2149,35 @@ function bootstrapHandleGateReport(string $docRoot, string $stateFile): void
  * so the response is always exactly one clean JSON document regardless
  * of what else the host's PHP tried to print along the way.
  *
+ * **Down to `$floor`, never to zero.** This used to unwind the whole
+ * stack, which destroys buffers this function did not open. Serving a
+ * real request that is the same thing — the handler is alone on the
+ * stack, so its floor IS zero and nothing about production changes,
+ * including the case this function exists for: a warning printed before
+ * the handler's own ob_start() sits below that floor and is still
+ * discarded.
+ *
+ * Under PHPUnit it is not the same thing at all. PHPUnit holds a buffer
+ * of its own, `ob_end_clean()` took it with the rest, and fifteen tests
+ * in Tests\Bootstrap\BootstrapRequestHandlersTest have reported « Test
+ * code or tested code closed output buffers other than its own » on
+ * every run since they were written — *risky*, never *failure*, and
+ * `phpunit.xml` declares neither failOnRisky nor failOnWarning, so the
+ * command exits 0 and CI says nothing. A permanent signal the output
+ * does not surface, which is docs/quality-pipeline.md § Reading a green
+ * result in its most literal form.
+ *
+ * Each handler passes the level it found on entry, so "as far down as I
+ * opened" and "as far down as there is" stop being the same sentence.
+ *
  * @param array<string, mixed> $payload
+ * @param int $floor the buffering level to unwind to — the level the
+ *        caller found before opening its own, which is 0 when serving a
+ *        request
  */
-function bootstrapSendJson(array $payload): void
+function bootstrapSendJson(array $payload, int $floor = 0): void
 {
-    while (ob_get_level() > 0) {
+    while (ob_get_level() > max(0, $floor)) {
         ob_end_clean();
     }
     echo json_encode($payload);
