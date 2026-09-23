@@ -60,8 +60,8 @@ import { loginAsAdmin } from '../support/admin-login.js';
 import { moduleToggle, toggleModule } from '../support/modules.js';
 import { waitForServerResponse } from '../support/response.js';
 
-const GALLERY = 'Galerie photos et vidéos';
-const GROUPS = 'Groupes de discussion';
+const GALLERY = 'Photos et vidéos';
+const GROUPS = 'Discussions';
 const FINANCE = 'Finances';
 
 /**

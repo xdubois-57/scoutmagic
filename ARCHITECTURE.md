@@ -3532,7 +3532,7 @@ Two features that look like one, built in an order that is itself the design: an
 
 **The route sits at `intendant`, the page's own role**, and the file name carries only the scout year plus the section when the filter names one — organizational both, nothing a mail client would show before the file is opened. The export is journaled as `section_roster_pdf_exported` with counters only, never a name. `counter(pages)` does not resolve under dompdf (it renders as 0), so the footer numbers pages without claiming a total; this is the single place the rendering cannot follow its mockup.
 
-### 8.93 Fréquentation du site (`modules/usage_stats`)
+### 8.93 Fréquentation (`modules/usage_stats`)
 
 **One counter per (month, route PATTERN, audience), and no other shape was ever an option.** The site this replaces kept a `STATS_PAGES` table keyed `(PAGE, EMAIL, MONTH)`, from which one could read that a given parent had opened their child's page fourteen times. `usage_page_views` cannot answer that question because it has no column an identifier could be written into: what is counted is `/members/{id}`, never `/members/42`. That is also what makes the table aggregate naturally — a unit of 260 members produces one row for the member page rather than 260 — so the design decision that protects the visitor is the same one that keeps the table small.
 

@@ -5882,7 +5882,7 @@ $frontController->registerController(
     )
 );
 
-// Fréquentation du site (ARCHITECTURE.md §8.93). This block sits here,
+// Fréquentation (ARCHITECTURE.md §8.93). This block sits here,
 // among the trunk's own wiring rather than down with the other modules,
 // for the same reason the LLM connector's does just below: a CORE
 // consumer built a few lines further down — Core\Statistics\

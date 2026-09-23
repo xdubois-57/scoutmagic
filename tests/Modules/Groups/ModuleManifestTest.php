@@ -44,7 +44,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.17.8', $this->manifest->version);
+        $this->assertSame('1.17.9', $this->manifest->version);
     }
 
     /**
@@ -254,7 +254,7 @@ class ModuleManifestTest extends TestCase
         $this->assertSame('1', $byKey['groups_ai_moderation_enabled']['default_value']);
         $this->assertSame('boolean', $byKey['groups_ai_moderation_enabled']['type']);
         $this->assertStringContainsString(
-            'Connecteur IA',
+            'Intelligence artificielle',
             $byKey['groups_ai_moderation_enabled']['description']
         );
     }

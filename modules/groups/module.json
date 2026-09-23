@@ -2,7 +2,7 @@
   "id": "groups",
   "name": "Discussions",
   "description": "Groupes de discussion privés, un par section.",
-  "version": "1.17.8",
+  "version": "1.17.9",
   "enabled_by_default": false,
   "requires": [
     "gallery"
@@ -472,7 +472,7 @@
       "default_value": "1",
       "type": "boolean",
       "label": "Modération automatique par IA",
-      "description": "Vérifie chaque message et chaque réponse avant publication et propose une reformulation en cas d'attaque personnelle ou de propos irrespectueux. Sans le module « Connecteur IA » actif, ce réglage n'a aucun effet : les messages sont publiés sans vérification. Le signalement par les membres et la modération humaine restent la protection principale dans tous les cas."
+      "description": "Vérifie chaque message et chaque réponse avant publication et propose une reformulation en cas d'attaque personnelle ou de propos irrespectueux. Sans le module « Intelligence artificielle » actif, ce réglage n'a aucun effet : les messages sont publiés sans vérification. Le signalement par les membres et la modération humaine restent la protection principale dans tous les cas."
     },
     {
       "key": "groups_reaction_notification_window_minutes",
