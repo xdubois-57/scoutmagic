@@ -80,7 +80,7 @@
                         {% include '@groups/partials/identity.html.twig' with { identity: row.identity } only %}
                     </p>
                     <p class="text-body-tertiary mb-0" style="font-size:0.75rem;">
-                        {{ row.post.createdAt|french_date }} à {{ row.post.createdAt|date('H:i') }}
+                        {{ row.post.createdAt|french_date }} à {{ row.post.createdAt|time_fr }}
                         {% if row.post.isEdited %}<span class="ms-1">· modifié</span>{% endif %}
                         {# The deadline is part of what a pin means here — one message at a
                            time, for as long as the moderator said — so it is shown rather

@@ -118,7 +118,8 @@ final class FormatFiltersTest extends TestCase
     #[\PHPUnit\Framework\Attributes\DataProvider('valuesThatAreNotDates')]
     public function testADateFilterRendersNothingRatherThanTakingThePageDown(string $value): void
     {
-        foreach (['date_fr', 'datetime_fr', 'french_date', 'relative_date'] as $filter) {
+        $filters = ['date_fr', 'datetime_fr', 'time_fr', 'french_date', 'relative_date', 'iso_date', 'iso_datetime_local'];
+        foreach ($filters as $filter) {
             $this->assertSame(
                 '',
                 $this->render('value|' . $filter, ['value' => $value]),
@@ -140,6 +141,14 @@ final class FormatFiltersTest extends TestCase
             // of November, year -1, and a template would print that.
             "MySQL's zero date" => ['0000-00-00 00:00:00'],
             'a relative expression, which is not a stored moment' => ['tomorrow'],
+            // The one that actually happened. A member's `birth_date`
+            // comes from the federation's roster import, not from a form
+            // this project validates, and one arrived written the French
+            // way round. `health_sheet.html.twig` parsed it itself with
+            // Twig's own |date(), so every visit to that member's health
+            // sheet answered 500 — for anybody, and with no way to correct
+            // the field from the screen.
+            'a French-order date, as the roster import delivered one' => ['15/09/2014'],
         ];
     }
 
@@ -152,6 +161,20 @@ final class FormatFiltersTest extends TestCase
         $this->assertSame('05/07/2026', $this->render('v|date_fr', ['v' => '2026-07-05 10:00:00']));
         $this->assertSame('05/07/2026 à 10:00', $this->render('v|datetime_fr', ['v' => '2026-07-05 10:00:00']));
         $this->assertSame('5 juillet 2026', $this->render('v|french_date', ['v' => '2026-07-05']));
+        $this->assertSame('10:00', $this->render('v|time_fr', ['v' => '2026-07-05 10:00:00']));
+    }
+
+    /**
+     * The machine forms a browser reads back into a date input. Not
+     * French, and checked separately for that reason: `d/m/Y` in a
+     * `value` renders an input that looks filled and posts nothing.
+     */
+    public function testTheIsoFiltersRenderWhatADateInputAccepts(): void
+    {
+        $this->assertSame('2026-07-05', $this->render('v|iso_date', ['v' => '2026-07-05 10:00:00']));
+        $this->assertSame('2026-07-05T10:00', $this->render('v|iso_datetime_local', ['v' => '2026-07-05 10:00:00']));
+        $this->assertSame('', $this->render('v|iso_date', ['v' => null]));
+        $this->assertSame('', $this->render('v|iso_datetime_local', ['v' => null]));
     }
 
     public function testFilesizeReadsLikeAPerson(): void

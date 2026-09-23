@@ -374,7 +374,7 @@
                                         <span>
                                             <span class="fw-medium">{{ payment.label }}</span>
                                             {% if payment.settledOn %}
-                                                <span class="d-block text-body-secondary small">{{ payment.settledOn|date('d/m/Y') }}</span>
+                                                <span class="d-block text-body-secondary small">{{ payment.settledOn|date_fr }}</span>
                                             {% endif %}
                                         </span>
                                         <span class="text-end flex-shrink-0">
@@ -641,8 +641,8 @@
                         <p class="mb-2" style="white-space:pre-wrap;">{{ note.body }}</p>
                         <div class="d-flex align-items-center gap-2 flex-wrap">
                             <span class="small text-body-secondary">
-                                {{ note.authorName ?? 'Auteur inconnu' }} — {{ note.createdAt|date('d/m/Y') }}
-                                {%- if note.wasEdited() %} · modifiée le {{ note.updatedAt|date('d/m/Y') }}{% endif %}
+                                {{ note.authorName ?? 'Auteur inconnu' }} — {{ note.createdAt|date_fr }}
+                                {%- if note.wasEdited() %} · modifiée le {{ note.updatedAt|date_fr }}{% endif %}
                             </span>
                             <div class="ms-auto d-flex gap-2">
                                 <button type="button" class="btn btn-sm btn-outline-secondary member-note-edit-btn"

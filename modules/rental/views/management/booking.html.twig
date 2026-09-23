@@ -259,7 +259,7 @@
                                                 {% include 'partials/form_field.html.twig' with {
                                                     field_id: 'option-until', field_name: 'until', type: 'datetime-local',
                                                     label: 'Option jusqu\'au',
-                                                    value: booking.holdUntil ? booking.holdUntil|date('Y-m-d\\TH:i') : '',
+                                                    value: booking.holdUntil|iso_datetime_local,
                                                 } only %}
                                             </div>
                                             <div class="col-12 col-sm-5">

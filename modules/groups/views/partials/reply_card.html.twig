@@ -59,7 +59,7 @@
                 <p class="mb-1 small">
                     {% include '@groups/partials/identity.html.twig' with { identity: row.identity } only %}
                     <span class="text-body-tertiary ms-1" style="font-size:0.7rem;">
-                        {{ row.reply.createdAt|french_date }} à {{ row.reply.createdAt|date('H:i') }}
+                        {{ row.reply.createdAt|french_date }} à {{ row.reply.createdAt|time_fr }}
                         {% if row.reply.isEdited %}· modifié{% endif %}
                     </span>
                 </p>

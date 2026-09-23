@@ -1944,6 +1944,7 @@ class StorageConfigControllerTest extends TestCase
     {
         $loader = new FilesystemLoader(dirname(__DIR__, 4) . '/core/View/templates');
         $twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
+        $twig->addExtension(new \Core\View\DateFilterExtension());
         $twig->addFunction(new TwigFunction('asset', static fn (string $path): string => $path));
         $twig->addFunction(new TwigFunction(
             'csrf_field',

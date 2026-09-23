@@ -74,7 +74,7 @@
                             field_name: 'album_date',
                             label: 'Date',
                             type: 'date',
-                            value: (album.albumDate ?? 'now')|date('Y-m-d'),
+                            value: album.albumDate ? album.albumDate|iso_date : 'now'|date('Y-m-d'),
                             required: true,
                             size: 'sm',
                         } only %}

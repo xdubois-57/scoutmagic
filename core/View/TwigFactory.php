@@ -431,6 +431,10 @@ class TwigFactory
         // compact_html (Core\View\CompactHtmlExtension) — the navigation
         // partial's indentation stripper.
         $environment->addExtension(new CompactHtmlExtension());
+        // Every way a template may render a stored date, in one place —
+        // so a test environment gets the real filters in one line rather
+        // than stubbing the one it noticed (Core\View\DateFilterExtension).
+        $environment->addExtension(new DateFilterExtension());
 
         // Register display_name filter
         $environment->addFilter(new TwigFilter('display_name', function ($member) {
@@ -500,39 +504,6 @@ class TwigFactory
         // Core\Service\DateInput::fromStorage()'s business (SECURITY.md
         // § 35); here the answer to "not a date" is the same as the one
         // these filters already give for null: nothing at all.
-        $readDate = static function ($date): ?\DateTimeInterface {
-            if ($date instanceof \DateTimeInterface) {
-                return $date;
-            }
-
-            return DateInput::fromStorage(is_scalar($date) ? (string) $date : null);
-        };
-
-        // Register french_date filter — formats a Y-m-d(-His) string or
-        // DateTimeInterface as "12 juillet 2026", no intl extension
-        // required (ARCHITECTURE.md: no dependency not explicitly
-        // justified — a 12-entry month name lookup isn't worth one).
-        $environment->addFilter(new TwigFilter('french_date', function ($date) use ($readDate) {
-            static $months = [
-                1 => 'janvier', 2 => 'février', 3 => 'mars', 4 => 'avril', 5 => 'mai', 6 => 'juin',
-                7 => 'juillet', 8 => 'août', 9 => 'septembre', 10 => 'octobre', 11 => 'novembre', 12 => 'décembre',
-            ];
-
-            if ($date === null || $date === '') {
-                return '';
-            }
-
-            $dateTime = $readDate($date);
-            if ($dateTime === null) {
-                return '';
-            }
-
-            return (int) $dateTime->format('j')
-                . ' '
-                . $months[(int) $dateTime->format('n')]
-                . ' '
-                . $dateTime->format('Y');
-        }));
 
         // "il y a 2 heures" — a coarse, French relative age for a stored
         // timestamp. Deliberately coarse: a feed only needs to answer
@@ -540,7 +511,7 @@ class TwigFactory
         // be a value that is wrong the moment the page is cached. Falls
         // back to the absolute date past a week, where "il y a 23 jours"
         // stops being easier to read than the date itself.
-        $environment->addFilter(new TwigFilter('relative_date', function ($date) use ($environment, $readDate) {
+        $environment->addFilter(new TwigFilter('relative_date', function ($date) {
             if ($date === null || $date === '') {
                 return '';
             }
@@ -553,7 +524,7 @@ class TwigFactory
             // this used to do, back when the whole app ran on UTC) now
             // shifts every age by the offset, and would have every
             // just-posted message read "il y a 2 heures".
-            $then = $readDate($date);
+            $then = DateFilterExtension::read($date);
             if ($then === null) {
                 return '';
             }
@@ -577,24 +548,7 @@ class TwigFactory
                 return 'il y a ' . $days . ' jour' . ($days > 1 ? 's' : '');
             }
 
-            return 'le ' . $environment->getFilter('french_date')->getCallable()($then);
-        }));
-
-        // Short French date/time formats. Two filters instead of 30-odd
-        // hand-written |date('d/m/Y…') calls that had drifted into five
-        // variants ('d/m/Y', 'd/m/Y H:i', 'd/m/Y à H:i', 'd/m/Y à H\hi'):
-        // one canonical rendering each, so two adjacent pages stop
-        // disagreeing about what a timestamp looks like. french_date
-        // above stays the long form ("12 juillet 2026") for prose.
-        $environment->addFilter(new TwigFilter('date_fr', function ($date) use ($readDate) {
-            $dateTime = $readDate($date);
-
-            return $dateTime !== null ? $dateTime->format('d/m/Y') : '';
-        }));
-        $environment->addFilter(new TwigFilter('datetime_fr', function ($date) use ($readDate) {
-            $dateTime = $readDate($date);
-
-            return $dateTime !== null ? $dateTime->format('d/m/Y à H:i') : '';
+            return 'le ' . DateFilterExtension::frenchDate($then);
         }));
 
         // Belgian-French money rendering — "1 234,56 €". One filter

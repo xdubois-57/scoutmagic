@@ -73,7 +73,7 @@
                 <p class="h5 mb-0">{{ assessment.rosterMemberCount }} membre{{ assessment.rosterMemberCount > 1 ? 's' : '' }}</p>
                 <p class="small text-body-secondary mb-1">
                     {% if assessment.rosterImportedAt %}
-                        import du {{ assessment.rosterImportedAt|date('d/m/Y') }}
+                        import du {{ assessment.rosterImportedAt|date_fr }}
                     {% else %}
                         aucun import antérieur
                     {% endif %}

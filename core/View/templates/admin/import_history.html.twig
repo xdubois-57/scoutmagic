@@ -68,7 +68,7 @@
                 <div class="card mb-2">
                     <div class="card-body">
                         <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
-                            <span class="fw-semibold">{{ import.importedAt|date('d/m/Y, H:i') }}</span>
+                            <span class="fw-semibold">{{ import.importedAt|datetime_fr }}</span>
                             {% if row.first_of_season %}
                                 <span class="badge text-bg-secondary">Premier de la saison</span>
                             {% endif %}

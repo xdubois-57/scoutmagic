@@ -118,6 +118,7 @@ class PageControllerTest extends TestCase
             return '';
         }, ['is_safe' => ['html']]));
         $twig->addExtension(new \Core\View\TextNormalizerExtension());
+        $twig->addExtension(new \Core\View\DateFilterExtension());
         $twig->addFilter(new \Twig\TwigFilter('display_name', function ($member) {
             return $member instanceof MemberProfile ? $member->getDisplayName() : (string) $member;
         }));
