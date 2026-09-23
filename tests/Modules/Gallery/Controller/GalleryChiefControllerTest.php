@@ -151,7 +151,9 @@ class GalleryChiefControllerTest extends TestCase
         $twig->addFunction(new TwigFunction('get_flash', fn() => null));
         $twig->addFunction(new TwigFunction('csrf_token', fn() => 'test'));
         $twig->addFunction(new TwigFunction('file_url', fn() => ''));
-        $twig->addFilter(new \Twig\TwigFilter('french_date', fn($d) => (string) $d));
+        // The real filters, not a passthrough: a stub that echoes the
+        // stored string renders what no visitor ever sees.
+        $twig->addExtension(new \Core\View\DateFilterExtension());
 
         $this->twig = $twig;
         $this->chunkStorageDir = sys_get_temp_dir() . '/gallery_chunk_test_' . uniqid();

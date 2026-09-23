@@ -65,7 +65,7 @@
                         </ul>
                         {% if payment_due.statement_date %}
                             <p class="small mb-0">
-                                Les paiements reçus jusqu'au <strong>{{ payment_due.statement_date|date('d/m/Y') }}</strong> sont pris
+                                Les paiements reçus jusqu'au <strong>{{ payment_due.statement_date|date_fr }}</strong> sont pris
                                 en compte. Un virement met généralement un à deux jours ouvrables à apparaître : si vous
                                 avez payé récemment, il est normal qu'il ne soit pas encore visible ici.
                             </p>

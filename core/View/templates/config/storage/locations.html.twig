@@ -124,7 +124,7 @@
                             <div class="small text-body-secondary mt-1">
                                 {{ drive.account }}
                                 {% if location.config.connectedAt %}
-                                    — depuis le {{ location.config.connectedAt|date('d/m/Y') }}
+                                    — depuis le {{ location.config.connectedAt|date_fr }}
                                 {% endif %}
                             </div>
                         {% endif %}

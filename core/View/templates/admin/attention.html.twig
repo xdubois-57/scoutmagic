@@ -82,7 +82,7 @@
     {% endif %}
 
     <p class="text-center small text-body-secondary mt-4 mb-0">
-        Calculé le {{ report.computedAt|date('d/m/Y') }} à {{ report.computedAt|date('H:i') }}
+        Calculé le {{ report.computedAt|date_fr }} à {{ report.computedAt|time_fr }}
         — année scoute {{ scout_year.label }}
     </p>
 {% endblock %}

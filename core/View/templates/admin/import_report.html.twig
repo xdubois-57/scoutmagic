@@ -20,7 +20,7 @@
     {% include 'partials/page_header.html.twig' with {
         title: "Rapport d'import",
         badge: scout_year ? scout_year.label : null,
-        subtitle: 'Import du ' ~ import.importedAt|date('d/m/Y') ~ ' à ' ~ import.importedAt|date('H:i')
+        subtitle: 'Import du ' ~ import.importedAt|datetime_fr
             ~ (author ? ' par ' ~ author : '')
             ~ ". Ce rapport est figé : il décrit ce qui s'est passé ce jour-là.",
     } only %}
@@ -56,7 +56,7 @@
             <i class="bi bi-info-circle flex-shrink-0" aria-hidden="true"></i>
             <span>
                 {% if previous_import %}
-                    Comparé à l'import précédent du {{ previous_import.importedAt|date('d/m/Y') }}.
+                    Comparé à l'import précédent du {{ previous_import.importedAt|date_fr }}.
                 {% endif %}
                 Les points d'attention actuels de l'unité — ce qu'il reste à faire aujourd'hui — vivent
                 sur leur propre page et ne figurent pas ici.

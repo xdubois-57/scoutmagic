@@ -931,7 +931,7 @@
                 <p class="small mb-2">
                     {% if remote_backup_last_success %}
                         Dernier envoi arrivé à son terme le
-                        {{ remote_backup_last_success|date('d/m/Y \\à H:i') }}.
+                        {{ remote_backup_last_success|datetime_fr }}.
                     {% elseif remote_backup_location %}
                         Aucun envoi n'est encore arrivé à son terme.
                     {% else %}
@@ -968,7 +968,7 @@
                     <p class="small text-body-secondary mb-2">
                         Génération {{ remote_backup_passphrase_generation }}
                         {% if remote_backup_passphrase_created_at %}
-                            · créée le {{ remote_backup_passphrase_created_at|date('d/m/Y') }}
+                            · créée le {{ remote_backup_passphrase_created_at|date_fr }}
                         {% endif %}
                         · ce numéro figure dans le nom de chaque fichier envoyé.
                     </p>

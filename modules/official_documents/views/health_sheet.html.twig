@@ -36,7 +36,7 @@
         Tout est facultatif : remplissez ce que vous voulez, quand vous voulez.
         {% if last_used_at %}
             <span class="d-block small text-body-secondary">
-                Dernière mise à jour le {{ last_used_at|date('d/m/Y') }}.
+                Dernière mise à jour le {{ last_used_at|date_fr }}.
             </span>
         {% endif %}
     </p>
@@ -106,7 +106,7 @@
                             <dd class="col-sm-8">{{ member|display_name }}</dd>
                             {% if member.birthDate %}
                                 <dt class="col-sm-4">Date de naissance</dt>
-                                <dd class="col-sm-8">{{ member.birthDate|date('d/m/Y') }}</dd>
+                                <dd class="col-sm-8">{{ member.birthDate|date_fr }}</dd>
                             {% endif %}
                         </dl>
                     </div>

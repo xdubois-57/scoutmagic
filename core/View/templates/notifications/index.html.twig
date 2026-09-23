@@ -42,7 +42,7 @@
                         <span class="flex-grow-1">
                             <span class="d-block fw-semibold">{{ notification.title }}</span>
                             <span class="d-block small text-body-secondary">{{ notification.body }}</span>
-                            <span class="d-block text-body-secondary" style="font-size:.75rem;">{{ notification.createdAt|date('H:i') }}</span>
+                            <span class="d-block text-body-secondary" style="font-size:.75rem;">{{ notification.createdAt|time_fr }}</span>
                         </span>
                     </button>
                 </form>
