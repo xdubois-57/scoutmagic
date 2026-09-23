@@ -176,7 +176,14 @@ class TrombinoscopeHtmlBuilder
             . 'mm solid '
             . $this->color($section->color)
             . ';">'
-            . '<tr><td style="width:' . $this->mm($density->portrait) . 'mm;padding:' . $pad . 'mm;">';
+            // `text-align:center`, exactly as buildPortraitCard() below.
+            // A photo is an <img> whose width IS the cell's, so it looks
+            // centred whether it is centred or not; the initials disc is a
+            // fixed-width table, and the vacant one is narrower still, so
+            // both sat left without this. The two card builders drew the
+            // same portrait and only one said where to put it.
+            . '<tr><td style="width:' . $this->mm($density->portrait)
+            . 'mm;padding:' . $pad . 'mm;text-align:center;">';
 
         $html .= $lead !== null
             ? $this->portrait($lead, $section->color, $density->portrait, $density->portrait / 2.6)

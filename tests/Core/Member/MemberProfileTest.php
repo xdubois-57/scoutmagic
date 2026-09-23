@@ -65,6 +65,70 @@ class MemberProfileTest extends TestCase
         $this->assertSame('John', $profile->getDisplayName());
     }
 
+    /**
+     * **Name AND totem, because a totem alone does not identify anybody.**
+     *
+     * The re-registration form showed `totem ?? firstName` — a parent with
+     * two children in the same section could not tell which card was
+     * whose, and a totem is precisely the name a family may never use at
+     * home. The rule existed only as the `|display_name_full` Twig filter,
+     * so a page that assembles its labels in PHP had no way to say it.
+     */
+    public function testGetDisplayNameFullNamesThePersonBehindTheTotem(): void
+    {
+        $this->assertSame('Baloo (John Doe)', $this->profile('John', 'Doe', 'Baloo')->getDisplayNameFull());
+    }
+
+    public function testGetDisplayNameFullIsJustTheNameWhenThereIsNoTotem(): void
+    {
+        $this->assertSame('John Doe', $this->profile('John', 'Doe', null)->getDisplayNameFull());
+        $this->assertSame('John Doe', $this->profile('John', 'Doe', '')->getDisplayNameFull());
+    }
+
+    /**
+     * A member with a totem and no civil name on file is not a reason to
+     * render "Baloo ()".
+     */
+    public function testGetDisplayNameFullDoesNotRenderEmptyParentheses(): void
+    {
+        $this->assertSame('Baloo', $this->profile('', '', 'Baloo')->getDisplayNameFull());
+    }
+
+    /**
+     * Both halves are normalized, as `|display_name_full` normalized them:
+     * a roster import delivers "DOE" and "baloo" as readily as anything
+     * else, and a card is not the place to shout.
+     */
+    public function testGetDisplayNameFullNormalizesWhatTheRosterDelivered(): void
+    {
+        $this->assertSame('Baloo (John Doe)', $this->profile('JOHN', 'DOE', 'BALOO')->getDisplayNameFull());
+    }
+
+    private function profile(string $firstName, string $lastName, ?string $totem): MemberProfile
+    {
+        return new MemberProfile(
+            memberYearId: 1,
+            memberId: 1,
+            deskId: 'T001',
+            firstName: $firstName,
+            lastName: $lastName,
+            totem: $totem,
+            quali: null,
+            gender: null,
+            birthDate: null,
+            phone: null,
+            mobile: null,
+            email: null,
+            patrol: null,
+            formationLevel: null,
+            federationMailConsent: false,
+            unitMailConsent: false,
+            addresses: [],
+            functions: [],
+            scoutYearLabel: '2025-2026'
+        );
+    }
+
     public function testGetMainFunctionReturnsTheFunctionMarkedAsMain(): void
     {
         $functions = [

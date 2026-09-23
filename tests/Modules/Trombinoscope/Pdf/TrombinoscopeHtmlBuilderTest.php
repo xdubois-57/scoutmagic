@@ -62,6 +62,39 @@ class TrombinoscopeHtmlBuilderTest extends TestCase
         $this->assertStringContainsString('dashed', $html);
     }
 
+    /**
+     * **Both cards centre their portrait, or only one of them looks right.**
+     *
+     * A photo is an `<img>` whose width IS the cell's, so it reads as
+     * centred whether the cell says so or not. The initials disc is a
+     * fixed-width table and the vacant disc is narrower still, so without
+     * `text-align:center` they sit left — and in a directory where some
+     * people have a photo and some do not, the discs are the ones that
+     * look misplaced. dompdf has no flexbox and no `margin:auto` on a
+     * table, so the cell is where this has to be said.
+     */
+    public function testEveryPortraitCellCentresWhatItHolds(): void
+    {
+        $withPhoto = $this->staff('Chacal', 'Antonin Grandjean', true, 'data:image/png;base64,AAA=');
+        $html = $this->build([
+            $this->section('Louveteaux 1', staff: [$withPhoto]),
+            // No lead at all: the dashed disc, narrower than the cell.
+            $this->section('Louveteaux 2', withLead: false),
+        ]);
+
+        // Every cell that declares a portrait's width also says where to
+        // put it. Catching it by width is what keeps this from passing
+        // because some *other* cell happens to be centred.
+        // A width in mm AND a padding in mm: that is the portrait cell.
+        // The colour band beside it is `width:3mm;padding:0;`, a strip
+        // with nothing in it to centre.
+        preg_match_all('/<td style="width:[0-9.]+mm;padding:[0-9.]+mm;[^"]*"/', $html, $matches);
+        $this->assertNotSame([], $matches[0], 'No portrait cell found — has the markup changed?');
+        foreach ($matches[0] as $cell) {
+            $this->assertStringContainsString('text-align:center', $cell, $cell);
+        }
+    }
+
     public function testTheBranchColourIsAFilledBandAndNeverAThinBorder(): void
     {
         // The one thing a browser would drop when printing, and the whole
