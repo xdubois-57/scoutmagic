@@ -476,10 +476,16 @@ class TwigFactory
         // référent holder lists, section responsable) so a reader who
         // doesn't know the totem can still identify the person.
         $environment->addFilter(new TwigFilter('display_name_full', function ($member) use ($buildFullName) {
+            // The rule lives on the model, so a page that assembles its
+            // labels in PHP says the same thing as one that assembles
+            // them in a template — which is how the re-registration form
+            // came to show a bare totem.
+            if ($member instanceof \Core\Member\MemberProfile) {
+                return $member->getDisplayNameFull();
+            }
+
             $full = $buildFullName($member);
-            $totem = $member instanceof \Core\Member\MemberProfile
-                ? $member->totem
-                : (is_array($member) ? ($member['totem'] ?? null) : null);
+            $totem = is_array($member) ? ($member['totem'] ?? null) : null;
 
             if ($totem) {
                 return \Core\Service\TextNormalizerService::normalizeTotem($totem) . ' (' . $full . ')';

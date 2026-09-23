@@ -198,7 +198,12 @@ class ReenrollmentFormService
 
         return [
             'member_id' => $profile->memberId,
-            'display_name' => $profile->totem ?? $profile->firstName,
+            // Name AND totem, not the totem alone: a parent with two
+            // children in the same section could not tell which card was
+            // whose, and a totem is precisely the name a parent may not
+            // use at home. `|display_name_full` renders the same thing on
+            // the pages that build their labels in Twig.
+            'display_name' => $profile->getDisplayNameFull(),
             'current_section_label' => $this->currentSectionLabel($profile),
             'changes_branch' => $changesBranch,
             'arrival_sections' => $sections,

@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Member;
 
+use Core\Service\TextNormalizerService;
+
 class MemberProfile
 {
     /**
@@ -48,6 +50,35 @@ class MemberProfile
     public function getDisplayName(): string
     {
         return $this->totem ?? $this->firstName;
+    }
+
+    /**
+     * The same person, named so that a reader who does not know the totem
+     * can still tell who it is: "Chacal (Antonin Grandjean)", or just
+     * "Antonin Grandjean" when there is no totem.
+     *
+     * The rule already existed as the `|display_name_full` Twig filter and
+     * nowhere else, which is why a page assembling its labels in PHP —
+     * the re-registration form — showed the bare totem instead and a
+     * parent with two children in the same section could not tell which
+     * card was whose. Here so both callers say the same thing.
+     */
+    public function getDisplayNameFull(): string
+    {
+        $full = trim(
+            TextNormalizerService::normalizeName($this->firstName)
+            . ' ' . TextNormalizerService::normalizeName($this->lastName)
+        );
+
+        if ($this->totem === null || $this->totem === '') {
+            return $full;
+        }
+
+        $totem = TextNormalizerService::normalizeTotem($this->totem);
+
+        // A member with a totem and no civil name on file is not a reason
+        // to render "Chacal ()".
+        return $full !== '' ? $totem . ' (' . $full . ')' : $totem;
     }
 
     /**
