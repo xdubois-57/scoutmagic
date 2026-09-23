@@ -195,7 +195,7 @@ $secretManager = new SecretManager(
 $dkimManager = new DkimManager(__DIR__ . '/../storage/keys');
 $schemaPath = __DIR__ . '/../schema/core.sql';
 
-// A measurement window opened from Configuration > Support records the
+// A measurement window opened from Configuration > Diagnostic records the
 // timeline of every request while it lasts (Core\Debug\MeasurementWindow).
 // One stat on an absent file when there is none — checked here, before
 // the database and the settings exist, because the window is about the
@@ -1547,7 +1547,7 @@ $settingService->register(
     'boolean',
     'Envoi automatique des statistiques d\'utilisation',
     'Autorise l\'envoi quotidien d\'un rapport d\'utilisation agrégé vers ScoutMagic. Le rapport contient '
-        . 'l\'adresse de ce site, jamais de donnée de membre. Géré depuis la page Support.',
+        . 'l\'adresse de ce site, jamais de donnée de membre. Géré depuis la page Diagnostic.',
     null,
     null,
     null,
@@ -1587,7 +1587,7 @@ $settingService->register(
     'support@scoutmagic.be',
     'email',
     'Adresse du support ScoutMagic',
-    'Adresse à laquelle envoyer une archive de support. Affichée sur la page Support.',
+    'Adresse à laquelle envoyer une archive de support. Affichée sur la page Diagnostic.',
     null,
     null,
     null,
@@ -5882,7 +5882,7 @@ $frontController->registerController(
     )
 );
 
-// Fréquentation du site (ARCHITECTURE.md §8.93). This block sits here,
+// Fréquentation (ARCHITECTURE.md §8.93). This block sits here,
 // among the trunk's own wiring rather than down with the other modules,
 // for the same reason the LLM connector's does just below: a CORE
 // consumer built a few lines further down — Core\Statistics\
@@ -5956,7 +5956,7 @@ $statisticsPayloadBuilder = new \Core\Statistics\StatisticsPayloadBuilder(
 // The same sender the daily task builds from its TaskContext (Core\Statistics\
 // StatisticsServiceFactory), built here for the one thing that cannot wait for
 // a scheduler run: the "envoyer un rapport de test" button on Configuration >
-// Support. Constructing it opens nothing — no secret is read and no socket is
+// Diagnostic. Constructing it opens nothing — no secret is read and no socket is
 // touched until sendTest() is actually called.
 $statisticsSender = new \Core\Statistics\StatisticsSender(
     $settingService,

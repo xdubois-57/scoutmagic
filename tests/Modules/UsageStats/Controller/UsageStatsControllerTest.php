@@ -153,6 +153,35 @@ class UsageStatsControllerTest extends TestCase
         $this->assertStringNotContainsString('/calendar ·', $body);
     }
 
+    /**
+     * The last tab leaves the module for the page where sharing these
+     * figures is configured, and it must call that page what the
+     * Configuration menu calls it. It said « Support » for an iteration
+     * after the menu entry became « Diagnostic » — a tab naming a page the
+     * administrator cannot find in the menu. The expected label is read
+     * from the menu registration in `public/index.php`, so a later rename
+     * there fails here instead of leaving this tab behind again.
+     */
+    public function testTheOutgoingTabNamesTheDiagnosticPageAsTheMenuDoes(): void
+    {
+        $index = (string) file_get_contents(dirname(__DIR__, 4) . '/public/index.php');
+        $found = preg_match(
+            "/addPage\\(\\s*MenuBuilder::MENU_CONFIGURATION,\\s*'([^']+)',\\s*'\\/config\\/support',/",
+            $index,
+            $match
+        );
+        $this->assertSame(1, $found, 'the Configuration menu no longer registers /config/support');
+        $menuLabel = $match[1];
+
+        $this->seed();
+        AuthSession::login(1, 'super@test.be', 'superadmin');
+        $body = $this->buildFrontController()->handle(new Request('GET', '/config/usage', [], [], [], []))->getBody();
+
+        $found = preg_match('#<a href="/config/support"[^>]*>.*?<span>([^<]*)</span>#s', $body, $tab);
+        $this->assertSame(1, $found, 'the outgoing tab to /config/support is missing');
+        $this->assertSame($menuLabel, trim($tab[1]));
+    }
+
     private function seed(): void
     {
         $pageViews = new PageViewRepository($this->pdo);

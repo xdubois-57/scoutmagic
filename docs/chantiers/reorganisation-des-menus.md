@@ -596,3 +596,136 @@ contourner quoi que ce soit :
 ### Reporté pour IT-02
 
 Rien.
+
+---
+
+## IT-03 — La page Modules
+
+### Livré
+
+**Le champ `category` dans `module.json`**, validé au chargement contre
+une liste fermée de sept, exactement comme `menu` l'est déjà — même
+précédent, même exception, même effet : un module fautif ne se charge
+pas plutôt que de dériver en silence.
+
+**Absente est un défaut légitime ; inconnue est une faute.** Un module
+qui ne dit pas où il va est un outil, et « Technique » est l'étagère
+honnête pour un outil — refuser de le charger pour un champ dont il n'a
+jamais entendu parler casserait tout module tiers. Mais un manifeste
+qui écrit `"argnet"` a une faute de frappe, et le ranger silencieusement
+dans « Technique » la cacherait pour toujours : le module marcherait,
+sur la mauvaise étagère, sans que rien ne dise pourquoi.
+
+**Vingt-deux modules catégorisés**, dans la répartition exacte de la
+maquette. Les deux modules à `visible_when` gardent le défaut et
+n'apparaissent pas sur l'écran d'une unité ordinaire — ce que la
+maquette dit elle-même.
+
+**Six noms et vingt-deux descriptions** suivent la maquette. Celle du
+trombinoscope annonçait « un annuaire photo des animés » pour une page
+qui recense les **animateurs** : le module se décrivait à l'envers de ce
+qu'il fait.
+
+**La page** groupe par étagère, trie par nom à l'intérieur, offre le
+filtre Tous / Actifs / Inactifs avec ses compteurs, et dit enfin que
+désactiver un module **conserve ses données**.
+
+### Décisions prises en autonomie
+
+**Le tri passe par `Collator`**, pas par `sort()`, qui rangerait
+« Éclaireurs » après Z. Le repli sur `strnatcasecmp` couvre une
+installation sans l'extension intl.
+
+**Une étagère que le filtre vide n'est pas dessinée.** Une section
+titrée sans rien dessous se lit comme quelque chose de cassé, pas comme
+quelque chose d'absent — c'est la règle que le méga-menu suit déjà pour
+une colonne dont toutes les entrées sont filtrées.
+
+**Le filtre est un second bloc indépendant** dans `config-modules.js`.
+Le premier sort tôt s'il ne trouve aucun interrupteur, et un module qui
+échoue à la validation n'en fait pas rendre : filtrer doit continuer de
+marcher sur une installation où tous les modules sont dans cet état.
+Purement client, donc la page reste lisible sans JavaScript — tout est
+déjà dans le DOM, les boutons ne font simplement rien.
+
+### La preuve : la maquette, encore
+
+`ModulesPageMockup` lit `maquette-modules.jsx` et `ModulesPageMockupTest`
+compare nom, étagère et description de chaque module. Une empreinte
+tirée des manifestes dirait seulement que les catégories sont celles que
+les manifestes déclarent — vrai par construction, sans valeur.
+
+**Une garde était plus faible qu'elle n'en avait l'air.** Ancrer la
+lecture sur `const CATEGORIES` trouvait aussi `const CATEGORIES_RENAMED`
+: une maquette aux tableaux renommés continuait donc de s'analyser, et
+le test de forme passait sur une lecture qui n'était plus la bonne. **Un
+préfixe n'est pas une ancre.** Corrigé en ancrant sur `= [`, et la
+mutation échoue désormais comme elle le doit.
+
+### Ce que le balayage a trouvé au-delà des manifestes
+
+Les dix-huit tours de relecture d'IT-02 ont appris une chose : ne jamais
+se fier au diff pour un renommage. Appliquée ici, la règle a rapporté
+deux choses qu'aucun diff ne montrait.
+
+**Le texte RGPD nomme les modules.** `RgpdContentService` et
+`rgpd_default.html` — le document légal montré aux familles — citaient
+« Module Galerie photos et vidéos », « Groupes de discussion »,
+« Connecteur IA », « Fréquentation du site ». Vingt et une occurrences.
+Sans correction, une famille aurait lu la politique de protection des
+données d'un module dont le nom n'existe plus nulle part sur le site.
+
+**Et IT-02 avait laissé quatorze références à « Configuration >
+Support »**, page qu'elle renommait pourtant elle-même en
+« Diagnostic ». Cinq sont visibles par l'utilisateur : le texte RGPD,
+l'écran d'installation, la page de fréquentation, la description d'un
+réglage. L'itération précédente a donc laissé derrière elle exactement
+le type de dette qu'elle passait son temps à corriger — et c'est le
+balayage de celle-ci qui la trouve.
+
+Le titre de la page de configuration de la galerie disait encore
+« Galerie photos et vidéos » alors que son entrée de menu dit « Photos »
+depuis IT-02.
+
+### Ce que le changement a cassé
+
+Six tests, tous figeant un texte renommé : le nom du module
+`usage_stats`, trois extraits du contenu RGPD des discussions, et deux
+mentions de « Configuration > Support » dans les promesses de
+transmission de l'archive de diagnostic.
+
+### Ce que la relecture a trouvé
+
+Trois constats, et chacun cachait une classe plus large que la ligne
+citée.
+
+- **`"category": null` passait pour une clé absente.** `isset()` ne
+  distingue pas les deux, et le module atterrissait sous « Technique »
+  sans un mot. Les onze autres sections facultatives du manifeste
+  lisaient leur clé de la même façon — `"visible_when": null` levait une
+  restriction que l'auteur croyait écrire. Les douze passent à
+  `array_key_exists()`, un test les énumère depuis la source, et un
+  autre refuse désormais `isset($data[` dans `ModuleManifest`.
+- **« Configuration > Support » survivait à IT-02.** Le relecteur en
+  citait une, coupée en fin de ligne dans `StatisticsSender`, et c'est
+  pour ça que le balayage précédent l'avait manquée. Il en restait
+  vingt-trois autres, sur les deux orthographes (`>` et `›`), dont cinq
+  coupées de la même façon ; le modèle de rapport de bogue sur GitHub
+  envoyait les gens vers un chemin qui n'existe plus. Et une seule
+  visible dans l'application, sous une autre forme : l'onglet de sortie
+  de « Fréquentation » s'appelait encore « Support ». L'onglet lit
+  désormais son libellé dans l'enregistrement du menu, et c'est un test
+  qui le vérifie. « la page Support » reste dans les commentaires
+  anglais : elle y nomme le code (`SupportController`,
+  `/config/support`), qui n'a pas changé de nom.
+- **Les filtres s'affichaient sans aucun module.** « Tous » révélait
+  alors « aucun module ne correspond » sous « aucun module disponible ».
+  Les puces et ce message partagent maintenant une même garde.
+
+Vu en passant, laissé en l'état parce que ce n'est pas le même défaut :
+`enabled_by_default` et `description` sont convertis par un transtypage
+plutôt que validés (`"non"` devient `true`).
+
+### Reporté
+
+Rien. Le chantier est terminé.

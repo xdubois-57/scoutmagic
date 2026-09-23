@@ -1,4 +1,4 @@
-// Configuration > Support — "Générer un paquet de support".
+// Configuration > Diagnostic — "Générer un paquet de support".
 //
 // Posts to /config/support/package, then polls
 // GET /api/support/package-status/{id} via ScoutMagicApi.poll until the

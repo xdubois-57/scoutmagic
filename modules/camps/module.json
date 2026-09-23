@@ -1,8 +1,8 @@
 {
   "id": "camps",
   "name": "Camps",
-  "description": "Les lieux de camp de l'unité et les séjours qu'elle y a faits — passés et à venir : dates, sections, prix, contacts sur place, avis des staffs précédents. Un staff qui cherche un terrain lit ce que les staffs d'avant en ont pensé, au lieu de repartir de zéro.",
-  "version": "1.16.3",
+  "description": "Les lieux de camp de l'unité et les séjours qui s'y sont tenus.",
+  "version": "1.16.4",
   "enabled_by_default": false,
   "routes": [
     {
@@ -662,5 +662,6 @@
       "key": "refresh_place_summaries",
       "handler": "Modules\\Camps\\Task\\RefreshPlaceSummariesHandler"
     }
-  ]
+  ],
+  "category": "activites"
 }

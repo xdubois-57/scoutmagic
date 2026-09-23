@@ -1,8 +1,8 @@
 {
   "id": "gallery",
-  "name": "Galerie photos et vidéos",
-  "description": "Albums photo/vidéo (envoi local avec redimensionnement/transcodage automatique, ou lien vers un album externe) visibles par les membres identifiés.",
-  "version": "1.12.5",
+  "name": "Photos et vidéos",
+  "description": "Albums par section.",
+  "version": "1.12.6",
   "enabled_by_default": false,
   "routes": [
     {
@@ -350,5 +350,6 @@
         "email": "default_off"
       }
     }
-  ]
+  ],
+  "category": "activites"
 }

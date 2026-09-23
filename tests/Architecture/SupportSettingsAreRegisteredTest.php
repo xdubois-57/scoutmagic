@@ -17,7 +17,7 @@ use PHPUnit\Framework\TestCase;
  * purpose, so that bookkeeping can never turn a transmission that DID
  * happen into a failure an administrator would repeat. The two rules are
  * each right and together they produced a lie: the archive left, the
- * confirmation said so, and Configuration > Support went on showing
+ * confirmation said so, and Configuration > Diagnostic went on showing
  * « Archive non transmise » for ever, because the reference it compares
  * against was never written. The probe's own « dernière sonde » line had
  * the same fault and nobody noticed, because its failure mode is a line

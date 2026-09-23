@@ -33,6 +33,7 @@ class ConfigModulesControllerTest extends TestCase
     private ModuleManager $moduleManager;
     private ModuleRegistryRepository $registryRepo;
     private \PDO $pdo;
+    private Environment $twig;
 
     protected function setUp(): void
     {
@@ -81,6 +82,7 @@ class ConfigModulesControllerTest extends TestCase
         $twig->addFunction(new \Twig\TwigFunction('file_url', fn() => ''));
         $twig->addFunction(new \Twig\TwigFunction('param', fn(string $k) => 'Test'));
 
+        $this->twig = $twig;
         $this->controller = new ConfigModulesController($twig, $this->moduleManager, $journalService);
     }
 
@@ -234,6 +236,122 @@ class ConfigModulesControllerTest extends TestCase
         ] as $gone) {
             $this->assertStringNotContainsString($gone, $body, "The page still draws '{$gone}'.");
         }
+    }
+
+    /**
+     * **The modules are drawn on titled shelves**, in the order
+     * `ModuleManifest::CATEGORIES` declares them — not in the order the
+     * directory happens to be scanned.
+     */
+    public function testIndexDrawsOneTitledShelfPerCategoryInUse(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/modules', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('data-module-shelf="communication"', $body);
+        $this->assertStringContainsString('data-module-shelf="argent"', $body);
+        $this->assertStringContainsString('data-module-shelf="technique"', $body);
+
+        // Declaration order, whatever order the modules were discovered in.
+        $this->assertMatchesRegularExpression(
+            '/data-module-shelf="communication".*data-module-shelf="argent".*data-module-shelf="technique"/s',
+            $body
+        );
+    }
+
+    /**
+     * **A shelf nobody is on is not drawn at all.** None of these
+     * fixtures declares « Services de l'unité », and a titled section
+     * with nothing under it reads as something broken rather than as
+     * something absent — the rule the mega-menu follows for an empty
+     * column.
+     */
+    public function testIndexDrawsNoShelfForACategoryNoModuleDeclares(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/modules', [], [], [], []), [])->getBody();
+
+        $this->assertStringNotContainsString('data-module-shelf="services"', $body);
+        $this->assertStringNotContainsString("Services de l'unité", $body);
+    }
+
+    /**
+     * Each row carries the server's answer about whether it is on, which
+     * is what the filter reads. Client-side, so it must not invent the
+     * state: a successful toggle reloads the page rather than patching
+     * it, which keeps this attribute truthful.
+     */
+    public function testIndexMarksEachRowWithTheStateTheServerKnows(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/modules', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('data-module-row', $body);
+        $this->assertMatchesRegularExpression('/data-module-enabled="(yes|no)"/', $body);
+    }
+
+    /**
+     * The three filter chips, each with its own count. The counts come
+     * from the server rather than from JavaScript so they are right on
+     * first paint and right without JavaScript at all.
+     */
+    public function testIndexOffersTheThreeFiltersWithTheirCounts(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/modules', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('data-module-filter="all"', $body);
+        $this->assertStringContainsString('data-module-filter="on"', $body);
+        $this->assertStringContainsString('data-module-filter="off"', $body);
+
+        $total = count($this->moduleManager->discoverModules());
+        $this->assertStringContainsString("Tous ({$total})", $body);
+    }
+
+    /**
+     * An installation with no module on disk has nothing to filter, so it
+     * gets no chips and no « aucun module ne correspond » — only the
+     * message that says why the list is empty. The chips used to render
+     * anyway; clicking « Tous » then made the script find zero rows and
+     * reveal its own empty message under the page's, two contradictory
+     * explanations of the same nothing.
+     */
+    public function testIndexOffersNoFilterWhenThereIsNoModuleToFilter(): void
+    {
+        $emptyDir = sys_get_temp_dir() . '/scoutmagic_no_modules_' . uniqid();
+        mkdir($emptyDir);
+        try {
+            $settingService = new SettingService(new SettingRepository($this->pdo));
+            $journalService = new JournalService(new JournalRepository($this->pdo));
+            $manager = new ModuleManager(
+                $emptyDir,
+                $settingService,
+                new CookieConsentService([]),
+                new MenuBuilder(Role::fromString('admin')),
+                $this->registryRepo,
+                $journalService,
+                new Router()
+            );
+            $body = (new ConfigModulesController($this->twig, $manager, $journalService))
+                ->index(new Request('GET', '/config/modules', [], [], [], []), [])
+                ->getBody();
+        } finally {
+            rmdir($emptyDir);
+        }
+
+        $this->assertStringContainsString('Aucun module disponible', $body);
+        $this->assertStringNotContainsString('data-module-filter', $body);
+        $this->assertStringNotContainsString('data-module-empty', $body);
+    }
+
+    /**
+     * **Deactivating a module keeps its data**, and the page says so.
+     *
+     * The sentence is the whole reason somebody dares touch a switch: an
+     * intro that only says the pages disappear reads as a threat to
+     * whatever is behind them.
+     */
+    public function testIndexPromisesThatDeactivatingKeepsTheData(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/modules', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('données sont conservées', $body);
     }
 
     /**

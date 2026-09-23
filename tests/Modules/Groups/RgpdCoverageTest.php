@@ -40,7 +40,7 @@ class RgpdCoverageTest extends TestCase
     {
         $content = $this->service()->getDefaultContent();
 
-        $this->assertStringContainsString('Module Groupes de discussion', $content);
+        $this->assertStringContainsString('Module Discussions', $content);
     }
 
     /**
@@ -70,14 +70,14 @@ class RgpdCoverageTest extends TestCase
 
         // Named in the retention section too, not only inside the module's
         // own sub-section — that section is where a reader looks first.
-        $this->assertStringContainsString('<strong>Groupes de discussion</strong> : trois durées distinctes', $content);
+        $this->assertStringContainsString('<strong>Discussions</strong> : trois durées distinctes', $content);
     }
 
     public function testTheSystemPromptTellsTheModelAboutTheModule(): void
     {
         $prompt = $this->capturePrompt();
 
-        $this->assertStringContainsString('Module Groupes de discussion (module groups)', $prompt);
+        $this->assertStringContainsString('Module Discussions (module groups)', $prompt);
         $this->assertStringContainsString('"groups"', $prompt);
     }
 

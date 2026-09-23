@@ -1,9 +1,9 @@
 {% extends "base.html.twig" %}
 
-{% block title %}Galerie photos et vidéos — {{ site_name }}{% endblock %}
+{% block title %}Photos — {{ site_name }}{% endblock %}
 
 {% block content %}
-    {% include 'partials/page_header.html.twig' with { title: 'Galerie photos et vidéos' } only %}
+    {% include 'partials/page_header.html.twig' with { title: 'Photos' } only %}
 
     {% if submit_error %}
         <div class="alert alert-danger">{{ submit_error }}</div>

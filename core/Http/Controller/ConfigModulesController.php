@@ -13,6 +13,8 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Module\ModuleException;
+use Core\Module\ModuleInfo;
+use Core\Module\ModuleManifest;
 use Core\Module\ModuleManager;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
@@ -42,11 +44,6 @@ class ConfigModulesController extends AbstractController
     {
         $modules = $this->moduleManager->discoverModules();
 
-        // partials/list_editor.html.twig's chrome (drag handle, data-id
-        // attribute) addresses each item as item.id — module_id is a
-        // string on ModuleInfo->manifest->id, one level deeper than that
-        // partial looks, so each entry is wrapped here rather than
-        // reworking the shared partial around a configurable id path.
         $moduleItems = array_map(
             fn($mod) => [
                 'id' => $mod->manifest->id,
@@ -61,6 +58,12 @@ class ConfigModulesController extends AbstractController
 
         return $this->render('config/modules.html.twig', [
             'modules' => $moduleItems,
+            // The shelves, each with the modules that declared it, sorted
+            // by name inside. Built here rather than in Twig: sorting
+            // French names needs a collation Twig's `sort` does not offer,
+            // and « Éclaireurs » has to land under E.
+            'categories' => self::shelve($moduleItems),
+            'active_count' => count(array_filter($moduleItems, static fn(array $i): bool => $i['info']->enabled)),
             // Hard dependencies are declared as ids; the page shows
             // names. Core never knows any module's name, so the map is
             // the manifests' own answer — an id with no module on disk
@@ -69,6 +72,59 @@ class ConfigModulesController extends AbstractController
             // re-scan: this page has it in hand.
             'module_names' => $this->moduleManager->moduleNames($modules),
         ]);
+    }
+
+    /**
+     * Group the modules onto the shelves `ModuleManifest::CATEGORIES`
+     * declares, in that order, sorted by name inside each.
+     *
+     * **A shelf nobody is on is not drawn.** An installation that has no
+     * money module should not be shown an empty « Argent » heading — a
+     * titled section with nothing under it reads as something broken
+     * rather than as something absent. Same rule the mega-menu follows
+     * for a column whose every entry is filtered out.
+     *
+     * The sort is `Collator`-based where intl is available and falls back
+     * to a natural, case-insensitive comparison otherwise: « Éclaireurs »
+     * belongs under E, and `sort()` alone would file it after Z.
+     *
+     * @param list<array{id: string, info: ModuleInfo, requirements_met: bool}> $items
+     * @return list<array{id: string, label: string, modules: list<array{id: string, info: ModuleInfo, requirements_met: bool}>}>
+     */
+    private static function shelve(array $items): array
+    {
+        $byCategory = [];
+        foreach ($items as $item) {
+            $byCategory[$item['info']->manifest->category][] = $item;
+        }
+
+        $collator = class_exists(\Collator::class) ? new \Collator('fr_BE') : null;
+
+        $shelves = [];
+        foreach (ModuleManifest::CATEGORIES as $id => $label) {
+            $modules = $byCategory[$id] ?? [];
+            if ($modules === []) {
+                continue;
+            }
+
+            usort($modules, static function (array $a, array $b) use ($collator): int {
+                $left = $a['info']->manifest->name;
+                $right = $b['info']->manifest->name;
+
+                if ($collator !== null) {
+                    $compared = $collator->compare($left, $right);
+                    if (is_int($compared)) {
+                        return $compared;
+                    }
+                }
+
+                return strnatcasecmp($left, $right);
+            });
+
+            $shelves[] = ['id' => $id, 'label' => $label, 'modules' => $modules];
+        }
+
+        return $shelves;
     }
 
     /**

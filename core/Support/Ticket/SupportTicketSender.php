@@ -99,7 +99,7 @@ class SupportTicketSender
     public const FAILURE_NO_IDENTITY = 'no_identity';
 
     /**
-     * The consent the archive box on Configuration > Support asks for,
+     * The consent the archive box on Configuration > Diagnostic asks for,
      * as a version: `triage-extract-v1` is the sentence that names the
      * anonymised extract read by the GitHub triage. The receiver
      * compares it against the scope the extract route requires.

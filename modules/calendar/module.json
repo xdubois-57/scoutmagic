@@ -1,8 +1,8 @@
 {
   "id": "calendar",
   "name": "Calendrier",
-  "description": "Calendrier des activités : un calendrier par section (automatique) et des calendriers supplémentaires configurables, avec abonnement ICS.",
-  "version": "1.8.3",
+  "description": "Un calendrier par section, abonnable depuis un téléphone.",
+  "version": "1.8.4",
   "enabled_by_default": true,
   "routes": [
     {
@@ -330,5 +330,6 @@
         }
       ]
     }
-  ]
+  ],
+  "category": "activites"
 }

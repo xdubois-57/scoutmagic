@@ -338,7 +338,7 @@ qui s'applique à votre unité.
 
 ## 15. L'intelligence artificielle
 
-Si l'unité a activé le module Connecteur IA, vous pouvez demander une aide
+Si l'unité a activé le module Intelligence artificielle, vous pouvez demander une aide
 ponctuelle : lire l'index d'un compteur sur une photo, proposer le
 classement d'une pièce jointe, résumer un échange, repérer ce qui manque
 dans une demande.

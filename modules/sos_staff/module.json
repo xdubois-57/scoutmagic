@@ -1,8 +1,8 @@
 {
   "id": "sos_staff",
-  "name": "SOS Staff d'U",
-  "description": "Planification des gardes du numéro SOS de l'unité et automatisation des changements de redirection téléphonique.",
-  "version": "1.2.3",
+  "name": "Téléphone d'urgence",
+  "description": "Dévie le numéro d'urgence de l'unité vers le staff de garde.",
+  "version": "1.2.4",
   "enabled_by_default": false,
   "routes": [
     {
@@ -206,5 +206,6 @@
         }
       ]
     }
-  ]
+  ],
+  "category": "services"
 }

@@ -1250,4 +1250,55 @@ class ModuleManifestTest extends TestCase
             ['path' => '/heavy', 'label' => 'Lourd', 'match' => 'exact', 'role_min' => 'chief', 'prefetch' => 'non'],
         ]));
     }
+
+    /**
+     * Every optional section is read the same way: absent means « none »,
+     * present means « validated ». An explicit `null` is present, so it is
+     * validated — and refused — instead of passing for an absent key the
+     * way `isset()` let it. `"category": null` used to land a module under
+     * « Technique » with no word said; `"visible_when": null` used to lift
+     * a restriction its author had meant to write.
+     *
+     * The sections are read from `fromArray()` itself, so one added later
+     * is covered without anyone remembering this list.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function optionalSections(): array
+    {
+        preg_match_all(
+            "/array_key_exists\\('([a-z_]+)', \\\$data\\)/",
+            (string) file_get_contents(dirname(__DIR__, 3) . '/core/Module/ModuleManifest.php'),
+            $matches
+        );
+        $cases = [];
+        foreach ($matches[1] as $key) {
+            $cases[$key] = [$key];
+        }
+
+        return $cases;
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('optionalSections')]
+    public function testAnExplicitNullSectionIsRefusedRatherThanTakenForAbsent(string $key): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage("Module 'demo'");
+
+        ModuleManifest::fromArray(['id' => 'demo', 'name' => 'Démo', 'version' => '1.0.0', $key => null]);
+    }
+
+    /**
+     * The provider above only sees sections guarded by
+     * `array_key_exists()`. A new one written with `isset($data[…])` would
+     * escape it — and bring the silent `null` back — so that spelling is
+     * refused outright, and the provider must find the twelve known ones.
+     */
+    public function testNoOptionalSectionIsGuardedByIsset(): void
+    {
+        $source = (string) file_get_contents(dirname(__DIR__, 3) . '/core/Module/ModuleManifest.php');
+
+        $this->assertStringNotContainsString('isset($data[', $source);
+        $this->assertGreaterThanOrEqual(12, count(self::optionalSections()));
+    }
 }

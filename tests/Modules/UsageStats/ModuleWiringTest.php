@@ -51,7 +51,7 @@ class ModuleWiringTest extends TestCase
         $manifest = ModuleManifest::fromArray($this->manifest);
 
         $this->assertSame(self::MODULE_ID, $manifest->id);
-        $this->assertSame('Fréquentation du site', $manifest->name);
+        $this->assertSame('Fréquentation', $manifest->name);
     }
 
     /**

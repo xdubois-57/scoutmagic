@@ -26,7 +26,7 @@ page le rappelle.
 - **Personnalisé** : vous rédigez librement, avec l'éditeur ouvert par
   « Modifier ». À réserver au cas où votre unité traite des données en
   dehors du site (fichiers papier, outils externes) et veut le dire.
-- **Généré par IA** : disponible si le module Connecteur IA est actif.
+- **Généré par IA** : disponible si le module Intelligence artificielle est actif.
   Le texte est composé à partir du contenu de référence, des modules
   réellement actifs, et des précisions que vous donnez dans le champ
   de consignes (par exemple : « nous utilisons aussi un groupe

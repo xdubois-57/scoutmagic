@@ -732,7 +732,7 @@ class StatisticsSenderTest extends TestCase
         $this->assertSame(204, $result->statusCode);
     }
 
-    // --- sendTest(): the button on Configuration > Support ---
+    // --- sendTest(): the button on Configuration > Diagnostic ---
 
     /**
      * The reason the manual send exists at all: on the installation that IS

@@ -1,8 +1,8 @@
 {
   "id": "news",
   "name": "Actualités",
-  "description": "Articles d'actualité avec formulaires intégrés (inscriptions, paiements optionnels), référencement SEO et affiche A4 avec QR code.",
-  "version": "1.7.4",
+  "description": "Articles publics, avec formulaire d'inscription et paiement.",
+  "version": "1.7.5",
   "enabled_by_default": true,
   "routes": [
     {
@@ -481,5 +481,6 @@
         }
       ]
     }
-  ]
+  ],
+  "category": "communication"
 }

@@ -73,7 +73,7 @@ to paste what matters from it (`bug:needs-info`).
 ## The support ticket extract
 
 A reporter who sent a **support ticket** from their site (Configuration ›
-Support) may cite its reference — `SUP-` and six characters — in the bug
+Diagnostic) may cite its reference — `SUP-` and six characters — in the bug
 form or in a reply. The workflow then fetches, before you start, a
 **reduced, anonymised copy** of the diagnostic archive that travelled
 with that ticket, and unpacks it under `support-extract/<issue number>/`
@@ -263,13 +263,13 @@ A report that cannot be decided from the code and the reporter's words —
 « ça plante par moments », an import that stops halfway, an e-mail that
 never arrives — is decided by what the site logged, and the reporter can
 hand you that without handing it to the public: they send a support
-ticket from Configuration › Support of their site, with the diagnostic
+ticket from Configuration › Diagnostic of their site, with the diagnostic
 archive the page offers, and reply here with the reference the page
 shows them (`SUP-` and six characters). The workflow fetches an
 anonymised extract on their reply and you run again with it (§ The
 support ticket extract). So a `bug:needs-info` of this kind says, in
 their language and in this order: what you could not see; the exact
-gesture — Configuration › Support, « Envoyer le ticket » with the archive
+gesture — Configuration › Diagnostic, « Envoyer le ticket » with the archive
 box ticked, then the reference in a reply; and, **in as many words, never
 to attach the support package or its contents to the issue**, because
 everything on it is public and stays so. Only when no extract is on disk:

@@ -1,8 +1,8 @@
 {
   "id": "fees",
   "name": "Cotisations",
-  "description": "Vérifie les cotisations que la fédération facture : justesse des catégories tarifaires encodées dans Desk, et lecture des factures reçues. Le module n'écrit jamais dans Desk.",
-  "version": "1.4.4",
+  "description": "Vérifie ce que la fédération facture, famille par famille.",
+  "version": "1.4.5",
   "routes": [
     {
       "path": "/admin/fees",
@@ -181,5 +181,6 @@
   ],
   "cookies": [],
   "scheduled_tasks": [],
-  "storage": {}
+  "storage": {},
+  "category": "argent"
 }

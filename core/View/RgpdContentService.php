@@ -622,7 +622,7 @@ un ou plusieurs stockages externes — bucket S3, partage WebDAV, dossier Google
 à celui utilisé lors de sa création) — {$galleryStorage} liste TOUS les emplacements réellement configurés. Tu dois
 adapter ces sections à cette configuration RÉELLE :
     - Si le module gallery n'est pas dans la liste des modules actifs : retire entièrement la section 2.4 "Module
-    Galerie photos et vidéos" et le paragraphe "Fournisseurs de stockage externe" de la section 4.2.
+    Photos et vidéos" et le paragraphe "Fournisseurs de stockage externe" de la section 4.2.
     - Si {$galleryStorage} ne liste AUCUN stockage externe (uniquement du stockage local, ou aucun emplacement
     configuré) : conserve la section 2.4 du module galerie, mais retire complètement le paragraphe "Fournisseurs de
     stockage externe" de la section 4.2 (aucun sous-traitant externe, les fichiers restent chez l'hébergeur déjà
@@ -725,8 +725,8 @@ commentaire ni vote n'est jamais lié à une personne), le contenu de référenc
 rien à personnaliser au-delà de la présence ou non du module. Le paragraphe sur la modération/synthèse par IA
 optionnelle ne fait référence à aucun nouveau sous-traitant : si "llm_connector" est également actif, ce paragraphe
 reste ; sinon, retire uniquement ce paragraphe (mais garde le reste de la sous-section).
-26. **Module Groupes de discussion (module groups)** : Si "groups" ne figure PAS dans la liste des modules actifs
-({$modulesText}), retire entièrement la sous-section "Module Groupes de discussion" de la section 2.4 ainsi que la
+26. **Module Discussions (module groups)** : Si "groups" ne figure PAS dans la liste des modules actifs
+({$modulesText}), retire entièrement la sous-section "Module Discussions" de la section 2.4 ainsi que la
 ligne correspondante en section 3.1. Si "groups" est actif, conserve-la intégralement et sans l'édulcorer — c'est,
 avec le module Envoi de mails, le module dont les membres alimentent eux-mêmes le contenu, et l'unité ne maîtrise pas
 ce qu'ils y écrivent. Conserve en particulier : (a) que le texte des messages et des réponses est écrit librement par
@@ -866,7 +866,7 @@ notifications push (règle 23) et la vérification des mises à jour (règle 24)
 consacrés aux « Statistiques d'utilisation » et à l'« Archive de diagnostic » concernent le cœur du site, présent sur
 toute installation ScoutMagic. Conserve-les TOUJOURS, indépendamment de {$modulesText}, et sans les édulcorer.
 Conserve en particulier : (a) que l'envoi des statistiques est optionnel, activable et désactivable par l'unité depuis
-la page Configuration > Support ; (b) que ce rapport **n'est pas anonyme**, puisqu'il contient l'adresse du site — ne
+la page Configuration > Diagnostic ; (b) que ce rapport **n'est pas anonyme**, puisqu'il contient l'adresse du site — ne
 le décris jamais comme anonyme ou anonymisé ; (c) qu'il ne contient aucune donnée de membre (ni nom, ni email, ni
 photo, ni contenu), uniquement des compteurs agrégés et des informations techniques sur le logiciel et l'hébergement ;
 (c bis) que si le site a été remonté ailleurs depuis une sauvegarde emportée, le rapport porte en plus l'identifiant
@@ -910,7 +910,7 @@ signalé, et cela ne réactive pas l'envoi quotidien pour autant — le rapport 
 jamais parce qu'une tâche s'est exécutée. Dis-le explicitement plutôt que de laisser croire qu'un refus des
 statistiques empêche toute transmission de ces compteurs. Si l'administrateur indique que l'envoi de statistiques est
 désactivé chez lui, tu peux le préciser, mais conserve la description du traitement (la fonctionnalité reste présente
-et réactivable), y compris ce point (f). (g) que le rapport porte, quand le module « Fréquentation du site »
+et réactivable), y compris ce point (f). (g) que le rapport porte, quand le module « Fréquentation »
 (`usage_stats`) est actif, le **nombre de pages ouvertes par module** sur les douze derniers mois, et **jamais le
 détail page par page**, qui ne quitte pas le site. (h) que le rapport porte aussi la **liste des libellés de
 fonctions et des types de cotisation** que les exports Desk de l'unité contiennent — les libellés seuls, qui sont le
@@ -951,7 +951,7 @@ l'identifiant d'installation ne sont jamais transmis** au fournisseur, et que l'
 geste explicite d'un super-administrateur, jamais à l'affichage d'une page. Si "llm_connector" n'est PAS actif, retire
 uniquement ce paragraphe : sans connecteur, le bouton n'est pas proposé et aucune donnée ne sort.
 
-34. **Fréquentation du site (module usage_stats)** : s'il ne figure PAS dans la liste des modules actifs
+34. **Fréquentation (module usage_stats)** : s'il ne figure PAS dans la liste des modules actifs
 ({$modulesText}), retire le paragraphe correspondant de la section 4.1 : rien n'est compté. S'il est actif,
 conserve-le et n'édulcore rien. Conserve en particulier : (a) que le site compte les **pages ouvertes**, par mois et
 par grande catégorie de public (visiteur anonyme, membre identifié, staff) ; (b) que le comptage porte sur le
