@@ -5956,7 +5956,7 @@ $statisticsPayloadBuilder = new \Core\Statistics\StatisticsPayloadBuilder(
 // The same sender the daily task builds from its TaskContext (Core\Statistics\
 // StatisticsServiceFactory), built here for the one thing that cannot wait for
 // a scheduler run: the "envoyer un rapport de test" button on Configuration >
-// Support. Constructing it opens nothing — no secret is read and no socket is
+// Diagnostic. Constructing it opens nothing — no secret is read and no socket is
 // touched until sendTest() is actually called.
 $statisticsSender = new \Core\Statistics\StatisticsSender(
     $settingService,

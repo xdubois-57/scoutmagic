@@ -103,6 +103,19 @@ final class ModuleCategoryTest extends TestCase
     }
 
     /**
+     * An explicit `null` is not an absent key. `isset()` could not tell
+     * them apart, so `"category": null` used to land under « Technique »
+     * without a word — the typo case above, under another spelling.
+     */
+    public function testAnExplicitNullCategoryIsRefused(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage("Module 'demo' invalid category value 'NULL'");
+
+        ModuleManifest::fromArray(self::manifest(['category' => null]));
+    }
+
+    /**
      * The shelves are ordered, and the page draws them in that order, so
      * the order is part of the contract rather than an artefact of how
      * the array was typed.

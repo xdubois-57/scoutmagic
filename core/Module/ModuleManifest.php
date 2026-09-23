@@ -260,7 +260,7 @@ class ModuleManifest
 
         // Validate routes
         $routes = [];
-        if (isset($data['routes'])) {
+        if (array_key_exists('routes', $data)) {
             if (!is_array($data['routes'])) {
                 throw new ModuleException("Module '{$id}' routes must be an array");
             }
@@ -272,7 +272,7 @@ class ModuleManifest
 
         // Validate settings
         $settings = [];
-        if (isset($data['settings'])) {
+        if (array_key_exists('settings', $data)) {
             if (!is_array($data['settings'])) {
                 throw new ModuleException("Module '{$id}' settings must be an array");
             }
@@ -283,7 +283,7 @@ class ModuleManifest
 
         // Validate cookies
         $cookies = [];
-        if (isset($data['cookies'])) {
+        if (array_key_exists('cookies', $data)) {
             if (!is_array($data['cookies'])) {
                 throw new ModuleException("Module '{$id}' cookies must be an array");
             }
@@ -294,7 +294,7 @@ class ModuleManifest
 
         // Validate scheduled_tasks
         $scheduledTasks = [];
-        if (isset($data['scheduled_tasks'])) {
+        if (array_key_exists('scheduled_tasks', $data)) {
             if (!is_array($data['scheduled_tasks'])) {
                 throw new ModuleException("Module '{$id}' scheduled_tasks must be an array");
             }
@@ -305,7 +305,7 @@ class ModuleManifest
 
         // Validate storage
         $storage = [];
-        if (isset($data['storage'])) {
+        if (array_key_exists('storage', $data)) {
             if (!is_array($data['storage'])) {
                 throw new ModuleException("Module '{$id}' storage must be an object");
             }
@@ -322,7 +322,7 @@ class ModuleManifest
 
         // Validate notifications
         $notifications = [];
-        if (isset($data['notifications'])) {
+        if (array_key_exists('notifications', $data)) {
             if (!is_array($data['notifications'])) {
                 throw new ModuleException("Module '{$id}' notifications must be an array");
             }
@@ -333,7 +333,7 @@ class ModuleManifest
 
         // Validate offline (Core\Offline\OfflineWhitelist aggregation)
         $offline = [];
-        if (isset($data['offline'])) {
+        if (array_key_exists('offline', $data)) {
             if (!is_array($data['offline'])) {
                 throw new ModuleException("Module '{$id}' offline must be an array");
             }
@@ -344,7 +344,7 @@ class ModuleManifest
 
         // Validate requires (hard dependencies, Core\Module\ModuleManager)
         $requires = [];
-        if (isset($data['requires'])) {
+        if (array_key_exists('requires', $data)) {
             if (!is_array($data['requires'])) {
                 throw new ModuleException("Module '{$id}' requires must be an array");
             }
@@ -375,7 +375,7 @@ class ModuleManifest
         // message names both the offending value and the known set rather
         // than leaving the author to guess the spelling.
         $visibleWhen = [];
-        if (isset($data['visible_when'])) {
+        if (array_key_exists('visible_when', $data)) {
             if (!is_array($data['visible_when']) || !array_is_list($data['visible_when'])) {
                 throw new ModuleException("Module '{$id}' visible_when must be a list of flag names");
             }
@@ -401,7 +401,7 @@ class ModuleManifest
         // no manifest section at all (ModuleManager scans the default name),
         // so adding a topic never requires touching code or JSON.
         $helpDirectory = null;
-        if (isset($data['help'])) {
+        if (array_key_exists('help', $data)) {
             // json_decode turns an empty JSON object into an empty PHP
             // array, which array_is_list() reports as a list — accept it
             // (it just selects the default directory name).
@@ -430,7 +430,7 @@ class ModuleManifest
         // quietly fails to appear in the inventory is exactly the kind of
         // omission nobody notices.
         $emails = [];
-        if (isset($data['emails'])) {
+        if (array_key_exists('emails', $data)) {
             if (!is_array($data['emails'])) {
                 throw new ModuleException("Module '{$id}' emails must be an array");
             }
@@ -440,7 +440,7 @@ class ModuleManifest
         }
 
         $category = self::DEFAULT_CATEGORY;
-        if (isset($data['category'])) {
+        if (array_key_exists('category', $data)) {
             if (!is_string($data['category']) || !isset(self::CATEGORIES[$data['category']])) {
                 $known = implode(', ', array_keys(self::CATEGORIES));
                 throw new ModuleException(

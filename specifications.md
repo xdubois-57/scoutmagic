@@ -2346,7 +2346,7 @@ tâche planifiée quotidienne s'en charge.
 `Configuration > Fréquentation`, `role_min: superadmin` sur les trois routes — le même niveau que
 toutes les autres pages de ce menu. La sous-navigation est le nav rail partagé (jamais des chips :
 un chip se lit comme un filtre qu'on bascule, ce qui est faux pour une sous-navigation), et sa
-dernière entrée **quitte le module** vers `Configuration > Support`, où se règle la transmission —
+dernière entrée **quitte le module** vers `Configuration > Diagnostic`, où se règle la transmission —
 elle n'en est pas une copie.
 
 **Rien n'est mémorisé d'une visite à l'autre.** Le mois et le filtre par public vivent dans la
@@ -2392,7 +2392,7 @@ déclare déjà ; une seconde table de noms français dériverait de la premièr
 
 ### 42.6 La transmission au projet
 
-**Presque tout existait déjà, et rien n'a été reconstruit.** `Configuration > Support` (§21.1) porte
+**Presque tout existait déjà, et rien n'a été reconstruit.** `Configuration > Diagnostic` (§21.1) porte
 l'explication, l'avertissement, la bascule `statistics_enabled` et l'envoi de test ; le paquet de
 support verse déjà `statistics.json`. Cette itération n'ajoute qu'un champ au document que ces deux
 chemins partagent.

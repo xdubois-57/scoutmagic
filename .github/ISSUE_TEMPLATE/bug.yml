@@ -141,7 +141,7 @@ body:
 
   # THE BRIDGE TO THE SUPPORT TICKET, and the one place a reporter can
   # give the triage more than words. The reference is what a « Chef
-  # d'Unité » was shown on Configuration › Support after sending a
+  # d'Unité » was shown on Configuration › Diagnostic after sending a
   # ticket with its diagnostic archive; the triage workflow reads it off
   # this field, fetches a reduced, ANONYMISED copy of that archive from
   # the support site with a token only the workflow holds, and reads it
@@ -162,7 +162,7 @@ body:
       label: Référence du ticket de support
       description: >-
         Facultatif. Si vous avez envoyé un ticket depuis Configuration ›
-        Support de votre site, recopiez ici la référence affichée (par
+        Diagnostic de votre site, recopiez ici la référence affichée (par
         exemple `SUP-ABC234`) : le triage automatique — un service
         d'intelligence artificielle exécuté sur GitHub — pourra lire une
         copie réduite et anonymisée de l'archive de diagnostic jointe au

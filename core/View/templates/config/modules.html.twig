@@ -33,7 +33,11 @@
     {# The filter is a client-side view of a list already fully rendered:
        no request, no spinner, and the page still reads correctly with
        JavaScript off — every module is in the DOM, the chips simply do
-       nothing. `config-modules.js` owns the behaviour. #}
+       nothing. `config-modules.js` owns the behaviour.
+       No chips at all when there is nothing to filter: the script would
+       bind them, find no row, and add its « aucun module ne correspond »
+       under the « aucun module disponible » already on the page. #}
+    {% if categories is not empty %}
     <div class="btn-group btn-group-sm mb-4" role="group" aria-label="Filtrer les modules">
         <button type="button" class="btn btn-outline-secondary active" data-module-filter="all"
                 aria-pressed="true">Tous ({{ modules|length }})</button>
@@ -42,6 +46,7 @@
         <button type="button" class="btn btn-outline-secondary" data-module-filter="off"
                 aria-pressed="false">Inactifs ({{ modules|length - active_count }})</button>
     </div>
+    {% endif %}
 
     <div id="module-list">
         {% for shelf in categories %}
@@ -121,10 +126,13 @@
             </p>
         {% endfor %}
 
-        {# Shown by config-modules.js when a filter empties every shelf. #}
+        {# Shown by config-modules.js when a filter empties every shelf —
+           which only a filter can do, hence the same guard as the chips. #}
+        {% if categories is not empty %}
         <p class="text-body-secondary fst-italic mb-0 d-none" data-module-empty>
             Aucun module ne correspond à ce filtre.
         </p>
+        {% endif %}
     </div>
 {% endblock %}
 

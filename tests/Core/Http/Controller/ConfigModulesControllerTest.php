@@ -33,6 +33,7 @@ class ConfigModulesControllerTest extends TestCase
     private ModuleManager $moduleManager;
     private ModuleRegistryRepository $registryRepo;
     private \PDO $pdo;
+    private Environment $twig;
 
     protected function setUp(): void
     {
@@ -81,6 +82,7 @@ class ConfigModulesControllerTest extends TestCase
         $twig->addFunction(new \Twig\TwigFunction('file_url', fn() => ''));
         $twig->addFunction(new \Twig\TwigFunction('param', fn(string $k) => 'Test'));
 
+        $this->twig = $twig;
         $this->controller = new ConfigModulesController($twig, $this->moduleManager, $journalService);
     }
 
@@ -300,6 +302,42 @@ class ConfigModulesControllerTest extends TestCase
 
         $total = count($this->moduleManager->discoverModules());
         $this->assertStringContainsString("Tous ({$total})", $body);
+    }
+
+    /**
+     * An installation with no module on disk has nothing to filter, so it
+     * gets no chips and no « aucun module ne correspond » — only the
+     * message that says why the list is empty. The chips used to render
+     * anyway; clicking « Tous » then made the script find zero rows and
+     * reveal its own empty message under the page's, two contradictory
+     * explanations of the same nothing.
+     */
+    public function testIndexOffersNoFilterWhenThereIsNoModuleToFilter(): void
+    {
+        $emptyDir = sys_get_temp_dir() . '/scoutmagic_no_modules_' . uniqid();
+        mkdir($emptyDir);
+        try {
+            $settingService = new SettingService(new SettingRepository($this->pdo));
+            $journalService = new JournalService(new JournalRepository($this->pdo));
+            $manager = new ModuleManager(
+                $emptyDir,
+                $settingService,
+                new CookieConsentService([]),
+                new MenuBuilder(Role::fromString('admin')),
+                $this->registryRepo,
+                $journalService,
+                new Router()
+            );
+            $body = (new ConfigModulesController($this->twig, $manager, $journalService))
+                ->index(new Request('GET', '/config/modules', [], [], [], []), [])
+                ->getBody();
+        } finally {
+            rmdir($emptyDir);
+        }
+
+        $this->assertStringContainsString('Aucun module disponible', $body);
+        $this->assertStringNotContainsString('data-module-filter', $body);
+        $this->assertStringNotContainsString('data-module-empty', $body);
     }
 
     /**

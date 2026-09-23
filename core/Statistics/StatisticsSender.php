@@ -92,7 +92,7 @@ class StatisticsSender
 
     /**
      * A manual report, triggered by a superadmin from Configuration >
-     * Support to exercise the chain end to end instead of waiting a day for
+     * Diagnostic to exercise the chain end to end instead of waiting a day for
      * the next scheduled run (ARCHITECTURE.md §8.47).
      *
      * Exactly two guards are lifted. `already_sent_today` goes, because a

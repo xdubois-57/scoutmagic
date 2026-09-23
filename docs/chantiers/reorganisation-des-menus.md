@@ -694,6 +694,38 @@ Six tests, tous figeant un texte renommé : le nom du module
 mentions de « Configuration > Support » dans les promesses de
 transmission de l'archive de diagnostic.
 
+### Ce que la relecture a trouvé
+
+Trois constats, et chacun cachait une classe plus large que la ligne
+citée.
+
+- **`"category": null` passait pour une clé absente.** `isset()` ne
+  distingue pas les deux, et le module atterrissait sous « Technique »
+  sans un mot. Les onze autres sections facultatives du manifeste
+  lisaient leur clé de la même façon — `"visible_when": null` levait une
+  restriction que l'auteur croyait écrire. Les douze passent à
+  `array_key_exists()`, un test les énumère depuis la source, et un
+  autre refuse désormais `isset($data[` dans `ModuleManifest`.
+- **« Configuration > Support » survivait à IT-02.** Le relecteur en
+  citait une, coupée en fin de ligne dans `StatisticsSender`, et c'est
+  pour ça que le balayage précédent l'avait manquée. Il en restait
+  vingt-trois autres, sur les deux orthographes (`>` et `›`), dont cinq
+  coupées de la même façon ; le modèle de rapport de bogue sur GitHub
+  envoyait les gens vers un chemin qui n'existe plus. Et une seule
+  visible dans l'application, sous une autre forme : l'onglet de sortie
+  de « Fréquentation » s'appelait encore « Support ». L'onglet lit
+  désormais son libellé dans l'enregistrement du menu, et c'est un test
+  qui le vérifie. « la page Support » reste dans les commentaires
+  anglais : elle y nomme le code (`SupportController`,
+  `/config/support`), qui n'a pas changé de nom.
+- **Les filtres s'affichaient sans aucun module.** « Tous » révélait
+  alors « aucun module ne correspond » sous « aucun module disponible ».
+  Les puces et ce message partagent maintenant une même garde.
+
+Vu en passant, laissé en l'état parce que ce n'est pas le même défaut :
+`enabled_by_default` et `description` sont convertis par un transtypage
+plutôt que validés (`"non"` devient `true`).
+
 ### Reporté
 
 Rien. Le chantier est terminé.
