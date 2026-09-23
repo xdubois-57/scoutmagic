@@ -53,6 +53,99 @@ class RouterTest extends TestCase
         $this->assertSame(['section' => 'baladins', 'id' => '7'], $resolved->params);
     }
 
+    /**
+     * **A route's reach is the path it declares, and nothing else.**
+     *
+     * `matchPath()` used to interpolate the declared path whole into
+     * `#^…$#` and replace only the `{…}`, so every regex metacharacter
+     * left in the literal parts kept its regex meaning. No route in this
+     * application carries one today, which is precisely why nothing
+     * caught it: the defect arrives with the first route that does.
+     *
+     * A `.` is the one that arrives first — `/members/{id}/contact.vcf`,
+     * or the `/.well-known/carddav` that #398 plans — and `.` matches any
+     * character, so the route would also answer addresses nobody
+     * declared. It matters beyond tidiness because `resolve()` stops at
+     * the first route that answers: an over-broad route shadows one
+     * declared after it on a neighbouring address.
+     */
+    public function testADotInARouteIsADotAndNotAnyCharacter(): void
+    {
+        $router = new Router();
+        $router->addRoute('GET', '/members/{id}/contact.vcf', 'App\\Controller\\VCardController', 'show', 'public');
+
+        $this->assertNotNull($router->resolve(new Request('GET', '/members/7/contact.vcf', [], [], [], [])));
+
+        foreach (['/members/7/contactXvcf', '/members/7/contact-vcf', '/members/7/contact.vcfx'] as $path) {
+            $this->assertNull(
+                $router->resolve(new Request('GET', $path, [], [], [], [])),
+                $path . ' was never declared'
+            );
+        }
+    }
+
+    /**
+     * And the one that breaks a route in silence: `#` is the delimiter, so
+     * a path carrying one used to close the pattern early. The route then
+     * matched something else entirely, or nothing at all, with no error
+     * anywhere to say so.
+     */
+    public function testADelimiterInARoutePathDoesNotEndThePattern(): void
+    {
+        $router = new Router();
+        $router->addRoute('GET', '/aide/faq#top', 'App\\Controller\\HelpController', 'faq', 'public');
+
+        $this->assertNotNull($router->resolve(new Request('GET', '/aide/faq#top', [], [], [], [])));
+        $this->assertNull($router->resolve(new Request('GET', '/aide/faq', [], [], [], [])));
+    }
+
+    /**
+     * The other metacharacters, on the quantifiers that would silently
+     * widen or narrow a route.
+     *
+     * @param string $declared the route as it is written
+     * @param string $reachable an address it must answer
+     * @param string $unreachable one it must not
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('pathsCarryingMetacharacters')]
+    public function testEveryMetacharacterInAPathIsALiteral(
+        string $declared,
+        string $reachable,
+        string $unreachable
+    ): void {
+        $router = new Router();
+        $router->addRoute('GET', $declared, 'App\\Controller\\SomeController', 'show', 'public');
+
+        $this->assertNotNull(
+            $router->resolve(new Request('GET', $reachable, [], [], [], [])),
+            $declared . ' must answer ' . $reachable
+        );
+        $this->assertNull(
+            $router->resolve(new Request('GET', $unreachable, [], [], [], [])),
+            $declared . ' must not answer ' . $unreachable
+        );
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: string, 2: string}>
+     */
+    public static function pathsCarryingMetacharacters(): array
+    {
+        return [
+            // Without quoting, `a+` matches "aaa" and not "a+".
+            'a plus'         => ['/tags/c++',        '/tags/c++',        '/tags/ccc'],
+            // `(x)` is a group, so the parentheses would vanish.
+            'parentheses'    => ['/docs/note(1)',    '/docs/note(1)',    '/docs/note1'],
+            // `?` makes the preceding character optional.
+            'a question mark' => ['/faq/why?',       '/faq/why?',        '/faq/wh'],
+            // `*` lets the preceding character repeat or disappear.
+            'a star'         => ['/files/v*',        '/files/v*',        '/files/'],
+            // A character class swallows the brackets and matches one of
+            // the letters inside.
+            'square brackets' => ['/set/[abc]',      '/set/[abc]',       '/set/b'],
+        ];
+    }
+
     public function testUnknownPathReturnsNull(): void
     {
         $router = new Router();

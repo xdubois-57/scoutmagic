@@ -62,6 +62,7 @@ import { expectRendersAsACalendar } from '../support/calendar.js';
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { openCard } from '../support/collapsible-card.js';
 import { openSectionEditor } from '../support/section-editor.js';
+import { waitOutHumanCheckDelay } from '../support/human-check.js';
 
 /** A date far enough out to clear any notice period the asset declares. */
 function isoDaysFromNow(days) {
@@ -208,7 +209,11 @@ test.describe('Rentals', () => {
         // configure away. Waiting here is therefore part of what is being
         // tested: the public form is protected, and a genuine request still
         // gets through.
-        await renter.waitForTimeout(4000);
+        // From the token, not from a copy of the server's threshold: it is
+        // a setting (`human_check_min_delay_seconds`), so a hard-coded 4000
+        // turns red the day somebody raises it, with no regression behind
+        // the failure and nothing in the message to say so.
+        await waitOutHumanCheckDelay(renter);
 
         await renter.getByRole('button', { name: 'Envoyer ma demande' }).click();
 

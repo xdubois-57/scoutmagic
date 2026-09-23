@@ -327,12 +327,41 @@ class Router
      */
     private function matchPath(string $pattern, string $path): ?array
     {
-        // Convert route pattern to regex
-        $regex = preg_replace_callback('/\{([a-zA-Z_]+)\}/', function (array $matches): string {
-            return '(?P<' . $matches[1] . '>' . self::placeholderPattern($matches[1]) . ')';
-        }, $pattern);
+        // **The literal parts are quoted, the placeholders are not.**
+        //
+        // This used to interpolate the declared path whole and replace only
+        // the `{…}`, so every regex metacharacter left in the literal parts
+        // kept its regex meaning. No route in this application carries one
+        // today, which is exactly why it was invisible: the first route
+        // declared with a file extension — `/members/{id}/contact.vcf`, or
+        // the `/.well-known/carddav` that #398 plans — would also answer
+        // addresses nobody declared (`contactXvcf`, `contact-vcf`), and a
+        // `#` in a path would close the delimiter and break the route in
+        // silence.
+        //
+        // That matters beyond tidiness because `resolve()` stops at the
+        // first route that answers: an over-broad route can shadow one
+        // declared after it on a neighbouring address. It is not an
+        // authorization bypass — `role_min` is checked on whichever route
+        // wins — but a route's real reach should be the path it declares
+        // and nothing more.
+        //
+        // Splitting on the placeholders and quoting what lies between is
+        // what keeps the two apart: `preg_quote()` over the whole pattern
+        // would escape the braces too, and quoting after substitution
+        // would escape the groups this very callback builds.
+        $regex = '';
+        $offset = 0;
+        preg_match_all('/\{([a-zA-Z_]+)\}/', $pattern, $placeholders, PREG_OFFSET_CAPTURE);
 
-        $regex = '#^' . $regex . '$#';
+        foreach ($placeholders[0] as $index => [$whole, $at]) {
+            $regex .= preg_quote(substr($pattern, $offset, $at - $offset), '#')
+                . '(?P<' . $placeholders[1][$index][0] . '>'
+                . self::placeholderPattern($placeholders[1][$index][0]) . ')';
+            $offset = $at + strlen($whole);
+        }
+
+        $regex = '#^' . $regex . preg_quote(substr($pattern, $offset), '#') . '$#';
 
         if (preg_match($regex, $path, $matches)) {
             // Extract only named parameters
