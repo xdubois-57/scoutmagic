@@ -86,8 +86,8 @@ final class ReferenceDatasetImportTest extends TestCase
         foreach (UnitBlueprint::YEARS as $label) {
             $members = $this->countMembersIn($label);
 
-            self::assertGreaterThanOrEqual(170, $members, "L'unité de {$label} a perdu du monde en route.");
-            self::assertLessThanOrEqual(190, $members, "L'unité de {$label} a gagné du monde en route.");
+            self::assertGreaterThanOrEqual(170, $members, "The unit in {$label} lost people on the way.");
+            self::assertLessThanOrEqual(190, $members, "The unit in {$label} gained people on the way.");
         }
     }
 
@@ -100,7 +100,7 @@ final class ReferenceDatasetImportTest extends TestCase
                 self::assertSame(
                     $expectedAnimes,
                     $this->countInSection($label, $name, ['Animé']),
-                    "{$name} n'a pas le nombre d'animés déclaré en {$label}.",
+                    "{$name} does not hold the declared number of « animés » in {$label}.",
                 );
                 self::assertSame(
                     $expectedCadres,
@@ -112,7 +112,7 @@ final class ReferenceDatasetImportTest extends TestCase
                     // blueprint, lu aussi par le générateur, pour que les deux
                     // ne puissent pas diverger.
                     $this->countInSection($label, $name, UnitBlueprint::SECTION_STAFF_FUNCTIONS),
-                    "{$name} n'a pas le nombre de cadres déclaré en {$label}.",
+                    "{$name} does not hold the declared number of « cadres » in {$label}.",
                 );
             }
         }
@@ -135,8 +135,8 @@ final class ReferenceDatasetImportTest extends TestCase
         }
 
         foreach ($expected as $label => $order) {
-            self::assertArrayHasKey($label, $actual, "La branche {$label} n'a pas été créée par l'import.");
-            self::assertSame($order, $actual[$label], "La branche {$label} n'a pas son ordre canonique.");
+            self::assertArrayHasKey($label, $actual, "The {$label} branch was not created by the import.");
+            self::assertSame($order, $actual[$label], "The {$label} branch does not carry its canonical order.");
         }
     }
 
@@ -158,7 +158,7 @@ final class ReferenceDatasetImportTest extends TestCase
                 self::assertSame(
                     $expected[$index],
                     $this->branchOf($tiers, $label),
-                    "Le passage de branche de {$tiers} n'a pas eu lieu en {$label}.",
+                    "The branch passage of {$tiers} did not happen in {$label}.",
                 );
             }
         }
@@ -302,18 +302,18 @@ final class ReferenceDatasetImportTest extends TestCase
         // import can never know a ROLE: the membership only appears once
         // Correspondances Desk confirms "Chef d'unité" as admin.
         $section = $this->sectionRow(null, UnitStaffSectionService::DESK_CODE);
-        self::assertNotNull($section, 'the Staff d\'U section was not created');
+        self::assertNotNull($section, 'the « Staff d\'U » section was not created');
 
         self::assertSame(
             0,
             $this->unitStaffBeforeConfirmation,
-            'the Staff d\'U section is populated although no role was confirmed yet — so the role came from the CSV',
+            'the « Staff d\'U » section is populated although no role was confirmed yet — so the role came from the CSV',
         );
 
         self::assertGreaterThanOrEqual(
             array_sum(UnitBlueprint::UNIT_STAFF_SIZE),
             $this->unitStaffMembershipCount(),
-            'the Staff d\'U section is empty although the roles were confirmed',
+            'the « Staff d\'U » section is empty although the roles were confirmed',
         );
     }
 
@@ -370,7 +370,7 @@ final class ReferenceDatasetImportTest extends TestCase
         $labels = $this->pdo->query('SELECT desk_code FROM functions')?->fetchAll(\PDO::FETCH_COLUMN) ?: [];
 
         foreach (["Chef d'unité", "Trésorier d'unité", "Accompagnateur d'unité"] as $retired) {
-            self::assertNotContains($retired, $labels, "Le vocabulaire fictif « {$retired} » est réapparu.");
+            self::assertNotContains($retired, $labels, "The retired made-up wording « {$retired} » is back.");
         }
     }
 
@@ -386,7 +386,7 @@ final class ReferenceDatasetImportTest extends TestCase
             self::assertGreaterThanOrEqual(
                 3,
                 $this->countInSection($label, UnitStaffSectionService::DESK_CODE, UnitBlueprint::UNIT_LEVEL_FUNCTIONS),
-                "Staff d'U est trop petit en {$label} pour que le roster montre quoi que ce soit.",
+                "The « Staff d'U » section is too small in {$label} for the roster to show anything.",
             );
         }
 
@@ -394,7 +394,7 @@ final class ReferenceDatasetImportTest extends TestCase
             self::assertGreaterThan(
                 0,
                 $this->countInSection('2026-2027', UnitStaffSectionService::DESK_CODE, [$code]),
-                "Aucun « {$code} » en 2026-2027 : la rotation des fonctions d'unité ne tourne plus.",
+                "No « {$code} » in 2026-2027: the rotation of unit functions has stopped turning.",
             );
         }
     }
@@ -419,7 +419,7 @@ final class ReferenceDatasetImportTest extends TestCase
                 self::assertSame(
                     1,
                     $this->countInSection($label, $name, ['Animateur responsable']),
-                    "{$name} n'a pas exactement un responsable en {$label}.",
+                    "{$name} does not have exactly one leader in {$label}.",
                 );
             }
         }
@@ -566,12 +566,12 @@ final class ReferenceDatasetImportTest extends TestCase
                 };
             }
 
-            self::assertGreaterThanOrEqual(15, $couples, "Trop peu de foyers de deux en {$label}.");
-            self::assertGreaterThanOrEqual(10, $families, "Trop peu de foyers de trois ou plus en {$label}.");
+            self::assertGreaterThanOrEqual(15, $couples, "Too few two-person households in {$label}.");
+            self::assertGreaterThanOrEqual(10, $families, "Too few households of three or more in {$label}.");
             self::assertLessThan(
                 0.85 * count($households),
                 $alone,
-                "Presque tous les foyers de {$label} ne comptent qu'une personne.",
+                "Nearly every household in {$label} holds one person only.",
             );
         }
     }
@@ -602,7 +602,7 @@ final class ReferenceDatasetImportTest extends TestCase
             self::assertGreaterThanOrEqual(
                 (int) round($members / 3),
                 count($sharing),
-                "Moins d'un tiers de l'unité de {$label} partage son domicile.",
+                "Fewer than a third of the unit in {$label} share a home.",
             );
         }
     }
@@ -620,7 +620,7 @@ final class ReferenceDatasetImportTest extends TestCase
             self::assertGreaterThanOrEqual(
                 1,
                 $this->householdsMixingAnimesAndCadres($label),
-                "Aucun foyer de {$label} ne mêle un animé et un cadre.",
+                "No household in {$label} mixes an « animé » and a « cadre ».",
             );
         }
     }
@@ -656,7 +656,7 @@ final class ReferenceDatasetImportTest extends TestCase
             self::assertSame(
                 UnitBlueprint::STALE_TARIFF_HOUSEHOLDS_PER_YEAR,
                 $forgetful,
-                "Le nombre de foyers en écart de tarif en {$label} n'est plus celui que le blueprint déclare.",
+                "The count of households with a tariff mismatch in {$label} is no longer the one the blueprint declares.",
             );
 
             // What the SCREEN will see, which is not the same grouping:
@@ -679,7 +679,7 @@ final class ReferenceDatasetImportTest extends TestCase
             self::assertGreaterThanOrEqual(
                 1,
                 $reported,
-                "« Justesse des tarifs » n'aurait rien à corriger en {$label}.",
+                "« Justesse des tarifs » would have nothing to correct in {$label}.",
             );
         }
     }
@@ -724,12 +724,12 @@ final class ReferenceDatasetImportTest extends TestCase
             self::assertGreaterThanOrEqual(
                 15,
                 $this->mailboxesCovering($label, 2),
-                "Trop peu de boîtes partagées en {$label} : le compte parent reste inexercé.",
+                "Too few shared mailboxes in {$label}: the parent account stays unexercised.",
             );
             self::assertGreaterThanOrEqual(
                 5,
                 $this->mailboxesCovering($label, 3),
-                "Aucune boîte de {$label} ne couvre trois membres ou plus, ou presque.",
+                "Hardly any mailbox in {$label} covers three members or more.",
             );
         }
     }
@@ -796,7 +796,7 @@ final class ReferenceDatasetImportTest extends TestCase
             self::assertContains(
                 (string) $label,
                 array_values(UnitBlueprint::FEE_CODES),
-                "Le tarif « {$label} » n'est pas un des trois types de cotisation de Desk.",
+                "The « {$label} » tariff is not one of Desk's three fee types.",
             );
         }
     }
@@ -878,8 +878,8 @@ final class ReferenceDatasetImportTest extends TestCase
             $share = $females / max(count($rows), 1) * 100;
             $shares[$label] = $share;
 
-            self::assertLessThan(47.0, $share, "L'équilibre filles/garçons de {$label} est trop plat pour montrer quoi que ce soit.");
-            self::assertGreaterThan(30.0, $share, "L'équilibre filles/garçons de {$label} n'est plus crédible.");
+            self::assertLessThan(47.0, $share, "The girl/boy balance of {$label} is too flat to show anything.");
+            self::assertGreaterThan(30.0, $share, "The girl/boy balance of {$label} is no longer credible.");
         }
 
         self::assertGreaterThan(

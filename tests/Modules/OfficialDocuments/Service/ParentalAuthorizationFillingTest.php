@@ -216,7 +216,7 @@ final class ParentalAuthorizationFillingTest extends TestCase
             $this->assertSame(
                 'branch_eclaireurs',
                 ParentalAuthorizationFilling::branchStrikeFor(self::member($spelling)),
-                "« {$spelling} » doit être reconnu comme la branche Éclaireurs"
+                "« {$spelling} » must be recognised as the Éclaireurs branch"
             );
         }
     }

@@ -106,7 +106,7 @@ class ScoutYearRbacTest extends TestCase
 
         foreach (self::ROUTES as [$method, $path]) {
             $response = $fc->handle(new Request($method, $path, [], [], [], []));
-            $this->assertSame(200, $response->getStatusCode(), "{$method} {$path} should be allowed for admin (Chef d'Unité)");
+            $this->assertSame(200, $response->getStatusCode(), "{$method} {$path} should be allowed for admin (« Chef d'Unité »)");
         }
     }
 

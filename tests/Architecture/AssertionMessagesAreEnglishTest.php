@@ -20,9 +20,11 @@ use PHPUnit\Framework\TestCase;
  *
  * Issue #388 counted forty-three French messages across nineteen files on
  * `aec6aae`. This detector, which is stricter than the issue's, found
- * **a hundred and nine across thirty-seven** — the suite having grown
- * since. All of them are translated in the change that adds this class, so
- * the list below is empty and the rule is fully enforced: the same shape as
+ * **a hundred and ninety-four across forty-nine** — the suite having grown
+ * since, and three call shapes having hidden most of them until the reader
+ * was taught to read them. All are translated in the change that adds this
+ * class, so the list below is empty and the rule is fully enforced: the
+ * same shape as
  * Tests\Architecture\TwigCommentsAreEnglishTest, minus the allowlist it
  * still needs.
  *
@@ -30,8 +32,8 @@ use PHPUnit\Framework\TestCase;
  * translating forty-five templates in a single commit would cost the
  * `git blame` of prose written in the maintainer's own voice. An assertion
  * message is not prose: it is one line, it has no author to preserve, and
- * a hundred and nine of them fit in one reviewable diff. Nothing is left
- * to ratchet down, so the assertion is simply « none ».
+ * a hundred and ninety-four of them fit in one reviewable diff. Nothing
+ * is left to ratchet down, so the assertion is simply « none ».
  *
  * **The sentinel is the load-bearing half.** An empty list matched against
  * a scan that finds nothing anywhere looks exactly like a rule being
@@ -62,23 +64,62 @@ final class AssertionMessagesAreEnglishTest extends TestCase
      * A DENSITY, not a count, for the reason the Twig sibling gives:
      * counting hits makes length the real test, and these messages are
      * short. 0.13 comes from the corpus rather than from taste. Measured
-     * over all 2358 messages the scan below reads, the hundred and nine
-     * French ones scored 0.143 and up, and the highest-scoring English one —
+     * over all 2755 messages the scan below reads, the hundred and
+     * ninety-four French ones scored 0.143 and up, and the
+     * highest-scoring English one —
      * « De, À, Sujet — the order every mail client uses. », which names
      * French header labels — reaches 0.111. The threshold sits in that
      * gap.
+     *
+     * That gap is kept by the convention this class's own failure message
+     * states rather than by luck: an English message naming French
+     * interface text — a role, a section, a page — quotes it, and the
+     * quotation is left out of the reckoning. Four messages saying
+     * « admin (Chef d'Unité) » reached 0.125 without their guillemets.
      */
     private const MINIMUM_FRENCH_DENSITY = 0.13;
 
     /**
-     * The corpus is 2358 messages today. A scan that suddenly reads far
+     * The corpus is 2755 messages today. A scan that suddenly reads far
      * fewer is a scan that has stopped working, and this is the number
      * that says so out loud rather than letting an empty result read as
      * an enforced rule. Deliberately slack — assertions are added every
      * week and removed sometimes — because its job is catching a reader
      * that broke, not tracking a count.
+     *
+     * **What it cannot catch**, and the reason the reader has tests of its
+     * own below: a reader that NARROWS rather than breaks. Two call
+     * shapes were silently dropped in the making of this class — a
+     * trailing comma before `)`, and any interpolated message — and
+     * between them they hid 331 readings and fifty-one French messages
+     * while this number sat comfortably above its floor. A number cannot
+     * see a shape; only a test naming the shape can.
      */
-    private const MINIMUM_MESSAGES_SCANNED = 1800;
+    private const MINIMUM_MESSAGES_SCANNED = 2000;
+
+    /**
+     * The tokens an interpolation is made of, inside a double-quoted or
+     * heredoc message.
+     *
+     * Refusing the whole call on sight of one of them — which reading only
+     * T_CONSTANT_ENCAPSED_STRING amounts to — dropped every interpolated
+     * message in the suite: not scored, and not counted either, so the
+     * sentinel could not see the hole. Several were French, in files this
+     * very change had already been through.
+     *
+     * @var list<int>
+     */
+    private const INTERPOLATION_TOKENS = [
+        T_VARIABLE,
+        T_CURLY_OPEN,
+        T_DOLLAR_OPEN_CURLY_BRACES,
+        T_STRING_VARNAME,
+        T_OBJECT_OPERATOR,
+        T_NULLSAFE_OBJECT_OPERATOR,
+        T_STRING,
+        T_NUM_STRING,
+        T_LNUMBER,
+    ];
 
     /**
      * Unambiguous French function words only, as in the Twig sibling:
@@ -248,6 +289,19 @@ final class AssertionMessagesAreEnglishTest extends TestCase
         $arguments = [[]];
 
         foreach ($tokens as $token) {
+            // `{$x}` inside a double-quoted message opens with a TOKEN
+            // (T_CURLY_OPEN) and closes with a bare `}`. Counting only the
+            // close ended the argument on the first interpolation: the
+            // reader stopped at « Le compte de démonstration « » and never
+            // saw the prose after it. Matching the open restores the pair.
+            if (
+                is_array($token)
+                && in_array($token[0], [T_CURLY_OPEN, T_DOLLAR_OPEN_CURLY_BRACES], true)
+            ) {
+                $depth++;
+                $arguments[count($arguments) - 1][] = $token;
+                continue;
+            }
             if ($token === '(' || $token === '[' || $token === '{') {
                 $depth++;
                 if ($depth === 1) {
@@ -282,10 +336,45 @@ final class AssertionMessagesAreEnglishTest extends TestCase
         }
 
         $message = '';
+        $literals = 0;
+        // Whether the walk is currently INSIDE an interpolated string.
+        // The distinction is the whole correctness of this: a `$user`
+        // between two `"` is a hole in a message, and the same token as
+        // the whole argument is not a message at all. Accepting it in both
+        // places took the corpus from 2 358 readings to 15 039, every
+        // `assertSame($a, $b)` in the suite suddenly counting as a
+        // message made of one space.
+        $inString = false;
+
         foreach ($last as $token) {
             if (is_array($token)) {
-                if ($token[0] === T_CONSTANT_ENCAPSED_STRING) {
-                    $message .= substr($token[1], 1, -1);
+                if ($token[0] === T_CONSTANT_ENCAPSED_STRING && !$inString) {
+                    $message .= self::literalBody($token[1]);
+                    $literals++;
+                    continue;
+                }
+                // The prose BETWEEN the interpolations of a double-quoted
+                // or heredoc message. Reading only the whole-literal token
+                // above dropped every such call outright — see
+                // INTERPOLATION_TOKENS for what that cost.
+                if ($token[0] === T_ENCAPSED_AND_WHITESPACE && $inString) {
+                    $message .= $token[1];
+                    $literals++;
+                    continue;
+                }
+                if ($token[0] === T_START_HEREDOC) {
+                    $inString = true;
+                    continue;
+                }
+                if ($token[0] === T_END_HEREDOC) {
+                    $inString = false;
+                    continue;
+                }
+                if ($inString && in_array($token[0], self::INTERPOLATION_TOKENS, true)) {
+                    // A space, not nothing: `{$a}` sitting between two
+                    // words must not glue them into one, which would
+                    // change the word count the density divides by.
+                    $message .= ' ';
                     continue;
                 }
                 if (in_array($token[0], [T_WHITESPACE, T_COMMENT], true)) {
@@ -294,14 +383,51 @@ final class AssertionMessagesAreEnglishTest extends TestCase
 
                 return null;
             }
-            if ($token === '.') {
+
+            // The `"` of an interpolated string is a bare token of its
+            // own, unlike the quotes of a whole literal, which arrive
+            // inside T_CONSTANT_ENCAPSED_STRING.
+            if ($token === '"') {
+                $inString = !$inString;
+                continue;
+            }
+            if ($token === '.' && !$inString) {
+                continue;
+            }
+            if ($inString && ($token === '}' || $token === '[' || $token === ']')) {
                 continue;
             }
 
             return null;
         }
 
-        return $message === '' ? null : $message;
+        return $literals === 0 ? null : $message;
+    }
+
+    /**
+     * A string literal's text, with the escapes a SINGLE-quoted literal
+     * actually has undone.
+     *
+     * PHP single-quoted strings escape exactly two things, `\'` and `\\`,
+     * and `token_get_all()` hands back the source spelling — so
+     * « aucun échec d\'envoi journalisé » reaches the detector with a
+     * backslash wedged between the `d` and the apostrophe. The elision
+     * pattern wants them adjacent, so that hit is lost and a French
+     * message can score 0.0. That is a real one, measured:
+     * `SetupControllerTest` held exactly it.
+     *
+     * `stripcslashes()` would be the wrong tool: it also decodes `\n`,
+     * `\t` and `\x41`, none of which a single-quoted literal means, so it
+     * would rewrite text the author wrote literally. A double-quoted body
+     * is left exactly as written, for the same reason — its `\n` is a
+     * newline the scoring does not care about, and touching it would only
+     * invent characters.
+     */
+    private static function literalBody(string $literal): string
+    {
+        $body = substr($literal, 1, -1);
+
+        return $literal[0] === "'" ? strtr($body, ["\\'" => "'", '\\\\' => '\\']) : $body;
     }
 
     /**
@@ -380,6 +506,69 @@ final class AssertionMessagesAreEnglishTest extends TestCase
 
             $this->assertCount(1, $messages);
             $this->assertSame('une ligne `files` orpheline est restée', $messages[0][1]);
+            $this->assertTrue(self::looksFrench($messages[0][1]));
+        } finally {
+            unlink($file);
+        }
+    }
+
+    /**
+     * A message assembled around an interpolation, read.
+     *
+     * `lastArgumentString()` accepted only whole string literals, so
+     * `"Le compte {$handle} n'a pas de mot de passe."` — which tokenises
+     * as delimiter, prose, variable, prose, delimiter — was refused
+     * outright: not scored, and not counted either, so the sentinel above
+     * saw nothing missing. Twenty-four French messages lived in that
+     * blind spot, several in files this very change had already been
+     * through.
+     *
+     * The interpolation itself becomes a space rather than nothing, so
+     * the words either side of it stay two words: the density divides by
+     * that count, and gluing them would move the score.
+     */
+    public function testAMessageBuiltAroundAnInterpolationIsRead(): void
+    {
+        $file = tempnam(sys_get_temp_dir(), 'assertion_messages_') . '.php';
+        file_put_contents($file, <<<'PHP'
+            <?php
+            $this->assertNotNull($account, "Le compte de démonstration « {$handle} » n'a pas de membre.");
+            PHP);
+
+        try {
+            $messages = self::messagesIn($file, []);
+
+            $this->assertCount(1, $messages);
+            $this->assertStringContainsString('Le compte de démonstration', $messages[0][1]);
+            $this->assertStringContainsString("n'a pas de membre.", $messages[0][1]);
+            $this->assertTrue(self::looksFrench($messages[0][1]));
+        } finally {
+            unlink($file);
+        }
+    }
+
+    /**
+     * An escaped apostrophe, undone before the elision is counted.
+     *
+     * A single-quoted literal reaches the reader as its SOURCE spelling,
+     * so « aucun échec d\'envoi journalisé » carries a backslash between
+     * the `d` and the apostrophe — and the elision pattern wants them
+     * adjacent. That message scored 0.0 and passed as English;
+     * `SetupControllerTest` held exactly it.
+     */
+    public function testAnEscapedApostropheStillCountsAsAnElision(): void
+    {
+        $file = tempnam(sys_get_temp_dir(), 'assertion_messages_') . '.php';
+        file_put_contents($file, <<<'PHP'
+            <?php
+            $this->assertIsArray($row, 'aucun échec d\'envoi journalisé');
+            PHP);
+
+        try {
+            $messages = self::messagesIn($file, []);
+
+            $this->assertCount(1, $messages);
+            $this->assertSame("aucun échec d'envoi journalisé", $messages[0][1]);
             $this->assertTrue(self::looksFrench($messages[0][1]));
         } finally {
             unlink($file);

@@ -121,7 +121,7 @@ final class ReferenceDatasetBuilderTest extends TestCase
                 $this->encryption->blindIndex(BankBlueprint::compactIban($account['iban']), 'finance_iban'),
             );
 
-            self::assertNotNull($found, "Le compte {$handle} n'est pas retrouvable par l'index aveugle de son IBAN.");
+            self::assertNotNull($found, "The {$handle} account cannot be found through the blind index of its IBAN.");
             self::assertSame($account['name'], $found->name);
         }
     }
@@ -186,13 +186,13 @@ final class ReferenceDatasetBuilderTest extends TestCase
             self::assertArrayHasKey(
                 $handle,
                 $used,
-                "Le compte de démonstration « {$handle} » n'a pas trouvé son membre ({$account['tiers']}) : "
-                . 'ce Tiers a-t-il encore une adresse email dans le jeu de données ?',
+                "The demo account « {$handle} » did not find its member ({$account['tiers']}): "
+                . 'does that Tiers still have an email address in the dataset?',
             );
 
             $user = $repository->findByEmail($used[$handle]);
             self::assertNotNull($user);
-            self::assertTrue($repository->hasPassword($user->id), "Le compte {$handle} n'a pas de mot de passe.");
+            self::assertTrue($repository->hasPassword($user->id), "The {$handle} account has no password.");
         }
     }
 
@@ -246,7 +246,7 @@ final class ReferenceDatasetBuilderTest extends TestCase
                     self::assertGreaterThan(
                         0,
                         $this->badgeHoldersIn($handle, $year, $badgeName),
-                        "Personne ne porte « {$badgeName} » dans {$handle} en {$year}.",
+                        "Nobody holds « {$badgeName} » in {$handle} in {$year}.",
                     );
                 }
             }
@@ -338,8 +338,8 @@ final class ReferenceDatasetBuilderTest extends TestCase
         // table témoin, et un nom de table faux se lirait comme un module
         // absent si le saut n'était pas nommé.
         foreach (['articles d\'actualité' => 'news', 'séjours' => 'camps', 'réservations' => 'rental'] as $label => $module) {
-            self::assertSame(0, $result['counts'][$label] ?? null, "Le compteur « {$label} » devrait être à zéro.");
-            self::assertSame($module, $result['skipped'][$label] ?? null, "Le saut de « {$label} » n'est pas signalé.");
+            self::assertSame(0, $result['counts'][$label] ?? null, "The « {$label} » counter should read zero.");
+            self::assertSame($module, $result['skipped'][$label] ?? null, "Skipping « {$label} » is not reported.");
         }
         self::assertGreaterThan(0, $result['counts']['créances attendues'], 'the modules that ARE present must be processed');
         self::assertArrayNotHasKey('créances attendues', $result['skipped']);

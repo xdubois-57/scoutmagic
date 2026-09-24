@@ -62,14 +62,14 @@ final class ReferenceDatasetNewsAccessTest extends TestCase
 
         $covers = 0;
         foreach ((new ArticleRepository($this->pdo))->findAll() as $article) {
-            self::assertNotNull($article->imageFileId, "L'article « {$article->title} » n'a pas d'image.");
+            self::assertNotNull($article->imageFileId, "The article « {$article->title} » has no image.");
             $file = (new FileRepository($this->pdo))->findById($article->imageFileId);
             self::assertNotNull($file);
 
             self::assertSame(
                 ArticleService::coverImageRoleMin($article->visibility),
                 $file->roleMin,
-                "La couverture de « {$article->title} » ({$article->visibility}) n'a pas le bon plancher d'accès.",
+                "The cover of « {$article->title} » ({$article->visibility}) does not carry the right access floor.",
             );
             $covers++;
         }
@@ -141,7 +141,7 @@ final class ReferenceDatasetNewsAccessTest extends TestCase
             return $file->roleMin;
         }
 
-        self::fail("L'article « {$title} » est absent du jeu de référence.");
+        self::fail("The article « {$title} » is missing from the reference dataset.");
     }
 
     /** @return int[] */

@@ -138,8 +138,8 @@ final class ShippedEmailTemplateTest extends TestCase
             $this->assertStringContainsString(
                 '{{ ' . $variable->name . ' }}',
                 $body,
-                "Le gabarit « {$template->id} » n'utilise pas la variable {$variable->name} : "
-                    . "un bouton d'insertion pour une valeur que l'email ne dit jamais."
+                "The template « {$template->id} » never uses the variable {$variable->name}: "
+                    . "an insertion button for a value the email never says."
             );
         }
     }
@@ -157,14 +157,14 @@ final class ShippedEmailTemplateTest extends TestCase
             $this->assertSame(
                 1,
                 substr_count($rendered, 'Bien à vous'),
-                "La moitié {$half} de « {$template->id} » doit porter la formule finale une "
-                    . 'seule fois : elle vient du gabarit de base, un template qui signe '
-                    . 'lui-même la répète.'
+                "The {$half} half of « {$template->id} » must carry the sign-off exactly "
+                    . 'once: it comes from the base template, and one that signs off on its '
+                    . 'own repeats it.'
             );
             $this->assertStringContainsString(
                 self::SITE_NAME,
                 $rendered,
-                "La moitié {$half} de « {$template->id} » doit être signée du nom de l'unité."
+                "The {$half} half of « {$template->id} » must be signed with the unit's name."
             );
         }
     }

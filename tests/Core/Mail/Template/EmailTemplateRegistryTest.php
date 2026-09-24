@@ -31,7 +31,7 @@ class EmailTemplateRegistryTest extends TestCase
         foreach ($this->allDeclared() as $template) {
             self::assertFileExists(
                 $this->resolveTemplatePath($template),
-                "Le gabarit « {$template->id} » désigne un fichier Twig absent : {$template->template}"
+                "The template « {$template->id} » names a Twig file that is missing: {$template->template}"
             );
         }
     }
@@ -43,9 +43,9 @@ class EmailTemplateRegistryTest extends TestCase
     public function testEveryDeclaredTemplateCarriesItsFrenchWording(): void
     {
         foreach ($this->allDeclared() as $template) {
-            self::assertNotSame('', trim($template->label), "Le gabarit « {$template->id} » n'a pas de libellé.");
-            self::assertNotSame('', trim($template->description), "Le gabarit « {$template->id} » n'a pas de description.");
-            self::assertNotSame('', trim($template->defaultSubject), "Le gabarit « {$template->id} » n'a pas de sujet.");
+            self::assertNotSame('', trim($template->label), "The template « {$template->id} » has no label.");
+            self::assertNotSame('', trim($template->description), "The template « {$template->id} » has no description.");
+            self::assertNotSame('', trim($template->defaultSubject), "The template « {$template->id} » has no subject.");
         }
     }
 
@@ -78,8 +78,8 @@ class EmailTemplateRegistryTest extends TestCase
         ] as $id) {
             $template = $registry->find($id);
 
-            self::assertNotNull($template, "Le gabarit d'authentification « {$id} » n'est pas déclaré.");
-            self::assertFalse($template->editable, "Le gabarit d'authentification « {$id} » est modifiable.");
+            self::assertNotNull($template, "The authentication template « {$id} » is not declared.");
+            self::assertFalse($template->editable, "The authentication template « {$id} » is editable.");
         }
     }
 
@@ -94,7 +94,7 @@ class EmailTemplateRegistryTest extends TestCase
         foreach ($this->allDeclared() as $template) {
             self::assertFalse(
                 $template->hasVariable('site_name'),
-                "Le gabarit « {$template->id} » propose site_name, qui appartient au gabarit de base."
+                "The template « {$template->id} » offers site_name, which belongs to the base template."
             );
         }
     }

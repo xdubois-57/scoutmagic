@@ -169,8 +169,8 @@ final class ReferenceDatasetBuildTest extends TestCase
         foreach (UnitBlueprint::YEARS as $label) {
             $members = $this->countActiveMembersIn($label);
 
-            self::assertGreaterThanOrEqual(170, $members, "L'unité de {$label} a perdu du monde en route.");
-            self::assertLessThanOrEqual(190, $members, "L'unité de {$label} a gagné du monde en route.");
+            self::assertGreaterThanOrEqual(170, $members, "The unit in {$label} lost people on the way.");
+            self::assertLessThanOrEqual(190, $members, "The unit in {$label} gained people on the way.");
         }
     }
 
@@ -263,7 +263,7 @@ final class ReferenceDatasetBuildTest extends TestCase
             'finance_campaign_rows' => 'la campagne de paiement',
             'finance_expected_receivables' => 'les créances',
         ] as $table => $domain) {
-            self::assertGreaterThan(0, $this->rowCount($table), "Rien n'a été semé pour {$domain}.");
+            self::assertGreaterThan(0, $this->rowCount($table), "Nothing was seeded for {$domain}.");
         }
     }
 
@@ -373,8 +373,8 @@ final class ReferenceDatasetBuildTest extends TestCase
         self::assertLessThan(
             1800,
             abs($now->getTimestamp() - $written->getTimestamp()),
-            'Le builder date ce qu\'il écrit sur une autre horloge que celle de l\'application '
-            . "(écrit : {$loggedAt}, application : " . $now->format('Y-m-d H:i:s') . ').',
+            'The builder dates what it writes on a clock other than the application\'s '
+            . "(written: {$loggedAt}, application: " . $now->format('Y-m-d H:i:s') . ').',
         );
     }
 
@@ -403,7 +403,7 @@ final class ReferenceDatasetBuildTest extends TestCase
             self::assertGreaterThan(
                 0,
                 $counts[$eventType] ?? 0,
-                "Le journal ne dit rien de {$domain} ({$eventType}).",
+                "The journal says nothing about {$domain} ({$eventType}).",
             );
         }
     }
@@ -452,7 +452,7 @@ final class ReferenceDatasetBuildTest extends TestCase
             foreach (ImageVariantService::VARIANTS as $variant) {
                 self::assertNotNull(
                     $variants->resolvePath($relative, $variant),
-                    "Le dérivé « {$variant} » de {$relative} n'a pas été produit.",
+                    "The « {$variant} » derivative of {$relative} was not produced.",
                 );
             }
         }

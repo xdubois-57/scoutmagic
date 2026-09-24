@@ -272,7 +272,7 @@ class MailIdentityTest extends TestCase
         // Every row is a table header cell: one silently missing was a
         // real edit, caught by PHPStan's shape and not by this test.
         foreach ($byRole as $role => $row) {
-            $this->assertNotSame('', $row['label'], "Le rôle « {$role} » n'a pas de libellé.");
+            $this->assertNotSame('', $row['label'], "The role « {$role} » has no label.");
         }
 
         $this->assertSame('info@unite.be', $byRole[MailIdentity::ROLE_FROM]['address']);

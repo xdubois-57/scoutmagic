@@ -52,7 +52,7 @@ final class TemplateFingerprintTest extends TestCase
         foreach (self::FINGERPRINTS as $template => $expected) {
             $path = $library->path($template);
 
-            $this->assertFileExists($path, "Le gabarit {$template} a disparu de modules/official_documents/templates/.");
+            $this->assertFileExists($path, "The {$template} template is gone from modules/official_documents/templates/.");
 
             $this->assertSame(
                 $expected,

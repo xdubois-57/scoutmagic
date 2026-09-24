@@ -38,38 +38,38 @@ final class ParentalAuthorizationLayoutTest extends TestCase
     public function testEveryFieldFitsOnThePage(): void
     {
         foreach (ParentalAuthorizationLayout::textFields() as $name => $field) {
-            $this->assertGreaterThan(0.0, $field->x, "{$name}: x hors de la page");
-            $this->assertGreaterThan(0.0, $field->baselineY, "{$name}: ligne de base hors de la page");
+            $this->assertGreaterThan(0.0, $field->x, "{$name}: x is off the page");
+            $this->assertGreaterThan(0.0, $field->baselineY, "{$name}: the baseline is off the page");
             $this->assertLessThanOrEqual(
                 ParentalAuthorizationLayout::PAGE_WIDTH_MM,
                 $field->right(),
-                "{$name}: la largeur déborde du bord droit"
+                "{$name}: the width runs past the right edge"
             );
             $this->assertLessThanOrEqual(
                 ParentalAuthorizationLayout::PAGE_HEIGHT_MM,
                 $field->baselineY,
-                "{$name}: la ligne de base est sous le bord inférieur"
+                "{$name}: the baseline sits below the bottom edge"
             );
-            $this->assertGreaterThan(0.0, $field->width, "{$name}: largeur nulle ou négative");
-            $this->assertGreaterThanOrEqual(6.0, $field->fontSize, "{$name}: corps illisible");
+            $this->assertGreaterThan(0.0, $field->width, "{$name}: width is zero or negative");
+            $this->assertGreaterThanOrEqual(6.0, $field->fontSize, "{$name}: the font size is unreadable");
         }
     }
 
     public function testEveryStrikeFitsOnThePage(): void
     {
         foreach (ParentalAuthorizationLayout::strikeZones() as $name => $zone) {
-            $this->assertGreaterThan(0.0, $zone->x, "{$name}: x hors de la page");
-            $this->assertGreaterThan(0.0, $zone->y, "{$name}: y hors de la page");
-            $this->assertGreaterThan(0.0, $zone->width, "{$name}: largeur nulle ou négative");
+            $this->assertGreaterThan(0.0, $zone->x, "{$name}: x is off the page");
+            $this->assertGreaterThan(0.0, $zone->y, "{$name}: y is off the page");
+            $this->assertGreaterThan(0.0, $zone->width, "{$name}: width is zero or negative");
             $this->assertLessThanOrEqual(
                 ParentalAuthorizationLayout::PAGE_WIDTH_MM,
                 $zone->right(),
-                "{$name}: le trait déborde du bord droit"
+                "{$name}: the rule runs past the right edge"
             );
             $this->assertLessThanOrEqual(
                 ParentalAuthorizationLayout::PAGE_HEIGHT_MM,
                 $zone->y,
-                "{$name}: le trait est sous le bord inférieur"
+                "{$name}: the rule sits below the bottom edge"
             );
         }
     }
@@ -139,7 +139,7 @@ final class ParentalAuthorizationLayoutTest extends TestCase
     {
         $first = $zones[$names[0]]->y;
         foreach ($names as $name) {
-            $this->assertSame($first, $zones[$name]->y, "{$name}: n'est pas sur la même ligne que ses voisines");
+            $this->assertSame($first, $zones[$name]->y, "{$name}: is not on the same line as its neighbours");
         }
     }
 

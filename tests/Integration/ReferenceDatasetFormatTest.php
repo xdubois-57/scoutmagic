@@ -66,7 +66,7 @@ final class ReferenceDatasetFormatTest extends TestCase
     public function testEachExportIsAcceptedByTheRealParser(string $year): void
     {
         $path = self::datasetRoot() . '/' . DatasetGenerator::DESK_DIRECTORY . '/' . $year . '.csv';
-        self::assertFileExists($path, "L'export Desk de {$year} est absent du dépôt.");
+        self::assertFileExists($path, "The Desk export for {$year} is missing from the repository.");
 
         // DeskImportService::import() unlinks the file it is handed, and so
         // would anything else built on the same habit. Parse a copy, never the
@@ -81,10 +81,10 @@ final class ReferenceDatasetFormatTest extends TestCase
             @unlink($copy);
         }
 
-        self::assertGreaterThanOrEqual(170, count($parsed->members), "L'unité de {$year} est trop petite pour être crédible.");
-        self::assertLessThanOrEqual(190, count($parsed->members), "L'unité de {$year} est trop grande pour être crédible.");
-        self::assertGreaterThanOrEqual(250, $parsed->lineCount, "L'export de {$year} compte trop peu de lignes.");
-        self::assertLessThanOrEqual(300, $parsed->lineCount, "L'export de {$year} compte trop de lignes.");
+        self::assertGreaterThanOrEqual(170, count($parsed->members), "The unit in {$year} is too small to be credible.");
+        self::assertLessThanOrEqual(190, count($parsed->members), "The unit in {$year} is too large to be credible.");
+        self::assertGreaterThanOrEqual(250, $parsed->lineCount, "The {$year} export holds too few lines.");
+        self::assertLessThanOrEqual(300, $parsed->lineCount, "The {$year} export holds too many lines.");
     }
 
     #[DataProvider('scoutYears')]
@@ -115,7 +115,7 @@ final class ReferenceDatasetFormatTest extends TestCase
             }
             self::assertNotNull(
                 ScenarioCatalog::scenarioOf((string) $tiers),
-                "Le Tiers {$tiers} occupe la plage réservée aux scénarios sans être déclaré dans ScenarioCatalog.",
+                "Tiers {$tiers} sits in the range reserved for scenarios without being declared in ScenarioCatalog.",
             );
         }
     }
@@ -154,7 +154,7 @@ final class ReferenceDatasetFormatTest extends TestCase
             self::assertArrayHasKey(
                 $file,
                 PhotoLot::INDIVIDUAL_GENDERS,
-                "Le portrait {$file} n'a pas de genre déclaré : le Genre du membre ne peut pas être rendu cohérent avec lui.",
+                "The portrait {$file} has no declared gender: the member's Genre cannot be made consistent with it.",
             );
         }
     }
@@ -252,7 +252,7 @@ final class ReferenceDatasetFormatTest extends TestCase
             self::assertSame(
                 count(UnitBlueprint::sectionsIn($year)),
                 count($holders),
-                "Une section inexistante en {$year} porte un responsable.",
+                "A section that does not exist in {$year} carries a leader.",
             );
         }
     }
@@ -271,18 +271,18 @@ final class ReferenceDatasetFormatTest extends TestCase
             foreach (CalendarBlueprint::MEETING_RULE as $branch => $rule) {
                 $days = CalendarSeeder::occurrencesOf($year, $rule);
 
-                self::assertGreaterThan(20, count($days), "Le rythme de {$branch} en {$year} est trop maigre.");
-                self::assertLessThan(40, count($days), "Le rythme de {$branch} en {$year} n'a plus de trous.");
+                self::assertGreaterThan(20, count($days), "The rhythm of {$branch} in {$year} is too thin.");
+                self::assertLessThan(40, count($days), "The rhythm of {$branch} in {$year} has no gaps left.");
 
                 foreach ($days as $day) {
                     self::assertSame(
                         $rule['weekday'],
                         (int) $start->modify('+' . $day . ' days')->format('N'),
-                        "Une réunion de {$branch} en {$year} ne tombe pas le bon jour.",
+                        "A meeting of {$branch} in {$year} does not fall on the right day.",
                     );
                     self::assertFalse(
                         CalendarSeeder::isSchoolHoliday($day),
-                        "Une réunion de {$branch} en {$year} tombe en pleines vacances scolaires.",
+                        "A meeting of {$branch} in {$year} falls in the middle of the school holidays.",
                     );
                 }
             }
@@ -310,7 +310,7 @@ final class ReferenceDatasetFormatTest extends TestCase
     public function testEachStatementIsAcceptedByTheRealBankParser(string $year, string $account): void
     {
         $path = self::datasetRoot() . '/' . BankBlueprint::fileFor($year, $account);
-        self::assertFileExists($path, "Le relevé {$year}/{$account} est absent du dépôt.");
+        self::assertFileExists($path, "The {$year}/{$account} statement is missing from the repository.");
 
         $parser = new BnpParser();
 
@@ -320,11 +320,11 @@ final class ReferenceDatasetFormatTest extends TestCase
         self::assertSame(
             BankBlueprint::compactIban(BankBlueprint::ACCOUNTS[$account]['iban']),
             $parser->extractSourceIban($path),
-            "Le relevé {$year}/{$account} ne porte pas l'IBAN de son compte.",
+            "The {$year}/{$account} statement does not carry its own account's IBAN.",
         );
 
         $lines = $parser->parse($path);
-        self::assertNotEmpty($lines, "Le relevé {$year}/{$account} ne contient aucune ligne exploitable.");
+        self::assertNotEmpty($lines, "The {$year}/{$account} statement holds no usable line.");
 
         foreach ($lines as $line) {
             self::assertNotSame('', $line->bankReference, 'a line with no REFERENCE BANQUE cannot be deduplicated');
@@ -359,7 +359,7 @@ final class ReferenceDatasetFormatTest extends TestCase
             self::assertArrayNotHasKey(
                 $line->bankReference,
                 $references,
-                "La référence {$line->bankReference} apparaît deux fois dans le même relevé.",
+                "Reference {$line->bankReference} appears twice in the same statement.",
             );
             $references[$line->bankReference] = true;
         }
@@ -381,7 +381,7 @@ final class ReferenceDatasetFormatTest extends TestCase
                     self::assertCount(
                         BankBlueprint::OVERLAP_LINES,
                         array_intersect($previous, $current),
-                        "Le relevé {$year}/{$account} ne recouvre plus le précédent : la déduplication n'est plus exercée.",
+                        "The {$year}/{$account} statement no longer overlaps the previous one: deduplication is no longer exercised.",
                     );
                 }
 
@@ -444,7 +444,7 @@ final class ReferenceDatasetFormatTest extends TestCase
         // drift apart, the "Paiements attendus" page reconciles nothing.
         foreach (UnitBlueprint::YEARS as $year) {
             $expected = BankBlueprint::communicationsFor($year);
-            self::assertNotEmpty($expected, "Aucune cotisation déclarée pour {$year}.");
+            self::assertNotEmpty($expected, "No fee is declared for {$year}.");
 
             $labels = array_map(
                 static fn (object $line): string => $line->label,
@@ -452,7 +452,7 @@ final class ReferenceDatasetFormatTest extends TestCase
             );
 
             foreach ($expected as $communication) {
-                self::assertContains($communication, $labels, "La cotisation {$communication} n'apparaît pas sur le relevé de {$year}.");
+                self::assertContains($communication, $labels, "Fee {$communication} does not appear on the {$year} statement.");
                 self::assertSame(
                     $communication,
                     StructuredCommunicationService::format(substr(preg_replace('/\D/', '', $communication) ?? '', 0, 10)),
