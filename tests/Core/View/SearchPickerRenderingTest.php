@@ -161,6 +161,22 @@ final class SearchPickerRenderingTest extends TestCase
         );
     }
 
+    public function testRetainedRowsReachTheScriptAsAListWhateverTheirKeys(): void
+    {
+        // A caller's array_filter() or id-keyed array would otherwise encode
+        // as a JSON object, which the script discards: the upgraded picker
+        // would then post nothing for rows the fallback list still holds.
+        $picker = $this->render([
+            'mode' => 'multiple',
+            'selected' => [7 => ['id' => 7, 'label' => 'Camp'], 9 => ['id' => 9, 'label' => 'Hike']],
+        ])->query('//*[@data-search-picker]')->item(0);
+        $this->assertInstanceOf(\DOMElement::class, $picker);
+        $this->assertSame(
+            '[{"id":7,"label":"Camp"},{"id":9,"label":"Hike"}]',
+            $picker->getAttribute('data-selected')
+        );
+    }
+
     public function testARequiredSinglePickerHandsTheRequirementToTheScript(): void
     {
         // The select that carries `required` is removed on upgrade; the

@@ -57,7 +57,10 @@
 #}
 {% set _mode = mode|default('single') == 'multiple' ? 'multiple' : 'single' %}
 {% set _multiple = _mode == 'multiple' %}
-{% set _selected = selected|default([]) %}
+{# Rebuilt as a list: an id-keyed or filtered array would otherwise encode
+   as a JSON object, which the script discards. #}
+{% set _selected = [] %}
+{% for row in selected|default([]) %}{% set _selected = _selected|merge([row]) %}{% endfor %}
 {% set _selected_ids = _selected|map(row => row.id ~ '') %}
 {% set _submitted_name = _multiple ? field_name ~ '[]' : field_name %}
 {% set _help_id = help|default('') ? picker_id ~ '-help' : '' %}
