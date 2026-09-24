@@ -204,7 +204,7 @@ final class VolumeUsage
     /**
      * 0-100, or **null** when nothing can be computed. Never 0: a host
      * that will not report its volume has not told us the disk is empty
-     * (`specifications.md` §8.47, « unavailable is null, never 0 »).
+     * (`ARCHITECTURE.md` §8.47, « unavailable is null, never 0 »).
      */
     public function usedPercent(): ?int
     {

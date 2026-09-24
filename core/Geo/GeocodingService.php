@@ -65,6 +65,14 @@ class GeocodingService
             return null;
         }
 
+        return $this->lookup($query);
+    }
+
+    /**
+     * @return array{latitude: float, longitude: float}|null
+     */
+    private function lookup(string $query): ?array
+    {
         $url = self::ENDPOINT . '?' . http_build_query([
             'q' => $query,
             'format' => 'jsonv2',
@@ -88,6 +96,28 @@ class GeocodingService
         }
 
         return ['latitude' => (float) $lat, 'longitude' => (float) $lon];
+    }
+
+    /**
+     * The same lookup for an address typed as one line — how the carpool
+     * module stores an outing's place (« Gîte de Han-sur-Lesse, rue des
+     * Grottes 12 »), where there is no separate city to require.
+     *
+     * The bar is lower than geocode()'s, and it can be: the point it
+     * produces is shown to the chief on a map with its origin marked (« trouvé
+     * depuis l'adresse »), where a wrong one is one drag away from right.
+     * A line too short to mean a place is still never sent.
+     *
+     * @return array{latitude: float, longitude: float}|null
+     */
+    public function geocodeLine(?string $line): ?array
+    {
+        $line = self::clean($line);
+        if ($line === null || mb_strlen($line) < 4) {
+            return null;
+        }
+
+        return $this->lookup($line);
     }
 
     /**

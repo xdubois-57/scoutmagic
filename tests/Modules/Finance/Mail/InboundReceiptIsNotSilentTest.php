@@ -85,7 +85,7 @@ final class InboundReceiptIsNotSilentTest extends TestCase
     /**
      * The one thing the journal must NOT carry.
      *
-     * A filename is personal data (ARCHITECTURE.md §7.9) — « facture
+     * A filename is personal data (ARCHITECTURE.md §8.6) — « facture
      * Dupont.pdf » names a family — and it is the single most tempting
      * field to add here, because it is what a treasurer would recognise.
      * The attachment id finds the same row without naming anybody.

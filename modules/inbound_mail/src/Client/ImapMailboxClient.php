@@ -370,7 +370,7 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
      * A library's own message routinely contains the account name and, on
      * some servers, the server's verbatim rejection of the credential that
      * was just tried — neither of which belongs in a database column a page
-     * renders (§7.9). `MailboxErrorFormatter` turns this into the sentence
+     * renders (§8.6). `MailboxErrorFormatter` turns this into the sentence
      * the superadmin actually reads.
      */
     private static function safeReason(\Throwable $e): string

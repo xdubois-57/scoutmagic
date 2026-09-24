@@ -226,4 +226,105 @@ class AuthorizationMatrixInventoryTest extends TestCase
 
         $this->assertSame([], $unknown);
     }
+
+    /**
+     * The documentation must claim the WHOLE route table, never a
+     * snapshot of it.
+     *
+     * This started as the opposite test. README and SECURITY.md quoted
+     * « 528 routes × 6 roles = 3 168 pairs » while the inventory held
+     * 747, so the first version of this test pinned the quoted figures to
+     * `authzRoutes()` and made a stale one red. The reasoning was that
+     * the number in the prose is part of the change that adds a route.
+     *
+     * **Measurement disproved it.** Over thirty days, 50 of the 94
+     * commits on `main` touched a route declaration — more than half. A
+     * count pinned in prose is therefore red on most open pull requests
+     * through no fault of their own, and this very pull request watched
+     * the figure move twice while it was open (746, then 747, then 750).
+     * A tripwire that fires on more than half of all merges is not a
+     * guard, it is a tax.
+     *
+     * So the prose no longer quotes a size at all. What it states is the
+     * invariant — every route, every role — which is what a reader
+     * auditing coverage actually needs, is true whatever the table's
+     * size, and is exactly what the tests above already hold. This test
+     * keeps that claim present, and keeps a well-meaning « 750 routes »
+     * from being helpfully written back in.
+     */
+    public function testTheDocumentationClaimsEveryRouteRatherThanACountOfThem(): void
+    {
+        // Each entry says WHAT it guards, because the five sentences do
+        // not all belong to the same section: four are the authorization
+        // matrix's, the fifth is the router rule's one layer out
+        // (SECURITY.md « The same rule, one layer out: the router »). Both
+        // had a count removed, so both are guarded — but a failure must
+        // name the right paragraph, not blame the matrix for a sentence
+        // the matrix does not own.
+        $claims = [
+            [
+                'README.md',
+                "La matrice d'autorisation : **toutes** les routes rejouées sous les six rôles",
+                'the authorization matrix, in the DAST profile table',
+            ],
+            [
+                'README.md',
+                "rejoue **toutes** les routes que l'application déclare",
+                'the authorization matrix, where the profile is explained',
+            ],
+            [
+                'README.md',
+                '**toutes** les routes rejouées sous les six rôles, soit un couple (route, rôle) par combinaison',
+                "the authorization matrix, in the CI job list",
+            ],
+            [
+                'SECURITY.md',
+                'replays **every route as every role**',
+                'the authorization matrix',
+            ],
+            [
+                'SECURITY.md',
+                'walks **every** route the application registers',
+                'the router identifier rule — a different section, and the other place a count was removed',
+            ],
+        ];
+
+        foreach ($claims as [$file, $claim, $guards]) {
+            $this->assertStringContainsString(
+                $claim,
+                $this->read($file),
+                "{$file} no longer claims the whole route table for {$guards}."
+            );
+        }
+
+        // And no size may creep back: a figure here cannot be kept true
+        // (see the docblock), so one that reads as authoritative is worse
+        // than none.
+        $quoted = [];
+
+        foreach (['README.md', 'SECURITY.md'] as $file) {
+            preg_match_all(
+                '/[0-9][0-9 ]*\s+(?:routes|couples|pairs|paires)\b/u',
+                $this->read($file),
+                $found
+            );
+
+            foreach ($found[0] as $figure) {
+                $quoted[] = "{$file}: « " . trim($figure) . ' »';
+            }
+        }
+
+        $this->assertSame(
+            [],
+            $quoted,
+            "A route or pair count is quoted again. It cannot be kept true — more than half\n"
+            . "of the commits on `main` touch a route declaration — so state the invariant\n"
+            . "instead:\n  " . implode("\n  ", $quoted)
+        );
+    }
+
+    private function read(string $relativePath): string
+    {
+        return (string) file_get_contents(dirname(__DIR__, 2) . '/' . $relativePath);
+    }
 }

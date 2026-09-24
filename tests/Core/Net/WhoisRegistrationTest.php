@@ -90,7 +90,7 @@ final class WhoisRegistrationTest extends TestCase
      *
      * A unit's domain is often registered by a volunteer in their own
      * name, so the registrant block is a natural person's identity
-     * (ARCHITECTURE.md §7.9). A parsed copy would be a clear-text column —
+     * (ARCHITECTURE.md §8.6). A parsed copy would be a clear-text column —
      * sortable, searchable, exportable — which is exactly what a raw
      * response kept encrypted and read by one person is not. What the
      * registry sent is kept whole; what this application *understands*
@@ -124,7 +124,7 @@ final class WhoisRegistrationTest extends TestCase
      * SAME names the alias table looks for. `changed:` is a contact's
      * last edit, `State:` is the province they live in, and either in
      * `whois_registration` would be a natural person's data in a
-     * clear-text, filterable column (§7.9).
+     * clear-text, filterable column (§8.6).
      */
     public function testNothingInsideAPersonalBlockIsReadWhateverItIsCalled(): void
     {

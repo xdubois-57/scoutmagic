@@ -31,7 +31,7 @@ enum BookingStatus: string
     case CONFIRMED = 'confirmed';
     case REFUSED = 'refused';
     case CANCELLED = 'cancelled';
-    /** A manager's option lapsed without confirmation (§6.14). */
+    /** A manager's option lapsed without confirmation (specifications.md §22.5). */
     case EXPIRED = 'expired';
     case CLOSED = 'closed';
 

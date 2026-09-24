@@ -14,7 +14,7 @@ use Core\Service\DateInput;
  * Which month a calendar is showing, and where its arrows may go.
  *
  * The public calendar and the private one want the same paging with one
- * difference that matters: **a visitor never goes into the past** (§6.7),
+ * difference that matters: **a visitor never goes into the past** (specifications.md §22.2),
  * while a manager must, because half their work is about stays that already
  * happened. One class with a floor rather than two near-identical copies —
  * the clamping is the part worth having in exactly one place.

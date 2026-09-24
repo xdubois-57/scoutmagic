@@ -14,7 +14,7 @@ namespace Modules\InboundMail\Client;
  *
  * The HTML here is still exactly what the sender wrote — sanitising is
  * `Service\MessageContentSanitizer`'s job, done once on the way in, before
- * a consumer ever sees the message (§7.9). A client that sanitised on its
+ * a consumer ever sees the message (§8.58). A client that sanitised on its
  * own would mean two implementations of the rule and one of them going
  * stale.
  */

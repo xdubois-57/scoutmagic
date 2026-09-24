@@ -255,7 +255,7 @@ class RentalPricingController extends AbstractController
      * Its own section, deliberately separate from pricing: constraints
      * decide whether a range may be requested, availability decides whether
      * the asset is free, and conflating them is how a free day inside the
-     * notice window ends up shown as "occupé" (§6.7).
+     * notice window ends up shown as "occupé" (specifications.md §22.2).
      *
      * @param array<string, string> $params
      */

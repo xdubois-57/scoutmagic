@@ -21,7 +21,7 @@ namespace Modules\Rental\Availability;
  *
  * An implementation returns `Occupancy` objects, which deliberately carry no
  * notion of *why* the asset is held — that is what makes a booking, a hold
- * and a block indistinguishable to every public surface (§6.7/§6.14),
+ * and a block indistinguishable to every public surface (specifications.md §22.2),
  * structurally rather than by remembering to hide it.
  */
 interface OccupancyProvider

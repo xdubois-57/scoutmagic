@@ -1141,6 +1141,114 @@ class ModuleManifestTest extends TestCase
     }
 
     /**
+     * `enabled_by_default` decides whether a module switches itself on the
+     * very first time it is discovered, so the shapes that used to be
+     * accepted were all the wrong way round: `(bool) "non"` is TRUE.
+     * A manifest saying no in any spelling but a JSON boolean said yes.
+     *
+     * @return array<string, array{0: mixed}>
+     */
+    public static function refusedEnabledByDefault(): array
+    {
+        return [
+            'the French for no' => ['non'],
+            'the word false' => ['false'],
+            'a truthy-looking zero string' => ['0'],
+            'a float' => [0.1],
+            'an int' => [1],
+            'a list holding zero' => [[0]],
+            'an empty list' => [[]],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('refusedEnabledByDefault')]
+    public function testANonBooleanEnabledByDefaultIsRejected(mixed $value): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage("Module 'toolbox' enabled_by_default must be a boolean");
+
+        ModuleManifest::fromArray([
+            'id' => 'toolbox',
+            'name' => 'Toolbox',
+            'version' => '1.0.0',
+            'enabled_by_default' => $value,
+        ]);
+    }
+
+    public function testEnabledByDefaultAcceptsBothBooleansAndDefaultsToFalse(): void
+    {
+        $base = ['id' => 'toolbox', 'name' => 'Toolbox', 'version' => '1.0.0'];
+
+        $this->assertFalse(ModuleManifest::fromArray($base)->enabledByDefault);
+        $this->assertFalse(ModuleManifest::fromArray($base + ['enabled_by_default' => false])->enabledByDefault);
+        $this->assertTrue(ModuleManifest::fromArray($base + ['enabled_by_default' => true])->enabledByDefault);
+    }
+
+    /**
+     * `description` is rendered on the Modules page, so a cast put
+     * literally the word « Array » in front of an administrator — with a
+     * PHP warning behind it, and nothing saying which manifest to fix.
+     *
+     * @return array<string, array{0: mixed}>
+     */
+    public static function refusedDescription(): array
+    {
+        return [
+            'a list' => [['Une description']],
+            'an object' => [['fr' => 'Une description']],
+            'an int' => [42],
+            'a boolean' => [true],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('refusedDescription')]
+    public function testANonStringDescriptionIsRejected(mixed $value): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage("Module 'toolbox' description must be a string");
+
+        ModuleManifest::fromArray([
+            'id' => 'toolbox',
+            'name' => 'Toolbox',
+            'version' => '1.0.0',
+            'description' => $value,
+        ]);
+    }
+
+    public function testDescriptionAcceptsAStringAndDefaultsToEmpty(): void
+    {
+        $base = ['id' => 'toolbox', 'name' => 'Toolbox', 'version' => '1.0.0'];
+
+        $this->assertSame('', ModuleManifest::fromArray($base)->description);
+        $this->assertSame('', ModuleManifest::fromArray($base + ['description' => ''])->description);
+        $this->assertSame(
+            "L'atelier",
+            ModuleManifest::fromArray($base + ['description' => "L'atelier"])->description
+        );
+    }
+
+    /**
+     * And every manifest this repository ships still loads.
+     *
+     * The two fields above were read by cast, so no manifest could ever
+     * have been refused for them — which means this is the first run where
+     * the seventeen that declare `enabled_by_default` have actually been
+     * held to declaring a boolean.
+     */
+    public function testEveryManifestOfThisRepositoryStillLoads(): void
+    {
+        $manifests = glob(dirname(__DIR__, 3) . '/modules/*/module.json') ?: [];
+        $this->assertNotEmpty($manifests);
+
+        foreach ($manifests as $path) {
+            $data = json_decode((string) file_get_contents($path), true);
+            $this->assertIsArray($data, basename(dirname($path)));
+
+            ModuleManifest::fromArray($data);
+        }
+    }
+
+    /**
      * `default_on_role_min` is the module-manifest half of Core\
      * Notification\NotificationType::defaultsOnForRole() — optional, and
      * absent on every type that shipped before it, which must keep

@@ -215,7 +215,7 @@ class TicketAnalysisOutcomeTest extends TestCase
 
     public function testTheJournalCarriesCountsAndNeverATicketsText(): void
     {
-        // §7.9: a journal entry travels in the diagnostic archive, where
+        // §8.6: a journal entry travels in the diagnostic archive, where
         // what somebody wrote about their own installation has no
         // business being.
         $this->seedTicket('Mon adresse est chef@unite.be et le site plante.');

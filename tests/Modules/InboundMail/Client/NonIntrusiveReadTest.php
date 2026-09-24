@@ -221,7 +221,7 @@ class NonIntrusiveReadTest extends TestCase
         $source = self::imapClientSource();
 
         // A library's own text routinely carries the account name and the
-        // server's verbatim rejection of a credential (§7.9).
+        // server's verbatim rejection of a credential (§8.6).
         $this->assertStringNotContainsString('$e->getMessage()', $source);
     }
 
