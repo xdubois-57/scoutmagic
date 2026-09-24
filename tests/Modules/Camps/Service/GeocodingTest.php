@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tests\Modules\Camps\Service;
 
 use Modules\Camps\Repository\PlaceRepository;
-use Modules\Camps\Service\GeocodingService;
+use Core\Geo\GeocodingService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Camps\CampsTestHelper;
@@ -48,6 +48,24 @@ class GeocodingTest extends TestCase
         // task takes one place at a time.
         $this->assertNull($this->places->findNextToGeocode());
         $this->assertFalse($this->places->findById($id)?->hasCoordinates());
+    }
+
+    public function testAFailedLookupAfterAnAddressChangeLeavesNoStalePoint(): void
+    {
+        // The rule is the core's (Core\Geo\GeoPointStore): the point found
+        // for the old address goes when the address changes, so a lookup of
+        // the new one that fails leaves the place off the map rather than
+        // stamped as done at the old spot. It still leaves the queue.
+        $id = $this->places->create('Domaine de Mozet', 'Rue du Tronquoy', '5340', 'Mozet', 'Belgique', null);
+        $this->places->recordGeocoding($id, 50.44, 5.00, new \DateTimeImmutable());
+        $this->places->clearGeocoding($id);
+
+        $this->places->recordGeocoding($id, null, null, new \DateTimeImmutable());
+
+        $place = $this->places->findById($id);
+        $this->assertNotNull($place?->geocodedAt);
+        $this->assertNull($this->places->findNextToGeocode());
+        $this->assertFalse($place->hasCoordinates());
     }
 
     public function testChangingTheAddressPutsThePlaceBackInTheQueue(): void

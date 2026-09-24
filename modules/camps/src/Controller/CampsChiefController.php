@@ -11,6 +11,7 @@ namespace Modules\Camps\Controller;
 use Core\Audit\AuditService;
 use Core\Audit\AuditSource;
 use Core\Config\SettingService;
+use Core\Geo\GeoPointException;
 use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
@@ -370,7 +371,7 @@ class CampsChiefController extends AbstractController
 
         try {
             $this->placeService->update($place, $this->placeFields($request), AuthSession::getUserAccountId());
-        } catch (CampsException $e) {
+        } catch (CampsException | GeoPointException $e) {
             return $this->renderPlaceForm(
                 $place,
                 $this->submittedPlaceValues($request),

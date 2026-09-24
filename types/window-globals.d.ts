@@ -64,6 +64,15 @@ interface Window {
             isRunning: () => boolean;
         };
     };
+    // public/assets/js/map.js — every map's tiles and first view, loaded
+    // after the vendored Leaflet by the pages that draw a map.
+    ScoutMagicMap?: {
+        TILE_URL: string;
+        ATTRIBUTION: string;
+        FALLBACK_CENTER: LeafletLatLng;
+        FALLBACK_ZOOM: number;
+        create: (container: HTMLElement, options?: { center?: LeafletLatLng; zoom?: number }) => LeafletMap | null;
+    };
     // public/assets/js/theme.js — the light/dark/auto color-scheme
     // toolbox, loaded by base.html.twig on every page (design.md §7.8).
     ScoutMagicTheme?: {

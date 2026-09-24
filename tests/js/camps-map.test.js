@@ -135,6 +135,7 @@ async function importWith(markup) {
         register(event, handler);
     });
 
+    await import('../../public/assets/js/map.js');
     await import('../../public/assets/js/camps-map.js');
     spy.mockRestore();
 

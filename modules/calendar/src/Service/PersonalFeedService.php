@@ -50,7 +50,13 @@ class PersonalFeedService
          * feed on the single year it is generated for, which is what it
          * did before this existed.
          */
-        private ?AuthorizationYearService $authorizationYearService = null
+        private ?AuthorizationYearService $authorizationYearService = null,
+        /**
+         * The modules that add lines to real events' descriptions
+         * (Api\EventDescriptionEnricherInterface). Read HERE and nowhere
+         * else: this is the only feed with an identified reader.
+         */
+        private ?EventDescriptionEnricherRegistry $descriptionEnrichers = null
     ) {
     }
 
@@ -167,7 +173,10 @@ class PersonalFeedService
 
         $events = $this->eventRepository->findByCalendarIds($calendarIds);
 
-        if ($this->retroEventLinkLookup === null && $this->presenceSheetLinkLookup === null) {
+        $enrichers = $this->descriptionEnrichers !== null && $this->descriptionEnrichers->hasEnrichers()
+            ? $this->descriptionEnrichers
+            : null;
+        if ($this->retroEventLinkLookup === null && $this->presenceSheetLinkLookup === null && $enrichers === null) {
             return $events;
         }
 
@@ -179,7 +188,25 @@ class PersonalFeedService
         // remembered yesterday's rights would be a permanent leak.
         $role = Role::fromString($this->roleResolver->resolve($userAccount->email, $scoutYearId));
 
-        return array_map(function (CalendarEvent $event) use ($role, $userAccount, $scoutYearId): CalendarEvent {
+        // One call per enricher for the whole feed (§7.6's first rule),
+        // with the reader's rights resolved here, at generation time.
+        $enrichedLines = $enrichers?->linesFor(
+            array_values(array_map(static fn(CalendarEvent $event): int => $event->id, $events)),
+            new VirtualEventViewer(
+                $role,
+                $userAccount->email,
+                $scoutYearId,
+                $calendarIds,
+                $this->authorizationYearService?->resolve()->ids() ?? []
+            )
+        ) ?? [];
+
+        return array_map(function (CalendarEvent $event) use (
+            $role,
+            $userAccount,
+            $scoutYearId,
+            $enrichedLines
+        ): CalendarEvent {
             $lines = [];
 
             $board = $this->retroEventLinkLookup?->findLinkedBoardLink(
@@ -200,6 +227,10 @@ class PersonalFeedService
             );
             if ($sheet !== null) {
                 $lines[] = 'Prendre les présences : ' . $sheet->url;
+            }
+
+            foreach ($enrichedLines[$event->id] ?? [] as $line) {
+                $lines[] = $line;
             }
 
             return $lines === [] ? $event : $this->withAppendedLines($event, $lines);

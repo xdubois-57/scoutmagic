@@ -8,8 +8,8 @@
 // package, no bundler, same treatment as Chart.js (see
 // types/window-globals.d.ts and AGENTS.md § CSS / frontend).
 //
-// Deliberately narrow: only what public/assets/js/camps-map.js actually
-// calls. Mirroring Leaflet's full API here would be a second, always-stale
+// Deliberately narrow: only what public/assets/js/map.js and camps-map.js
+// actually call. Mirroring Leaflet's full API here would be a second, always-stale
 // copy of its type definitions, and the point of this file is to catch a
 // typo in our own code, not to describe someone else's library.
 

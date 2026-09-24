@@ -8,6 +8,7 @@ use Core\Audit\AuditRepository;
 use Core\Audit\AuditService;
 use Core\Security\EncryptionService;
 use Modules\Camps\Repository\PlaceRepository;
+use Core\Geo\GeoPointException;
 use Modules\Camps\Service\CampsException;
 use Modules\Camps\Service\PlaceService;
 use PHPUnit\Framework\TestCase;
@@ -136,7 +137,7 @@ class PlaceServiceTest extends TestCase
         $place = $this->places->findById($id);
         $this->assertNotNull($place);
 
-        $this->expectException(CampsException::class);
+        $this->expectException(GeoPointException::class);
         $this->service->update($place, ['name' => 'X', 'latitude' => '50.44', 'longitude' => ''], 42);
     }
 
@@ -150,7 +151,7 @@ class PlaceServiceTest extends TestCase
         $place = $this->places->findById($id);
         $this->assertNotNull($place);
 
-        $this->expectException(CampsException::class);
+        $this->expectException(GeoPointException::class);
         $this->service->update($place, ['name' => 'X', 'latitude' => $latitude, 'longitude' => $longitude], 42);
     }
 

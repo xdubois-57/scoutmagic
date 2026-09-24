@@ -533,6 +533,35 @@ Three things the component does that a copy would forget:
   and removal, `detail.selected` holding the retained rows with every field
   the server sent — listen to it to react to the combination chosen.
 
+## Placing something on a map (`Core\Geo`)
+
+A module whose rows have a location — a camp field, a carpool destination —
+uses the core's map rather than a copy of it (ARCHITECTURE.md §8.119):
+
+- **Declare the four point columns** in your table, under exactly these
+  names: `latitude DECIMAL(9, 6) NULL`, `longitude DECIMAL(9, 6) NULL`,
+  `coordinates_are_manual BOOLEAN NOT NULL DEFAULT FALSE`,
+  `geocoded_at DATETIME NULL` (plus `updated_at`).
+- **Write them only through `Core\Geo\GeoPointStore`**, built with your
+  table name: `setManual()` for a point a human typed, dragged or removed
+  (it locks the row for ever), `recordGeocoding()` for an automatic result
+  (a failure is stamped and erases nothing), `forgetGeocoding()` when the
+  address changed (it also drops the automatic point found for the old
+  one). Parse a form's two boxes with `GeoPoint::fromInput()`
+  and let its `GeoPointException` reach the reader.
+- **Geocode in a scheduled task, one row per run**, re-arming itself while
+  rows are pending, and seeded only when something is pending — the shape
+  of `Modules\Camps\Task\GeocodePlacesHandler`. Never on a page load:
+  `Core\Geo\GeocodingService` calls a free third-party service allowed one
+  request per second.
+- **Draw with `public/assets/js/map.js`** (`window.ScoutMagicMap.create()`),
+  loaded after `/assets/vendor/leaflet/leaflet.js`, and set `$mapTileOrigin
+  = \Core\Geo\MapTiles::ORIGIN` in your wiring block of `public/index.php`
+  so the CSP lets the tiles through. Never name the tile host in your own
+  script: `Tests\Core\Geo\MapTilesTest` fails on it.
+- **Say so on the RGPD page**: the tiles hand the reader's IP to
+  OpenStreetMap, and the geocoder sends it an address.
+
 ## Contributing menu entries (`Core\Module\MenuEntryProvider`)
 
 A module's own pages get their menu entry from `module.json` automatically — a route with a non-empty `label` becomes one. Use this hook only for entries the manifest cannot express: one per row of your own data, or one that depends on who is looking.
@@ -797,6 +826,29 @@ Three rules a contribution interface should impose, because the alternative fail
 And two rules for the registry itself: **swallow a contributor's exception** (one module in trouble must not take the extended module down) and **deduplicate on a stable, contributor-owned identifier** rather than a generated one, so the same underlying thing reaching a reader twice is one item.
 
 Test both directions of disabling. The contributor must degrade to "feature not offered", and the extended module must work with an empty registry — including producing a valid, complete output rather than a truncated one.
+
+### The calendar's two extension points, and the calendar API for pickers
+
+`calendar` publishes two contribution interfaces, and they answer different
+questions:
+
+- **`VirtualEventProviderInterface`** — your module *makes* events the
+  calendar renders (a rental booking, an on-call duty). They appear on the
+  pages and in every feed, reduced to what each viewer may see.
+- **`EventDescriptionEnricherInterface`** — your module adds lines to the
+  description of an event that *already exists* in `calendar_events` (a
+  carpool line under a weekend). Register into
+  `$calendarDescriptionEnrichers` (a `Service\EventDescriptionEnricherRegistry`,
+  `null` when `calendar` is off). **Only the personal ICS feed reads it** —
+  never a calendar's own feed nor the whole-unit feed, which have no
+  identified reader. Plain text, no phone number: it lands in Google or
+  iCloud.
+
+To let a user *pick* an event, read `CalendarEventLookupInterface`:
+`searchUpcomingEvents($query, $role, $limit)` searches title, calendar name
+and section name of upcoming events the role may see, and every
+`EventSummary` carries `location`, `sectionId` and `sectionName`. Pair it
+with `partials/search_picker.html.twig` and `Core\View\SearchPickerResult`.
 
 ## Storing media in a gallery album you own (`Modules\Gallery\Api`)
 

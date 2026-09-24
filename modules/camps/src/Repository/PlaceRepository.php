@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Camps\Repository;
 
+use Core\Geo\GeoPoint;
+use Core\Geo\GeoPointStore;
 use Modules\Camps\Support;
 
 /**
@@ -201,18 +203,18 @@ class PlaceRepository
     }
 
     /**
-     * Records the RESULT of a geocoding attempt, including a failed one:
-     * geocoded_at is stamped either way, so a place whose address means
-     * nothing to Nominatim is tried once and then left alone instead of
-     * being retried on every run for ever.
+     * Records the RESULT of a geocoding attempt, including a failed one —
+     * see Core\Geo\GeoPointStore, which owns the rule: the attempt is
+     * stamped either way, a failure leaves an existing point alone, and a
+     * manually-placed point is never touched.
      */
     public function recordGeocoding(int $id, ?float $latitude, ?float $longitude, \DateTimeImmutable $at): void
     {
-        $stmt = $this->pdo->prepare(
-            'UPDATE camp_places SET latitude = ?, longitude = ?, geocoded_at = ? WHERE id = ? AND '
-                . 'coordinates_are_manual = 0'
+        $this->points()->recordGeocoding(
+            $id,
+            $latitude !== null && $longitude !== null ? new GeoPoint($latitude, $longitude) : null,
+            $at
         );
-        $stmt->execute([$latitude, $longitude, $at->format('Y-m-d H:i:s'), $id]);
     }
 
     /**
@@ -222,18 +224,11 @@ class PlaceRepository
      * cleared when the address itself changes — otherwise a place
      * corrected from "Rue du Tronquoy" to "Rue du Tronquoy 4" keeps the
      * pin the old, vaguer address produced, for ever, and the map quietly
-     * shows the wrong field.
-     *
-     * The `coordinates_are_manual = 0` clause is the same fence as
-     * `recordGeocoding()`: somebody who moved the pin onto the actual
-     * field knows something Nominatim does not.
+     * shows the wrong field. A hand-placed point stays out of the queue.
      */
     public function clearGeocoding(int $id): void
     {
-        $stmt = $this->pdo->prepare(
-            'UPDATE camp_places SET geocoded_at = NULL WHERE id = ? AND coordinates_are_manual = 0'
-        );
-        $stmt->execute([$id]);
+        $this->points()->forgetGeocoding($id);
     }
 
     /**
@@ -243,11 +238,11 @@ class PlaceRepository
      */
     public function setManualCoordinates(int $id, ?float $latitude, ?float $longitude): void
     {
-        $stmt = $this->pdo->prepare(
-            'UPDATE camp_places SET latitude = ?, longitude = ?, coordinates_are_manual = 1, updated_at = ? WHERE id '
-                . '= ?'
+        $this->points()->setManual(
+            $id,
+            $latitude !== null && $longitude !== null ? new GeoPoint($latitude, $longitude) : null,
+            new \DateTimeImmutable()
         );
-        $stmt->execute([$latitude, $longitude, date('Y-m-d H:i:s'), $id]);
     }
 
     /**
@@ -258,11 +253,16 @@ class PlaceRepository
      */
     public function copyCoordinates(int $id, float $latitude, float $longitude, bool $manual): void
     {
-        $stmt = $this->pdo->prepare(
-            'UPDATE camp_places SET latitude = ?, longitude = ?, coordinates_are_manual = ?, updated_at = ? WHERE id '
-                . '= ?'
-        );
-        $stmt->execute([$latitude, $longitude, $manual ? 1 : 0, date('Y-m-d H:i:s'), $id]);
+        $this->points()->copy($id, new GeoPoint($latitude, $longitude), $manual, new \DateTimeImmutable());
+    }
+
+    /**
+     * The four point columns of camp_places, written under the core's
+     * manual-lock rule.
+     */
+    private function points(): GeoPointStore
+    {
+        return new GeoPointStore($this->pdo, 'camp_places');
     }
 
     /**
