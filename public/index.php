@@ -10161,7 +10161,14 @@ if ($isEnabled('covoiturage')) {
             $covoiturageOfferRepo,
             $covoiturageRequestRepo,
             $covoiturageBoard,
-            new \Modules\Covoiturage\Service\OfferService($covoiturageOfferRepo, $covoiturageRequestRepo, $pdo),
+            new \Modules\Covoiturage\Service\OfferService(
+                $covoiturageOfferRepo,
+                $covoiturageRequestRepo,
+                $pdo,
+                // The eight notifications, each to its one party; the
+                // staff gets none on account of its role (D11).
+                new \Modules\Covoiturage\Service\CarpoolNotifier($notificationService)
+            ),
             $covoiturageViewers
         )
     );
@@ -10201,6 +10208,26 @@ if ($isEnabled('covoiturage')) {
             '+1 minute'
         );
     }
+
+    // The reminder to a driver whose request is waiting — daily, re-armed
+    // by the handler.
+    $schedulerService->seed(
+        'covoiturage',
+        \Modules\Covoiturage\Task\RemindPendingRequestsHandler::TASK_KEY,
+        \Modules\Covoiturage\Task\RemindPendingRequestsHandler::REFERENCE,
+        'today 18:00'
+    );
+
+    // The agenda line under every linked event (IT-05), in the personal
+    // feed only — the registry is read by nothing else (§7.6). Null when
+    // calendar is off: then there is no agenda to write in.
+    $calendarDescriptionEnrichers?->register(new \Modules\Covoiturage\Service\CarpoolAgendaEnricher(
+        $covoiturageCarpoolRepo,
+        $covoiturageOfferRepo,
+        $covoiturageRequestRepo,
+        $userAccountRepo,
+        (string) ($settingService->get('base_url') ?? '')
+    ));
 
     // The organiser's form draws a map: the CSP has to let the tiles in.
     $mapTileOrigin = \Core\Geo\MapTiles::ORIGIN;

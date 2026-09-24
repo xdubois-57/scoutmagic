@@ -163,7 +163,7 @@ final class OfferServiceTest extends TestCase
         $this->assertNotNull($request);
 
         try {
-            $this->service->accept($request, $offer, H::viewer(1));
+            $this->service->accept($request, $offer, H::viewer(1), $carpool);
             $this->fail('A full car accepted one more passenger.');
         } catch (CarpoolException $e) {
             $this->assertStringStartsWith('Cette voiture est complète', $e->getMessage());
@@ -183,10 +183,10 @@ final class OfferServiceTest extends TestCase
         $stale = $this->requests->findById($requestId);
         $this->assertNotNull($offer);
         $this->assertNotNull($stale);
-        $this->service->accept($stale, $offer, H::viewer(1));
+        $this->service->accept($stale, $offer, H::viewer(1), $carpool);
 
         $this->expectException(CarpoolException::class);
-        $this->service->refuse($stale, $offer, H::viewer(1));
+        $this->service->refuse($stale, $offer, H::viewer(1), $carpool);
     }
 
     public function testARequestNamesSeveralPeopleAndCountsThemAll(): void
@@ -213,7 +213,7 @@ final class OfferServiceTest extends TestCase
 
         // Pending holds nothing; accepted holds two seats, not one.
         $this->assertSame(0, $this->requests->acceptedSeats($offerId));
-        $this->service->accept($request, $offer, H::viewer(1));
+        $this->service->accept($request, $offer, H::viewer(1), $carpool);
         $this->assertSame(2, $this->requests->acceptedSeats($offerId));
     }
 
@@ -230,7 +230,7 @@ final class OfferServiceTest extends TestCase
 
         // One seat left, two people asked: accepted whole or not at all.
         try {
-            $this->service->accept($pending, $offer, H::viewer(1));
+            $this->service->accept($pending, $offer, H::viewer(1), $carpool);
             $this->fail('A request for two was accepted with one seat left.');
         } catch (CarpoolException $e) {
             $this->assertStringContainsString('1 place libre', $e->getMessage());
@@ -267,7 +267,7 @@ final class OfferServiceTest extends TestCase
         $this->assertNotNull($offer);
 
         try {
-            $this->service->update($offer, $this->offerInput(['seats' => '2']), H::viewer(1));
+            $this->service->update($offer, $this->offerInput(['seats' => '2']), H::viewer(1), $carpool);
             $this->fail('Seats went below the three already granted.');
         } catch (CarpoolException $e) {
             $this->assertSame(OfferService::seatsBelowTaken(3), $e->getMessage());
@@ -275,7 +275,7 @@ final class OfferServiceTest extends TestCase
         $this->assertSame(4, $this->offers->findById($offerId)?->seats);
 
         // Exactly the granted number is fine.
-        $this->service->update($offer, $this->offerInput(['seats' => '3']), H::viewer(1));
+        $this->service->update($offer, $this->offerInput(['seats' => '3']), H::viewer(1), $carpool);
         $this->assertSame(3, $this->offers->findById($offerId)?->seats);
     }
 
@@ -285,8 +285,8 @@ final class OfferServiceTest extends TestCase
         $offer = $this->offers->findById(H::offer($this->pdo, (int) $carpool?->id, 1));
         $this->assertNotNull($offer);
 
-        $this->assertFalse($this->service->update($offer, $this->offerInput(['seats' => '5']), H::viewer(1)));
-        $this->assertTrue($this->service->update($offer, $this->offerInput(['departure_time' => '09:00']), H::viewer(1)));
+        $this->assertFalse($this->service->update($offer, $this->offerInput(['seats' => '5']), H::viewer(1), $carpool));
+        $this->assertTrue($this->service->update($offer, $this->offerInput(['departure_time' => '09:00']), H::viewer(1), $carpool));
     }
 
     public function testOnlyTheDriverDecides(): void
@@ -300,7 +300,7 @@ final class OfferServiceTest extends TestCase
 
         foreach (['accept', 'refuse'] as $action) {
             try {
-                $this->service->{$action}($request, $offer, H::viewer(3));
+                $this->service->{$action}($request, $offer, H::viewer(3), $carpool);
                 $this->fail("{$action} by somebody who does not drive.");
             } catch (CarpoolException) {
                 $this->assertSame(SeatRequest::PENDING, $this->requests->findById($request->id)?->status);
@@ -318,7 +318,7 @@ final class OfferServiceTest extends TestCase
         $this->assertNotNull($offer);
         $this->assertNotNull($request);
 
-        $this->service->revoke($request, $offer, H::viewer(1));
+        $this->service->revoke($request, $offer, H::viewer(1), $carpool);
 
         $this->assertSame(SeatRequest::REVOKED, $this->requests->findById($requestId)?->status);
         $this->assertSame(0, $this->requests->acceptedSeats($offerId));
@@ -334,7 +334,7 @@ final class OfferServiceTest extends TestCase
         $this->assertNotNull($request);
 
         $this->expectException(CarpoolException::class);
-        $this->service->revoke($request, $offer, H::viewer(1));
+        $this->service->revoke($request, $offer, H::viewer(1), $carpool);
     }
 
     public function testTheRequesterWithdrawsAndTheRowGoes(): void
@@ -343,14 +343,17 @@ final class OfferServiceTest extends TestCase
         $offerId = H::offer($this->pdo, (int) $carpool?->id, 1);
         $requestId = H::request($this->pdo, $offerId, 2, ['A'], SeatRequest::ACCEPTED);
         $request = $this->requests->findById($requestId);
+        $offer = $this->offers->findById($offerId);
         $this->assertNotNull($request);
+        $this->assertNotNull($carpool);
+        $this->assertNotNull($offer);
 
         try {
-            $this->service->withdraw($request, H::viewer(3));
+            $this->service->withdraw($request, H::viewer(3), $carpool, $offer);
             $this->fail('Somebody else withdrew the request.');
         } catch (CarpoolException) {
         }
-        $this->service->withdraw($request, H::viewer(2));
+        $this->service->withdraw($request, H::viewer(2), $carpool, $offer);
 
         $this->assertNull($this->requests->findById($requestId));
     }
@@ -384,7 +387,7 @@ final class OfferServiceTest extends TestCase
         $offer = $this->offers->findById($offerId);
         $this->assertNotNull($offer);
 
-        $affected = $this->service->cancel($offer, H::viewer(1));
+        $affected = $this->service->cancel($offer, H::viewer(1), $carpool);
 
         $this->assertCount(2, $affected);
         $this->assertNull($this->offers->findById($offerId));

@@ -38,7 +38,9 @@ class OfferService
     public function __construct(
         private OfferRepository $offers,
         private SeatRequestRepository $requests,
-        private \PDO $pdo
+        private \PDO $pdo,
+        /** Null in the tests that are not about notifications. */
+        private ?CarpoolNotifier $notifier = null
     ) {
     }
 
@@ -106,7 +108,7 @@ class OfferService
      *              passengers already accepted have to be told
      * @throws CarpoolException
      */
-    public function update(Offer $offer, array $input, CarpoolViewer $viewer): bool
+    public function update(Offer $offer, array $input, CarpoolViewer $viewer, Carpool $carpool): bool
     {
         $this->assertDriver($offer, $viewer);
         // Checked before the general range: « 3 places sont déjà accordées »
@@ -128,7 +130,20 @@ class OfferService
             $common['note']
         );
 
-        return $time !== $offer->departureTime || $common['endpoint'] !== $offer->endpoint;
+        $changed = $time !== $offer->departureTime || $common['endpoint'] !== $offer->endpoint;
+        $after = $this->offers->findById($offer->id);
+        if ($changed && $after !== null) {
+            // The passengers who hold a seat plan around the time and the
+            // place; a change of seats or of the note is not news to them.
+            $this->notifier?->offerChanged(
+                $carpool,
+                $offer,
+                $after,
+                $this->requests->findByOffers([$offer->id])[$offer->id] ?? []
+            );
+        }
+
+        return $changed;
     }
 
     /**
@@ -149,7 +164,7 @@ class OfferService
      *                           for whoever has to be told
      * @throws CarpoolException
      */
-    public function cancel(Offer $offer, CarpoolViewer $viewer): array
+    public function cancel(Offer $offer, CarpoolViewer $viewer, Carpool $carpool): array
     {
         $this->assertDriver($offer, $viewer);
         $affected = array_values(array_filter(
@@ -157,6 +172,7 @@ class OfferService
             static fn(SeatRequest $r): bool => $r->isActive()
         ));
         $this->offers->delete($offer->id);
+            $this->notifier?->offerCancelled($carpool, $offer, $affected);
 
         return $affected;
     }
@@ -217,6 +233,11 @@ class OfferService
             throw $e;
         }
 
+        $created = $this->requests->findById($id);
+        if ($created !== null) {
+            $this->notifier?->requestReceived($carpool, $offer, $created);
+        }
+
         return $id;
     }
 
@@ -225,7 +246,7 @@ class OfferService
      *
      * @throws CarpoolException
      */
-    public function accept(SeatRequest $request, Offer $offer, CarpoolViewer $viewer): void
+    public function accept(SeatRequest $request, Offer $offer, CarpoolViewer $viewer, Carpool $carpool): void
     {
         $this->assertDriver($offer, $viewer);
         if (!$request->isPending()) {
@@ -252,10 +273,11 @@ class OfferService
             $this->pdo->rollBack();
             throw $e;
         }
+        $this->notifier?->requestAccepted($carpool, $offer, $request);
     }
 
     /** @throws CarpoolException */
-    public function refuse(SeatRequest $request, Offer $offer, CarpoolViewer $viewer): void
+    public function refuse(SeatRequest $request, Offer $offer, CarpoolViewer $viewer, Carpool $carpool): void
     {
         $this->assertDriver($offer, $viewer);
         if (!$request->isPending()) {
@@ -264,6 +286,7 @@ class OfferService
         if (!$this->requests->transition($request->id, SeatRequest::PENDING, SeatRequest::REFUSED)) {
             throw new CarpoolException('Cette demande a déjà reçu une réponse.');
         }
+        $this->notifier?->requestRefused($carpool, $offer, $request);
     }
 
     /**
@@ -273,7 +296,7 @@ class OfferService
      *
      * @throws CarpoolException
      */
-    public function revoke(SeatRequest $request, Offer $offer, CarpoolViewer $viewer): void
+    public function revoke(SeatRequest $request, Offer $offer, CarpoolViewer $viewer, Carpool $carpool): void
     {
         $this->assertDriver($offer, $viewer);
         if (!$request->isAccepted()) {
@@ -282,6 +305,7 @@ class OfferService
         if (!$this->requests->transition($request->id, SeatRequest::ACCEPTED, SeatRequest::REVOKED)) {
             throw new CarpoolException('Seule une place accordée peut être retirée.');
         }
+        $this->notifier?->seatRevoked($carpool, $offer, $request);
     }
 
     /**
@@ -289,7 +313,7 @@ class OfferService
      *
      * @throws CarpoolException
      */
-    public function withdraw(SeatRequest $request, CarpoolViewer $viewer): void
+    public function withdraw(SeatRequest $request, CarpoolViewer $viewer, Carpool $carpool, Offer $offer): void
     {
         if ($request->requesterAccountId !== $viewer->accountId) {
             throw new CarpoolException('Cette demande n\'est pas la vôtre.');
@@ -298,6 +322,7 @@ class OfferService
             throw new CarpoolException('Cette demande n\'est plus en cours.');
         }
         $this->requests->delete($request->id);
+            $this->notifier?->requestWithdrawn($carpool, $offer, $request);
     }
 
     /**

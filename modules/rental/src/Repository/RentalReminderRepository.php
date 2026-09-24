@@ -57,7 +57,7 @@ class RentalReminderRepository
         // in this repository ever drops one — `drops.sql` is for columns,
         // and says so. A redefined `idx_rental_reminder_once` would
         // therefore have stayed exactly as it is on every installed site
-        // (AGENTS.md § Schema), still refusing the second insert, while
+        // (AGENTS.md § Database), still refusing the second insert, while
         // passing on a fresh install. The failure would have been invisible
         // precisely where it mattered.
         //

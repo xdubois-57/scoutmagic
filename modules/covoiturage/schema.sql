@@ -113,6 +113,11 @@ CREATE TABLE IF NOT EXISTS carpool_requests (
     phone_encrypted BLOB NOT NULL,
     status ENUM('pending', 'accepted', 'refused', 'revoked') NOT NULL DEFAULT 'pending',
     decided_at DATETIME NULL,
+    -- When the driver was last reminded of this request while it waited
+    -- (Task\RemindPendingRequestsHandler): a reminder every few days, never
+    -- one a day — a driver who has not answered yet does not need a daily
+    -- nudge, which is also why that notification never goes by e-mail.
+    reminded_at DATETIME NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_carpool_requests_offer (offer_id, status),

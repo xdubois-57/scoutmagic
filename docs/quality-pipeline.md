@@ -1519,6 +1519,21 @@ nothing**:
   label applied, an agent launched — read back from the transcript or from
   GitHub's own state. Anything a job asserts about its agent must be a
   count of one of those.
+- **A test can report a defect on every run and never make the suite red.**
+  PHPUnit's *risky* and *warning* verdicts are printed and then forgotten:
+  the command exits 0 unless `failOnRisky` / `failOnWarning` say otherwise,
+  and `phpunit.xml` declared neither. Fifteen tests in
+  `Tests\Bootstrap\BootstrapRequestHandlersTest` reported « Test code or
+  tested code closed output buffers other than its own » on every run since
+  they were written — a real defect in `bootstrapSendJson()`, named in the
+  output, under a green `test` job, for months. What made it invisible is
+  not that nobody looked: it is that the only thing anyone reads about a
+  suite is whether it passed, and this verdict does not change that answer.
+  `failOnRisky` is on now (issue #426); `failOnWarning` is deliberately not,
+  because six warnings remain and turning them red is its own piece of work.
+  The order matters and is the general rule for this whole family: **bring
+  the count to zero first, then close the door**, or the flag lands red on
+  day one and is reverted before it has ever protected anything.
 - A `CODEOWNERS` entry naming a non-collaborator is **ignored silently**, so
   a protection rule can be enabled, appear active, and match nothing.
 - A local reproduction that runs on the wrong database engine, or without

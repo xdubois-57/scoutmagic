@@ -313,3 +313,45 @@ qu'un utilisateur atteint, entrée de menu ou non, et la CI refuserait le
 module sans eux. IT-06 les reprend pour les libellés de menu.
 `ModulesPageMockupTest` apprend qu'un module peut être arrivé après la
 maquette de `/config/modules` (liste nommée, avec son rayon).
+
+---
+
+## IT-05 — Notifications et agenda
+
+**Livré.** Les huit types `covoiturage.*`, déclarés dans le `module.json`
+du module (voir l'écart 5 de la vérification préalable), `in_app`
+verrouillé partout, push et e-mail par défaut sauf l'e-mail de
+`request_pending` et de `request_withdrawn`, à `off`. `Service\CarpoolNotifier`
+les envoie depuis `OfferService`, chacun à sa seule partie ;
+`Task\RemindPendingRequestsHandler` (quotidienne) relance le conducteur
+d'une demande qui attend depuis deux jours, pas plus d'une fois tous les
+trois jours pour la même demande (colonne `reminded_at`, version 1.1.0),
+et jamais pour un trajet passé. `Service\CarpoolAgendaEnricher` se branche
+sur le point d'extension d'IT-03 et écrit, sous chaque évènement lié, une
+ligne par trajet que le lecteur conduit ou a demandé : sens, heure, lieu,
+statut, lien. Documentation : `ARCHITECTURE.md` §8.120,
+`specifications.md` §45.4.
+
+**Tests.** `CarpoolNotificationsTest` (chaque type à sa partie et à
+personne d'autre, le retrait d'une place formulé autrement qu'un refus, le
+staff jamais destinataire au titre de son rôle, un chef conducteur notifié
+une seule fois, aucun numéro dans un message) ; `NotificationTypesTest`
+(les huit types et leurs canaux) ; `RemindPendingRequestsHandlerTest` ;
+`CarpoolAgendaTest` (lignes du conducteur et du demandeur sur chacun des
+évènements liés, statut, ligne disparue après un refus, **aucun numéro
+dans l'ICS**).
+
+**Décisions autonomes.**
+
+1. **Le rappel est espacé** — deux jours d'attente avant le premier, trois
+   jours entre deux — plutôt que quotidien : le document écarte le courriel
+   quotidien ; un push quotidien pour la même demande serait le même bruit.
+2. **Une voiture annulée** envoie deux messages distincts : « Votre place
+   n'est plus réservée » aux passagers acceptés, « Votre demande est
+   annulée avec elle » aux demandes en attente.
+3. **`offer_changed` ne part que pour l'heure ou le point de rendez-vous** :
+   un changement du nombre de places ou de la note n'est pas une nouvelle
+   pour qui a déjà sa place.
+4. **Aucun nom propre accordé au genre** dans les messages (« Famille Leroy
+   a retiré sa demande » plutôt que « s'est désistée ») : le nom du
+   demandeur n'est pas toujours « Famille … ».
