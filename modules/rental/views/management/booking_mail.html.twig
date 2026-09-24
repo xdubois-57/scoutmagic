@@ -23,9 +23,12 @@
     <div class="card mb-3">
         <div class="card-body small text-body-secondary">
             Cette page existe parce que les locations disposent d'une boîte dédiée,
-            <strong>{{ mailbox_address }}</strong>. Elle montre donc tout son courrier, pas seulement
-            les messages déjà rattachés à une réservation. Les e-mails que le site envoie aux
-            locataires portent cette adresse en réponse.
+            <strong>{{ mailbox_address ?: mailbox_name }}</strong>. Elle montre donc tout son courrier,
+            pas seulement les messages déjà rattachés à une réservation.
+            {% if mailbox_address %}
+                Les e-mails que le site envoie aux locataires portent
+                cette adresse en réponse.
+            {% endif %}
         </div>
     </div>
 

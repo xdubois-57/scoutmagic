@@ -133,6 +133,32 @@ class InboundMailServiceTest extends TestCase
         $this->assertSame([], $this->service->dedicatedMailboxesFor('finance'));
     }
 
+    /**
+     * A box logged into with a bare IMAP login has no address to give: the
+     * box is still the module's own, but nothing may be written to it.
+     */
+    public function testABoxWhoseLoginIsNotAnAddressGivesNone(): void
+    {
+        $login = $this->mailboxRepository->create(
+            'Chalet',
+            ProviderType::IMAP,
+            'imap.test',
+            993,
+            'ssl',
+            'chalet',
+            'secret',
+            ['INBOX'],
+            true
+        );
+        $this->mailboxRepository->setPurpose($login, MailboxPurpose::DEDICATED, 'camps');
+
+        $boxes = $this->service->dedicatedMailboxesFor('camps');
+
+        $this->assertCount(1, $boxes);
+        $this->assertSame('Chalet', $boxes[0]->name);
+        $this->assertNull($boxes[0]->address);
+    }
+
     private function storeMessage(
         string $reference = 'LOC-2027-0042',
         string $consumerId = 'rental',

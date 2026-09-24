@@ -80,6 +80,8 @@ class RentalBookingMailService
 
         $boxes = $this->inboundMail?->dedicatedMailboxesFor($consumer) ?? [];
 
+        // A box whose account is a login rather than an address has none
+        // to give: null, and the mail goes out as it did before.
         return count($boxes) === 1 ? $boxes[0]->address : null;
     }
 

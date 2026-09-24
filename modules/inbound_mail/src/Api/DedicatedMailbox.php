@@ -18,13 +18,17 @@ namespace Modules\InboundMail\Api;
  * module whose box this IS writes from it — the `Reply-To` of what it sends
  * about its own objects (issue #462). Never the host, the port or the
  * credentials.
+ *
+ * `address` is null when the box's account name is not an address — an
+ * IMAP login such as `locations` — the same test `ReplyAddressService`
+ * applies before minting: a login has no domain anyone could write to.
  */
 final class DedicatedMailbox
 {
     public function __construct(
         public readonly int $id,
         public readonly string $name,
-        public readonly string $address
+        public readonly ?string $address
     ) {
     }
 }

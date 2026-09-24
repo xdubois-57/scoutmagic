@@ -2766,7 +2766,7 @@ class RentalManagementControllerTest extends TestCase
         $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getBody();
 
         $this->assertStringContainsString('<strong>locations@unite.be</strong>', $body);
-        $this->assertStringContainsString('portent cette adresse en réponse', $body);
+        $this->assertStringContainsString('cette adresse en réponse', $body);
     }
 
     /**

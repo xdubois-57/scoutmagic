@@ -723,7 +723,8 @@ class InboundMailService implements InboundMailInterface
         $boxes = [];
         foreach ($this->mailboxRepository->findEnabled() as $mailbox) {
             if ($mailbox->isDedicated() && $mailbox->dedicatedTo === $consumerId) {
-                $boxes[] = new \Modules\InboundMail\Api\DedicatedMailbox($mailbox->id, $mailbox->name, $mailbox->username);
+                $address = filter_var($mailbox->username, FILTER_VALIDATE_EMAIL) !== false ? $mailbox->username : null;
+                $boxes[] = new \Modules\InboundMail\Api\DedicatedMailbox($mailbox->id, $mailbox->name, $address);
             }
         }
 

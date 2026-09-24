@@ -146,7 +146,7 @@ final class RentalBookingMailServiceTest extends TestCase
      * MailService would otherwise fall back on (issue #462, IT-04). Two
      * dedicated boxes are no box at all — which one would be arbitrary.
      *
-     * @return array<string, array{list<string>, ?string}>
+     * @return array<string, array{list<?string>, ?string}>
      */
     public static function dedicatedBoxes(): array
     {
@@ -154,11 +154,12 @@ final class RentalBookingMailServiceTest extends TestCase
             'one box: its address' => [['locations@unite.be'], 'locations@unite.be'],
             'two boxes: none' => [['locations@unite.be', 'chalet@unite.be'], null],
             'no box: none' => [[], null],
+            'one box on a bare login: none' => [[null], null],
         ];
     }
 
     /**
-     * @param list<string> $addresses
+     * @param list<?string> $addresses
      */
     #[\PHPUnit\Framework\Attributes\DataProvider('dedicatedBoxes')]
     public function testWithoutASignedAddressTheReplyGoesToRentalsOwnBox(array $addresses, ?string $expected): void
@@ -173,7 +174,7 @@ final class RentalBookingMailServiceTest extends TestCase
         $inboundMail = new class ($addresses) implements \Modules\InboundMail\Api\InboundMailInterface {
             use \Tests\Modules\InboundMail\InertInboundMail;
 
-            /** @param list<string> $addresses */
+            /** @param list<?string> $addresses */
             public function __construct(private readonly array $addresses)
             {
             }
@@ -181,7 +182,7 @@ final class RentalBookingMailServiceTest extends TestCase
             public function dedicatedMailboxesFor(string $consumerId): array
             {
                 return $consumerId !== 'rental' ? [] : array_map(
-                    static fn (string $address, int $i): \Modules\InboundMail\Api\DedicatedMailbox
+                    static fn (?string $address, int $i): \Modules\InboundMail\Api\DedicatedMailbox
                         => new \Modules\InboundMail\Api\DedicatedMailbox($i + 1, 'Boîte ' . $i, $address),
                     $this->addresses,
                     array_keys($this->addresses)
