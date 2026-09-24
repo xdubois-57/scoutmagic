@@ -1298,11 +1298,17 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
         }
 
         // A key core itself registers is one a module reads WITHOUT a
-        // scope, correctly and by design — `site_name`, `base_url`,
-        // `unit_address` and their like are read that way from seven
-        // modules. Judging those as offences would not close a gap, it
-        // would make the check wrong about thirty-one call sites that are
-        // right.
+        // scope, correctly and by design. Measured: `base_url` (16 call
+        // sites), `site_name` (12), `cron_last_run` (2) and `short_name`
+        // are read that way from eleven modules. Judging those as
+        // offences would not close a gap, it would make the check wrong
+        // about thirty-one call sites that are right.
+        //
+        // `unit_address` is NOT one of them, however it reads: nothing
+        // registers it anywhere, which is why it is listed as the one
+        // exception in CORE_KEYS_IN_MODULES rather than passing through
+        // here. Naming it among core's own keys would tell a reader the
+        // opposite of what that list says about it.
         return isset(self::declaredModuleKeys()[$key]) || isset(self::declaredCoreKeys()[$key]);
     }
 
