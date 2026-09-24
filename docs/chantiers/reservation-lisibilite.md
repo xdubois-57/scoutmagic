@@ -83,7 +83,13 @@ La roadmap a été écrite sur le commit `5af544e` du 23 septembre 2026 ;
    reste est ailleurs : quand l'opérateur désactive les adresses signées,
    `null` est passé, et c'est alors l'adresse du site qui s'applique. À
    traiter en IT-04.
-7. **L'aide de la réservation parlait d'un état antérieur du site** —
+7. **Un exemple de la maquette se contredit** (relevé en relecture) : le
+   dossier « Avant le séjour » a un séjour du 2 au 9 août 2026 et un solde
+   attendu pour le 15 septembre, échu de 4 jours — un séjour déjà passé
+   dans une phase qui le précède. La maquette est déposée telle quelle,
+   puisqu'elle fait foi et n'a pas été écrite ici ; l'incohérence ne touche
+   que ses données d'exemple, pas la forme qu'elle fixe.
+8. **L'aide de la réservation parlait d'un état antérieur du site** —
    « la carte « État » qui le répétait plus bas n'existe plus », « Où sont
    passés le prix et les paiements », « Pourquoi la carte « État » a-t-elle
    disparu » — ce que la roadmap interdit désormais. Réécrite en IT-01,
@@ -155,7 +161,12 @@ La roadmap a été écrite sur le commit `5af544e` du 23 septembre 2026 ;
    la boîte existante, sous sa condition existante (le module relève une
    boîte). IT-04 change la condition (une boîte dédiée) et le contenu (le
    composant partagé d'IT-03).
-8. **Les sujets d'aide suivent dès IT-01** : les trois nouvelles pages
+8. **Chaque page ne charge que ce qu'elle affiche** (relevé en relecture) :
+   le tableau de bord calcule le parcours, Finances lit le prix et les
+   paiements, Documents les documents, Courrier la boîte. Le découpage
+   est d'abord pour le lecteur, mais une page Finances rechargée après
+   chaque ligne de prix n'a pas à relire la boîte e-mail ni l'historique.
+9. **Les sujets d'aide suivent dès IT-01** : les trois nouvelles pages
    sont couvertes par les sujets existants (`HelpMenuCoverageTest`, où
    `*` vaut un seul segment, l'exigeait), et le sujet de la réservation
    décrit les quatre pages. Un sujet par page reste l'affaire d'IT-05.

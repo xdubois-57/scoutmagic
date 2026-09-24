@@ -556,7 +556,7 @@ class RentalManagementControllerTest extends TestCase
      * controller the setUp built rather than on a second one, so every
      * other collaborator stays the one the other tests use.
      */
-    private function withCollectingMailbox(): void
+    private function withCollectingMailbox(): \Modules\InboundMail\Api\InboundMailInterface&\PHPUnit\Framework\MockObject\MockObject
     {
         $inbound = $this->createMock(\Modules\InboundMail\Api\InboundMailInterface::class);
         $inbound->method('isCollecting')->willReturn(true);
@@ -574,6 +574,8 @@ class RentalManagementControllerTest extends TestCase
         );
         (new \ReflectionProperty(RentalManagementController::class, 'communicationService'))
             ->setValue($this->controller, $service);
+
+        return $inbound;
     }
 
     // ── The authorisation matrix ────────────────────────────────────────
@@ -2117,6 +2119,33 @@ class RentalManagementControllerTest extends TestCase
                 "{$page->value} is not the selected chip"
             );
         }
+    }
+
+    /**
+     * Each page loads what it renders: Finances — refreshed after every
+     * price line — reads neither the mailbox nor anything else of another
+     * page's, and only Courrier asks the mailbox for the booking's mail.
+     */
+    public function testAPageReadsOnlyWhatItRenders(): void
+    {
+        $this->loginAsManager();
+        $inbound = $this->withCollectingMailbox();
+        $booking = $this->createBooking();
+
+        $inbound->expects($this->never())->method('findForReference');
+        foreach ([BookingPage::DASHBOARD, BookingPage::FINANCES, BookingPage::DOCUMENTS] as $page) {
+            $this->assertSame(200, $this->filePage($page, 'local-saint-georges', $booking->id)->getStatusCode());
+        }
+    }
+
+    public function testOnlyTheMailPageAsksForTheBookingsMail(): void
+    {
+        $this->loginAsManager();
+        $inbound = $this->withCollectingMailbox();
+        $booking = $this->createBooking();
+
+        $inbound->expects($this->once())->method('findForReference')->willReturn([]);
+        $this->assertSame(200, $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getStatusCode());
     }
 
     /**

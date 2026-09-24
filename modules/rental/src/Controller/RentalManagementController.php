@@ -840,25 +840,6 @@ class RentalManagementController extends AbstractController
 
         $now = new \DateTimeImmutable();
 
-        $documents = $this->documentService?->forBooking($booking->id);
-        $payment = $this->paymentStatus($booking, $asset);
-        // Null, not [], when the stay module is unavailable: the checklist
-        // reads the difference between "no inventory on this asset" and
-        // "inventories do not exist here" (Booking\MilestoneEvidence).
-        $inventory = $this->stayService?->inventoryFor($booking->id);
-        $consumptions = $this->stayService?->consumptionsFor($booking, $asset->id);
-        $evidence = MilestoneEvidence::collect(
-            $booking,
-            $documents,
-            $payment,
-            $inventory,
-            $consumptions,
-            $this->stayService?->latestSettlement($booking->id)
-        );
-
-        $milestones = BookingMilestones::for($booking, $now, $evidence->done, $evidence->details);
-        $transitions = BookingTransition::allowedFrom($booking->status);
-
         // Keyed by the enum's own value so the template writes
         // `boxes.payment.anchor` rather than the string that anchor
         // happens to be today: the journey's links are built from the same
@@ -869,7 +850,7 @@ class RentalManagementController extends AbstractController
             $boxes[$box->value] = $box;
         }
 
-        return $this->render(self::BOOKING_PAGE_TEMPLATES[$page->value], [
+        $context = [
             'asset' => $asset,
             'booking' => $booking,
             // The base every link of the file is built on: the rail's
@@ -885,26 +866,87 @@ class RentalManagementController extends AbstractController
             // asset's.
             'breadcrumb_current' => $booking->reference,
             'breadcrumb_trail' => $this->bookingTrail($asset),
-            // The checklist is derived from what the booking's own records
-            // say — the contract that was sent, the deposit that arrived,
-            // the inventory that was finished — never from a stored flag,
-            // so pressing a button on this page moves the box it belongs to
-            // (§6.15).
-            'milestones' => $milestones,
-            // The same checklist, staged into the five stretches the page
-            // reads in — and the one outstanding milestone « L'action
-            // suivante » shows. Derived from `milestones` above, never
-            // beside it: two derivations of one lifecycle is exactly how a
-            // page starts telling two stories (Booking\BookingJourney).
+            'is_in_progress' => $booking->isInProgress($now),
+            'nav_page' => 'bookings',
+            'boxes' => $boxes,
+        ];
+
+        // Each page loads what it renders and nothing else: the pages
+        // split the file for the reader, and a Finances page — refreshed
+        // after every price line — has no business reading the mailbox or
+        // the history.
+        return $this->render(
+            self::BOOKING_PAGE_TEMPLATES[$page->value],
+            $context + match ($page) {
+                BookingPage::DASHBOARD => $this->dashboardContext($booking, $asset, $now),
+                BookingPage::FINANCES => [
+                    'quote' => $this->operationsService->workingQuote($booking, $asset),
+                    'payment' => $this->paymentStatus($booking, $asset),
+                ],
+                BookingPage::DOCUMENTS => [
+                    'documents' => $this->documentService?->forBooking($booking->id) ?? [],
+                    'uploadable_types' => DocumentType::uploadable(),
+                    'billing' => $this->operationsService->billingIdentity($booking->id),
+                ],
+                // Only offered at all when a mailbox collects, which
+                // `bookingPagesOffered()` settled above.
+                BookingPage::MAIL => [
+                    'messages' => $this->communicationService?->timeline($booking) ?? [],
+                    'message_propositions' => $this->communicationService?->propositions($booking) ?? [],
+                    'message_documents' => $this->communicationService?->documentsByFileId($booking) ?? [],
+                    'move_targets' => $this->communicationService?->moveTargets(
+                        $booking,
+                        AuthSession::getEmail(),
+                        $this->scoutYearId()
+                    ) ?? [],
+                ],
+            }
+        );
+    }
+
+    /**
+     * What the dashboard renders: the journey, the details, and the boxes
+     * that stayed with them.
+     *
+     * @return array<string, mixed>
+     */
+    private function dashboardContext(RentalBooking $booking, RentalAsset $asset, \DateTimeImmutable $now): array
+    {
+        $documents = $this->documentService?->forBooking($booking->id);
+        $payment = $this->paymentStatus($booking, $asset);
+        // Null, not [], when the stay module is unavailable: the checklist
+        // reads the difference between "no inventory on this asset" and
+        // "inventories do not exist here" (Booking\MilestoneEvidence).
+        $inventory = $this->stayService?->inventoryFor($booking->id);
+        $evidence = MilestoneEvidence::collect(
+            $booking,
+            $documents,
+            $payment,
+            $inventory,
+            $this->stayService?->consumptionsFor($booking, $asset->id),
+            $this->stayService?->latestSettlement($booking->id)
+        );
+
+        // The checklist is derived from what the booking's own records say
+        // — the contract that was sent, the deposit that arrived, the
+        // inventory that was finished — never from a stored flag, so
+        // pressing a button moves the line it belongs to (§6.15).
+        $milestones = BookingMilestones::for($booking, $now, $evidence->done, $evidence->details);
+        $transitions = BookingTransition::allowedFrom($booking->status);
+
+        return [
+            // The checklist staged into the five stretches the page reads
+            // in, and the one outstanding milestone « L'action suivante »
+            // shows — one derivation, never two beside each other
+            // (Booking\BookingJourney).
             'journey' => BookingJourney::of($milestones, $transitions),
-            'allowed_transitions' => $transitions,
             // Keyed by status value so the template can ask "does this
             // button write to the renter?" without knowing which statuses
             // do — that answer belongs to Booking\RenterDecision alone.
             'renter_decisions' => self::renterDecisionPrompts($transitions),
-            'can_confirm' => BookingTransition::isAllowed($booking->status, BookingStatus::CONFIRMED),
+            // The details' total, and what has been paid against it.
             'quote' => $this->operationsService->workingQuote($booking, $asset),
-            'price_is_agreed' => $booking->priceHasBeenAgreed(),
+            'payment' => $payment,
             'comments' => $this->decorateWithAuthors($this->commentRepository->findForBooking($booking->id)),
             // The booking's own change history (§6.15), through Core\Audit
             // (§8.66) like every other timeline on the site. The partial
@@ -919,27 +961,7 @@ class RentalManagementController extends AbstractController
             ),
             'audit_labels' => BookingAudit::FIELD_LABELS,
             'change_requests' => $this->changeRequestRepository->findForBooking($booking->id),
-            'is_in_progress' => $booking->isInProgress($now),
-            'payment' => $payment,
-            'documents' => $documents ?? [],
-            // Communications (§7.7). Absent rather than empty when
-            // `inbound_mail` is disabled or no mailbox is enabled: a tab
-            // that can only ever be empty is noise on a busy page.
-            'communications_available' => $this->communicationService?->isAvailable() ?? false,
-            'messages' => $this->communicationService?->timeline($booking) ?? [],
-            'message_propositions' => $this->communicationService?->propositions($booking) ?? [],
-            'message_documents' => $this->communicationService?->documentsByFileId($booking) ?? [],
-            'move_targets' => $this->communicationService?->moveTargets(
-                $booking,
-                AuthSession::getEmail(),
-                $this->scoutYearId()
-            ) ?? [],
-            'uploadable_types' => DocumentType::uploadable(),
-            'billing' => $this->operationsService->billingIdentity($booking->id),
-            'csrf_token' => CsrfGuard::generateToken(),
-            'nav_page' => 'bookings',
-            'boxes' => $boxes,
-        ]);
+        ];
     }
 
     /**
