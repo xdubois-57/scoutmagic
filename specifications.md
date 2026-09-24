@@ -1097,7 +1097,7 @@ With the Courrier entrant module, replies are attached to the right booking auto
 
 Two mailboxes dedicated to rentals give no page: the page shows one box, and picking between two would be arbitrary. The list of mailboxes in the incoming-mail configuration says so, and the change that created the case is journaled. A shared mailbox still feeds the automatic filing.
 
-**A renter's « Répondre » reaches that box.** Every e-mail about a booking carries the signed reply address when the operator allows it, and otherwise the dedicated box's own address — never the site's general reply address, which would send the answer somewhere the page does not read. Mass mailings are not affected.
+**A renter's « Répondre » reaches that box.** Every e-mail about a booking carries the signed reply address when the operator allows it, and otherwise the dedicated box's own address, which keeps the answer off the site's general reply address that the page does not read. With no dedicated box, or two, nothing is passed and the site's ordinary reply address applies instead. Mass mailings are not affected.
 
 ### 22.10 The paperwork register
 
