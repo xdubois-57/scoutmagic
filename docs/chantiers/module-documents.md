@@ -330,10 +330,9 @@ PHPUnit complète verte (SQLite, 20 620 tests) ; groupe `database` de
   déclenchera l'extraction.
 - `specifications.md` §46 complété : les versions (46.4) et l'écran de
   gestion (46.5), et la ligne de §4.4 qui mentionne l'historique.
-- Sujet d'aide public : ce que voit un visiteur anonyme, et le message
-  exact qu'affiche un lien réservé ou l'ancien lien d'une version
-  remplacée. Le sujet de gestion avait reçu sa section sur les versions
-  avec l'IT-02.
+- Sujet d'aide public : le message exact qu'affiche un lien réservé ou
+  l'ancien lien d'une version remplacée. Le sujet de gestion avait reçu
+  sa section sur les versions avec l'IT-02.
 
 **Décisions autonomes.**
 - **Le message cité dans l'aide est celui de `FileController`** (« Ce
