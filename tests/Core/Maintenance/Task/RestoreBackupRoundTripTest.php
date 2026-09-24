@@ -18,6 +18,7 @@ use Core\Scheduler\TaskContext;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
 use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
 
 /**
  * Restoring a backup, actually restored.
@@ -73,7 +74,7 @@ class RestoreBackupRoundTripTest extends TestCase
                 [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
             );
         } catch (\Throwable $e) {
-            $this->markTestSkipped('No MySQL server to restore into: ' . $e->getMessage());
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('No MySQL server to restore into: ' . $e->getMessage());
         }
 
         // Its own database: a restore drops and reloads a schema, and doing
@@ -86,7 +87,7 @@ class RestoreBackupRoundTripTest extends TestCase
         $connection = new Connection($host, $port, $this->database, $user, $password);
         $result = $connection->testConnection();
         if ($result !== true) {
-            $this->markTestSkipped('Database connection not available: ' . $result);
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database connection not available: ' . $result);
         }
         $this->connection = $connection;
 

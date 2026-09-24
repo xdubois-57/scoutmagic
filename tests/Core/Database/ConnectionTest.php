@@ -6,6 +6,7 @@ namespace Tests\Core\Database;
 
 use Core\Database\Connection;
 use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
 
 class ConnectionTest extends TestCase
 {
@@ -158,7 +159,7 @@ class ConnectionTest extends TestCase
 
         $result = $connection->testConnection();
         if ($result !== true) {
-            $this->markTestSkipped('Database connection not available: ' . $result);
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database connection not available: ' . $result);
         }
 
         return $connection;

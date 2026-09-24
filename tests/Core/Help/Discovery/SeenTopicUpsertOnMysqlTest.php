@@ -12,6 +12,7 @@ namespace Tests\Core\Help\Discovery;
 use Core\Database\Connection;
 use Core\Help\Discovery\SeenTopicRepository;
 use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
 
 /**
  * `markSeen()` against the engine an installation actually runs.
@@ -60,11 +61,7 @@ class SeenTopicUpsertOnMysqlTest extends TestCase
             // rather than a test to quietly drop — letting this one skip
             // itself on the one engine it was written for would rebuild
             // the blind spot it exists to close.
-            if (getenv('TEST_DB_HOST') === false) {
-                $this->markTestSkipped('No MySQL server configured (TEST_DB_HOST unset): ' . $e->getMessage());
-            }
-
-            throw $e;
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised($e->getMessage());
         }
 
         $this->database = 'scoutmagic_discovery_' . bin2hex(random_bytes(6));

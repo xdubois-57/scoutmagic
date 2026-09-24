@@ -35,6 +35,7 @@ use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\Core\Maintenance\Remote\InMemorySettingService;
 use Tests\Core\Storage\Location\Backend\RefusingBackend;
+use Tests\DatabaseTestHelper;
 
 /**
  * The archive the recurring send actually builds — built for real.
@@ -316,7 +317,7 @@ final class SendRemoteBackupArchiveTest extends TestCase
         );
         $result = $connection->testConnection();
         if ($result !== true) {
-            $this->markTestSkipped('Database not available: ' . (is_string($result) ? $result : 'unknown error'));
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database not available: ' . (is_string($result) ? $result : 'unknown error'));
         }
 
         $runner = new MigrationRunner(

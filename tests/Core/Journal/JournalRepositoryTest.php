@@ -155,7 +155,7 @@ class JournalRepositoryTest extends TestCase
 
         $connection = new Connection($host, $port, $dbName, $user, $password);
         if ($connection->testConnection() !== true) {
-            $this->markTestSkipped('Database connection not available.');
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database connection not available.');
         }
 
         $pdo = $connection->getPdo();

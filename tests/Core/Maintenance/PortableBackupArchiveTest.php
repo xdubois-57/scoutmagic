@@ -22,6 +22,7 @@ use Core\Maintenance\Portable\PortableManifest;
 use Core\Maintenance\Portable\SecretEnvelope;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
 
 /**
  * A portable archive, actually built, then opened and inspected.
@@ -463,7 +464,7 @@ final class PortableBackupArchiveTest extends TestCase
         $connection = new Connection($host, $port, $dbName, $user, $password);
         $result = $connection->testConnection();
         if ($result !== true) {
-            $this->markTestSkipped('Database not available: ' . (is_string($result) ? $result : 'unknown error'));
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database not available: ' . (is_string($result) ? $result : 'unknown error'));
         }
 
         $introspector = new SchemaIntrospector($connection->getPdo());

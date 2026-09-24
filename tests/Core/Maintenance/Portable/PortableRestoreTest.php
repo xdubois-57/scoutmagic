@@ -23,6 +23,7 @@ use Core\Security\SecretManager;
 use Core\Statistics\InstallationIdentityService;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
 
 /**
  * One installation's archive, restored onto a different installation.
@@ -802,7 +803,7 @@ final class PortableRestoreTest extends TestCase
         $connection = new Connection($host, $port, $dbName, $user, $password);
         $result = $connection->testConnection();
         if ($result !== true) {
-            $this->markTestSkipped('Database not available: ' . (is_string($result) ? $result : 'unknown error'));
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database not available: ' . (is_string($result) ? $result : 'unknown error'));
         }
 
         $introspector = new SchemaIntrospector($connection->getPdo());

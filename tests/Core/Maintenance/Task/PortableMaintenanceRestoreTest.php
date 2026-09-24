@@ -28,6 +28,7 @@ use Core\Statistics\InstallationIdentityService;
 use Core\Security\UserAccountRepository;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
 
 /**
  * The other entry point: a portable archive uploaded to a site that is
@@ -466,7 +467,7 @@ final class PortableMaintenanceRestoreTest extends TestCase
         );
         $result = $connection->testConnection();
         if ($result !== true) {
-            $this->markTestSkipped('Database not available: ' . (is_string($result) ? $result : 'unknown error'));
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database not available: ' . (is_string($result) ? $result : 'unknown error'));
         }
 
         (new MigrationRunner(

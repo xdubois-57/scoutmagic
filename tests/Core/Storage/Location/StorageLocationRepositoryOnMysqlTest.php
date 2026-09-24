@@ -9,6 +9,7 @@ use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\StorageLocationRepository;
 use Core\Storage\Location\StorageLocationType;
 use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
 
 /**
  * The two statements in this repository that only the REAL engine can
@@ -70,7 +71,7 @@ class StorageLocationRepositoryOnMysqlTest extends TestCase
                 [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
             );
         } catch (\PDOException $e) {
-            $this->markTestSkipped('Database connection not available: ' . $e->getMessage());
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database connection not available: ' . $e->getMessage());
         }
     }
 

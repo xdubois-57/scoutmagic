@@ -159,7 +159,7 @@ class ApplicationCollectorsTest extends TestCase
                 [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
             );
         } catch (\PDOException $e) {
-            $this->markTestSkipped('Database not available: ' . $e->getMessage());
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database not available: ' . $e->getMessage());
         }
 
         $mysql->exec('SET FOREIGN_KEY_CHECKS = 0');
