@@ -37,8 +37,10 @@ use PHPUnit\Framework\TestCase;
  * here, per occurrence: one barrier-less site in a file is one chance to
  * lose the race, whatever the rest of the file does.
  *
- * `getByRole('dialog')` is refused for the same reason: it is the other way
- * of reaching a modal without its id.
+ * The other ways of writing the same thing are refused alike, because they
+ * reach the same element without its barrier: `[id="associate-modal"]`, a
+ * `.modal` or `.collapse` class selector (`.modal.show`), and
+ * `getByRole('dialog')`. Comments are not code and are not read.
  *
  * WHAT IT DOES NOT SEE: a spec that clicks a toggle and never touches what
  * it opens. Such a spec asserts nothing about the overlay, and the first
@@ -56,6 +58,12 @@ class E2eOverlayGestureRatchetTest extends TestCase
      *
      * Each is a state read on arrival — which panels a page serves open,
      * which folded — where there is no opening or closing to wait for.
+     *
+     * An allowance covers STATE READS ONLY, checked one site at a time: the
+     * locator is the subject of an `expect(…)` and nothing else, or a
+     * constant that is never used but as one. A file on this list that
+     * trades one of its reads for `page.locator('#…').click()` keeps its
+     * count and still fails — the click is a gesture, wherever it is.
      *
      * @var array<string, int>
      */
@@ -99,34 +107,21 @@ class E2eOverlayGestureRatchetTest extends TestCase
         $overlays = $this->overlayIds($repoRoot);
 
         $offenders = [];
-        $seen = [];
+        $reads = [];
 
         foreach ($this->specFiles($repoRoot) as $relative => $path) {
-            $source = (string) file_get_contents($path);
+            $sites = self::sitesIn((string) file_get_contents($path), $overlays);
 
-            $sites = [];
-            foreach ($overlays as $id) {
-                $count = preg_match_all('/#' . preg_quote($id, '/') . '(?![\w-])/', $source);
-                if ($count > 0) {
-                    $sites[] = sprintf('#%s ×%d', $id, $count);
-                    $seen[$relative] = ($seen[$relative] ?? 0) + $count;
+            $problems = $sites['gestures'];
+            if ($sites['reads'] > 0) {
+                $reads[$relative] = $sites['reads'];
+                if (!array_key_exists($relative, self::STATE_READS_ON_ARRIVAL)) {
+                    $problems[] = sprintf('undeclared state read ×%d', $sites['reads']);
                 }
             }
 
-            $dynamic = preg_match_all('/locator\(\s*`#\$\{/', $source);
-            if ($dynamic > 0) {
-                $sites[] = sprintf('`#${…}` selector ×%d', $dynamic);
-                $seen[$relative] = ($seen[$relative] ?? 0) + $dynamic;
-            }
-
-            $dialogs = preg_match_all('/getByRole\(\s*[\'"]dialog[\'"]/', $source);
-            if ($dialogs > 0) {
-                $sites[] = sprintf("getByRole('dialog') ×%d", $dialogs);
-                $seen[$relative] = ($seen[$relative] ?? 0) + $dialogs;
-            }
-
-            if ($sites !== [] && !array_key_exists($relative, self::STATE_READS_ON_ARRIVAL)) {
-                $offenders[] = $relative . ' — ' . implode(', ', $sites);
+            if ($problems !== []) {
+                $offenders[] = $relative . ' — ' . implode(', ', $problems);
             }
         }
 
@@ -140,13 +135,14 @@ class E2eOverlayGestureRatchetTest extends TestCase
             . "leaves it stuck on screen; clicking a toggle before Bootstrap has loaded does nothing;\n"
             . "either way the failure surfaces later, as a timeout on something else (#520).\n"
             . "Use openModal()/closeModal() (support/modal.js) or openCollapse() (support/collapse.js),\n"
-            . "and scope what follows to the locator they return.\n\n"
+            . "and scope what follows to the locator they return. A read of the state a page\n"
+            . "arrives in, with no gesture, is declared in STATE_READS_ON_ARRIVAL.\n\n"
             . implode("\n", $offenders)
         );
 
         $allowed = [];
         foreach (self::STATE_READS_ON_ARRIVAL as $relative => $count) {
-            $allowed[$relative] = $seen[$relative] ?? 0;
+            $allowed[$relative] = $reads[$relative] ?? 0;
         }
 
         $this->assertSame(
@@ -173,11 +169,170 @@ class E2eOverlayGestureRatchetTest extends TestCase
     }
 
     /**
-     * Every modal and collapse id the views declare, from the markup alone.
+     * Every way a view can declare an overlay, in either quote style — and
+     * what does not make one.
+     */
+    public function testTheTemplateScanReadsEveryDeclarationForm(): void
+    {
+        $source = <<<'TWIG'
+            {% embed 'partials/modal.html.twig' with { id: 'embed-single' } only %}{% endembed %}
+            {% embed "partials/modal.html.twig" with { id: "embed-double" } only %}{% endembed %}
+            <div class="modal fade" id="class-double" tabindex="-1"></div>
+            <div class='modal fade' id='class-single'></div>
+            <div id="id-first" class="collapse mt-3"></div>
+            <div class="navbar-collapse" id="not-a-collapse"></div>
+            <div class="modal-dialog" id="not-a-modal"></div>
+            <div class="collapse" id="{{ card }}-body"></div>
+            TWIG;
+
+        $this->assertSame(
+            ['class-double', 'class-single', 'embed-double', 'embed-single', 'id-first'],
+            self::overlayIdsIn($source)
+        );
+    }
+
+    /**
+     * What the rule counts as a state read, and what as a gesture.
+     */
+    public function testOnlyAnExpectSubjectIsAStateRead(): void
+    {
+        $overlays = ['x-modal'];
+        $reads = static fn (string $js): array => self::sitesIn($js, $overlays);
+
+        $this->assertSame(['reads' => 1, 'gestures' => []], $reads(
+            "await expect(page.locator('#x-modal')).toBeHidden();"
+        ));
+        $this->assertSame(['reads' => 1, 'gestures' => []], $reads(
+            "await expect(\n    page.locator('#x-modal'),\n    'none on arrival',\n).toHaveCount(0);"
+        ));
+        $this->assertSame(['reads' => 1, 'gestures' => []], $reads(
+            "const panel = page.locator('#x-modal');\nawait expect(panel).toBeHidden();\n"
+            . "await expect(panel, 'the panel is open').toBeVisible();"
+        ));
+        $this->assertSame([], $reads("// page.locator('#x-modal').click();\n/* '.modal.show' */")['gestures']);
+
+        foreach ([
+            "await page.locator('#x-modal').click();",
+            "await expect(page.locator('#x-modal').getByRole('button')).toBeVisible();",
+            "const panel = page.locator('#x-modal');\nawait expect(panel).toBeHidden();\nawait panel.click();",
+            "await page.locator('[id=\"x-modal\"]').click();",
+            "await expect(page.locator('.modal.show')).toBeVisible();",
+            "await page.locator('.collapse').first().click();",
+            'await expect(page.locator(`#${id}`)).toBeVisible();',
+            "await page.getByRole('dialog').click();",
+        ] as $gesture) {
+            $this->assertNotSame([], $reads($gesture)['gestures'], $gesture);
+        }
+    }
+
+    /**
+     * Sorts a spec's overlay sites into state reads and gestures.
      *
-     * Ids built by Twig (`{{ … }}`) are skipped: they are families of
-     * elements, reached in the specs through a helper's own id convention
-     * (openCard()'s `<cardId>-body`).
+     * @param list<string> $overlays
+     * @return array{reads: int, gestures: list<string>}
+     */
+    private static function sitesIn(string $source, array $overlays): array
+    {
+        $code = self::withoutComments($source);
+        $reads = 0;
+        $gestures = [];
+
+        foreach ($overlays as $id) {
+            $quoted = preg_quote($id, '/');
+
+            $hashes = preg_match_all('/#' . $quoted . '(?![\w-])/', $code, $found, PREG_OFFSET_CAPTURE);
+            $direct = 0;
+            for ($i = 0; $i < $hashes; $i++) {
+                if (self::isStateRead($code, $found[0][$i][1])) {
+                    $reads++;
+                } else {
+                    $direct++;
+                }
+            }
+            if ($direct > 0) {
+                $gestures[] = sprintf('#%s ×%d', $id, $direct);
+            }
+
+            $attribute = preg_match_all('/\[id\s*=\s*([\'"]?)' . $quoted . '\1\s*\]/', $code);
+            if ($attribute > 0) {
+                $gestures[] = sprintf('[id="%s"] ×%d', $id, $attribute);
+            }
+        }
+
+        $patterns = [
+            '`#${…}` selector' => '/locator\(\s*`#\$\{/',
+            "getByRole('dialog')" => '/getByRole\(\s*[\'"]dialog[\'"]/',
+            '.modal/.collapse class selector' => '/([\'"`])[^\'"`\n]*\.(?:modal|collapse)(?![\w-])[^\'"`\n]*\1/',
+        ];
+        foreach ($patterns as $label => $pattern) {
+            $count = preg_match_all($pattern, $code);
+            if ($count > 0) {
+                $gestures[] = sprintf('%s ×%d', $label, $count);
+            }
+        }
+
+        return ['reads' => $reads, 'gestures' => $gestures];
+    }
+
+    /**
+     * A selector at $offset is a state read when its locator is the whole
+     * subject of an `expect(…)`, or a constant used only as one.
+     */
+    private static function isStateRead(string $code, int $offset): bool
+    {
+        $before = substr($code, 0, $offset);
+        $after = substr($code, $offset);
+
+        if (preg_match('/expect\(\s*\w+\.locator\(\s*[\'"]$/', $before) === 1) {
+            return preg_match('/^[^\'"\n]*[\'"]\s*\)\s*[,)]/', $after) === 1;
+        }
+
+        if (preg_match('/(?:const|let)\s+(\w+)\s*=\s*\w+\.locator\(\s*[\'"]$/', $before, $declared) === 1
+            && preg_match('/^[^\'"\n]*[\'"]\s*\)\s*;/', $after) === 1) {
+            return self::isOnlyEverExpected($code, $declared[1]);
+        }
+
+        return false;
+    }
+
+    /**
+     * Every use of $name, strings aside, is its declaration or the subject
+     * of an `expect(…)`.
+     */
+    private static function isOnlyEverExpected(string $code, string $name): bool
+    {
+        $bare = (string) preg_replace('/\'(?:[^\'\\\\\n]|\\\\.)*\'|"(?:[^"\\\\\n]|\\\\.)*"|`(?:[^`\\\\]|\\\\.)*`/s', "''", $code);
+        $quoted = preg_quote($name, '/');
+
+        $uses = preg_match_all('/(?<![\w$.])' . $quoted . '(?![\w$])/', $bare, $found, PREG_OFFSET_CAPTURE);
+        for ($i = 0; $i < $uses; $i++) {
+            $offset = $found[0][$i][1];
+            $before = substr($bare, 0, $offset);
+            $after = substr($bare, $offset + strlen($name));
+
+            $declaration = preg_match('/(?:const|let)\s+$/', $before) === 1;
+            $expected = preg_match('/expect\(\s*$/', $before) === 1 && preg_match('/^\s*[,)]/', $after) === 1;
+            if (!$declaration && !$expected) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * The source without its comments — a selector quoted in an explanation
+     * is not a gesture. `://` is left alone, being a URL and not a comment.
+     */
+    private static function withoutComments(string $source): string
+    {
+        $source = (string) preg_replace('/\/\*.*?\*\//s', '', $source);
+
+        return (string) preg_replace('/(?<![:\w\'"`\\\\])\/\/[^\n]*/', '', $source);
+    }
+
+    /**
+     * Every modal and collapse id the views declare, from the markup alone.
      *
      * @return list<string>
      */
@@ -186,25 +341,48 @@ class E2eOverlayGestureRatchetTest extends TestCase
         $ids = [];
 
         foreach ($this->templateFiles($repoRoot) as $path) {
-            $source = (string) file_get_contents($path);
-
-            if (preg_match_all("/'partials\\/modal\\.html\\.twig'\\s+with\\s+\\{\\s*id:\\s*'([^']+)'/", $source, $embeds) > 0) {
-                foreach ($embeds[1] as $id) {
-                    $ids[$id] = true;
-                }
+            foreach (self::overlayIdsIn((string) file_get_contents($path)) as $id) {
+                $ids[$id] = true;
             }
+        }
 
-            if (preg_match_all('/<[a-z]+\b[^>]*>/i', $source, $tags) > 0) {
-                foreach ($tags[0] as $tag) {
-                    if (preg_match('/\bclass="([^"]*)"/', $tag, $class) !== 1) {
-                        continue;
-                    }
-                    if (preg_match('/(?<![\w-])(modal|collapse)(?![\w-])/', $class[1]) !== 1) {
-                        continue;
-                    }
-                    if (preg_match('/\bid="([\w-]+)"/', $tag, $id) === 1) {
-                        $ids[$id[1]] = true;
-                    }
+        $list = array_keys($ids);
+        sort($list);
+
+        return $list;
+    }
+
+    /**
+     * The modal and collapse ids one template declares, in either quote
+     * style.
+     *
+     * Ids built by Twig (`{{ … }}`) are skipped: they are families of
+     * elements, reached in the specs through a helper's own id convention
+     * (openCard()'s `<cardId>-body`).
+     *
+     * @return list<string>
+     */
+    private static function overlayIdsIn(string $source): array
+    {
+        $ids = [];
+
+        $embed = '/([\'"])partials\/modal\.html\.twig\1\s+with\s+\{\s*id:\s*([\'"])([^\'"]+)\2/';
+        if (preg_match_all($embed, $source, $embeds) > 0) {
+            foreach ($embeds[3] as $id) {
+                $ids[$id] = true;
+            }
+        }
+
+        if (preg_match_all('/<[a-z]+\b[^>]*>/i', $source, $tags) > 0) {
+            foreach ($tags[0] as $tag) {
+                if (preg_match('/\bclass=([\'"])(.*?)\1/', $tag, $class) !== 1) {
+                    continue;
+                }
+                if (preg_match('/(?<![\w-])(modal|collapse)(?![\w-])/', $class[2]) !== 1) {
+                    continue;
+                }
+                if (preg_match('/\bid=([\'"])([\w-]+)\1/', $tag, $id) === 1) {
+                    $ids[$id[2]] = true;
                 }
             }
         }
