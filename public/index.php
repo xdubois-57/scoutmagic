@@ -2451,8 +2451,23 @@ $superAdminService = new SuperAdminService(
         (string) $settingService->get('base_url')
     )
 );
-$mappingResolver = new MappingResolver($functionRepo, $ageBranchRepo, $importSectionRepo, $feeCategoryRepo);
-$csvParser = new DeskCsvParser();
+// The import resolver and the CSV parser now say what they could not
+// recognise, in the journal (issue #356). Nothing else about them moves:
+// the journal service is the only dependency they gained, and it exists
+// long before this line.
+$mappingResolver = new MappingResolver(
+    $functionRepo,
+    $ageBranchRepo,
+    $importSectionRepo,
+    $feeCategoryRepo,
+    $journalService
+);
+$csvParser = new DeskCsvParser($journalService);
+
+// What this installation currently fails to recognise in its Desk data —
+// read by Correspondances Desk, by the support package, and by nothing
+// that writes (issue #356).
+$deskMappingGapService = new \Core\Import\DeskMappingGapService($pdo, $scoutYearService);
 $unitStaffSectionService = new UnitStaffSectionService($pdo);
 $sectionMembershipRepository = new \Core\Member\SectionMembershipRepository($pdo);
 $sectionMembershipService = new \Core\Member\SectionMembershipService($sectionMembershipRepository, $scoutYearService);
@@ -6629,7 +6644,8 @@ $frontController->registerController(
         $scoutYearResolver,
         $badgeService,
         $ageBranchRepo,
-        $moduleHooks
+        $moduleHooks,
+        $deskMappingGapService
     )
 );
 $frontController->registerController(PlaceholderController::class, new PlaceholderController($twig));

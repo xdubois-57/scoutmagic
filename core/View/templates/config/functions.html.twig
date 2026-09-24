@@ -3,7 +3,81 @@
 {% block content %}
     {% include 'partials/page_header.html.twig' with { title: 'Correspondances Desk' } only %}
 
-    <h2 class="h4">Fonctions</h2>
+    {#
+      What the import could not match to anything this site knows
+      (issue #356). It sits above the page's own sections because it is the
+      one thing on this screen that is about the LAST import rather than
+      about the site's settled configuration — and because a branch nobody
+      recognised is otherwise announced nowhere at all: it has no
+      « à confirmer » state of its own, it just sorts last, for ever.
+
+      Each kind gets its own sentence and its own action: « corriger »
+      means giving a role or choosing a logo, and a single generic button
+      would send half of them to the wrong place.
+    #}
+    {% if mapping_gaps|length > 0 %}
+        <div class="card border-warning mb-4">
+            <div class="card-header bg-warning-subtle fw-semibold">
+                <i class="bi bi-question-circle" aria-hidden="true"></i>
+                {{ mapping_gaps|length > 1
+                    ? mapping_gaps|length ~ ' valeurs que le site ne connaît pas'
+                    : 'Une valeur que le site ne connaît pas' }}
+            </div>
+            <div class="card-body">
+                <p class="small text-body-secondary">
+                    L'import a rencontré des valeurs pour lesquelles le site n'a pas de correspondance.
+                    Il les a créées telles quelles, avec les réglages les plus prudents.
+                    Vous pouvez les corriger ici sans attendre.
+                </p>
+
+                <ul class="list-unstyled mb-0">
+                    {% for gap in mapping_gaps %}
+                        <li class="border-top pt-3 mt-3">
+                            <div class="d-flex flex-wrap align-items-baseline gap-2">
+                                <span class="badge text-bg-light">
+                                    {% if gap.kind == 'function' %}Fonction
+                                    {% else %}Branche
+                                    {% endif %}
+                                </span>
+                                <span class="fw-semibold flex-grow-1">{{ gap.value }}</span>
+                                {% if gap.affected > 0 %}
+                                    <span class="small text-body-secondary">
+                                        {{ gap.affected }}
+                                        {% if gap.kind == 'branch' %}
+                                            {{ gap.affected > 1 ? 'sections' : 'section' }}
+                                        {% else %}
+                                            {{ gap.affected > 1 ? 'membres' : 'membre' }}
+                                        {% endif %}
+                                    </span>
+                                {% endif %}
+                            </div>
+                            <p class="small mb-1">
+                                {% if gap.kind == 'function' %}
+                                    {% if gap.affected > 0 %}
+                                        {{ gap.affected > 1
+                                            ? gap.affected ~ ' personnes ont cette fonction. Elles ne voient'
+                                            : 'Une personne a cette fonction. Elle ne voit' }}
+                                        rien de plus qu'un membre ordinaire tant que vous ne lui donnez pas un rôle.
+                                    {% else %}
+                                        Personne ne porte cette fonction cette année. Donnez-lui quand même un rôle :
+                                        le prochain import s'en servira.
+                                    {% endif %}
+                                {% else %}
+                                    Le site ne reconnaît pas cette branche : elle n'a pas de logo
+                                    et se range en dernier dans toutes les listes.
+                                {% endif %}
+                            </p>
+                            {% if gap.action_url is not null %}
+                                <a class="small" href="{{ gap.action_url }}">{{ gap.action_label }}</a>
+                            {% endif %}
+                        </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+    {% endif %}
+
+    <h2 class="h4" id="fonctions">Fonctions</h2>
     <p class="text-body-secondary mb-4">
         Associez chaque fonction importée depuis Desk à un rôle sur le site.
         Les fonctions non confirmées ont le rôle "Animé" par défaut —
@@ -15,16 +89,6 @@
 
     {# Unconfirmed functions #}
     {% if unconfirmed|length > 0 %}
-        <div class="alert alert-warning mb-4">
-            <h2 class="h6 mb-2">
-                <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
-                {{ unconfirmed|length }} fonction(s) à confirmer
-            </h2>
-            <p class="small mb-0">
-                Ces fonctions ont été créées automatiquement lors d'un import Desk.
-                Veuillez vérifier et confirmer le rôle approprié pour chacune.
-            </p>
-        </div>
 
         <div class="border rounded-3 overflow-hidden mb-4">
             {% for func in unconfirmed %}
@@ -172,7 +236,7 @@
 
     <hr class="my-4">
 
-    <h2 class="h4">Branches</h2>
+    <h2 class="h4" id="branches">Branches</h2>
     <p class="text-body-secondary mb-4">
         Configurez, pour chaque branche d'âge, le logo fédéral et le lien
         d'explication affichés sur la carte de branche de l'espace animés.
