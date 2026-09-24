@@ -2,7 +2,7 @@
   "id": "registration",
   "name": "Inscriptions",
   "description": "Inscriptions, réinscriptions, passages de branche et départs.",
-  "version": "6.9.8",
+  "version": "6.10.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -567,6 +567,102 @@
       "type": "number",
       "label": "Fenêtre de rattrapage de la programmation (jours)",
       "description": "Nombre de jours après la date programmée pendant lesquels une ouverture ou une fermeture manquée peut encore se déclencher — utile quand la tâche planifiée n'a pas tourné le jour même (serveur éteint, cron en pause). 0 désactive le rattrapage : la bascule ne se fait alors que le jour exact, et est perdue pour l'année si elle est ratée. Une valeur trop grande ferait qu'une date configurée longtemps après coup — ou l'activation du module en cours d'année — déclencherait rétroactivement la bascule. Maximum 30."
+    },
+    {
+      "key": "registration_reenrollment_open_applied_on",
+      "default_value": "",
+      "type": "text",
+      "label": "Campagne de réinscription : ouverture appliquée",
+      "description": "Marqueur interne : clé de la campagne dont l'ouverture automatique a déjà été appliquée, pour qu'une seconde exécution le même jour ne rouvre pas. Non modifiable.",
+      "editable": false
+    },
+    {
+      "key": "registration_reenrollment_close_applied_on",
+      "default_value": "",
+      "type": "text",
+      "label": "Campagne de réinscription : fermeture appliquée",
+      "description": "Marqueur interne : clé de la campagne dont la fermeture automatique a déjà été appliquée. Non modifiable.",
+      "editable": false
+    },
+    {
+      "key": "registration_reenrollment_opening_sent_on",
+      "default_value": "",
+      "type": "text",
+      "label": "Campagne de réinscription : campagne couverte par l'email d'ouverture",
+      "description": "Marqueur interne : clé de la campagne pour laquelle l'email d'ouverture a déjà été envoyé à toutes les familles — c'est une date de clôture de campagne, pas une date d'envoi. Non modifiable.",
+      "editable": false
+    },
+    {
+      "key": "registration_reenrollment_reminder_1_sent_on",
+      "default_value": "",
+      "type": "text",
+      "label": "Campagne de réinscription : campagne couverte par le premier rappel",
+      "description": "Marqueur interne : clé de la campagne pour laquelle le premier rappel a déjà été envoyé à toutes les familles — c'est une date de clôture de campagne, pas une date d'envoi. Non modifiable.",
+      "editable": false
+    },
+    {
+      "key": "registration_reenrollment_reminder_2_sent_on",
+      "default_value": "",
+      "type": "text",
+      "label": "Campagne de réinscription : campagne couverte par le second rappel",
+      "description": "Marqueur interne : clé de la campagne pour laquelle le second rappel a déjà été envoyé à toutes les familles — c'est une date de clôture de campagne, pas une date d'envoi. Non modifiable.",
+      "editable": false
+    },
+    {
+      "key": "registration_reenrollment_closing_sent_on",
+      "default_value": "",
+      "type": "text",
+      "label": "Campagne de réinscription : campagne couverte par l'email de fermeture",
+      "description": "Marqueur interne : clé de la campagne pour laquelle l'email de fermeture a déjà été envoyé à toutes les familles — c'est une date de clôture de campagne, pas une date d'envoi. Non modifiable.",
+      "editable": false
+    },
+    {
+      "key": "registration_reenrollment_open_applied_on_moment",
+      "default_value": "",
+      "type": "text",
+      "label": "Campagne de réinscription : moment de l'ouverture",
+      "description": "Marqueur interne : date et heure auxquelles l'ouverture automatique a été appliquée. Non modifiable.",
+      "editable": false
+    },
+    {
+      "key": "registration_reenrollment_close_applied_on_moment",
+      "default_value": "",
+      "type": "text",
+      "label": "Campagne de réinscription : moment de la fermeture",
+      "description": "Marqueur interne : date et heure auxquelles la fermeture automatique a été appliquée. Non modifiable.",
+      "editable": false
+    },
+    {
+      "key": "registration_reenrollment_opening_sent_on_moment",
+      "default_value": "",
+      "type": "text",
+      "label": "Campagne de réinscription : moment d'envoi de l'email d'ouverture",
+      "description": "Marqueur interne : date et heure auxquelles l'email d'ouverture a fini de partir vers toutes les familles. C'est ce que la page Réinscriptions affiche. Non modifiable.",
+      "editable": false
+    },
+    {
+      "key": "registration_reenrollment_reminder_1_sent_on_moment",
+      "default_value": "",
+      "type": "text",
+      "label": "Campagne de réinscription : moment d'envoi de le premier rappel",
+      "description": "Marqueur interne : date et heure auxquelles le premier rappel a fini de partir vers toutes les familles. C'est ce que la page Réinscriptions affiche. Non modifiable.",
+      "editable": false
+    },
+    {
+      "key": "registration_reenrollment_reminder_2_sent_on_moment",
+      "default_value": "",
+      "type": "text",
+      "label": "Campagne de réinscription : moment d'envoi de le second rappel",
+      "description": "Marqueur interne : date et heure auxquelles le second rappel a fini de partir vers toutes les familles. C'est ce que la page Réinscriptions affiche. Non modifiable.",
+      "editable": false
+    },
+    {
+      "key": "registration_reenrollment_closing_sent_on_moment",
+      "default_value": "",
+      "type": "text",
+      "label": "Campagne de réinscription : moment d'envoi de l'email de fermeture",
+      "description": "Marqueur interne : date et heure auxquelles l'email de fermeture a fini de partir vers toutes les familles. C'est ce que la page Réinscriptions affiche. Non modifiable.",
+      "editable": false
     },
     {
       "key": "registration_scheduled_open_applied_on",

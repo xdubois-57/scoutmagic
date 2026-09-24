@@ -74,26 +74,15 @@ class ReenrollmentCampaignHandlerTest extends TestCase
         $stmt->execute(['LOUV1', $branchId, 'Louveteaux A']);
 
         $this->settingService = new SettingService(new SettingRepository($this->pdo));
-        foreach ([
-            [ReenrollmentCampaignService::SETTING_OPEN, '0', 'boolean'],
-            [ReenrollmentCampaignService::SETTING_OPEN_AT, '03-01', 'text'],
-            [ReenrollmentCampaignService::SETTING_CLOSE_AT, '05-15', 'text'],
-            [ReenrollmentCampaignService::SETTING_REMINDER_1_DAYS, '14', 'number'],
-            [ReenrollmentCampaignService::SETTING_REMINDER_2_DAYS, '2', 'number'],
-            [ReenrollmentCampaignService::MARKER_OPENED, '', 'text'],
-            [ReenrollmentCampaignService::MARKER_CLOSED, '', 'text'],
-        ] as [$key, $default, $type]) {
-            $this->settingService->register($key, $default, $type, $key, 'Test.', 'registration');
-        }
-        foreach ([
-            ReenrollmentCampaignService::EMAIL_OPENING,
-            ReenrollmentCampaignService::EMAIL_REMINDER_1,
-            ReenrollmentCampaignService::EMAIL_REMINDER_2,
-            ReenrollmentCampaignService::EMAIL_CLOSING,
-        ] as $type) {
-            $marker = ReenrollmentCampaignService::emailMarker($type);
-            $this->settingService->register($marker, '', 'text', $marker, 'Test.', 'registration');
-        }
+        // From the manifest, never by hand: registering the keys a test
+        // happens to need is exactly what hid the campaign markers being
+        // declared nowhere, and `setInternal()` refuses those in
+        // production only.
+        RegistrationTestHelper::registerManifestSettings($this->settingService);
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_OPEN_AT, '03-01', 'registration');
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_CLOSE_AT, '05-15', 'registration');
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_REMINDER_1_DAYS, '14', 'registration');
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_REMINDER_2_DAYS, '2', 'registration');
         $this->settingService->register(
             ScoutYearResolver::SETTING_PUBLIC_YEAR,
             (string) $this->currentYearId,

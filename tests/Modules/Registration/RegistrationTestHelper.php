@@ -6,6 +6,40 @@ namespace Tests\Modules\Registration;
 
 class RegistrationTestHelper
 {
+    /**
+     * Register this module's settings **from its own `module.json`**, the
+     * way `Core\Module\ModuleManager::loadModule()` does on every request.
+     *
+     * A test that registers the keys it happens to need cannot notice a
+     * key the code writes and the manifest never declares — and
+     * `SettingService::setInternal()` refuses exactly that, so the gap
+     * shows up in production and nowhere else. That is how the campaign
+     * markers came to be undeclared: every automatic opening, closing and
+     * email batch threw at the moment it recorded that it had run, while
+     * the fixtures supplied the missing rows.
+     */
+    public static function registerManifestSettings(\Core\Config\SettingService $settings): void
+    {
+        $manifest = json_decode(
+            (string) file_get_contents(dirname(__DIR__, 3) . '/modules/registration/module.json'),
+            true
+        );
+
+        foreach (($manifest['settings'] ?? []) as $setting) {
+            $settings->register(
+                (string) $setting['key'],
+                (string) $setting['default_value'],
+                (string) $setting['type'],
+                (string) $setting['label'],
+                (string) $setting['description'],
+                'registration',
+                $setting['validation_regex'] ?? null,
+                null,
+                $setting['editable'] ?? true
+            );
+        }
+    }
+
     public static function createTables(\PDO $pdo): void
     {
         $pdo->exec('CREATE TABLE registration_requests (
