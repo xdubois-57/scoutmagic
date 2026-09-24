@@ -1587,6 +1587,22 @@ avant et verte après — la troisième condition de §0.1 comprise :
 | `README.md` et `SECURITY.md` — sept chiffres, remplacés par l'invariant qu'ils illustraient mal | `AuthorizationMatrixInventoryTest::testTheDocumentationClaimsEveryRouteRatherThanACountOfThem` |
 | `README.md` — la puce `database-mariadb` | `EveryCiJobIsDocumentedTest` (deux directions) |
 
+**Une issue du chantier déjà refermée par le produit.** En intégrant `main`
+avant de fusionner cette itération, #453 — les trois emplacements qui
+redisaient le délai minimum de `HumanCheck` — se trouve **traitée** par #469
+(`89728cd`). Les deux `waitForTimeout(4000)` ont disparu au profit du
+helper, il ne reste dans tout `tests/e2e/` que les deux attentes légitimes,
+et `Tests\Core\System\E2eFixedWaitRatchetTest` interdit désormais d'en
+réintroduire — dans les deux directions, et avec un motif qui tolère
+l'espace, `waitForTimeout (4000)` ne passant donc pas à côté.
+
+C'est la première fois de ce chantier qu'un constat déposé en issue revient
+corrigé dans la branche avant même que l'itération qui l'a produit soit
+fusionnée. Ce qui reste ouvert est étroit : une seule copie du réglage
+subsiste, dans le helper, et prouver qu'elle suit le serveur plutôt qu'elle
+ne le redit demande toujours les deux seuils et les deux exécutions
+Playwright décrits dans l'issue.
+
 **Issues ouvertes** :
 
 - #454 — 121 renvois du code et des tests (`§7.9` ×64, `§6.7` ×33, `§6.14`
