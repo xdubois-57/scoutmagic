@@ -190,7 +190,7 @@ final class ParentalAuthorizationFillingTest extends TestCase
             $this->assertNotContains($chosen->strikeZone(), $strikes, $chosen->value . ' must not be struck through');
             foreach (SignatoryCapacity::all() as $other) {
                 if ($other !== $chosen) {
-                    $this->assertContains($other->strikeZone(), $strikes, $other->value . ' doit être barré');
+                    $this->assertContains($other->strikeZone(), $strikes, $other->value . ' must be struck through');
                 }
             }
         }
@@ -235,7 +235,7 @@ final class ParentalAuthorizationFillingTest extends TestCase
                 $this->assertNotContains(
                     $zone,
                     $strikes,
-                    sprintf('« %s » ne doit rien barrer du tout', $branch ?? 'aucune fonction')
+                    sprintf('« %s » must strike nothing at all', $branch ?? 'aucune fonction')
                 );
             }
         }

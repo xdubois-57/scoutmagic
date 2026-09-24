@@ -64,7 +64,7 @@ final class AssertionMessagesAreEnglishTest extends TestCase
      * A DENSITY, not a count, for the reason the Twig sibling gives:
      * counting hits makes length the real test, and these messages are
      * short. 0.13 comes from the corpus rather than from taste. Measured
-     * over all 3378 messages the scan below reads, the two hundred and
+     * over all 3402 messages the scan below reads, the two hundred and
      * four French ones scored 0.143 and up, and the highest-scoring
      * English one —
      * « De, À, Sujet — the order every mail client uses. », which names
@@ -81,7 +81,7 @@ final class AssertionMessagesAreEnglishTest extends TestCase
     private const MINIMUM_FRENCH_DENSITY = 0.13;
 
     /**
-     * The corpus is 3378 messages today. A scan that suddenly reads far
+     * The corpus is 3402 messages today. A scan that suddenly reads far
      * fewer is a scan that has stopped working, and this is the number
      * that says so out loud rather than letting an empty result read as
      * an enforced rule. Deliberately slack — assertions are added every
@@ -108,6 +108,15 @@ final class AssertionMessagesAreEnglishTest extends TestCase
      * message is for.
      */
     private const MESSAGE_ONLY_CALLS = ['fail', 'markTestSkipped', 'markTestIncomplete'];
+
+    /**
+     * Calls whose FIRST argument is the prose, not a value.
+     *
+     * A format string is a message with holes in it, so it is read the
+     * way an interpolation is read; what it formats is skipped, being
+     * the arguments rather than the message.
+     */
+    private const FORMATTING_CALLS = ['sprintf', 'vsprintf'];
 
     /**
      * The tokens an interpolation is made of, inside a double-quoted or
@@ -399,6 +408,9 @@ final class AssertionMessagesAreEnglishTest extends TestCase
         // Bracket depth inside that term, so a `.` belonging to a nested
         // call does not end it early.
         $termDepth = 0;
+        // Whether the term just entered is a `sprintf()` whose format
+        // string is still to be read.
+        $formatting = false;
 
         foreach ($last as $token) {
             $id = is_array($token) ? $token[0] : null;
@@ -422,7 +434,21 @@ final class AssertionMessagesAreEnglishTest extends TestCase
             // 'Chapiteau'])` a French message: fixture data read as prose,
             // a hundred and twenty-two false positives, most of them not
             // assertion messages at all.
+            //
+            // The ONE exception is a format string: `sprintf('… %s …',
+            // $x)` in the message position is prose with holes in it,
+            // exactly like an interpolation, and swallowing it whole
+            // dropped forty-five call sites. Its FIRST argument is read
+            // and the rest of the call is skipped, so the values it
+            // formats stay out — they are the arguments, not the message.
             if ($swallowing) {
+                if ($formatting && $termDepth === 1 && $id === T_CONSTANT_ENCAPSED_STRING) {
+                    $message .= self::literalBody($text);
+                    $literals++;
+                    $formatting = false;
+                    continue;
+                }
+
                 if ($id === null && ($text === '(' || $text === '[' || $text === '{')) {
                     $termDepth++;
                 } elseif ($id === null && ($text === ')' || $text === ']' || $text === '}')) {
@@ -506,6 +532,7 @@ final class AssertionMessagesAreEnglishTest extends TestCase
                 $message .= ' ';
                 $swallowing = true;
                 $termDepth = $id === null && ($text === '(' || $text === '[' || $text === '{') ? 1 : 0;
+                $formatting = $id === T_STRING && in_array(strtolower($text), self::FORMATTING_CALLS, true);
 
                 continue;
             }
@@ -759,6 +786,35 @@ final class AssertionMessagesAreEnglishTest extends TestCase
             $this->assertStringContainsString("Aucun serveur n'a répondu", $messages[1][1]);
             $this->assertTrue(self::looksFrench($messages[0][1]));
             $this->assertTrue(self::looksFrench($messages[1][1]));
+        } finally {
+            unlink($file);
+        }
+    }
+
+    /**
+     * A message built with `sprintf()`.
+     *
+     * A format string is prose with holes in it, so the reader takes its
+     * FIRST argument and skips the rest — what it formats is the
+     * arguments, not the message. Swallowing the call whole, as every
+     * other non-literal term is swallowed, hid forty-five call sites,
+     * three of them French.
+     */
+    public function testAMessageBuiltWithSprintfIsRead(): void
+    {
+        $file = tempnam(sys_get_temp_dir(), 'assertion_messages_') . '.php';
+        file_put_contents($file, <<<'PHP'
+            <?php
+            $this->assertTrue($ok, sprintf('%s est écrit à %.1f mm, où le gabarit n'imprime rien.', $name, $y));
+            PHP);
+
+        try {
+            $messages = self::messagesIn($file, []);
+
+            $this->assertCount(1, $messages);
+            $this->assertStringContainsString('est écrit à', $messages[0][1]);
+            $this->assertStringNotContainsString('$name', $messages[0][1], 'what it formats is not the message');
+            $this->assertTrue(self::looksFrench($messages[0][1]));
         } finally {
             unlink($file);
         }

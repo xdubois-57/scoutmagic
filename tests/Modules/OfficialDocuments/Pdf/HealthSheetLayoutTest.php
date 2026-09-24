@@ -115,12 +115,12 @@ final class HealthSheetLayoutTest extends TestCase
     #[DataProvider('textFieldProvider')]
     public function testEveryLineSitsOnOneTheFormPrints(string $name, TextField $field): void
     {
-        $this->assertContains($field->page, [1, 2], $name . ' : page inconnue.');
+        $this->assertContains($field->page, [1, 2], $name . ' — unknown page.');
         $this->assertTrue(
             self::isPrinted($field->page, $field->baselineY),
             sprintf(
-                '%s est écrit à %.1f mm sur la page %d, où le gabarit n\'imprime aucune ligne. '
-                . 'La fédération a-t-elle republié le formulaire ? Voir le docblock de HealthSheetLayout.',
+                '%s is written at %.1f mm on page %d, where the template prints no line at all. '
+                . 'Has the federation republished the form? See the docblock of HealthSheetLayout.',
                 $name,
                 $field->baselineY,
                 $field->page
@@ -167,11 +167,11 @@ final class HealthSheetLayoutTest extends TestCase
     #[DataProvider('tickBoxProvider')]
     public function testEverySquareSitsOnALineTheFormPrints(string $name, TickBox $box): void
     {
-        $this->assertContains($box->page, [1, 2], $name . ' : page inconnue.');
+        $this->assertContains($box->page, [1, 2], $name . ' — unknown page.');
         $this->assertTrue(
             self::isPrinted($box->page, $box->y + $box->size),
             sprintf(
-                '%s est cochée à %.2f mm sur la page %d, où le gabarit n\'imprime rien.',
+                '%s is ticked at %.2f mm on page %d, where the template prints nothing.',
                 $name,
                 $box->y + $box->size,
                 $box->page
