@@ -130,6 +130,26 @@ final class OfferServiceTest extends TestCase
         $this->assertSame('16:00', $this->offers->findById($ids[1])?->departureTime);
     }
 
+    public function testAMissingReturnTimeSavesNeitherCar(): void
+    {
+        // Checked before anything is written: an outbound car saved on its
+        // own would be created a second time when the driver resubmits.
+        $carpool = $this->carpools->findById(H::carpool($this->pdo, 10, 11));
+        $this->assertNotNull($carpool);
+
+        try {
+            $this->service->propose($carpool, $this->offerInput([
+                'also_return' => '1',
+                'return_departure_time' => '',
+            ]), H::viewer(1));
+            $this->fail('A missing return time must be refused.');
+        } catch (CarpoolException $e) {
+            $this->assertStringContainsString('retour', $e->getMessage());
+        }
+
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM carpool_offers')->fetchColumn());
+    }
+
     public function testARequestNamesSeveralPeopleAndCountsThemAll(): void
     {
         $carpool = $this->carpools->findById(H::carpool($this->pdo));

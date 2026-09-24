@@ -60,6 +60,16 @@ class OfferService
         }
         $common = $this->validateCommon($input, 1);
         $time = $this->time($input['departure_time'] ?? '');
+        // Everything is checked before the first row is written: an
+        // outbound car saved on its own would be created a second time when
+        // the driver fixes the return time and resubmits.
+        $returnTime = null;
+        if (($input['also_return'] ?? '') === '1' && $direction === Offer::OUTBOUND && $carpool->hasReturn()) {
+            $returnTime = $this->time(
+                $input['return_departure_time'] ?? '',
+                'Indiquez l\'heure de départ du retour, par exemple 16:00.'
+            );
+        }
 
         $ids = [$this->offers->create(
             $carpool->id,
@@ -73,11 +83,11 @@ class OfferService
             $common['note']
         )];
 
-        if (($input['also_return'] ?? '') === '1' && $direction === Offer::OUTBOUND && $carpool->hasReturn()) {
+        if ($returnTime !== null) {
             $ids[] = $this->offers->create(
                 $carpool->id,
                 Offer::RETURN,
-                $this->time($input['return_departure_time'] ?? ''),
+                $returnTime,
                 $common['endpoint'],
                 $common['seats'],
                 $viewer->accountId,
@@ -329,11 +339,13 @@ class OfferService
         return $phone;
     }
 
-    private function time(mixed $value): string
-    {
+    private function time(
+        mixed $value,
+        string $refusal = 'Indiquez l\'heure de départ, par exemple 08:30.'
+    ): string {
         $time = trim((string) $value);
         if (preg_match('/^([01]\d|2[0-3]):([0-5]\d)$/', $time) !== 1) {
-            throw new CarpoolException('Indiquez l\'heure de départ, par exemple 08:30.');
+            throw new CarpoolException($refusal);
         }
 
         return $time;
