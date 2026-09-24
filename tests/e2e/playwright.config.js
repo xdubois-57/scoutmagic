@@ -51,7 +51,7 @@ const baseURL = process.env.E2E_BASE_URL;
 // The two projects below partition the suite on this glob — matched by
 // one, ignored by the other — so exactly the specs that need a worker get
 // one, and the determinism the rest depends on is untouched.
-const SERVICE_WORKER_SPECS = '**/service-worker/**.spec.js';
+const SERVICE_WORKER_SPECS = '**/service-worker/**/*.spec.js';
 
 if (!baseURL) {
     throw new Error(

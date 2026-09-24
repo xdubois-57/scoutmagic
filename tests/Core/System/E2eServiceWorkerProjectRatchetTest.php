@@ -68,17 +68,58 @@ final class E2eServiceWorkerProjectRatchetTest extends TestCase
     {
         $config = self::config();
 
+        // A REAL globstar. `**` is one only when it is a whole path
+        // segment: in `**.spec.js` minimatch collapses it to `*.spec.js`,
+        // which matches one level and no deeper. Measured with a spec
+        // planted in specs/service-worker/nested/: under the collapsed
+        // pattern it ran in `chromium`, with workers blocked, proving
+        // nothing — issue #452's own failure mode, for a file added later.
         $this->assertMatchesRegularExpression(
-            '/const SERVICE_WORKER_SPECS = \'\*\*\/service-worker\/\*\*\.spec\.js\';/',
+            '#const SERVICE_WORKER_SPECS = \'\*\*/service-worker/\*\*/\*\.spec\.js\';#',
             $config,
-            'the glob the two projects share must still name the worker directory'
+            'the glob the two projects share must name the worker directory, and recurse into it'
         );
 
-        // Matched by one project, ignored by the other. A spec claimed by
-        // both would run twice — once with the worker blocked, which is
-        // the shape this whole arrangement exists to avoid.
-        $this->assertStringContainsString('testIgnore: SERVICE_WORKER_SPECS,', $config);
-        $this->assertStringContainsString('testMatch: SERVICE_WORKER_SPECS,', $config);
+        // Matched by one project, ignored by the other — and WHICH is
+        // which is the whole partition. Asserting that both keywords
+        // appear somewhere would pass just as well with the two swapped:
+        // `chromium` would then run only the worker specs, blocked, and
+        // `service-worker` would run everything else with workers on.
+        $this->assertSame(
+            'testIgnore',
+            self::partitionKeywordOf($config, 'chromium'),
+            'the default project must IGNORE the worker specs'
+        );
+        $this->assertSame(
+            'testMatch',
+            self::partitionKeywordOf($config, 'service-worker'),
+            'the worker project must MATCH them, and nothing else'
+        );
+    }
+
+    /**
+     * Which of the two partition keywords a named project carries.
+     *
+     * Read between that project's `name:` and the next one, which is what
+     * anchors each keyword to its own block rather than to the file.
+     */
+    private static function partitionKeywordOf(string $config, string $project): ?string
+    {
+        $start = strpos($config, "name: '" . $project . "',");
+        if ($start === false) {
+            return null;
+        }
+
+        $next = strpos($config, 'name: \'', $start + 1);
+        $block = $next === false ? substr($config, $start) : substr($config, $start, $next - $start);
+
+        foreach (['testIgnore', 'testMatch'] as $keyword) {
+            if (str_contains($block, $keyword . ': SERVICE_WORKER_SPECS,')) {
+                return $keyword;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -112,15 +153,27 @@ final class E2eServiceWorkerProjectRatchetTest extends TestCase
         $directory = self::repoRoot() . '/' . self::WORKER_SPEC_DIRECTORY;
         $this->assertDirectoryExists($directory);
 
-        $files = array_values(array_diff((array) scandir($directory), ['.', '..']));
+        // Recursive, because the glob is: a file one level down is as much
+        // a spec of this project as a file at the top.
+        $found = [];
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS)
+        );
+        /** @var \SplFileInfo $file */
+        foreach ($iterator as $file) {
+            if ($file->isFile()) {
+                $found[] = substr($file->getPathname(), strlen(self::repoRoot()) + 1);
+            }
+        }
 
-        $this->assertNotSame([], $files, 'the project would otherwise run nothing at all');
+        sort($found);
+        $this->assertNotSame([], $found, 'the project would otherwise run nothing at all');
 
-        foreach ($files as $file) {
+        foreach ($found as $path) {
             $this->assertStringEndsWith(
                 '.spec.js',
-                (string) $file,
-                self::WORKER_SPEC_DIRECTORY . '/' . $file . ' is matched by neither project'
+                $path,
+                $path . ' is matched by neither project'
             );
         }
     }
