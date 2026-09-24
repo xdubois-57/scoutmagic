@@ -20,8 +20,8 @@ use Modules\Documents\Service\DocumentVisibility;
  */
 class DocumentRepository implements AttachedFileRepository
 {
-    private const SELECT = 'SELECT d.id, d.slug, d.slug_is_random, d.title, d.description, d.visibility, d.file_id, d.sort_order,'
-        . ' d.updated_at, f.mime_type, f.size_bytes, f.original_name'
+    private const SELECT = 'SELECT d.id, d.slug, d.slug_is_random, d.title, d.description, d.visibility,'
+        . ' d.file_id, d.sort_order, d.updated_at, f.mime_type, f.size_bytes, f.original_name'
         . ' FROM documents d JOIN files f ON f.id = d.file_id';
 
     public function __construct(private \PDO $pdo)
