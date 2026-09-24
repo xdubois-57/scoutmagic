@@ -357,6 +357,12 @@ Rien.
 - L'écran des camps n'avait **ni suppression ni recherche plein texte**,
   et l'API n'en offre pas : le composant partagé n'en a pas non plus. La
   route `/supprimer` des camps garde son nom et détache, comme avant.
+- **Le courrier automatique n'était jamais replié.** L'écran des camps
+  lisait `InboundMessage::$isBulk`, une propriété qui n'existait pas :
+  PHP levait un avertissement, la lecture valait `null`, et chaque lettre
+  d'information comptait comme un message de quelqu'un. Le composant
+  partagé en avait hérité. `InboundMessage` porte désormais `isBulk`, lu
+  depuis `inbound_messages.is_bulk`.
 
 ### Reporté
 

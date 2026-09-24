@@ -65,7 +65,13 @@ class InboundMessage
          * Truncated on write with the cut declared inside the value, so a
          * reader can tell a short chain from a shortened one.
          */
-        public readonly ?string $rawHeaders = null
+        public readonly ?string $rawHeaders = null,
+        /**
+         * Sent to a list rather than written to this unit — a newsletter,
+         * a notification (`Mime\BulkMailDetector`). A triage screen folds
+         * these away behind their count (`Api\TriageList::screen()`).
+         */
+        public readonly bool $isBulk = false
     ) {
     }
 

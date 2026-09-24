@@ -140,7 +140,8 @@ final class InMemoryTriageMail implements InboundMailInterface
             sentAt: $message->sentAt,
             bodyText: $message->bodyText,
             bodyHtml: $message->bodyHtml,
-            links: $this->links[$message->id] ?? []
+            links: $this->links[$message->id] ?? [],
+            isBulk: $message->isBulk
         );
     }
 
