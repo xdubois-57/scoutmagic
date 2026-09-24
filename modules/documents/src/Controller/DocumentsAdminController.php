@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Documents\Controller;
 
 use Core\Http\Controller\AbstractController;
+use Core\File\UploadException;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -84,7 +85,7 @@ class DocumentsAdminController extends AbstractController
                 $request->getFile('file') ?? [],
                 AuthSession::getUserAccountId()
             );
-        } catch (DocumentException $e) {
+        } catch (DocumentException | UploadException $e) {
             return $this->renderForm(null, $submitted, $e->getMessage());
         }
 
@@ -137,7 +138,7 @@ class DocumentsAdminController extends AbstractController
                 $request->getFile('file'),
                 AuthSession::getUserAccountId()
             );
-        } catch (DocumentException $e) {
+        } catch (DocumentException | UploadException $e) {
             return $this->renderForm($document, $submitted, $e->getMessage());
         }
 

@@ -248,6 +248,10 @@ final class DocumentsControllerTest extends TestCase
         $this->assertStringContainsString('https://unite.example/documents/reglement', $body);
         $this->assertStringContainsString('aria-label="Modifier « Règlement »"', $body);
         $this->assertStringContainsString('Qui voit quoi', $body);
+        // The list editor's drag, chevrons and delete are these two
+        // scripts; the partial does not load them itself.
+        $this->assertStringContainsString('/assets/js/sortable.js', $body);
+        $this->assertStringContainsString('/assets/js/list-editor.js', $body);
     }
 
     public function testTheEditFormWarnsOnlyAboutReplacingTheFile(): void
@@ -259,6 +263,7 @@ final class DocumentsControllerTest extends TestCase
         $this->assertStringContainsString('Remplacer le fichier (facultatif)', $body);
         $this->assertMatchesRegularExpression('/class="alert alert-warning small d-none" id="document-replace-warning"/', $body);
         $this->assertStringContainsString('Lien direct', $body);
+        $this->assertStringContainsString('/assets/js/documents-form.js', $body);
     }
 
     public function testAnUnknownDocumentCannotBeEdited(): void

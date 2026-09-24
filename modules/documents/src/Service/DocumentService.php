@@ -138,6 +138,7 @@ class DocumentService
     /**
      * @param array<string, mixed> $uploadedFile a $_FILES entry
      * @throws DocumentException
+     * @throws UploadException
      */
     public function create(
         string $title,
@@ -192,6 +193,7 @@ class DocumentService
      *
      * @param array<string, mixed>|null $uploadedFile a $_FILES entry, or null
      * @throws DocumentException
+     * @throws UploadException
      */
     public function update(
         int $id,
@@ -317,25 +319,25 @@ class DocumentService
     }
 
     /**
+     * UploadHandler's refusals are UploadException, a user-facing class
+     * whose messages are already written for the person who chose the
+     * file: they go up as they are, never re-wrapped (AGENTS.md
+     * § Exception messages that reach a visitor).
+     *
      * @param array<string, mixed> $uploadedFile
-     * @throws DocumentException
+     * @throws UploadException
      */
     private function storeUpload(array $uploadedFile, DocumentVisibility $visibility, ?int $actorId): int
     {
-        try {
-            $fileId = $this->uploadHandler->handle(
-                $uploadedFile,
-                self::STORAGE_SUBDIRECTORY,
-                self::ALLOWED_MIMES,
-                self::MAX_BYTES,
-                $visibility->fileRoleMin(),
-                'documents',
-                $actorId
-            );
-        } catch (UploadException $e) {
-            // Already written for the person who chose the file.
-            throw new DocumentException($e->getMessage(), 0, $e);
-        }
+        $fileId = $this->uploadHandler->handle(
+            $uploadedFile,
+            self::STORAGE_SUBDIRECTORY,
+            self::ALLOWED_MIMES,
+            self::MAX_BYTES,
+            $visibility->fileRoleMin(),
+            'documents',
+            $actorId
+        );
 
         $this->compressIfPdf($fileId);
 

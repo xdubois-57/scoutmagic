@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Documents\Service;
 
+use Core\File\UploadException;
 use Modules\Documents\Service\DocumentException;
 use Modules\Documents\Service\DocumentService;
 use Modules\Documents\Service\DocumentVisibility;
@@ -97,7 +98,9 @@ final class DocumentServiceTest extends TestCase
 
     public function testCreateRejectsAnExecutable(): void
     {
-        $this->expectException(\Throwable::class);
+        // UploadHandler's own refusal, user-facing as it is: never
+        // re-wrapped into a DocumentException (AGENTS.md).
+        $this->expectException(UploadException::class);
 
         $this->service->create('Script', null, 'public', DocumentsTestHelper::upload('x.sh', "#!/bin/sh\necho hi\n\x00\x01\x02"), null);
     }
