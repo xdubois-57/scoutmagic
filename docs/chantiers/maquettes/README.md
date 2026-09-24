@@ -24,6 +24,7 @@ trouve être exécutable ailleurs.
 | `maquette-galerie-config.jsx` | Emplacements de stockage | `/config/gallery` — superadmin, les quatre onglets | IT-02 |
 | `maquette-reservation-462.jsx` | Lisibilité de la page d'une réservation (#462) | `/mes-locations/{bien}/reservations/{id}` — gestionnaire du bien, les quatre pages et le parcours | IT-01, IT-02, IT-04 |
 | `maquette-covoiturage.jsx` | Module Covoiturage (#365) | `/covoiturage` — membre identifié (liste, un covoiturage, proposer des places) et l'écran d'organisation du staff, plus les huit notifications et la ligne d'agenda | IT-01 (recherche d'évènements), IT-04, IT-05 |
+| `maquette-documents.jsx` | Module Documents (#508) | `/documents` — lecteur anonyme, membre, chef ; `/admin/documents` — Staff d'U (liste, ajout, modification) | IT-01, IT-02 |
 
 ## Le cas du trombinoscope imprimable
 

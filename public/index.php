@@ -7281,6 +7281,35 @@ if ($isEnabled('banner')) {
     }
 }
 
+// Shared documents (module « documents »): the unit's rules, charter,
+// kit list… on a public page filtered by the reader, and a management
+// screen for the chef d'unité. The module never serves bytes: every
+// download goes through /files/{id} and FileAccessGuard (SECURITY.md §6).
+if ($isEnabled('documents')) {
+    \Core\Debug\RequestTimeline::mark('module_documents');
+    $documentService = new \Modules\Documents\Service\DocumentService(
+        new \Modules\Documents\Repository\DocumentRepository($pdo),
+        $uploadHandler,
+        $fileRepository,
+        $attachedFileRemover,
+        $journalService,
+        $storagePath,
+        new \Core\Pdf\PdfCompressor($storagePath . '/temp')
+    );
+    $frontController->registerController(
+        \Modules\Documents\Controller\DocumentsPublicController::class,
+        new \Modules\Documents\Controller\DocumentsPublicController($twig, $documentService)
+    );
+    $frontController->registerController(
+        \Modules\Documents\Controller\DocumentsAdminController::class,
+        new \Modules\Documents\Controller\DocumentsAdminController(
+            $twig,
+            $documentService,
+            (string) ($settingService->get('base_url') ?? '')
+        )
+    );
+}
+
 // Inbound mail (§7). The message-consumer registry — the ARCHITECTURE.md
 // §7.6 pattern — now lives entirely on the scheduler path: it is built,
 // with every enabled module's consumer, inside the sync handler's lazy

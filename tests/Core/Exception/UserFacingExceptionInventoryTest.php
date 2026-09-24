@@ -73,6 +73,7 @@ final class UserFacingExceptionInventoryTest extends TestCase
         \Modules\Covoiturage\Service\CarpoolException::class,
         \Modules\Covoiturage\Service\DuplicateCarpoolException::class,
         \Modules\Covoiturage\Service\LocationMismatchException::class,
+        \Modules\Documents\Service\DocumentException::class,
         \Modules\Gallery\Api\GalleryException::class,
         \Modules\Gallery\Service\GalleryLocationException::class,
         \Modules\Groups\Service\GroupsException::class,
