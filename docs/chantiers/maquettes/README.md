@@ -25,6 +25,7 @@ trouve être exécutable ailleurs.
 | `maquette-reservation-462.jsx` | Lisibilité de la page d'une réservation (#462) | `/mes-locations/{bien}/reservations/{id}` — gestionnaire du bien, les quatre pages et le parcours | IT-01, IT-02, IT-04 |
 | `maquette-correspondances-desk.jsx` | Correspondances Desk non résolues (#356) | `/support-dashboard/correspondances` — le mainteneur, et l'encadré de `/config/functions` — Chef d'Unité | IT-01, IT-03 |
 | `maquette-covoiturage.jsx` | Module Covoiturage (#365) | `/covoiturage` — membre identifié (liste, un covoiturage, proposer des places) et l'écran d'organisation du staff, plus les huit notifications et la ligne d'agenda | IT-01 (recherche d'évènements), IT-04, IT-05 |
+| `maquette-documents.jsx` | Module Documents (#508) | `/documents` — lecteur anonyme, membre, chef ; `/admin/documents` — Staff d'U (liste, ajout, modification) | IT-01, IT-02 |
 | `partage-social.html` | Partage vers Facebook et Instagram | Le dialogue de partage d'un album — chef, avec le choix des groupes de discussion ; `Nouvelle communication` et son sélecteur de photo — chef ; l'historique « Ce qui est parti » et la confirmation d'un réessai ; l'écran de configuration du module | IT-01, IT-03, IT-04, IT-05 |
 
 ## Le cas du trombinoscope imprimable

@@ -1,0 +1,84 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  « Espace chefs d'U › Documents » — the list the public page shows, in
+  the order it shows it. Built on partials/list_editor.html.twig without
+  forking it: drag handle on a wide screen, chevrons on a narrow one, the
+  order saved in the background. Editing is its own page (form.html.twig),
+  reached from the pencil on each row; deleting is the list editor's own
+  button.
+#}
+{% extends "base.html.twig" %}
+
+{% block title %}Documents — {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="page-narrow">
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Documents',
+        subtitle: 'Ce que l\'unité partage sur sa page publique. L\'ordre ci-dessous est celui de la page.',
+        action_label: 'Ajouter un document',
+        action_url: '/admin/documents/nouveau',
+    } only %}
+
+    {% set items = [] %}
+    {% for document in documents %}
+        {% set items = items|merge([{ id: document.id, document: document }]) %}
+    {% endfor %}
+
+    {% embed 'partials/list_editor.html.twig' with {
+        list_id: 'documents-list',
+        items: items,
+        reorder_url: '/admin/documents/reorder',
+        delete_url: '/admin/documents/delete',
+        empty_label: 'Aucun document partagé pour le moment.',
+    } %}
+        {% block item_content %}
+            {% set document = item.document %}
+            <div class="d-flex flex-wrap align-items-baseline gap-2">
+                <span class="fw-semibold">{{ document.title }}</span>
+                <span class="badge text-bg-light border">{{ document.visibility.label() }}</span>
+            </div>
+            <div class="small text-body-secondary">
+                {{ document.kindLabel() }} · {{ document.sizeBytes|filesize }} · mis à jour le {{ document.updatedAt|date_fr }}
+            </div>
+            <div class="small text-body-secondary text-break font-monospace">{{ base_url }}{{ document.path() }}</div>
+        {% endblock %}
+        {% block item_edit %}
+            <a href="/admin/documents/{{ item.document.id }}/modifier" class="btn btn-sm btn-outline-secondary"
+               aria-label="Modifier « {{ item.document.title }} »" title="Modifier « {{ item.document.title }} »">
+                <i class="bi bi-pencil" aria-hidden="true"></i>
+            </a>
+        {% endblock %}
+    {% endembed %}
+
+    <p class="small text-body-secondary">
+        Glissez une ligne pour changer l'ordre de la page publique ; sur un écran étroit, les flèches
+        remplacent la poignée. Le nouvel ordre est enregistré tout seul.
+    </p>
+
+    <div class="card">
+        <div class="card-body small">
+            <h2 class="h6">Qui voit quoi</h2>
+            <ul class="mb-2">
+                <li><strong>Public</strong> : tout le monde, sans compte.</li>
+                <li><strong>Membres connectés</strong> : les animés, leurs parents et les animateurs, une fois connectés.</li>
+                <li><strong>Animateurs</strong> : les animateurs et le Staff d'U.</li>
+                <li><strong>Chefs d'Unité</strong> : le Staff d'U seulement.</li>
+                <li><strong>Lien direct</strong> : absent de la page publique ; quiconque a l'adresse peut le télécharger, même sans compte.</li>
+            </ul>
+            <p class="mb-0 text-body-secondary">
+                Les mêmes choix que pour les actualités. Un intendant voit ce qui est destiné aux membres
+                connectés, jamais ce qui est réservé aux animateurs.
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ asset('/assets/js/sortable.js') }}" defer></script>
+<script src="{{ asset('/assets/js/list-editor.js') }}" defer></script>
+{% endblock %}

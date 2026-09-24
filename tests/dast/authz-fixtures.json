@@ -30,6 +30,9 @@
     "/admin/attestations/{id}": {
       "id": "1"
     },
+    "/admin/documents/{id}": {
+      "id": "1"
+    },
     "/admin/doublons/{id}": {
       "id": "1"
     },
@@ -113,6 +116,9 @@
     },
     "/covoiturage/{id}": {
       "id": "1"
+    },
+    "/documents/{slug}": {
+      "slug": "reglement"
     },
     "/chefs/presences/anime/{memberId}": {
       "memberId": "1"
