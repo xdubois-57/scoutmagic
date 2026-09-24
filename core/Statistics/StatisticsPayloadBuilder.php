@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Statistics;
 
+use Core\Import\DeskMappingGapService;
 use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
 use Core\Mail\MailService;
@@ -41,7 +42,16 @@ use Modules\UsageStats\Api\ModuleUsageInterface;
  */
 class StatisticsPayloadBuilder
 {
-    public const STATISTICS_SCHEMA_VERSION = 1;
+    /**
+     * Bumped to 2 when the Desk vocabulary gained its branches and the
+     * `desk_unresolved` block arrived (issue #356). A receiver that only
+     * knows version 1 keeps accepting those reports — see
+     * `Modules\SupportDashboard\Service\StatisticsIntakeService`'s own
+     * list, which grows rather than moves: installations do not update on
+     * the same day, and a receiver that refused the older version would
+     * stop hearing from everybody who had not.
+     */
+    public const STATISTICS_SCHEMA_VERSION = 2;
 
     /**
      * A `cron_last_run` stamp older than this means no real crontab is
@@ -91,7 +101,15 @@ class StatisticsPayloadBuilder
         // the report, which rule 1 above makes a different fact from an
         // empty list. Trailing and defaulted so no existing call site of
         // this constructor changes.
-        private ?ModuleUsageInterface $moduleUsage = null
+        private ?ModuleUsageInterface $moduleUsage = null,
+        /**
+         * What this installation currently fails to recognise in its Desk
+         * data (issue #356). Trailing and defaulted like every dependency
+         * added to this constructor: null makes `desk_unresolved` a null
+         * FIELD, which rule 1 of this class makes a different fact from an
+         * empty list — « nobody measured » against « nothing to report ».
+         */
+        private ?DeskMappingGapService $mappingGaps = null
     ) {
     }
 
@@ -137,7 +155,15 @@ class StatisticsPayloadBuilder
             'desk_vocabulary' => [
                 'functions' => $this->collect(fn(): array => $this->deskFunctions()),
                 'fee_categories' => $this->collect(fn(): array => $this->deskFeeCategories()),
+                'branches' => $this->collect(fn(): array => $this->deskBranches()),
             ],
+            // What this installation KNOWS it could not match (D4 of issue
+            // #356). The vocabulary above lets a receiver guess; this says
+            // it outright, because the sender is the one who can: it holds
+            // `functions.confirmed`, it knows what `canonicalSortOrder()`
+            // answered, and it can ask the cotisations module a question
+            // core has no business answering itself.
+            'desk_unresolved' => $this->collect(fn(): ?array => $this->deskUnresolved()),
             'installation' => [
                 'method' => $this->collect(fn(): ?string => $this->installationMethod()),
             ],
@@ -529,6 +555,89 @@ class StatisticsPayloadBuilder
         $count = $this->pdo->query('SELECT COUNT(*) FROM fee_categories');
 
         return ['total' => $count !== false ? (int) $count->fetchColumn() : count($listed), 'listed' => $listed];
+    }
+
+    /**
+     * The age branches this unit's Desk export carries, with the rank
+     * {@see AgeBranchRepository::canonicalSortOrder()} gave each one.
+     *
+     * The rank is the interesting column, and it is why branches were
+     * worth adding to a vocabulary block that had done without them: 99
+     * means none of the seven needles matched, which costs the branch its
+     * logo on every member page and its place in every picker — the
+     * costliest mapping to get wrong, and the only one that fails with no
+     * signal of any kind on the unit's side.
+     *
+     * Unclassified, like the fee categories and for the same reason: the
+     * receiver reads the words. The rank is not a verdict, it is what this
+     * installation's own code answered.
+     *
+     * @return array{total: int, listed: array<int, array{desk_code: string, label: string, sort_order: int}>}
+     */
+    private function deskBranches(): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT desk_code, label, sort_order FROM age_branches ORDER BY desk_code LIMIT ?'
+        );
+        $stmt->bindValue(1, self::MAX_VOCABULARY_ENTRIES, \PDO::PARAM_INT);
+        $stmt->execute();
+
+        $listed = [];
+        $bytes = 0;
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $entry = [
+                'desk_code' => (string) $row['desk_code'],
+                'label' => (string) $row['label'],
+                'sort_order' => (int) $row['sort_order'],
+            ];
+            $bytes += self::entryBytes($entry);
+            if ($bytes > self::MAX_VOCABULARY_BYTES) {
+                break;
+            }
+            $listed[] = $entry;
+        }
+
+        $count = $this->pdo->query('SELECT COUNT(*) FROM age_branches');
+
+        return ['total' => $count !== false ? (int) $count->fetchColumn() : count($listed), 'listed' => $listed];
+    }
+
+    /**
+     * The values this installation knows it did not recognise.
+     *
+     * A KIND and a RAW VALUE, and deliberately nothing else. Not how many
+     * members carry it: the receiver's question is « on how many
+     * installations does this appear », which it answers by counting
+     * reports, and a headcount per unit would be data nobody needs for a
+     * table of words to complete (D9).
+     *
+     * Bounded like the vocabulary lists, and for the same reason — these
+     * are the only parts of this payload whose size a unit's own data
+     * decides. `total` declares what was left out, so a truncated list
+     * never reads as a complete one.
+     *
+     * @return array{total: int, listed: array<int, array{kind: string, value: string}>}|null
+     */
+    private function deskUnresolved(): ?array
+    {
+        if ($this->mappingGaps === null) {
+            return null;
+        }
+
+        $gaps = $this->mappingGaps->gaps();
+
+        $listed = [];
+        $bytes = 0;
+        foreach ($gaps as $gap) {
+            $entry = ['kind' => $gap->kind->value, 'value' => $gap->rawValue];
+            $bytes += self::entryBytes($entry);
+            if ($bytes > self::MAX_VOCABULARY_BYTES || count($listed) >= self::MAX_VOCABULARY_ENTRIES) {
+                break;
+            }
+            $listed[] = $entry;
+        }
+
+        return ['total' => count($gaps), 'listed' => $listed];
     }
 
     /**

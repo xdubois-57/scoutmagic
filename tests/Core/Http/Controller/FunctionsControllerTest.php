@@ -36,6 +36,8 @@ use Twig\Loader\FilesystemLoader;
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class FunctionsControllerTest extends TestCase
 {
+    private SettingRepository $settingRepo;
+
     private FunctionsController $controller;
     private FunctionRepository $functionRepo;
     private JournalRepository $journalRepo;
@@ -62,7 +64,8 @@ class FunctionsControllerTest extends TestCase
         $this->badgeService = new BadgeService(new BadgeRepository($this->pdo), $memberBadgeRepository, $this->sectionService);
         $this->unitStaffSectionService = new UnitStaffSectionService($this->pdo);
         $memberYearRepo = new MemberYearRepository($this->pdo);
-        $settingService = new SettingService(new SettingRepository($this->pdo));
+        $this->settingRepo = new SettingRepository($this->pdo);
+        $settingService = new SettingService($this->settingRepo);
         $this->scoutYearResolver = new ScoutYearResolver(new ScoutYearService($this->pdo), $settingService, $memberYearRepo);
 
         // FunctionsController::update() resolves the effective (current
@@ -91,7 +94,21 @@ class FunctionsControllerTest extends TestCase
         $this->twig->addFunction(new \Twig\TwigFunction('get_flash', fn() => null));
         $this->twig->addFunction(new \Twig\TwigFunction('csrf_token', fn() => 'test'));
         $this->twig->addFunction(new \Twig\TwigFunction('file_url', fn() => ''));
-        $this->twig->addFunction(new \Twig\TwigFunction('param', fn(string $k) => 'Test'));
+        // Real settings for the keys a template branches on, the stub
+        // value for the rest: the mapping-gap box says the labels travel
+        // only when the daily report is actually enabled.
+        // Real settings for the keys a template branches on, the stub
+        // value for the rest. Read through a FRESH service each call:
+        // SettingService loads every setting once and caches them, and
+        // setUp() has already triggered that load — a row a test seeds
+        // afterwards would be invisible, which is not how a request sees
+        // it.
+        $this->twig->addFunction(new \Twig\TwigFunction(
+            'param',
+            fn(string $k) => $k === 'statistics_enabled'
+                ? (string) ((new SettingService(new SettingRepository($this->pdo)))->get($k) ?? '')
+                : 'Test'
+        ));
 
         // With the mapping-gap service, because that is how the
         // composition root serves this page: a controller without it
@@ -975,6 +992,66 @@ class FunctionsControllerTest extends TestCase
             new AgeBranchRepository($this->pdo),
             null,
             new DeskMappingGapService($this->pdo, new ConfigScoutYearService($this->pdo))
+        );
+    }
+
+    /**
+     * Issue #356, IT-02. The labels now leave the installation in the
+     * daily report, and the counterpart of sending is saying so on the
+     * screen where the values are shown.
+     */
+    public function testTheBoxSaysTheLabelsTravelWhenReportingIsOn(): void
+    {
+        $this->functionRepo->create('Animateur Nutons', 'Animateur Nutons', 'identified', false);
+        $this->reportingEnabled('1');
+
+        $body = $this->controllerWithMappingGaps()->index(
+            new Request('GET', '/config/functions', [], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString('signalées au mainteneur du site', $body);
+        $this->assertStringContainsString('Seul le libellé est transmis', $body);
+    }
+
+    /**
+     * And an installation that switched reporting off is not told that
+     * something is being sent about it. The box still does its job: the
+     * unit can act on every one of these values without anybody else
+     * seeing them (D10).
+     */
+    public function testAnInstallationThatSendsNothingIsNotToldOtherwise(): void
+    {
+        $this->functionRepo->create('Animateur Nutons', 'Animateur Nutons', 'identified', false);
+        $this->reportingEnabled('0');
+
+        $body = $this->controllerWithMappingGaps()->index(
+            new Request('GET', '/config/functions', [], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString('que le site ne connaît pas', $body);
+        $this->assertStringNotContainsString('signalées au mainteneur du site', $body);
+    }
+
+    /**
+     * The daily-report switch, seeded rather than updated: an empty test
+     * database has no settings row, and `updateValue()` updates what is
+     * there.
+     */
+    private function reportingEnabled(string $value): void
+    {
+        $this->settingRepo->insert(
+            null,
+            'statistics_enabled',
+            $value,
+            'boolean',
+            'Rapports d\'utilisation',
+            'Envoi quotidien du rapport au mainteneur.',
+            null,
+            null,
+            true,
+            0
         );
     }
 }

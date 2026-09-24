@@ -408,4 +408,49 @@ class StatisticsIntakeServiceTest extends TestCase
     {
         $this->assertSame($expected, StatisticsIntakeService::extractBearerToken($header));
     }
+
+    /**
+     * Issue #356 bumped the schema to 2. Installations do not update on
+     * the same day, so the day after that ships most senders are still on
+     * 1 — a receiver that dropped the older version would stop hearing
+     * from every one of them at once, which is the opposite of what a
+     * version number is for.
+     */
+    public function testAReportFromTheOlderSchemaIsStillAccepted(): void
+    {
+        $result = $this->receive($this->payload(['statistics_schema_version' => 1]));
+
+        $this->assertTrue($result->accepted);
+    }
+
+    public function testAReportFromTheCurrentSchemaIsAccepted(): void
+    {
+        $result = $this->receive($this->payload([
+            'statistics_schema_version' => 2,
+            'desk_unresolved' => ['total' => 1, 'listed' => [['kind' => 'branch', 'value' => 'Nutons']]],
+        ]));
+
+        $this->assertTrue($result->accepted);
+        $this->assertSame([], $result->unknownFields, '`desk_unresolved` is a field this receiver knows');
+    }
+
+    /**
+     * And the whole block survives storage verbatim, because that is what
+     * the central page will read one iteration later — a receiver that
+     * only kept the columns it denormalises would have nothing to show.
+     */
+    public function testTheUnresolvedBlockIsKeptVerbatimInThePayload(): void
+    {
+        $this->receive($this->payload([
+            'statistics_schema_version' => 2,
+            'desk_unresolved' => ['total' => 1, 'listed' => [['kind' => 'branch', 'value' => 'Nutons']]],
+        ]));
+
+        $stmt = $this->pdo->prepare('SELECT payload FROM support_installations WHERE installation_id = ?');
+        $stmt->execute([self::INSTALLATION_ID]);
+        $stored = json_decode((string) $stmt->fetchColumn(), true);
+
+        $this->assertIsArray($stored);
+        $this->assertSame([['kind' => 'branch', 'value' => 'Nutons']], $stored['desk_unresolved']['listed']);
+    }
 }

@@ -93,7 +93,8 @@ class StatisticsPayloadBuilderTest extends TestCase
     private function builder(
         ?ModuleManager $moduleManager = null,
         ?MailService $mailService = null,
-        ?\Modules\UsageStats\Api\ModuleUsageInterface $moduleUsage = null
+        ?\Modules\UsageStats\Api\ModuleUsageInterface $moduleUsage = null,
+        ?\Core\Import\DeskMappingGapService $mappingGaps = null
     ): StatisticsPayloadBuilder {
         return new StatisticsPayloadBuilder(
             $this->settings,
@@ -102,7 +103,16 @@ class StatisticsPayloadBuilderTest extends TestCase
             $this->projectRoot,
             $moduleManager,
             $mailService,
-            $moduleUsage
+            $moduleUsage,
+            $mappingGaps
+        );
+    }
+
+    private function gapService(): \Core\Import\DeskMappingGapService
+    {
+        return new \Core\Import\DeskMappingGapService(
+            $this->pdo,
+            new \Core\Config\ScoutYearService($this->pdo)
         );
     }
 
@@ -237,7 +247,10 @@ class StatisticsPayloadBuilderTest extends TestCase
 
         $payload = $this->builder($this->moduleManager())->build();
 
-        $this->assertSame(1, $payload['statistics_schema_version']);
+        $this->assertSame(
+            StatisticsPayloadBuilder::STATISTICS_SCHEMA_VERSION,
+            $payload['statistics_schema_version']
+        );
         $this->assertMatchesRegularExpression('/^[0-9a-f]{32}$/', (string) $payload['installation_id']);
         $this->assertSame('https://unite-exemple.be', $payload['instance_url']);
         // Null, not '' — an installation that was never restored from an
@@ -260,6 +273,7 @@ class StatisticsPayloadBuilderTest extends TestCase
             [
                 'statistics_schema_version', 'installation_id', 'restored_from', 'instance_url', 'generated_at',
                 'scoutmagic', 'scout_year', 'usage', 'modules', 'module_usage', 'desk_vocabulary',
+                'desk_unresolved',
                 'installation', 'runtime', 'database', 'host', 'security', 'email', 'scheduler',
                 'updates', 'lifecycle', 'storage',
             ],
@@ -568,7 +582,10 @@ class StatisticsPayloadBuilderTest extends TestCase
 
         $payload = $this->builder()->build();
 
-        $this->assertSame(1, $payload['statistics_schema_version']);
+        $this->assertSame(
+            StatisticsPayloadBuilder::STATISTICS_SCHEMA_VERSION,
+            $payload['statistics_schema_version']
+        );
         $this->assertNull($payload['instance_url']);
     }
 
@@ -754,5 +771,103 @@ class StatisticsPayloadBuilderTest extends TestCase
         $stmt->execute(['2026-2027', '2026-09-01', '2027-08-31']);
         $this->settingRepository->updateValue(null, 'current_scout_year_id', (string) $this->pdo->lastInsertId());
         $this->settings->clearCache();
+    }
+
+    /**
+     * Issue #356. The branch is the costliest mapping to get wrong and the
+     * only one that fails with no signal at all on the unit's side, so the
+     * report says what this installation's own code answered for each.
+     */
+    public function testTheVocabularyCarriesEachBranchWithTheRankTheCodeGaveIt(): void
+    {
+        $branches = new \Core\Import\AgeBranchRepository($this->pdo);
+        $branches->create('Baladins', 'Baladins');
+        $branches->create('Nutons', 'Nutons');
+
+        $listed = $this->builder()->build()['desk_vocabulary']['branches']['listed'];
+        $ranks = array_column($listed, 'sort_order', 'desk_code');
+
+        $this->assertSame(10, $ranks['Baladins']);
+        $this->assertSame(99, $ranks['Nutons'], 'a branch none of the needles matched must travel as 99');
+    }
+
+    /**
+     * D4: the sender is the one who KNOWS. It holds `functions.confirmed`,
+     * it knows what `canonicalSortOrder()` answered — so it states what it
+     * could not match rather than leaving the receiver to work it out from
+     * the vocabulary.
+     */
+    public function testTheReportStatesWhatItCouldNotMatch(): void
+    {
+        (new \Core\Import\FunctionRepository($this->pdo))->create('Animateur Nutons', 'Animateur Nutons', 'identified', false);
+
+        $unresolved = $this->builder(mappingGaps: $this->gapService())->build()['desk_unresolved'];
+
+        $this->assertSame(1, $unresolved['total']);
+        $this->assertSame([['kind' => 'function', 'value' => 'Animateur Nutons']], $unresolved['listed']);
+    }
+
+    /**
+     * An installation with nothing unresolved sends an EMPTY block, not an
+     * absent one — « je reconnais tout » is an answer, and a receiver that
+     * read it as « cette installation ne dit rien » would go looking for a
+     * problem that does not exist.
+     */
+    public function testAnInstallationThatRecognisesEverythingSendsAnEmptyBlock(): void
+    {
+        $unresolved = $this->builder(mappingGaps: $this->gapService())->build()['desk_unresolved'];
+
+        $this->assertSame(['total' => 0, 'listed' => []], $unresolved);
+    }
+
+    /**
+     * And the OTHER null, which rule 1 of the class keeps distinct: no gap
+     * service wired at all is « nobody measured », a null field.
+     */
+    public function testWithoutTheGapServiceTheFieldIsNullRatherThanEmpty(): void
+    {
+        (new \Core\Import\FunctionRepository($this->pdo))->create('Animateur Nutons', 'Animateur Nutons', 'identified', false);
+
+        $this->assertNull($this->builder()->build()['desk_unresolved']);
+    }
+
+    /**
+     * The bound that actually matters is the receiver's 64 KB body: a unit
+     * whose Desk vocabulary went haywire must cost this field its
+     * completeness, never the whole report. `total` says what was left
+     * out, so a truncated list never reads as a complete one.
+     */
+    public function testATruncatedUnresolvedListDeclaresWhatItLeftOut(): void
+    {
+        $functions = new \Core\Import\FunctionRepository($this->pdo);
+        for ($i = 0; $i < 150; $i++) {
+            $functions->create(
+                'Fonction ' . str_pad((string) $i, 3, '0', STR_PAD_LEFT) . ' ' . str_repeat('x', 80),
+                'Fonction ' . str_pad((string) $i, 3, '0', STR_PAD_LEFT) . ' ' . str_repeat('x', 80),
+                'identified',
+                false
+            );
+        }
+
+        $unresolved = $this->builder(mappingGaps: $this->gapService())->build()['desk_unresolved'];
+
+        $this->assertSame(150, $unresolved['total']);
+        $this->assertLessThan(150, count($unresolved['listed']));
+        $this->assertNotSame([], $unresolved['listed']);
+    }
+
+    /**
+     * D9, on the document that actually leaves the installation: a kind
+     * and a federal label. Not a headcount — the receiver's question is on
+     * how many INSTALLATIONS a value appears, which it answers by counting
+     * reports.
+     */
+    public function testNothingButAKindAndALabelTravels(): void
+    {
+        (new \Core\Import\FunctionRepository($this->pdo))->create('Animateur Nutons', 'Animateur Nutons', 'identified', false);
+
+        $listed = $this->builder(mappingGaps: $this->gapService())->build()['desk_unresolved']['listed'];
+
+        $this->assertSame(['kind', 'value'], array_keys($listed[0]));
     }
 }

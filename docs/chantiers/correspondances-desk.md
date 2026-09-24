@@ -239,3 +239,72 @@ Rien. L'écran central, l'envoi et la documentation sont les itérations
 suivantes, comme prévu.
 
 ---
+
+## IT-02 — Enrichir la charge envoyée
+
+**Livré.** Le rapport quotidien porte maintenant de quoi voir le problème
+depuis l'autre bout.
+
+- **Les branches entrent dans `desk_vocabulary`** — code, libellé, et le rang
+  que `canonicalSortOrder()` leur a donné. Le rang est la colonne
+  intéressante : 99 dit qu'aucune des sept aiguilles n'a mordu.
+- **Un bloc `desk_unresolved`** à côté du vocabulaire (D4) : ce que
+  l'émetteur *sait* ne pas avoir su rattacher. Il est le seul à pouvoir le
+  dire — il tient `functions.confirmed` et il sait ce que
+  `canonicalSortOrder()` a répondu.
+- **Les deux bornes existantes s'appliquent au nouveau bloc**, et `total`
+  déclare ce qui a été laissé de côté.
+- **`STATISTICS_SCHEMA_VERSION` passe à 2**, et
+  `SUPPORTED_SCHEMA_VERSIONS` devient `[1, 2]` — une liste qui **grandit et
+  ne se déplace pas**.
+- La phrase de transparence qu'IT-01 avait différée est posée sous
+  l'encadré, conditionnée à `statistics_enabled`.
+
+### Les décisions prises en autonomie
+
+**Le bloc ne porte pas de comptage.** La maquette de la page centrale montre
+« 7 unités », et c'est le receveur qui l'obtient en comptant les rapports où
+la valeur apparaît. Envoyer en plus « 3 personnes portent cette fonction »
+n'ajouterait rien à cette colonne et ferait voyager un dénombrement de
+personnes par unité. Une nature et une valeur brute, et rien d'autre (D9).
+
+**Deux nullités différentes, gardées distinctes.** `desk_unresolved` à `null`
+veut dire « cette installation ne mesure pas » — aucun service de constat
+câblé. `{"total": 0, "listed": []}` veut dire « je reconnais tout ». La règle
+1 de `StatisticsPayloadBuilder` l'exige, et un receveur qui confondrait les
+deux irait chercher un problème inexistant. Deux tests les séparent.
+
+**La troncature compte les entrées *et* les octets.** Le bloc reprend
+`MAX_VOCABULARY_ENTRIES` et `MAX_VOCABULARY_BYTES` parce que c'est la même
+nature de risque : ce sont les seules parties de la charge dont la taille est
+décidée par les données d'une unité, et la borne qui mord vraiment est les
+65 536 octets que le receveur mesure sur le corps brut. Une unité au
+vocabulaire délirant doit coûter à ce champ sa complétude, jamais au rapport
+entier.
+
+**La version du schéma n'est plus écrite en dur dans les tests.** Trois
+assertions épinglaient `1`. Elles lisent désormais la constante : un numéro
+de version recopié dans un test est un test qui échoue à chaque montée sans
+rien avoir vérifié.
+
+### Ce que les tests tiennent
+
+Une branche canonique voyage avec son rang, une branche inconnue avec 99. Le
+rapport énonce ce qu'il n'a pas su rattacher. Une installation qui reconnaît
+tout envoie un bloc **vide**, pas une absence de bloc ; sans service de
+constat, le champ est **null**. Une charge de l'ancienne version reste
+acceptée, une charge de la nouvelle aussi et sans champ inconnu, et le bloc
+survit **verbatim** dans `support_installations.payload` — ce que la page
+centrale lira à l'itération suivante. La troncature déclare ce qu'elle a
+laissé. Rien d'autre qu'une nature et un libellé ne voyage.
+
+**Suite complète verte** : 20 414 tests, PHPStan sans erreur.
+
+### Reporté
+
+La vérification de `RgpdContentService` — le bloc envoyé s'ajoute à ce que
+décrit la section sur les statistiques, et D9 demande de corriger si elle
+qualifie ces envois d'anonymes. C'est explicitement une tâche d'IT-04, pas un
+oubli.
+
+---

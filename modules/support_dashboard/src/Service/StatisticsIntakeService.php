@@ -40,7 +40,16 @@ class StatisticsIntakeService
     public const RATE_LIMIT_MAX_REQUESTS = 10;
     public const RATE_LIMIT_WINDOW_MINUTES = 60;
 
-    private const SUPPORTED_SCHEMA_VERSIONS = [1];
+    /**
+     * Every version this receiver understands, oldest first — a list that
+     * GROWS and never moves. Installations do not update on the same day,
+     * so the day version 2 ships (the Desk branches and the
+     * `desk_unresolved` block, issue #356) most senders are still on 1,
+     * and dropping 1 would silence every one of them at once. A field this
+     * receiver does not know is kept verbatim in `payload` and warned
+     * about, never refused.
+     */
+    private const SUPPORTED_SCHEMA_VERSIONS = [1, 2];
 
     /** The largest value an `INT UNSIGNED` column will accept. */
     private const MAX_UNSIGNED_INT = 4294967295;
@@ -67,7 +76,7 @@ class StatisticsIntakeService
      */
     private const KNOWN_TOP_LEVEL_FIELDS = [
         'statistics_schema_version', 'installation_id', 'restored_from', 'instance_url', 'generated_at',
-        'scoutmagic', 'scout_year', 'usage', 'modules', 'module_usage', 'desk_vocabulary',
+        'scoutmagic', 'scout_year', 'usage', 'modules', 'module_usage', 'desk_vocabulary', 'desk_unresolved',
         'installation', 'runtime', 'database', 'host', 'security', 'email', 'scheduler', 'updates',
         'lifecycle', 'storage',
     ];
