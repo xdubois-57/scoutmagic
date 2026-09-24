@@ -92,31 +92,49 @@ class ReenrollmentConfigController extends AbstractController
             // success message; without this the page never told them
             // whether it ran, so the only way to find out was to click
             // again.
-            'emails_sent_at' => $this->emailsSentAt(),
+            'emails' => $this->emailStates(),
             'tracking' => $this->campaign->tracking(),
             'csrf_token' => CsrfGuard::generateToken(),
         ]);
     }
 
     /**
-     * The moment each of the campaign's four emails last finished going
-     * out, keyed by type — null for one that has not run.
+     * Where each of the campaign's four emails stands, keyed by type.
      *
-     * @return array<string, ?\DateTimeImmutable>
+     * **Two facts, not one.** « Sent » and « sent at » come apart in a case
+     * that exists on any installation upgrading mid-campaign: the marker
+     * says the email went out, and the moment beside it was introduced
+     * after it did, so there is nothing to read. Collapsing the two would
+     * print « Pas encore envoyé » under an email a chief watched leave —
+     * a wrong answer, which is what this whole block was added to stop.
+     *
+     * Both are scoped to the campaign now open. A marker from last year's
+     * campaign is not this campaign's news.
+     *
+     * @return array<string, array{sent: bool, at: ?\DateTimeImmutable}>
      */
-    private function emailsSentAt(): array
+    private function emailStates(): array
     {
-        $moments = [];
+        $campaignKey = $this->campaign->currentCampaignKey();
+
+        $states = [];
         foreach ([
             ReenrollmentCampaignService::EMAIL_OPENING,
             ReenrollmentCampaignService::EMAIL_REMINDER_1,
             ReenrollmentCampaignService::EMAIL_REMINDER_2,
             ReenrollmentCampaignService::EMAIL_CLOSING,
         ] as $type) {
-            $moments[$type] = $this->campaign->doneAt(ReenrollmentCampaignService::emailMarker($type));
+            $marker = ReenrollmentCampaignService::emailMarker($type);
+
+            $states[$type] = $campaignKey === null
+                ? ['sent' => false, 'at' => null]
+                : [
+                    'sent' => $this->campaign->alreadyDone($marker, $campaignKey),
+                    'at' => $this->campaign->doneAt($marker, $campaignKey),
+                ];
         }
 
-        return $moments;
+        return $states;
     }
 
     /**

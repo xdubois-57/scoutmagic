@@ -109,6 +109,45 @@ class SettingService
     }
 
     /**
+     * Several internal settings as ONE decision — all of them, or none.
+     *
+     * `setMany()` with the `editable` guard relaxed, for the same reason
+     * `setInternal()` exists: a marker the application maintains is not a
+     * field anybody types into. The atomicity is the point rather than a
+     * nicety — two `setInternal()` calls in a row let the first commit and
+     * the second throw, and a caller that records "this ran" in one row
+     * and "when it ran" in another must not be able to keep half of that.
+     *
+     * @param array<string, string> $values
+     *
+     * @throws SettingException
+     */
+    public function setManyInternal(array $values, ?string $moduleId = null): void
+    {
+        // Validated in full BEFORE the transaction opens, as setMany() is:
+        // refusing without having touched the database is cheaper and
+        // easier to reason about than rolling back.
+        foreach ($values as $key => $value) {
+            $setting = $this->repository->findByModuleAndKey($moduleId, $key);
+            if ($setting === null) {
+                throw new SettingException("Le réglage « {$key} » est introuvable — il a peut-être été "
+                    . "supprimé, rechargez la page.");
+            }
+            if (!$this->validateValue($value, $setting)) {
+                throw new SettingException("La valeur saisie pour le réglage « {$key} » est invalide — "
+                    . "vérifiez le format attendu.");
+            }
+        }
+
+        $this->repository->transactionally(function () use ($values, $moduleId): void {
+            foreach ($values as $key => $value) {
+                $this->repository->updateValue($moduleId, $key, $value);
+            }
+        });
+        $this->clearCache();
+    }
+
+    /**
      * Set a setting value programmatically, bypassing the `editable` guard.
      *
      * For settings managed by the application itself (e.g. the active scout year,

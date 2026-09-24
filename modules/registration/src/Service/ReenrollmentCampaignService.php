@@ -190,12 +190,14 @@ class ReenrollmentCampaignService
 
     public function markDone(string $marker, string $campaignKey, ?\DateTimeImmutable $at = null): void
     {
-        $this->settingService->setInternal($marker, $campaignKey, 'registration');
-        $this->settingService->setInternal(
-            self::momentMarker($marker),
-            ($at ?? new \DateTimeImmutable())->format('Y-m-d H:i:s'),
-            'registration'
-        );
+        // **One decision, not two.** Two `setInternal()` calls in a row let
+        // the first commit and the second throw, leaving « this ran »
+        // recorded without « when » — and the next pass would then read the
+        // campaign as finished while the page had no date to show for it.
+        $this->settingService->setManyInternal([
+            $marker => $campaignKey,
+            self::momentMarker($marker) => ($at ?? new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+        ], 'registration');
     }
 
     /**
@@ -219,12 +221,30 @@ class ReenrollmentCampaignService
     }
 
     /**
-     * The moment a marker was last set, or null when it never was — an
-     * installation that has not run a campaign yet, or one whose markers
-     * predate this being recorded.
+     * The moment a marker was set **for this campaign**, or null.
+     *
+     * **The campaign key is not optional.** `markDone()` overwrites the
+     * moment and never clears it, so a marker left over from last year's
+     * campaign still carries last year's timestamp — and answering with it
+     * would put « Envoyé le 14/03/2027 » under an email that has not gone
+     * out for the campaign now open. That is the wrong answer this whole
+     * setting exists to avoid, one campaign further along.
+     *
+     * So the moment is gated on exactly what `alreadyDone()` is gated on:
+     * the marker naming *this* campaign.
+     *
+     * Null therefore means one of three things, and the caller cannot tell
+     * them apart from here: never run, run for another campaign, or run
+     * before the moment was recorded at all — which is why
+     * `ReenrollmentConfigController` asks `alreadyDone()` separately rather
+     * than reading « no moment » as « not sent ».
      */
-    public function doneAt(string $marker): ?\DateTimeImmutable
+    public function doneAt(string $marker, string $campaignKey): ?\DateTimeImmutable
     {
+        if (!$this->alreadyDone($marker, $campaignKey)) {
+            return null;
+        }
+
         $stored = $this->settingService->get(self::momentMarker($marker), 'registration', '');
 
         return DateInput::fromStorage(is_string($stored) && $stored !== '' ? $stored : null);

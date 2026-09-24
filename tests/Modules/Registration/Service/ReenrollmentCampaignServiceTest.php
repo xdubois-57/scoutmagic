@@ -179,7 +179,7 @@ class ReenrollmentCampaignServiceTest extends TestCase
                 $marker . ' was written but does not read back'
             );
             $this->assertNotNull(
-                $this->campaign->doneAt($marker),
+                $this->campaign->doneAt($marker, '2027-05-15'),
                 $marker . ' recorded no moment'
             );
         }
@@ -204,15 +204,54 @@ class ReenrollmentCampaignServiceTest extends TestCase
 
         $this->assertSame(
             '2027-03-02 09:14:00',
-            $this->campaign->doneAt($marker)?->format('Y-m-d H:i:s')
+            $this->campaign->doneAt($marker, '2027-05-15')?->format('Y-m-d H:i:s')
         );
     }
 
     public function testAMarkerThatNeverRanHasNoMoment(): void
     {
         $this->assertNull(
-            $this->campaign->doneAt(ReenrollmentCampaignService::MARKER_CLOSED)
+            $this->campaign->doneAt(ReenrollmentCampaignService::MARKER_CLOSED, '2027-05-15')
         );
+    }
+
+    /**
+     * **Last year's send date is not this year's news.**
+     *
+     * `markDone()` overwrites the moment and never clears it, so a marker
+     * left from the previous campaign still carries its timestamp. Reading
+     * it unconditionally put « Envoyé le … » under an email that had not
+     * gone out for the campaign now open — the wrong answer this setting
+     * was added to avoid, one campaign further along.
+     *
+     * So the moment is gated on exactly what `alreadyDone()` is gated on.
+     */
+    public function testAMomentFromAnotherCampaignIsNotThisCampaignsMoment(): void
+    {
+        $marker = ReenrollmentCampaignService::emailMarker(ReenrollmentCampaignService::EMAIL_REMINDER_1);
+
+        $this->campaign->markDone($marker, '2027-05-15', new \DateTimeImmutable('2027-03-02 09:14:00'));
+
+        $this->assertNotNull($this->campaign->doneAt($marker, '2027-05-15'));
+        $this->assertNull(
+            $this->campaign->doneAt($marker, '2028-05-15'),
+            "the next campaign's page must not show the previous one's send date"
+        );
+    }
+
+    /**
+     * And the marker and its moment are one decision: a half-written pair
+     * would let the next pass read the campaign as finished with no date
+     * to show for it.
+     */
+    public function testTheMarkerAndItsMomentAreWrittenTogether(): void
+    {
+        $marker = ReenrollmentCampaignService::emailMarker(ReenrollmentCampaignService::EMAIL_CLOSING);
+
+        $this->campaign->markDone($marker, '2027-05-15');
+
+        $this->assertTrue($this->campaign->alreadyDone($marker, '2027-05-15'));
+        $this->assertNotNull($this->campaign->doneAt($marker, '2027-05-15'));
     }
 
     public function testOpeningTwiceOnTheSameDayOpensOnce(): void

@@ -87,17 +87,13 @@ class ReenrollmentConfigControllerTest extends TestCase
         $stmt->execute(['LOUV1', $branchId, 'Louveteaux A']);
 
         $this->settingService = new SettingService(new SettingRepository($this->pdo));
-        foreach ([
-            [ReenrollmentCampaignService::SETTING_OPEN, '0', 'boolean'],
-            [ReenrollmentCampaignService::SETTING_OPEN_AT, '03-01', 'text'],
-            [ReenrollmentCampaignService::SETTING_CLOSE_AT, '05-15', 'text'],
-            [ReenrollmentCampaignService::SETTING_REMINDER_1_DAYS, '14', 'number'],
-            [ReenrollmentCampaignService::SETTING_REMINDER_2_DAYS, '2', 'number'],
-            [ReenrollmentCampaignService::MARKER_OPENED, '', 'text'],
-            [ReenrollmentCampaignService::MARKER_CLOSED, '', 'text'],
-        ] as [$key, $default, $type]) {
-            $this->settingService->register($key, $default, $type, $key, 'Test.', 'registration');
-        }
+        // From the manifest, never by hand — the fixture that hid the
+        // markers being declared nowhere.
+        RegistrationTestHelper::registerManifestSettings($this->settingService);
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_OPEN_AT, '03-01', 'registration');
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_CLOSE_AT, '05-15', 'registration');
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_REMINDER_1_DAYS, '14', 'registration');
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_REMINDER_2_DAYS, '2', 'registration');
         $this->settingService->register(
             ScoutYearResolver::SETTING_PUBLIC_YEAR,
             (string) $this->currentYearId,
@@ -163,6 +159,80 @@ class ReenrollmentConfigControllerTest extends TestCase
 
         $this->assertStringContainsString('03-01', $html);
         $this->assertStringContainsString('05-15', $html);
+    }
+
+    /**
+     * **The page says whether each email of the campaign has gone out.**
+     *
+     * Clicking « Relancer » schedules a task and shows a success message;
+     * without this the page never said whether it ran, so the only way to
+     * find out was to click again — and write a second time to every
+     * silent family.
+     */
+    public function testThePageSaysWhichEmailsHaveNotGoneOutYet(): void
+    {
+        $html = $this->controller->index(new Request('GET', '/config/reinscription', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Pas encore envoyé', $html);
+        $this->assertStringNotContainsString('Envoyé le', $html);
+    }
+
+    public function testThePageShowsTheMomentAnEmailActuallyWentOut(): void
+    {
+        $this->campaign->markDone(
+            ReenrollmentCampaignService::emailMarker(ReenrollmentCampaignService::EMAIL_REMINDER_1),
+            $this->currentCampaignKey(),
+            new \DateTimeImmutable('2027-03-02 09:14:00')
+        );
+
+        $html = $this->controller->index(new Request('GET', '/config/reinscription', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Envoyé le 02/03/2027 à 09:14', $html);
+    }
+
+    /**
+     * A marker from a previous campaign is not this campaign's news — the
+     * page would otherwise date an email that has not gone out yet.
+     */
+    public function testAPreviousCampaignsSendDateIsNotShown(): void
+    {
+        $this->campaign->markDone(
+            ReenrollmentCampaignService::emailMarker(ReenrollmentCampaignService::EMAIL_REMINDER_1),
+            '2020-05-15',
+            new \DateTimeImmutable('2020-03-02 09:14:00')
+        );
+
+        $html = $this->controller->index(new Request('GET', '/config/reinscription', [], [], [], []), [])->getBody();
+
+        $this->assertStringNotContainsString('02/03/2020', $html);
+        $this->assertStringContainsString('Pas encore envoyé', $html);
+    }
+
+    /**
+     * And an installation upgraded mid-campaign has a marker with no
+     * moment beside it. « Pas encore envoyé » would be false for an email
+     * a chief watched leave.
+     */
+    public function testAnEmailSentBeforeMomentsWereRecordedStillReadsAsSent(): void
+    {
+        $key = $this->currentCampaignKey();
+        $marker = ReenrollmentCampaignService::emailMarker(ReenrollmentCampaignService::EMAIL_REMINDER_1);
+
+        $this->campaign->markDone($marker, $key);
+        // What an upgrade leaves behind: the marker, and an empty moment.
+        $this->settingService->setInternal($marker . '_moment', '', 'registration');
+
+        $html = $this->controller->index(new Request('GET', '/config/reinscription', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Envoyé, date inconnue', $html);
+    }
+
+    private function currentCampaignKey(): string
+    {
+        $key = $this->campaign->currentCampaignKey();
+        $this->assertNotNull($key, 'the fixture must have a campaign in progress');
+
+        return $key;
     }
 
     /**

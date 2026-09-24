@@ -76,8 +76,13 @@
             } %}
                 <dt class="col-sm-4 fw-normal text-body-secondary">{{ label }}</dt>
                 <dd class="col-sm-8">
-                    {% if emails_sent_at[type] %}
-                        Envoyé le {{ emails_sent_at[type]|datetime_fr }}
+                    {% if emails[type].at %}
+                        Envoyé le {{ emails[type].at|datetime_fr }}
+                    {% elseif emails[type].sent %}
+                        {# Sent, but before the moment was recorded — an
+                           installation upgraded mid-campaign. Saying
+                           « pas encore » here would be false. #}
+                        <span class="text-body-secondary">Envoyé, date inconnue</span>
                     {% else %}
                         <span class="text-body-secondary">Pas encore envoyé</span>
                     {% endif %}
