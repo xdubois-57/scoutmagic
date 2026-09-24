@@ -124,7 +124,13 @@ La roadmap a été écrite sur le commit `fb9e661` ; elle a été relue contre
   document listé n'ajoute rien à son `role_min` ; module désactivé,
   aucun vérificateur ne répond et le garde refuse. Coût assumé : un
   client sans cookies (un gestionnaire de téléchargement, un robot)
-  n'obtient pas le fichier par l'adresse.
+  n'obtient pas le fichier par l'adresse. Corollaire, dans le cœur : `FileController`
+  ne marquait `Cache-Control: public` que d'après le `role_min`, si bien
+  qu'un proxy aurait pu garder le fichier d'un lien direct et le servir à
+  n'importe qui sans repasser par le garde. Un fichier n'est désormais en
+  cache partagé que si le `role_min` est `public` **et** qu'il n'a aucun
+  propriétaire (`isSharedCacheable()`), pour le téléchargement, la
+  vignette et les variantes.
 - **Un envoi de nouveau fichier qui échoue en cours de modification**
   retire le fichier qu'il venait d'enregistrer, comme l'ajout le faisait
   déjà (relevé par la même revue).
