@@ -274,7 +274,23 @@ class DeskCsvParser
 
         $unexpected = array_values(array_diff($headers, self::EXPECTED_HEADERS));
         $present = count(self::EXPECTED_HEADERS) - count($missing);
-        $isAHeaderLine = $present >= (int) ceil(count(self::EXPECTED_HEADERS) * self::HEADER_LINE_MIN_EXPECTED_RATIO);
+
+        // TWO conditions, and the second closes a hole the first leaves
+        // wide open. Counting the expected names that are present says
+        // nothing about how many cells the line has: a file whose header
+        // row and first data row ended up on one physical line — no line
+        // break at all, which `splitLines()` cannot see — carries seventy
+        // cells, of which thirty-four are still expected header names. The
+        // ratio alone would open the gate and hand `$unexpected` a real
+        // member's name, birth date, phone and address.
+        //
+        // A genuine header line cannot be longer than the expected one
+        // plus one replacement per missing name: renaming a column does
+        // not add a cell, and a genuinely added column only reaches here
+        // when something else is missing, since nothing is journalled
+        // when the line validates.
+        $isAHeaderLine = $present >= (int) ceil(count(self::EXPECTED_HEADERS) * self::HEADER_LINE_MIN_EXPECTED_RATIO)
+            && count($headers) <= count(self::EXPECTED_HEADERS) + count($missing);
 
         $context = [
             // Counts, always: they say what happened and can describe no

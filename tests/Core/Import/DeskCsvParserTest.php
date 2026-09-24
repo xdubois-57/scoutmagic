@@ -355,6 +355,49 @@ class DeskCsvParserTest extends TestCase
     }
 
     /**
+     * The hole the ratio alone left open: a file whose header row and first
+     * data row ended up on ONE physical line. `splitLines()` splits on
+     * CR/LF and has nothing else to go on, so `str_getcsv` yields seventy
+     * cells — thirty-four of which are still expected header names, which
+     * is enough to satisfy the ratio on its own. The extra cells are a real
+     * member.
+     *
+     * @group database
+     */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
+    public function testAHeaderRowGluedToItsFirstDataRowLeaksNothing(): void
+    {
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        $parser = new DeskCsvParser(new JournalService(new JournalRepository($pdo)));
+
+        $reflected = new \ReflectionClass(DeskCsvParser::class);
+        /** @var string[] $headers */
+        $headers = $reflected->getConstant('EXPECTED_HEADERS');
+
+        // One name corrupted by the concatenation, as it would be, then the
+        // whole of a member's row on the same line.
+        $headers[0] = 'NomDupont';
+        $glued = implode(';', $headers) . ';Marie;F;12/03/2011;+32470123456;marie.dupont@example.be;'
+            . "Rue du Scout;5000;Namur\n";
+
+        $this->refuse($parser, $glued);
+
+        $context = $this->journalledContext($pdo);
+        $this->assertArrayNotHasKey(
+            'unexpected',
+            $context,
+            'a line far longer than a header row is not a header row, whatever its ratio'
+        );
+
+        $stmt = $pdo->query("SELECT context, description FROM event_log WHERE event_type = 'desk_csv_header_unexpected'");
+        $row = $stmt === false ? [] : (array) $stmt->fetch(\PDO::FETCH_ASSOC);
+        $written = implode(' ', array_map('strval', $row));
+        foreach (['Dupont', 'Marie', 'marie.dupont@example.be', '+32470123456', 'Namur'] as $personal) {
+            $this->assertStringNotContainsString($personal, $written);
+        }
+    }
+
+    /**
      * @param string $line the header line to hand the parser
      */
     private function refuse(DeskCsvParser $parser, string $line): void
