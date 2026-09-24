@@ -58,16 +58,15 @@ class RouterTest extends TestCase
      *
      * `matchPath()` used to interpolate the declared path whole into
      * `#^…$#` and replace only the `{…}`, so every regex metacharacter
-     * left in the literal parts kept its regex meaning. No route in this
-     * application carries one today, which is precisely why nothing
-     * caught it: the defect arrives with the first route that does.
+     * left in the literal parts kept its regex meaning — and this
+     * application declares plenty. `.` matches any character, so each of
+     * them already answered addresses nobody declared. Nothing caught it
+     * because nothing ever asked those routes a question they should
+     * refuse.
      *
-     * A `.` is the one that arrives first — `/members/{id}/contact.vcf`,
-     * or the `/.well-known/carddav` that #398 plans — and `.` matches any
-     * character, so the route would also answer addresses nobody
-     * declared. It matters beyond tidiness because `resolve()` stops at
-     * the first route that answers: an over-broad route shadows one
-     * declared after it on a neighbouring address.
+     * It matters beyond tidiness because `resolve()` stops at the first
+     * route that answers: an over-broad route shadows one declared after
+     * it on a neighbouring address.
      */
     public function testADotInARouteIsADotAndNotAnyCharacter(): void
     {
@@ -82,6 +81,65 @@ class RouterTest extends TestCase
                 $path . ' was never declared'
             );
         }
+    }
+
+    /**
+     * **The routes this application actually declares, not invented ones.**
+     *
+     * The assertion above proves the rule; this one proves it was already
+     * being broken. Every path below is declared today — `public/index.php`
+     * for the first three, a module manifest for the feeds — and
+     * every probe beside it is an address nobody declared that the old
+     * pattern answered.
+     *
+     * @param string $declared    a path this repository really registers
+     * @param string $reachable   an address it must serve
+     * @param string $unreachable one it used to serve and must refuse
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('pathsThisApplicationDeclares')]
+    public function testARealRouteOfThisApplicationRefusesTheNeighboursItUsedToAnswer(
+        string $declared,
+        string $reachable,
+        string $unreachable
+    ): void {
+        $router = new Router();
+        $router->addRoute('GET', $declared, 'App\\Controller\\SomeController', 'show', 'public');
+
+        $this->assertNotNull(
+            $router->resolve(new Request('GET', $reachable, [], [], [], [])),
+            $declared . ' must still serve ' . $reachable
+        );
+        $this->assertNull(
+            $router->resolve(new Request('GET', $unreachable, [], [], [], [])),
+            $unreachable . ' was never declared'
+        );
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: string, 2: string}>
+     */
+    public static function pathsThisApplicationDeclares(): array
+    {
+        return [
+            '/favicon.ico' => [
+                '/favicon.ico', '/favicon.ico', '/faviconXico',
+            ],
+            '/manifest.webmanifest' => [
+                '/manifest.webmanifest', '/manifest.webmanifest', '/manifest-webmanifest',
+            ],
+            '/pwa/icon-{size}.png' => [
+                '/pwa/icon-{size}.png', '/pwa/icon-192.png', '/pwa/icon-192Xpng',
+            ],
+            '/.well-known/carddav' => [
+                '/.well-known/carddav', '/.well-known/carddav', '/Xwell-known/carddav',
+            ],
+            '/calendar/feed/{token}.ics' => [
+                '/calendar/feed/{token}.ics', '/calendar/feed/abc.ics', '/calendar/feed/abcXics',
+            ],
+            '/carddav/staff/{member_id}.vcf' => [
+                '/carddav/staff/{member_id}.vcf', '/carddav/staff/7.vcf', '/carddav/staff/7Xvcf',
+            ],
+        ];
     }
 
     /**

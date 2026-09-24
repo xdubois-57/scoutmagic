@@ -101,6 +101,20 @@ function e2eSupportMain(array $argv): void
             e2eProvision($repoRoot, $instanceDir, $port);
             exit(0);
 
+        case 'human-check-delay':
+            // What the instance under test will actually enforce, so a
+            // scenario waits out the real barrier instead of a copy of its
+            // default. See tests/e2e/support/human-check.js.
+            $instanceDir = $argv[2] ?? '';
+            if ($instanceDir === '') {
+                fwrite(STDERR, "Usage: e2e-support.php human-check-delay <instance-dir>\n");
+                exit(1);
+            }
+            require_once $repoRoot . '/vendor/autoload.php';
+            e2eApplyApplicationClock();
+            echo e2eHumanCheckMinDelaySeconds($instanceDir), "\n";
+            exit(0);
+
         case 'run-scheduler':
             $instanceDir = $argv[2] ?? '';
             if ($instanceDir === '' || !is_file($instanceDir . '/public/cron.php')) {
@@ -1942,6 +1956,41 @@ function e2eSchedulerCommand(string $instanceDir, ?string $coverageDir): string
     }
 
     return $command . ' ' . escapeshellarg($instanceDir . '/public/cron.php');
+}
+
+/**
+ * The minimum-delay barrier the instance under test enforces, in seconds.
+ *
+ * `Core\Security\HumanCheck\HumanCheckService` reads it from the
+ * `human_check_min_delay_seconds` setting and falls back to 3. A scenario
+ * that copied that 3 would turn red the day somebody raised it, with no
+ * regression behind the failure — which is the whole of issue #453, so
+ * reading it here is what closes it rather than centralising the copy.
+ *
+ * `$instanceDir` is taken and not used: the settings live in the database
+ * this script provisioned, not under the instance directory, and the
+ * command reads the same as its siblings so a caller does not have to
+ * remember which of them needs it.
+ */
+function e2eHumanCheckMinDelaySeconds(string $instanceDir): int
+{
+    $config = e2eDatabaseConfig();
+    $pdo = new PDO(
+        sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', $config['host'], $config['port'], $config['name']),
+        $config['user'],
+        $config['password'],
+        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+    );
+
+    $statement = $pdo->prepare(
+        'SELECT setting_value FROM settings WHERE setting_key = ? AND module_id IS NULL LIMIT 1'
+    );
+    $statement->execute(['human_check_min_delay_seconds']);
+    $stored = $statement->fetchColumn();
+
+    return is_string($stored) && trim($stored) !== '' && ctype_digit(trim($stored))
+        ? max(0, (int) trim($stored))
+        : 3;
 }
 
 /**

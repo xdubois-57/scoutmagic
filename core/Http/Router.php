@@ -331,13 +331,20 @@ class Router
         //
         // This used to interpolate the declared path whole and replace only
         // the `{…}`, so every regex metacharacter left in the literal parts
-        // kept its regex meaning. No route in this application carries one
-        // today, which is exactly why it was invisible: the first route
-        // declared with a file extension — `/members/{id}/contact.vcf`, or
-        // the `/.well-known/carddav` that #398 plans — would also answer
-        // addresses nobody declared (`contactXvcf`, `contact-vcf`), and a
-        // `#` in a path would close the delimiter and break the route in
-        // silence.
+        // kept its regex meaning — and this application declares plenty:
+        // `/favicon.ico`, `/manifest.webmanifest`, `/pwa/icon-{size}.png`,
+        // `/.well-known/carddav`, four `.ics` feeds, `{member_id}.vcf`.
+        //
+        // `.` matches any character, so every one of them already answered
+        // addresses nobody declared: `/faviconXico`, `/manifest-webmanifest`,
+        // `/calendar/feed/abcXics`. Not hypothetical, and not waiting on a
+        // future route — live, on every one of those paths, and invisible
+        // because nothing ever asked them a question they should refuse.
+        //
+        // It matters beyond tidiness because `resolve()` stops at the first
+        // route that answers: an over-broad route shadows one declared
+        // after it on a neighbouring address. A `#` is the other edge — it
+        // closes the delimiter and breaks the route in silence.
         //
         // That matters beyond tidiness because `resolve()` stops at the
         // first route that answers: an over-broad route can shadow one

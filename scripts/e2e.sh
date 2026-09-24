@@ -340,6 +340,14 @@ export E2E_MAILDROP
 # holding public/cron.php.
 export E2E_INSTANCE_DIR="${INSTANCE_DIR}/instance"
 
+# What the instance actually enforces as the human-check barrier, read
+# from its own settings rather than copied from the default. A scenario
+# that copied it turned red the day somebody raised the setting, with no
+# regression behind the failure (#453) — so the helper that waits it out
+# is told the truth instead of assuming it.
+E2E_HUMAN_CHECK_MIN_DELAY="$(php "${SUPPORT}" human-check-delay "${E2E_INSTANCE_DIR}" 2>/dev/null || echo 3)"
+export E2E_HUMAN_CHECK_MIN_DELAY
+
 # ---------------------------------------------------------------
 # PHP coverage of the application, when asked for. The fragments live
 # inside the run's own temporary directory, so cleanup() removes them with
