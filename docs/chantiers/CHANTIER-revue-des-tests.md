@@ -1533,10 +1533,11 @@ seule ; à 19 %, ce qui tranche est que le renommage rend le document faux.
   `Core\Security\Role`, dont l'échelle 0–5 est exactement celle de
   `specifications.md` §2.1. `VERSION` dit bien `1.0.42`.
 
-**Les deux tests ont fait leur preuve avant même d'être fusionnés.** L'entrée
-a été rédigée sur un `main` que cette PR a ensuite dû rattraper de
-cinquante-cinq commits. Au premier contact avec ce `main` déplacé, les deux
-tests écrits ici sont devenus **rouges**, et sur des choses réelles :
+**Les tests ont fait leur preuve avant même d'être fusionnés.** L'entrée a
+été rédigée sur un `main` que cette PR a ensuite dû rattraper — de
+cinquante-cinq commits, puis trois fois encore, la CI jugeant chaque fois
+la branche contre un `main` déjà dépassé. À chaque contact, les tests
+écrits ici sont devenus **rouges**, et sur des choses réelles :
 
 - **`AuthorizationMatrixInventoryTest`** : une route ajoutée entre temps a
   fait passer les sept chiffres publiés de 746/4 476/264 à 747/4 482/265,
@@ -1613,8 +1614,10 @@ que le produit a tranché entre les deux lectures.
   règle écrite n'exige la clé, donc il n'y a pas d'écart — seulement un
   comptage qui aurait produit 77 faux constats.
 
-**Corrigé dans cette PR**, en trois paires document + test, chacune rouge
-avant et verte après — la troisième condition de §0.1 comprise :
+**Corrigé dans cette PR**, en **quatre** paires document + test, chacune
+rouge avant et verte après — la troisième condition de §0.1 comprise. La
+quatrième est arrivée en dernier, sur un constat de revue, et elle n'était
+pas écrivable au début de l'itération (voir plus bas) :
 
 | Document | Test qui le tient |
 |---|---|
