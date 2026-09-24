@@ -7,6 +7,7 @@ role_min: public
 question: Où trouver le règlement d'ordre intérieur de l'unité ?
 question: Où télécharger la liste de matériel pour le camp ?
 question: Pourquoi je ne vois pas un document dont on m'a parlé ?
+question: Pourquoi le lien d'un document m'affiche-t-il qu'il n'est pas accessible ?
 paths: /documents
 related: se-connecter
 ---
@@ -40,6 +41,12 @@ document qui n'est pas public, par exemple « Membres connectés ».
 L'unité peut aussi vous envoyer un document par son adresse, par e-mail
 ou sur papier. Cette adresse mène toujours à la dernière version du
 document : si l'unité le corrige, le même lien donne la version corrigée.
+
+Si ce lien affiche « Ce fichier n'est pas accessible avec votre
+compte. », le document est réservé aux membres de l'unité ou à
+l'encadrement : connectez-vous avec le compte lié à votre famille, puis
+rouvrez le lien. Le même message apparaît sur l'ancien lien d'une
+version remplacée depuis : demandez à l'unité l'adresse du document.
 
 Certains documents ne figurent sur aucune liste et ne s'ouvrent que par
 leur adresse : c'est normal, l'unité les partage directement avec les
