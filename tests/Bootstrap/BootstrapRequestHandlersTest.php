@@ -165,11 +165,6 @@ class BootstrapRequestHandlersTest extends TestCase
     }
 
     // -------------------------------------------------------------------
-    // bootstrapHandleStepRequest()
-    // -------------------------------------------------------------------
-
-    #[RunInSeparateProcess]
-    // -------------------------------------------------------------------
     // bootstrapSendJson()
     // -------------------------------------------------------------------
 
@@ -193,29 +188,88 @@ class BootstrapRequestHandlersTest extends TestCase
      * own buffer — the defect this test accompanies. A test that caused
      * it to prove it had been fixed would be its own counter-example.
      */
-    public function testAStrayWarningNeverReachesTheJsonBody(): void
+    #[\PHPUnit\Framework\Attributes\DataProvider('hostOutputBuffering')]
+    public function testAStrayWarningNeverReachesTheJsonBody(string $outputBuffering): void
     {
-        $bootstrap = dirname(__DIR__, 2) . '/bootstrap/bootstrap.php';
-        $script = <<<'PHP'
-            define('BOOTSTRAP_TEST', true);
-            require %s;
-            ob_start();
-            echo 'Warning: mkdir(): File exists in /htdocs/x.php on line 1';
-            ob_start();
-            bootstrapSendJson(['done' => true]);
-            PHP;
-
-        $output = shell_exec(sprintf(
-            '%s -r %s 2>&1',
-            escapeshellarg(PHP_BINARY),
-            escapeshellarg(sprintf($script, var_export($bootstrap, true)))
-        ));
-
+        // Printed INSIDE the handler's own buffer — the ordinary case: an
+        // unsuppressed mkdir() during the step itself.
         $this->assertSame(
             '{"done":true}',
-            trim((string) $output),
-            'the warning printed before the handler must not reach the body'
+            $this->sendJsonInASubprocess(
+                $outputBuffering,
+                "\$buffering = ob_get_level();\n"
+                . "ob_start();\n"
+                . "echo 'Warning: mkdir(): File exists in /htdocs/x.php on line 1';"
+            ),
+            'a warning printed while the handler runs must not reach the body'
         );
+    }
+
+    /**
+     * And the harder half: a warning printed BEFORE the handler opened
+     * anything.
+     *
+     * Only asserted where the function can still reach it. With
+     * `output_buffering` off, such output has already left for the client
+     * and no code anywhere can recall it — that was as true of the
+     * previous release as it is here. With it **on**, PHP holds it in an
+     * implicit buffer, and that is the case this pins: the floor is 1,
+     * closing "down to the floor" stops one level short of it, and the
+     * JSON would be appended behind the warning in the very same buffer.
+     *
+     * The value is the one nobody chooses. **4096 is the default** in
+     * both `php.ini-production` and `php.ini-development`, and the norm on
+     * the shared hosting this installer targets — while the CLI SAPI
+     * forces it off, so a subprocess run without `-d` proves only the easy
+     * half. Measured on this machine at 4096: the floor-only version
+     * answered `Warning: … {"done":true}`, its predecessor `{"done":true}`.
+     */
+    public function testAWarningPrintedBeforeTheHandlerOpenedAnythingIsStillDiscarded(): void
+    {
+        $this->assertSame(
+            '{"done":true}',
+            $this->sendJsonInASubprocess(
+                '4096',
+                "\$buffering = ob_get_level();\n"
+                . "echo 'Warning: mkdir(): File exists in /htdocs/x.php on line 1';\n"
+                . 'ob_start();'
+            ),
+            'a host holding the warning in its implicit buffer must not serve it with the JSON'
+        );
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function hostOutputBuffering(): array
+    {
+        return [
+            'off — the CLI default' => ['0'],
+            'on — what php.ini-production ships' => ['4096'],
+        ];
+    }
+
+    /**
+     * Run `bootstrapSendJson()` in a real subprocess under a given
+     * `output_buffering`, with `$preamble` deciding where the stray output
+     * lands, and return the whole response body.
+     */
+    private function sendJsonInASubprocess(string $outputBuffering, string $preamble): string
+    {
+        $bootstrap = dirname(__DIR__, 2) . '/bootstrap/bootstrap.php';
+        $script = "define('BOOTSTRAP_TEST', true);\n"
+            . 'require ' . var_export($bootstrap, true) . ";\n"
+            . $preamble . "\n"
+            . 'bootstrapSendJson([\'done\' => true], $buffering);';
+
+        $output = shell_exec(sprintf(
+            '%s -d output_buffering=%s -r %s 2>&1',
+            escapeshellarg(PHP_BINARY),
+            escapeshellarg($outputBuffering),
+            escapeshellarg($script)
+        ));
+
+        return trim((string) $output);
     }
 
     /**
@@ -235,6 +289,11 @@ class BootstrapRequestHandlersTest extends TestCase
         $this->assertSame($floor, ob_get_level());
     }
 
+    // -------------------------------------------------------------------
+    // bootstrapHandleStepRequest()
+    // -------------------------------------------------------------------
+
+    #[RunInSeparateProcess]
     public function testAStepRunsAndItsNewStateIsWrittenBack(): void
     {
         $state = $this->installedLayoutB();

@@ -2149,37 +2149,63 @@ function bootstrapHandleGateReport(string $docRoot, string $stateFile): void
  * so the response is always exactly one clean JSON document regardless
  * of what else the host's PHP tried to print along the way.
  *
- * **Down to `$floor`, never to zero.** This used to unwind the whole
- * stack, which destroys buffers this function did not open. Serving a
- * real request that is the same thing — the handler is alone on the
- * stack, so its floor IS zero and nothing about production changes,
- * including the case this function exists for: a warning printed before
- * the handler's own ob_start() sits below that floor and is still
- * discarded.
+ * **It CLOSES down to `$floor` and EMPTIES what is left there.** Those
+ * are two different operations and the function needs both, because the
+ * floor is not always zero.
  *
- * Under PHPUnit it is not the same thing at all. PHPUnit holds a buffer
- * of its own, `ob_end_clean()` took it with the rest, and fifteen tests
- * in Tests\Bootstrap\BootstrapRequestHandlersTest have reported « Test
- * code or tested code closed output buffers other than its own » on
- * every run since they were written — *risky*, never *failure*, and
- * `phpunit.xml` declares neither failOnRisky nor failOnWarning, so the
- * command exits 0 and CI says nothing. A permanent signal the output
+ * Closing the whole stack is what it used to do, and it destroys buffers
+ * this function did not open. Under PHPUnit that is PHPUnit's own:
+ * fifteen tests in Tests\Bootstrap\BootstrapRequestHandlersTest reported
+ * « Test code or tested code closed output buffers other than its own »
+ * on every run since they were written — *risky*, never *failure*, and
+ * `phpunit.xml` declared neither failOnRisky nor failOnWarning, so the
+ * command exited 0 and CI said nothing. A permanent signal the output
  * does not surface, which is docs/quality-pipeline.md § Reading a green
  * result in its most literal form.
+ *
+ * But stopping at the floor is not enough on its own, and assuming it
+ * was is how this function nearly shipped with the very defect it
+ * exists to prevent. **`output_buffering` is on by default** — 4096 in
+ * both `php.ini-production` and `php.ini-development`, and the norm on
+ * the shared hosting this installer is written for. PHP then opens an
+ * implicit buffer before any user code runs, so a handler's floor is 1,
+ * not 0, and a warning printed before the handler's own `ob_start()`
+ * sits in that implicit buffer. Closing down to the floor leaves it
+ * there, `echo json_encode()` appends the JSON behind it, and the
+ * response is `Warning: … {"done":true}` — the opaque
+ * `response.json()` failure, on the install screen, where the operator
+ * has no other channel. Measured, on this file against its previous
+ * version:
+ *
+ *     php -d output_buffering=4096  old:  {"done":true}
+ *     php -d output_buffering=4096  new:  LEAKED {"done":true}
+ *
+ * `ob_clean()` is what closes that gap without re-opening the first
+ * one: the floor buffer is emptied, never destroyed, so its owner —
+ * PHP's implicit one, or PHPUnit's — still has it afterwards. Emptying
+ * it is the function's contract rather than a side effect: the response
+ * body is this JSON document and nothing else.
  *
  * Each handler passes the level it found on entry, so "as far down as I
  * opened" and "as far down as there is" stop being the same sentence.
  *
  * @param array<string, mixed> $payload
  * @param int $floor the buffering level to unwind to — the level the
- *        caller found before opening its own, which is 0 when serving a
- *        request
+ *        caller found before opening its own
  */
 function bootstrapSendJson(array $payload, int $floor = 0): void
 {
     while (ob_get_level() > max(0, $floor)) {
         ob_end_clean();
     }
+
+    // What is left at the floor belongs to somebody else, so it is
+    // emptied rather than closed — see the docblock above for the host
+    // configuration that makes the difference visible.
+    if (ob_get_level() > 0) {
+        ob_clean();
+    }
+
     echo json_encode($payload);
 }
 
