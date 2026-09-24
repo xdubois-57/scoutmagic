@@ -64,7 +64,7 @@ final class AssertionMessagesAreEnglishTest extends TestCase
      * A DENSITY, not a count, for the reason the Twig sibling gives:
      * counting hits makes length the real test, and these messages are
      * short. 0.13 comes from the corpus rather than from taste. Measured
-     * over all 3010 messages the scan below reads, the two hundred and
+     * over all 3378 messages the scan below reads, the two hundred and
      * four French ones scored 0.143 and up, and the highest-scoring
      * English one —
      * « De, À, Sujet — the order every mail client uses. », which names
@@ -81,7 +81,7 @@ final class AssertionMessagesAreEnglishTest extends TestCase
     private const MINIMUM_FRENCH_DENSITY = 0.13;
 
     /**
-     * The corpus is 3010 messages today. A scan that suddenly reads far
+     * The corpus is 3378 messages today. A scan that suddenly reads far
      * fewer is a scan that has stopped working, and this is the number
      * that says so out loud rather than letting an empty result read as
      * an enforced rule. Deliberately slack — assertions are added every
@@ -96,7 +96,18 @@ final class AssertionMessagesAreEnglishTest extends TestCase
      * while this number sat comfortably above its floor. A number cannot
      * see a shape; only a test naming the shape can.
      */
-    private const MINIMUM_MESSAGES_SCANNED = 2600;
+    private const MINIMUM_MESSAGES_SCANNED = 2900;
+
+    /**
+     * The calls whose message is their ONLY argument.
+     *
+     * `fail(string $message = '')` and its two neighbours are the reason
+     * the one-argument rule above cannot be a rule about arity. The
+     * call-matching regex opts them in on purpose — a `fail()` explaining
+     * why a test cannot go on is read by exactly the person an English
+     * message is for.
+     */
+    private const MESSAGE_ONLY_CALLS = ['fail', 'markTestSkipped', 'markTestIncomplete'];
 
     /**
      * The tokens an interpolation is made of, inside a double-quoted or
@@ -269,7 +280,7 @@ final class AssertionMessagesAreEnglishTest extends TestCase
                 continue;
             }
 
-            $message = self::lastArgumentString(array_slice($tokens, $open));
+            $message = self::lastArgumentString(array_slice($tokens, $open), $token[1]);
             if ($message !== null) {
                 $found[] = [$token[2], $message];
             }
@@ -282,8 +293,10 @@ final class AssertionMessagesAreEnglishTest extends TestCase
 
     /**
      * @param list<array{int, string, int}|string> $tokens starting at the call's opening parenthesis
+     * @param string $call the called name, which decides whether a
+     *                     one-argument call can carry a message at all
      */
-    private static function lastArgumentString(array $tokens): ?string
+    private static function lastArgumentString(array $tokens, string $call): ?string
     {
         $depth = 0;
         /** @var list<list<array{int, string, int}|string>> $arguments */
@@ -331,17 +344,27 @@ final class AssertionMessagesAreEnglishTest extends TestCase
             array_pop($arguments);
         }
 
-        // PHPUnit's optional message is never an assertion's ONLY
-        // argument, so a one-argument call has no message to read and its
-        // single argument is the subject. That matters now that a term
-        // which is not a literal is swallowed rather than refused:
+        // An `assert*` message is never the call's ONLY argument, so a
+        // one-argument call there has no message and its single argument
+        // is the subject. That matters now that a term which is not a
+        // literal is swallowed rather than refused:
         // `assertFileExists($dir . '/notes-du-chef.txt')` would otherwise
         // hand its own path over as prose, and « notes du chef » scores
         // French on the strength of « du ». It is the same protection the
         // docblock of messagesIn() describes — an expected value ending on
         // a variable yields nothing — held at the one place the widening
         // took it away.
-        if (count($arguments) < 2) {
+        //
+        // **But not for the three calls whose message IS their only
+        // argument.** `fail()`, `markTestSkipped()` and
+        // `markTestIncomplete()` are opted into by the call-matching
+        // regex precisely because they carry one, and applying the rule
+        // to them turned three hundred call sites into silence — never
+        // scored, never counted, so the sentinel could not see the hole
+        // either. That is this class's own failure mode, introduced while
+        // closing another one; it is why the rule is asked of the call
+        // name rather than of the argument count alone.
+        if (count($arguments) < 2 && !in_array($call, self::MESSAGE_ONLY_CALLS, true)) {
             return null;
         }
 
@@ -703,6 +726,39 @@ final class AssertionMessagesAreEnglishTest extends TestCase
             $this->assertStringContainsString('ce qui casse la page.', $messages[0][1]);
             $this->assertStringNotContainsString('row', $messages[0][1], 'everything between the braces is the hole');
             $this->assertTrue(self::looksFrench($messages[0][1]));
+        } finally {
+            unlink($file);
+        }
+    }
+
+    /**
+     * A message that IS the call's only argument.
+     *
+     * The rule that a one-argument call carries no message is true of
+     * `assert*` and false of the three calls the matching regex opts in
+     * for exactly that reason. Applied to them it silenced three hundred
+     * and sixty-eight call sites at a stroke — unscored, uncounted, so
+     * the sentinel stayed still while the reader shrank. The shape is
+     * frozen here because a count does not see a shape.
+     */
+    public function testAMessageThatIsTheOnlyArgumentOfFailOrSkipIsStillRead(): void
+    {
+        $file = tempnam(sys_get_temp_dir(), 'assertion_messages_') . '.php';
+        file_put_contents($file, <<<'PHP'
+            <?php
+            $this->fail("La chaîne n'a pas été amorcée, donc le reste du test ne veut rien dire.");
+            self::markTestSkipped("Aucun serveur n'a répondu, et rien ici ne promettait le contraire.");
+            $this->assertFileExists($dir . '/notes-du-chef.txt');
+            PHP);
+
+        try {
+            $messages = self::messagesIn($file, []);
+
+            $this->assertCount(2, $messages, 'the one-argument assert* call carries no message and stays out');
+            $this->assertStringContainsString("La chaîne n'a pas été amorcée", $messages[0][1]);
+            $this->assertStringContainsString("Aucun serveur n'a répondu", $messages[1][1]);
+            $this->assertTrue(self::looksFrench($messages[0][1]));
+            $this->assertTrue(self::looksFrench($messages[1][1]));
         } finally {
             unlink($file);
         }
