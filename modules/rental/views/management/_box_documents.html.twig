@@ -1,0 +1,24 @@
+{#
+  The « Documents » box (Booking\BookingBox::DOCUMENTS). Rendered on the
+  Documents page, open there; its body is `_documents.html.twig`.
+
+  Optional: `open` — the box arrives unfolded.
+#}
+<div class="card mb-3" id="{{ boxes.documents.anchor }}">
+    {% embed '@rental/management/_dossier_header.html.twig' with {
+        box: boxes.documents, target_id: boxes.documents.bodyAnchor, documents: documents, open: open|default(false),
+    } only %}
+        {% block figure %}
+            <span class="text-body-secondary small" data-booking-panel="documents-figure">
+                {{ documents is empty
+                    ? 'Aucun document'
+                    : documents|length ~ ' document' ~ (documents|length > 1 ? 's' : '') }}
+            </span>
+        {% endblock %}
+    {% endembed %}
+    <div class="collapse{{ open|default(false) ? ' show' }}" id="{{ boxes.documents.bodyAnchor }}">
+        <div data-booking-panel="documents">
+            {% include '@rental/management/_documents.html.twig' %}
+        </div>
+    </div>
+</div>

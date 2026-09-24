@@ -1,0 +1,53 @@
+{% extends 'base.html.twig' %}
+{#
+  What every page of one booking's file shares (§6.4, §6.15, issue #462):
+  its title, whether the stay is under way, the booking's own rail of
+  chips — and the scripts that make every form below it answer in place.
+
+  Behind RentalAuthorizationService and reached only by a manager of THIS
+  asset, which is why the pages carry what the public surfaces never do:
+  the renter's identity, the internal comments, the full history.
+
+  **The booking's rail replaces the asset's.** Stacking the two would be two
+  rows of chips answering two different questions; a « back to the asset »
+  chip would be a third. The breadcrumb already goes back — the controller
+  hands it the asset and its bookings list as real links
+  (`breadcrumb_trail`) — so this page shows one rail, and it is the
+  booking's.
+
+  **Every page is refreshable in place.** public/assets/js/rental-booking.js
+  posts a page's forms with fetch and replaces the contents of each
+  `data-booking-panel` wrapper from a fresh render of the SAME URL, so a
+  page only ever swaps the panels it renders. `data-rental-booking` is on
+  the frame for that reason: every page opts in by existing.
+
+  Requires `booking`, `asset`, `booking_page` (a Booking\BookingPage),
+  `booking_pages` (the pages offered on this booking) and `booking_url`.
+#}
+{% block title %}{{ booking.reference }}{% if booking_page.value != 'dashboard' %} — {{ booking_page.label }}{% endif %} — {{ asset.name }} — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="page-medium" data-rental-booking data-booking-page="{{ booking_page.value }}">
+        {% include 'partials/page_header.html.twig' with {
+            title: booking.reference,
+            subtitle: booking.renterName ~ ' · du ' ~ booking.arrivalDate|date_fr ~ ' au ' ~ booking.departureDate|date_fr,
+        } only %}
+        <div data-booking-panel="in-progress">
+            {% if is_in_progress %}
+                <p class="mb-3">{% include 'partials/status_badge.html.twig' with { status: 'active', label: 'En cours' } only %}</p>
+            {% endif %}
+        </div>
+
+        {% include '@rental/management/_booking_nav.html.twig' %}
+
+        {% block booking_content %}{% endblock %}
+    </div>
+{% endblock %}
+
+{% block scripts %}
+    {# Turns every form on the page into a fetch, then re-renders the panels. #}
+    <script src="{{ asset('/assets/js/rental-booking.js') }}" defer></script>
+    {# Opens the box a fragment names — a journey line on the dashboard
+       pointing into another page, and any link sent from elsewhere. #}
+    <script src="{{ asset('/assets/js/collapse-anchor.js') }}" defer></script>
+    {% block booking_scripts %}{% endblock %}
+{% endblock %}

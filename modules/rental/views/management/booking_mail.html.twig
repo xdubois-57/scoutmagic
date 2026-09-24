@@ -1,0 +1,10 @@
+{% extends '@rental/management/_booking_frame.html.twig' %}
+{#
+  « Courrier » — the mail of one booking (Booking\BookingPage::MAIL). Only
+  reachable when `inbound_mail` collects: the controller answers 404
+  otherwise, and the rail offers no chip for it. The box arrives open: this
+  page exists for it.
+#}
+{% block booking_content %}
+    {% include '@rental/management/_box_mail.html.twig' with { open: true } %}
+{% endblock %}

@@ -29,6 +29,7 @@ use Modules\Calendar\Api\CalendarDirectoryInterface;
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Availability\MonthWindow;
 use Modules\Rental\Booking\BookingBox;
+use Modules\Rental\Booking\BookingPage;
 use Modules\Rental\Booking\BookingJourney;
 use Modules\Rental\Booking\BookingMilestones;
 use Modules\Rental\Booking\BookingStatus;
@@ -746,11 +747,81 @@ class RentalManagementController extends AbstractController
     }
 
     /**
-     * GET /mes-locations/{slug}/reservations/{id} — one booking's file.
+     * GET /mes-locations/{slug}/reservations/{id} — one booking's file, on
+     * its dashboard (Booking\BookingPage::DASHBOARD).
      *
      * @param array<string, string> $params
      */
     public function booking(Request $request, array $params): Response
+    {
+        return $this->bookingFilePage($params, BookingPage::DASHBOARD);
+    }
+
+    /**
+     * GET /mes-locations/{slug}/reservations/{id}/finances — the price and
+     * the payments of one booking.
+     *
+     * @param array<string, string> $params
+     */
+    public function bookingFinances(Request $request, array $params): Response
+    {
+        return $this->bookingFilePage($params, BookingPage::FINANCES);
+    }
+
+    /**
+     * GET /mes-locations/{slug}/reservations/{id}/documents — the papers of
+     * one booking.
+     *
+     * @param array<string, string> $params
+     */
+    public function bookingDocuments(Request $request, array $params): Response
+    {
+        return $this->bookingFilePage($params, BookingPage::DOCUMENTS);
+    }
+
+    /**
+     * GET /mes-locations/{slug}/reservations/{id}/courrier — the mail of one
+     * booking; a 404 where `inbound_mail` collects nothing, the same answer
+     * as a page that does not exist, because here it does not.
+     *
+     * @param array<string, string> $params
+     */
+    public function bookingMail(Request $request, array $params): Response
+    {
+        return $this->bookingFilePage($params, BookingPage::MAIL);
+    }
+
+    /**
+     * The pages this booking offers, in rail order: all four, minus
+     * « Courrier » when there is no mail to read here.
+     *
+     * @return list<BookingPage>
+     */
+    private function bookingPagesOffered(): array
+    {
+        $communications = $this->communicationService?->isAvailable() ?? false;
+
+        // Filtering drops « Courrier », the last case, so what remains is
+        // still a list in rail order.
+        return array_filter(
+            BookingPage::cases(),
+            static fn(BookingPage $page): bool => $page !== BookingPage::MAIL || $communications
+        );
+    }
+
+    /**
+     * One page of a booking's file (issue #462). Every page is rendered
+     * from the same context: the pages split the file for the reader, not
+     * for the data, and the dashboard's journey needs the documents, the
+     * payments and the stay to say where the booking stands anyway.
+     *
+     * The authorisation is the one the file always had, and it is decided
+     * before the page is: a booking of another asset, or of no asset this
+     * person manages, is a 404 on every page of it.
+     *
+     * @param array<string, string> $params
+     */
+    private function bookingFilePage(array $params, BookingPage $page): Response
     {
         $asset = $this->manageableAsset($params);
         if ($asset === null) {
@@ -759,6 +830,11 @@ class RentalManagementController extends AbstractController
 
         $booking = $this->bookingOfAsset($asset, (int) ($params['id'] ?? 0));
         if ($booking === null) {
+            return $this->notFound();
+        }
+
+        $pages = $this->bookingPagesOffered();
+        if (!in_array($page, $pages, true)) {
             return $this->notFound();
         }
 
@@ -793,13 +869,20 @@ class RentalManagementController extends AbstractController
             $boxes[$box->value] = $box;
         }
 
-        return $this->render('@rental/management/booking.html.twig', [
+        return $this->render(self::BOOKING_PAGE_TEMPLATES[$page->value], [
             'asset' => $asset,
             'booking' => $booking,
-            // The one box that is a page rather than a fold, so the
-            // journey's links to it need a URL and not a fragment
-            // (`BookingBox::isPage()`).
-            'stay_url' => $this->bookingUrl($asset, $booking) . '/sejour',
+            // The base every link of the file is built on: the rail's
+            // chips (`BookingPage::url()`) and the journey's links into a
+            // box, wherever it lives (`BookingBox::href()`).
+            'booking_url' => $this->bookingUrl($asset, $booking),
+            'booking_page' => $page,
+            'booking_pages' => $pages,
+            // The same last crumb on the four pages: they are one booking's
+            // file, and the rail — not the breadcrumb — says which part of
+            // it is open. Every ancestor stays a real link, which is the way
+            // back to the asset now that the booking's rail replaces the
+            // asset's.
             'breadcrumb_current' => $booking->reference,
             'breadcrumb_trail' => $this->bookingTrail($asset),
             // The checklist is derived from what the booking's own records
@@ -2446,7 +2529,13 @@ class RentalManagementController extends AbstractController
             return $this->json(self::flashAsJson());
         }
 
-        return $this->redirect($this->bookingUrl($asset, $booking));
+        // Back to the page the form was on, when it says which: a manager
+        // recording a payment without JavaScript lands on Finances, not on
+        // the dashboard. Read against the closed enum, so the value can
+        // only ever name one of this booking's own pages — never a URL.
+        $page = BookingPage::tryFrom((string) $request->getBody('booking_page', '')) ?? BookingPage::DASHBOARD;
+
+        return $this->redirect($page->url($this->bookingUrl($asset, $booking)));
     }
 
     /**
@@ -2641,6 +2730,16 @@ class RentalManagementController extends AbstractController
      * the action still happens, it is simply recorded without an author,
      * which is honest rather than inventing one.
      */
+    /**
+     * The template of each page of a booking's file.
+     */
+    private const BOOKING_PAGE_TEMPLATES = [
+        'dashboard' => '@rental/management/booking.html.twig',
+        'finances' => '@rental/management/booking_finances.html.twig',
+        'documents' => '@rental/management/booking_documents.html.twig',
+        'mail' => '@rental/management/booking_mail.html.twig',
+    ];
+
     /**
      * The management URL of one booking. Assembled here rather than at each
      * redirect, so the four or five places that end on this page cannot

@@ -9,22 +9,22 @@ declare(strict_types=1);
 namespace Modules\Rental\Booking;
 
 /**
- * The boxes a booking's file is filed into — the second half of §6.15's
- * "one page, read top to bottom".
+ * The boxes a booking's file is filed into (§6.15).
  *
  * Price, payments, documents, mail, change requests, the stay, the internal
- * comments and the history used to be eight cards unfolded one under the
- * other: everything at once, which is another way of saying nothing first.
- * They are a folded list now, each line carrying the figure that says
- * whether it wants opening — « 317,50 € dus » on a line nobody has to open
- * answers the question the box was going to be opened for.
+ * comments and the history used to be eight cards on one page. They are
+ * spread over the booking's four pages now (`BookingPage`, issue #462), each
+ * box on the page that answers the question it would be opened for, and
+ * each still carrying the figure that says whether it wants opening —
+ * « 317,50 € dus » on a line nobody has to open answers the question the box
+ * was going to be opened for.
  *
- * **The type exists for the link, not for the list.** The journey above the
- * boxes points at the box where the next thing is done, and the template
- * writes out each box's own body by hand because no two are alike. What
- * must not drift is the pairing of a box's name with the anchor a journey
- * line aims at — so both come from here, and `forMilestone()` is the one
- * place that says which milestone is settled in which box.
+ * **The type exists for the link, not for the list.** The journey points at
+ * the box where the next thing is done, and each box's own body is written
+ * out by hand because no two are alike. What must not drift is the pairing
+ * of a box's name with the page and anchor a journey line aims at — so all
+ * three come from here, and `forMilestone()` is the one place that says
+ * which milestone is settled in which box.
  */
 enum BookingBox: string
 {
@@ -65,16 +65,40 @@ enum BookingBox: string
     }
 
     /**
-     * Whether this box is a page of its own rather than a fold.
+     * The booking page this box is rendered on, or null for the one box
+     * that is a page of its own.
      *
-     * Only the stay is, and the journey's links have to know: its card
-     * carries no collapsible panel, so `#dossier-stay` lands a manager on
-     * the line and leaves them to click it a second time — an « Ouvrir
-     * "Séjour" » button that does not open anything.
+     * The stay has always had its own page, one level deeper in the
+     * breadcrumb, and it does not become one of the booking's chips
+     * (`BookingPage`): a chip would put it on the same level as the four.
      */
-    public function isPage(): bool
+    public function page(): ?BookingPage
     {
-        return $this === self::STAY;
+        return match ($this) {
+            self::PRICE, self::PAYMENT => BookingPage::FINANCES,
+            self::DOCUMENTS => BookingPage::DOCUMENTS,
+            self::MAIL => BookingPage::MAIL,
+            self::CHANGES, self::COMMENTS, self::HISTORY => BookingPage::DASHBOARD,
+            self::STAY => null,
+        };
+    }
+
+    /**
+     * Where a link into this box goes, from anywhere on the booking.
+     *
+     * The page's URL and the box's anchor together: the box may sit on
+     * another page than the link, and `public/assets/js/collapse-anchor.js`
+     * opens the box the fragment names once that page has loaded. The stay
+     * is a page, so its link is that page and nothing more — `#dossier-stay`
+     * would land on a line and leave the manager to click it a second time.
+     */
+    public function href(string $bookingUrl): string
+    {
+        $page = $this->page();
+
+        return $page === null
+            ? $bookingUrl . '/sejour'
+            : $page->url($bookingUrl) . '#' . $this->anchor();
     }
 
     /**

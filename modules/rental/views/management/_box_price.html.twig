@@ -1,0 +1,22 @@
+{#
+  The « Prix » box (Booking\BookingBox::PRICE). Rendered on the Finances
+  page, open there; its body is `_price.html.twig`.
+
+  Optional: `open` — the box arrives unfolded.
+#}
+<div class="card mb-3" id="{{ boxes.price.anchor }}">
+    {% embed '@rental/management/_dossier_header.html.twig' with {
+        box: boxes.price, target_id: boxes.price.bodyAnchor, quote: quote, open: open|default(false),
+    } only %}
+        {% block figure %}
+            <span class="text-body-secondary small" data-booking-panel="price-figure">
+                {{ quote.totalCents|money_cents }}
+            </span>
+        {% endblock %}
+    {% endembed %}
+    <div class="collapse{{ open|default(false) ? ' show' }}" id="{{ boxes.price.bodyAnchor }}">
+        <div data-booking-panel="price">
+            {% include '@rental/management/_price.html.twig' %}
+        </div>
+    </div>
+</div>
