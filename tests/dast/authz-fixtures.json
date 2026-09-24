@@ -102,6 +102,18 @@
     "/chefs/camps/sejours/{id}": {
       "id": "1"
     },
+    "/covoiturage/demandes/{id}": {
+      "id": "1"
+    },
+    "/covoiturage/organiser/{id}": {
+      "id": "1"
+    },
+    "/covoiturage/voitures/{id}": {
+      "id": "1"
+    },
+    "/covoiturage/{id}": {
+      "id": "1"
+    },
     "/chefs/presences/anime/{memberId}": {
       "memberId": "1"
     },

@@ -228,3 +228,88 @@ présences » passent déjà par des registres mutables
 interfaces vivent dans les `Api\` de `retro` et de `presences`, que
 `calendar` nomme. Leur migration vers le nouveau point d'extension est
 notée dans `ARCHITECTURE.md` §7.6 et n'est pas faite ici.
+
+---
+
+## IT-04 — Le module : covoiturages, offres, demandes
+
+**Livré.** Le module optionnel `covoiturage` (1.0.0, non activé par
+défaut) : `schema.sql` (`carpools`, `carpool_events`, `carpool_offers`,
+`carpool_requests`), les deux pages de D2 et leurs écrans — la liste, un
+covoiturage (aller et retour en deux vues), proposer des places et
+modifier sa voiture côté membres ; la liste d'organisation et le
+formulaire de création et de modification côté animateurs, avec le
+sélecteur d'évènements d'IT-01 branché sur la recherche d'IT-03. Les deux
+garde-fous à la création (évènement déjà pris → proposition de rejoindre ;
+lieux divergents → confirmation), le plancher des places sous le nombre
+accordé, le retrait d'une place accordée sous son propre libellé et avec
+confirmation, la suppression refusée dès qu'une voiture existe, le lien
+de carte (`Core\Geo\MapsLink`) qui préfère le point et retombe sur
+l'adresse, la purge de D9 et le géocodage en tâches planifiées, la RGPD
+(`rgpd_default.html` §2.4, §3.1, §4.2 et une règle du prompt). Câblage
+dans `public/index.php` ; `ARCHITECTURE.md` §8.120 ; `specifications.md`
+§45 (et sa ligne dans l'index §1.1, qu'exige
+`ModuleSpecificationCoverageTest`). Les trois exceptions du module sont
+inscrites parmi celles montrées au lecteur.
+
+**Tests.** `OfferServiceTest` (lieu verrouillé dans les deux sens — rien
+de ce qu'un formulaire poste sur l'autre extrémité n'est lu —, demande à
+plusieurs personnes et décompte en personnes, acceptation entière,
+places sous le nombre accordé refusées, retrait ≠ refus, annulation) ;
+`CarpoolVisibilityTest` (chaque ligne de D8, dont l'animateur d'une
+section non liée qui ne voit ni voitures ni passagers, et les téléphones
+qui ne vont qu'à l'autre partie d'une demande acceptée) ;
+`CarpoolServiceTest` (les deux garde-fous, la section sans évènement, le
+point manuel, l'adresse modifiée remise en file, la suppression) ;
+`PurgeCarpoolsHandlerTest` (purge à 30 jours de la dernière date, en
+cascade, réglable) ; `GeocodeCarpoolsHandlerTest` ;
+`PhoneStaysInTheRepositoryTest` (aucun fichier du module hors des deux
+dépôts ne nomme une colonne chiffrée) ; `PersonalDataIsEncryptedTest` ;
+`CovoiturageRbacTest` (chaque route au plancher et un cran en dessous, par
+le vrai routeur, chaque page GET réellement rendue) ;
+`CarpoolListTest`, `ModuleManifestTest`, `RgpdCoverageTest` ;
+`tests/js/covoiturage-organize.test.js`.
+
+**Décisions autonomes.**
+
+1. **Identifiants.** Le module s'appelle `covoiturage`, comme le document
+   le nomme et comme les types de notification d'IT-05 le préfixent
+   (précédents : `trombinoscope`, `presences`) ; tout ce qui est code —
+   tables, classes, colonnes — est en anglais (`carpool`).
+2. **Les noms des passagers** sont ceux des membres liés au compte,
+   choisis par case à cocher et relus côté serveur, écrits comme
+   `MemberProfile::getDisplayNameFull()` les écrit (« Totem (Prénom
+   Nom) », ou « Prénom Nom ») : le conducteur est souvent un parent qui ne
+   connaît pas les totems.
+3. **Le staff ne voit aucun numéro.** D8 lui donne « toutes les offres et
+   passagers » ; D6 réserve le numéro à qui a accepté ou été accepté. Les
+   deux ensemble : les animateurs voient qui monte dans quelle voiture, pas
+   comment joindre la famille. La maquette montrait le numéro dans la
+   liste des demandes vue par un chef ; c'est l'écart le plus net.
+4. **Pas de géocodage sur la page.** La maquette montre un bouton
+   « Retrouver le point depuis l'adresse » qui répond immédiatement. La
+   règle d'IT-02 (« jamais appelé depuis une requête web », une requête par
+   seconde) est gardée : le point est cherché en tâche de fond après
+   l'enregistrement, et le formulaire de modification montre alors
+   l'épingle à déplacer ; sans point, « Placer le point sur la carte » le
+   laisse poser à la main.
+5. **Le lien de carte** ouvre OpenStreetMap, le fournisseur déjà nommé
+   par la page RGPD, et s'intitule « Ouvrir sur une carte » plutôt que
+   « Ouvrir dans une application de cartes » : sur un ordinateur, ce n'est
+   pas une application qui s'ouvre.
+6. **Le sens se choisit avant le formulaire** (le bouton de la page porte
+   `?sens=return`), si bien que chaque libellé — « Lieu de départ » ou
+   « Lieu d'arrivée », « Destination » ou « Départ » — est juste sans
+   JavaScript. Cocher « Je propose aussi des places au retour » demande une
+   heure de retour, que la maquette ne prévoyait pas.
+7. **Une demande retirée par la famille est supprimée**, pas marquée :
+   ce que la page ne montre plus n'a pas à rester (D9, appliqué au détail).
+8. **Qui peut modifier ou supprimer un covoiturage** : son créateur, les
+   animateurs des sections qu'il concerne, le Staff d'U.
+
+**Écart avec le document.** Les sujets d'aide, prévus en IT-06, sont
+livrés ici : `HelpMenuCoverageTest` exige un sujet pour **toute page**
+qu'un utilisateur atteint, entrée de menu ou non, et la CI refuserait le
+module sans eux. IT-06 les reprend pour les libellés de menu.
+`ModulesPageMockupTest` apprend qu'un module peut être arrivé après la
+maquette de `/config/modules` (liste nommée, avec son rayon).

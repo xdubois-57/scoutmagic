@@ -1,0 +1,161 @@
+{% extends 'base.html.twig' %}
+{% set _title = offer is null ? 'Proposer des places' : 'Modifier ma voiture' %}
+{% block title %}{{ _title }} — {{ param('site_name') }}{% endblock %}
+{#
+  Offering seats, or editing one's car. The direction is chosen before the
+  form opens (the carpool page's button carries it), so every label below
+  already knows which end is the meeting point and which end is fixed by
+  the carpool — without a script.
+
+  What the driver types about the fixed end is not read: there is no field
+  for it, only a read-only reminder of the carpool's place.
+#}
+{% block content %}
+{% set _direction = offer is not null ? offer.direction : (values.direction|default('outbound') == 'return' and carpool.return_day ? 'return' : 'outbound') %}
+{% set _outbound = _direction == 'outbound' %}
+<div class="page-narrow">
+    {% include 'partials/page_header.html.twig' with {
+        title: _title,
+        subtitle: carpool.title ~ ' · ' ~ carpool.address,
+    } only %}
+
+    {% if errors is not empty %}
+        <div class="alert alert-danger" role="alert">
+            {% for error in errors %}<div>{{ error }}</div>{% endfor %}
+        </div>
+    {% endif %}
+
+    <form method="post" action="{{ offer is null ? '/covoiturage/' ~ carpool.id ~ '/proposer' : '/covoiturage/voitures/' ~ offer.id ~ '/modifier' }}">
+        {{ csrf_field()|raw }}
+        <input type="hidden" name="direction" value="{{ _direction }}">
+
+        <p class="mb-3">
+            <span class="form-label d-block">Sens</span>
+            <strong>{{ _outbound ? 'Aller · ' ~ carpool.outbound_day : 'Retour · ' ~ carpool.return_day }}</strong>
+            {% if offer is null and carpool.return_day %}
+                <a class="small ms-2" href="/covoiturage/{{ carpool.id }}/proposer{{ _outbound ? '?sens=return' : '' }}">
+                    {{ _outbound ? 'Proposer plutôt pour le retour' : 'Proposer plutôt pour l\'aller' }}
+                </a>
+            {% endif %}
+        </p>
+
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'offer-time',
+            field_name: 'departure_time',
+            label: 'Heure de départ',
+            type: 'time',
+            value: values.departure_time|default(''),
+            required: true,
+            control_class_extra: 'w-auto',
+        } only %}
+
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'offer-endpoint',
+            field_name: 'endpoint',
+            label: _outbound ? 'Lieu de départ' : 'Lieu d\'arrivée',
+            value: values.endpoint|default(''),
+            required: true,
+            maxlength: 150,
+            placeholder: 'Parking des locaux, gare de Wavre…',
+            help: 'Un point de rendez-vous, pas votre adresse : ce texte est visible de tous les membres.',
+        } only %}
+
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'offer-fixed-end',
+            label: _outbound ? 'Destination' : 'Départ',
+            value: carpool.address,
+            readonly: true,
+            help: 'Fixé par le covoiturage : toutes les voitures ' ~ (_outbound ? 'vont' : 'partent') ~ ' au même endroit.',
+        } only %}
+
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'offer-seats',
+            field_name: 'seats',
+            label: 'Places disponibles',
+            type: 'number',
+            value: values.seats|default('4'),
+            required: true,
+            min: taken > 0 ? taken : 1,
+            max: max_seats,
+            control_class_extra: 'w-auto',
+            help: offer is not null ? (taken > 0 ? taken_warning : 'Aucune place accordée pour le moment.') : null,
+        } only %}
+
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'offer-driver',
+            field_name: 'driver_name',
+            label: 'Conducteur',
+            value: values.driver_name|default(''),
+            required: true,
+            maxlength: 120,
+            help: 'Pré-rempli avec le titulaire du compte. Corrigez-le si c\'est quelqu\'un d\'autre de la famille qui conduit.',
+        } only %}
+
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'offer-phone',
+            field_name: 'phone',
+            label: 'Votre téléphone',
+            type: 'tel',
+            value: values.phone|default(''),
+            required: true,
+            autocomplete: 'tel',
+        } only %}
+        <div class="alert alert-warning small">
+            Ce numéro vient de votre fiche et vous pouvez le corriger. Il n'est montré qu'aux familles dont vous <strong>acceptez</strong> la demande. Les animateurs de la section voient qui monte dans quelle voiture.
+        </div>
+
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'offer-note',
+            field_name: 'note',
+            label: 'Note (facultatif)',
+            type: 'textarea',
+            rows: 2,
+            value: values.note|default(''),
+            maxlength: 500,
+            placeholder: 'Coffre déjà bien pris, un sac par enfant.',
+        } only %}
+
+        {% if offer is null and _outbound and carpool.return_day %}
+            <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" name="also_return" value="1" id="offer-also-return"
+                       {{ values.also_return|default('') == '1' ? 'checked' : '' }}>
+                <label class="form-check-label" for="offer-also-return">
+                    Je propose aussi des places au retour
+                    <span class="d-block small text-body-secondary">Deux voitures séparées, chacune avec ses places et ses demandes.</span>
+                </label>
+            </div>
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'offer-return-time',
+                field_name: 'return_departure_time',
+                label: 'Heure de départ du retour (' ~ carpool.return_day ~ ')',
+                type: 'time',
+                value: values.return_departure_time|default(''),
+                control_class_extra: 'w-auto',
+                help: 'Seulement si vous cochez la case ci-dessus.',
+            } only %}
+        {% endif %}
+
+        {% if offer is not null and taken > 0 %}
+            <div class="alert alert-warning small">
+                {{ taken }} personne{{ taken > 1 ? 's ont' : ' a' }} déjà une place : un changement d'heure ou de lieu leur sera notifié.
+            </div>
+        {% endif %}
+
+        <div class="d-flex flex-wrap gap-2">
+            <button type="submit" class="btn btn-primary">{{ offer is null ? 'Proposer' : 'Enregistrer' }}</button>
+            <a href="/covoiturage/{{ carpool.id }}{{ _outbound ? '' : '?sens=return' }}" class="btn btn-outline-secondary">Annuler</a>
+        </div>
+    </form>
+
+    {% if offer is not null %}
+        <form method="post" action="/covoiturage/voitures/{{ offer.id }}/retirer" class="mt-4"
+              data-confirm="Retirer votre voiture ? Les familles qui avaient une place ou une demande seront prévenues."
+              data-confirm-label="Retirer ma voiture">
+            {{ csrf_field()|raw }}
+            <button type="submit" class="btn btn-outline-danger">
+                <i class="bi bi-trash" aria-hidden="true"></i> Retirer ma voiture
+            </button>
+        </form>
+    {% endif %}
+</div>
+{% endblock %}
