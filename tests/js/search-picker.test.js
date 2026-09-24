@@ -291,6 +291,25 @@ describe('search-picker', () => {
             expect(event.defaultPrevented).toBe(true);
             expect(posted().getAll('event_id')).toEqual(['']);
         });
+        it('will not let Enter pick while the answer to the current query is still in flight', async () => {
+            let release;
+            window.ScoutMagicApi.getJson = vi.fn()
+                .mockResolvedValueOnce({ ok: true, status: 200, data: { success: true, results: EVENTS } })
+                .mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+            await type('fête');
+            // The pause has run out: the request for « fête é » is in flight.
+            await type('fête é');
+            const event = new KeyboardEvent('keydown', { key: 'Enter', cancelable: true });
+            search().dispatchEvent(event);
+
+            expect(event.defaultPrevented).toBe(true);
+            expect(posted().getAll('event_id')).toEqual(['']);
+
+            release({ ok: true, status: 200, data: { success: true, results: [EVENTS[2]] } });
+            await vi.advanceTimersByTimeAsync(0);
+            search().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', cancelable: true }));
+            expect(posted().getAll('event_id')).toEqual(['13']);
+        });
     });
 
     describe('a required single picker', () => {

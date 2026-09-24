@@ -89,6 +89,10 @@
         }
 
         var timeout = null;
+        // True from a keystroke until the answer to it is on screen: the
+        // pause AND the request in flight. While it holds, the list shows
+        // an older query's rows.
+        var pending = false;
         // Only the answer to the LAST request is drawn: a slow reply to
         // « fê » must not overwrite the list for « fête ».
         var requestNumber = 0;
@@ -170,6 +174,7 @@
         function settle() {
             clearTimeout(timeout);
             timeout = null;
+            pending = false;
             requestNumber++;
         }
 
@@ -274,6 +279,7 @@
             var mine = ++requestNumber;
             var query = search.value.trim();
             if (query === '') {
+                pending = false;
                 hide();
                 return;
             }
@@ -281,6 +287,7 @@
             if (mine !== requestNumber) {
                 return;
             }
+            pending = false;
             var rows = res.data?.success && Array.isArray(res.data.results) ? res.data.results : [];
             render(rows);
         }
@@ -303,6 +310,7 @@
                 refresh();
                 announce();
             }
+            pending = true;
             clearTimeout(timeout);
             timeout = setTimeout(run, DEBOUNCE_MS);
         });
@@ -310,14 +318,15 @@
         search.addEventListener('keydown', function (event) {
             if (event.key === 'Escape') {
                 hide();
-            } else if (event.key === 'Enter' && (timeout !== null || !results.classList.contains('d-none'))) {
+            } else if (event.key === 'Enter' && (pending || !results.classList.contains('d-none'))) {
                 // Enter in a search box must not submit the surrounding
                 // form half-filled; it picks the first suggestion instead —
                 // but only a suggestion for what is typed NOW: while a
-                // search is still pending, the list on screen answers an
-                // older query, and Enter does nothing.
+                // search is pending (the pause, or the request in flight),
+                // the list on screen answers an older query, and Enter
+                // does nothing.
                 event.preventDefault();
-                if (timeout !== null) {
+                if (pending) {
                     return;
                 }
                 var first = /** @type {HTMLButtonElement|null} */ (results.querySelector('button'));
