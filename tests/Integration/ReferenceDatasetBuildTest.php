@@ -182,13 +182,13 @@ final class ReferenceDatasetBuildTest extends TestCase
         }
 
         foreach (UnitBlueprint::SECTIONS as $handle => $section) {
-            self::assertArrayHasKey($section['name'], $states, "{$section['name']} n'a pas été créée.");
+            self::assertArrayHasKey($section['name'], $states, "{$section['name']} was not created.");
             self::assertSame(
                 $handle !== 'iam1',
                 $states[$section['name']],
                 // iam1 is the section the dataset empties in 2026-2027
                 // (UnitBlueprint::HEADCOUNT). Every other one stays open.
-                "{$section['name']} n'est pas dans l'état que le blueprint décrit.",
+                "{$section['name']} is not in the state the blueprint describes.",
             );
         }
     }

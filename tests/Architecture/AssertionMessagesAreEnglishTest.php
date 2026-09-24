@@ -20,9 +20,9 @@ use PHPUnit\Framework\TestCase;
  *
  * Issue #388 counted forty-three French messages across nineteen files on
  * `aec6aae`. This detector, which is stricter than the issue's, found
- * **a hundred and ninety-four across forty-nine** — the suite having grown
- * since, and three call shapes having hidden most of them until the reader
- * was taught to read them. All are translated in the change that adds this
+ * **two hundred and four across fifty** — the suite having grown since,
+ * and four call shapes having hidden most of them until the reader was
+ * taught to read them. All are translated in the change that adds this
  * class, so the list below is empty and the rule is fully enforced: the
  * same shape as
  * Tests\Architecture\TwigCommentsAreEnglishTest, minus the allowlist it
@@ -32,8 +32,8 @@ use PHPUnit\Framework\TestCase;
  * translating forty-five templates in a single commit would cost the
  * `git blame` of prose written in the maintainer's own voice. An assertion
  * message is not prose: it is one line, it has no author to preserve, and
- * a hundred and ninety-four of them fit in one reviewable diff. Nothing
- * is left to ratchet down, so the assertion is simply « none ».
+ * two hundred and four of them fit in one reviewable diff. Nothing is
+ * left to ratchet down, so the assertion is simply « none ».
  *
  * **The sentinel is the load-bearing half.** An empty list matched against
  * a scan that finds nothing anywhere looks exactly like a rule being
@@ -64,9 +64,9 @@ final class AssertionMessagesAreEnglishTest extends TestCase
      * A DENSITY, not a count, for the reason the Twig sibling gives:
      * counting hits makes length the real test, and these messages are
      * short. 0.13 comes from the corpus rather than from taste. Measured
-     * over all 2755 messages the scan below reads, the hundred and
-     * ninety-four French ones scored 0.143 and up, and the
-     * highest-scoring English one —
+     * over all 2791 messages the scan below reads, the two hundred and
+     * four French ones scored 0.143 and up, and the highest-scoring
+     * English one —
      * « De, À, Sujet — the order every mail client uses. », which names
      * French header labels — reaches 0.111. The threshold sits in that
      * gap.
@@ -74,13 +74,14 @@ final class AssertionMessagesAreEnglishTest extends TestCase
      * That gap is kept by the convention this class's own failure message
      * states rather than by luck: an English message naming French
      * interface text — a role, a section, a page — quotes it, and the
-     * quotation is left out of the reckoning. Four messages saying
-     * « admin (Chef d'Unité) » reached 0.125 without their guillemets.
+     * quotation is left out of the reckoning. Seven messages naming
+     * « Chef d'Unité » or « Espace chefs d'U » reached 0.125 without
+     * their guillemets.
      */
     private const MINIMUM_FRENCH_DENSITY = 0.13;
 
     /**
-     * The corpus is 2755 messages today. A scan that suddenly reads far
+     * The corpus is 2791 messages today. A scan that suddenly reads far
      * fewer is a scan that has stopped working, and this is the number
      * that says so out loud rather than letting an empty result read as
      * an enforced rule. Deliberately slack — assertions are added every
@@ -91,7 +92,7 @@ final class AssertionMessagesAreEnglishTest extends TestCase
      * own below: a reader that NARROWS rather than breaks. Two call
      * shapes were silently dropped in the making of this class — a
      * trailing comma before `)`, and any interpolated message — and
-     * between them they hid 331 readings and fifty-one French messages
+     * between them they hid 570 readings and ninety-five French messages
      * while this number sat comfortably above its floor. A number cannot
      * see a shape; only a test naming the shape can.
      */
@@ -370,6 +371,15 @@ final class AssertionMessagesAreEnglishTest extends TestCase
                     $inString = false;
                     continue;
                 }
+                // An array key or a method argument INSIDE an
+                // interpolation — `{$row['file']}` — is a whole literal
+                // token arriving while the walk is inside a string. It is
+                // part of the hole, not part of the message, and reading
+                // it as a message literal dropped the call outright.
+                if ($inString && $token[0] === T_CONSTANT_ENCAPSED_STRING) {
+                    $message .= ' ';
+                    continue;
+                }
                 if ($inString && in_array($token[0], self::INTERPOLATION_TOKENS, true)) {
                     // A space, not nothing: `{$a}` sitting between two
                     // words must not glue them into one, which would
@@ -541,6 +551,37 @@ final class AssertionMessagesAreEnglishTest extends TestCase
             $this->assertCount(1, $messages);
             $this->assertStringContainsString('Le compte de démonstration', $messages[0][1]);
             $this->assertStringContainsString("n'a pas de membre.", $messages[0][1]);
+            $this->assertTrue(self::looksFrench($messages[0][1]));
+        } finally {
+            unlink($file);
+        }
+    }
+
+    /**
+     * The fourth shape, and the one that hid inside the third's fix: a
+     * literal INSIDE an interpolation.
+     *
+     * `{$row['file']}` puts a whole `T_CONSTANT_ENCAPSED_STRING` in the
+     * middle of a string, where it is part of the hole and not part of
+     * the message. Reading it as a message literal matched neither branch
+     * and dropped the call — ten more French messages, in files this same
+     * change had already translated twice over.
+     */
+    public function testALiteralInsideAnInterpolationIsPartOfTheHole(): void
+    {
+        $file = tempnam(sys_get_temp_dir(), 'assertion_messages_') . '.php';
+        file_put_contents($file, <<<'PHP'
+            <?php
+            $this->assertFileExists($path, "Le manifeste référence {$row['file']}, qui manque au lot.");
+            PHP);
+
+        try {
+            $messages = self::messagesIn($file, []);
+
+            $this->assertCount(1, $messages);
+            $this->assertStringContainsString('Le manifeste référence', $messages[0][1]);
+            $this->assertStringContainsString('qui manque au lot.', $messages[0][1]);
+            $this->assertStringNotContainsString('file', $messages[0][1], 'the array key is a hole, not prose');
             $this->assertTrue(self::looksFrench($messages[0][1]));
         } finally {
             unlink($file);

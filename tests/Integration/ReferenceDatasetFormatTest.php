@@ -169,24 +169,24 @@ final class ReferenceDatasetFormatTest extends TestCase
         foreach ($generator->photoRows() as $row) {
             self::assertFileExists(
                 self::datasetRoot() . '/' . PhotoLot::DIRECTORY . '/' . $row['file'],
-                "Le manifeste référence {$row['file']}, qui n'est pas dans le lot.",
+                "The manifest references {$row['file']}, which is not in the batch.",
             );
 
             if ($row['kind'] === 'group') {
-                self::assertContains($row['target'], $sections, "Section inconnue dans le manifeste : {$row['target']}.");
+                self::assertContains($row['target'], $sections, "Unknown section in the manifest: {$row['target']}.");
                 continue;
             }
 
-            self::assertArrayHasKey($row['target'], $people, "Tiers inconnu dans le manifeste : {$row['target']}.");
+            self::assertArrayHasKey($row['target'], $people, "Unknown Tiers in the manifest: {$row['target']}.");
             self::assertArrayHasKey(
                 $row['year'],
                 $people[$row['target']]->years,
-                "Le manifeste attribue une photo à {$row['target']} pour {$row['year']}, année où ce membre n'existe pas.",
+                "The manifest gives {$row['target']} a photo for {$row['year']}, a year in which that member does not exist.",
             );
             self::assertSame(
                 PhotoLot::INDIVIDUAL_GENDERS[$row['file']],
                 $people[$row['target']]->gender,
-                "Le Genre de {$row['target']} contredit la photo {$row['file']} qui lui est attribuée.",
+                "The Genre of {$row['target']} contradicts the photo {$row['file']} assigned to them.",
             );
         }
     }
@@ -213,7 +213,7 @@ final class ReferenceDatasetFormatTest extends TestCase
 
             self::assertNotEmpty(
                 array_intersect($roles, ['chief', 'admin']),
-                "Le Tiers {$row['target']} porte une photo individuelle sans jamais être cadre.",
+                "Tiers {$row['target']} carries an individual photo without ever being a « cadre ».",
             );
         }
     }

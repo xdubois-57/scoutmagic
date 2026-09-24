@@ -76,7 +76,7 @@ class ReenrollmentCampaignPlacementTest extends TestCase
             $this->assertSame(
                 'admin',
                 $route['role_min'],
-                "{$route['method']} {$route['path']} n'est pas au même étage que la page"
+                "{$route['method']} {$route['path']} is not on the same floor as the page"
             );
         }
     }

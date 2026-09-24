@@ -81,7 +81,7 @@ class ModuleManifestTest extends TestCase
 
         foreach ($this->manifest->routes as $route) {
             $this->assertSame('admin', $route['role_min'], "Route {$route['path']} must be admin.");
-            $this->assertSame('espace_admin', $route['menu'], "Route {$route['path']} must sit in Espace chefs d'U.");
+            $this->assertSame('espace_admin', $route['menu'], "Route {$route['path']} must sit in « Espace chefs d'U ».");
         }
     }
 

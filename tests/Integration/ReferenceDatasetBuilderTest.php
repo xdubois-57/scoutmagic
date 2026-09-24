@@ -226,7 +226,7 @@ final class ReferenceDatasetBuilderTest extends TestCase
             self::assertSame(
                 $section['email'],
                 $emails[$section['name']] ?? null,
-                "La section « {$section['name']} » n'a pas l'adresse déclarée.",
+                "The section « {$section['name']} » does not carry the declared address.",
             );
         }
     }
