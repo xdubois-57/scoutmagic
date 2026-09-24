@@ -212,6 +212,9 @@ class ConfigAccountControllerTest extends TestCase
 
     public function testABodyThatIsNotJsonIsRefused(): void
     {
+        $accountId = $this->createAccount('Compte unité', 'intendant');
+        $before = $this->accountRepository->findById($accountId);
+
         $request = $this->getMockBuilder(Request::class)
             ->setConstructorArgs(['POST', '/config/finance/accounts', [], [], [], []])
             ->onlyMethods(['getRawBody'])
@@ -221,6 +224,18 @@ class ConfigAccountControllerTest extends TestCase
         $response = $this->controller->save($request, []);
 
         $this->assertSame(400, $response->getStatusCode());
+        // The refusal AND what it protects: a 400 rendered after the write
+        // reads exactly like this one, so the status code alone says
+        // nothing about what the request left behind (issue #387).
+        //
+        // Compared against what the account WAS, never against a status
+        // written out here: a fixture that asserts its own guess about a
+        // default is a test that breaks when the default moves and proves
+        // nothing when it does not.
+        $after = $this->accountRepository->findById($accountId);
+        $this->assertSame($before->name, $after->name);
+        $this->assertSame($before->status, $after->status);
+        $this->assertSame($before->roleMinView, $after->roleMinView);
     }
 
     public function testASaveWithoutACsrfTokenCreatesNothing(): void

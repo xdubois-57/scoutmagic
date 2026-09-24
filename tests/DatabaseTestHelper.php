@@ -49,6 +49,45 @@ class DatabaseTestHelper
     }
 
     /**
+     * Every row of every table, in a shape two snapshots can be compared
+     * with — « nothing was written » stated as a fact rather than as a
+     * status code.
+     *
+     * An RBAC refusal test asserts a 403, and a 403 rendered AFTER the
+     * write reads exactly like a 403 rendered instead of it. Taking the
+     * snapshot on both sides of the request is what tells the two apart
+     * (issue #387), and doing it over the whole database rather than over
+     * the table a given route happens to touch is what lets one assertion
+     * cover a provider spanning thirty routes and four controllers.
+     *
+     * Rows are serialised rather than JSON-encoded because several
+     * columns hold ciphertext, and sorted because no SELECT without an
+     * ORDER BY promises an order. The catalogue is sqlite_master because
+     * createTestDatabase() below builds an in-memory SQLite database.
+     *
+     * @return array<string, list<string>>
+     */
+    public static function snapshot(\PDO $pdo): array
+    {
+        $snapshot = [];
+
+        /** @var list<string> $tables */
+        $tables = (array) $pdo
+            ->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+            ->fetchAll(\PDO::FETCH_COLUMN);
+
+        foreach ($tables as $table) {
+            /** @var list<array<string, mixed>> $rows */
+            $rows = (array) $pdo->query('SELECT * FROM `' . $table . '`')->fetchAll(\PDO::FETCH_ASSOC);
+            $serialised = array_map(static fn (array $row): string => serialize($row), $rows);
+            sort($serialised);
+            $snapshot[$table] = $serialised;
+        }
+
+        return $snapshot;
+    }
+
+    /**
      * Create an in-memory SQLite database with all core tables.
      */
     /**

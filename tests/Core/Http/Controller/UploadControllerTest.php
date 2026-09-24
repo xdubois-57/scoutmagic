@@ -379,6 +379,7 @@ class UploadControllerTest extends TestCase
     {
         ConfigurationMode::deactivate();
 
+        $filesBefore = (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn();
         $tmpFile = $this->createTempImage();
         $_FILES['file'] = ['tmp_name' => $tmpFile, 'name' => 'staff.jpg', 'size' => filesize($tmpFile), 'error' => UPLOAD_ERR_OK];
 
@@ -392,6 +393,13 @@ class UploadControllerTest extends TestCase
         $response = $this->controller->store($request, []);
 
         $this->assertSame(403, $response->getStatusCode());
+        // The refusal AND what it protects: a 403 rendered after the file
+        // was stored reads exactly like this one (issue #387).
+        $this->assertSame(
+            $filesBefore,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn(),
+            'a refused upload must leave no file behind'
+        );
 
         unset($_FILES['file']);
     }
@@ -460,6 +468,7 @@ class UploadControllerTest extends TestCase
         ConfigurationMode::deactivate();
         AuthSession::login(1, 'admin@test.com', 'admin');
 
+        $filesBefore = (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn();
         $tmpFile = $this->createTempImage();
         $_FILES['file'] = ['tmp_name' => $tmpFile, 'name' => 'logo.png', 'size' => filesize($tmpFile), 'error' => UPLOAD_ERR_OK];
 
@@ -473,6 +482,13 @@ class UploadControllerTest extends TestCase
         $response = $this->controller->store($request, []);
 
         $this->assertSame(403, $response->getStatusCode());
+        // The refusal AND what it protects: a 403 rendered after the file
+        // was stored reads exactly like this one (issue #387).
+        $this->assertSame(
+            $filesBefore,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn(),
+            'a refused upload must leave no file behind'
+        );
 
         unset($_FILES['file']);
     }
