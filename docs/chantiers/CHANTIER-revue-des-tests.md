@@ -1361,16 +1361,16 @@ chercher §8.6 — que rien ne lui désigne.
 
 **Et §7.9 n'est pas seul.** La même confrontation appliquée aux renvois
 **internes** de chaque document — un `§X` écrit sans nom de fichier — fait
-apparaître un second foyer : **`§6.7` (33 occurrences) et `§6.14` (24)**, qui
+apparaître un second foyer : **`6.7` (33 occurrences) et `6.14` (24)**, qui
 ne résolvent dans aucun document non plus. Leur origine est plus lisible :
-plusieurs citations disent « **module spec** §6.7 », c'est-à-dire une
+plusieurs citations disent « **module spec** 6.7 », c'est-à-dire une
 spécification propre au module locations, avec sa propre numérotation. Ce
 document n'existe plus : la spécification de `rental` est aujourd'hui
 `specifications.md` **§22**, dont les sous-sections vont de §22.1 à §22.13.
 La règle désignée s'y trouve bien — « A manual block and a letting are
 deliberately [indistinguishables] », « A visitor cannot page into the past »
 sont §22.2, et ce que le calendrier publié laisse voir est §22.8 — sous
-d'autres numéros. `SECURITY.md:760` en hérite et écrit « the boundary §6.7
+d'autres numéros. `SECURITY.md:760` en hérite et écrit « the boundary 6.7
 exists to enforce », dans un fichier dont le §6 s'intitule « File access » et
 n'a aucune sous-section.
 
@@ -1644,7 +1644,7 @@ Playwright décrits dans l'issue.
 
 **Issues ouvertes** :
 
-- #454 — 121 renvois du code et des tests (`§7.9` ×64, `§6.7` ×33, `§6.14`
+- #454 — 121 renvois du code et des tests (`§7.9` ×64, `6.7` ×33, `6.14`
   ×24) pointent vers des sections qui n'existent dans aucun document. Les
   deux issues possibles — écrire ces sections, ou renuméroter les renvois —
   sont des arbitrages, et le test qui les détecte est collé dans l'issue.
