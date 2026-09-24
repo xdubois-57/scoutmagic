@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette — Partage vers Facebook, Instagram et les groupes de discussion</title>
+<style>
+:root{color-scheme:light}
+body{margin:0;background:#f1f3f5;color:#212529;font-family:system-ui,-apple-system,"Segoe UI",Helvetica,sans-serif}
+a{color:#0a58ca}
+.page{max-width:1200px;margin:0 auto;padding:24px 16px 64px}
+h1{font-size:28px;line-height:1.2;margin:0 0 8px}
+.lede{font-size:15px;color:#495057;margin:0 0 8px;max-width:70ch}
+.meta{font-size:13px;color:#6c757d;margin:0 0 32px}
+.ecran{margin:0 0 40px}
+.ecran h2{font-size:19px;margin:0 0 6px}
+.ecran p{font-size:14px;color:#495057;margin:0 0 14px;max-width:70ch}
+.cadre{width:390px;max-width:100%;border:1px solid #ced4da;border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.sommaire{margin:0 0 36px;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:8px}
+.sommaire a{display:inline-block;padding:8px 12px;background:#fff;border:1px solid #ced4da;border-radius:999px;text-decoration:none;font-size:14px}
+</style>
+</head>
+<body>
+<div class="page">
+<h1>Partage vers Facebook, Instagram et les groupes de discussion</h1>
+<p class="lede">Maquette de référence du chantier <code>CHANTIER-partage-social.md</code>. Elle fait autorité sur la hiérarchie des écrans, les libellés français et les états d'interaction — et sur rien d'autre. Le produit est en Bootstrap 5 et suit <code>design.md</code> §7 : les styles ci-dessous sont en ligne pour rendre le fichier autonome, ils ne sont pas un modèle à recopier.</p>
+<p class="meta">Largeur de référence : 390 px. Aucune dépendance externe, aucun script.</p>
+<ul class="sommaire">
+<li><a href="#ecran-Main">Partager un album</a></li>
+<li><a href="#ecran-Communication">Nouvelle communication</a></li>
+<li><a href="#ecran-Selecteur">Choisir une photo</a></li>
+<li><a href="#ecran-Groupes">Choisir des groupes</a></li>
+<li><a href="#ecran-Historique">Ce qui est parti</a></li>
+<li><a href="#ecran-Reessai">Confirmer un réessai</a></li>
+<li><a href="#ecran-Configuration">Configuration du module</a></li>
+</ul>
+<section class="ecran" id="ecran-Main">
+<h2>Partager un album</h2>
+<p>Depuis un album de la galerie. La confirmation montre la carte générée telle qu&#x27;elle sera publiée — flou, titre et adresse compris. Facebook apparaît coché-grisé : déjà publié, la règle « une seule fois par destination » s&#x27;applique.</p>
+<div class="cadre">
+<div style="width: 390px; height: 1080px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; justify-content: center; background: #e9ecef;">
+  <div style="background: #ffffff; border-radius: 10px; padding: 20px; display: flex; flex-direction: column; gap: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.15);">
+
+    <h2 style="margin: 0; font-size: 18px; font-weight: 600;">Partager « Camp Lutins 2026 »</h2>
+
+    <div style="display: flex; flex-direction: column; gap: 6px;">
+      <span style="font-size: 13px; color: #5c636a;">Voici exactement l'image qui sera publiée.</span>
+      <div style="position: relative; width: 100%; height: 260px; border-radius: 8px; overflow: hidden; background: #495057;">
+        <div style="position: absolute; inset: -30px; filter: blur(22px);">
+          <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+            <rect x="0" y="0" width="100" height="100" fill="#6b8f5e"></rect>
+            <ellipse cx="28" cy="62" rx="17" ry="24" fill="#d8b98a"></ellipse>
+            <ellipse cx="55" cy="58" rx="15" ry="22" fill="#c76f4e"></ellipse>
+            <ellipse cx="78" cy="65" rx="16" ry="23" fill="#e3cfa6"></ellipse>
+            <rect x="0" y="0" width="100" height="34" fill="#8fb3d9"></rect>
+            <ellipse cx="45" cy="30" rx="30" ry="12" fill="#5f7f4f"></ellipse>
+          </svg>
+        </div>
+        <div style="position: absolute; inset: 0; background: rgba(0,0,0,0.38);"></div>
+        <div style="position: absolute; inset: 0; padding: 20px; display: flex; flex-direction: column; justify-content: flex-end; gap: 10px;">
+          <span style="color: #ffffff; font-size: 26px; font-weight: 700; line-height: 1.15;">Camp Lutins 2026</span>
+          <span style="color: #ffffff; font-size: 14px;">25sv.be/galerie</span>
+        </div>
+      </div>
+      <span style="font-size: 13px; color: #5c636a;">La photo de couverture est floutée : c'est systématique pour toute image venant de la galerie.</span>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 6px;">
+      <label for="legende" style="font-size: 14px; font-weight: 500;">Légende</label>
+      <textarea id="legende" rows="3" style="border: 1px solid #ced4da; border-radius: 6px; padding: 8px; font-size: 14px; font-family: inherit;">Les photos du camp des Lutins sont en ligne ! À voir sur 25sv.be/galerie</textarea>
+    </div>
+
+    <fieldset style="border: 1px solid #dee2e6; border-radius: 6px; padding: 12px; margin: 0; display: flex; flex-direction: column; gap: 10px;">
+      <legend style="font-size: 14px; font-weight: 500; padding: 0 6px;">Publier sur</legend>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <input type="checkbox" id="dest-fb" disabled style="width: 20px; height: 20px;">
+        <span style="flex: 0 0 auto; color: #6c757d;" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="2.5" width="19" height="19" rx="4.5"></rect><path d="M15.5 8h-1.8A2.2 2.2 0 0011.5 10.2V12"></path><path d="M9.5 12h4.5"></path><path d="M11.5 12v9.5"></path></svg>
+        </span>
+        <label for="dest-fb" style="font-size: 15px; flex-grow: 1; color: #5c636a;">Page Facebook<br><span style="font-size: 13px;">Déjà publié le 12 septembre</span></label>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <input type="checkbox" id="dest-ig" checked style="width: 20px; height: 20px;">
+        <span style="flex: 0 0 auto; color: #a02b6d;" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="2.5" width="19" height="19" rx="5.5"></rect><circle cx="12" cy="12" r="4.2"></circle><circle cx="17.4" cy="6.6" r="1.1" fill="currentColor" stroke="none"></circle></svg>
+        </span>
+        <label for="dest-ig" style="font-size: 15px; flex-grow: 1;">Instagram — @unite25sv</label>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <input type="checkbox" id="dest-gr" checked style="width: 20px; height: 20px;">
+        <span style="flex: 0 0 auto; color: #146c43;" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 12.2c0 4-3.8 7.2-8.5 7.2-1 0-2-.15-2.9-.42L4 20.8l1.5-3.6C4.2 15.9 3.5 14.1 3.5 12.2 3.5 8.2 7.3 5 12 5s8.5 3.2 8.5 7.2z"></path></svg>
+        </span>
+        <label for="dest-gr" style="font-size: 15px; flex-grow: 1;">Groupe de discussion</label>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding-left: 62px;">
+        <span style="flex-grow: 1; font-size: 14px; color: #343a40;">Staff Lutins, Staff d'unité</span>
+        <a href="#ecran-Groupes" aria-label="Changer les groupes de discussion" title="Changer les groupes" style="flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid #6c757d; border-radius: 6px; color: #343a40;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.2 2.8l3 3L6.6 14.4l-3.9.9.9-3.9z"></path></svg></a>
+      </div>
+    </fieldset>
+
+    <div style="border: 1px solid #ffe69c; background: #fff3cd; border-radius: 6px; padding: 12px; font-size: 13px; color: #664d03;">
+      Une fois publié, c'est public et hors du site : ni vous ni ScoutMagic ne pourrez le reprendre.
+      Sur Instagram, l'adresse n'est pas cliquable — c'est pourquoi elle est écrite sur l'image.
+    </div>
+
+    <div style="display: flex; gap: 8px; justify-content: flex-end;">
+      <a href="#annuler" style="display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 16px; border: 1px solid #6c757d; border-radius: 6px; text-decoration: none; font-size: 15px; color: #343a40;">Annuler</a>
+      <a href="#ecran-Historique" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 16px; border-radius: 6px; background: #0d6efd; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 500;">
+        <svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="13.5" cy="4" r="2.5"></circle><circle cx="4.5" cy="9" r="2.5"></circle><circle cx="13.5" cy="14" r="2.5"></circle><path d="M6.7 7.8l4.6-2.6"></path><path d="M6.7 10.2l4.6 2.6"></path></svg>
+        Publier
+      </a>
+    </div>
+
+  </div>
+</div>
+</div>
+</section>
+<section class="ecran" id="ecran-Communication">
+<h2>Nouvelle communication</h2>
+<p>Une vraie page, pas un dialogue. L&#x27;image d&#x27;abord, puis les deux boutons qui la changent, puis le titre incrusté, le texte, et enfin les destinations.</p>
+<div class="cadre">
+<div style="width: 390px; height: 1240px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 18px; background: #ffffff; color: #212529;">
+
+  <div style="display: flex; flex-direction: column; gap: 4px;">
+    <div style="font-size: 13px; color: #5c636a;">Espace chefs · Communications</div>
+    <h1 style="margin: 0; font-size: 24px; line-height: 1.2; font-weight: 600;">Nouvelle communication</h1>
+  </div>
+
+  <div style="position: relative; width: 100%; height: 300px; border-radius: 8px; overflow: hidden; background: #495057;">
+    <div style="position: absolute; inset: -30px; filter: blur(22px);">
+      <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+        <rect x="0" y="0" width="100" height="100" fill="#7a6a52"></rect>
+        <ellipse cx="34" cy="60" rx="20" ry="26" fill="#cf9b6a"></ellipse>
+        <ellipse cx="66" cy="56" rx="18" ry="24" fill="#8fa8c4"></ellipse>
+        <rect x="0" y="0" width="100" height="30" fill="#b9cfe0"></rect>
+      </svg>
+    </div>
+    <div style="position: absolute; inset: 0; background: rgba(0,0,0,0.38);"></div>
+    <div style="position: absolute; inset: 0; padding: 20px; display: flex; flex-direction: column; justify-content: flex-end; gap: 10px;">
+      <span style="color: #ffffff; font-size: 28px; font-weight: 700; line-height: 1.15;">Week-end d'unité</span>
+      <span style="color: #ffffff; font-size: 14px;">25sv.be</span>
+    </div>
+  </div>
+  <div style="font-size: 13px; color: #5c636a; margin-top: -10px;">
+    Voici exactement ce qui sera publié. Cette photo vient de la galerie : elle est floutée, sans exception.
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 10px;">
+    <div style="display: flex; gap: 8px;">
+      <a href="#ecran-Selecteur" style="flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 12px; border: 1px solid #6c757d; border-radius: 6px; text-decoration: none; font-size: 15px; color: #343a40;">
+        <svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="13" height="11" rx="1.5"></rect><path d="M2.5 11.5l3.5-3.5 3 3 2.5-2.5 3 3"></path><circle cx="6.5" cy="6.8" r="1.1"></circle></svg>
+        Galerie
+      </a>
+      <a href="#televerser" style="flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 12px; border: 1px solid #6c757d; border-radius: 6px; text-decoration: none; font-size: 15px; color: #343a40;">
+        <svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 12.5V3.5"></path><path d="M5.5 7L9 3.5 12.5 7"></path><path d="M3 14.5h12"></path></svg>
+        Téléverser
+      </a>
+    </div>
+    <div style="font-size: 13px; color: #5c636a;">
+      Une image téléversée part telle quelle. Une image de la galerie est toujours floutée.
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 6px;">
+    <label for="titre-carte" style="font-size: 14px; font-weight: 500;">Titre sur l'image</label>
+    <input type="text" id="titre-carte" value="Week-end d'unité" style="min-height: 44px; border: 1px solid #ced4da; border-radius: 6px; padding: 0 10px; font-size: 15px; font-family: inherit;">
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 6px;">
+    <label for="texte" style="font-size: 14px; font-weight: 500;">Texte de la publication</label>
+    <textarea id="texte" rows="4" style="border: 1px solid #ced4da; border-radius: 6px; padding: 8px; font-size: 14px; font-family: inherit;">Inscriptions au week-end d'unité ouvertes jusqu'au 12 octobre. Tous les détails sur 25sv.be</textarea>
+    <span style="font-size: 13px; color: #5c636a;">Sur Instagram, une adresse en légende n'est pas cliquable : c'est pour ça qu'elle figure sur l'image.</span>
+  </div>
+
+  <fieldset style="border: 1px solid #dee2e6; border-radius: 6px; padding: 12px; margin: 0; display: flex; flex-direction: column; gap: 10px;">
+    <legend style="font-size: 14px; font-weight: 500; padding: 0 6px;">Publier sur</legend>
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <input type="checkbox" id="c-fb" checked style="width: 20px; height: 20px;">
+      <span style="flex: 0 0 auto; color: #1b4ea8;" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="2.5" width="19" height="19" rx="4.5"></rect><path d="M15.5 8h-1.8A2.2 2.2 0 0011.5 10.2V12"></path><path d="M9.5 12h4.5"></path><path d="M11.5 12v9.5"></path></svg>
+      </span>
+      <label for="c-fb" style="font-size: 15px; flex-grow: 1;">Page Facebook — Unité 25 SV</label>
+    </div>
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <input type="checkbox" id="c-ig" checked style="width: 20px; height: 20px;">
+      <span style="flex: 0 0 auto; color: #a02b6d;" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="2.5" width="19" height="19" rx="5.5"></rect><circle cx="12" cy="12" r="4.2"></circle><circle cx="17.4" cy="6.6" r="1.1" fill="currentColor" stroke="none"></circle></svg>
+      </span>
+      <label for="c-ig" style="font-size: 15px; flex-grow: 1;">Instagram — @unite25sv</label>
+    </div>
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <input type="checkbox" id="c-gr" checked style="width: 20px; height: 20px;">
+      <span style="flex: 0 0 auto; color: #146c43;" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 12.2c0 4-3.8 7.2-8.5 7.2-1 0-2-.15-2.9-.42L4 20.8l1.5-3.6C4.2 15.9 3.5 14.1 3.5 12.2 3.5 8.2 7.3 5 12 5s8.5 3.2 8.5 7.2z"></path></svg>
+      </span>
+      <label for="c-gr" style="font-size: 15px; flex-grow: 1;">Groupe de discussion</label>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px; padding-left: 62px;">
+      <span style="flex-grow: 1; font-size: 14px; color: #343a40;">Staff d'unité, Staff Lutins</span>
+      <a href="#ecran-Groupes" aria-label="Changer les groupes de discussion" title="Changer les groupes" style="flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid #6c757d; border-radius: 6px; color: #343a40;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.2 2.8l3 3L6.6 14.4l-3.9.9.9-3.9z"></path></svg></a>
+    </div>
+    <div style="font-size: 13px; color: #5c636a;">Une fois publié, c'est public et hors du site : personne ne pourra le reprendre d'ici.</div>
+  </fieldset>
+
+  <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+    <a href="#ecran-Historique" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 16px; border-radius: 6px; background: #0d6efd; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 500;">
+      <svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="13.5" cy="4" r="2.5"></circle><circle cx="4.5" cy="9" r="2.5"></circle><circle cx="13.5" cy="14" r="2.5"></circle><path d="M6.7 7.8l4.6-2.6"></path><path d="M6.7 10.2l4.6 2.6"></path></svg>
+      Publier
+    </a>
+    <a href="#ecran-Historique" style="display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 16px; border: 1px solid #6c757d; border-radius: 6px; text-decoration: none; font-size: 15px; color: #343a40;">Voir l'historique</a>
+  </div>
+
+</div>
+</div>
+</section>
+<section class="ecran" id="ecran-Selecteur">
+<h2>Choisir une photo</h2>
+<p>Trente photos au maximum : les couvertures des 15 derniers albums, quelle que soit leur année, complétées par les photos les plus récentes hors couverture, triées par date décroissante. Albums locaux et photos uniquement.</p>
+<div class="cadre">
+<div style="width: 390px; height: 1500px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 16px; background: #ffffff; color: #212529;">
+
+  <div style="display: flex; flex-direction: column; gap: 4px;">
+    <a href="#ecran-Communication" style="font-size: 14px;">Retour à la communication</a>
+    <h1 style="margin: 0; font-size: 24px; line-height: 1.2; font-weight: 600;">Choisir une photo</h1>
+    <div style="font-size: 13px; color: #5c636a;">Les couvertures de vos 15 derniers albums, complétées par les photos les plus récentes, de la plus récente à la plus ancienne.</div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;">
+        <button type="button" aria-label="Photo 1" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#6b8f5e"></rect><rect width="100" height="34" fill="#8fb3d9"></rect><ellipse cx="53" cy="72" rx="18" ry="24" fill="#d8b98a"></ellipse><ellipse cx="18" cy="76" rx="14" ry="20" fill="#8fb3d9"></ellipse></svg></button>
+        <button type="button" aria-label="Photo 2" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#7a6a52"></rect><rect width="100" height="34" fill="#b9cfe0"></rect><ellipse cx="74" cy="69" rx="18" ry="24" fill="#cf9b6a"></ellipse><ellipse cx="39" cy="73" rx="14" ry="20" fill="#b9cfe0"></ellipse></svg></button>
+        <button type="button" aria-label="Photo 3" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#4f6b7a"></rect><rect width="100" height="34" fill="#a8c0cf"></rect><ellipse cx="53" cy="71" rx="18" ry="24" fill="#c76f4e"></ellipse><ellipse cx="18" cy="75" rx="14" ry="20" fill="#a8c0cf"></ellipse></svg></button>
+        <button type="button" aria-label="Photo 4" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#5f7f4f"></rect><rect width="100" height="34" fill="#8aa9c9"></rect><ellipse cx="62" cy="61" rx="18" ry="24" fill="#e3cfa6"></ellipse><ellipse cx="27" cy="65" rx="14" ry="20" fill="#8aa9c9"></ellipse></svg></button>
+        <button type="button" aria-label="Photo sélectionnée, Camp Lutins 2026" style="position: relative; padding: 0; border: 3px solid #0d6efd; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#8a6f4e"></rect><rect width="100" height="34" fill="#cfe0ea"></rect><ellipse cx="36" cy="71" rx="18" ry="24" fill="#bfa06a"></ellipse><ellipse cx="81" cy="75" rx="14" ry="20" fill="#cfe0ea"></ellipse></svg><span style="position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; border-radius: 999px; background: #0d6efd; color: #ffffff; display: inline-flex; align-items: center; justify-content: center;" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3.2L13 5"></path></svg></span></button>
+        <button type="button" aria-label="Photo 6" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#5d7a6a"></rect><rect width="100" height="34" fill="#9fb8cf"></rect><ellipse cx="55" cy="75" rx="18" ry="24" fill="#d1a07a"></ellipse><ellipse cx="20" cy="79" rx="14" ry="20" fill="#9fb8cf"></ellipse></svg></button>
+        <button type="button" aria-label="Photo 7" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#6b8f5e"></rect><rect width="100" height="34" fill="#8fb3d9"></rect><ellipse cx="64" cy="60" rx="18" ry="24" fill="#d8b98a"></ellipse><ellipse cx="29" cy="64" rx="14" ry="20" fill="#8fb3d9"></ellipse></svg></button>
+        <button type="button" aria-label="Photo 8" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#7a6a52"></rect><rect width="100" height="34" fill="#b9cfe0"></rect><ellipse cx="31" cy="69" rx="18" ry="24" fill="#cf9b6a"></ellipse><ellipse cx="76" cy="73" rx="14" ry="20" fill="#b9cfe0"></ellipse></svg></button>
+        <button type="button" aria-label="Photo 9" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#4f6b7a"></rect><rect width="100" height="34" fill="#a8c0cf"></rect><ellipse cx="44" cy="59" rx="18" ry="24" fill="#c76f4e"></ellipse><ellipse cx="89" cy="63" rx="14" ry="20" fill="#a8c0cf"></ellipse></svg></button>
+        <button type="button" aria-label="Photo 10" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#5f7f4f"></rect><rect width="100" height="34" fill="#8aa9c9"></rect><ellipse cx="30" cy="72" rx="18" ry="24" fill="#e3cfa6"></ellipse><ellipse cx="75" cy="76" rx="14" ry="20" fill="#8aa9c9"></ellipse></svg></button>
+        <button type="button" aria-label="Photo 11" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#8a6f4e"></rect><rect width="100" height="34" fill="#cfe0ea"></rect><ellipse cx="69" cy="75" rx="18" ry="24" fill="#bfa06a"></ellipse><ellipse cx="34" cy="79" rx="14" ry="20" fill="#cfe0ea"></ellipse></svg></button>
+        <button type="button" aria-label="Photo 12" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#5d7a6a"></rect><rect width="100" height="34" fill="#9fb8cf"></rect><ellipse cx="27" cy="74" rx="18" ry="24" fill="#d1a07a"></ellipse><ellipse cx="72" cy="78" rx="14" ry="20" fill="#9fb8cf"></ellipse></svg></button>
+        <button type="button" aria-label="Photo 13" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#6b8f5e"></rect><rect width="100" height="34" fill="#8fb3d9"></rect><ellipse cx="50" cy="69" rx="18" ry="24" fill="#d8b98a"></ellipse><ellipse cx="15" cy="73" rx="14" ry="20" fill="#8fb3d9"></ellipse></svg></button>
+        <button type="button" aria-label="Photo 14" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#7a6a52"></rect><rect width="100" height="34" fill="#b9cfe0"></rect><ellipse cx="66" cy="74" rx="18" ry="24" fill="#cf9b6a"></ellipse><ellipse cx="31" cy="78" rx="14" ry="20" fill="#b9cfe0"></ellipse></svg></button>
+        <button type="button" aria-label="Photo 15" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#4f6b7a"></rect><rect width="100" height="34" fill="#a8c0cf"></rect><ellipse cx="66" cy="60" rx="18" ry="24" fill="#c76f4e"></ellipse><ellipse cx="31" cy="64" rx="14" ry="20" fill="#a8c0cf"></ellipse></svg></button>
+        <button type="button" aria-label="Photo 16" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#5f7f4f"></rect><rect width="100" height="34" fill="#8aa9c9"></rect><ellipse cx="64" cy="55" rx="18" ry="24" fill="#e3cfa6"></ellipse><ellipse cx="29" cy="59" rx="14" ry="20" fill="#8aa9c9"></ellipse></svg></button>
+        <button type="button" aria-label="Photo 17" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#8a6f4e"></rect><rect width="100" height="34" fill="#cfe0ea"></rect><ellipse cx="58" cy="57" rx="18" ry="24" fill="#bfa06a"></ellipse><ellipse cx="23" cy="61" rx="14" ry="20" fill="#cfe0ea"></ellipse></svg></button>
+        <button type="button" aria-label="Photo 18" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#5d7a6a"></rect><rect width="100" height="34" fill="#9fb8cf"></rect><ellipse cx="28" cy="56" rx="18" ry="24" fill="#d1a07a"></ellipse><ellipse cx="73" cy="60" rx="14" ry="20" fill="#9fb8cf"></ellipse></svg></button>
+        <button type="button" aria-label="Photo 19" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#6b8f5e"></rect><rect width="100" height="34" fill="#8fb3d9"></rect><ellipse cx="37" cy="62" rx="18" ry="24" fill="#d8b98a"></ellipse><ellipse cx="82" cy="66" rx="14" ry="20" fill="#8fb3d9"></ellipse></svg></button>
+        <button type="button" aria-label="Photo 20" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#7a6a52"></rect><rect width="100" height="34" fill="#b9cfe0"></rect><ellipse cx="63" cy="55" rx="18" ry="24" fill="#cf9b6a"></ellipse><ellipse cx="28" cy="59" rx="14" ry="20" fill="#b9cfe0"></ellipse></svg></button>
+        <button type="button" aria-label="Photo 21" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#4f6b7a"></rect><rect width="100" height="34" fill="#a8c0cf"></rect><ellipse cx="74" cy="69" rx="18" ry="24" fill="#c76f4e"></ellipse><ellipse cx="39" cy="73" rx="14" ry="20" fill="#a8c0cf"></ellipse></svg></button>
+        <button type="button" aria-label="Photo 22" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#5f7f4f"></rect><rect width="100" height="34" fill="#8aa9c9"></rect><ellipse cx="45" cy="69" rx="18" ry="24" fill="#e3cfa6"></ellipse><ellipse cx="10" cy="73" rx="14" ry="20" fill="#8aa9c9"></ellipse></svg></button>
+        <button type="button" aria-label="Photo 23" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#8a6f4e"></rect><rect width="100" height="34" fill="#cfe0ea"></rect><ellipse cx="62" cy="61" rx="18" ry="24" fill="#bfa06a"></ellipse><ellipse cx="27" cy="65" rx="14" ry="20" fill="#cfe0ea"></ellipse></svg></button>
+        <button type="button" aria-label="Photo 24" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#5d7a6a"></rect><rect width="100" height="34" fill="#9fb8cf"></rect><ellipse cx="58" cy="62" rx="18" ry="24" fill="#d1a07a"></ellipse><ellipse cx="23" cy="66" rx="14" ry="20" fill="#9fb8cf"></ellipse></svg></button>
+        <button type="button" aria-label="Photo 25" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#6b8f5e"></rect><rect width="100" height="34" fill="#8fb3d9"></rect><ellipse cx="65" cy="64" rx="18" ry="24" fill="#d8b98a"></ellipse><ellipse cx="30" cy="68" rx="14" ry="20" fill="#8fb3d9"></ellipse></svg></button>
+        <button type="button" aria-label="Photo 26" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#7a6a52"></rect><rect width="100" height="34" fill="#b9cfe0"></rect><ellipse cx="56" cy="55" rx="18" ry="24" fill="#cf9b6a"></ellipse><ellipse cx="21" cy="59" rx="14" ry="20" fill="#b9cfe0"></ellipse></svg></button>
+        <button type="button" aria-label="Photo 27" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#4f6b7a"></rect><rect width="100" height="34" fill="#a8c0cf"></rect><ellipse cx="67" cy="57" rx="18" ry="24" fill="#c76f4e"></ellipse><ellipse cx="32" cy="61" rx="14" ry="20" fill="#a8c0cf"></ellipse></svg></button>
+        <button type="button" aria-label="Photo 28" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#5f7f4f"></rect><rect width="100" height="34" fill="#8aa9c9"></rect><ellipse cx="54" cy="75" rx="18" ry="24" fill="#e3cfa6"></ellipse><ellipse cx="19" cy="79" rx="14" ry="20" fill="#8aa9c9"></ellipse></svg></button>
+        <button type="button" aria-label="Photo 29" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#8a6f4e"></rect><rect width="100" height="34" fill="#cfe0ea"></rect><ellipse cx="42" cy="68" rx="18" ry="24" fill="#bfa06a"></ellipse><ellipse cx="87" cy="72" rx="14" ry="20" fill="#cfe0ea"></ellipse></svg></button>
+        <button type="button" aria-label="Photo 30" style="position: relative; padding: 0; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; background: #ffffff; aspect-ratio: 1 / 1; cursor: pointer;"><svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="100" fill="#5d7a6a"></rect><rect width="100" height="34" fill="#9fb8cf"></rect><ellipse cx="60" cy="57" rx="18" ry="24" fill="#d1a07a"></ellipse><ellipse cx="25" cy="61" rx="14" ry="20" fill="#9fb8cf"></ellipse></svg></button>
+  </div>
+
+  <div style="display: flex; gap: 8px; justify-content: flex-end;">
+    <a href="#ecran-Communication" style="display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 16px; border: 1px solid #6c757d; border-radius: 6px; text-decoration: none; font-size: 15px; color: #343a40;">Annuler</a>
+    <a href="#ecran-Communication" style="display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 16px; border-radius: 6px; background: #0d6efd; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 500;">Utiliser cette photo</a>
+  </div>
+
+  <p style="margin: 0; font-size: 13px; color: #5c636a;">
+    Les vignettes sont nettes : le flou est appliqué au moment de fabriquer l'image publiée.
+  </p>
+
+</div>
+</div>
+</section>
+<section class="ecran" id="ecran-Groupes">
+<h2>Choisir des groupes</h2>
+<p>Sélection multiple. Chaque groupe reçoit sa propre publication et compte pour une destination à part entière.</p>
+<div class="cadre">
+<div style="width: 390px; height: 620px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; justify-content: center; background: #e9ecef;">
+  <div style="background: #ffffff; border-radius: 10px; padding: 20px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 8px 24px rgba(0,0,0,0.15);">
+
+    <h2 style="margin: 0; font-size: 18px; font-weight: 600;">Dans quels groupes ?</h2>
+
+    <fieldset style="border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 2px;">
+      <legend style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);">Groupes où vous pouvez publier</legend>
+
+      <div style="display: flex; align-items: center; gap: 10px; min-height: 44px; border-bottom: 1px solid #e9ecef;">
+        <input type="checkbox" id="g-staffu" checked style="width: 20px; height: 20px;">
+        <label for="g-staffu" style="font-size: 15px; flex-grow: 1;">Staff d'unité<br><span style="font-size: 13px; color: #5c636a;">14 membres</span></label>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 10px; min-height: 44px; border-bottom: 1px solid #e9ecef;">
+        <input type="checkbox" id="g-lutins" checked style="width: 20px; height: 20px;">
+        <label for="g-lutins" style="font-size: 15px; flex-grow: 1;">Staff Lutins<br><span style="font-size: 13px; color: #5c636a;">6 membres</span></label>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 10px; min-height: 44px; border-bottom: 1px solid #e9ecef;">
+        <input type="checkbox" id="g-pios" style="width: 20px; height: 20px;">
+        <label for="g-pios" style="font-size: 15px; flex-grow: 1;">Staff Pionniers<br><span style="font-size: 13px; color: #5c636a;">5 membres</span></label>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 10px; min-height: 44px;">
+        <input type="checkbox" id="g-baladins" style="width: 20px; height: 20px;">
+        <label for="g-baladins" style="font-size: 15px; flex-grow: 1;">Staff Baladins<br><span style="font-size: 13px; color: #5c636a;">7 membres</span></label>
+      </div>
+
+    </fieldset>
+
+    <p style="margin: 0; font-size: 13px; color: #5c636a;">
+      Seuls les groupes où vous avez le droit de publier apparaissent ici. Chaque groupe reçoit sa propre publication, avec ses propres règles de modération.
+    </p>
+
+    <div style="display: flex; gap: 8px; justify-content: flex-end;">
+      <a href="#ecran-Communication" style="display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 16px; border: 1px solid #6c757d; border-radius: 6px; text-decoration: none; font-size: 15px; color: #343a40;">Annuler</a>
+      <a href="#ecran-Communication" style="display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 16px; border-radius: 6px; background: #0d6efd; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 500;">Valider</a>
+    </div>
+
+  </div>
+</div>
+</div>
+</section>
+<section class="ecran" id="ecran-Historique">
+<h2>Ce qui est parti</h2>
+<p>Un statut par destination, groupe par groupe. Trois états : publié, échec avec sa raison conservée, et non demandé.</p>
+<div class="cadre">
+<div style="width: 390px; height: 1300px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 16px; background: #ffffff; color: #212529;">
+
+  <div style="display: flex; flex-direction: column; gap: 4px;">
+    <div style="font-size: 13px; color: #5c636a;">Espace chefs · Communications</div>
+    <h1 style="margin: 0; font-size: 24px; line-height: 1.2; font-weight: 600;">Ce qui est parti</h1>
+  </div>
+
+  <a href="#ecran-Communication" style="display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 0 16px; border-radius: 6px; background: #0d6efd; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 500; align-self: flex-start;">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10"></path><path d="M3 8h10"></path></svg>
+    Nouvelle communication
+  </a>
+
+  <div style="border: 1px solid #dee2e6; border-radius: 8px; overflow: hidden;">
+
+    <div style="padding: 12px; border-bottom: 1px solid #e9ecef; display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; gap: 12px;">
+        <div style="flex: 0 0 auto; width: 64px; height: 64px; border-radius: 6px; overflow: hidden; background: #495057; position: relative;">
+          <div style="position: absolute; inset: -10px; filter: blur(8px);">
+            <svg width="100%" height="100%" viewBox="0 0 40 40" preserveAspectRatio="none" aria-hidden="true"><rect width="40" height="40" fill="#6b8f5e"></rect><ellipse cx="14" cy="26" rx="8" ry="11" fill="#d8b98a"></ellipse><rect y="0" width="40" height="13" fill="#8fb3d9"></rect></svg>
+          </div>
+        </div>
+        <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0;">
+          <span style="font-size: 15px; font-weight: 600;">Camp Lutins 2026</span>
+          <span style="font-size: 13px; color: #5c636a;">Les photos du camp des Lutins sont en ligne…</span>
+          <span style="font-size: 13px; color: #5c636a;">12 septembre, par Xavier</span>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="flex: 0 0 auto; color: #1b4ea8;" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="2.5" width="19" height="19" rx="4.5"></rect><path d="M15.5 8h-1.8A2.2 2.2 0 0011.5 10.2V12"></path><path d="M9.5 12h4.5"></path><path d="M11.5 12v9.5"></path></svg></span>
+        <span style="font-size: 14px; flex-grow: 1;">Facebook</span>
+        <span style="font-size: 13px; background: #d1e7dd; color: #0a3622; border-radius: 999px; padding: 2px 8px;">Publié à 18 h 04</span>
+        <a href="#fb1" aria-label="Voir la publication Facebook du 12 septembre" title="Voir la publication" style="flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid #6c757d; border-radius: 6px; color: #343a40;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3H3.8A0.8 0.8 0 003 3.8v10.4a0.8 0.8 0 00.8.8h10.4a0.8 0.8 0 00.8-.8V11"></path><path d="M11 3h4v4"></path><path d="M8 10l7-7"></path></svg></a>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="flex: 0 0 auto; color: #a02b6d;" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="2.5" width="19" height="19" rx="5.5"></rect><circle cx="12" cy="12" r="4.2"></circle><circle cx="17.4" cy="6.6" r="1.1" fill="currentColor" stroke="none"></circle></svg></span>
+        <span style="font-size: 14px; flex-grow: 1;">Instagram</span>
+        <span style="font-size: 13px; background: #d1e7dd; color: #0a3622; border-radius: 999px; padding: 2px 8px;">Publié à 18 h 04</span>
+        <a href="#ig1" aria-label="Voir la publication Instagram du 12 septembre" title="Voir la publication" style="flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid #6c757d; border-radius: 6px; color: #343a40;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3H3.8A0.8 0.8 0 003 3.8v10.4a0.8 0.8 0 00.8.8h10.4a0.8 0.8 0 00.8-.8V11"></path><path d="M11 3h4v4"></path><path d="M8 10l7-7"></path></svg></a>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="flex: 0 0 auto; color: #146c43;" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 12.2c0 4-3.8 7.2-8.5 7.2-1 0-2-.15-2.9-.42L4 20.8l1.5-3.6C4.2 15.9 3.5 14.1 3.5 12.2 3.5 8.2 7.3 5 12 5s8.5 3.2 8.5 7.2z"></path></svg></span>
+        <span style="font-size: 14px; flex-grow: 1;">Staff Lutins</span>
+        <span style="font-size: 13px; background: #d1e7dd; color: #0a3622; border-radius: 999px; padding: 2px 8px;">Publié à 18 h 05</span>
+        <a href="#gr1" aria-label="Voir la publication dans Staff Lutins" title="Voir la publication" style="flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid #6c757d; border-radius: 6px; color: #343a40;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3H3.8A0.8 0.8 0 003 3.8v10.4a0.8 0.8 0 00.8.8h10.4a0.8 0.8 0 00.8-.8V11"></path><path d="M11 3h4v4"></path><path d="M8 10l7-7"></path></svg></a>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="flex: 0 0 auto; color: #146c43;" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 12.2c0 4-3.8 7.2-8.5 7.2-1 0-2-.15-2.9-.42L4 20.8l1.5-3.6C4.2 15.9 3.5 14.1 3.5 12.2 3.5 8.2 7.3 5 12 5s8.5 3.2 8.5 7.2z"></path></svg></span>
+        <span style="font-size: 14px; flex-grow: 1;">Staff d'unité</span>
+        <span style="font-size: 13px; background: #d1e7dd; color: #0a3622; border-radius: 999px; padding: 2px 8px;">Publié à 18 h 05</span>
+        <a href="#gr2" aria-label="Voir la publication dans Staff d'unité" title="Voir la publication" style="flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid #6c757d; border-radius: 6px; color: #343a40;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3H3.8A0.8 0.8 0 003 3.8v10.4a0.8 0.8 0 00.8.8h10.4a0.8 0.8 0 00.8-.8V11"></path><path d="M11 3h4v4"></path><path d="M8 10l7-7"></path></svg></a>
+      </div>
+    </div>
+
+    <div style="padding: 12px; border-bottom: 1px solid #e9ecef; display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; gap: 12px;">
+        <div style="flex: 0 0 auto; width: 64px; height: 64px; border-radius: 6px; overflow: hidden; background: #495057; position: relative;">
+          <div style="position: absolute; inset: -10px; filter: blur(8px);">
+            <svg width="100%" height="100%" viewBox="0 0 40 40" preserveAspectRatio="none" aria-hidden="true"><rect width="40" height="40" fill="#7a6a52"></rect><ellipse cx="22" cy="24" rx="9" ry="12" fill="#cf9b6a"></ellipse><rect y="0" width="40" height="11" fill="#b9cfe0"></rect></svg>
+          </div>
+        </div>
+        <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0;">
+          <span style="font-size: 15px; font-weight: 600;">Week-end d'unité</span>
+          <span style="font-size: 13px; color: #5c636a;">Inscriptions ouvertes jusqu'au 12 octobre…</span>
+          <span style="font-size: 13px; color: #5c636a;">8 septembre, par Claire</span>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="flex: 0 0 auto; color: #1b4ea8;" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="2.5" width="19" height="19" rx="4.5"></rect><path d="M15.5 8h-1.8A2.2 2.2 0 0011.5 10.2V12"></path><path d="M9.5 12h4.5"></path><path d="M11.5 12v9.5"></path></svg></span>
+        <span style="font-size: 14px; flex-grow: 1;">Facebook</span>
+        <span style="font-size: 13px; background: #d1e7dd; color: #0a3622; border-radius: 999px; padding: 2px 8px;">Publié à 9 h 12</span>
+        <a href="#fb2" aria-label="Voir la publication Facebook du 8 septembre" title="Voir la publication" style="flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid #6c757d; border-radius: 6px; color: #343a40;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3H3.8A0.8 0.8 0 003 3.8v10.4a0.8 0.8 0 00.8.8h10.4a0.8 0.8 0 00.8-.8V11"></path><path d="M11 3h4v4"></path><path d="M8 10l7-7"></path></svg></a>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="flex: 0 0 auto; color: #a02b6d;" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="2.5" width="19" height="19" rx="5.5"></rect><circle cx="12" cy="12" r="4.2"></circle><circle cx="17.4" cy="6.6" r="1.1" fill="currentColor" stroke="none"></circle></svg></span>
+        <span style="font-size: 14px; flex-grow: 1;">Instagram</span>
+        <span style="font-size: 13px; background: #f8d7da; color: #58151c; border-radius: 999px; padding: 2px 8px;">Échec</span>
+        <a href="#ecran-Reessai" aria-label="Réessayer la publication sur Instagram" title="Réessayer" style="flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid #0d6efd; border-radius: 6px; color: #0a58ca;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 9a6 6 0 11-1.8-4.3"></path><path d="M15 2.5V6h-3.5"></path></svg></a>
+      </div>
+      <div style="font-size: 13px; color: #58151c; padding-left: 26px;">Image refusée : proportions hors des formats acceptés.</div>
+    </div>
+
+    <div style="padding: 12px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; gap: 12px;">
+        <div style="flex: 0 0 auto; width: 64px; height: 64px; border-radius: 6px; overflow: hidden; background: #495057; position: relative;">
+          <div style="position: absolute; inset: -10px; filter: blur(8px);">
+            <svg width="100%" height="100%" viewBox="0 0 40 40" preserveAspectRatio="none" aria-hidden="true"><rect width="40" height="40" fill="#4f6b7a"></rect><ellipse cx="20" cy="27" rx="12" ry="10" fill="#c76f4e"></ellipse></svg>
+          </div>
+        </div>
+        <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0;">
+          <span style="font-size: 15px; font-weight: 600;">Hike des Pionniers</span>
+          <span style="font-size: 13px; color: #5c636a;">Retour en images sur le hike…</span>
+          <span style="font-size: 13px; color: #5c636a;">30 août, par Xavier</span>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="flex: 0 0 auto; color: #1b4ea8;" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="2.5" width="19" height="19" rx="4.5"></rect><path d="M15.5 8h-1.8A2.2 2.2 0 0011.5 10.2V12"></path><path d="M9.5 12h4.5"></path><path d="M11.5 12v9.5"></path></svg></span>
+        <span style="font-size: 14px; flex-grow: 1;">Facebook</span>
+        <span style="font-size: 13px; background: #d1e7dd; color: #0a3622; border-radius: 999px; padding: 2px 8px;">Publié à 21 h 30</span>
+        <a href="#fb3" aria-label="Voir la publication Facebook du 30 août" title="Voir la publication" style="flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid #6c757d; border-radius: 6px; color: #343a40;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3H3.8A0.8 0.8 0 003 3.8v10.4a0.8 0.8 0 00.8.8h10.4a0.8 0.8 0 00.8-.8V11"></path><path d="M11 3h4v4"></path><path d="M8 10l7-7"></path></svg></a>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="flex: 0 0 auto; color: #6c757d;" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="2.5" width="19" height="19" rx="5.5"></rect><circle cx="12" cy="12" r="4.2"></circle><circle cx="17.4" cy="6.6" r="1.1" fill="currentColor" stroke="none"></circle></svg></span>
+        <span style="font-size: 14px; flex-grow: 1; color: #5c636a;">Instagram</span>
+        <span style="font-size: 13px; color: #5c636a;">Non demandé</span>
+        <span style="flex: 0 0 auto; width: 44px; height: 44px;" aria-hidden="true"></span>
+      </div>
+    </div>
+
+  </div>
+
+  <p style="margin: 0; font-size: 13px; color: #5c636a;">
+    Un contenu ne part qu'une fois vers une destination donnée. Seule une destination en échec peut
+    être relancée ; retirer une publication se fait sur Facebook ou Instagram.
+  </p>
+
+</div>
+</div>
+</section>
+<section class="ecran" id="ecran-Reessai">
+<h2>Confirmer un réessai</h2>
+<p>Seule la destination en échec repart ; celle déjà publiée n&#x27;est pas touchée, donc pas de doublon.</p>
+<div class="cadre">
+<div style="width: 390px; height: 560px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; justify-content: center; background: #e9ecef;">
+  <div style="background: #ffffff; border-radius: 10px; padding: 20px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 8px 24px rgba(0,0,0,0.15);">
+
+    <h2 style="margin: 0; font-size: 18px; font-weight: 600;">Réessayer sur Instagram ?</h2>
+
+    <div style="display: flex; gap: 12px; align-items: center;">
+      <div style="flex: 0 0 auto; width: 56px; height: 56px; border-radius: 6px; overflow: hidden; background: #495057; position: relative;">
+        <div style="position: absolute; inset: -10px; filter: blur(8px);">
+          <svg width="100%" height="100%" viewBox="0 0 40 40" preserveAspectRatio="none" aria-hidden="true"><rect width="40" height="40" fill="#7a6a52"></rect><ellipse cx="22" cy="24" rx="9" ry="12" fill="#cf9b6a"></ellipse><rect y="0" width="40" height="11" fill="#b9cfe0"></rect></svg>
+        </div>
+      </div>
+      <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+        <span style="font-size: 15px; font-weight: 600;">Week-end d'unité</span>
+        <span style="font-size: 13px; color: #5c636a;">8 septembre, par Claire</span>
+      </div>
+    </div>
+
+    <p style="margin: 0; font-size: 14px; color: #343a40;">
+      La même image et le même texte repartiront vers Instagram. Facebook, déjà publié le 8 septembre
+      à 9 h 12, ne sera pas touché — il n'y aura donc pas de doublon.
+    </p>
+
+    <div style="border: 1px solid #f5c2c7; background: #f8d7da; border-radius: 6px; padding: 12px; font-size: 13px; color: #58151c;">
+      L'échec précédent venait des proportions de l'image. Si rien n'a changé depuis, il se répétera.
+    </div>
+
+    <div style="display: flex; gap: 8px; justify-content: flex-end;">
+      <a href="#ecran-Historique" style="display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 16px; border: 1px solid #6c757d; border-radius: 6px; text-decoration: none; font-size: 15px; color: #343a40;">Annuler</a>
+      <a href="#ecran-Historique" style="display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 16px; border-radius: 6px; background: #0d6efd; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 500;">Réessayer</a>
+    </div>
+
+  </div>
+</div>
+</div>
+</section>
+<section class="ecran" id="ecran-Configuration">
+<h2>Configuration du module</h2>
+<p>Les deux connexions, leur état, et de quoi tester ou reconnecter. Rien d&#x27;autre.</p>
+<div class="cadre">
+<div style="width: 390px; height: 940px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 16px; background: #ffffff; color: #212529;">
+
+  <div style="display: flex; flex-direction: column; gap: 4px;">
+    <div style="font-size: 13px; color: #5c636a;">Configuration</div>
+    <h1 style="margin: 0; font-size: 24px; line-height: 1.2; font-weight: 600;">Réseaux sociaux</h1>
+  </div>
+
+  <p style="margin: 0; font-size: 14px; color: #5c636a;">
+    Votre unité crée sa propre application Meta et la relie ici. Aucune revue par Meta n'est
+    nécessaire tant que seuls vos propres comptes s'y connectent.
+  </p>
+
+  <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 10px;">
+    <h2 style="margin: 0; font-size: 17px; font-weight: 600;">Page Facebook</h2>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <span style="flex-grow: 1; font-size: 15px;">Unité 25 SV</span>
+      <span style="font-size: 13px; background: #d1e7dd; color: #0a3622; border-radius: 999px; padding: 2px 8px;">Connectée</span>
+    </div>
+    <div style="font-size: 13px; color: #5c636a;">Jeton de page sans expiration. Dernière vérification il y a 2 heures.</div>
+  </div>
+
+  <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 10px;">
+    <h2 style="margin: 0; font-size: 17px; font-weight: 600;">Instagram</h2>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <span style="flex-grow: 1; font-size: 15px;">@unite25sv</span>
+      <span style="font-size: 13px; background: #d1e7dd; color: #0a3622; border-radius: 999px; padding: 2px 8px;">Connecté</span>
+    </div>
+    <div style="font-size: 13px; color: #5c636a;">Compte professionnel. Jeton renouvelé le 18 septembre, valable jusqu'au 17 novembre.</div>
+  </div>
+
+  <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+    <a href="#tester" style="display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 16px; border: 1px solid #6c757d; border-radius: 6px; text-decoration: none; font-size: 15px; color: #343a40;">Tester la connexion</a>
+    <a href="#reconnecter" style="display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 16px; border: 1px solid #6c757d; border-radius: 6px; text-decoration: none; font-size: 15px; color: #343a40;">Reconnecter</a>
+  </div>
+
+</div>
+</div>
+</section>
+</div>
+</body>
+</html>

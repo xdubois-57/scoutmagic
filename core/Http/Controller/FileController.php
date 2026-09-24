@@ -10,6 +10,7 @@ namespace Core\Http\Controller;
 
 use Core\File\EncryptedFileStorageService;
 use Core\File\FileAccessGuard;
+use Core\File\FileRecord;
 use Core\File\PdfRasterizer;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -122,7 +123,7 @@ class FileController extends AbstractController
             ? 'inline'
             : 'attachment; filename="' . addslashes($file->originalName) . '"';
 
-        $cacheControl = $file->roleMin === 'public'
+        $cacheControl = $this->isSharedCacheable($file)
             ? 'public, max-age=86400'
             : 'private, no-cache';
 
@@ -279,7 +280,7 @@ class FileController extends AbstractController
         if (!$file->encrypted && is_file($cachePath)) {
             $cached = file_get_contents($cachePath);
             if ($cached !== false && $cached !== '') {
-                return $this->jpegThumbnailResponse($cached, $file->roleMin);
+                return $this->jpegThumbnailResponse($cached, $this->isSharedCacheable($file));
             }
         }
 
@@ -306,12 +307,28 @@ class FileController extends AbstractController
             $this->writeThumbnailCache($cachePath, $thumbnail);
         }
 
-        return $this->jpegThumbnailResponse($thumbnail, $file->roleMin);
+        return $this->jpegThumbnailResponse($thumbnail, $this->isSharedCacheable($file));
     }
 
-    private function jpegThumbnailResponse(string $bytes, string $roleMin): Response
+    /**
+     * Whether a shared cache (a proxy, a CDN) may keep this response and
+     * hand it to anybody. Only when `role_min` is the WHOLE rule: a file
+     * with an owner — `owner_member_id`, or an `owner_type` whose checker
+     * answers per request (an unlisted shared document is `public` yet
+     * served only to a session that came through its address) — is
+     * `public` in role only, and a shared cache that kept it would serve
+     * it without ever asking FileAccessGuard again.
+     */
+    private function isSharedCacheable(FileRecord $file): bool
     {
-        $cacheControl = $roleMin === 'public' ? 'public, max-age=604800' : 'private, max-age=604800';
+        return $file->roleMin === 'public'
+            && $file->ownerType === null
+            && $file->ownerMemberId === null;
+    }
+
+    private function jpegThumbnailResponse(string $bytes, bool $sharedCacheable): Response
+    {
+        $cacheControl = $sharedCacheable ? 'public, max-age=604800' : 'private, max-age=604800';
 
         return (new Response($bytes))
             ->setHeader('Content-Type', 'image/jpeg')
@@ -389,7 +406,7 @@ class FileController extends AbstractController
         // a re-upload always creates a new file id (see the module's own
         // "no on-demand regeneration" rule), so the URL itself only ever
         // serves one set of bytes.
-        $cacheControl = $file->roleMin === 'public'
+        $cacheControl = $this->isSharedCacheable($file)
             ? 'public, max-age=31536000, immutable'
             : 'private, max-age=31536000, immutable';
 

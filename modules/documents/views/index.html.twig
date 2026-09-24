@@ -1,0 +1,93 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  « Notre unité › Documents » — role_min public, content filtered by the
+  reader (Modules\Documents\Service\DocumentService::listFor()).
+
+  Three things the mockup insists on (docs/chantiers/maquettes/
+  maquette-documents.jsx):
+  - no visibility pill on a public document: to a visitor everything
+    they see is public, and labelling it teaches them nothing;
+  - the page says what it does not show, or somebody who knows a
+    document exists wonders whether it vanished;
+  - an empty page explains itself and offers to sign in.
+#}
+{% extends "base.html.twig" %}
+
+{% block title %}Documents — {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="page-narrow">
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Documents',
+        subtitle: 'Les documents de l\'unité, à consulter ou à télécharger.',
+    } only %}
+
+    {% if documents is empty %}
+        {% if reader_is_authenticated %}
+            {% include 'partials/empty_state.html.twig' with {
+                message: 'Aucun document pour le moment.',
+                icon: 'bi-folder2-open',
+            } only %}
+        {% else %}
+            {% include 'partials/empty_state.html.twig' with {
+                message: 'Aucun document public pour le moment. Certains documents sont réservés aux membres de l\'unité : connectez-vous pour voir ceux qui vous concernent.',
+                icon: 'bi-folder2-open',
+                action_label: 'Se connecter',
+                action_url: '/login',
+            } only %}
+        {% endif %}
+    {% else %}
+        <ul class="list-unstyled d-flex flex-column gap-2 mb-3">
+            {% for document in documents %}
+                <li class="card">
+                    <div class="card-body d-flex align-items-start gap-3">
+                        <div class="flex-grow-1 min-w-0">
+                            <div class="d-flex flex-wrap align-items-baseline gap-2">
+                                <h2 class="h6 mb-0">{{ document.title }}</h2>
+                                {% if document.visibility.value != 'public' %}
+                                    <span class="badge text-bg-light border">{{ document.visibility.label() }}</span>
+                                {% endif %}
+                            </div>
+                            {% if document.description %}
+                                <p class="small text-body-secondary mb-1 mt-1">{{ document.description }}</p>
+                            {% endif %}
+                            <p class="small text-body-secondary mb-0">
+                                {{ document.kindLabel() }} · {{ document.sizeBytes|filesize }} · mis à jour le {{ document.updatedAt|date_fr }}
+                            </p>
+                        </div>
+                        {% include 'partials/file_link.html.twig' with {
+                            href: '/files/' ~ document.fileId,
+                            label: '',
+                            icon: 'download',
+                            classes: 'btn btn-outline-primary flex-shrink-0',
+                            filename: document.originalName,
+                            title: 'Télécharger ' ~ document.title,
+                            aria_label: 'Télécharger ' ~ document.title,
+                        } only %}
+                    </div>
+                </li>
+            {% endfor %}
+        </ul>
+
+        {% if hidden_count > 0 and not reader_is_authenticated %}
+            <p class="small text-body-secondary">
+                D'autres documents sont réservés aux membres de l'unité.
+                <a href="/login">Connectez-vous</a> pour voir ceux qui vous concernent.
+            </p>
+        {% endif %}
+    {% endif %}
+
+    {% if hidden_count > 0 and reader_is_authenticated %}
+        <p class="small text-body-secondary">
+            {% if hidden_count == 1 %}
+                1 document ne vous est pas destiné et n'apparaît pas ici.
+            {% else %}
+                {{ hidden_count }} documents ne vous sont pas destinés et n'apparaissent pas ici.
+            {% endif %}
+        </p>
+    {% endif %}
+</div>
+{% endblock %}
