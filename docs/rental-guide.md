@@ -284,7 +284,8 @@ les e-mails envoyés au locataire portent cette boîte en adresse de
 réponse. Avec deux boîtes dédiées, la page n'existe pas : la liste des
 boîtes du courrier entrant le signale.
 
-Le rattachement se fait d'abord par la **référence** dans le sujet, puis
+Le rattachement se fait d'abord par l'**adresse de réponse signée** que
+portait l'e-mail du site, puis par la **référence** dans le sujet, puis
 par la **conversation**, puis, à défaut, par l'**adresse de l'expéditeur**
 si le message tombe dans une fenêtre autour du séjour. **En cas
 d'ambiguïté, rien n'est rattaché** — mieux vaut un email qui reste dans la
