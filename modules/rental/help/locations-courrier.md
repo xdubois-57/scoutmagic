@@ -8,11 +8,11 @@ discovery: 3
 question: Où voir les e-mails d'un locataire sur sa réservation ?
 question: Que faire d'une proposition de rattachement sur une réservation ?
 question: Que devient un message quand je le détache d'une réservation ?
-paths: /mes-locations/*/reservations/*
+paths: /mes-locations/*/reservations/*, /mes-locations/*/reservations/*/courrier
 related: gerer-les-locations, courrier-entrant, courrier-reponse, courrier-unite
 ---
 
-Si l'unité relève ses e-mails depuis ScoutMagic, le panneau « Courrier »
+Si l'unité relève ses e-mails depuis ScoutMagic, la page « Courrier »
 de la réservation montre les messages que le site y a rattachés, avec
 la raison — référence dans le sujet, réponse dans la conversation,
 adresse de l'expéditeur. Une raison affichée comme « Rattachement

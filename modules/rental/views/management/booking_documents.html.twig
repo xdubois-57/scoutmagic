@@ -1,0 +1,16 @@
+{% extends '@rental/management/_booking_frame.html.twig' %}
+{#
+  « Documents » — the papers of one booking (Booking\BookingPage::DOCUMENTS):
+  the contract, the invoice, what came back signed. The box arrives open:
+  this page exists for it.
+#}
+{% block booking_content %}
+    {% include '@rental/management/_box_documents.html.twig' with { open: true } %}
+{% endblock %}
+
+{% block booking_scripts %}
+    <script src="{{ asset('/assets/js/drop-zone.js') }}" defer></script>
+    {# Names the file that was picked: the zone's input is visually hidden,
+       so a zone that says nothing looks the same before and after a drop. #}
+    <script src="{{ asset('/assets/js/upload-drop-zone.js') }}" defer></script>
+{% endblock %}

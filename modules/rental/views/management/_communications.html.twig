@@ -31,6 +31,7 @@
                 {{ csrf_field()|raw }}
                 <input type="hidden" name="asset_id" value="{{ asset.id }}">
                 <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
                 <button type="submit" class="btn btn-sm btn-outline-secondary"
                         title="Réexamine les messages que rien ne rattache, avec ce que le site sait aujourd'hui">
                     <i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Relancer l'analyse
@@ -68,6 +69,7 @@
                                     {{ csrf_field()|raw }}
                                     <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                     <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                    <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
                                     <input type="hidden" name="message_id" value="{{ row.message.id }}">
                                     <input type="hidden" name="candidate_id" value="{{ candidate.id }}">
                                     <button type="submit" class="btn btn-sm btn-primary">Rattacher</button>
@@ -76,6 +78,7 @@
                                     {{ csrf_field()|raw }}
                                     <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                     <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                    <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
                                     <input type="hidden" name="message_id" value="{{ row.message.id }}">
                                     <input type="hidden" name="candidate_id" value="{{ candidate.id }}">
                                     <button type="submit" class="btn btn-sm btn-outline-secondary">Écarter</button>
@@ -161,6 +164,7 @@
                             {{ csrf_field()|raw }}
                             <input type="hidden" name="asset_id" value="{{ asset.id }}">
                             <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                            <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
                             <input type="hidden" name="message_id" value="{{ message.id }}">
                             <button type="submit" class="btn btn-sm btn-outline-danger">Détacher</button>
                         </form>
@@ -171,6 +175,7 @@
                                 {{ csrf_field()|raw }}
                                 <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                 <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
                                 <input type="hidden" name="message_id" value="{{ message.id }}">
                                 <label class="visually-hidden" for="move-{{ message.id }}">
                                     Déplacer vers

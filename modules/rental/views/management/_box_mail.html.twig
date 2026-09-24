@@ -1,0 +1,30 @@
+{#
+  The « Courrier » box (Booking\BookingBox::MAIL). Rendered on the Courrier
+  page, open there; its body is `_communications.html.twig`.
+
+  The one box that is not always there. What decides it — `inbound_mail`
+  enabled, a mailbox configured — is not something a button on the page can
+  change, so the controller settles it once: without it the page does not
+  exist and its chip is absent (§7.7). A box that could only ever be empty
+  is noise.
+
+  Optional: `open` — the box arrives unfolded.
+#}
+<div class="card mb-3" id="{{ boxes.mail.anchor }}">
+    {% embed '@rental/management/_dossier_header.html.twig' with {
+        box: boxes.mail, target_id: boxes.mail.bodyAnchor, messages: messages, open: open|default(false),
+    } only %}
+        {% block figure %}
+            <span class="text-body-secondary small" data-booking-panel="communications-figure">
+                {{ messages is empty
+                    ? 'Aucun message'
+                    : messages|length ~ ' message' ~ (messages|length > 1 ? 's' : '') }}
+            </span>
+        {% endblock %}
+    {% endembed %}
+    <div class="collapse{{ open|default(false) ? ' show' }}" id="{{ boxes.mail.bodyAnchor }}">
+        <div data-booking-panel="communications">
+            {% include '@rental/management/_communications.html.twig' %}
+        </div>
+    </div>
+</div>

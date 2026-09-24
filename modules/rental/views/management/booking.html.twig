@@ -1,69 +1,46 @@
-{% extends 'base.html.twig' %}
-{% block title %}{{ booking.reference }} — {{ asset.name }} — {{ site_name }}{% endblock %}
+{% extends '@rental/management/_booking_frame.html.twig' %}
 {#
-  One booking's file (§6.4, §6.12, §6.15, §6.16).
+  The dashboard of one booking's file (§6.4, §6.12, §6.15, §6.16): the first
+  of its four pages (Booking\BookingPage), and the one a link to the booking
+  lands on.
 
-  Behind RentalAuthorizationService and reached only by a manager of THIS
-  asset, which is why it carries everything the public surfaces never do:
-  the renter's identity, the internal comments, the full history.
-
-  **Read top to bottom, in four movements.** What the rental is, the one
-  thing to do next, where the rental has got to, and then the file itself.
-  Everything on the page was already here; what changed is that it no
-  longer arrives all at once. The boxes of « Le dossier » are folded, each
-  line carrying the figure that answers the question it would have been
-  opened for — « 317,50 € dus » saves the click it describes.
+  **Read top to bottom, in three movements.** Where the booking stands and
+  what to do about it (the journey, one component: `_journey.html.twig`),
+  what the booking is, and then what it has gathered that is not money,
+  papers or mail — those have a page each, one chip away.
 
   The journey and the checklist are ONE derivation (Booking\BookingJourney
-  stages what Booking\BookingMilestones computed), so the five stretches and
-  the fifteen lines can never tell different stories. A line still renders
-  greyed when it belongs to something this installation cannot do at all (no
-  security deposit configured, the stay module off): an unreachable box
-  reads as outstanding work.
-
-  **Every panel here is refreshable.** Each region that an action can change
-  sits inside an always-present `data-booking-panel` wrapper — always
-  present, so a panel that appears or disappears (the option card once the
-  booking is final) swaps like any other. public/assets/js/rental-booking.js
-  posts the page's forms with fetch and replaces those wrappers' contents
-  from a fresh render of this same template, which is what makes pressing
-  « Envoyer » tick « Contrat envoyé » without a page load — and what keeps
-  the two from ever disagreeing, since there is still exactly one renderer.
+  stages what Booking\BookingMilestones computed), so the heading, the five
+  stretches and the fifteen lines can never tell different stories. A line
+  still renders greyed when it belongs to something this installation does
+  not do at all (no security deposit configured, no meter on the asset): an
+  unreachable box reads as outstanding work. A step whose work is done on
+  another page links there with the box's anchor (`BookingBox::href()`),
+  and collapse-anchor.js opens that box on arrival.
 
   **A box's fold is deliberately OUTSIDE its wrapper.** The `.collapse` and
   the button that toggles it belong to the card; only the body and the
-  figure are swapped. Cashing a payment therefore leaves the Paiements box
-  open at the line you were reading, where re-rendering the card around it
-  would have folded the box under your hands. The journey's own stretches
-  are the exception and it is the right one: an action that moves the
-  booking on moves which stretch is current, and the fresh render opening
-  the new one is the answer, not a lost place.
+  figure are swapped by the page's refresh. Adding a comment therefore
+  leaves the box open at the line you were reading, where re-rendering the
+  card around it would have folded the box under your hands. The journey's
+  own stretches are the exception and it is the right one: an action that
+  moves the booking on moves which stretch is current, and the fresh render
+  opening the new one is the answer, not a lost place.
 #}
-{% block content %}
-    <div class="page-medium" data-rental-booking>
-        {% include 'partials/page_header.html.twig' with {
-            title: booking.reference,
-            subtitle: asset.name ~ ' · du ' ~ booking.arrivalDate|date_fr ~ ' au ' ~ booking.departureDate|date_fr,
-        } only %}
-        <div data-booking-panel="in-progress">
-            {% if is_in_progress %}
-                <p class="mb-3">{% include 'partials/status_badge.html.twig' with { status: 'active', label: 'En cours' } only %}</p>
-            {% endif %}
-        </div>
+{% block booking_content %}
+        {# ── 1. Où en est cette réservation ────────────────────────── #}
+        {% include '@rental/management/_journey.html.twig' %}
 
-        {% include '@rental/management/_nav.html.twig' %}
-
-        {# ── 1. Les détails de la location ─────────────────────────── #}
+        {# ── 2. Les détails de la réservation ──────────────────────── #}
         {#
-          Who, what, when, how much — and the status, which used to have a
-          card of its own two screens down. Two cards answering « où en est
-          cette réservation ? » differently is precisely what this page was
-          reorganised to stop.
+          Who, what, when, how much — and no status badge: the journey above
+          already answers « où en est cette réservation ? », and two answers
+          to one question on one page is the defect this page exists to fix.
         #}
         <div data-booking-panel="renter">
         <div class="card mb-4">
             <div class="card-body">
-                <h2 class="h5 mb-3">Les détails de la location</h2>
+                <h2 class="h5 mb-3">Les détails de la réservation</h2>
                 <dl class="row mb-0">
                     <dt class="col-sm-4">Locataire</dt>
                     <dd class="col-sm-8">{{ booking.renterName }}</dd>
@@ -99,17 +76,15 @@
                             </span>
                         {% endif %}
                     </dd>
-                    <dt class="col-sm-4">Statut</dt>
-                    <dd class="col-sm-8">{% include '@rental/_status_badge.html.twig' with { status: booking.status } only %}</dd>
                     {% if booking.renterComment %}
                         <dt class="col-sm-4">Message</dt>
                         <dd class="col-sm-8">{{ booking.renterComment|nl2br }}</dd>
                     {% endif %}
                 </dl>
 
-                {# Le lien de suivi ne s'affiche nulle part : sa possession
-                   EST l'autorisation (§8.52). Il ne se récupère donc pas —
-                   il se remplace, et le nouveau part par email au locataire. #}
+                {# The tracking link is shown nowhere: holding it IS the
+                   authorisation (§8.52). So it is never retrieved — it is
+                   replaced, and the new one goes to the renter by email. #}
                 <form method="post" action="/mes-locations/lien-suivi" class="mt-3"
                       data-confirm="Régénérer le lien ? L'ancien cessera de fonctionner et le locataire devra recevoir le nouveau.">
                     {{ csrf_field()|raw }}
@@ -127,298 +102,18 @@
         </div>
         </div>
 
-        {# ── 2. L'action suivante ──────────────────────────────────── #}
+        {# ── 3. Le dossier ─────────────────────────────────────────── #}
         {#
-          One card, the first applicable milestone that is not done, and its
-          way in. Nothing else — a second suggestion here would put the
-          manager back to choosing, which is the job this card exists to do
-          for them.
-
-          Its button is a LINK to the box where the thing is settled, except
-          for the milestones whose button is a status transition: those are
-          rendered here in full, because sending somebody to a phase to
-          press « Confirmée » when the button could be under their thumb is
-          a link pretending to be an action.
-        #}
-        <div data-booking-panel="next-step">
-        <div class="card border-primary mb-4">
-            <div class="card-body">
-                <h2 class="h5 mb-2">L'action suivante</h2>
-                {% if journey.next %}
-                    <p class="mb-2">
-                        <span class="fw-semibold">{{ journey.next.label }}</span>
-                        {% if journey.next.detail %}
-                            <span class="text-body-secondary small d-block">{{ journey.next.detail }}</span>
-                        {% endif %}
-                    </p>
-                    {% if journey.liftedTransitions is not empty %}
-                        {% include '@rental/management/_transitions.html.twig' with {
-                            asset: asset, booking: booking,
-                            transitions: journey.liftedTransitions, renter_decisions: renter_decisions,
-                        } only %}
-                    {% elseif journey.nextBox %}
-                        <a class="btn btn-primary"
-                           href="{{ journey.nextBox.isPage ? stay_url : '#' ~ journey.nextBox.anchor }}">
-                            Ouvrir « {{ journey.nextBox.label }} »
-                        </a>
-                    {% else %}
-                        <p class="text-body-secondary small mb-0">
-                            Rien à presser ici : cette étape se règle plus bas, dans « Où en est cette location ».
-                        </p>
-                    {% endif %}
-                {% elseif booking.status.isFinal %}
-                    <p class="text-body-secondary mb-0">
-                        Cette réservation est dans un état définitif : elle ne peut plus changer.
-                        Une nouvelle demande est nécessaire.
-                    </p>
-                {% else %}
-                    <p class="text-body-secondary mb-0">
-                        Rien n'attend de vous sur cette location.
-                    </p>
-                {% endif %}
-            </div>
-        </div>
-        </div>
-
-        {# ── 3. Où en est cette location ───────────────────────────── #}
-        {#
-          The fifteen milestones in five stretches, the current one open.
-          Fifteen ticked boxes in a column are a list; five named stretches
-          with one of them open are a position.
-
-          A stretch's own decisions live inside it: the status buttons
-          Booking\BookingPhase::ofTransition() files there, and the option
-          form, which is how « La demande » holds its dates. The « État »
-          card that used to carry all of them is gone — its badge is in the
-          details above, and its buttons were never a state.
-        #}
-        <div data-booking-panel="milestones">
-        <div class="card mb-4">
-            <div class="card-body">
-                <h2 class="h5 mb-3">Où en est cette location</h2>
-                {% for phase in journey.phases %}
-                    {% set phase_id = 'phase-' ~ phase.key %}
-                    <div class="border-bottom">
-                        <h3 class="mb-0">
-                            <button type="button"
-                                    class="btn w-100 d-flex align-items-center gap-2 px-0 py-2 text-start{{ phase.isCurrent ? '' : ' collapsed' }}"
-                                    data-bs-toggle="collapse" data-bs-target="#{{ phase_id }}"
-                                    aria-expanded="{{ phase.isCurrent ? 'true' : 'false' }}" aria-controls="{{ phase_id }}">
-                                <span class="fw-semibold flex-grow-1">{{ phase.label }}</span>
-                                <span class="text-body-secondary small">{{ phase.summary }}</span>
-                                {% if phase.transitions is not empty %}
-                                    <span class="badge text-bg-secondary">
-                                        {{ phase.transitions|length }} décision{{ phase.transitions|length > 1 ? 's' : '' }}
-                                    </span>
-                                {% endif %}
-                                <i class="bi bi-chevron-down text-body-tertiary" aria-hidden="true"></i>
-                            </button>
-                        </h3>
-                        <div class="collapse{{ phase.isCurrent ? ' show' }}" id="{{ phase_id }}">
-                            <div class="pb-3">
-                                <p class="text-body-secondary small">{{ phase.description }}</p>
-                                <ul class="list-unstyled mb-0">
-                                    {% for milestone in phase.milestones %}
-                                        <li class="mb-1 {{ milestone.isApplicable ? '' : 'text-body-secondary opacity-50' }}">
-                                            {% if not milestone.isApplicable %}
-                                                <i class="bi bi-dash-square" aria-hidden="true"></i>
-                                                <span class="visually-hidden">Sans objet :</span>
-                                            {% elseif milestone.isDone %}
-                                                <i class="bi bi-check-square" aria-hidden="true"></i>
-                                                <span class="visually-hidden">Fait :</span>
-                                            {% else %}
-                                                <i class="bi bi-square" aria-hidden="true"></i>
-                                                <span class="visually-hidden">À faire :</span>
-                                            {% endif %}
-                                            {{ milestone.label }}
-                                            {% if milestone.detail %}
-                                                <span class="text-body-secondary small">— {{ milestone.detail }}</span>
-                                            {% endif %}
-                                        </li>
-                                    {% endfor %}
-                                </ul>
-
-                                {% if phase.transitions is not empty %}
-                                    <div class="mt-3">
-                                        {% include '@rental/management/_transitions.html.twig' with {
-                                            asset: asset, booking: booking,
-                                            transitions: phase.transitions, renter_decisions: renter_decisions,
-                                        } only %}
-                                    </div>
-                                {% endif %}
-
-                                {% if phase.key == 'request' %}
-                                    {# The option lives with the request it holds the dates for. #}
-                                    <div data-booking-panel="hold">
-                                    {% if not booking.status.isFinal %}
-                                        <form method="post" action="/mes-locations/option" class="row g-2 align-items-end mt-3">
-                                            {{ csrf_field()|raw }}
-                                            <input type="hidden" name="asset_id" value="{{ asset.id }}">
-                                            <input type="hidden" name="booking_id" value="{{ booking.id }}">
-                                            <div class="col-12 col-sm-7">
-                                                {% include 'partials/form_field.html.twig' with {
-                                                    field_id: 'option-until', field_name: 'until', type: 'datetime-local',
-                                                    label: 'Option jusqu\'au',
-                                                    value: booking.holdUntil|iso_datetime_local,
-                                                } only %}
-                                            </div>
-                                            <div class="col-12 col-sm-5">
-                                                <button type="submit" class="btn btn-outline-secondary w-100">Enregistrer l'option</button>
-                                            </div>
-                                            {# Under the row, not under the field — see
-                                               design.md §7.6: `align-items-end` aligns the
-                                               bottoms of the columns, not their controls. #}
-                                            <p class="form-text col-12 mb-0">
-                                                Une option engage l'unité jusqu'à l'échéance : si elle passe sans
-                                                confirmation, la réservation devient expirée et les dates se libèrent.
-                                                Laisser vide et enregistrer lève le blocage.
-                                            </p>
-                                        </form>
-                                    {% endif %}
-                                    </div>
-                                {% endif %}
-
-                                {% if phase.box %}
-                                    <p class="mb-0 mt-3">
-                                        <a href="{{ phase.box.isPage ? stay_url : '#' ~ phase.box.anchor }}">
-                                            Voir « {{ phase.box.label }} »
-                                        </a>
-                                    </p>
-                                {% endif %}
-                            </div>
-                        </div>
-                    </div>
-                {% endfor %}
-            </div>
-        </div>
-        </div>
-
-        {# ── 4. Le dossier ─────────────────────────────────────────── #}
-        {#
-          The boxes, folded. `public/assets/js/collapse-anchor.js` opens the
-          one a fragment names, which is what makes the journey's « Voir
-          "Paiements" » a working link rather than a scroll to a closed card.
+          What the booking gathered that is neither money, papers nor mail:
+          the renter's requests, the stay, the internal comments and the
+          history. Folded, each line carrying its figure.
         #}
         <h2 class="h5 mb-2">Le dossier</h2>
         <p class="text-body-secondary small">
-            Tout ce que la location a produit. Chaque boîte s'ouvre d'un clic ; le chiffre
-            à côté de son nom dit ce qu'elle contient.
+            Chaque boîte s'ouvre d'un clic ; le chiffre à côté de son nom dit ce qu'elle contient.
         </p>
 
-        <div class="card mb-3" id="{{ boxes.price.anchor }}">
-            {% embed '@rental/management/_dossier_header.html.twig' with {
-                box: boxes.price, target_id: boxes.price.bodyAnchor, quote: quote,
-            } only %}
-                {% block figure %}
-                    <span class="text-body-secondary small" data-booking-panel="price-figure">
-                        {{ quote.totalCents|money_cents }}
-                    </span>
-                {% endblock %}
-            {% endembed %}
-            <div class="collapse" id="{{ boxes.price.bodyAnchor }}">
-                <div data-booking-panel="price">
-                    {% include '@rental/management/_price.html.twig' %}
-                </div>
-            </div>
-        </div>
-
-        <div class="card mb-3" id="{{ boxes.payment.anchor }}">
-            {% embed '@rental/management/_dossier_header.html.twig' with {
-                box: boxes.payment, target_id: boxes.payment.bodyAnchor, payment: payment,
-            } only %}
-                {% block figure %}
-                    <span class="text-body-secondary small" data-booking-panel="payment-figure">
-                        {% if not payment.available %}
-                            Suivi hors ScoutMagic
-                        {% elseif not payment.enabled %}
-                            Non activés
-                        {% elseif payment.remaining_cents > 0 %}
-                            {{ payment.remaining_cents|money_cents }} dus
-                        {% else %}
-                            Soldé
-                        {% endif %}
-                    </span>
-                {% endblock %}
-            {% endembed %}
-            <div class="collapse" id="{{ boxes.payment.bodyAnchor }}">
-                <div data-booking-panel="payment">
-                    {% include '@rental/management/_payment.html.twig' %}
-                </div>
-            </div>
-        </div>
-
-        <div class="card mb-3" id="{{ boxes.documents.anchor }}">
-            {% embed '@rental/management/_dossier_header.html.twig' with {
-                box: boxes.documents, target_id: boxes.documents.bodyAnchor, documents: documents,
-            } only %}
-                {% block figure %}
-                    <span class="text-body-secondary small" data-booking-panel="documents-figure">
-                        {{ documents is empty
-                            ? 'Aucun document'
-                            : documents|length ~ ' document' ~ (documents|length > 1 ? 's' : '') }}
-                    </span>
-                {% endblock %}
-            {% endembed %}
-            <div class="collapse" id="{{ boxes.documents.bodyAnchor }}">
-                <div data-booking-panel="documents">
-                    {% include '@rental/management/_documents.html.twig' %}
-                </div>
-            </div>
-        </div>
-
-        {#
-          Courrier is the one box that is not always there. Unlike every
-          other region on this page, what decides it — `inbound_mail`
-          enabled, a mailbox configured — is not something a button here can
-          change, so its presence is fixed for the life of the page and the
-          refresh never has to match a wrapper against a card that has come
-          or gone. A box that could only ever be empty is noise (§7.7).
-        #}
-        {% if communications_available %}
-            <div class="card mb-3" id="{{ boxes.mail.anchor }}">
-                {% embed '@rental/management/_dossier_header.html.twig' with {
-                    box: boxes.mail, target_id: boxes.mail.bodyAnchor, messages: messages,
-                } only %}
-                    {% block figure %}
-                        <span class="text-body-secondary small" data-booking-panel="communications-figure">
-                            {{ messages is empty
-                                ? 'Aucun message'
-                                : messages|length ~ ' message' ~ (messages|length > 1 ? 's' : '') }}
-                        </span>
-                    {% endblock %}
-                {% endembed %}
-                <div class="collapse" id="{{ boxes.mail.bodyAnchor }}">
-                    <div data-booking-panel="communications">
-                        {% include '@rental/management/_communications.html.twig' %}
-                    </div>
-                </div>
-            </div>
-        {% endif %}
-
-        {% set pending_changes = change_requests|filter(c => c.isPending)|length %}
-        <div class="card mb-3" id="{{ boxes.changes.anchor }}">
-            {% embed '@rental/management/_dossier_header.html.twig' with {
-                box: boxes.changes, target_id: boxes.changes.bodyAnchor,
-                change_requests: change_requests, pending_changes: pending_changes,
-            } only %}
-                {% block figure %}
-                    <span class="text-body-secondary small" data-booking-panel="changes-figure">
-                        {% if pending_changes > 0 %}
-                            <span class="badge text-bg-warning">{{ pending_changes }} en attente</span>
-                        {% elseif change_requests is empty %}
-                            Aucune demande
-                        {% else %}
-                            {{ change_requests|length }} demande{{ change_requests|length > 1 ? 's' : '' }}
-                        {% endif %}
-                    </span>
-                {% endblock %}
-            {% endembed %}
-            <div class="collapse" id="{{ boxes.changes.bodyAnchor }}">
-                <div data-booking-panel="changes">
-                    {% include '@rental/management/_changes.html.twig' %}
-                </div>
-            </div>
-        </div>
+        {% include '@rental/management/_box_changes.html.twig' %}
 
         {#
           The stay is a page of its own, so its line is a link rather than a
@@ -427,7 +122,7 @@
         #}
         <div class="card mb-3" id="{{ boxes.stay.anchor }}">
             <a class="card-body d-flex justify-content-between align-items-center gap-2 text-decoration-none"
-               href="{{ stay_url }}">
+               href="{{ boxes.stay.href(booking_url) }}">
                 <span>
                     <span class="h6 mb-0">{{ boxes.stay.label }}</span>
                     <span class="text-body-secondary small d-block">
@@ -438,59 +133,8 @@
             </a>
         </div>
 
-        <div class="card mb-3" id="{{ boxes.comments.anchor }}">
-            {% embed '@rental/management/_dossier_header.html.twig' with {
-                box: boxes.comments, target_id: boxes.comments.bodyAnchor, comments: comments,
-            } only %}
-                {% block figure %}
-                    <span class="text-body-secondary small" data-booking-panel="comments-figure">
-                        {{ comments is empty
-                            ? 'Aucun commentaire'
-                            : comments|length ~ ' commentaire' ~ (comments|length > 1 ? 's' : '') }}
-                    </span>
-                {% endblock %}
-            {% endembed %}
-            <div class="collapse" id="{{ boxes.comments.bodyAnchor }}">
-                <div data-booking-panel="comments">
-                    {% include '@rental/management/_comments.html.twig' %}
-                </div>
-            </div>
-        </div>
-
-        <div class="card mb-3" id="{{ boxes.history.anchor }}">
-            {% embed '@rental/management/_dossier_header.html.twig' with {
-                box: boxes.history, target_id: boxes.history.bodyAnchor, audit_page: audit_page,
-            } only %}
-                {% block figure %}
-                    <span class="text-body-secondary small" data-booking-panel="history-figure">
-                        {{ audit_page.total }} modification{{ audit_page.total > 1 ? 's' : '' }}
-                    </span>
-                {% endblock %}
-            {% endembed %}
-            <div class="collapse" id="{{ boxes.history.bodyAnchor }}">
-                <div data-booking-panel="history">
-                    <div class="card-body pt-0">
-                        {% include 'partials/audit_timeline.html.twig' with {
-                            entity_type: 'rental_booking',
-                            entity_id: booking.id,
-                            audit_page: audit_page,
-                            labels: audit_labels,
-                        } only %}
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+        {% include '@rental/management/_box_comments.html.twig' %}
+        {% include '@rental/management/_box_history.html.twig' %}
 {% endblock %}
 
-{% block scripts %}
-    {# Turns every form above into a fetch, then re-renders the panels. #}
-    <script src="{{ asset('/assets/js/rental-booking.js') }}" defer></script>
-    {# Opens the box a fragment names — « Voir "Paiements" » above, and any
-       link sent from elsewhere into this page. #}
-    <script src="{{ asset('/assets/js/collapse-anchor.js') }}" defer></script>
-    <script src="{{ asset('/assets/js/drop-zone.js') }}" defer></script>
-    {# Names the file that was picked: the zone's input is visually hidden,
-       so a zone that says nothing looks the same before and after a drop. #}
-    <script src="{{ asset('/assets/js/upload-drop-zone.js') }}" defer></script>
-{% endblock %}
+{% block booking_scripts %}{% endblock %}

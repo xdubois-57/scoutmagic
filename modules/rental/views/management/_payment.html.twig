@@ -119,6 +119,7 @@
                         {{ csrf_field()|raw }}
                         <input type="hidden" name="asset_id" value="{{ asset.id }}">
                         <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                        <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
                         <div class="col-6 col-md-3">
                             <label class="form-label" for="deposit-returned">Montant restitué (€)</label>
                             <input type="text" class="form-control form-control-sm" id="deposit-returned"

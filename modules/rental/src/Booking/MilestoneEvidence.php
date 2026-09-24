@@ -48,10 +48,13 @@ final class MilestoneEvidence
      *   a key absent from this map is "not applicable"
      * @param array<string, string> $details the small grey suffix each line
      *   may carry (a date, a version) — same keying
+     * @param list<string> $offsite the keys ticked by hand on this booking,
+     *   because the site keeps nothing they could be derived from
      */
     private function __construct(
         public readonly array $done,
-        public readonly array $details
+        public readonly array $details,
+        public readonly array $offsite = []
     ) {
     }
 
@@ -61,6 +64,12 @@ final class MilestoneEvidence
      * @param array<int, array{arrival_state: InventoryState, departure_state: InventoryState}>|null $inventory
      *   the booking's inventory snapshot; null when the stay module is unavailable
      * @param MeterConsumption[]|null $consumptions null when the stay module is unavailable
+     * @param bool $assetKeepsInventory whether the asset has an inventory the
+     *   stay page walks line by line — false when it has no template at all
+     * @param array<string, array{at: \DateTimeImmutable, by: ?string}> $marks
+     *   the lines a manager ticked by hand, keyed by milestone
+     * @param ?\DateTimeImmutable $today what a due date is measured against;
+     *   null leaves the payment lines without one
      */
     public static function collect(
         RentalBooking $booking,
@@ -68,10 +77,14 @@ final class MilestoneEvidence
         array $payment,
         ?array $inventory,
         ?array $consumptions,
-        ?Settlement $settlement
+        ?Settlement $settlement,
+        bool $assetKeepsInventory = true,
+        array $marks = [],
+        ?\DateTimeImmutable $today = null
     ): self {
         $done = [];
         $details = [];
+        $offsite = [];
 
         $record = static function (string $key, bool $isDone, ?string $detail = null) use (&$done, &$details): void {
             $done[$key] = $isDone;
@@ -105,14 +118,29 @@ final class MilestoneEvidence
         }
 
         if (($payment['enabled'] ?? false) === true) {
+            $receivedCents = is_int($payment['received_cents'] ?? null) ? $payment['received_cents'] : 0;
             $depositCents = $payment['deposit_cents'] ?? null;
             if (is_int($depositCents) && $depositCents > 0) {
-                $record(BookingMilestones::DEPOSIT_RECEIVED, ($payment['deposit_received'] ?? false) === true);
+                $isReceived = ($payment['deposit_received'] ?? false) === true;
+                $record(
+                    BookingMilestones::DEPOSIT_RECEIVED,
+                    $isReceived,
+                    $isReceived
+                        ? null
+                        : self::owed($depositCents - $receivedCents, $payment['deposit_due_date'] ?? null, $today)
+                );
             }
 
             $totalCents = $payment['total_cents'] ?? null;
             if (is_int($totalCents) && $totalCents > 0) {
-                $record(BookingMilestones::BALANCE_RECEIVED, ($payment['fully_paid'] ?? false) === true);
+                $isPaid = ($payment['fully_paid'] ?? false) === true;
+                $record(
+                    BookingMilestones::BALANCE_RECEIVED,
+                    $isPaid,
+                    $isPaid
+                        ? null
+                        : self::owed($totalCents - $receivedCents, $payment['balance_due_date'] ?? null, $today)
+                );
             }
         }
 
@@ -121,9 +149,12 @@ final class MilestoneEvidence
         if (is_int($securityCents) && $securityCents > 0) {
             $status = $security['status'] ?? SecurityDepositStatus::NONE;
             $isSettled = $status instanceof SecurityDepositStatus && $status->isSettled();
+            $isHeld = $isSettled || ($status instanceof SecurityDepositStatus && $status->isHeld());
+            $securityReceived = is_int($security['received_cents'] ?? null) ? $security['received_cents'] : 0;
             $record(
                 BookingMilestones::SECURITY_DEPOSIT_RECEIVED,
-                $isSettled || ($status instanceof SecurityDepositStatus && $status->isHeld())
+                $isHeld,
+                $isHeld ? null : self::owed($securityCents - $securityReceived, $security['due_date'] ?? null, $today)
             );
             $record(
                 BookingMilestones::SECURITY_DEPOSIT_RETURNED,
@@ -132,7 +163,26 @@ final class MilestoneEvidence
             );
         }
 
-        if ($inventory !== null && $inventory !== []) {
+        // The walk-throughs happen whether or not the site keeps an
+        // inventory. Where it keeps none — the stay module is off, or the
+        // asset has no inventory template — nothing here can derive them,
+        // so they are the lines a manager ticks by hand (issue #462, D5);
+        // where it keeps one, the stay page's lines decide, and a hand tick
+        // beside them would be a second truth.
+        if ($inventory === null || !$assetKeepsInventory) {
+            foreach ([BookingMilestones::ARRIVAL_INVENTORY, BookingMilestones::DEPARTURE_INVENTORY] as $key) {
+                $offsite[] = $key;
+                $mark = $marks[$key] ?? null;
+                $record(
+                    $key,
+                    $mark !== null,
+                    $mark === null
+                        ? null
+                        : 'fait le ' . $mark['at']->format('d/m/Y')
+                            . ($mark['by'] !== null ? ' par ' . $mark['by'] : '')
+                );
+            }
+        } elseif ($inventory !== []) {
             $record(BookingMilestones::ARRIVAL_INVENTORY, self::allChecked($inventory, 'arrival_state'));
             $record(BookingMilestones::DEPARTURE_INVENTORY, self::allChecked($inventory, 'departure_state'));
         }
@@ -152,7 +202,35 @@ final class MilestoneEvidence
             );
         }
 
-        return new self($done, $details);
+        return new self($done, $details, $offsite);
+    }
+
+    /**
+     * What is still owed on a payment line, and against which date: the
+     * sentence the journey's heading repeats when this line is the one
+     * holding the booking up.
+     */
+    private static function owed(int $cents, mixed $dueDate, ?\DateTimeImmutable $today): ?string
+    {
+        if ($cents <= 0) {
+            return null;
+        }
+
+        $amount = number_format($cents / 100, 2, ',', ' ') . ' €';
+        $due = $dueDate instanceof \DateTimeImmutable
+            ? $dueDate
+            : (is_string($dueDate) && trim($dueDate) !== '' ? DateInput::fromStorage($dueDate) : null);
+
+        if ($due === null || $today === null) {
+            return $amount . ' attendus';
+        }
+
+        $late = (int) $due->setTime(0, 0)->diff($today->setTime(0, 0))->format('%r%a');
+        if ($late > 0) {
+            return $amount . ' attendus — échéance dépassée de ' . $late . ' jour' . ($late > 1 ? 's' : '');
+        }
+
+        return $amount . ' attendus pour le ' . $due->format('d/m/Y');
     }
 
     /**

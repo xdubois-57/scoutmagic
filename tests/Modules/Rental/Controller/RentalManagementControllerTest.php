@@ -29,6 +29,7 @@ use Modules\Finance\Service\ExpectedReceivableService;
 use Modules\Finance\Service\StructuredCommunicationService;
 use Modules\Rental\Availability\AvailabilityCalculator;
 use Modules\Rental\Booking\BookingBox;
+use Modules\Rental\Booking\BookingPage;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\ChangeRequestKind;
 use Modules\Rental\Booking\ChangeRequestOrigin;
@@ -270,7 +271,11 @@ class RentalManagementControllerTest extends TestCase
             new RentalBookingService($this->bookingRepository, $journal),
             // The « Rappels » section of the settings page (§6.29).
             new RentalAssetReminderRepository($this->pdo),
-            $settingService
+            $settingService,
+            new \Modules\Rental\Service\RentalMilestoneMarkService(
+                new \Modules\Rental\Repository\RentalMilestoneMarkRepository($this->pdo),
+                $bookingAudit
+            )
         );
 
         $this->assetId = $this->createAsset('Local Saint-Georges', 'local-saint-georges');
@@ -507,6 +512,74 @@ class RentalManagementControllerTest extends TestCase
             '/mes-locations/' . $slug . '/reservations/' . $bookingId,
             'booking'
         );
+    }
+
+    /**
+     * One page of a booking's file, dispatched through the route
+     * `module.json` really declares for it — breadcrumb included, which is
+     * what makes the fil d'Ariane render at all (Core\Http\FrontController
+     * reads it off the route).
+     */
+    private function filePage(BookingPage $page, string $slug, int $bookingId): Response
+    {
+        $routePath = '/mes-locations/{slug}/reservations/{id}' . $page->pathSuffix();
+        $route = self::declaredRoute($routePath);
+
+        $router = new Router();
+        $router->addRoute('GET', $routePath, RentalManagementController::class, (string) $route['action'], 'identified', $route['breadcrumb'] ?? null);
+
+        return $this->dispatch($router, new Request(
+            'GET',
+            $page->url('/mes-locations/' . $slug . '/reservations/' . $bookingId),
+            [],
+            [],
+            [],
+            []
+        ));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function declaredRoute(string $path): array
+    {
+        $manifest = json_decode(
+            (string) file_get_contents(dirname(__DIR__, 4) . '/modules/rental/module.json'),
+            true
+        );
+        foreach ($manifest['routes'] as $route) {
+            if ($route['path'] === $path && $route['method'] === 'GET') {
+                return $route;
+            }
+        }
+        self::fail("module.json declares no GET {$path}");
+    }
+
+    /**
+     * Makes « Courrier » available: a mailbox collects. Set on the
+     * controller the setUp built rather than on a second one, so every
+     * other collaborator stays the one the other tests use.
+     */
+    private function withCollectingMailbox(): \Modules\InboundMail\Api\InboundMailInterface&\PHPUnit\Framework\MockObject\MockObject
+    {
+        $inbound = $this->createMock(\Modules\InboundMail\Api\InboundMailInterface::class);
+        $inbound->method('isCollecting')->willReturn(true);
+
+        $service = new \Modules\Rental\Service\RentalCommunicationService(
+            $this->bookingRepository,
+            new \Modules\Rental\Repository\RentalDocumentRepository($this->pdo),
+            new RentalAuthorizationService(
+                new MemberService(new MemberYearRepository($this->pdo), $this->encryption, Connection::withPdo($this->pdo)),
+                $this->assetRepository,
+                $this->managerRepository
+            ),
+            new JournalService(new JournalRepository($this->pdo)),
+            $inbound
+        );
+        (new \ReflectionProperty(RentalManagementController::class, 'communicationService'))
+            ->setValue($this->controller, $service);
+
+        return $inbound;
     }
 
     // ── The authorisation matrix ────────────────────────────────────────
@@ -1393,9 +1466,9 @@ class RentalManagementControllerTest extends TestCase
         $booking = $this->createBooking();
 
         $before = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
-        // Rendered as an unticked box, never as the greyed "sans objet"
-        // dash it used to be.
-        $this->assertMatchesRegularExpression('/bi-square[^<]*<\/i>\s*<span class="visually-hidden">À faire :<\/span>\s*Contrat envoyé/', $before);
+        // Rendered as work to do, never as the greyed « sans objet » it
+        // used to be.
+        $this->assertStringContainsString('<span class="visually-hidden">À faire :</span>', self::step($before, 'contract_sent'));
 
         $this->post('/mes-locations/document-generer', 'generateDocument', [
             'asset_id' => (string) $this->assetId,
@@ -1410,7 +1483,7 @@ class RentalManagementControllerTest extends TestCase
         ]);
 
         $after = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
-        $this->assertMatchesRegularExpression('/bi-check-square[^<]*<\/i>\s*<span class="visually-hidden">Fait :<\/span>\s*Contrat envoyé/', $after);
+        $this->assertStringContainsString('<span class="visually-hidden">Fait :</span>', self::step($after, 'contract_sent'));
     }
 
     /**
@@ -1427,7 +1500,10 @@ class RentalManagementControllerTest extends TestCase
         $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
 
         // No security deposit is configured on this asset.
-        $this->assertMatchesRegularExpression('/bi-dash-square[^<]*<\/i>\s*<span class="visually-hidden">Sans objet :<\/span>\s*Caution reçue/', $body);
+        $this->assertStringContainsString(
+            '<span class="visually-hidden">Sans objet :</span>',
+            self::step($body, 'security_deposit_received')
+        );
     }
 
     /**
@@ -1440,19 +1516,25 @@ class RentalManagementControllerTest extends TestCase
         $this->loginAsManager();
         $booking = $this->createBooking();
 
-        $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        // Each page swaps its own panels, from a fresh render of its own
+        // URL (rental-booking.js), so each must carry them — and opt in to
+        // the script by carrying `data-rental-booking` at all. The figure
+        // on a box is its own region: it is the only part of the box
+        // outside the fold that an action changes, and a box still reading
+        // « Aucun document » over a document somebody has just generated is
+        // the lie the wrapper exists to stop.
+        $expected = [
+            'dashboard' => ['milestones', 'next-step', 'history', 'history-figure', 'comments', 'changes'],
+            'finances' => ['price', 'price-figure', 'payment', 'payment-figure'],
+            'documents' => ['documents', 'documents-figure'],
+        ];
+        foreach ($expected as $page => $panels) {
+            $body = (string) $this->filePage(BookingPage::from($page), 'local-saint-georges', $booking->id)->getBody();
 
-        $this->assertStringContainsString('data-rental-booking', $body);
-        foreach (['milestones', 'next-step', 'documents', 'price', 'history'] as $panel) {
-            $this->assertStringContainsString('data-booking-panel="' . $panel . '"', $body);
-        }
-
-        // The figure on a folded box is its own region: it is the only part
-        // of the box outside the fold that an action changes, and a box
-        // still reading « Aucun document » over a document somebody has
-        // just generated is the lie the wrapper exists to stop.
-        foreach (['documents-figure', 'payment-figure', 'history-figure'] as $panel) {
-            $this->assertStringContainsString('data-booking-panel="' . $panel . '"', $body);
+            $this->assertStringContainsString('data-rental-booking', $body, "{$page} does not opt in to the refresh");
+            foreach ($panels as $panel) {
+                $this->assertStringContainsString('data-booking-panel="' . $panel . '"', $body, "{$page} lacks {$panel}");
+            }
         }
     }
 
@@ -1480,8 +1562,9 @@ class RentalManagementControllerTest extends TestCase
         $this->commentRepository->create($booking->id, null, 'Le locataire a téléphoné.');
 
         $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $documents = (string) $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
 
-        $this->assertStringContainsString('1 document', self::panel($body, 'documents-figure'));
+        $this->assertStringContainsString('1 document', self::panel($documents, 'documents-figure'));
         $this->assertStringContainsString('1 commentaire', self::panel($body, 'comments-figure'));
         // The history is never empty: creating the booking is itself an
         // entry, so a figure reading nothing at all is the bug.
@@ -1495,24 +1578,28 @@ class RentalManagementControllerTest extends TestCase
     }
 
     /**
-     * The four movements of the page, in the order §6.15 reads them: what
-     * the rental is, the one thing to do next, how far it has got, then the
-     * file. Asserted by position rather than by presence, because the whole
-     * of IT-05 is the order — four headings in the wrong sequence would
-     * pass a test that only asked whether they were there.
+     * The three movements of the dashboard, in the mockup's order (issue
+     * #462): where the booking stands — the journey, heading included —
+     * what it is, then the file. Asserted by position rather than by
+     * presence, because the order is the point: three headings in the
+     * wrong sequence would pass a test that only asked whether they were
+     * there.
      */
-    public function testTheBookingPageReadsInItsFourMovements(): void
+    public function testTheDashboardReadsInItsThreeMovements(): void
     {
         $this->loginAsManager();
         $booking = $this->createBooking();
 
         $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
 
+        // One component answers « où en est » — the second card that used
+        // to answer it too is gone.
+        $this->assertStringNotContainsString("L'action suivante", $body);
+
         $positions = [];
         foreach ([
-            'Les détails de la location',
-            "L'action suivante",
-            'Où en est cette location',
+            'Où en est cette réservation',
+            'Les détails de la réservation',
             'Le dossier',
         ] as $heading) {
             $at = strpos($body, $heading);
@@ -1522,7 +1609,7 @@ class RentalManagementControllerTest extends TestCase
 
         $sorted = $positions;
         sort($sorted);
-        $this->assertSame($sorted, $positions, 'the four movements are out of order');
+        $this->assertSame($sorted, $positions, 'the three movements are out of order');
 
         // The « État » card is gone: its badge is in the details above and
         // its buttons are decisions of a phase, never a state of their own.
@@ -1543,7 +1630,7 @@ class RentalManagementControllerTest extends TestCase
         $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
         $nextStep = self::panel($body, 'next-step');
 
-        $this->assertStringContainsString('Décision prise sur la demande', $nextStep);
+        $this->assertStringContainsString('Cette demande attend votre décision.', $nextStep);
         $this->assertStringContainsString('value="confirmed"', $nextStep);
         $this->assertStringContainsString('value="refused"', $nextStep);
     }
@@ -1568,30 +1655,43 @@ class RentalManagementControllerTest extends TestCase
     }
 
     /**
-     * Each box carries the anchor its journey line links to, and
-     * Booking\BookingBox is where both come from — a card whose id the
-     * links miss is a « Voir "Paiements" » that scrolls nowhere.
+     * **No box is lost in the split** (issue #462, IT-01). Every case of
+     * Booking\BookingBox is rendered on the page `BookingBox::page()` says
+     * it lives on, carrying the anchor its journey links aim at — the
+     * stay, which is a page of its own, on the dashboard as the line that
+     * leads there. A box added to the enum and to no page fails here
+     * rather than vanishing from the file.
      */
-    public function testEveryDossierBoxCarriesTheAnchorItsLinksAimAt(): void
+    public function testEveryBoxIsRenderedOnThePageItBelongsTo(): void
     {
         $this->loginAsManager();
+        $this->withCollectingMailbox();
         $booking = $this->createBooking();
 
-        $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $bodies = [];
+        foreach (BookingPage::cases() as $page) {
+            $response = $this->filePage($page, 'local-saint-georges', $booking->id);
+            $this->assertSame(200, $response->getStatusCode(), $page->value);
+            $bodies[$page->value] = (string) $response->getBody();
+        }
 
         foreach (BookingBox::cases() as $box) {
-            // Courrier is the one box that is not always there: with
-            // `inbound_mail` off — which is the case here — a box that
-            // could only ever be empty is noise (§7.7).
-            if ($box === BookingBox::MAIL) {
-                continue;
-            }
-
+            $home = $box->page() ?? BookingPage::DASHBOARD;
             $this->assertStringContainsString(
                 'id="' . $box->anchor() . '"',
-                $body,
-                'no box carries ' . $box->anchor()
+                $bodies[$home->value],
+                $box->value . ' is not rendered on ' . $home->value
             );
+
+            foreach ($bodies as $page => $body) {
+                if ($page !== $home->value) {
+                    $this->assertStringNotContainsString(
+                        'id="' . $box->anchor() . '"',
+                        $body,
+                        $box->value . ' is rendered twice, also on ' . $page
+                    );
+                }
+            }
         }
     }
 
@@ -1600,6 +1700,18 @@ class RentalManagementControllerTest extends TestCase
      * addressing the page's own script uses, rather than a guess at which
      * card a string landed in.
      */
+    /**
+     * One step of the journey, by its milestone key — the `li` the step
+     * partial renders, with its nature and its visually-hidden state.
+     */
+    private static function step(string $body, string $key): string
+    {
+        $found = preg_match('#<li class="step-item[^"]*"\s+data-milestone="' . preg_quote($key, '#') . '".*?</li>#s', $body, $m);
+        self::assertSame(1, $found, "no step {$key}");
+
+        return $m[0];
+    }
+
     private static function panel(string $body, string $name): string
     {
         $open = strpos($body, 'data-booking-panel="' . $name . '"');
@@ -1923,6 +2035,410 @@ class RentalManagementControllerTest extends TestCase
             '/mes-locations/' . $slug . '/reservations/' . $bookingId . '/sejour',
             'stay'
         );
+    }
+
+    // ── The journey (issue #462, IT-02) ─────────────────────────────────
+
+    private function confirm(RentalBooking $booking): void
+    {
+        $this->post('/mes-locations/statut', 'changeStatus', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'status' => 'confirmed',
+        ]);
+    }
+
+    private function markStep(RentalBooking $booking, string $key, bool $done = true): Response
+    {
+        return $this->post('/mes-locations/etape', 'markMilestone', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'milestone_key' => $key,
+            'done' => $done ? '1' : '0',
+        ]);
+    }
+
+    /**
+     * **A derived step never has a box to tick** (D5, D6). Only a step the
+     * site cannot derive — here, the walk-throughs of an asset that keeps
+     * no inventory — carries one, and every step says its nature.
+     */
+    public function testOnlyAStepDoneOutsideTheSiteHasABoxToTick(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->confirm($booking);
+
+        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        preg_match_all('#<li class="step-item[^"]*"\s+data-milestone="([a-z_]+)" data-kind="([a-z]+)".*?</li>#s', $body, $steps, PREG_SET_ORDER);
+        $this->assertGreaterThanOrEqual(15, count($steps), 'the journey renders every step');
+
+        $marked = [];
+        foreach ($steps as [$markup, $key, $kind]) {
+            if (str_contains($markup, 'data-mark-step')) {
+                $marked[] = $key;
+                $this->assertSame('offsite', $kind, "{$key} offers a box and is not done outside the site");
+            }
+        }
+        $this->assertSame(['arrival_inventory', 'departure_inventory'], $marked);
+    }
+
+    /**
+     * Where the stay page keeps the inventory, the same walk-through is done
+     * THERE, and nothing here ticks it.
+     */
+    public function testAnInventoryTheStayPageKeepsHasNoBox(): void
+    {
+        $this->loginAsManager();
+        $this->stayService->addInventoryItem($this->assetId, 'Clés');
+        $booking = $this->createBooking();
+        $this->confirm($booking);
+
+        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString('data-kind="here"', self::step($body, 'arrival_inventory'));
+        $this->assertStringNotContainsString('data-mark-step', $body);
+    }
+
+    /**
+     * A stretch the booking has not reached is visible and inert: no
+     * button, and a box that cannot be ticked (D5).
+     */
+    public function testAStretchNotYetReachedOffersNothingToPress(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $this->assertSame(1, preg_match('#<section class="border-bottom" data-phase="stay">.*?</section>#s', $body, $stay));
+
+        // No action at all: neither a transition nor a link to a box.
+        $this->assertStringNotContainsString('action="/mes-locations/statut"', $stay[0]);
+        $this->assertStringNotContainsString('<a class="btn', $stay[0]);
+        // The box is there — a step that vanished would read as skipped —
+        // but cannot be ticked, and neither can its no-JavaScript twin.
+        $this->assertMatchesRegularExpression('#data-mark-step[^>]*disabled#', $stay[0]);
+        $this->assertDoesNotMatchRegularExpression('#data-mark-step(?![^>]*disabled)[^>]*>#', $stay[0]);
+        $this->assertDoesNotMatchRegularExpression('#<button type="submit"(?![^>]*disabled)[^>]*>#', $stay[0]);
+    }
+
+    /**
+     * Ticking writes a real fact — who and when — the line says it, and the
+     * history carries it like any other action. Unticking undoes it, and
+     * says so too.
+     */
+    public function testTickingAStepRecordsWhoAndWhenAndTheHistorySaysSo(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->confirm($booking);
+
+        $this->assertSame(302, $this->markStep($booking, 'arrival_inventory')->getStatusCode());
+
+        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $step = self::step($body, 'arrival_inventory');
+        $this->assertStringContainsString('<span class="visually-hidden">Fait :</span>', $step);
+        $this->assertStringContainsString('fait le ' . (new \DateTimeImmutable())->format('d/m/Y'), $step);
+        $this->assertStringContainsString('Étape hors du site', self::panel($body, 'history'));
+
+        $this->markStep($booking, 'arrival_inventory', false);
+        $again = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $this->assertStringContainsString('<span class="visually-hidden">À faire :</span>', self::step($again, 'arrival_inventory'));
+    }
+
+    /**
+     * **Every status decision is offered once, on the whole page** — in the
+     * heading, never again in a step. The case that broke it: a confirmed
+     * booking whose next step is a link (« Préparer le contrat »), so the
+     * heading puts forward a link and offers closing and cancelling among
+     * the others, while the « Location clôturée » step further down offered
+     * them a second time.
+     */
+    public function testEveryStatusDecisionIsOfferedOnceOnThePage(): void
+    {
+        $this->loginAsManager();
+        $undecided = $this->createBooking();
+        $confirmed = $this->createBooking(null, 'LOC-2027-0002');
+        $this->confirm($confirmed);
+
+        foreach ([$undecided, $confirmed] as $booking) {
+            $booking = $this->bookingRepository->findById($booking->id);
+            $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+
+            foreach (\Modules\Rental\Booking\BookingTransition::allowedFrom($booking->status) as $to) {
+                $this->assertSame(
+                    1,
+                    substr_count($body, 'name="status" value="' . $to->value . '"'),
+                    "{$booking->status->value}: « {$to->value} » is not offered exactly once"
+                );
+            }
+        }
+    }
+
+    /**
+     * The form is never the boundary: a hand-made POST for a derived step,
+     * for a walk-through the stay page keeps, or for a stretch not reached
+     * yet stores nothing.
+     */
+    public function testAHandMadePostCannotTickWhatIsNotTickedByHand(): void
+    {
+        $this->loginAsManager();
+        $undecided = $this->createBooking();
+        $this->markStep($undecided, 'arrival_inventory');
+
+        $confirmed = $this->createBooking(null, 'LOC-2027-0002');
+        $this->confirm($confirmed);
+        $this->markStep($confirmed, 'deposit_received');
+        $this->markStep($confirmed, 'confirmed');
+
+        $marks = new \Modules\Rental\Repository\RentalMilestoneMarkRepository($this->pdo);
+        $this->assertSame([], $marks->findForBooking($undecided->id), 'a stretch not yet reached was ticked');
+        $this->assertSame([], $marks->findForBooking($confirmed->id), 'a derived step was ticked');
+    }
+
+    public function testTickingAStepIsItsManagersAlone(): void
+    {
+        $booking = $this->createBooking();
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+
+        AuthSession::login(1, 'nobody@test.be', 'identified');
+        $this->assertSame(404, $this->markStep($booking, 'arrival_inventory')->getStatusCode());
+
+        $this->loginAsManager();
+        $response = $this->post('/mes-locations/etape', 'markMilestone', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $foreign->id,
+            'milestone_key' => 'arrival_inventory',
+            'done' => '1',
+        ]);
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    // ── The four pages of a booking's file (issue #462, IT-01) ──────────
+
+    /**
+     * @return array<string, array{BookingPage}>
+     */
+    public static function filePages(): array
+    {
+        $cases = [];
+        foreach (BookingPage::cases() as $page) {
+            $cases[$page->value] = [$page];
+        }
+
+        return $cases;
+    }
+
+    /**
+     * The file's authorisation, page by page: a manager of the asset gets
+     * each page, somebody who manages nothing gets a 404 — never a 403,
+     * since « this exists but is not yours » is itself a disclosure (§6.6)
+     * — and a manager asking for another asset's booking gets a 404 too.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('filePages')]
+    public function testEveryPageOfTheFileIsItsManagersAndNobodyElses(BookingPage $page): void
+    {
+        $this->withCollectingMailbox();
+        $booking = $this->createBooking();
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+
+        AuthSession::login(1, 'nobody@test.be', 'identified');
+        $this->assertSame(404, $this->filePage($page, 'local-saint-georges', $booking->id)->getStatusCode());
+
+        $this->loginAsManager();
+        $response = $this->filePage($page, 'local-saint-georges', $booking->id);
+        $this->assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        $this->assertSame(404, $this->filePage($page, 'local-saint-georges', $foreign->id)->getStatusCode());
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('filePages')]
+    public function testAnAnonymousVisitorIsRefusedEveryPageOfTheFile(BookingPage $page): void
+    {
+        $booking = $this->createBooking();
+
+        $this->assertContains(
+            $this->filePage($page, 'local-saint-georges', $booking->id)->getStatusCode(),
+            [302, 401, 403]
+        );
+    }
+
+    /**
+     * The breadcrumb is the only way back to the asset once the booking's
+     * rail has replaced the asset's, so every page must carry it with real
+     * links: the managed space, the asset, its bookings list.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('filePages')]
+    public function testTheBreadcrumbLeadsBackToTheAssetFromEveryPage(BookingPage $page): void
+    {
+        $this->loginAsManager();
+        $this->withCollectingMailbox();
+        $booking = $this->createBooking();
+
+        $body = (string) $this->filePage($page, 'local-saint-georges', $booking->id)->getBody();
+        $this->assertSame(1, preg_match('#<nav class="breadcrumb-bar.*?</nav>#s', $body, $bar), 'no breadcrumb');
+
+        foreach ([
+            '/mes-locations' => 'Mes locations',
+            '/mes-locations/local-saint-georges' => 'Local Saint-Georges',
+            '/mes-locations/local-saint-georges/reservations' => 'Réservations',
+        ] as $url => $label) {
+            $this->assertMatchesRegularExpression(
+                '#<a href="' . preg_quote($url, '#') . '"[^>]*>' . preg_quote($label, '#') . '</a>#',
+                $bar[0],
+                "{$page->value}: no way back to {$url}"
+            );
+        }
+        $this->assertStringContainsString('aria-current="page">' . $booking->reference . '</li>', $bar[0]);
+    }
+
+    /**
+     * One rail, and it is the booking's: the asset's chips are gone from
+     * these pages rather than stacked above them, and « Séjour » is not a
+     * chip — it is one level deeper, reached from the dashboard.
+     */
+    public function testTheBookingsRailReplacesTheAssets(): void
+    {
+        $this->loginAsManager();
+        $this->withCollectingMailbox();
+        $booking = $this->createBooking();
+        $base = '/mes-locations/local-saint-georges/reservations/' . $booking->id;
+
+        foreach (BookingPage::cases() as $page) {
+            $body = (string) $this->filePage($page, 'local-saint-georges', $booking->id)->getBody();
+            $this->assertSame(1, preg_match('#id="rental-booking-picker".*?</nav>#s', $body, $rail), "{$page->value}: no rail");
+
+            $this->assertStringNotContainsString('rental-management-picker', $body, "{$page->value} still stacks the asset's rail");
+            foreach (BookingPage::cases() as $chip) {
+                $this->assertStringContainsString('href="' . $chip->url($base) . '"', $rail[0]);
+                $this->assertStringContainsString('<span>' . $chip->label() . '</span>', $rail[0]);
+            }
+            $this->assertStringNotContainsString('/sejour', $rail[0], 'Séjour is not a chip');
+            $this->assertMatchesRegularExpression(
+                '#href="' . preg_quote($page->url($base), '#') . '"[^>]*\sactive"#',
+                $rail[0],
+                "{$page->value} is not the selected chip"
+            );
+        }
+    }
+
+    /**
+     * Each page loads what it renders: Finances — refreshed after every
+     * price line — reads neither the mailbox nor anything else of another
+     * page's, and only Courrier asks the mailbox for the booking's mail.
+     */
+    public function testAPageReadsOnlyWhatItRenders(): void
+    {
+        $this->loginAsManager();
+        $inbound = $this->withCollectingMailbox();
+        $booking = $this->createBooking();
+
+        $inbound->expects($this->never())->method('findForReference');
+        foreach ([BookingPage::DASHBOARD, BookingPage::FINANCES, BookingPage::DOCUMENTS] as $page) {
+            $this->assertSame(200, $this->filePage($page, 'local-saint-georges', $booking->id)->getStatusCode());
+        }
+    }
+
+    public function testOnlyTheMailPageAsksForTheBookingsMail(): void
+    {
+        $this->loginAsManager();
+        $inbound = $this->withCollectingMailbox();
+        $booking = $this->createBooking();
+
+        $inbound->expects($this->once())->method('findForReference')->willReturn([]);
+        $this->assertSame(200, $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getStatusCode());
+    }
+
+    /**
+     * Without a mailbox, « Courrier » does not exist: no chip — a chip that
+     * does nothing is worse than none — and the page answers 404.
+     */
+    public function testCourrierIsAbsentWhereNoMailboxCollects(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $this->assertStringNotContainsString('/courrier"', $body);
+        $this->assertStringNotContainsString('<span>Courrier</span>', $body);
+        $this->assertSame(404, $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getStatusCode());
+    }
+
+    /**
+     * A form posted WITHOUT JavaScript comes back to the page it was on —
+     * a payment recorded on Finances does not land the manager on the
+     * dashboard — and the field that says so can only ever name one of the
+     * booking's own pages: anything else falls back to the dashboard,
+     * never to a URL.
+     */
+    public function testAFormPostedWithoutJavaScriptReturnsToItsOwnPage(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $base = '/mes-locations/local-saint-georges/reservations/' . $booking->id;
+
+        foreach (['finances' => $base . '/finances', 'https://ailleurs.example/' => $base, '' => $base] as $sent => $expected) {
+            $response = $this->post('/mes-locations/commentaire', 'addComment', [
+                'asset_id' => (string) $this->assetId,
+                'booking_id' => (string) $booking->id,
+                'booking_page' => $sent,
+                'body' => 'Un mot.',
+            ]);
+
+            $this->assertSame(302, $response->getStatusCode());
+            $this->assertSame($expected, $response->getHeaders()['Location'] ?? null, "sent « {$sent} »");
+        }
+    }
+
+    /**
+     * Every form of the boxes that left the dashboard says which page it is
+     * on, or the fallback above would send it back to the dashboard.
+     */
+    public function testEveryFormOfAPageSaysWhichPageItIsOn(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+
+        foreach ([BookingPage::FINANCES, BookingPage::DOCUMENTS] as $page) {
+            $body = (string) $this->filePage($page, 'local-saint-georges', $booking->id)->getBody();
+            $main = substr($body, (int) strpos($body, 'data-rental-booking'));
+
+            $forms = substr_count($main, 'name="booking_id"');
+            $this->assertGreaterThan(0, $forms, "{$page->value} renders no form");
+            $this->assertSame(
+                $forms,
+                substr_count($main, 'name="booking_page" value="' . $page->value . '"'),
+                "a form on {$page->value} does not say where it was posted from"
+            );
+        }
+    }
+
+    /**
+     * A journey line whose work is done on another page links to that
+     * page, box anchor included — collapse-anchor.js opens the box there.
+     * A fragment alone would scroll to a box this page no longer has.
+     */
+    public function testAJourneyLinkAimsAtThePageItsBoxIsOn(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/statut', 'changeStatus', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'status' => 'confirmed',
+        ]);
+
+        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $base = '/mes-locations/local-saint-georges/reservations/' . $booking->id;
+
+        $this->assertStringContainsString('href="' . $base . '/documents#dossier-documents"', $body);
+        $this->assertStringNotContainsString('href="#dossier-', $body);
     }
 
     public function testTheStayPageIsRefusedToANonManager(): void

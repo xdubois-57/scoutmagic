@@ -29,15 +29,15 @@ réservations comptent la même chose.
 ## Traiter une demande
 
 Chaque réservation a sa fiche, décrite dans « La fiche d'une
-réservation » : elle se lit en quatre temps, du détail de la location
-à un dossier replié, en passant par la seule chose qui vous attend.
-Les boutons y agissent sans recharger, et ceux qui écrivent au
-locataire vous laissent ajouter un mot.
+réservation » : quatre pages — tableau de bord, finances, documents,
+courrier — dont la première dit où en est la réservation et la seule
+chose qui vous attend. Les boutons y agissent sans recharger, et ceux
+qui écrivent au locataire vous laissent ajouter un mot.
 
 ## Le prix et les paiements
 
 L'estimation du visiteur reste figée ; le prix **convenu** se construit
-sur la fiche, ligne par ligne — une ligne retouchée à la main n'est plus
+sur la page « Finances » de la réservation, ligne par ligne — une ligne retouchée à la main n'est plus
 recalculée. Avec Finances, l'acompte et le solde se pointent grâce à la
 communication structurée ; la caution a la sienne et sa restitution se
 note à la main. Le décompte final ajoute ses lignes sans réécrire le

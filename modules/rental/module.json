@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques.",
-  "version": "1.23.2",
+  "version": "1.25.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -157,6 +157,15 @@
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
       "action": "addComment",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/etape",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "markMilestone",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
@@ -564,6 +573,51 @@
       "label": "",
       "breadcrumb": {
         "label": "Réservation",
+        "parents": [
+          "Espace membres"
+        ]
+      }
+    },
+    {
+      "path": "/mes-locations/{slug}/reservations/{id}/finances",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "bookingFinances",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Finances",
+        "parents": [
+          "Espace membres"
+        ]
+      }
+    },
+    {
+      "path": "/mes-locations/{slug}/reservations/{id}/documents",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "bookingDocuments",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Documents",
+        "parents": [
+          "Espace membres"
+        ]
+      }
+    },
+    {
+      "path": "/mes-locations/{slug}/reservations/{id}/courrier",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "bookingMail",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Courrier",
         "parents": [
           "Espace membres"
         ]
