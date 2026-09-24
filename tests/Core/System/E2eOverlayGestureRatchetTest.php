@@ -210,6 +210,15 @@ class E2eOverlayGestureRatchetTest extends TestCase
             . "await expect(panel, 'the panel is open').toBeVisible();"
         ));
         $this->assertSame([], $reads("// page.locator('#x-modal').click();\n/* '.modal.show' */")['gestures']);
+        // A `/*` inside a line comment opens no block comment: the gesture
+        // after it is still read, and a `//` inside a string opens no line
+        // comment either.
+        $this->assertNotSame([], $reads(
+            "// read from modules/*/ at load\nawait page.locator('#x-modal').click();\n/** doc */"
+        )['gestures']);
+        $this->assertNotSame([], $reads(
+            "await page.goto('https://example.invalid/'); await page.locator('#x-modal').click();"
+        )['gestures']);
 
         foreach ([
             "await page.locator('#x-modal').click();",
@@ -322,13 +331,23 @@ class E2eOverlayGestureRatchetTest extends TestCase
 
     /**
      * The source without its comments — a selector quoted in an explanation
-     * is not a gesture. `://` is left alone, being a URL and not a comment.
+     * is not a gesture.
+     *
+     * One pass over strings and both comment styles together, the earliest
+     * match winning, so each is read the way the language reads it: a
+     * `modules/*` glob in a `//` comment opens no block comment (removing
+     * block comments first once erased half a spec from the scan), and the
+     * `//` of a URL inside a string opens no line comment. Strings are kept.
      */
     private static function withoutComments(string $source): string
     {
-        $source = (string) preg_replace('/\/\*.*?\*\//s', '', $source);
+        $tokens = '/\'(?:[^\'\\\\\n]|\\\\.)*\'|"(?:[^"\\\\\n]|\\\\.)*"|`(?:[^`\\\\]|\\\\.)*`|\/\*.*?\*\/|\/\/[^\n]*/s';
 
-        return (string) preg_replace('/(?<![:\w\'"`\\\\])\/\/[^\n]*/', '', $source);
+        return (string) preg_replace_callback(
+            $tokens,
+            static fn (array $token): string => str_starts_with($token[0], '/') ? '' : $token[0],
+            $source
+        );
     }
 
     /**
