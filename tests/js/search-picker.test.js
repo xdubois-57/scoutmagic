@@ -417,6 +417,13 @@ describe('search-picker', () => {
             expect(document.querySelectorAll('[data-search-picker-chosen] button')).toHaveLength(0);
         });
 
+        it('keeps the list open when a chip is removed, although the chip is redrawn', async () => {
+            await type('fête');
+            /** @type {HTMLButtonElement} */ (document.querySelector('[data-search-picker-chosen] button')).click();
+
+            expect(results().classList.contains('d-none')).toBe(false);
+        });
+
         it('announces every change with the retained rows', async () => {
             const listener = vi.fn();
             document.getElementById('p').addEventListener('search-picker:change', listener);

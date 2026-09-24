@@ -350,7 +350,10 @@
         });
 
         document.addEventListener('click', function (event) {
-            if (!picker.contains(/** @type {Node} */ (event.target))) {
+            // The path is read as it was at dispatch: a chip's own handler
+            // has already redrawn the chips, so the button clicked is no
+            // longer inside the picker by the time this runs.
+            if (!event.composedPath().includes(picker)) {
                 dismiss();
             }
         });
