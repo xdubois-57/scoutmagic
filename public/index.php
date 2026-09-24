@@ -7986,7 +7986,7 @@ if ($isEnabled('finance')) {
                     // And it says so when it still cannot read: the
                     // consumer files nothing on a null, which is exactly
                     // the silence that hid the bug for a day. An id and
-                    // nothing else — a filename is personal data (§7.9).
+                    // nothing else — a filename is personal data (§8.6).
                     static function (int $fileId) use ($storedFileReader, $journalService): ?string {
                         $content = $storedFileReader->read($fileId);
                         if ($content === null) {
@@ -8040,7 +8040,7 @@ if ($isEnabled('finance')) {
                     // avoid. The message itself is technical text this
                     // application wrote, which is why it may be journalled
                     // at all (SECURITY.md §11) — an id and a mime type,
-                    // never the filename, which is personal data (§7.9).
+                    // never the filename, which is personal data (§8.6).
                     static function (\Throwable $e, string $mimeType, int $attachmentId) use ($journalService): void {
                         $journalService->log(
                             'finance',

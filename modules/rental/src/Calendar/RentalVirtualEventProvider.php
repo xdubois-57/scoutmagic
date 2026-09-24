@@ -311,7 +311,7 @@ class RentalVirtualEventProvider implements VirtualEventProviderInterface
      * A manual block. To an ordinary reader it says the asset is
      * unavailable and nothing else — deliberately indistinguishable in kind
      * from a letting, since why the unit cannot let its hall is nobody
-     * else's business (§6.7).
+     * else's business (specifications.md §22.2).
      */
     private function blockEvent(
         RentalBlock $block,

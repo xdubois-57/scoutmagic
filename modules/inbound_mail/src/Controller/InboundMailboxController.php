@@ -194,7 +194,7 @@ class InboundMailboxController extends AbstractController
 
         if ($created) {
             // Internal ids only — never the sender, the subject or the
-            // target's label (§7.9).
+            // target's label (§8.6).
             $this->journal->log(
                 'inbound_mail',
                 'inbound_link_added',
@@ -339,7 +339,7 @@ class InboundMailboxController extends AbstractController
 
         if ($done) {
             // Internal ids only. Never the sender, the subject, the target's
-            // label or a word of what anybody wrote (§7.9).
+            // label or a word of what anybody wrote (§8.6).
             $this->journal->log(
                 'inbound_mail',
                 'inbound_candidate_confirmed',

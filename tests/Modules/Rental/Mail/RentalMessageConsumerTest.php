@@ -1348,7 +1348,7 @@ class RentalMessageConsumerTest extends TestCase
         $this->documentService->reclassify($mine, $document->id, DocumentType::PHOTO, false);
     }
 
-    // ── Untrusted content (§7.9) ────────────────────────────────────────
+    // ── Untrusted content (§8.58) ────────────────────────────────────────
 
     public function testScriptInAnIncomingBodyNeverReachesStorage(): void
     {

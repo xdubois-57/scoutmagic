@@ -154,7 +154,7 @@ class StayFromMailService
      *
      * The message id and the reason, and nothing else: no subject, no
      * sender, no place name, since a journal entry travels in a support
-     * archive (§7.9). The id is the handle to open the message in
+     * archive (§8.6). The id is the handle to open the message in
      * « Courrier ».
      */
     public function journalSkip(int $messageId, string $reason): void

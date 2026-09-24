@@ -11,7 +11,7 @@ namespace Modules\InboundMail\Service;
 use Core\Security\HtmlSanitizer;
 
 /**
- * Turning an email body into something safe to store and render (§7.9).
+ * Turning an email body into something safe to store and render (§8.58).
  *
  * **Applied once, on the way in.** The sanitised form is what gets stored;
  * the sender's original HTML is never written anywhere. Sanitising on

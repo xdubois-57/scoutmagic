@@ -11,7 +11,9 @@
   whole page. The <form> is a real GET form and still works untouched with
   JavaScript absent, which is the fallback.
 
-  Three rules this block enforces (§6.7):
+  Three rules this block enforces. Only the second is written down —
+  `specifications.md` §22.4, verbatim — and the other two are stated here
+  rather than cited, because no section carries them:
   - pressing « Estimer » ALWAYS answers something — the hidden `estimate`
     marker is how the server can tell "the button was pressed with no dates"
     from "the visitor just arrived", and the first deserves an explanation
@@ -101,7 +103,7 @@
             {#
               No rate configured at all. An empty table adding up to
               « Dès 0,00 € » read as a price of zero; this says what is
-              actually true and keeps the visitor moving (§6.7).
+              actually true and keeps the visitor moving (specifications.md §22.4).
             #}
             <output class="alert alert-info py-2 d-block">
                 <strong>Tarif sur demande.</strong> L'unité n'a pas encore publié de tarif en ligne
@@ -158,7 +160,7 @@
                         <th scope="row" class="text-end">
                             {# "dès X €" whenever something needed is still
                                missing — never a firm figure we would have
-                               to walk back (§6.7). #}
+                               to walk back (specifications.md §22.4). #}
                             {{ quote.isComplete ? 'Total estimé' : 'Dès' }}
                         </th>
                         <td class="text-end">{{ quote.totalCents|money_cents }}</td>

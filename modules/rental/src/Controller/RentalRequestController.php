@@ -779,7 +779,7 @@ class RentalRequestController extends AbstractController
     }
 
     /**
-     * How long the automatic hold lasts (§6.14), configurable per
+     * How long the automatic hold lasts (specifications.md §22.5), configurable per
      * installation. Clamped to something sane: a zero or negative value
      * would mean "no hold at all", which is a legitimate choice but must be
      * made by clearing the setting, not by typing a nonsense number.

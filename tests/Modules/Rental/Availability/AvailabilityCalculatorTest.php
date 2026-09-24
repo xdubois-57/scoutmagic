@@ -17,7 +17,7 @@ use PHPUnit\Framework\TestCase;
  * 20th are compatible in a nights model and in conflict in a full-days one.
  * Both directions are pinned here, along with the confidentiality rule that
  * "occupé" never says why, and the separation between *unavailable* and
- * *merely unselectable* that §6.7 insists on.
+ * *merely unselectable* that specifications.md §22.2 insists on.
  *
  * `$today` is always injected, so nothing here depends on when it runs.
  */
@@ -273,7 +273,7 @@ class AvailabilityCalculatorTest extends TestCase
 
     public function testABookingAHoldAndAManualBlockAreIndistinguishable(): void
     {
-        // §6.7/§6.14: the public must not be able to tell them apart. They
+        // specifications.md §22.2: the public must not be able to tell them apart. They
         // are literally the same object here, so there is nothing to leak.
         $constraints = new BookingConstraints();
 
@@ -297,7 +297,7 @@ class AvailabilityCalculatorTest extends TestCase
 
     public function testADayInsideTheNoticeWindowIsUnselectableNotOccupied(): void
     {
-        // §6.7, and the reason this distinction exists: a visitor shown
+        // specifications.md §22.2, and the reason this distinction exists: a visitor shown
         // "taken" for a free day concludes the asset is booked and gives up.
         $constraints = new BookingConstraints(minNoticeDays: 14);
 

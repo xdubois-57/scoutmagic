@@ -34,7 +34,7 @@ use Modules\Rental\Repository\RentalConstraintsRepository;
  *
  * That indirection also preserves the confidentiality rule: a provider
  * yields `Occupancy` objects with no notion of *why* the asset is held, so
- * there is no reason for a public surface to leak (§6.7/§6.14).
+ * there is no reason for a public surface to leak (specifications.md §22.2).
  */
 class RentalAvailabilityService
 {

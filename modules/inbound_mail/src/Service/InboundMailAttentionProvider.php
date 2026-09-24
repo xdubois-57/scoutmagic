@@ -26,7 +26,7 @@ use Modules\InboundMail\Task\PurgeUnlinkedMessagesHandler;
  *
  * **A count and a link, never a sender or a subject.** The attention page
  * is rendered for a role that may open the mail anyway, but it is also
- * quoted in exports and screenshots, and §7.9 does not make exceptions for
+ * quoted in exports and screenshots, and §8.6 does not make exceptions for
  * a summary.
  *
  * Bounded, as the interface requires: two aggregate counts, no decryption,

@@ -168,7 +168,7 @@ class ModuleManifestTest extends TestCase
     /**
      * Attachments are stored behind FileAccessGuard, never under public/,
      * and never at a role a renter or an anonymous visitor could reach
-     * (§7.9).
+     * (§8.58).
      */
     public function testAttachmentStorageIsDeclaredAndNeverPublic(): void
     {

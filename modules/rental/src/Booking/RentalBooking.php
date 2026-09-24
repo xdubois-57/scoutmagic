@@ -130,7 +130,7 @@ final class RentalBooking
      * Deliberately drops everything about who the renter is and why the
      * asset is held: the reference goes in only so a *manager's* calendar
      * can link back, and every public surface takes the same object with no
-     * variant to leak (§6.7).
+     * variant to leak (specifications.md §22.2).
      */
     public function toOccupancy(): Occupancy
     {
