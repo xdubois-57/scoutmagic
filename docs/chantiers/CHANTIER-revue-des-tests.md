@@ -1496,18 +1496,28 @@ retirer l'affirmation « every route as every role » la rend rouge, et y
 réécrire un compte la rend rouge par l'autre bout, que la phrase invariante
 survive ou non.
 
-**Ce que ces tests coûtent, et où passe la limite.** Ajouter un job de CI rend
-`EveryCiJobIsDocumentedTest` rouge, et c'est le bon prix : `checks.yml` a
-changé trois fois en trente jours, le message d'échec nomme la puce à
-écrire, et une liste de jobs fausse trompe quiconque cherche ce qui juge sa
-PR.
+**Ce que ces tests coûtent, et où passe vraiment la limite.** Trois taux,
+mesurés sur les 96 commits des trente derniers jours de `main` :
 
-Le même raisonnement appliqué au **compte des routes** était faux, et c'est
-la mesure qui l'a montré : 50 commits sur 94 touchent une déclaration de
-route. La limite passe donc là — un test peut exiger qu'un document suive ce
-qui change **quelques fois par mois**, jamais ce qui change **plus d'une
-fois sur deux**. Au-delà, ce n'est plus le document qu'on maintient, c'est
-la CI qu'on occupe.
+| Ce que le test couple au document | Commits qui le changent | Test |
+|---|---|---|
+| un job de `checks.yml` | **2 sur 96** (2 %) | `EveryCiJobIsDocumentedTest` |
+| un `label` ou un `name` de `module.json` | **18 sur 96** (19 %) | §4 et §1.1 |
+| une déclaration de route | **50 sur 96** (52 %) | *retiré* |
+
+J'ai d'abord énoncé la limite comme une fréquence : « quelques fois par
+mois, oui ; plus d'une fois sur deux, non ». **C'est un mauvais critère**,
+et les 19 % le montrent — une PR sur cinq, faut-il garder le test ou non ?
+La fréquence ne répond pas.
+
+Le bon critère est ailleurs : **le document devient-il faux, ou seulement
+périmé sur un chiffre qui n'ajoutait rien ?** Quand une entrée de menu est
+renommée, §4 *doit* suivre : un lecteur qui cherche « Départs » ne le
+trouve plus, et le document ment. Quand une route est ajoutée, la prose ne
+doit rien : « toutes les routes » était déjà vrai avant et le reste après.
+
+La fréquence n'est que l'arbitre du cas douteux. À 52 % elle tranchait
+seule ; à 19 %, ce qui tranche est que le renommage rend le document faux.
 
 **Vérifié et tenu** (second lot) :
 
