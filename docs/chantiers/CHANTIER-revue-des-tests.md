@@ -1214,3 +1214,479 @@ service workers, qui est une question de conception.
   défaut constaté.
 - **Le cycle de vie du service worker**, que §7 demande explicitement de
   constater sans combler. C'est l'objet de #452.
+---
+
+### Itération 8 — Les spécifications elles-mêmes — 2026-09-21
+
+**Périmètre parcouru** : les six vérifications que §8 énumère, menées
+mécaniquement plutôt qu'à la lecture — un document de 3 061 lignes ne se
+relit pas, il se confronte.
+
+**Ce que §8 redoutait le plus n'a pas été trouvé.** « Ce qui est décrit et
+n'existe plus » est le danger que §8 place en tête, parce qu'un agent écrit
+du code contre cette description. Rien de tel :
+
+- **Les 23 chemins cités en toutes lettres dans `specifications.md` ont été
+  confrontés à `public/index.php` et aux 24 `module.json` : les 22 qui sont
+  des routes existent toutes.** Le vingt-troisième, `/members/42`, ne résout
+  pas — c'est un exemple d'adresse, pas une route.
+- **Les 23 clés de réglage citées existent toutes** dans le code.
+- **Aucune ligne de l'index §1.1 ne désigne un module absent**, et aucun
+  module n'y manque — mais cela, un test le tenait déjà (voir plus bas).
+
+**Les nombres tiennent, tous.** Chaque durée, seuil et quota cité a été
+confronté à la constante qui le porte, et pas une ne diverge :
+
+| Spec | Valeur | Constante |
+|---|---|---|
+| §20 message 5 000 / réponse 2 000 caractères | 5000 / 2000 | `PostService::MAX_BODY_LENGTH`, `ReplyService::MAX_BODY_LENGTH` |
+| §20 fenêtre d'édition 15 minutes | 15 | `PostService::EDIT_WINDOW_MINUTES` |
+| §24 purge des audiences 18 mois / 7 jours | 18 / 7 | `PurgeMergeAudiencesHandler::DEFAULT_RETENTION_MONTHS`, `::ORPHAN_RETENTION_DAYS` |
+| §23 rétention courrier non rattaché 90 jours | 90 | `PurgeUnlinkedMessagesHandler::DEFAULT_RETENTION_DAYS` |
+| §33 archive d'album 512 Mo | 512×1024×1024 | `GalleryController::MAX_ZIP_BYTES` |
+| §37 mot de rétro 120–200, défaut 140 | 120 / 200 / 140 | `BoardService::MIN_MAX_COMMENT_LENGTH`, `BoardService::MAX_MAX_COMMENT_LENGTH`, `AutoBoardCreationService::DEFAULT_MAX_COMMENT_LENGTH` |
+| §43 commentaire de présence 500 | 500 | `PresenceRepository::MAX_COMMENT_LENGTH` |
+| §44 fiche santé 18 mois | 18 | `PurgeHealthSheetsHandler::DEFAULT_RETENTION_MONTHS` |
+| §21 archive 90 jours / 1 an, ticket 2 ans | 90 / 365 / 730 | `SupportTicketRepository::ARCHIVE_RETENTION_DAYS_AFTER_CLOSURE`, `::ARCHIVE_MAX_AGE_DAYS`, `::TICKET_RETENTION_DAYS` |
+| §21 historique 12 mois par défaut | 12 | `SupportHistoryPeriod::DEFAULT_MONTHS` |
+
+*(la première version de ce tableau citait « §852 », « §1157 », « §2526 »… :
+c'étaient des **numéros de ligne** produits par le `grep -n` qui a servi à
+les trouver, pas des sections — et `specifications.md` n'a que 44 sections.
+Relevé par la revue. Les renvois ci-dessus sont des sections, chacune
+vérifiée en cherchant la valeur citée à l'intérieur de son corps.)*
+
+C'est le résultat de l'itération 4 qui remonte ici : là où une valeur est
+testée, elle est aussi écrite juste.
+
+**L'écart est ailleurs, et il était invisible parce qu'un test le rendait
+invisible.** `Tests\Integration\ModuleSpecificationCoverageTest` tient
+l'index §1.1 dans les deux sens — tout module a sa ligne, toute ligne a sa
+section, toute section existe. C'est pour cela que les vérifications
+ci-dessus passent. Or §1.1 promet **deux** choses, et la seconde n'était
+tenue par rien :
+
+> « the pages a module adds are also listed, per menu, in §4 »
+
+**Cinq entrées de menu avaient quitté §4**, sans que rien ne le dise :
+
+| Entrée | Module | Ce qu'elle était devenue |
+|---|---|---|
+| §4.3 « Présences » | `presences` | absente — alors que §43 écrit « une seule entrée de menu, dans l'Espace animateurs » |
+| §4.4 « Courrier » | `inbound_mail` | absente — §4.5 ne décrit que la page de *configuration* des boîtes |
+| §4.4 « Réinscription » | `registration` | rangée dans §4.5, alors que son manifeste dit `espace_admin` |
+| §4.5 « Fréquentation » | `usage_stats` | absente |
+| §4.5 « Supervision » | `support_dashboard` | décrite sous le nom du manifeste, jamais sous celui du menu |
+
+La ligne « Réinscription » est la plus intéressante : §4.5 s'ouvre sur
+« All pages in this menu require the `superadmin` role, except Maintenance
+(`admin`) », et cette page est à `admin`. La contradiction était **dans la
+même sous-section, à quatorze lignes d'écart**. La déplacer en §4.4 ne
+corrige pas seulement le classement : elle rend vraie la phrase d'ouverture
+de §4.5.
+
+**Une carte que les clés de menu rendent piégeuse**, consignée dans le test
+parce qu'elle se relit de travers : `espace_animes` est l'Espace **membres**
+(§4.2, `identified`), `espace_chefs` l'Espace **animateurs** (§4.3,
+`intendant`/`chief`), `espace_admin` l'Espace **chefs d'U** (§4.4, `admin`).
+La correspondance a été établie sur le `role_min` de chaque route, puis
+recoupée indépendamment par les `breadcrumb.parents` des manifestes — et non
+sur l'orthographe des clés.
+
+**Mutations tentées** — chacune prouvée appliquée par une comparaison de
+fichiers avant verdict :
+
+- **Retirer la ligne « Présences » de §4.3** → rouge, sur cette seule
+  entrée. Le test voit une ligne manquante.
+- **Renommer le libellé de menu dans `modules/usage_stats/module.json`**
+  (« Fréquentation » → « Audience ») → rouge sur « Audience ». Le test lit
+  le manifeste, pas une liste recopiée dans le test.
+- **Déplacer la ligne « Présences » dans la mauvaise sous-section** (§4.4 au
+  lieu de §4.3) → **rouge**, alors que la ligne est présente dans le
+  document. C'est la mutation qui compte : elle prouve que le test cherche
+  dans la sous-section du menu déclaré et non dans §4 tout entier. Sans
+  elle, un test qui fouille le document entier aurait été vert et aurait eu
+  l'air bon.
+
+**Un piège du test, trouvé par le test.** La première version rapportait la
+première entrée manquante et affichait, comme botte de foin, la sous-section
+entière — plusieurs milliers de caractères pour un nom de page absent.
+Réécrite pour collecter les cinq et n'en faire qu'un message. Le coût d'un
+échec illisible se paie le jour où il tombe, pas le jour où il est écrit.
+
+**Une erreur de manipulation, et ce qu'elle enseigne.** La sonde de mutation
+restaurait le fichier par `git checkout specifications.md` — ce qui a effacé
+les corrections non encore commitées et fait tourner la mutation suivante
+sur le document d'origine. Le symptôme était lisible (cinq écarts au lieu
+d'un), et c'est le test qui l'a signalé. Les sondes suivantes travaillent sur
+une copie. Même famille que la sonde de l'itération 3 qui avait vidé un
+fichier de production : un outil de vérification qui écrit dans l'arbre de
+travail doit être tenu pour dangereux.
+
+**Les autres documents, et ce que §8 redoutait le plus.** `specifications.md`
+n'était que le premier des cinq. Les quatre autres ont subi les mêmes
+confrontations mécaniques.
+
+**« Ce qui est décrit et n'existe plus » : rien.** C'est le danger que §8
+place en tête, au motif qu'un agent écrit du code contre cette description.
+Sur **734 références de classe ou d'espace de noms** citées par les cinq
+documents et `docs/quality-pipeline.md`, cinq ne résolvaient pas :
+
+| Référence | Verdict |
+|---|---|
+| `Core\Photo\PwaIconService` | la phrase **raconte le renommage** et nomme `UnitLogoService` deux lignes plus loin |
+| `Core\Photo\StaffThumbnailProcessor` | paragraphe explicitement marqué « retired » |
+| `Modules\Gallery\Service\DiskSpace` | cité au passé, « already documented why » |
+| `Tests\Architecture\PendingMigrationSelfDriveTest` | paragraphe « removed » |
+| `Core\Http\Controller\SchedulerContinuationController` | « There used to be a seventh, and its removal is worth recording » |
+
+Aucune n'est un renvoi périmé : les cinq sont la documentation faisant
+exactement ce qu'on attend d'elle, consigner ce qui a disparu et pourquoi.
+Le soupçon est levé par la vérification, et il est consigné ici parce qu'un
+comptage brut aurait produit cinq « corrections » fausses.
+
+**Les renvois entre sections, eux, ne sont pas tous bons.** Sur **766 renvois
+à une section d'`ARCHITECTURE.md`**, 765 résolvent. Le seul qui ne résout pas
+est `§7.9` — **64 occurrences dans 53 fichiers**, dont 27 dans `modules/`,
+22 dans `tests/`, 6 dans `core/`, 6 dans `public/` et 2 dans
+`ARCHITECTURE.md` lui-même. La section §7 s'arrête à §7.6.
+
+Les 64 ne divaguent pas : ils désignent tous la même règle — rien de
+personnel dans un journal ni dans ce qui s'exporte, et un contenu de
+courriel n'est sûr qu'une fois assaini. La moitié « journal » de cette règle
+*est* écrite, sous un autre numéro : §8.6 « Event journal », « No personal
+data in entries ». Un lecteur qui suit un de ces 64 renvois ne trouve rien,
+en conclut que la règle n'est pas écrite, et n'a aucune raison d'aller
+chercher §8.6 — que rien ne lui désigne.
+
+**Et §7.9 n'est pas seul.** La même confrontation appliquée aux renvois
+**internes** de chaque document — un `§X` écrit sans nom de fichier — fait
+apparaître un second foyer : **`§6.7` (33 occurrences) et `§6.14` (24)**, qui
+ne résolvent dans aucun document non plus. Leur origine est plus lisible :
+plusieurs citations disent « **module spec** §6.7 », c'est-à-dire une
+spécification propre au module locations, avec sa propre numérotation. Ce
+document n'existe plus : la spécification de `rental` est aujourd'hui
+`specifications.md` **§22**, dont les sous-sections vont de §22.1 à §22.13.
+La règle désignée s'y trouve bien — « A manual block and a letting are
+deliberately [indistinguishables] », « A visitor cannot page into the past »
+sont §22.2, et ce que le calendrier publié laisse voir est §22.8 — sous
+d'autres numéros. `SECURITY.md:760` en hérite et écrit « the boundary §6.7
+exists to enforce », dans un fichier dont le §6 s'intitule « File access » et
+n'a aucune sous-section.
+
+**121 renvois au total**, vers trois numérotations disparues, tous propagés
+par copie du commentaire voisin. Tout le reste résout : 765 sur 766 vers
+`ARCHITECTURE.md`, et les renvois internes des cinq documents une fois
+retirés ceux-là et deux renvois à des normes externes (`RFC 7489 §6.6.2`,
+`RGPD §2.10`) — que le comptage avait d'abord signalés, et qui ne sont pas
+des défauts.
+
+**Non corrigé, et déposé en #454**, parce que les deux issues possibles sont
+des arbitrages : écrire §7.9 revient à rédiger la formulation canonique
+d'une règle de protection des données dont 64 emplacements dépendent, et
+réécrire les 64 renvois vers §8.6 suppose que §8.6 couvre les deux thèmes,
+ce qu'il ne fait pas. Le test qui le détecte est écrit, rouge sur §7.9 et
+sur rien d'autre, retiré de cette PR et collé dans l'issue — c'est la
+procédure que §0.2 prévoit pour un test qui tombe sur un défaut qu'on n'a
+pas le droit de corriger.
+
+**Les chiffres de la matrice d'autorisation étaient faux partout.** Cinq
+énoncés, deux documents, rien qui les vérifie :
+
+| Où | Disait | Tient |
+|---|---|---|
+| `README.md` (tableau des profils) | 528 routes | **toutes** les routes |
+| `README.md` (« rejoue les … routes ») | 528 routes | **toutes** les routes déclarées |
+| `README.md` (liste des jobs) | 534 routes, 3 204 couples | **toutes**, un couple par combinaison |
+| `SECURITY.md` | 528 routes × 6 rôles = 3 168 paires | **every route as every role** |
+| `SECURITY.md` (paramètres nommés comme un identifiant) | 209 routes | **every** route enregistrée |
+
+**La colonne de droite n'a pas toujours dit cela, et le revirement est le
+constat.** Elle a d'abord porté les chiffres justes — 747 routes,
+4 482 couples, 265 routes à paramètre identifiant — et un test les épinglait
+à `authzRoutes()`, au motif que « le nombre dans la prose fait partie du
+changement qui ajoute la route ». C'était un raisonnement, pas une mesure.
+
+**La mesure le dément.** Sur trente jours, **50 des 94 commits de `main`
+touchent une déclaration de route** — plus d'un sur deux. Un compte épinglé
+dans la prose rend donc rouge la majorité des PR ouvertes, sans faute de
+leur part ; celle-ci a vu le chiffre bouger **deux fois pendant qu'elle
+était ouverte** — 746, puis 747, puis 750 — dont une fois en CI, après avoir
+été vert en local une heure plus tôt. Un fil qui se déclenche sur plus de la
+moitié des fusions n'est pas un garde, c'est un impôt.
+
+La prose ne cite donc plus de taille. Elle énonce l'**invariant** — toutes
+les routes, tous les rôles —, qui est ce dont a besoin le lecteur qui audite
+la couverture, qui reste vrai quelle que soit la taille de la table, et que
+les tests d'inventaire tiennent déjà. Le test garde cette affirmation
+présente **et empêche un « 750 routes » bien intentionné d'être réécrit**.
+
+C'est le seul endroit du chantier où une correction en a remplacé une autre.
+La première n'était pas fausse — les chiffres publiés étaient bien faux et
+il fallait les corriger — mais le dispositif qui devait les maintenir justes
+coûtait plus qu'il ne rapportait, et seule la mesure pouvait le dire.
+
+README se contredisait lui-même — 528 deux fois, 534 une fois — et aucun des
+trois nombres n'était le bon. Ce n'est pas cosmétique, et c'est la panne que
+`AuthorizationMatrixInventoryTest` existe déjà à détecter, un cran plus
+haut : son propre docblock écrit qu'« a shorter green run reads exactly like
+a complete one ». Le lecteur de ces phrases-là est précisément en train
+d'auditer la couverture ; il compare le chiffre cité à la table des routes.
+Un chiffre trop bas se lit exactement comme un trou dans la matrice.
+
+**Et un job de CI avait quitté la liste du README.** `checks.yml` en définit
+huit ; la section « Intégration continue » n'en nommait que sept.
+L'absent était `database-mariadb` — celui-là même dont le rôle est de
+séparer une divergence de moteur de tout le reste. Le job tournait sur
+chaque PR pendant ce temps : c'est l'inventaire qui était court, ce qui est
+la direction dangereuse.
+
+**Mutations tentées** (second lot), chacune prouvée appliquée par
+comparaison de fichiers avant verdict :
+
+- **Retirer la puce `database-mariadb`** → rouge, sur elle seule. **Et
+  cette mutation ne prouvait presque rien**, ce que la revue a établi et
+  que j'avais manqué : voir ci-dessous.
+- **Ajouter un job au workflow** → rouge, en le nommant.
+- **Renommer une puce** (`security` → `securite`) → rouge.
+- **Ajouter une puce pour un job inexistant** → rouge, par l'autre
+  direction du test.
+
+**La mutation qui passait pour la bonne raison, et qui ne prouvait rien.**
+C'est le constat le plus utile de tout le chantier, et il porte sur mon
+propre test. `EveryCiJobIsDocumentedTest` cherchait d'abord le nom du job
+**dans tout le README** (`str_contains($readme, '`' . $job . '`')`). Or
+quatre des huit jobs sont cités entre accents graves **ailleurs que dans
+leur propre puce** — « la même suite complète que `test` », « indépendamment
+du job `test` » :
+
+| Job | Mentions dans README | Retirer sa puce le rendait-il rouge ? |
+|---|---|---|
+| `test` | 5 | non |
+| `sonarqube` | 5 | non |
+| `e2e-tests` | 2 | non |
+| `javascript-tests` | 2 | non |
+| `database-mariadb` | **1** | oui |
+| `security`, `authorization-matrix`, `dast-passive` | 1 | oui |
+
+**J'avais muté le seul job incapable de révéler la faiblesse.** Le rouge
+obtenu était vrai, et il ne disait rien des quatre autres : le test était
+inerte pour la moitié de ce qu'il prétendait tenir, et ma mutation
+l'avait certifié bon. C'est exactement la panne que §0.3 décrit — un vert
+qui ressemble à une garantie —, transposée d'un cran : **une mutation qui
+passe pour la bonne raison sur le mauvais échantillon**.
+
+Le test parcourt désormais la liste à puces de la section, comme le faisait
+déjà son jumeau dans l'autre direction. Les quatre mutations qui ne
+faisaient rien font chacune tomber le test, en le nommant :
+
+    retirer la puce de `test`             → rouge : test
+    retirer la puce de `sonarqube`        → rouge : sonarqube
+    retirer la puce de `e2e-tests`        → rouge : e2e-tests
+    retirer la puce de `javascript-tests` → rouge : javascript-tests
+
+**La leçon se range à côté de §0.3** : choisir la cible d'une mutation dans
+le cas le plus commode, c'est se répondre à soi-même. La cible doit être
+celle qui a le plus de chances de survivre.
+
+Les chiffres, eux, ont été rendus rouges d'un coup par la première version
+du test — preuve qu'elle les lisait et ne les supposait pas. Ce sont
+aujourd'hui trois mutations sur l'invariant qui tiennent sa remplaçante :
+retirer l'affirmation « every route as every role » la rend rouge, et y
+réécrire un compte la rend rouge par l'autre bout, que la phrase invariante
+survive ou non.
+
+**Ce que ces tests coûtent, et où passe vraiment la limite.** Trois taux,
+mesurés sur les 96 commits des trente derniers jours de `main` :
+
+| Ce que le test couple au document | Commits qui le changent | Test |
+|---|---|---|
+| un job de `checks.yml` | **2 sur 96** (2 %) | `EveryCiJobIsDocumentedTest` |
+| un `label` ou un `name` de `module.json` | **18 sur 96** (19 %) | §4 et §1.1 |
+| une déclaration de route | **50 sur 96** (52 %) | *retiré* |
+
+J'ai d'abord énoncé la limite comme une fréquence : « quelques fois par
+mois, oui ; plus d'une fois sur deux, non ». **C'est un mauvais critère**,
+et les 19 % le montrent — une PR sur cinq, faut-il garder le test ou non ?
+La fréquence ne répond pas.
+
+Le bon critère est ailleurs : **le document devient-il faux, ou seulement
+périmé sur un chiffre qui n'ajoutait rien ?** Quand une entrée de menu est
+renommée, §4 *doit* suivre : un lecteur qui cherche « Départs » ne le
+trouve plus, et le document ment. Quand une route est ajoutée, la prose ne
+doit rien : « toutes les routes » était déjà vrai avant et le reste après.
+
+La fréquence n'est que l'arbitre du cas douteux. À 52 % elle tranchait
+seule ; à 19 %, ce qui tranche est que le renommage rend le document faux.
+
+**Vérifié et tenu** (second lot) :
+
+- **`design.md`** : `.rich-text img` a bien `max-width: 100%; height: auto`,
+  plafonné à **420px** à partir de 992px, et c'est bien la même valeur que
+  la grille média d'un groupe (`app.css:667`, `components.css:493`).
+  Bootstrap est bien en **5.3.8**. La cible tactile de **44px** est bien
+  posée sous `@media (pointer: coarse)`, et le CSS cite `design.md §7.2` en
+  retour — un renvoi qui va dans les deux sens.
+- **`README.md`** : `PHP >= 8.4` correspond au `^8.4` de `composer.json`,
+  `Node.js >= 22` aux `engines` de `package.json` et au `node-version: '22'`
+  des trois jobs, et « 6 niveaux » de rôles aux six cas de
+  `Core\Security\Role`, dont l'échelle 0–5 est exactement celle de
+  `specifications.md` §2.1. `VERSION` dit bien `1.0.42`.
+
+**Les tests ont fait leur preuve avant même d'être fusionnés.** L'entrée a
+été rédigée sur un `main` que cette PR a ensuite dû rattraper — de
+cinquante-cinq commits, puis trois fois encore, la CI jugeant chaque fois
+la branche contre un `main` déjà dépassé. À chaque contact, les tests
+écrits ici sont devenus **rouges**, et sur des choses réelles :
+
+- **`AuthorizationMatrixInventoryTest`** : une route ajoutée entre temps a
+  fait passer les sept chiffres publiés de 746/4 476/264 à 747/4 482/265,
+  et le test les a tous les sept dénoncés en nommant la phrase à corriger.
+  Puis, quelques heures plus tard, **la CI les a dénoncés une seconde
+  fois** — 750/4 500/268 — alors qu'ils venaient d'être corrigés et que le
+  local était vert. C'est cette seconde fois qui a provoqué la mesure, puis
+  le revirement décrit plus haut : le test tenait sa promesse, et sa
+  promesse était le problème.
+- **`ModuleSpecificationCoverageTest`** : **quatorze** entrées de menu
+  avaient été renommées depuis (« Groupes » → « Discussions »,
+  « Trombinoscope » → « Les animateurs », « Départs » → « Départs de
+  l'unité », « Passage » → « Passages de branche »…) sans que §4 suive.
+  Les quatorze sont des renommages de pages que §4 décrivait déjà, donc
+  quatorze premières cellules à réécrire — et non du contenu à inventer.
+
+Le cas le plus parlant est §4.4 « Téléphone d'urgence » : la ligne **avait**
+été mise à jour depuis « SOS Staff d'U », mais vers un libellé que le menu
+ne porte pas — il dit « Gérer le téléphone d'urgence ». Une mise à jour à la
+main, faite de bonne foi, et fausse d'un mot. C'est précisément ce qu'un
+test de présence attrape et qu'une relecture ne rattrape pas.
+
+**Et le renommage en a fait tomber un troisième, qui n'était pas le mien.**
+`Tests\Modules\Groups\DocumentationTest` garde depuis longtemps la
+présence de la page des groupes dans le tableau de §4.2 — en écrivant le
+libellé **en dur** : `assertStringContainsString('| Groupes (module) |')`.
+Son intention est juste et son commentaire l'énonce bien ; sa mise en œuvre
+recopie une valeur qui vit dans `module.json`, et elle est devenue fausse le
+jour où l'entrée est devenue « Discussions ». C'est exactement le défaut de
+#453, dans un test cette fois plutôt que dans un scénario.
+
+Il aurait suffi d'y écrire le nouveau libellé. Il lit désormais le manifeste,
+parce que remplacer un littéral périmé par un littéral frais, c'est
+reconduire la panne en la datant d'aujourd'hui.
+
+**Une règle qui n'était pas écrivable au début de l'itération l'est
+devenue.** L'index §1.1 porte une colonne « Name in the interface », et elle
+n'avait pas de règle unique : elle disait « Groupes » là où le manifeste
+déclarait « Groupes de discussion », et « Intelligence artificielle » là où
+`llm_connector` déclarait « Connecteur IA ». Les deux étaient défendables —
+c'étaient les libellés de **menu** — donc la colonne avait deux lectures
+possibles et rien à tester.
+
+`main` a depuis renommé les deux modules, et l'ambiguïté est partie avec
+eux : **les 24 lignes valent maintenant le `name` de leur manifeste**. La
+ligne `groups` est alors devenue simplement périmée, et rien ne l'a vu — il
+a fallu un relecteur. D'où un cinquième test, muté dans les deux
+directions : remettre « Groupes » dans l'index le rend rouge, renommer le
+module dans son manifeste en laissant l'index derrière aussi.
+
+C'est le seul endroit du chantier où **attendre** a produit une règle :
+elle n'était pas écrivable en début d'itération, elle l'est devenue parce
+que le produit a tranché entre les deux lectures.
+
+**Non vérifiable, et pourquoi** (second lot) :
+
+- **« in about a minute »**, que `SECURITY.md` écrit à côté du nombre de
+  paires. Le job `Authorization matrix` a mis cinq minutes sur la dernière
+  exécution, mais il provisionne une instance avant de rejouer quoi que ce
+  soit, et rien dans sa sortie ne sépare les deux. Le chiffre n'est pas
+  corrigé faute de savoir ce qu'il mesure.
+- **Le fond d'`ARCHITECTURE.md`**, 5 507 lignes. Ce qui a été confronté au
+  code, ce sont ses renvois et les classes qu'il nomme — pas ce qu'il en
+  dit.
+- **Un troisième soupçon, levé lui aussi.** Les 24 manifestes déclarent
+  **88 réglages** ; **77** ne sont cités par leur clé nulle part dans
+  `specifications.md`. Le chiffre invite à conclure à 77 réglages non
+  documentés — et ce serait faux. §4.5 décrit les réglages **en français et
+  par ce qu'ils font** (« nombre maximum de médias par album »), jamais par
+  leur clé, et c'est cohérent : la page « Paramètres » montre des libellés,
+  pas des clés. Plusieurs des 77 ne sont d'ailleurs pas des réglages du tout
+  mais de l'état (`inbound_mail_quota_alerted_at`,
+  `inbound_mail_scopes_migrated`, `inbound_mail_refresh_started_at`). Aucune
+  règle écrite n'exige la clé, donc il n'y a pas d'écart — seulement un
+  comptage qui aurait produit 77 faux constats.
+
+**Corrigé dans cette PR**, en **quatre** paires document + test, chacune
+rouge avant et verte après — la troisième condition de §0.1 comprise. La
+quatrième est arrivée en dernier, sur un constat de revue, et elle n'était
+pas écrivable au début de l'itération (voir plus bas) :
+
+| Document | Test qui le tient |
+|---|---|
+| `specifications.md` §4.2 à §4.5 — cinq lignes manquantes, dont un déplacement, et quatorze renommages | `ModuleSpecificationCoverageTest::testEveryMenuEntryAModuleAddsHasItsRowInSectionFour` |
+| `README.md` et `SECURITY.md` — sept chiffres, remplacés par l'invariant qu'ils illustraient mal | `AuthorizationMatrixInventoryTest::testTheDocumentationClaimsEveryRouteRatherThanACountOfThem` |
+| `README.md` — la puce `database-mariadb` | `EveryCiJobIsDocumentedTest` (deux directions) |
+| `specifications.md` §1.1 — le nom de `groups`, resté « Groupes » | `ModuleSpecificationCoverageTest::testTheIndexNamesEachModuleAsItsManifestDoes` |
+
+**Une issue du chantier déjà refermée par le produit.** En intégrant `main`
+avant de fusionner cette itération, #453 — les trois emplacements qui
+redisaient le délai minimum de `HumanCheck` — se trouve **traitée** par #469
+(`89728cd`). Les deux `waitForTimeout(4000)` ont disparu au profit du
+helper, il ne reste dans tout `tests/e2e/` que les deux attentes légitimes,
+et `Tests\Core\System\E2eFixedWaitRatchetTest` interdit désormais d'en
+réintroduire — dans les deux directions, et avec un motif qui tolère
+l'espace, `waitForTimeout (4000)` ne passant donc pas à côté.
+
+C'est la première fois de ce chantier qu'un constat déposé en issue revient
+corrigé dans la branche avant même que l'itération qui l'a produit soit
+fusionnée. Ce qui reste ouvert est étroit : une seule copie du réglage
+subsiste, dans le helper, et prouver qu'elle suit le serveur plutôt qu'elle
+ne le redit demande toujours les deux seuils et les deux exécutions
+Playwright décrits dans l'issue.
+
+**Issues ouvertes** :
+
+- #454 — 121 renvois du code et des tests (`§7.9` ×64, `§6.7` ×33, `§6.14`
+  ×24) pointent vers des sections qui n'existent dans aucun document. Les
+  deux issues possibles — écrire ces sections, ou renuméroter les renvois —
+  sont des arbitrages, et le test qui les détecte est collé dans l'issue.
+
+Aucun des autres écarts de cette itération ne pose la question « lequel des
+deux a raison, le code ou la spec ? » : le manifeste construit le menu, la
+CI définit ses jobs, l'inventaire compte les routes, et le document seul
+était en retard.
+
+**Vérifié et tenu** :
+
+- `test_tools` et `support_dashboard` déclarent bien le `visible_when` que
+  §1.1 leur prête (`["reference_installation", "local_installation"]` et
+  `["statistics_receiver"]`).
+- Les 24 modules ont une section, et les 29 renvois portés par les lignes de
+  l'index pointent tous vers une section qui existe.
+- Les libellés « Groupes » et « Intelligence artificielle » de l'index §1.1
+  semblaient contredire les manifestes (« Groupes de discussion »,
+  « Connecteur IA ») : c'étaient leurs **libellés de menu**, exacts tous les
+  deux au moment de la vérification. Soupçon levé par la mesure, pas par la
+  lecture — il figure ici parce qu'il aurait fait une correction fausse.
+
+  **Et il a changé de statut pendant la PR**, ce que la revue a relevé.
+  `main` a depuis renommé les deux modules : `groups` porte maintenant le nom
+  « Discussions » dans son manifeste **et** dans son menu, et
+  `llm_connector` « Intelligence artificielle » dans les deux. L'index §1.1
+  disait toujours « Groupes » : ce n'était plus un libellé de menu, c'était un
+  libellé périmé, et il est corrigé. Le soupçon était faux quand il a été
+  levé, et la correction qu'il aurait fait faire est devenue juste pour une
+  autre raison — ce qui est une raison de plus de dater ce qu'on vérifie.
+
+**Non vérifiable, et pourquoi** :
+
+- **Le fond des sections**, par construction. Ce qui est tenu est que
+  chaque page a sa ligne, pas que la ligne dise vrai. §4.5 décrit la page
+  « Courrier sortant » sur 4 000 caractères ; rien ne confronte ces
+  4 000 caractères à l'écran. Un test de couverture est un test de présence.
+- **L'ordre des sous-sections de §18** (18.1, 18.2, 18.3, **18.5**, 18.4)
+  est inversé dans le document. Non corrigé : renuméroter toucherait les
+  renvois croisés qui citent §18.4 et §18.5 depuis d'autres sections, et une
+  correction d'ordre ne se prouve par aucun test — et la corriger demande
+  d'abord de trancher entre renuméroter (quatre renvois croisés à reprendre)
+  et déplacer le bloc (les numéros restent justes, le texte bouge). Déposé
+  en **#488**, la revue ayant relevé qu'un constat différé sans issue est
+  précisément ce qu'`AGENTS.md` interdit.
