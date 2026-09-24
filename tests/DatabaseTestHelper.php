@@ -47,7 +47,7 @@ class DatabaseTestHelper
         }
 
         throw new \RuntimeException(
-            'A database was promised (TEST_DB_* or CI is set) and could not be reached, so this '
+            'A database was promised (TEST_DB_HOST or CI is set) and could not be reached, so this '
             . 'class proved nothing and says so rather than skipping: ' . $reason
         );
     }

@@ -609,7 +609,7 @@ final class SetupPortableRestoreTest extends TestCase
 
         $service = new BackupService($connection, $originBase . '/storage', $originBase);
         if (!$service->supportsZipEncryption()) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('This PHP build has no AES zip encryption, which this feature refuses without.');
+            $this->markTestSkipped('This PHP build has no AES zip encryption, which this feature refuses without.');
         }
 
         $this->seedSetting($connection->getPdo(), InstallationIdentityService::INSTALLATION_ID_SETTING, self::ORIGIN_ID);

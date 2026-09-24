@@ -94,8 +94,8 @@ MariaDB and exported `TEST_DB_*`; in a local checkout that hook exits at its
 first line. Read the skipped count before believing a green run.
 
 **A skip is right on a laptop and wrong on a runner, and until issue #393
-twenty-four classes could not tell the two apart.** `TEST_DB_*` being set —
-or `CI` — is a promise that a server is there, so a refused connection is
+twenty-four classes could not tell the two apart.** `TEST_DB_HOST` being set
+— or `CI` — is a promise that a server is there, so a refused connection is
 then a broken run, not a test to quietly drop. Measured by pointing those
 variables at nothing:
 

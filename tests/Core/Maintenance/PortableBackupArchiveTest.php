@@ -92,7 +92,7 @@ final class PortableBackupArchiveTest extends TestCase
             DeclaredStorageDirectories::fromPaths([$this->storagePath . '/gallery'])
         );
         if (!$service->supportsZipEncryption()) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('This PHP build has no AES zip encryption, which this feature refuses without.');
+            $this->markTestSkipped('This PHP build has no AES zip encryption, which this feature refuses without.');
         }
 
         $result = $service->createPortableBackup(self::PASSPHRASE, '2.4.1', 'install-abc');
@@ -404,7 +404,7 @@ final class PortableBackupArchiveTest extends TestCase
 
         $service = new BackupService($this->realDbConnection(), $this->storagePath, $this->basePath);
         if (!$service->supportsZipEncryption()) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('This PHP build has no AES zip encryption.');
+            $this->markTestSkipped('This PHP build has no AES zip encryption.');
         }
 
         $this->expectException(BackupException::class);

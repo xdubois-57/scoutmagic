@@ -8,7 +8,9 @@ declare(strict_types=1);
 
 namespace Tests\Architecture;
 
+use PHPUnit\Framework\SkippedWithMessageException;
 use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
 
 /**
  * The tests that need a real server really got one.
@@ -208,15 +210,13 @@ final class DatabaseBackedTestsReallyRunTest extends TestCase
                 continue;
             }
 
-            foreach (file($file) ?: [] as $index => $line) {
-                if (!str_contains($line, self::SKIP_CALL)) {
-                    continue;
-                }
-                if (preg_match(self::DATABASE_WORDS, $line) !== 1) {
+            $source = (string) file_get_contents($file);
+            foreach ($this->skipCalls($source) as ['line' => $line, 'argument' => $argument]) {
+                if (preg_match(self::DATABASE_WORDS, $argument) !== 1) {
                     continue;
                 }
 
-                $offenders[] = $relative . ':' . ($index + 1) . ' — ' . trim($line);
+                $offenders[] = $relative . ':' . $line . ' — ' . $argument;
             }
         }
 
@@ -235,6 +235,87 @@ final class DatabaseBackedTestsReallyRunTest extends TestCase
     public function testTheScanReadsTheSuiteRatherThanAnEmptyList(): void
     {
         $this->assertGreaterThan(1000, count($this->testFiles()));
+    }
+
+    /**
+     * The rule itself, exercised rather than read.
+     *
+     * Everything above scans source text: it says where the decision is
+     * allowed to be taken, never what the decision IS. So the three
+     * branches the whole of issue #393 turns on — nothing promised, a host
+     * promised, a runner promised — are asserted here, on the helper, with
+     * the environment restored whatever happens.
+     */
+    public function testTheHelperAsksWhatWasPromisedRatherThanWhatAnswers(): void
+    {
+        $host = getenv('TEST_DB_HOST');
+        $ci = getenv('CI');
+
+        try {
+            putenv('TEST_DB_HOST');
+            putenv('CI');
+            $this->assertSame(
+                'skipped',
+                $this->outcomeOfTheHelper(),
+                'a laptop with nothing on 3306 promised nothing, so the test is dropped'
+            );
+
+            putenv('TEST_DB_HOST=127.0.0.1');
+            $this->assertSame(
+                'threw',
+                $this->outcomeOfTheHelper(),
+                'a configured host is a promise, so a refused connection is a broken run'
+            );
+
+            putenv('TEST_DB_HOST');
+            putenv('CI=true');
+            $this->assertSame(
+                'threw',
+                $this->outcomeOfTheHelper(),
+                'CI alone is the same promise — it is what the runner sets'
+            );
+        } finally {
+            putenv($host === false ? 'TEST_DB_HOST' : 'TEST_DB_HOST=' . $host);
+            putenv($ci === false ? 'CI' : 'CI=' . $ci);
+        }
+    }
+
+    /**
+     * The shape the test above used to miss, shown failing.
+     *
+     * Reading physical lines meant a call and its message on separate
+     * lines were two lines, neither of which carried both halves: the
+     * bracket line names no database, the message line names no call. So
+     * the offender the guard exists to catch was the one spelling it could
+     * not see — and that spelling is already in the suite
+     * (`VolumeInventoryTest`, `SsrfUrlValidatorTest`), so it was a matter
+     * of somebody writing the next one that way rather than of luck.
+     */
+    public function testTheScanReadsASkipSplitAcrossLines(): void
+    {
+        $split = <<<'PHP'
+            <?php
+            $this->markTestSkipped(
+                'Database connection not available: ' . $e->getMessage()
+            );
+            PHP;
+
+        $calls = $this->skipCalls($split);
+
+        $this->assertCount(1, $calls);
+        $this->assertSame(2, $calls[0]['line'], 'the offence is reported at the call, not at the message');
+        $this->assertSame(1, preg_match(self::DATABASE_WORDS, $calls[0]['argument']));
+
+        // And the half that must stay quiet: the same shape, blaming
+        // something that has nothing to do with a database.
+        $capability = <<<'PHP'
+            <?php
+            $this->markTestSkipped(
+                'This PHP build has no AES zip encryption, which this feature refuses without.'
+            );
+            PHP;
+
+        $this->assertSame(0, preg_match(self::DATABASE_WORDS, $this->skipCalls($capability)[0]['argument']));
     }
 
     /**
@@ -262,7 +343,42 @@ final class DatabaseBackedTestsReallyRunTest extends TestCase
      */
     private function skipArguments(string $source): array
     {
-        $arguments = [];
+        return array_map(
+            static fn (array $call): string => $call['argument'],
+            $this->skipCalls($source)
+        );
+    }
+
+    /**
+     * Which of the helper's two exits a refused connection takes here.
+     *
+     * The skip is caught rather than allowed to propagate: an uncaught one
+     * would drop THIS test, which is the opposite of asserting it happens.
+     */
+    private function outcomeOfTheHelper(): string
+    {
+        try {
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('a refused connection, for this test');
+        } catch (SkippedWithMessageException) {
+            return 'skipped';
+        } catch (\RuntimeException) {
+            return 'threw';
+        }
+    }
+
+    /**
+     * The same reading, keeping the line the call opens on.
+     *
+     * Both tests above go through this. Asking the question line by line
+     * was how the multi-line spelling — the call on one line, the message
+     * on the next — stayed invisible to the second one: neither line
+     * carries both halves of the question.
+     *
+     * @return list<array{line: int, argument: string}>
+     */
+    private function skipCalls(string $source): array
+    {
+        $calls = [];
         $offset = 0;
 
         while (($found = strpos($source, self::SKIP_CALL, $offset)) !== false) {
@@ -280,11 +396,14 @@ final class DatabaseBackedTestsReallyRunTest extends TestCase
             }
 
             $end = $this->endOfArguments($source, $open + 1);
-            $arguments[] = trim(substr($source, $open + 1, $end - $open - 2));
+            $calls[] = [
+                'line' => substr_count($source, "\n", 0, $found) + 1,
+                'argument' => trim(substr($source, $open + 1, $end - $open - 2)),
+            ];
             $offset = $end;
         }
 
-        return $arguments;
+        return $calls;
     }
 
     /**

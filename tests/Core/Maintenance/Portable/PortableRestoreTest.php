@@ -251,7 +251,7 @@ final class PortableRestoreTest extends TestCase
         $connection = $this->realDbConnection();
         $service = new BackupService($connection, $this->originBase . '/storage', $this->originBase);
         if (!$service->supportsZipEncryption()) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('This PHP build has no AES zip encryption, which this feature refuses without.');
+            $this->markTestSkipped('This PHP build has no AES zip encryption, which this feature refuses without.');
         }
 
         // A row that exists only in the ORIGIN's database, so that "the dump
@@ -311,7 +311,7 @@ final class PortableRestoreTest extends TestCase
         $connection = $this->realDbConnection();
         $service = new BackupService($connection, $this->originBase . '/storage', $this->originBase);
         if (!$service->supportsZipEncryption()) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('This PHP build has no AES zip encryption, which this feature refuses without.');
+            $this->markTestSkipped('This PHP build has no AES zip encryption, which this feature refuses without.');
         }
 
         $result = $service->createPortableBackup(self::PASSPHRASE, '2.4.1', self::ORIGIN_ID);
@@ -352,7 +352,7 @@ final class PortableRestoreTest extends TestCase
         $connection = $this->realDbConnection();
         $service = new BackupService($connection, $this->originBase . '/storage', $this->originBase);
         if (!$service->supportsZipEncryption()) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('This PHP build has no AES zip encryption, which this feature refuses without.');
+            $this->markTestSkipped('This PHP build has no AES zip encryption, which this feature refuses without.');
         }
 
         $result = $service->createPortableBackup(self::PASSPHRASE, '2.4.1', self::ORIGIN_ID);
@@ -422,7 +422,7 @@ final class PortableRestoreTest extends TestCase
         $connection = $this->realDbConnection();
         $service = new BackupService($connection, $this->originBase . '/storage', $this->originBase);
         if (!$service->supportsZipEncryption()) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('This PHP build has no AES zip encryption, which this feature refuses without.');
+            $this->markTestSkipped('This PHP build has no AES zip encryption, which this feature refuses without.');
         }
 
         $result = $service->createPortableBackup(self::PASSPHRASE, '2.4.1', self::ORIGIN_ID);
@@ -502,7 +502,7 @@ final class PortableRestoreTest extends TestCase
         $connection = $this->realDbConnection();
         $service = new BackupService($connection, $this->originBase . '/storage', $this->originBase);
         if (!$service->supportsZipEncryption()) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('This PHP build has no AES zip encryption, which this feature refuses without.');
+            $this->markTestSkipped('This PHP build has no AES zip encryption, which this feature refuses without.');
         }
 
         // The name the archive's dump carries, so that "the database was
@@ -705,7 +705,7 @@ final class PortableRestoreTest extends TestCase
     {
         $service = new BackupService($this->realDbConnection(), $this->originBase . '/storage', $this->originBase);
         if (!$service->supportsZipEncryption()) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('This PHP build has no AES zip encryption, which this feature refuses without.');
+            $this->markTestSkipped('This PHP build has no AES zip encryption, which this feature refuses without.');
         }
 
         $result = $service->createPortableBackup(self::PASSPHRASE, '2.4.1', self::ORIGIN_ID);

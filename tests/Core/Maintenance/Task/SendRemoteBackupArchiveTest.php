@@ -302,7 +302,7 @@ final class SendRemoteBackupArchiveTest extends TestCase
     {
         $service = new BackupService($this->connection, $this->storagePath, $this->basePath);
         if (!$service->supportsZipEncryption()) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('This PHP build has no AES zip encryption, which this feature refuses without.');
+            $this->markTestSkipped('This PHP build has no AES zip encryption, which this feature refuses without.');
         }
     }
 
