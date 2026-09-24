@@ -56,11 +56,27 @@ use PHPUnit\Framework\TestCase;
  * `GalleryConfigController`, `CalendarConfigController` and
  * `ReenrollmentConfigController`.
  *
- * Every one of those 15 passes its module's scope correctly today — which
- * was verified, not assumed. So there is no bug hiding there right now;
- * there is only a part of the codebase this test says nothing about, and
- * the next person is meant to know that rather than be reassured. Issue
- * #443 carries the durable form.
+ * Every one of those passes its module's scope correctly today — which
+ * was verified, not assumed. So there was no bug hiding there; there was
+ * a part of the codebase this test said nothing about, while reading as
+ * though it did.
+ *
+ * **Closed from the other side** (issue #443).
+ * `testAModuleCallWithAnUnreadableKeyStillNamesItsScope()` asks the one
+ * question that does not need the key: a call in a module, on a
+ * `SettingService`, that names **no scope at all**. Whatever that key
+ * turns out to be, the call will look in `_core_`, and a module's own
+ * setting is not there. Seventeen such calls exist today and all seventeen
+ * are scoped, so it is green from its first run — it is written for the
+ * eighteenth.
+ *
+ * What is still not covered, and is now the whole of it: a call that
+ * DOES name a scope under a key nobody can read is taken at its word.
+ * Judging that one means knowing which module the key belongs to, which
+ * means resolving the key — the thing that could not be done in the first
+ * place. #443's options 2 and 3 (following a ternary of constants back to
+ * its branches, or a key parameter back to its callers) are a flow
+ * analysis, and a test is not the place for one.
  */
 class ModuleSettingsAreReadInTheirScopeTest extends TestCase
 {
@@ -1000,6 +1016,253 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
         sort($files);
 
         return $files;
+    }
+
+    /**
+     * The blind spot, closed from the other side.
+     *
+     * The check above can only judge a call whose key it can resolve, and a
+     * key built at run time does not resolve — so those calls were dropped
+     * before their scope was ever looked at. Sixteen of them live in
+     * `modules/` today (issue #443).
+     *
+     * This asks the one question that does not need the key: **a call in a
+     * module, on a `SettingService`, that names no scope at all.** Whatever
+     * that key turns out to be, `_core_` is where the call will look, and a
+     * module's own setting is not there. It is issue #433's defect in the
+     * shape the main scan cannot see.
+     *
+     * All sixteen pass today, so this is green from its first run — which
+     * is the point. It is written for the seventeenth.
+     *
+     * **The trap, named rather than left to be met.** A module file may
+     * legitimately read a *core* setting with a computed key, and this test
+     * would call it an offence. None exists today. When one is written, it
+     * is a decision to take explicitly — add it to `CORE_KEYS_IN_MODULES`
+     * with the reason — rather than a rule to soften, because « a module
+     * reaching into core's scope with a key nobody can read » deserves to
+     * be looked at once by a person.
+     *
+     * What it still does not see, said as plainly as the docblock above:
+     * a call whose receiver is not named for what it is. That is what
+     * `testEverySettingServiceReceiverIsRecognisable()` holds.
+     *
+     * @var list<string> file:line, with the reason on the line
+     */
+    private const CORE_KEYS_IN_MODULES = [];
+
+    /**
+     * How a `SettingService` is held, everywhere it is held in this
+     * repository: `$this->settingService`, `$this->settings`,
+     * `$settingService`, `$settings`, `$context->settings`,
+     * `$this->coreSettingService`.
+     */
+    private const RECEIVER_PATTERN = '/(^|>)(core|setup)?[sS]etting(s|Service)$/';
+
+    public function testAModuleCallWithAnUnreadableKeyStillNamesItsScope(): void
+    {
+        $offenders = [];
+        $seen = 0;
+
+        foreach (self::phpFiles() as $file) {
+            $relative = substr($file, strlen(self::root()) + 1);
+            if (!str_starts_with($relative, 'modules/')) {
+                continue;
+            }
+
+            foreach (self::settingCallsIn($file) as $call) {
+                if ($call['resolves']) {
+                    continue; // the scan above already judged this one
+                }
+
+                $seen++;
+                $scope = self::normalise($call['scope']);
+                if ($scope !== '' && $scope !== 'null') {
+                    continue;
+                }
+
+                $where = $relative . ':' . $call['line'];
+                if (in_array($where, self::CORE_KEYS_IN_MODULES, true)) {
+                    continue;
+                }
+
+                $offenders[] = sprintf(
+                    '%s — %s(%s) names no scope, so whatever that key is it will be read from `_core_`',
+                    $where,
+                    $call['method'],
+                    $call['key_expression']
+                );
+            }
+        }
+
+        $this->assertSame(
+            [],
+            $offenders,
+            "A module reading a setting under a key this check cannot resolve must still say
+"
+            . "which module's scope it means. Without one the call reads `_core_`, finds
+"
+            . "nothing and answers the default — the defect of issue #433, in the shape the
+"
+            . "main scan above cannot see (issue #443).
+
+"
+            . "If the key really is a CORE setting, that is a decision to take out loud:
+"
+            . "add the line to CORE_KEYS_IN_MODULES with its reason.
+  "
+            . implode("
+  ", $offenders)
+        );
+
+        $this->assertGreaterThanOrEqual(
+            12,
+            $seen,
+            'The scan found almost no runtime-keyed settings call in modules/, which means it '
+            . 'has stopped reading them rather than that they are gone — there were sixteen '
+            . 'when issue #443 counted them.'
+        );
+    }
+
+    /**
+     * A `SettingService` held under a name this file does not recognise is
+     * a call neither check sees, so the naming is the invariant.
+     *
+     * Read from the constructor promotions and properties typed
+     * `SettingService`, rather than from a list somebody has to keep: the
+     * type is what makes it one, and the name is what makes it findable.
+     */
+    public function testEverySettingServiceReceiverIsRecognisable(): void
+    {
+        $offenders = [];
+
+        foreach (self::phpFiles() as $file) {
+            $source = (string) file_get_contents($file);
+            if (!str_contains($source, 'SettingService')) {
+                continue;
+            }
+
+            preg_match_all(
+                '/\bSettingService\s+\$([A-Za-z_][A-Za-z0-9_]*)/',
+                $source,
+                $found,
+                PREG_SET_ORDER
+            );
+            foreach ($found as $declaration) {
+                if (preg_match(self::RECEIVER_PATTERN, $declaration[1]) === 1) {
+                    continue;
+                }
+
+                $offenders[] = substr($file, strlen(self::root()) + 1) . ' — $' . $declaration[1];
+            }
+        }
+
+        $this->assertSame(
+            [],
+            $offenders,
+            "A SettingService has to be held under a name saying so — `\$settingService`,
+"
+            . "`\$settings`, or one of the forms RECEIVER_PATTERN knows. The checks in this
+"
+            . "file find their call sites by that name, so one held under another goes
+"
+            . "unread by both of them, silently.
+  "
+            . implode("
+  ", $offenders)
+        );
+    }
+
+    /**
+     * Every call on a `SettingService` in one file, whether or not its key
+     * can be resolved — which is the difference from `callsToModuleKeys()`,
+     * where an unresolvable key ends the examination.
+     *
+     * The receiver is recognised by name, and that is a choice with a
+     * guard: `testEverySettingServiceReceiverIsRecognisable()` is what
+     * keeps the names true. Reading the type through to the call site would
+     * mean resolving `$this->x` back to a promoted constructor property
+     * across a whole file, which is a type checker, not a test.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private static function settingCallsIn(string $file): array
+    {
+        $source = (string) file_get_contents($file);
+        $constants = self::constantsByClass();
+        $ownClass = self::classDeclaredIn($source);
+        $useMap = self::useMapOf($source);
+
+        $tokens = token_get_all($source);
+        $count = count($tokens);
+        $calls = [];
+
+        for ($i = 0; $i < $count; $i++) {
+            $operator = is_array($tokens[$i]) ? $tokens[$i][0] : null;
+            if ($operator !== T_OBJECT_OPERATOR && $operator !== T_NULLSAFE_OBJECT_OPERATOR) {
+                continue;
+            }
+
+            $name = $tokens[$i + 1] ?? null;
+            if (!is_array($name) || $name[0] !== T_STRING || !isset(self::SCOPED_METHODS[$name[1]])) {
+                continue;
+            }
+            if (($tokens[$i + 2] ?? null) !== '(') {
+                continue;
+            }
+            if (!self::receiverIsASettingService($tokens, $i)) {
+                continue;
+            }
+
+            $arguments = self::argumentsAt($tokens, $i + 2);
+            $scope = trim($arguments[self::SCOPED_METHODS[$name[1]]] ?? '');
+
+            foreach (self::keyExpressionsOf($name[1], trim($arguments[0] ?? '')) as $expression) {
+                $calls[] = [
+                    'line' => $name[2],
+                    'method' => $name[1],
+                    'key_expression' => $expression,
+                    'scope' => $scope,
+                    'resolves' => self::resolveKey($expression, $ownClass, $constants, $useMap) !== null,
+                ];
+            }
+        }
+
+        return $calls;
+    }
+
+    /**
+     * Walks back from the `->` to the identifier the call is made on, and
+     * asks whether it is named for a `SettingService`.
+     *
+     * `$this->settingService`, `$settings`, `$context->settings` — the walk
+     * stops at the first `$variable` or `->property` to its left, which is
+     * enough for every shape this repository writes.
+     *
+     * @param array<int, mixed> $tokens
+     */
+    private static function receiverIsASettingService(array $tokens, int $operatorIndex): bool
+    {
+        for ($i = $operatorIndex - 1; $i >= 0; $i--) {
+            $token = $tokens[$i];
+
+            if (is_array($token) && ($token[0] === T_WHITESPACE || $token[0] === T_COMMENT)) {
+                continue;
+            }
+
+            if (is_array($token) && ($token[0] === T_VARIABLE || $token[0] === T_STRING)) {
+                $identifier = ltrim($token[1], '$');
+                $previous = $tokens[$i - 1] ?? null;
+                $afterAnArrow = is_array($previous)
+                    && ($previous[0] === T_OBJECT_OPERATOR || $previous[0] === T_NULLSAFE_OBJECT_OPERATOR);
+
+                return preg_match(self::RECEIVER_PATTERN, ($afterAnArrow ? '>' : '') . $identifier) === 1;
+            }
+
+            return false;
+        }
+
+        return false;
     }
 
     /** The repository root, which every path in this file is relative to. */
