@@ -435,3 +435,51 @@ Rien.
 ### Reporté
 
 Rien.
+
+---
+
+## IT-05 — Documentation, aide, clôture
+
+### Livré
+
+- **`ARCHITECTURE.md`** :
+  - §8.53 décrit les quatre pages (`BookingPage`, `BookingBox::page()`,
+    `bookingPagesOffered()`), le parcours et sa tête, les natures d'étape
+    (`MilestoneKind`) et la coche « Fait » des étapes hors du site. Le
+    paragraphe des « quatre mouvements » est remplacé.
+  - §8.58 décrit le composant de tri partagé (`Api\TriageList`, le
+    partial, `triage_ui`) et `dedicatedMailboxesFor()`.
+  - §8.59 décrit la page Courrier, sa condition (une boîte dédiée, une
+    seule) et le `Reply-To`. Les phrases sur « déplacer » et sur
+    l'absence de rattachement à la main sont réécrites.
+- **`specifications.md`** :
+  - §22.5 : les quatre pages et le tableau de bord, et l'exception
+    « hors du site » au principe dérivé.
+  - §22.9 : la page Courrier.
+- **`docs/rental-guide.md`** : §6 (les pages de la réservation) et §11
+  (le courrier) mis à jour.
+- **Aide** : un sujet par page de la réservation.
+
+  | Page | Sujet |
+  |---|---|
+  | Tableau de bord | « La fiche d'une réservation » (mis à jour) et « Le parcours d'une réservation » (IT-02) |
+  | Finances | « Les finances d'une réservation » (nouveau, `locations-finances`) |
+  | Documents | « Le contrat et la facture d'une réservation » (présente désormais la page) |
+  | Courrier | « Le courrier des locations » (IT-03, IT-04) |
+
+  « Où trouver le prix et les paiements d'une réservation ? » passe au
+  sujet Finances.
+
+### Bilan du chantier
+
+| Itération | PR | Objet |
+|---|---|---|
+| IT-01 | #475 | Le rail, les quatre pages, les boîtes réparties |
+| IT-02 | #477 | Un seul parcours, la nature des étapes, « Fait » hors du site |
+| IT-03 | #480 | Un seul écran de courrier pour les camps et les locations |
+| IT-04 | (cette série) | La page Courrier sur boîte dédiée, `Reply-To` |
+| IT-05 | (cette série) | Documentation et aide |
+
+Aucun changement de permission ni de machine à états. Les écarts relevés
+contre le commit 5af544e sont en tête de ce journal ; ceux apparus en
+cours de route sont dans la section de leur itération.
