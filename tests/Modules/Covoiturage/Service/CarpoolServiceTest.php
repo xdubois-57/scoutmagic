@@ -222,6 +222,36 @@ final class CarpoolServiceTest extends TestCase
         $this->assertFalse($this->carpools->findById($id)?->pointIsManual, 'An unchanged point is not a human decision.');
     }
 
+    public function testTheReturnCannotBeRemovedOnceACarIsProposedForIt(): void
+    {
+        // Without a return date the return tab disappears, and with it the
+        // cars proposed for it and every seat already granted.
+        $id = $this->service->create($this->input(['return_date' => H::day(22)]), H::viewer(1, Role::CHIEF));
+        H::offer($this->pdo, $id, 7, 4, 'return');
+        $carpool = $this->carpools->findById($id);
+        $this->assertNotNull($carpool);
+
+        try {
+            $this->service->update($carpool, $this->input(['return_date' => '']), H::viewer(1, Role::CHIEF));
+            $this->fail('The return was removed from under a car proposed for it.');
+        } catch (CarpoolException $e) {
+            $this->assertSame(CarpoolService::RETURN_REMOVAL_REFUSED, $e->getMessage());
+        }
+        $this->assertSame(H::day(22), $this->carpools->findById($id)?->returnDate);
+    }
+
+    public function testTheReturnCanBeRemovedWhileOnlyOutboundCarsExist(): void
+    {
+        $id = $this->service->create($this->input(['return_date' => H::day(22)]), H::viewer(1, Role::CHIEF));
+        H::offer($this->pdo, $id, 7);
+        $carpool = $this->carpools->findById($id);
+        $this->assertNotNull($carpool);
+
+        $this->service->update($carpool, $this->input(['return_date' => '']), H::viewer(1, Role::CHIEF));
+
+        $this->assertNull($this->carpools->findById($id)?->returnDate);
+    }
+
     public function testACarpoolWithACarCannotBeDeleted(): void
     {
         $id = $this->service->create($this->input(), H::viewer(1, Role::CHIEF));

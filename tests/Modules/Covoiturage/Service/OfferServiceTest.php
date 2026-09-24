@@ -150,6 +150,45 @@ final class OfferServiceTest extends TestCase
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM carpool_offers')->fetchColumn());
     }
 
+    public function testAFullCarSaysSoInAWholeSentence(): void
+    {
+        $carpool = $this->carpools->findById(H::carpool($this->pdo));
+        $this->assertNotNull($carpool);
+        $offerId = H::offer($this->pdo, $carpool->id, 1, 2);
+        H::request($this->pdo, $offerId, 2, ['Alice', 'Bob'], 'accepted');
+        $second = H::request($this->pdo, $offerId, 3, ['Chloé']);
+        $offer = $this->offers->findById($offerId);
+        $request = $this->requests->findById($second);
+        $this->assertNotNull($offer);
+        $this->assertNotNull($request);
+
+        try {
+            $this->service->accept($request, $offer, H::viewer(1));
+            $this->fail('A full car accepted one more passenger.');
+        } catch (CarpoolException $e) {
+            $this->assertStringStartsWith('Cette voiture est complète', $e->getMessage());
+            $this->assertStringNotContainsString('reste que complet', $e->getMessage());
+        }
+    }
+
+    public function testARequestAlreadyDecidedElsewhereIsNotDecidedAgain(): void
+    {
+        // The object was read before another tab accepted it; the write is
+        // guarded by the status it expects, not by that stale copy.
+        $carpool = $this->carpools->findById(H::carpool($this->pdo));
+        $this->assertNotNull($carpool);
+        $offerId = H::offer($this->pdo, $carpool->id, 1, 4);
+        $requestId = H::request($this->pdo, $offerId, 2, ['Alice']);
+        $offer = $this->offers->findById($offerId);
+        $stale = $this->requests->findById($requestId);
+        $this->assertNotNull($offer);
+        $this->assertNotNull($stale);
+        $this->service->accept($stale, $offer, H::viewer(1));
+
+        $this->expectException(CarpoolException::class);
+        $this->service->refuse($stale, $offer, H::viewer(1));
+    }
+
     public function testARequestNamesSeveralPeopleAndCountsThemAll(): void
     {
         $carpool = $this->carpools->findById(H::carpool($this->pdo));

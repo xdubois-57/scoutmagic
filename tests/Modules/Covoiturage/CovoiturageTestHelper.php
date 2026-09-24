@@ -136,7 +136,7 @@ final class CovoiturageTestHelper
         $repo = new SeatRequestRepository($pdo, self::encryption());
         $id = $repo->create($offerId, $requesterAccountId, 'Famille Leroy', $names, '0495 88 77 66');
         if ($status !== 'pending') {
-            $repo->setStatus($id, $status);
+            $repo->transition($id, 'pending', $status);
         }
 
         return $id;

@@ -18,6 +18,7 @@ use Modules\Calendar\Api\EventSummary;
 use Modules\Covoiturage\Repository\Carpool;
 use Modules\Covoiturage\Repository\CarpoolEvent;
 use Modules\Covoiturage\Repository\CarpoolRepository;
+use Modules\Covoiturage\Repository\Offer;
 use Modules\Covoiturage\Repository\OfferRepository;
 
 /**
@@ -34,6 +35,9 @@ class CarpoolService
     /** Said beside the delete button, and by the refusal, in the same words. */
     public const DELETE_REFUSED = 'Suppression impossible : des familles se sont déjà organisées. '
         . 'Modifiez le covoiturage, ou prévenez-les.';
+
+    public const RETURN_REMOVAL_REFUSED = 'Des voitures sont déjà proposées pour le retour : il ne peut plus '
+        . 'être retiré. Leurs conducteurs doivent d\'abord les annuler.';
 
     /** How many suggestions the event search returns. */
     private const SEARCH_LIMIT = 15;
@@ -141,6 +145,11 @@ class CarpoolService
             throw new CarpoolException('Ce covoiturage concerne une autre section : vous ne pouvez pas le modifier.');
         }
         $data = $this->validate($input, $viewer, $carpool);
+        if ($data['return'] === null && $carpool->hasReturn() && $this->hasReturnOffers($carpool)) {
+            // Without a return date the return tab disappears, and with it
+            // every car proposed for it and every seat already granted.
+            throw new CarpoolException(self::RETURN_REMOVAL_REFUSED);
+        }
 
         $this->carpools->update($carpool->id, $data['address'], $data['outbound'], $data['return'], $data['section_id']);
         $this->carpools->replaceEvents($carpool->id, $data['events']);
@@ -178,6 +187,17 @@ class CarpoolService
     public function hasOffers(Carpool $carpool): bool
     {
         return ($this->offers->findByCarpools([$carpool->id])[$carpool->id] ?? []) !== [];
+    }
+
+    private function hasReturnOffers(Carpool $carpool): bool
+    {
+        foreach ($this->offers->findByCarpools([$carpool->id])[$carpool->id] ?? [] as $offer) {
+            if ($offer->direction === Offer::RETURN) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

@@ -101,11 +101,36 @@ class SeatRequestRepository
         return (int) $stmt->fetchColumn();
     }
 
-    public function setStatus(int $id, string $status): void
+    /**
+     * Holds the offer's row until the surrounding transaction ends, so two
+     * decisions on the same car count its seats one after the other. A
+     * plain read takes no lock under REPEATABLE READ: both would see the
+     * same free seats and both would accept. SQLite, used by the unit
+     * tests, locks the whole database on write and has no FOR UPDATE.
+     */
+    public function lockOffer(int $offerId): void
+    {
+        if ($this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite') {
+            return;
+        }
+        $stmt = $this->pdo->prepare('SELECT id FROM carpool_offers WHERE id = ? FOR UPDATE');
+        $stmt->execute([$offerId]);
+        $stmt->fetchAll();
+    }
+
+    /**
+     * Moves a request from one status to another, and only from that one:
+     * false when somebody else decided first (another tab, a double click).
+     */
+    public function transition(int $id, string $from, string $to): bool
     {
         $now = date('Y-m-d H:i:s');
-        $stmt = $this->pdo->prepare('UPDATE carpool_requests SET status = ?, decided_at = ?, updated_at = ? WHERE id = ?');
-        $stmt->execute([$status, $now, $now, $id]);
+        $stmt = $this->pdo->prepare(
+            'UPDATE carpool_requests SET status = ?, decided_at = ?, updated_at = ? WHERE id = ? AND status = ?'
+        );
+        $stmt->execute([$to, $now, $now, $id, $from]);
+
+        return $stmt->rowCount() === 1;
     }
 
     public function delete(int $id): void

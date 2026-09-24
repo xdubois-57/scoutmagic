@@ -198,21 +198,26 @@ class OfferService
             throw new CarpoolException('Choisissez pour qui vous demandez une place.');
         }
 
-        $free = $offer->seats - $this->requests->acceptedSeats($offer->id);
-        if (count($names) > $free) {
-            throw new CarpoolException(
-                'Il ne reste que ' . CarpoolFormat::freeSeats($free) . ' dans cette voiture : demandez pour moins '
-                . 'de personnes, ou dans une autre voiture.'
-            );
+        $phone = $this->phone($input['phone'] ?? '');
+
+        $this->pdo->beginTransaction();
+        try {
+            $this->requests->lockOffer($offer->id);
+            $free = $offer->seats - $this->requests->acceptedSeats($offer->id);
+            if (count($names) > $free) {
+                throw new CarpoolException($free <= 0
+                    ? 'Cette voiture est complète : demandez une place dans une autre voiture.'
+                    : 'Il ne reste que ' . CarpoolFormat::freeSeats($free) . ' dans cette voiture : demandez '
+                        . 'pour moins de personnes, ou dans une autre voiture.');
+            }
+            $id = $this->requests->create($offer->id, $viewer->accountId, $requesterName, $names, $phone);
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            throw $e;
         }
 
-        return $this->requests->create(
-            $offer->id,
-            $viewer->accountId,
-            $requesterName,
-            $names,
-            $this->phone($input['phone'] ?? '')
-        );
+        return $id;
     }
 
     /**
@@ -229,14 +234,19 @@ class OfferService
 
         $this->pdo->beginTransaction();
         try {
+            // The car's row is held first, so a second acceptance on it
+            // waits for this one and then counts its seats (D4).
+            $this->requests->lockOffer($offer->id);
             $free = $offer->seats - $this->requests->acceptedSeats($offer->id);
             if ($request->passengerCount > $free) {
-                throw new CarpoolException(
-                    'Il ne reste que ' . CarpoolFormat::freeSeats($free) . ' : une demande s\'accepte entière. '
-                    . 'Refusez-la, la famille pourra redemander pour moins de personnes.'
-                );
+                throw new CarpoolException($free <= 0
+                    ? 'Cette voiture est complète : refusez cette demande, ou retirez d\'abord une place accordée.'
+                    : 'Il ne reste que ' . CarpoolFormat::freeSeats($free) . ' : une demande s\'accepte entière. '
+                        . 'Refusez-la, la famille pourra redemander pour moins de personnes.');
             }
-            $this->requests->setStatus($request->id, SeatRequest::ACCEPTED);
+            if (!$this->requests->transition($request->id, SeatRequest::PENDING, SeatRequest::ACCEPTED)) {
+                throw new CarpoolException('Cette demande a déjà reçu une réponse.');
+            }
             $this->pdo->commit();
         } catch (\Throwable $e) {
             $this->pdo->rollBack();
@@ -251,7 +261,9 @@ class OfferService
         if (!$request->isPending()) {
             throw new CarpoolException('Cette demande a déjà reçu une réponse.');
         }
-        $this->requests->setStatus($request->id, SeatRequest::REFUSED);
+        if (!$this->requests->transition($request->id, SeatRequest::PENDING, SeatRequest::REFUSED)) {
+            throw new CarpoolException('Cette demande a déjà reçu une réponse.');
+        }
     }
 
     /**
@@ -267,7 +279,9 @@ class OfferService
         if (!$request->isAccepted()) {
             throw new CarpoolException('Seule une place accordée peut être retirée.');
         }
-        $this->requests->setStatus($request->id, SeatRequest::REVOKED);
+        if (!$this->requests->transition($request->id, SeatRequest::ACCEPTED, SeatRequest::REVOKED)) {
+            throw new CarpoolException('Seule une place accordée peut être retirée.');
+        }
     }
 
     /**
