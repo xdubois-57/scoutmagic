@@ -33,7 +33,7 @@ final class RentalBlock
     /**
      * The same shape a booking becomes, deliberately: a public visitor
      * cannot tell a block from a booking because there is nothing in an
-     * `Occupancy` to tell them apart by (§6.7).
+     * `Occupancy` to tell them apart by (specifications.md §22.2).
      */
     public function toOccupancy(): Occupancy
     {

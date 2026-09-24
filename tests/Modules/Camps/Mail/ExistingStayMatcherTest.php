@@ -176,7 +176,7 @@ class ExistingStayMatcherTest extends TestCase
         $this->assertIsArray($row);
         $this->assertStringContainsString('2026-09-18', (string) $row['description']);
         $this->assertStringContainsString('2026-09-20', (string) $row['description']);
-        // §7.9: the entry is about a booking, never about a person. No
+        // §8.6: the entry is about a booking, never about a person. No
         // sender, no recipient, no body — a period, a count and ids.
         $this->assertStringNotContainsString('@', (string) $row['description'] . (string) $row['context']);
     }

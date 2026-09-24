@@ -98,7 +98,7 @@ class AnalysisJournalTest extends TestCase
     {
         // A journal entry is read by a superadmin and travels in a support
         // archive: it may name an internal id and a mailbox, never a
-        // sender, a subject or a file (§7.9).
+        // sender, a subject or a file (§8.6).
         $this->journal->analysed(3, 1, 'Unité', ['camps'], [], AnalysisJournal::PASS_STORED);
 
         $entry = $this->entries()[0];

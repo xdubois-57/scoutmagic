@@ -1259,3 +1259,12 @@
     max-height: 85vh;
     object-fit: contain;
 }
+
+/* ---------------------------------------------------------------------
+   The carpool organiser's point picker (public/assets/js/
+   covoiturage-organize.js). A height is the one thing Leaflet cannot do
+   without: a map in a zero-height box renders nothing at all.
+   --------------------------------------------------------------------- */
+.carpool-point-map {
+    height: 14rem;
+}

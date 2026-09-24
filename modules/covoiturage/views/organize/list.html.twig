@@ -1,0 +1,77 @@
+{% extends 'base.html.twig' %}
+{% block title %}Organiser les covoiturages — {{ param('site_name') }}{% endblock %}
+{#
+  « Organiser les covoiturages » (Espace animateurs). Every carpool to come
+  is listed; the counts are shown only where the reader is staff of a
+  section it concerns, or Staff d'U (D8) — elsewhere the card says so.
+#}
+{% block content %}
+<div class="page-medium">
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Organiser les covoiturages',
+        subtitle: 'Organisez un covoiturage par sortie : il fixe le lieu et les dates. Les familles y ajoutent ensuite les places libres de leur voiture, et s\'arrangent entre elles.',
+        action_label: 'Nouveau covoiturage',
+        action_url: '/covoiturage/organiser/nouveau',
+    } only %}
+
+    {% if carpools is empty %}
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucun covoiturage à venir.',
+            action_label: 'Nouveau covoiturage',
+            action_url: '/covoiturage/organiser/nouveau',
+            icon: 'bi-car-front',
+        } only %}
+    {% endif %}
+
+    <div class="d-flex flex-column gap-3">
+        {% for carpool in carpools %}
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex flex-wrap align-items-baseline gap-2">
+                        <span class="fw-semibold flex-grow-1">{{ carpool.title }}</span>
+                        <span class="d-flex flex-wrap gap-1">
+                            {% for section in carpool.sections %}
+                                <span class="badge text-bg-light border">{{ section }}</span>
+                            {% endfor %}
+                        </span>
+                    </div>
+                    <div class="small text-body-secondary">{{ carpool.address }}</div>
+                    <div class="small text-body-secondary">{{ carpool.dates }}</div>
+
+                    {% if carpool.visible %}
+                        <div class="mt-2">
+                            {{ carpool.cars }} voiture{{ carpool.cars > 1 ? 's' : '' }} · {{ carpool.taken }} sur {{ carpool.seats }} places prises
+                            {%- if carpool.pending > 0 %} · <span class="text-warning-emphasis">{{ carpool.pending }} demande{{ carpool.pending > 1 ? 's' : '' }} en attente</span>{% endif %}
+                        </div>
+                        <div class="d-flex flex-wrap gap-2 mt-2">
+                            <a href="/covoiturage/{{ carpool.id }}" class="btn btn-sm btn-outline-secondary">Voir les voitures</a>
+                            {% if carpool.may_organize %}
+                                <a href="/covoiturage/organiser/{{ carpool.id }}/modifier" class="btn btn-sm btn-outline-secondary">
+                                    <i class="bi bi-pencil" aria-hidden="true"></i> Modifier
+                                </a>
+                                {% if carpool.deletable %}
+                                    <form method="post" action="/covoiturage/organiser/{{ carpool.id }}/supprimer"
+                                          data-confirm="Supprimer ce covoiturage ? Aucune voiture n'y est encore proposée."
+                                          data-confirm-label="Supprimer">
+                                        {{ csrf_field()|raw }}
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">
+                                            <i class="bi bi-trash" aria-hidden="true"></i> Supprimer
+                                        </button>
+                                    </form>
+                                {% endif %}
+                            {% endif %}
+                        </div>
+                        {% if carpool.may_organize and not carpool.deletable %}
+                            <p class="small text-body-secondary mt-1 mb-0">{{ delete_refused }}</p>
+                        {% endif %}
+                    {% else %}
+                        <div class="small text-body-secondary bg-body-tertiary rounded px-3 py-2 mt-2">
+                            Ce covoiturage ne concerne pas votre section : vous ne voyez ni les voitures ni les passagers.
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

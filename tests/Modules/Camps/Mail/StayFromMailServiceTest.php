@@ -561,7 +561,7 @@ class StayFromMailServiceTest extends TestCase
 
     public function testTheJournalNeverNamesTheSenderOrTheSubject(): void
     {
-        // A journal entry travels in the diagnostic archive (§7.9): an
+        // A journal entry travels in the diagnostic archive (§8.6): an
         // internal message id and a reason, and nothing else.
         $this->service()->createFrom($this->message(subject: 'Contrat Fresnaye', body: 'Bonjour,'));
 

@@ -54,7 +54,7 @@ final class PriceQuote
     /**
      * Whether the total can be presented as a real price rather than as a
      * starting point. False whenever something needed is still missing — the
-     * public page shows "dès X €" in that case (§6.7), never a firm figure
+     * public page shows "dès X €" in that case (specifications.md §22.4), never a firm figure
      * it would have to walk back.
      */
     public function isComplete(): bool

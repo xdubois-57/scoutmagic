@@ -33,6 +33,20 @@ final class ModulesPageMockupTest extends TestCase
         'test_tools' => 'visible_when — reference and local installations',
     ];
 
+    /**
+     * Modules that shipped after the mockup was drawn, each named with the
+     * shelf its own manifest puts it on. The mockup is a chantier's frozen
+     * reference document, not a living catalogue: redrawing it for every
+     * new module would rewrite the record of what was decided then. What
+     * this list still guarantees is that nobody is lost — a module must be
+     * drawn, hidden by a flag, or named here.
+     *
+     * @var array<string, string>
+     */
+    private const ARRIVED_AFTER_THE_MOCKUP = [
+        'covoiturage' => 'activites',
+    ];
+
     /** @return array<string, ModuleManifest> */
     private static function shipped(): array
     {
@@ -76,6 +90,15 @@ final class ModulesPageMockupTest extends TestCase
         $misplaced = [];
         foreach (self::shipped() as $id => $manifest) {
             if (isset(self::NOT_DRAWN[$id])) {
+                continue;
+            }
+            if (isset(self::ARRIVED_AFTER_THE_MOCKUP[$id])) {
+                $this->assertSame(
+                    self::ARRIVED_AFTER_THE_MOCKUP[$id],
+                    $manifest->category,
+                    "Module '{$id}' is named on the « " . self::ARRIVED_AFTER_THE_MOCKUP[$id]
+                    . ' » shelf but its manifest says otherwise.'
+                );
                 continue;
             }
 
@@ -155,7 +178,9 @@ final class ModulesPageMockupTest extends TestCase
 
         $unaccounted = [];
         foreach (self::shipped() as $id => $manifest) {
-            if (!isset($drawn[$manifest->name]) && !isset(self::NOT_DRAWN[$id])) {
+            if (!isset($drawn[$manifest->name]) && !isset(self::NOT_DRAWN[$id])
+                && !isset(self::ARRIVED_AFTER_THE_MOCKUP[$id])
+            ) {
                 $unaccounted[] = $id;
             }
         }

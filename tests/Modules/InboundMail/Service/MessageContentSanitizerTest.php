@@ -9,7 +9,7 @@ use Modules\InboundMail\Service\MessageContentSanitizer;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Making an untrusted email body safe (§7.9).
+ * Making an untrusted email body safe (§8.58).
  *
  * The tracking-pixel tests are the ones that matter most: a remote image in
  * a stranger's email is a read receipt, and loading it tells the sender when

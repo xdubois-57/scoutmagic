@@ -66,7 +66,7 @@ final class BookingTransition
             BookingStatus::CONFIRMED,
             BookingStatus::REFUSED,
             BookingStatus::CANCELLED,
-            // A proposal with a deadline that lapses (§6.14).
+            // A proposal with a deadline that lapses (specifications.md §22.5).
             BookingStatus::EXPIRED,
         ],
         BookingStatus::CONFIRMED->value => [

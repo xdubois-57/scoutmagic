@@ -272,7 +272,7 @@ class RentalHardeningAuditTest extends TestCase
         }
     }
 
-    // ── Files (§6.24, §7.9) ─────────────────────────────────────────────
+    // ── Files (§6.24, ARCHITECTURE.md §8.3) ─────────────────────────────
 
     public function testNoRentalFileIsEverDeclaredUnderPublic(): void
     {

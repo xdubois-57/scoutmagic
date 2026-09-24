@@ -35,7 +35,7 @@ use Modules\Rental\Repository\RentalChangeRequestRepository;
 class RentalBookingService implements OccupancyProvider
 {
     /**
-     * How long the automatic hold lasts by default (§6.14). Short on
+     * How long the automatic hold lasts by default (specifications.md §22.5). Short on
      * purpose: it is told to the renter as "we have 48 hours to reply", and
      * a long automatic hold would silently make an asset look busy for
      * requests nobody has looked at.
@@ -302,7 +302,7 @@ class RentalBookingService implements OccupancyProvider
      * One bounded query, and the mapping deliberately discards everything
      * about the renter — a booking, a hold and (later) a manual block all
      * become the same shape, which is what makes them indistinguishable to
-     * every public surface (§6.7/§6.14).
+     * every public surface (specifications.md §22.2).
      *
      * The filter on `occupiesTheAsset($now)` is what makes a lapsed hold
      * release its dates on this very request rather than on the next run of
@@ -384,7 +384,7 @@ class RentalBookingService implements OccupancyProvider
         return $token;
     }
 
-    // ── Hold expiry (§6.14) ─────────────────────────────────────────────
+    // ── Hold expiry (specifications.md §22.5) ─────────────────────────────────────────────
 
     /**
      * Processes every lapsed temporary hold.

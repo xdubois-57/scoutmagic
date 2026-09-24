@@ -11,7 +11,7 @@ use PHPUnit\Framework\TestCase;
  * One volume's arithmetic, in isolation from the inventory that builds it
  * (ARCHITECTURE.md §8.108).
  *
- * What this file is really about is the rule `specifications.md` §8.47
+ * What this file is really about is the rule `ARCHITECTURE.md` §8.47
  * states for the installation as a whole and that §8.108 repeats per
  * volume: **« unavailable is null, never 0 »**. Every figure on this
  * object has a « the host would not say » answer, and each of them turns

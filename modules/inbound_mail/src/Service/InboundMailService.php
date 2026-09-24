@@ -459,7 +459,7 @@ class InboundMailService implements InboundMailInterface
      * already removed, and one module's bookkeeping throwing must not turn
      * a filing correction into an error the user cannot act on. Nothing is
      * logged, since anything identifying enough to be useful would be
-     * personal data in the journal (§7.9).
+     * personal data in the journal (§8.6).
      */
     private function notifyUnlinked(InboundMessage $message, string $consumerId, string $businessReference): void
     {
@@ -830,7 +830,7 @@ class InboundMailService implements InboundMailInterface
             references: [],
             toEmails: $message->toEmails,
             sentAt: $message->sentAt,
-            // Already sanitised on the way in (§7.9) — what is stored is
+            // Already sanitised on the way in (§8.58) — what is stored is
             // what a consumer was always given.
             bodyText: $message->bodyText,
             bodyHtml: $message->bodyHtml,

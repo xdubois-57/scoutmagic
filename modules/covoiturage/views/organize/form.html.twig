@@ -1,0 +1,180 @@
+{% extends 'base.html.twig' %}
+{% set _title = carpool is null ? 'Organiser un covoiturage' : 'Modifier le covoiturage' %}
+{% block title %}{{ _title }} — {{ param('site_name') }}{% endblock %}
+{% block stylesheets %}
+    {# Leaflet is vendored, never a CDN (ARCHITECTURE.md §8.119). #}
+    <link rel="stylesheet" href="{{ asset('/assets/vendor/leaflet/leaflet.css') }}">
+{% endblock %}
+{#
+  Creating or editing a carpool. The events are chosen with the core's
+  search picker (partials/search_picker.html.twig); without an event, a
+  section decides which staff sees the passengers (D3).
+
+  Two guards, both enforced by Service\CarpoolService whatever the script
+  does: an event that already has a carpool is refused with a link to join
+  it, and events giving different places need an explicit confirmation.
+
+  The point: without JavaScript, two plain coordinate fields; with it,
+  public/assets/js/covoiturage-organize.js turns them into a map with a pin
+  to drag. Nothing here geocodes on the page: the address is looked up in
+  the background after saving (Task\GeocodeCarpoolsHandler).
+#}
+{% block content %}
+<div class="page-narrow">
+    {% include 'partials/page_header.html.twig' with {
+        title: _title,
+        subtitle: 'Un covoiturage par sortie. Il fixe le lieu et les dates ; chaque famille y ajoute ensuite les places libres de sa voiture.',
+    } only %}
+
+    {% if errors is not empty %}
+        <div class="alert alert-danger" role="alert">
+            {% for error in errors %}<div>{{ error }}</div>{% endfor %}
+            {% if duplicate_of %}
+                <a href="/covoiturage/{{ duplicate_of }}" class="alert-link">Rejoindre le covoiturage existant</a>
+            {% endif %}
+        </div>
+    {% endif %}
+
+    <form method="post" action="{{ carpool is null ? '/covoiturage/organiser/nouveau' : '/covoiturage/organiser/' ~ carpool.id ~ '/modifier' }}">
+        {{ csrf_field()|raw }}
+
+        {% if has_calendar %}
+            {% include 'partials/search_picker.html.twig' with {
+                picker_id: 'carpool-events',
+                search_url: '/covoiturage/organiser/evenements',
+                field_name: 'event_ids',
+                label: 'Évènements concernés',
+                mode: 'multiple',
+                options: event_options,
+                selected: selected_events,
+                placeholder: 'Chercher un évènement, un calendrier, une section…',
+                empty_label: 'Aucun évènement ne correspond.',
+                help: 'Cherchez par titre, par calendrier ou par section. Un évènement répliqué dans plusieurs calendriers — fête d\'unité, week-end de rentrée — se sélectionne autant de fois qu\'il apparaît : un seul covoiturage, une seule liste de voitures. Les animateurs de chacune des sections retenues voient les passagers.',
+            } only %}
+        {% endif %}
+
+        {% set _section_options = [{ value: '', label: 'Aucune' }] %}
+        {% for section in sections %}
+            {% set _section_options = _section_options|merge([{
+                value: section.id,
+                label: section.name ?? section.desk_code,
+                selected: values.section_id|default('') == section.id ~ '',
+            }]) %}
+        {% endfor %}
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'carpool-section',
+            field_name: 'section_id',
+            label: 'Section concernée',
+            type: 'select',
+            options: _section_options,
+            help: has_calendar
+                ? 'Seulement sans aucun évènement retenu : c\'est elle qui décidera quels animateurs voient les voitures et les passagers.'
+                : 'C\'est elle qui décidera quels animateurs voient les voitures et les passagers.',
+        } only %}
+
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'carpool-address',
+            field_name: 'address',
+            label: 'Adresse',
+            value: values.address|default(''),
+            maxlength: 255,
+            help: 'Reprise du lieu des évènements retenus. C\'est la destination de tous les allers et le départ de tous les retours.',
+        } only %}
+
+        <div class="alert alert-warning small {{ location_mismatch is empty ? 'd-none' : '' }}" id="carpool-location-warning" role="status">
+            Les évènements retenus n'indiquent pas tous le même lieu<span data-carpool-locations>{% if location_mismatch is not empty %} ({{ location_mismatch|join(' ; ') }}){% endif %}</span>. Vérifiez : un covoiturage n'a qu'une destination, et s'ils divergent c'est qu'ils n'appartiennent probablement pas au même trajet.
+            <div class="form-check mt-2">
+                <input class="form-check-input" type="checkbox" name="confirm_locations" value="1" id="carpool-confirm-locations"
+                       {{ values.confirm_locations|default('') == '1' ? 'checked' : '' }}>
+                <label class="form-check-label" for="carpool-confirm-locations">J'ai vérifié : c'est bien la même destination.</label>
+            </div>
+        </div>
+
+        <fieldset class="mb-3" data-carpool-point
+                  data-manual="{{ point_is_manual ? '1' : '0' }}">
+            <legend class="form-label fs-6">Point sur la carte (facultatif)</legend>
+            <div class="row g-2" data-carpool-point-fields>
+                <div class="col-6">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'carpool-latitude',
+                        field_name: 'latitude',
+                        label: 'Latitude',
+                        value: values.latitude|default(''),
+                        inputmode: 'decimal',
+                        size: 'sm',
+                        wrapper_class: 'mb-0',
+                    } only %}
+                </div>
+                <div class="col-6">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'carpool-longitude',
+                        field_name: 'longitude',
+                        label: 'Longitude',
+                        value: values.longitude|default(''),
+                        inputmode: 'decimal',
+                        size: 'sm',
+                        wrapper_class: 'mb-0',
+                    } only %}
+                </div>
+            </div>
+            <div class="d-none border rounded overflow-hidden" data-carpool-point-map-box>
+                <div class="carpool-point-map" data-carpool-point-map></div>
+                <div class="d-flex flex-wrap align-items-center gap-2 border-top px-3 py-2 small">
+                    <span data-carpool-point-line></span>
+                    <span class="badge text-bg-light border" data-carpool-point-origin></span>
+                    <span class="flex-grow-1"></span>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-carpool-point-remove>Retirer</button>
+                </div>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-primary d-none" data-carpool-point-place>Placer le point sur la carte</button>
+            <p class="form-text mb-0" data-carpool-point-help>
+                {% if point is null %}
+                    Facultatif : sans point, le lien de carte ouvrira simplement l'adresse. Après l'enregistrement, le point est cherché automatiquement depuis l'adresse ; il sert quand l'adresse est imprécise — un pré, une entrée de bois, un gîte isolé.
+                {% elseif point_is_manual %}
+                    Déplacé à la main : aucune reprise automatique ne le réécrira, même si l'adresse change.
+                {% else %}
+                    Trouvé depuis l'adresse. Déplacez l'épingle si le point est à côté — c'est fréquent pour un terrain ou une entrée de bois. Le point déplacé est alors figé.
+                {% endif %}
+            </p>
+        </fieldset>
+
+        <div class="row g-2">
+            <div class="col-sm-6">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'carpool-outbound',
+                    field_name: 'outbound_date',
+                    label: 'Date de l\'aller',
+                    type: 'date',
+                    value: values.outbound_date|default(''),
+                    required: true,
+                    wrapper_class: 'mb-0',
+                } only %}
+            </div>
+            <div class="col-sm-6">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'carpool-return',
+                    field_name: 'return_date',
+                    label: 'Date du retour',
+                    type: 'date',
+                    value: values.return_date|default(''),
+                    wrapper_class: 'mb-0',
+                } only %}
+            </div>
+            <p class="form-text col-12 mb-3">Laissez le retour vide pour une sortie d'un seul trajet.</p>
+        </div>
+
+        <div class="d-flex flex-wrap gap-2">
+            <button type="submit" class="btn btn-primary">{{ carpool is null ? 'Créer' : 'Enregistrer' }}</button>
+            <a href="/covoiturage/organiser" class="btn btn-outline-secondary">Annuler</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
+{% block scripts %}
+    {% if has_calendar %}
+        <script src="{{ asset('/assets/js/search-picker.js') }}"></script>
+    {% endif %}
+    <script src="{{ asset('/assets/vendor/leaflet/leaflet.js') }}"></script>
+    <script src="{{ asset('/assets/js/map.js') }}"></script>
+    <script src="{{ asset('/assets/js/covoiturage-organize.js') }}"></script>
+{% endblock %}

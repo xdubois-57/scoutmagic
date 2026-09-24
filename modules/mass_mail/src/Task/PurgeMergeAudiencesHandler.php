@@ -130,7 +130,7 @@ class PurgeMergeAudiencesHandler implements TaskHandlerInterface
                 'info',
                 'Suppression définitive d\'audiences de publipostage (rétention dépassée)',
                 // Counts and a retention, never a recipient or a subject
-                // (ARCHITECTURE.md §7.9) — this task exists to make such
+                // (ARCHITECTURE.md §8.6) — this task exists to make such
                 // values stop existing, so it cannot write one down.
                 [
                     'count' => count($ids),

@@ -13,7 +13,7 @@ namespace Modules\Rental\Availability;
  * hold, or a manual block.
  *
  * **All three are the same object here, on purpose.** A public visitor must
- * not be able to tell them apart (module spec §6.7/§6.14) — a period that is
+ * not be able to tell them apart (specifications.md §22.2) — a period that is
  * held for someone else, booked, or closed for maintenance all read as
  * "occupé" with no reason given. Making the calculator blind to the
  * difference is stronger than making the template hide it: there is no
