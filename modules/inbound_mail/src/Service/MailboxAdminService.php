@@ -80,6 +80,30 @@ class MailboxAdminService
         return $this->repository->findAll();
     }
 
+    /**
+     * The modules several enabled boxes are dedicated to at once, keyed by
+     * consumer id, each with the names of those boxes (issue #462).
+     *
+     * A module has a box of its own only when exactly one is dedicated to
+     * it; with two it has none, and the screens that exist for that box —
+     * the rentals' « Courrier » page — do not appear. That is the consumer's
+     * rule rather than an arbitrary pick between the two, and the list of
+     * boxes is where the operator learns why.
+     *
+     * @return array<string, list<string>>
+     */
+    public function dedicationConflicts(): array
+    {
+        $byConsumer = [];
+        foreach ($this->repository->findAll() as $mailbox) {
+            if ($mailbox->isEnabled && $mailbox->isDedicated()) {
+                $byConsumer[(string) $mailbox->dedicatedTo][] = $mailbox->name;
+            }
+        }
+
+        return array_filter($byConsumer, static fn(array $names): bool => count($names) > 1);
+    }
+
     public function findById(int $id): ?Mailbox
     {
         return $this->repository->findById($id);

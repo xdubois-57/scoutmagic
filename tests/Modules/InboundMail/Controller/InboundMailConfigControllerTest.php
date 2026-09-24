@@ -265,6 +265,33 @@ class InboundMailConfigControllerTest extends TestCase
         $this->assertSame(1, $this->conflictEntries());
     }
 
+    /**
+     * The journal records the change that CREATED the conflict, not every
+     * later save that left it as it was.
+     */
+    public function testAConflictIsJournaledOnceNotOnEveryLaterSave(): void
+    {
+        $this->post(['purpose' => MailboxPurpose::DEDICATED->value, 'dedicated_to' => 'rental']);
+        $second = $this->mailboxes->create(
+            'Boîte du chalet',
+            ProviderType::IMAP,
+            'imap.test',
+            993,
+            'ssl',
+            'chalet@unite.be',
+            'secret',
+            [],
+            true
+        );
+        $this->post(['purpose' => MailboxPurpose::DEDICATED->value, 'dedicated_to' => 'rental'], $second);
+        $this->assertSame(1, $this->conflictEntries());
+
+        $this->post(['purpose' => MailboxPurpose::DEDICATED->value, 'dedicated_to' => 'rental'], $second);
+        $this->post(['purpose' => MailboxPurpose::DEDICATED->value, 'dedicated_to' => 'rental']);
+
+        $this->assertSame(1, $this->conflictEntries());
+    }
+
     public function testOneDedicatedBoxPerModuleIsNoConflict(): void
     {
         $this->post(['purpose' => MailboxPurpose::DEDICATED->value, 'dedicated_to' => 'rental']);

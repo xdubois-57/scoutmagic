@@ -422,8 +422,10 @@ Rien.
    « la première » : un choix que l'opérateur ne voit pas serait un choix
    arbitraire. Le cas est dit là où il se corrige.
 2. **Le journal est écrit au moment où la configuration change**, pas à
-   chaque affichage de page : une entrée par changement, lisible à
-   distance, plutôt qu'une entrée par visite d'un gestionnaire.
+   chaque affichage de page, et seulement pour un conflit que ce
+   changement crée ou modifie : une entrée par changement qui le fait
+   naître, pas une par enregistrement ultérieur (relevé en revue de la
+   PR #489). La détection vit dans `MailboxAdminService::dedicationConflicts()`.
 3. **Le courrier de masse n'est pas touché.** Le changement de
    `Reply-To` vit dans `RentalBookingMailService`, que le module
    `mass_mail` n'appelle pas ; ses envois gardent l'adresse de réponse

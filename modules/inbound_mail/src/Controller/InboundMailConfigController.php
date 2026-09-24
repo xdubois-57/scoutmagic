@@ -102,7 +102,7 @@ class InboundMailConfigController extends AbstractController
         return $this->render('@inbound_mail/config/index.html.twig', [
             'mailboxes' => $mailboxes,
             'scope_summaries' => $summaries,
-            'dedication_conflicts' => $this->dedicationConflicts($mailboxes),
+            'dedication_conflicts' => $this->namedConflicts($this->adminService->dedicationConflicts()),
             'stored_counts' => $this->adminService->storedMessageCounts(),
             'can_refresh' => $this->refreshService !== null,
             'cron_detected' => $this->cronDetected(),
@@ -160,6 +160,7 @@ class InboundMailConfigController extends AbstractController
             return $this->notFound();
         }
 
+        $conflictsBefore = $this->adminService->dedicationConflicts();
         $purpose = MailboxPurpose::fromString((string) $request->getBody('purpose', ''));
 
         if ($purpose === MailboxPurpose::DEDICATED) {
@@ -186,7 +187,7 @@ class InboundMailConfigController extends AbstractController
             ['mailbox_id' => $id, 'purpose' => $purpose->value]
         );
         FlashMessage::set('success', 'Portée enregistrée.');
-        $this->journalDedicationConflicts();
+        $this->journalNewDedicationConflicts($conflictsBefore);
 
         return $this->redirect('/config/courrier-entrant');
     }
@@ -245,49 +246,44 @@ class InboundMailConfigController extends AbstractController
     }
 
     /**
-     * The modules several enabled boxes are dedicated to at once, with the
-     * names of those boxes (issue #462).
+     * The conflicts as the screen and the journal say them: the module by
+     * its name, the boxes by theirs.
      *
-     * A module has a box of its own only when exactly one is dedicated to
-     * it; with two it has none, and the screens that exist for that box —
-     * the rentals' « Courrier » page — do not appear. That is a choice the
-     * consumer makes rather than an arbitrary pick between the two, and
-     * this screen is where the operator learns why.
-     *
-     * @param Mailbox[] $mailboxes
+     * @param array<string, list<string>> $conflicts
      * @return list<array{module: string, boxes: list<string>}>
      */
-    private function dedicationConflicts(array $mailboxes): array
+    private function namedConflicts(array $conflicts): array
     {
-        $byConsumer = [];
-        foreach ($mailboxes as $mailbox) {
-            if ($mailbox->isEnabled && $mailbox->isDedicated()) {
-                $byConsumer[(string) $mailbox->dedicatedTo][] = $mailbox->name;
-            }
+        $named = [];
+        foreach ($conflicts as $consumerId => $boxes) {
+            $named[] = [
+                'module' => $this->consumerRegistry?->find($consumerId)?->displayName() ?? $consumerId,
+                'boxes' => $boxes,
+            ];
         }
 
-        $conflicts = [];
-        foreach ($byConsumer as $consumerId => $names) {
-            if (count($names) > 1) {
-                $conflicts[] = [
-                    'module' => $this->consumerRegistry?->find($consumerId)?->displayName() ?? $consumerId,
-                    'boxes' => $names,
-                ];
-            }
-        }
-
-        return $conflicts;
+        return $named;
     }
 
     /**
-     * Journals a configuration that leaves a module with several dedicated
-     * boxes, right after the change that made it: it is the configuration a
-     * support request will need explained from a distance — « la page
-     * Courrier a disparu » — and the journal is where that answer is read.
+     * Journals the conflicts a change CREATED — a module that had one box
+     * of its own, or a different set of boxes, before it: that is the
+     * configuration a support request will need explained from a distance
+     * (« la page Courrier a disparu »), and the journal is where that
+     * answer is read. A conflict the change left as it was is not written
+     * again: one entry per change that made it, not one per later save.
+     *
+     * @param array<string, list<string>> $before the conflicts before the change
      */
-    private function journalDedicationConflicts(): void
+    private function journalNewDedicationConflicts(array $before): void
     {
-        foreach ($this->dedicationConflicts($this->adminService->listMailboxes()) as $conflict) {
+        $created = array_filter(
+            $this->adminService->dedicationConflicts(),
+            static fn(array $boxes, string $consumerId): bool => ($before[$consumerId] ?? []) !== $boxes,
+            ARRAY_FILTER_USE_BOTH
+        );
+
+        foreach ($this->namedConflicts($created) as $conflict) {
             $this->journalService->log(
                 'inbound_mail',
                 'inbound_mailbox_dedication_conflict',
@@ -512,6 +508,7 @@ class InboundMailConfigController extends AbstractController
         $id = (int) ($params['id'] ?? 0);
         $enable = $request->getBody('enable') !== null;
 
+        $conflictsBefore = $this->adminService->dedicationConflicts();
         $this->adminService->setEnabled($id, $enable);
         $this->journalService->log(
             'inbound_mail',
@@ -521,7 +518,7 @@ class InboundMailConfigController extends AbstractController
             ['mailbox_id' => $id]
         );
         FlashMessage::set('success', $enable ? 'Boîte réactivée.' : 'Boîte désactivée.');
-        $this->journalDedicationConflicts();
+        $this->journalNewDedicationConflicts($conflictsBefore);
 
         return $this->redirect('/config/courrier-entrant');
     }

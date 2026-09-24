@@ -318,19 +318,14 @@ class RentalCommunicationService
      *
      * **Two is none.** Picking one of two would be an arbitrary choice made
      * silently on the unit's behalf; the Courrier page simply does not
-     * exist until the configuration names one box, and the configuration
-     * screen says why (`dedicatedMailboxCount()`).
+     * exist until the configuration names one box, and the incoming-mail
+     * list of boxes says why.
      */
     public function dedicatedMailbox(): ?\Modules\InboundMail\Api\DedicatedMailbox
     {
         $boxes = $this->inboundMail?->dedicatedMailboxesFor(RentalMessageConsumer::CONSUMER_ID) ?? [];
 
         return count($boxes) === 1 ? $boxes[0] : null;
-    }
-
-    public function dedicatedMailboxCount(): int
-    {
-        return count($this->inboundMail?->dedicatedMailboxesFor(RentalMessageConsumer::CONSUMER_ID) ?? []);
     }
 
     /**
