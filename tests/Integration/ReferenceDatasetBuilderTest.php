@@ -98,7 +98,7 @@ final class ReferenceDatasetBuilderTest extends TestCase
         self::assertSame(
             count(BankBlueprint::ACCOUNTS) * (count(UnitBlueprint::YEARS) - 1) * BankBlueprint::OVERLAP_LINES,
             $counts['duplicates'],
-            'La déduplication entre deux relevés successifs ne se déclenche plus.',
+            'deduplication between two successive statements no longer fires',
         );
     }
 
@@ -150,7 +150,7 @@ final class ReferenceDatasetBuilderTest extends TestCase
         self::assertGreaterThan(
             $total * 0.6,
             $categorised,
-            'Les règles de catégorisation par défaut ne mordent plus sur les libellés du jeu de données.',
+            'the default categorisation rules no longer bite on the dataset labels',
         );
     }
 
@@ -331,7 +331,7 @@ final class ReferenceDatasetBuilderTest extends TestCase
         self::assertSame(
             'calendar',
             $result['skipped']['évènements de calendrier'] ?? null,
-            'Un extra ignoré doit être signalé, pas se contenter d\'un compteur à zéro.',
+            'a skipped extra must be reported, not left to a counter reading zero',
         );
 
         // Et la même chose pour les domaines ajoutés en IT-18 : chacun a sa
@@ -388,7 +388,7 @@ final class ReferenceDatasetBuilderTest extends TestCase
         // calendrier pour construire quoi que ce soit.
         self::assertTrue(
             $this->configurationProbesSurvive(),
-            'Les réglages du site ou la liste des modules activés ont été effacés.',
+            'the site settings, or the list of enabled modules, were wiped',
         );
 
         self::assertNull($result['backupPath']);
@@ -433,7 +433,7 @@ final class ReferenceDatasetBuilderTest extends TestCase
             (int) $this->pdo->query(
                 "SELECT COUNT(*) FROM settings WHERE setting_key <> 'reset_probe_unit_name'"
             )->fetchColumn(),
-            'Un drapeau d\'exécution a survécu au vidage : il affirme quelque chose des données effacées.',
+            'a run flag survived the wipe: it claims something about data that is gone',
         );
         self::assertSame(6, $result['settings']);
 
@@ -451,7 +451,7 @@ final class ReferenceDatasetBuilderTest extends TestCase
         self::assertSame(
             self::privateConstant(BackupService::class, 'CONFIG_ONLY_TABLES'),
             self::privateConstant(InstanceReset::class, 'PRESERVED_TABLES'),
-            'InstanceReset et BackupService ne s\'accordent plus sur ce qui est de la configuration.',
+            'InstanceReset and BackupService no longer agree on what counts as configuration',
         );
     }
 

@@ -954,7 +954,7 @@ class AlbumServiceTest extends TestCase
         $this->assertSame(
             [],
             $notificationRepository->findByUserAccountId($outsider),
-            "Un compte étranger à la section a été prévenu d'un album qu'il ne peut pas ouvrir.",
+            "an account outside the section was told about an album it cannot open",
         );
     }
 

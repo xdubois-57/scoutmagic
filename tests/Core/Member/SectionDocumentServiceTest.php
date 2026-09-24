@@ -134,7 +134,7 @@ class SectionDocumentServiceTest extends TestCase
         $this->assertSame(
             $before,
             (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn(),
-            'une ligne `files` orpheline est restée',
+            'an orphaned `files` row was left behind',
         );
         $stored = glob($this->storagePath . '/section_documents/*') ?: [];
         $this->assertSame([], $stored, 'an orphaned encrypted file was left on disk');

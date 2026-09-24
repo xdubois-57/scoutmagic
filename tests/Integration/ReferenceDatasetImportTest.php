@@ -233,7 +233,7 @@ final class ReferenceDatasetImportTest extends TestCase
         self::assertSame(
             1,
             (int) $lastYearRow['scout_year_offset'],
-            'T0009 n\'a pas hérité de son décalage de A1 par-dessus l\'année manquante.',
+            'T0009 did not inherit its A1 offset across the missing year',
         );
     }
 
@@ -286,7 +286,7 @@ final class ReferenceDatasetImportTest extends TestCase
             self::assertStringStartsNotWith(
                 'ZZ001',
                 (string) $row['desk_code'],
-                'Une section a été identifiée par la colonne SECTION, qui ne doit jamais être lue.',
+                'a section was identified from the SECTION column, which must never be read',
             );
         }
     }
@@ -307,13 +307,13 @@ final class ReferenceDatasetImportTest extends TestCase
         self::assertSame(
             0,
             $this->unitStaffBeforeConfirmation,
-            'Staff d\'U est peuplé alors qu\'aucun rôle n\'a encore été confirmé — le rôle viendrait donc du CSV.',
+            'the Staff d\'U section is populated although no role was confirmed yet — so the role came from the CSV',
         );
 
         self::assertGreaterThanOrEqual(
             array_sum(UnitBlueprint::UNIT_STAFF_SIZE),
             $this->unitStaffMembershipCount(),
-            'Staff d\'U est vide alors que les rôles ont été confirmés.',
+            'the Staff d\'U section is empty although the roles were confirmed',
         );
     }
 
@@ -526,7 +526,7 @@ final class ReferenceDatasetImportTest extends TestCase
         self::assertSame(
             UnitBlueprint::HEADCOUNT['2024-2025']['ecl1'][0],
             $distinct,
-            'Le comptage par section doit rester en DISTINCT member_year_id.',
+            'the per-section count must stay a DISTINCT member_year_id',
         );
     }
 
@@ -885,7 +885,7 @@ final class ReferenceDatasetImportTest extends TestCase
         self::assertGreaterThan(
             1,
             count(array_unique(array_map(static fn (float $share): int => (int) round($share), $shares))),
-            'La part de F est identique toutes années confondues : les graphes de Prévisions et de Statistiques seraient plats.',
+            'the share of F is the same across every year: the forecast and statistics charts would be flat',
         );
     }
 

@@ -609,7 +609,7 @@ class FinanceRbacTest extends TestCase
         $this->assertSame(
             $this->patchMovement(999999)->getBody(),
             $this->patchMovement($theirsMovement)->getBody(),
-            'Un mouvement invisible et un mouvement inexistant doivent répondre la même chose.',
+            'a transaction that cannot be seen and one that does not exist must answer the same thing',
         );
     }
 

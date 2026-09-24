@@ -2397,7 +2397,7 @@ class NewsIntegrationTest extends TestCase
         $this->assertSame(
             1,
             (int) $this->pdo->query('SELECT COUNT(*) FROM news_form_responses')->fetchColumn(),
-            'un double clic a créé deux réponses',
+            'a double click created two responses',
         );
     }
 

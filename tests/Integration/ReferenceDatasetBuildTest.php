@@ -211,7 +211,7 @@ final class ReferenceDatasetBuildTest extends TestCase
         self::assertSame(
             $expectedLinks,
             $this->rowCount('camp_camp_sections'),
-            'Un séjour a perdu une section en route — CampService::create() ne les accepte que actives.',
+            'a stay lost a section on the way — CampService::create() takes active ones only',
         );
     }
 
@@ -235,7 +235,7 @@ final class ReferenceDatasetBuildTest extends TestCase
             self::assertSame(
                 (new \DateTimeImmutable((string) $row['transaction_date']))->format('ymd'),
                 substr($reference, 0, 6),
-                'Une référence de paiement de campagne ne porte pas la date de son propre mouvement.',
+                'a campaign payment reference does not carry the date of its own transaction',
             );
         }
 
@@ -286,12 +286,12 @@ final class ReferenceDatasetBuildTest extends TestCase
         self::assertSame(
             count(\Tests\Fixtures\ReferenceDataset\RentalBlueprint::BOOKINGS),
             $this->rowCount('rental_bookings'),
-            'README.md documente sept réservations : le semoir en a perdu une en silence.',
+            'README.md documents seven bookings: the seeder lost one in silence',
         );
         self::assertSame(
             1,
             $this->rowCount('rental_bookings_refused'),
-            "La seule réservation refusée du jeu de données a disparu : plus aucun état final qui n'est pas un succès.",
+            "the one refused booking of the dataset is gone: no final state left that is not a success",
         );
     }
 
@@ -315,7 +315,7 @@ final class ReferenceDatasetBuildTest extends TestCase
             (int) $this->pdo()->query(
                 "SELECT COUNT(*) FROM settings WHERE setting_key = 'current_scout_year_id'"
             )->fetchColumn(),
-            "L'instance construite épingle une année publique — le site n'affiche plus l'année du jour.",
+            "the built instance pins a public year — the site no longer shows the current one",
         );
 
         $expected = ScoutYearService::labelForDate(new \DateTimeImmutable('now', new \DateTimeZone(AppClock::TIMEZONE)));
@@ -328,7 +328,7 @@ final class ReferenceDatasetBuildTest extends TestCase
         self::assertSame(
             $expected,
             (string) ($resolver->getCurrentPublicYear()['label'] ?? ''),
-            "L'année publique de l'instance construite n'est pas celle du jour.",
+            "the built instance's public year is not the current one",
         );
     }
 

@@ -141,7 +141,7 @@ final class ReferenceDatasetFormatTest extends TestCase
         self::assertSame(
             [],
             (new DatasetGenerator(self::datasetRoot()))->orphanPhotos(),
-            'Des photos du lot ne sont référencées par aucun Tiers ni aucune section.',
+            'some photos of the batch are referenced by no member and no section',
         );
     }
 
@@ -456,7 +456,7 @@ final class ReferenceDatasetFormatTest extends TestCase
                 self::assertSame(
                     $communication,
                     StructuredCommunicationService::format(substr(preg_replace('/\D/', '', $communication) ?? '', 0, 10)),
-                    'La communication structurée ne repasse pas le calcul mod-97.',
+                    'the structured communication no longer passes the mod-97 check',
                 );
             }
         }

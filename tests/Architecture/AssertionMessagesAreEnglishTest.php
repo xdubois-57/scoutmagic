@@ -20,9 +20,9 @@ use PHPUnit\Framework\TestCase;
  *
  * Issue #388 counted forty-three French messages across nineteen files on
  * `aec6aae`. This detector, which is stricter than the issue's, found
- * **eighty-two across thirty** — the suite having grown since. All of them
- * are translated in the change that adds this class, so the list below is
- * empty and the rule is fully enforced: the same shape as
+ * **a hundred and nine across thirty-seven** — the suite having grown
+ * since. All of them are translated in the change that adds this class, so
+ * the list below is empty and the rule is fully enforced: the same shape as
  * Tests\Architecture\TwigCommentsAreEnglishTest, minus the allowlist it
  * still needs.
  *
@@ -30,8 +30,8 @@ use PHPUnit\Framework\TestCase;
  * translating forty-five templates in a single commit would cost the
  * `git blame` of prose written in the maintainer's own voice. An assertion
  * message is not prose: it is one line, it has no author to preserve, and
- * eighty-two of them fit in one reviewable diff. Nothing is left to ratchet
- * down, so the assertion is simply « none ».
+ * a hundred and nine of them fit in one reviewable diff. Nothing is left
+ * to ratchet down, so the assertion is simply « none ».
  *
  * **The sentinel is the load-bearing half.** An empty list matched against
  * a scan that finds nothing anywhere looks exactly like a rule being
@@ -62,8 +62,8 @@ final class AssertionMessagesAreEnglishTest extends TestCase
      * A DENSITY, not a count, for the reason the Twig sibling gives:
      * counting hits makes length the real test, and these messages are
      * short. 0.13 comes from the corpus rather than from taste. Measured
-     * over all 2221 messages the scan below reads, the eighty-two French
-     * ones scored 0.143 and up, and the highest-scoring English one —
+     * over all 2358 messages the scan below reads, the hundred and nine
+     * French ones scored 0.143 and up, and the highest-scoring English one —
      * « De, À, Sujet — the order every mail client uses. », which names
      * French header labels — reaches 0.111. The threshold sits in that
      * gap.
@@ -71,7 +71,7 @@ final class AssertionMessagesAreEnglishTest extends TestCase
     private const MINIMUM_FRENCH_DENSITY = 0.13;
 
     /**
-     * The corpus is 2221 messages today. A scan that suddenly reads far
+     * The corpus is 2358 messages today. A scan that suddenly reads far
      * fewer is a scan that has stopped working, and this is the number
      * that says so out loud rather than letting an empty result read as
      * an enforced rule. Deliberately slack — assertions are added every
@@ -266,6 +266,16 @@ final class AssertionMessagesAreEnglishTest extends TestCase
             $arguments[count($arguments) - 1][] = $token;
         }
 
+        // A trailing comma before the closing bracket — the house style on
+        // every multi-line assertion here — opens one more bucket, and the
+        // whitespace ahead of `)` lands in it. Reading that bucket as the
+        // last argument returned null for the whole call, so the message
+        // was never scored and the call never counted: the detector was
+        // blind to the very shape it meets most often.
+        while ($arguments !== [] && self::isBlank(end($arguments))) {
+            array_pop($arguments);
+        }
+
         $last = end($arguments);
         if ($last === false) {
             return null;
@@ -292,6 +302,20 @@ final class AssertionMessagesAreEnglishTest extends TestCase
         }
 
         return $message === '' ? null : $message;
+    }
+
+    /**
+     * @param list<array{int, string, int}|string> $argument
+     */
+    private static function isBlank(array $argument): bool
+    {
+        foreach ($argument as $token) {
+            if (!is_array($token) || !in_array($token[0], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public function testNoAssertionMessageIsWrittenInFrench(): void
@@ -325,6 +349,41 @@ final class AssertionMessagesAreEnglishTest extends TestCase
             . 'message in English. If it has to name interface text, quote it — « … » or "…" — and the '
             . 'quotation is left out of the reckoning.'
         );
+    }
+
+    /**
+     * The call shape the reader was blind to, shown being read.
+     *
+     * A trailing comma before the closing bracket — the house style on
+     * every multi-line assertion in this suite — opened one more argument
+     * bucket holding nothing but the whitespace ahead of `)`. Reading that
+     * bucket as the last argument returned null for the whole call, so the
+     * message was never scored AND the call was never counted: the
+     * detector reported a clean corpus it had not finished reading, which
+     * is the one outcome this class exists to prevent. It cost
+     * twenty-seven French messages, found only once this was fixed.
+     */
+    public function testACallWrittenWithATrailingCommaIsStillRead(): void
+    {
+        $file = tempnam(sys_get_temp_dir(), 'assertion_messages_') . '.php';
+        file_put_contents($file, <<<'PHP'
+            <?php
+            $this->assertSame(
+                [],
+                $rows,
+                'une ligne `files` orpheline est restée',
+            );
+            PHP);
+
+        try {
+            $messages = self::messagesIn($file, []);
+
+            $this->assertCount(1, $messages);
+            $this->assertSame('une ligne `files` orpheline est restée', $messages[0][1]);
+            $this->assertTrue(self::looksFrench($messages[0][1]));
+        } finally {
+            unlink($file);
+        }
     }
 
     /**
