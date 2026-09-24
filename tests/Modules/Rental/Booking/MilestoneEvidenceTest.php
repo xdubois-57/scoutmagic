@@ -392,13 +392,127 @@ class MilestoneEvidenceTest extends TestCase
         $this->assertFalse($withNone->done[BookingMilestones::FINAL_SETTLEMENT]);
     }
 
-    public function testWithoutTheStayModuleNoneOfItsLinesApply(): void
+    /**
+     * Without the stay module, what only that module records does not
+     * apply — the meters, the settlement — but the walk-throughs still
+     * happen, on paper: nothing here can derive them, so they are the lines
+     * a manager ticks by hand (issue #462, D5).
+     */
+    public function testWithoutTheStayModuleTheWalkThroughsAreTickedByHand(): void
     {
         $evidence = MilestoneEvidence::collect($this->booking(), [], $this->payment(), null, null, null);
 
         $this->assertArrayNotHasKey(BookingMilestones::FINAL_SETTLEMENT, $evidence->done);
-        $this->assertArrayNotHasKey(BookingMilestones::ARRIVAL_INVENTORY, $evidence->done);
         $this->assertArrayNotHasKey(BookingMilestones::METER_READINGS, $evidence->done);
+        $this->assertSame(
+            [BookingMilestones::ARRIVAL_INVENTORY, BookingMilestones::DEPARTURE_INVENTORY],
+            $evidence->offsite
+        );
+        $this->assertFalse($evidence->done[BookingMilestones::ARRIVAL_INVENTORY]);
+    }
+
+    /**
+     * An asset with no inventory template has nothing the stay page could
+     * walk: same answer, with the stay module on.
+     */
+    public function testAnAssetWithNoInventoryHasItsWalkThroughsTickedByHand(): void
+    {
+        $evidence = MilestoneEvidence::collect($this->booking(), [], $this->payment(), [], [], null, false);
+
+        $this->assertSame(
+            [BookingMilestones::ARRIVAL_INVENTORY, BookingMilestones::DEPARTURE_INVENTORY],
+            $evidence->offsite
+        );
+        // The settlement still derives from the stay module.
+        $this->assertArrayHasKey(BookingMilestones::FINAL_SETTLEMENT, $evidence->done);
+    }
+
+    /**
+     * **Where the stay page records the inventory, no line is ticked by
+     * hand**, even with a stale mark lying around: the recorded lines are
+     * the truth, and a hand tick beside them would be a second one.
+     */
+    public function testAnInventoryTheSiteKeepsIsNeverTickedByHand(): void
+    {
+        $evidence = MilestoneEvidence::collect(
+            $this->booking(),
+            [],
+            $this->payment(),
+            [1 => ['arrival_state' => InventoryState::NOT_CHECKED, 'departure_state' => InventoryState::NOT_CHECKED]],
+            [],
+            null,
+            true,
+            [BookingMilestones::ARRIVAL_INVENTORY => ['at' => new \DateTimeImmutable('2027-03-01'), 'by' => 'Jeanne']]
+        );
+
+        $this->assertSame([], $evidence->offsite);
+        $this->assertFalse($evidence->done[BookingMilestones::ARRIVAL_INVENTORY]);
+    }
+
+    /**
+     * A payment still owed says how much and against which date — the
+     * sentence the journey's heading repeats when that line holds the
+     * booking up (« échéance dépassée de 4 jours »).
+     */
+    public function testAnOwedPaymentSaysHowMuchAndWhen(): void
+    {
+        $payment = $this->payment([
+            'received_cents' => 5000,
+            'deposit_due_date' => '2027-03-01',
+            'balance_due_date' => '2027-06-01',
+        ]);
+        $today = new \DateTimeImmutable('2027-03-05 14:00');
+
+        $evidence = MilestoneEvidence::collect($this->booking(), [], $payment, null, null, null, true, [], $today);
+
+        $this->assertSame(
+            '100,00 € attendus — échéance dépassée de 4 jours',
+            $evidence->details[BookingMilestones::DEPOSIT_RECEIVED]
+        );
+        $this->assertSame(
+            '550,00 € attendus pour le 01/06/2027',
+            $evidence->details[BookingMilestones::BALANCE_RECEIVED]
+        );
+
+        // Without a date to measure against, the amount alone.
+        $undated = MilestoneEvidence::collect($this->booking(), [], $payment, null, null, null);
+        $this->assertSame('100,00 € attendus', $undated->details[BookingMilestones::DEPOSIT_RECEIVED]);
+
+        // And nothing at all once it is paid.
+        $paid = MilestoneEvidence::collect(
+            $this->booking(),
+            [],
+            $this->payment(['received_cents' => 60000, 'deposit_received' => true, 'fully_paid' => true]),
+            null,
+            null,
+            null,
+            true,
+            [],
+            $today
+        );
+        $this->assertArrayNotHasKey(BookingMilestones::DEPOSIT_RECEIVED, $paid->details);
+        $this->assertArrayNotHasKey(BookingMilestones::BALANCE_RECEIVED, $paid->details);
+    }
+
+    /**
+     * A tick records who and when, and the line says so.
+     */
+    public function testAHandTickSaysWhoAndWhen(): void
+    {
+        $evidence = MilestoneEvidence::collect(
+            $this->booking(),
+            [],
+            $this->payment(),
+            null,
+            null,
+            null,
+            true,
+            [BookingMilestones::DEPARTURE_INVENTORY => ['at' => new \DateTimeImmutable('2027-07-20 18:00'), 'by' => 'Jeanne Martin']]
+        );
+
+        $this->assertTrue($evidence->done[BookingMilestones::DEPARTURE_INVENTORY]);
+        $this->assertSame('fait le 20/07/2027 par Jeanne Martin', $evidence->details[BookingMilestones::DEPARTURE_INVENTORY]);
+        $this->assertFalse($evidence->done[BookingMilestones::ARRIVAL_INVENTORY]);
     }
 
     /**

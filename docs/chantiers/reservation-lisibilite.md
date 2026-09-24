@@ -186,3 +186,101 @@ menant à un menu qu'il n'a pas. Aucun autre menu n'est plus juste.
 Rien. Le parcours (IT-02), le composant de courrier partagé (IT-03) et la
 page Courrier sur boîte dédiée (IT-04) sont les itérations suivantes, pas
 des reports.
+
+---
+
+## IT-02 — Le parcours
+
+### Livré
+
+- **Un seul composant** (`_journey.html.twig`) remplace « L'action
+  suivante » et « Où en est cette réservation » (D3), en tête du tableau
+  de bord comme la maquette le dessine, au-dessus des détails. Il porte
+  deux régions rafraîchissables : l'en-tête (`next-step`) et les étapes
+  (`milestones`).
+- **L'en-tête nomme ce qui bloque** (`BookingJourney::headline()`) — « En
+  attente du solde : 350,00 € attendus — échéance dépassée de 4 jours. »,
+  jamais « Avant le séjour » — et met en avant **une seule action**
+  (`primaryAction()`), les autres décisions repliées derrière « Autres
+  décisions (n) » (`otherDecisions()`). L'action proposée est confirmer ou
+  clôturer, ou le chemin vers la page où l'étape se règle ; **jamais un
+  refus ni une annulation** (D7). Les boutons de transition parlent en
+  verbes (`BookingTransition::actionLabel()` : « Confirmer la
+  réservation », « Refuser la demande »…) au lieu du nom de l'état visé.
+- **La frise** reprend le motif de la page « Année scoute » (D4) : les
+  classes `step-list` / `step-item` / `step-circle` d'`app.css`, une
+  section par phase, la phase en cours dépliée, chaque étape numérotée,
+  avec sa phrase, son bouton ou sa case. Pas de date par phase.
+- **`BookingMilestone` porte désormais sa nature** (`MilestoneKind` : se
+  dérive du site, à faire ici, en attente du locataire, hors du site), la
+  phrase de ce qu'elle demande, l'action qui la fait avancer
+  (`MilestoneAction` : une transition ou le chemin vers une boîte) et les
+  autres décisions possibles (D6).
+- **Les lignes de paiement disent ce qui est dû et quand**
+  (`MilestoneEvidence`) : « 350,00 € attendus — échéance dépassée de
+  4 jours », « … attendus pour le 15/09/2026 ».
+- **« Marquer comme fait »** (`POST /mes-locations/etape`) sur les seules
+  étapes hors du site : une case, qui enregistre la date et l'auteur
+  (`rental_booking_milestone_marks`) et s'inscrit dans l'historique
+  (« Étape hors du site ») comme toute action. `rental` passe en 1.25.0.
+- **Tests** : l'en-tête, un par statut de `BookingStatus` ; l'action
+  proposée jamais un retrait, pour chaque statut ; chaque décision offerte
+  une seule fois ; la nature de chaque étape ; aucune case ailleurs que
+  sur une étape hors du site, au rendu comme dans le modèle ; une phase non
+  atteinte sans bouton ni case active ; la case qui enregistre qui et
+  quand, et l'historique ; un POST fabriqué qui ne coche ni une étape
+  dérivée, ni une phase non atteinte, ni un inventaire que la page Séjour
+  tient ; le dépôt et le service contre la base.
+
+### Décisions autonomes
+
+1. **Quelles étapes sont « hors du site »** (écart 3). Par le principe de
+   D5 : une étape est hors du site quand le site ne tient rien dont la
+   dériver. Ce sont les deux **états des lieux** d'un bien dont le site ne
+   tient pas l'inventaire — module Séjour inactif, ou bien sans modèle
+   d'inventaire. Là où la page Séjour tient l'inventaire, l'état des lieux
+   se fait là, ligne par ligne, et n'a pas de case. Les **relevés de
+   compteurs** restent « sans objet » quand le site ne connaît aucun
+   compteur : un relevé que personne ne peut voir ne se facture pas, et
+   une case pour lui ne dirait rien.
+2. **Une phase « future » est ce que la machine à états interdit**, pas ce
+   que la checklist n'a pas encore atteint. Avant la confirmation, tout ce
+   qui suit la demande est inerte. Après, l'ordre reste un guide mais plus
+   rien n'est verrouillé : un séjour qui a eu lieu pendant que le contrat
+   signé était encore à la poste doit pouvoir voir son état des lieux
+   coché. Le premier jet verrouillait tout ce qui suivait la phase en
+   cours, et les tests l'ont attrapé sur ce cas exact.
+3. **L'action de l'étape en tête n'est pas répétée dans la frise.** La
+   maquette montre le bouton deux fois (en-tête et étape) ; deux boutons
+   « Confirmer la réservation » sur une page sont une page où appuyer sur
+   l'un ou l'autre est un pari sur celui qui compte. L'étape garde sa
+   phrase ; l'en-tête porte le bouton.
+4. **Pour une étape dérivée ou en attente du locataire, l'en-tête mène à la
+   page où la réponse apparaîtra** (« Voir les paiements », « Voir les
+   documents ») : l'étape elle-même reste sans contrôle (D6).
+5. **Aucune relance manuelle n'existe** : les rappels au locataire sont
+   automatiques (`RentalReminderService`). Une étape en attente du
+   locataire montre donc sa phrase seule — D6 dit « une relance si elle
+   existe ».
+6. **La case se coche d'un geste**, comme sur la page « Année scoute » :
+   `rental-booking.js` soumet le formulaire au changement, par
+   `requestSubmit()` pour passer par le chemin asynchrone de la page ; sans
+   JavaScript, un bouton `<noscript>` fait la même chose.
+7. **Le statut quitte la carte des détails**, comme la maquette le dit : le
+   parcours répond déjà à « où en est cette réservation ? ».
+
+### Écarts
+
+- **« Proposer un contrat » n'existe pas.** La maquette en fait l'action
+  proposée d'une nouvelle demande. Dans le code, le contrat se prépare
+  après la confirmation, et `PROPOSED` est une contre-proposition au
+  locataire (« Faire une proposition »). L'action qui fait avancer une
+  demande est donc « Confirmer la réservation ».
+- **Code mort retiré** : `BookingBox::forMilestone()` et
+  `BookingPhase::ofTransition()` n'avaient plus d'appelant — chaque étape
+  dit elle-même où elle se règle, et toutes les décisions sont dans
+  l'en-tête.
+
+### Reporté
+
+Rien.

@@ -1,0 +1,151 @@
+{#
+  The journey of one booking (issue #462): the ONE answer the dashboard
+  gives to « where is it, and what do I do? ».
+
+  It replaces two cards that asked that question twice — « L'action
+  suivante » above and « Où en est cette location » below, each with its
+  own reading of the same checklist (D3). Both halves are still here, in
+  one card, from one derivation (Booking\BookingJourney):
+
+  - **the heading** names what holds the booking up, puts forward the one
+    action that moves it on — never a refusal nor a cancellation (D7) — and
+    folds every other decision behind a secondary button;
+  - **the stretches** follow the scout-year page's timeline pattern (D4):
+    five sections, the current one open, each step numbered, with its
+    nature and its control (`_journey_step.html.twig`). Two things of that
+    page are deliberately NOT copied (D5): there is no indicative date per
+    stretch, since a booking's dates are its stay's, not the site's; and
+    the order is a lock here, not advice — `BookingStatus` is a real
+    machine, so a stretch the booking has not reached is inert.
+
+  Two refreshable regions, so an action re-renders both halves:
+  `next-step` (the heading) and `milestones` (the stretches).
+
+  Requires `journey`, `asset`, `booking`, `booking_url` and
+  `renter_decisions`.
+#}
+<div class="card mb-4" id="parcours">
+    <div data-booking-panel="next-step">
+        <div class="card-body">
+            <h2 class="h5 mb-3">Où en est cette réservation</h2>
+            {% set primary = journey.primaryAction %}
+            {% set others = journey.otherDecisions %}
+            <p class="fw-semibold mb-1">{{ journey.headline }}</p>
+            {% if journey.next and journey.next.explanation %}
+                <p class="text-body-secondary small mb-0">{{ journey.next.explanation }}</p>
+            {% endif %}
+
+            {% if primary or others is not empty %}
+                <div class="d-flex flex-wrap gap-2 mt-3">
+                    {% if primary %}
+                        {% include '@rental/management/_milestone_action.html.twig' with {
+                            action: primary, primary: true,
+                            asset: asset, booking: booking, booking_url: booking_url, renter_decisions: renter_decisions,
+                        } only %}
+                    {% endif %}
+                    {% if others is not empty %}
+                        <button type="button" class="btn btn-outline-secondary collapsed"
+                                data-bs-toggle="collapse" data-bs-target="#other-decisions"
+                                aria-expanded="false" aria-controls="other-decisions">
+                            Autres décisions ({{ others|length }})
+                        </button>
+                    {% endif %}
+                </div>
+                {% if others is not empty %}
+                    <div class="collapse" id="other-decisions">
+                        <div class="d-flex flex-wrap gap-2 mt-2">
+                            {% for action in others %}
+                                {% include '@rental/management/_milestone_action.html.twig' with {
+                                    action: action, small: true,
+                                    asset: asset, booking: booking, booking_url: booking_url, renter_decisions: renter_decisions,
+                                } only %}
+                            {% endfor %}
+                        </div>
+                    </div>
+                {% endif %}
+                <p class="form-text mb-0 mt-2">
+                    Une seule action est mise en avant : celle qui fait avancer la réservation. Le locataire est
+                    prévenu par email d'une confirmation, d'un refus, d'une annulation, d'une proposition ou
+                    d'une demande de précision.
+                </p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card-body border-top" data-booking-panel="milestones">
+        <p class="text-body-secondary small">
+            Les étapes se suivent dans cet ordre : chacune attend la précédente. Les dates sont celles du
+            séjour, pas des échéances du site.
+        </p>
+        {% for phase in journey.phases %}
+            {% set phase_id = 'phase-' ~ phase.key %}
+            <section class="border-bottom" data-phase="{{ phase.key }}">
+                <h3 class="mb-0">
+                    <button type="button"
+                            class="btn w-100 d-flex align-items-center gap-2 px-0 py-2 text-start{{ phase.isCurrent ? '' : ' collapsed' }}"
+                            data-bs-toggle="collapse" data-bs-target="#{{ phase_id }}"
+                            aria-expanded="{{ phase.isCurrent ? 'true' : 'false' }}" aria-controls="{{ phase_id }}">
+                        <span class="fw-semibold">{{ phase.label }}</span>
+                        {% if phase.isCurrent %}
+                            <span class="badge text-bg-primary">en cours</span>
+                        {% elseif phase.isDone %}
+                            <span class="badge bg-success-subtle text-success-emphasis">terminée</span>
+                        {% endif %}
+                        <span class="flex-grow-1"></span>
+                        <span class="text-body-secondary small">{{ phase.summary }}</span>
+                        <i class="bi bi-chevron-down text-body-tertiary" aria-hidden="true"></i>
+                    </button>
+                </h3>
+                <div class="collapse{{ phase.isCurrent ? ' show' }}" id="{{ phase_id }}">
+                    <div class="pb-3">
+                        <p class="text-body-secondary small">{{ phase.description }}</p>
+                        <ol class="list-unstyled step-list mb-0">
+                            {% for milestone in phase.milestones %}
+                                {% include '@rental/management/_journey_step.html.twig' with {
+                                    milestone: milestone, number: loop.index, future: phase.isFuture,
+                                    is_next: journey.next is not null and journey.next.key == milestone.key,
+                                    asset: asset, booking: booking, booking_url: booking_url, renter_decisions: renter_decisions,
+                                } only %}
+                            {% endfor %}
+                        </ol>
+
+                        {% if phase.key == 'request' %}
+                            {# The option lives with the request it holds the dates for. #}
+                            <div data-booking-panel="hold">
+                            {% if not booking.status.isFinal %}
+                                <form method="post" action="/mes-locations/option" class="row g-2 align-items-end mt-3">
+                                    {{ csrf_field()|raw }}
+                                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                    <div class="col-12 col-sm-7">
+                                        {% include 'partials/form_field.html.twig' with {
+                                            field_id: 'option-until', field_name: 'until', type: 'datetime-local',
+                                            label: 'Option jusqu\'au',
+                                            value: booking.holdUntil|iso_datetime_local,
+                                        } only %}
+                                    </div>
+                                    <div class="col-12 col-sm-5">
+                                        <button type="submit" class="btn btn-outline-secondary w-100">Enregistrer l'option</button>
+                                    </div>
+                                    {# Under the row, not under the field — see
+                                       design.md §7.6: `align-items-end` aligns the
+                                       bottoms of the columns, not their controls. #}
+                                    <p class="form-text col-12 mb-0">
+                                        Une option engage l'unité jusqu'à l'échéance : si elle passe sans
+                                        confirmation, la réservation devient expirée et les dates se libèrent.
+                                        Laisser vide et enregistrer lève le blocage.
+                                    </p>
+                                </form>
+                            {% endif %}
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </section>
+        {% endfor %}
+        <p class="text-body-secondary small mt-3 mb-0">
+            Une case à cocher n'apparaît que sur les étapes <strong>hors du site</strong> : les autres se
+            dérivent de ce qui s'est passé ici, et une coche manuelle à côté créerait une seconde vérité.
+        </p>
+    </div>
+</div>

@@ -16,6 +16,7 @@ use Modules\Rental\Booking\BookingPhase;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\BookingTransition;
 use Modules\Rental\Booking\HoldOrigin;
+use Modules\Rental\Booking\MilestoneKind;
 use Modules\Rental\Booking\RentalBooking;
 use PHPUnit\Framework\TestCase;
 
@@ -93,6 +94,17 @@ class BookingJourneyTest extends TestCase
         );
     }
 
+    /**
+     * @param array<string, bool> $extras
+     */
+    private function journey(
+        BookingStatus $status = BookingStatus::RECEIVED,
+        array $extras = [],
+        ?\DateTimeImmutable $holdUntil = null
+    ): BookingJourney {
+        return BookingJourney::of($this->milestones($status, $extras, $holdUntil), $status);
+    }
+
     // ── The invariant that keeps the table honest ───────────────────────
 
     /**
@@ -135,7 +147,7 @@ class BookingJourneyTest extends TestCase
     public function testEveryMilestoneRendersInExactlyOnePhase(): void
     {
         $milestones = $this->milestones();
-        $journey = BookingJourney::of($milestones);
+        $journey = BookingJourney::of($milestones, BookingStatus::RECEIVED);
 
         $rendered = [];
         foreach ($journey->phases() as $phase) {
@@ -154,7 +166,7 @@ class BookingJourneyTest extends TestCase
 
     public function testThePhasesComeInTheOrderThePageReadsThem(): void
     {
-        $journey = BookingJourney::of($this->milestones());
+        $journey = $this->journey();
 
         $this->assertSame(
             ['La demande', "L'accord", 'Avant le séjour', 'Le séjour', 'Après le séjour'],
@@ -171,7 +183,7 @@ class BookingJourneyTest extends TestCase
      */
     public function testAnUndecidedRequestAsksForTheDecisionFirst(): void
     {
-        $journey = BookingJourney::of($this->milestones(BookingStatus::RECEIVED));
+        $journey = $this->journey(BookingStatus::RECEIVED);
 
         $this->assertNotNull($journey->next());
         $this->assertSame('decision', $journey->next()->key);
@@ -185,20 +197,21 @@ class BookingJourneyTest extends TestCase
      */
     public function testAProposalSentIsStillAnUndecidedRequest(): void
     {
-        $journey = BookingJourney::of($this->milestones(BookingStatus::PROPOSED));
+        $journey = $this->journey(BookingStatus::PROPOSED);
 
         $this->assertSame('decision', $journey->next()?->key);
     }
 
     public function testOnceDecidedTheNextThingIsTheFirstUntickedLineAfterIt(): void
     {
-        $journey = BookingJourney::of($this->milestones(
+        $journey = $this->journey(
             BookingStatus::CONFIRMED,
             [BookingMilestones::CONTRACT_SENT => false]
-        ));
+        );
 
         $this->assertSame(BookingMilestones::CONTRACT_SENT, $journey->next()?->key);
-        $this->assertSame(BookingBox::DOCUMENTS, $journey->nextBox());
+        // Its action is the way to the box it is settled in.
+        $this->assertSame(BookingBox::DOCUMENTS, $journey->primaryAction()?->box);
     }
 
     /**
@@ -236,7 +249,7 @@ class BookingJourneyTest extends TestCase
         // Incomplete and earlier, yet none of them is proposed: the balance
         // is, because it is the first incomplete line this installation can
         // actually do something about.
-        $this->assertSame(BookingMilestones::BALANCE_RECEIVED, BookingJourney::of($milestones)->next()?->key);
+        $this->assertSame(BookingMilestones::BALANCE_RECEIVED, BookingJourney::of($milestones, BookingStatus::CONFIRMED)->next()?->key);
     }
 
     /**
@@ -258,7 +271,7 @@ class BookingJourneyTest extends TestCase
     #[\PHPUnit\Framework\Attributes\DataProvider('abandonedStatuses')]
     public function testAnAbandonedRequestHasNoNextAction(BookingStatus $status): void
     {
-        $journey = BookingJourney::of($this->milestones(
+        $journey = $this->journey(
             $status,
             [
                 BookingMilestones::CONTRACT_SENT => false,
@@ -266,7 +279,7 @@ class BookingJourneyTest extends TestCase
                 BookingMilestones::BALANCE_RECEIVED => false,
             ],
             new \DateTimeImmutable('2027-01-05 18:00:00')
-        ));
+        );
 
         $this->assertNull($journey->next(), $status->value);
     }
@@ -292,17 +305,17 @@ class BookingJourneyTest extends TestCase
      */
     public function testAClosedBookingStillChasesWhatIsOutstanding(): void
     {
-        $journey = BookingJourney::of($this->milestones(
+        $journey = $this->journey(
             BookingStatus::CLOSED,
             [BookingMilestones::BALANCE_RECEIVED => false]
-        ));
+        );
 
         $this->assertSame(BookingMilestones::BALANCE_RECEIVED, $journey->next()?->key);
     }
 
     public function testAClosedBookingHasNothingLeftToDo(): void
     {
-        $journey = BookingJourney::of($this->milestones(BookingStatus::CLOSED));
+        $journey = $this->journey(BookingStatus::CLOSED);
 
         $this->assertNull($journey->next());
         $this->assertTrue($journey->isComplete());
@@ -312,7 +325,7 @@ class BookingJourneyTest extends TestCase
 
     public function testTheStretchHoldingTheNextThingIsTheCurrentOne(): void
     {
-        $journey = BookingJourney::of($this->milestones(BookingStatus::RECEIVED));
+        $journey = $this->journey(BookingStatus::RECEIVED);
 
         $current = array_values(array_filter(
             $journey->phases(),
@@ -331,7 +344,7 @@ class BookingJourneyTest extends TestCase
      */
     public function testAFinishedBookingUnfoldsTheStretchItEndedIn(): void
     {
-        $journey = BookingJourney::of($this->milestones(BookingStatus::CLOSED));
+        $journey = $this->journey(BookingStatus::CLOSED);
 
         $current = array_values(array_filter(
             $journey->phases(),
@@ -346,10 +359,10 @@ class BookingJourneyTest extends TestCase
 
     public function testAFoldedStretchCountsItsApplicableLinesOnly(): void
     {
-        $journey = BookingJourney::of($this->milestones(
+        $journey = $this->journey(
             BookingStatus::RECEIVED,
             [BookingMilestones::CONTRACT_SENT => true, BookingMilestones::DEPOSIT_RECEIVED => false]
-        ));
+        );
 
         $agreement = $this->phase($journey, BookingPhase::AGREEMENT);
 
@@ -362,48 +375,17 @@ class BookingJourneyTest extends TestCase
 
     public function testAStretchWithNothingApplicableSaysSoRatherThanZero(): void
     {
-        $journey = BookingJourney::of($this->milestones(BookingStatus::RECEIVED));
+        $journey = $this->journey(BookingStatus::RECEIVED);
 
         $this->assertSame('Sans objet', $this->phase($journey, BookingPhase::STAY)->summary());
     }
 
     public function testAFinishedStretchSaysFait(): void
     {
-        $journey = BookingJourney::of($this->milestones(BookingStatus::CLOSED));
+        $journey = $this->journey(BookingStatus::CLOSED);
 
         $this->assertSame('Fait', $this->phase($journey, BookingPhase::REQUEST)->summary());
         $this->assertTrue($this->phase($journey, BookingPhase::REQUEST)->isDone());
-    }
-
-    // ── Where a stretch sends the reader ────────────────────────────────
-
-    public function testAStretchPointsAtTheBoxItsNextLineIsSettledIn(): void
-    {
-        $journey = BookingJourney::of($this->milestones(
-            BookingStatus::CONFIRMED,
-            [BookingMilestones::CONTRACT_SENT => true, BookingMilestones::DEPOSIT_RECEIVED => false]
-        ));
-
-        // « Contrat envoyé » is done, so the stretch points at the deposit's
-        // box rather than at the one whose work is behind it.
-        $this->assertSame(BookingBox::PAYMENT, $this->phase($journey, BookingPhase::AGREEMENT)->box);
-    }
-
-    public function testAFinishedStretchStillPointsAtWhereItsEvidenceIsFiled(): void
-    {
-        $journey = BookingJourney::of($this->milestones(
-            BookingStatus::CONFIRMED,
-            [BookingMilestones::CONTRACT_SENT => true, BookingMilestones::CONTRACT_ACCEPTED => true]
-        ));
-
-        $this->assertSame(BookingBox::DOCUMENTS, $this->phase($journey, BookingPhase::AGREEMENT)->box);
-    }
-
-    public function testTheRequestStretchPointsNowhereBecauseItsButtonsAreInIt(): void
-    {
-        $journey = BookingJourney::of($this->milestones(BookingStatus::RECEIVED));
-
-        $this->assertNull($this->phase($journey, BookingPhase::REQUEST)->box);
     }
 
     public function testEveryBoxAnchorIsDistinct(): void
@@ -413,52 +395,242 @@ class BookingJourneyTest extends TestCase
         $this->assertSame($anchors, array_values(array_unique($anchors)));
     }
 
-    // ── The buttons, lifted exactly once ────────────────────────────────
+    // ── Stretches the booking has not reached (issue #462, D5) ──────────
 
-    public function testAnUndecidedRequestLiftsEveryDecisionToTheTop(): void
+    /**
+     * Before a booking is confirmed, every stretch after the current one is
+     * future — visible, inert: `BookingStatus` is a real machine, and a
+     * contract cannot be sent before anybody decided.
+     */
+    public function testTheStretchesAfterTheCurrentOneAreInert(): void
     {
-        $transitions = BookingTransition::allowedFrom(BookingStatus::RECEIVED);
-        $journey = BookingJourney::of($this->milestones(BookingStatus::RECEIVED), $transitions);
+        $journey = $this->journey(BookingStatus::RECEIVED);
 
-        $this->assertSame($transitions, $journey->liftedTransitions());
+        $this->assertSame(
+            ['request' => false, 'agreement' => true, 'before_stay' => true, 'stay' => true, 'after_stay' => true],
+            array_combine(
+                array_map(static fn($p): string => $p->key(), $journey->phases()),
+                array_map(static fn($p): bool => $p->isFuture, $journey->phases())
+            )
+        );
 
-        foreach ($journey->phases() as $phase) {
-            $this->assertSame([], $phase->transitions, "{$phase->key()} repeats a lifted button");
+    }
+
+    /**
+     * **Once confirmed, nothing is locked.** The stretches still read in
+     * order, but a stay that happened while the signed contract was still
+     * in the post must not leave its walk-through impossible to record.
+     */
+    public function testAConfirmedBookingLocksNoStretch(): void
+    {
+        foreach ([BookingStatus::CONFIRMED, BookingStatus::CLOSED] as $status) {
+            $journey = $this->journey($status, [BookingMilestones::CONTRACT_ACCEPTED => false]);
+
+            $this->assertSame(BookingMilestones::CONTRACT_ACCEPTED, $journey->next()?->key, $status->value);
+            foreach ($journey->phases() as $phase) {
+                $this->assertFalse($phase->isFuture, "{$status->value}: {$phase->key()} is locked");
+            }
+        }
+    }
+
+    // ── The heading (issue #462, D3, D7) ────────────────────────────────
+
+    /**
+     * One sentence per status, naming what holds the booking up — never
+     * the stretch it sits in. A heading that read the same for two
+     * statuses would be one that says nothing about either.
+     *
+     * @return array<string, array{BookingStatus, string}>
+     */
+    public static function headlines(): array
+    {
+        return [
+            'reçue' => [BookingStatus::RECEIVED, 'Cette demande attend votre décision.'],
+            'en examen' => [BookingStatus::REVIEWING, "Cette demande est en cours d'examen : elle attend votre décision."],
+            'précision demandée' => [BookingStatus::INFO_REQUESTED, 'Une précision a été demandée au locataire : la décision attend sa réponse.'],
+            'proposition' => [BookingStatus::PROPOSED, 'Une proposition attend la réponse du locataire.'],
+            'confirmée' => [BookingStatus::CONFIRMED, 'Tout est réglé : la location peut être clôturée.'],
+            'refusée' => [BookingStatus::REFUSED, 'Cette demande a été refusée : elle ne peut plus changer.'],
+            'annulée' => [BookingStatus::CANCELLED, 'Cette réservation a été annulée : elle ne peut plus changer.'],
+            'expirée' => [BookingStatus::EXPIRED, "Cette demande a expiré : l'option est échue sans confirmation."],
+            'clôturée' => [BookingStatus::CLOSED, 'Cette location est clôturée : il ne reste rien à faire.'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('headlines')]
+    public function testTheHeadingNamesWhatHoldsTheBookingUp(BookingStatus $status, string $expected): void
+    {
+        $this->assertSame($expected, $this->journey($status)->headline());
+    }
+
+    public function testEveryStatusHasAHeadlineOfItsOwn(): void
+    {
+        $statuses = array_map(static fn(array $case): BookingStatus => $case[0], self::headlines());
+        $this->assertEqualsCanonicalizing(BookingStatus::cases(), array_values($statuses), 'a status has no heading test');
+
+        $sentences = array_map(static fn(array $case): string => $case[1], self::headlines());
+        $this->assertSame(array_values($sentences), array_values(array_unique($sentences)));
+    }
+
+    /**
+     * A payment holding the booking up is named with what is owed and when:
+     * « En attente du solde », not « Avant le séjour ».
+     */
+    public function testAWaitingLineCarriesItsDerivedSentence(): void
+    {
+        $milestones = BookingMilestones::for(
+            $this->booking(BookingStatus::CONFIRMED),
+            new \DateTimeImmutable('2027-01-10 12:00:00'),
+            [BookingMilestones::BALANCE_RECEIVED => false],
+            [BookingMilestones::BALANCE_RECEIVED => '350,00 € attendus — échéance dépassée de 4 jours']
+        );
+
+        $this->assertSame(
+            'En attente du solde : 350,00 € attendus — échéance dépassée de 4 jours.',
+            BookingJourney::of($milestones, BookingStatus::CONFIRMED)->headline()
+        );
+    }
+
+    /**
+     * **The action put forward is never a retreat** (D7), whatever the
+     * status: refusing or cancelling is a real answer, offered among the
+     * others, never the one that moves the file on.
+     *
+     * @return array<string, array{BookingStatus}>
+     */
+    public static function everyStatus(): array
+    {
+        $cases = [];
+        foreach (BookingStatus::cases() as $status) {
+            $cases[$status->value] = [$status];
+        }
+
+        return $cases;
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('everyStatus')]
+    public function testTheProposedActionIsNeverARefusalNorACancellation(BookingStatus $status): void
+    {
+        foreach ([[], [BookingMilestones::BALANCE_RECEIVED => false], [BookingMilestones::CONTRACT_SENT => false]] as $extras) {
+            $journey = $this->journey($status, $extras);
+
+            $this->assertFalse($journey->primaryAction()?->isRetreat() ?? false, $status->value);
+            foreach ($journey->phases() as $phase) {
+                foreach ($phase->milestones as $milestone) {
+                    $this->assertFalse($milestone->action?->isRetreat() ?? false, $milestone->key);
+                }
+            }
         }
     }
 
     /**
-     * A confirmed booking's last line is « Location clôturée », so closing
-     * comes up at the top — and cancelling, offered beside it, does not:
-     * abandoning a rental is not a way of finishing one, and it stays in
-     * the stretch where the request is answered.
+     * Every decision the table still allows is offered exactly once: the
+     * proposed one, or among the others — never both, never neither.
      */
-    public function testClosingIsLiftedButCancellingIsNot(): void
+    #[\PHPUnit\Framework\Attributes\DataProvider('everyStatus')]
+    public function testEveryAllowedDecisionIsOfferedExactlyOnce(BookingStatus $status): void
     {
-        $journey = BookingJourney::of(
-            $this->milestones(BookingStatus::CONFIRMED),
-            BookingTransition::allowedFrom(BookingStatus::CONFIRMED)
-        );
+        $journey = $this->journey($status);
 
-        $this->assertSame('closed', $journey->next()?->key);
-        $this->assertSame([BookingStatus::CLOSED], $journey->liftedTransitions());
-        $this->assertSame(
-            [BookingStatus::CANCELLED],
-            $this->phase($journey, BookingPhase::REQUEST)->transitions
-        );
-        $this->assertSame([], $this->phase($journey, BookingPhase::AFTER_STAY)->transitions);
+        $offered = array_map(static fn($a) => $a->transition, $journey->otherDecisions());
+        if ($journey->primaryAction()?->transition !== null) {
+            $offered[] = $journey->primaryAction()->transition;
+        }
+
+        $this->assertEqualsCanonicalizing(BookingTransition::allowedFrom($status), $offered);
     }
 
-    public function testAFinalBookingOffersNoButtonAnywhere(): void
+    public function testAnUndecidedRequestPutsTheConfirmationForward(): void
     {
-        $journey = BookingJourney::of(
-            $this->milestones(BookingStatus::REFUSED),
-            BookingTransition::allowedFrom(BookingStatus::REFUSED)
+        $journey = $this->journey(BookingStatus::RECEIVED);
+
+        $this->assertSame(BookingStatus::CONFIRMED, $journey->primaryAction()?->transition);
+        $this->assertSame('Confirmer la réservation', $journey->primaryAction()?->label);
+        $this->assertContains(BookingStatus::REFUSED, array_map(static fn($a) => $a->transition, $journey->otherDecisions()));
+    }
+
+    public function testAConfirmedBookingWithNothingLeftPutsTheClosureForward(): void
+    {
+        $journey = $this->journey(BookingStatus::CONFIRMED);
+
+        $this->assertSame('closed', $journey->next()?->key);
+        $this->assertSame(BookingStatus::CLOSED, $journey->primaryAction()?->transition);
+        $this->assertSame(
+            [BookingStatus::CANCELLED],
+            array_map(static fn($a) => $a->transition, $journey->otherDecisions())
+        );
+    }
+
+    public function testAPaymentHoldingTheBookingUpLeadsToThePayments(): void
+    {
+        $journey = $this->journey(BookingStatus::CONFIRMED, [BookingMilestones::BALANCE_RECEIVED => false]);
+
+        $this->assertSame(BookingBox::PAYMENT, $journey->primaryAction()?->box);
+        $this->assertNull($journey->primaryAction()?->transition);
+    }
+
+    public function testAFinalBookingOffersNothingToPress(): void
+    {
+        foreach ([BookingStatus::REFUSED, BookingStatus::CANCELLED, BookingStatus::EXPIRED] as $status) {
+            $journey = $this->journey($status);
+
+            $this->assertNull($journey->primaryAction(), $status->value);
+            $this->assertSame([], $journey->otherDecisions(), $status->value);
+        }
+    }
+
+    // ── The nature of each step (issue #462, D6) ────────────────────────
+
+    public function testEachStepSaysHowItGetsTicked(): void
+    {
+        $extras = array_fill_keys([
+            BookingMilestones::CONTRACT_SENT, BookingMilestones::CONTRACT_ACCEPTED,
+            BookingMilestones::DEPOSIT_RECEIVED, BookingMilestones::BALANCE_RECEIVED,
+            BookingMilestones::ARRIVAL_INVENTORY, BookingMilestones::METER_READINGS,
+            BookingMilestones::DEPARTURE_INVENTORY, BookingMilestones::FINAL_SETTLEMENT,
+            BookingMilestones::SECURITY_DEPOSIT_RECEIVED, BookingMilestones::SECURITY_DEPOSIT_RETURNED,
+        ], false);
+        $kinds = [];
+        foreach ($this->milestones(BookingStatus::CONFIRMED, $extras) as $milestone) {
+            $kinds[$milestone->key] = $milestone->kind;
+        }
+
+        $this->assertSame(MilestoneKind::DERIVED, $kinds['request_received']);
+        $this->assertSame(MilestoneKind::HERE, $kinds['decision']);
+        $this->assertSame(MilestoneKind::HERE, $kinds[BookingMilestones::CONTRACT_SENT]);
+        $this->assertSame(MilestoneKind::RENTER, $kinds[BookingMilestones::CONTRACT_ACCEPTED]);
+        $this->assertSame(MilestoneKind::DERIVED, $kinds[BookingMilestones::DEPOSIT_RECEIVED]);
+        $this->assertSame(MilestoneKind::DERIVED, $kinds[BookingMilestones::BALANCE_RECEIVED]);
+        // With the stay page recording the inventory, it is done there.
+        $this->assertSame(MilestoneKind::HERE, $kinds[BookingMilestones::ARRIVAL_INVENTORY]);
+        $this->assertSame(MilestoneKind::HERE, $kinds['closed']);
+    }
+
+    /**
+     * A walk-through the site keeps no inventory for is the one line a
+     * manager ticks by hand — and only that line: no derived line is ever
+     * markable, whatever else is offsite.
+     */
+    public function testOnlyALineTheSiteCannotDeriveIsTickedByHand(): void
+    {
+        $milestones = BookingMilestones::for(
+            $this->booking(BookingStatus::CONFIRMED),
+            new \DateTimeImmutable('2027-01-10 12:00:00'),
+            [
+                BookingMilestones::ARRIVAL_INVENTORY => false,
+                BookingMilestones::DEPARTURE_INVENTORY => false,
+                BookingMilestones::DEPOSIT_RECEIVED => false,
+            ],
+            [],
+            [BookingMilestones::ARRIVAL_INVENTORY, BookingMilestones::DEPARTURE_INVENTORY, BookingMilestones::DEPOSIT_RECEIVED]
         );
 
-        $this->assertSame([], $journey->liftedTransitions());
-        foreach ($journey->phases() as $phase) {
-            $this->assertSame([], $phase->transitions);
+        foreach ($milestones as $milestone) {
+            $this->assertSame(
+                in_array($milestone->key, [BookingMilestones::ARRIVAL_INVENTORY, BookingMilestones::DEPARTURE_INVENTORY], true),
+                $milestone->kind->isMarkable(),
+                $milestone->key
+            );
         }
     }
 

@@ -11210,7 +11210,13 @@ if ($isEnabled('rental')) {
             // The « Rappels » section reads both: the asset's own overrides
             // and the unit's defaults it falls back to (§6.29).
             $rentalAssetReminderRepository,
-            $settingService
+            $settingService,
+            // « Marquer comme fait » on the steps the site cannot derive —
+            // the walk-throughs of an asset with no inventory (issue #462).
+            new \Modules\Rental\Service\RentalMilestoneMarkService(
+                new \Modules\Rental\Repository\RentalMilestoneMarkRepository($pdo),
+                $rentalBookingAudit
+            )
         )
     );
     $frontController->registerController(

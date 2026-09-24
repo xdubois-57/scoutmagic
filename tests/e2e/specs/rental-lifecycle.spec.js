@@ -206,7 +206,8 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         await page.getByRole('link', { name: new RegExp(reference) }).first().click();
         await page.waitForURL(/\/reservations\/\d+$/, { waitUntil: 'load' });
 
-        await page.getByRole('button', { name: 'Confirmée' }).click();
+        // The action the journey puts forward on an undecided request.
+        await page.getByRole('button', { name: 'Confirmer la réservation' }).click();
         // The end of the setup, and the only reason it is asserted at all:
         // everything below is about a CONFIRMED booking, and starting the
         // subject before the confirmation has landed would blame the first
@@ -398,17 +399,17 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         await page.goto(bookingUrl(page), { waitUntil: 'load' });
         await expect(milestone(page, 'Décompte final réglé')).toContainText(DONE);
 
-        await page.getByRole('button', { name: 'Clôturée' }).click();
+        // With everything settled, closing is the action put forward.
+        await page.getByRole('button', { name: 'Clôturer la location' }).click();
 
         await expect(milestone(page, 'Location clôturée')).toContainText(DONE);
-        // And there is nowhere left to go: closed is history, and the way
-        // back is a new request (`Booking\BookingTransition`).
+        // And there is nowhere left to go: the journey's heading says so.
         // Scoped to the panel that owns the sentence rather than asked of
         // the whole document: a page-wide getByText is how a header, a
         // drawer and the body all answer to one visible string.
         await expect(
             page.locator('[data-booking-panel="next-step"]'),
-        ).toContainText('Cette réservation est dans un état définitif');
+        ).toContainText('Cette location est clôturée : il ne reste rien à faire.');
 
         expect(serverErrors, 'the application returned a server error').toEqual([]);
         expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
@@ -423,7 +424,7 @@ test.describe('Rentals — the milestones after a confirmation', () => {
  * wrapper is what `public/assets/js/rental-booking.js` swaps after every
  * action — a contract between the script and the template rather than
  * incidental markup — and because the checklist repeats words the rest of
- * the page also uses (« Confirmée » is a button too).
+ * the page also uses (« Réservation confirmée » is also the flash a confirmation raises).
  *
  * The state is read off the visually-hidden prefix each line carries
  * (« Fait : », « À faire : », « Sans objet : »), which is the only textual

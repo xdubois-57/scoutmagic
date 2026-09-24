@@ -213,6 +213,16 @@ class RentalTestHelper
             FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
         )');
 
+        $pdo->exec('CREATE TABLE rental_booking_milestone_marks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            booking_id INTEGER NOT NULL,
+            milestone_key TEXT NOT NULL,
+            marked_by_member_id INTEGER,
+            marked_at TEXT NOT NULL,
+            UNIQUE (booking_id, milestone_key),
+            FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
+        )');
+
         // No rental_booking_events: a booking's history lives in core's
         // `entity_changes` (§8.66). Tests\DatabaseTestHelper creates it and
         // runs first where both are used, so this is IF NOT EXISTS — it is

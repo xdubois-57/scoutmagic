@@ -271,7 +271,11 @@ class RentalManagementControllerTest extends TestCase
             new RentalBookingService($this->bookingRepository, $journal),
             // The « Rappels » section of the settings page (§6.29).
             new RentalAssetReminderRepository($this->pdo),
-            $settingService
+            $settingService,
+            new \Modules\Rental\Service\RentalMilestoneMarkService(
+                new \Modules\Rental\Repository\RentalMilestoneMarkRepository($this->pdo),
+                $bookingAudit
+            )
         );
 
         $this->assetId = $this->createAsset('Local Saint-Georges', 'local-saint-georges');
@@ -1462,9 +1466,9 @@ class RentalManagementControllerTest extends TestCase
         $booking = $this->createBooking();
 
         $before = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
-        // Rendered as an unticked box, never as the greyed "sans objet"
-        // dash it used to be.
-        $this->assertMatchesRegularExpression('/bi-square[^<]*<\/i>\s*<span class="visually-hidden">À faire :<\/span>\s*Contrat envoyé/', $before);
+        // Rendered as work to do, never as the greyed « sans objet » it
+        // used to be.
+        $this->assertStringContainsString('<span class="visually-hidden">À faire :</span>', self::step($before, 'contract_sent'));
 
         $this->post('/mes-locations/document-generer', 'generateDocument', [
             'asset_id' => (string) $this->assetId,
@@ -1479,7 +1483,7 @@ class RentalManagementControllerTest extends TestCase
         ]);
 
         $after = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
-        $this->assertMatchesRegularExpression('/bi-check-square[^<]*<\/i>\s*<span class="visually-hidden">Fait :<\/span>\s*Contrat envoyé/', $after);
+        $this->assertStringContainsString('<span class="visually-hidden">Fait :</span>', self::step($after, 'contract_sent'));
     }
 
     /**
@@ -1496,7 +1500,10 @@ class RentalManagementControllerTest extends TestCase
         $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
 
         // No security deposit is configured on this asset.
-        $this->assertMatchesRegularExpression('/bi-dash-square[^<]*<\/i>\s*<span class="visually-hidden">Sans objet :<\/span>\s*Caution reçue/', $body);
+        $this->assertStringContainsString(
+            '<span class="visually-hidden">Sans objet :</span>',
+            self::step($body, 'security_deposit_received')
+        );
     }
 
     /**
@@ -1571,24 +1578,28 @@ class RentalManagementControllerTest extends TestCase
     }
 
     /**
-     * The four movements of the page, in the order §6.15 reads them: what
-     * the rental is, the one thing to do next, how far it has got, then the
-     * file. Asserted by position rather than by presence, because the whole
-     * of IT-05 is the order — four headings in the wrong sequence would
-     * pass a test that only asked whether they were there.
+     * The three movements of the dashboard, in the mockup's order (issue
+     * #462): where the booking stands — the journey, heading included —
+     * what it is, then the file. Asserted by position rather than by
+     * presence, because the order is the point: three headings in the
+     * wrong sequence would pass a test that only asked whether they were
+     * there.
      */
-    public function testTheBookingPageReadsInItsFourMovements(): void
+    public function testTheDashboardReadsInItsThreeMovements(): void
     {
         $this->loginAsManager();
         $booking = $this->createBooking();
 
         $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
 
+        // One component answers « où en est » — the second card that used
+        // to answer it too is gone.
+        $this->assertStringNotContainsString("L'action suivante", $body);
+
         $positions = [];
         foreach ([
-            'Les détails de la réservation',
-            "L'action suivante",
             'Où en est cette réservation',
+            'Les détails de la réservation',
             'Le dossier',
         ] as $heading) {
             $at = strpos($body, $heading);
@@ -1598,7 +1609,7 @@ class RentalManagementControllerTest extends TestCase
 
         $sorted = $positions;
         sort($sorted);
-        $this->assertSame($sorted, $positions, 'the four movements are out of order');
+        $this->assertSame($sorted, $positions, 'the three movements are out of order');
 
         // The « État » card is gone: its badge is in the details above and
         // its buttons are decisions of a phase, never a state of their own.
@@ -1619,7 +1630,7 @@ class RentalManagementControllerTest extends TestCase
         $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
         $nextStep = self::panel($body, 'next-step');
 
-        $this->assertStringContainsString('Décision prise sur la demande', $nextStep);
+        $this->assertStringContainsString('Cette demande attend votre décision.', $nextStep);
         $this->assertStringContainsString('value="confirmed"', $nextStep);
         $this->assertStringContainsString('value="refused"', $nextStep);
     }
@@ -1689,6 +1700,18 @@ class RentalManagementControllerTest extends TestCase
      * addressing the page's own script uses, rather than a guess at which
      * card a string landed in.
      */
+    /**
+     * One step of the journey, by its milestone key — the `li` the step
+     * partial renders, with its nature and its visually-hidden state.
+     */
+    private static function step(string $body, string $key): string
+    {
+        $found = preg_match('#<li class="step-item[^"]*"\s+data-milestone="' . preg_quote($key, '#') . '".*?</li>#s', $body, $m);
+        self::assertSame(1, $found, "no step {$key}");
+
+        return $m[0];
+    }
+
     private static function panel(string $body, string $name): string
     {
         $open = strpos($body, 'data-booking-panel="' . $name . '"');
@@ -2012,6 +2035,154 @@ class RentalManagementControllerTest extends TestCase
             '/mes-locations/' . $slug . '/reservations/' . $bookingId . '/sejour',
             'stay'
         );
+    }
+
+    // ── The journey (issue #462, IT-02) ─────────────────────────────────
+
+    private function confirm(RentalBooking $booking): void
+    {
+        $this->post('/mes-locations/statut', 'changeStatus', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'status' => 'confirmed',
+        ]);
+    }
+
+    private function markStep(RentalBooking $booking, string $key, bool $done = true): Response
+    {
+        return $this->post('/mes-locations/etape', 'markMilestone', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'milestone_key' => $key,
+            'done' => $done ? '1' : '0',
+        ]);
+    }
+
+    /**
+     * **A derived step never has a box to tick** (D5, D6). Only a step the
+     * site cannot derive — here, the walk-throughs of an asset that keeps
+     * no inventory — carries one, and every step says its nature.
+     */
+    public function testOnlyAStepDoneOutsideTheSiteHasABoxToTick(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->confirm($booking);
+
+        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        preg_match_all('#<li class="step-item[^"]*"\s+data-milestone="([a-z_]+)" data-kind="([a-z]+)".*?</li>#s', $body, $steps, PREG_SET_ORDER);
+        $this->assertGreaterThanOrEqual(15, count($steps), 'the journey renders every step');
+
+        $marked = [];
+        foreach ($steps as [$markup, $key, $kind]) {
+            if (str_contains($markup, 'data-mark-step')) {
+                $marked[] = $key;
+                $this->assertSame('offsite', $kind, "{$key} offers a box and is not done outside the site");
+            }
+        }
+        $this->assertSame(['arrival_inventory', 'departure_inventory'], $marked);
+    }
+
+    /**
+     * Where the stay page keeps the inventory, the same walk-through is done
+     * THERE, and nothing here ticks it.
+     */
+    public function testAnInventoryTheStayPageKeepsHasNoBox(): void
+    {
+        $this->loginAsManager();
+        $this->stayService->addInventoryItem($this->assetId, 'Clés');
+        $booking = $this->createBooking();
+        $this->confirm($booking);
+
+        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString('data-kind="here"', self::step($body, 'arrival_inventory'));
+        $this->assertStringNotContainsString('data-mark-step', $body);
+    }
+
+    /**
+     * A stretch the booking has not reached is visible and inert: no
+     * button, and a box that cannot be ticked (D5).
+     */
+    public function testAStretchNotYetReachedOffersNothingToPress(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $this->assertSame(1, preg_match('#<section class="border-bottom" data-phase="stay">.*?</section>#s', $body, $stay));
+
+        // No action at all: neither a transition nor a link to a box.
+        $this->assertStringNotContainsString('action="/mes-locations/statut"', $stay[0]);
+        $this->assertStringNotContainsString('<a class="btn', $stay[0]);
+        // The box is there — a step that vanished would read as skipped —
+        // but cannot be ticked, and neither can its no-JavaScript twin.
+        $this->assertMatchesRegularExpression('#data-mark-step[^>]*disabled#', $stay[0]);
+        $this->assertDoesNotMatchRegularExpression('#data-mark-step(?![^>]*disabled)[^>]*>#', $stay[0]);
+        $this->assertDoesNotMatchRegularExpression('#<button type="submit"(?![^>]*disabled)[^>]*>#', $stay[0]);
+    }
+
+    /**
+     * Ticking writes a real fact — who and when — the line says it, and the
+     * history carries it like any other action. Unticking undoes it, and
+     * says so too.
+     */
+    public function testTickingAStepRecordsWhoAndWhenAndTheHistorySaysSo(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->confirm($booking);
+
+        $this->assertSame(302, $this->markStep($booking, 'arrival_inventory')->getStatusCode());
+
+        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $step = self::step($body, 'arrival_inventory');
+        $this->assertStringContainsString('<span class="visually-hidden">Fait :</span>', $step);
+        $this->assertStringContainsString('fait le ' . (new \DateTimeImmutable())->format('d/m/Y'), $step);
+        $this->assertStringContainsString('Étape hors du site', self::panel($body, 'history'));
+
+        $this->markStep($booking, 'arrival_inventory', false);
+        $again = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $this->assertStringContainsString('<span class="visually-hidden">À faire :</span>', self::step($again, 'arrival_inventory'));
+    }
+
+    /**
+     * The form is never the boundary: a hand-made POST for a derived step,
+     * for a walk-through the stay page keeps, or for a stretch not reached
+     * yet stores nothing.
+     */
+    public function testAHandMadePostCannotTickWhatIsNotTickedByHand(): void
+    {
+        $this->loginAsManager();
+        $undecided = $this->createBooking();
+        $this->markStep($undecided, 'arrival_inventory');
+
+        $confirmed = $this->createBooking(null, 'LOC-2027-0002');
+        $this->confirm($confirmed);
+        $this->markStep($confirmed, 'deposit_received');
+        $this->markStep($confirmed, 'confirmed');
+
+        $marks = new \Modules\Rental\Repository\RentalMilestoneMarkRepository($this->pdo);
+        $this->assertSame([], $marks->findForBooking($undecided->id), 'a stretch not yet reached was ticked');
+        $this->assertSame([], $marks->findForBooking($confirmed->id), 'a derived step was ticked');
+    }
+
+    public function testTickingAStepIsItsManagersAlone(): void
+    {
+        $booking = $this->createBooking();
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+
+        AuthSession::login(1, 'nobody@test.be', 'identified');
+        $this->assertSame(404, $this->markStep($booking, 'arrival_inventory')->getStatusCode());
+
+        $this->loginAsManager();
+        $response = $this->post('/mes-locations/etape', 'markMilestone', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $foreign->id,
+            'milestone_key' => 'arrival_inventory',
+            'done' => '1',
+        ]);
+        $this->assertSame(404, $response->getStatusCode());
     }
 
     // ── The four pages of a booking's file (issue #462, IT-01) ──────────

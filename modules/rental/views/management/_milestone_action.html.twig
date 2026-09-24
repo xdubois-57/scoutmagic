@@ -1,0 +1,38 @@
+{#
+  One action of the journey (Booking\MilestoneAction): a status transition,
+  pressed right here, or the way to the box where the thing is done.
+
+  A transition the renter hears about asks first, and the dialog carries
+  the free-text box the manager's word goes in (base.html.twig's
+  data-confirm-note, handled in /assets/js/confirm.js). Which ones those are
+  comes from Booking\RenterDecision::forStatus() through `renter_decisions`,
+  never re-derived here — a status added to that enum must not need this
+  template edited to stop being silent. A refusal or a cancellation that
+  writes to nobody still asks, because it frees the dates; the rest are
+  bookkeeping, and a dialog in front of bookkeeping is one nobody reads.
+
+  Requires `action`, `asset`, `booking`, `booking_url` and
+  `renter_decisions`; `primary` (default false) makes it the one button put
+  forward (D7), `small` (default false) a compact one.
+#}
+{% set button_class = 'btn ' ~ (primary|default(false) ? 'btn-primary' : 'btn-outline-secondary') ~ (small|default(false) ? ' btn-sm' : '') %}
+{% if action.transition %}
+    {% set decision = renter_decisions[action.transition.value]|default(null) %}
+    <form method="post" action="/mes-locations/statut" class="d-inline"
+          {% if decision %}
+              data-confirm="{{ decision.question }}"
+              data-confirm-label="{{ action.label }}"
+              data-confirm-note="{{ decision.note_label }}"
+              data-confirm-note-name="message"
+          {% elseif action.transition.isAbandoned %}
+              data-confirm="{{ action.label }} ? Les dates seront libérées."
+          {% endif %}>
+        {{ csrf_field()|raw }}
+        <input type="hidden" name="asset_id" value="{{ asset.id }}">
+        <input type="hidden" name="booking_id" value="{{ booking.id }}">
+        <input type="hidden" name="status" value="{{ action.transition.value }}">
+        <button type="submit" class="{{ button_class }}">{{ action.label }}</button>
+    </form>
+{% elseif action.box %}
+    <a class="{{ button_class }}" href="{{ action.box.href(booking_url) }}">{{ action.label }}</a>
+{% endif %}

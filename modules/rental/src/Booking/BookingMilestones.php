@@ -45,16 +45,28 @@ final class BookingMilestones
     public const SECURITY_DEPOSIT_RETURNED = 'security_deposit_returned';
 
     /**
+     * The lines a manager may tick by hand when the site cannot derive them
+     * — the walk-throughs, on an asset whose inventory the site does not
+     * keep (issue #462, D5). A line becomes one only per booking, through
+     * `$offsite`: where the stay page records the inventory line by line,
+     * the same line derives itself and carries no box.
+     */
+    public const MARKABLE = [self::ARRIVAL_INVENTORY, self::DEPARTURE_INVENTORY];
+
+    /**
      * @param array<string, bool> $extras
      * @param array<string, string> $details the grey suffix an extra line may
      *   carry — a send date, a settlement version (Booking\MilestoneEvidence)
+     * @param list<string> $offsite the keys that are done outside the site on
+     *   this booking, and therefore ticked by hand (Booking\MilestoneEvidence)
      * @return list<BookingMilestone>
      */
     public static function for(
         RentalBooking $booking,
         \DateTimeImmutable $now,
         array $extras = [],
-        array $details = []
+        array $details = [],
+        array $offsite = []
     ): array {
         $milestones = [
             new BookingMilestone(
@@ -137,7 +149,135 @@ final class BookingMilestones
             !$abandoned
         );
 
-        return $milestones;
+        // What each line asks and how it gets ticked is decided once, over
+        // the finished list, so that the facts above stay the only thing
+        // each constructor call is about.
+        return array_map(
+            static fn(BookingMilestone $m): BookingMilestone => self::shaped($m, $booking->status, $offsite),
+            $milestones
+        );
+    }
+
+    /**
+     * The line as a manager reads it on the journey: its nature, what it
+     * asks, and what can be done about it (issue #462, D6–D7).
+     *
+     * The facts — done, applicable, detail — are untouched: this adds the
+     * how, never a second answer to whether.
+     *
+     * @param list<string> $offsite
+     */
+    private static function shaped(BookingMilestone $m, BookingStatus $status, array $offsite): BookingMilestone
+    {
+        $kind = MilestoneKind::DERIVED;
+        $explanation = null;
+        $action = null;
+        $alternatives = [];
+
+        switch ($m->key) {
+            case 'hold':
+                $kind = MilestoneKind::HERE;
+                $explanation = "Une option bloque les dates jusqu'à son échéance ; passée, la demande expire et "
+                    . 'les dates se libèrent. Le formulaire est sous cette étape.';
+                break;
+            case 'decision':
+                $kind = MilestoneKind::HERE;
+                $explanation = 'Répondez au locataire : confirmez la réservation, faites-lui une proposition, '
+                    . 'demandez-lui une précision, ou refusez.';
+                [$action, $alternatives] = self::decisions($status, BookingStatus::CONFIRMED);
+                break;
+            case self::CONTRACT_SENT:
+                $kind = MilestoneKind::HERE;
+                $explanation = 'Le contrat reprend les conditions du bien et le prix convenu ; il se prépare et '
+                    . "s'envoie depuis la page Documents.";
+                $action = MilestoneAction::openBox('Préparer le contrat', BookingBox::DOCUMENTS);
+                break;
+            case self::CONTRACT_ACCEPTED:
+                $kind = MilestoneKind::RENTER;
+                $explanation = "Le locataire accepte depuis sa page de suivi ; l'étape se coche quand la copie "
+                    . 'signée est ajoutée aux documents.';
+                break;
+            case self::DEPOSIT_RECEIVED:
+            case self::BALANCE_RECEIVED:
+            case self::SECURITY_DEPOSIT_RECEIVED:
+                $explanation = 'Se coche dès que le paiement est pointé dans les Finances.';
+                break;
+            case 'confirmed':
+                $explanation = 'Se coche quand la réservation est confirmée.';
+                break;
+            case self::ARRIVAL_INVENTORY:
+            case self::DEPARTURE_INVENTORY:
+                if (in_array($m->key, $offsite, true)) {
+                    $kind = MilestoneKind::OFFSITE;
+                    $explanation = "Ce bien n'a pas d'inventaire sur le site : personne ne peut le deviner, "
+                        . "cochez quand c'est fait.";
+                    break;
+                }
+                $kind = MilestoneKind::HERE;
+                $explanation = "L'inventaire se vérifie ligne par ligne sur la page Séjour.";
+                $action = MilestoneAction::openBox("Faire l'état des lieux", BookingBox::STAY);
+                break;
+            case self::METER_READINGS:
+                $kind = MilestoneKind::HERE;
+                $explanation = "Chaque compteur se relève à l'arrivée et au départ, sur la page Séjour.";
+                $action = MilestoneAction::openBox('Relever les compteurs', BookingBox::STAY);
+                break;
+            case self::FINAL_SETTLEMENT:
+                $kind = MilestoneKind::HERE;
+                $explanation = "Le décompte s'établit et se valide sur la page Séjour.";
+                $action = MilestoneAction::openBox('Établir le décompte', BookingBox::STAY);
+                break;
+            case self::SECURITY_DEPOSIT_RETURNED:
+                $kind = MilestoneKind::HERE;
+                $explanation = "La restitution s'enregistre dans les paiements de la réservation.";
+                $action = MilestoneAction::openBox('Enregistrer la restitution', BookingBox::PAYMENT);
+                break;
+            case 'closed':
+                $kind = MilestoneKind::HERE;
+                $explanation = 'Clôturez la location quand tout est réglé.';
+                [$action, $alternatives] = self::decisions($status, BookingStatus::CLOSED);
+                break;
+        }
+
+        return new BookingMilestone(
+            $m->key,
+            $m->label,
+            $m->isDone,
+            $m->isApplicable,
+            $m->detail,
+            $kind,
+            $explanation,
+            $action,
+            $alternatives
+        );
+    }
+
+    /**
+     * The transition that answers a line and moves the booking on, and the
+     * other transitions still open beside it (D7).
+     *
+     * The proposed one is only ever `$forward`, and only while the table
+     * allows it: when it does not, there is nothing to propose rather than
+     * a refusal promoted to the front. Everything else the table offers is
+     * an alternative — refusing and cancelling included, since they are
+     * real answers, just never the one put forward.
+     *
+     * @return array{0: ?MilestoneAction, 1: list<MilestoneAction>}
+     */
+    private static function decisions(BookingStatus $status, BookingStatus $forward): array
+    {
+        $action = null;
+        $alternatives = [];
+
+        foreach (BookingTransition::allowedFrom($status) as $to) {
+            if ($to === $forward) {
+                $action = MilestoneAction::transition($to, $status);
+                continue;
+            }
+            $alternatives[] = MilestoneAction::transition($to, $status);
+        }
+
+        return [$action, $alternatives];
     }
 
     /**
