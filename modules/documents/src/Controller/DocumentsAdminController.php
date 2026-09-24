@@ -46,6 +46,8 @@ class DocumentsAdminController extends AbstractController
     {
         return $this->render('@documents/manage.html.twig', [
             'documents' => $this->documentService->all(),
+            'versions' => $this->documentService->versionsByDocument(),
+            'kept_versions' => DocumentService::KEPT_VERSIONS,
             'base_url' => rtrim($this->baseUrl, '/'),
         ]);
     }
@@ -209,6 +211,7 @@ class DocumentsAdminController extends AbstractController
             'max_mb' => (int) (DocumentService::MAX_BYTES / 1024 / 1024),
             'title_max' => DocumentService::TITLE_MAX_LENGTH,
             'description_max' => DocumentService::DESCRIPTION_MAX_LENGTH,
+            'kept_versions' => DocumentService::KEPT_VERSIONS,
             'breadcrumb_current' => $document === null ? 'Ajouter un document' : $document->title,
         ]);
 

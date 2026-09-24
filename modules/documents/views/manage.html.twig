@@ -8,7 +8,9 @@
   forking it: drag handle on a wide screen, chevrons on a narrow one, the
   order saved in the background. Editing is its own page (form.html.twig),
   reached from the pencil on each row; deleting is the list editor's own
-  button.
+  button. Under each document, its past versions fold away (IT-02): the
+  Staff d'U alone can still open them, and the sentence below says why —
+  the behaviour most likely to be taken for a bug.
 #}
 {% extends "base.html.twig" %}
 
@@ -45,6 +47,33 @@
                 {{ document.kindLabel() }} · {{ document.sizeBytes|filesize }} · mis à jour le {{ document.updatedAt|date_fr }}
             </div>
             <div class="small text-body-secondary text-break font-monospace">{{ base_url }}{{ document.path() }}</div>
+            {% set past = versions[document.id] ?? [] %}
+            {% if past is not empty %}
+                <details class="small mt-1">
+                    <summary class="text-body-secondary">
+                        Version {{ document.versionNumber }} · {{ past|length }} version{{ past|length > 1 ? 's' : '' }} précédente{{ past|length > 1 ? 's' : '' }}
+                    </summary>
+                    <ul class="list-unstyled mb-1 mt-1">
+                        {% for version in past %}
+                            <li class="d-flex align-items-center gap-2">
+                                <span>Version {{ version.versionNumber }} · {{ version.sizeBytes|filesize }} · du {{ version.uploadedAt|date_fr }}</span>
+                                {% include 'partials/file_link.html.twig' with {
+                                    href: '/files/' ~ version.fileId,
+                                    label: '',
+                                    icon: 'download',
+                                    classes: 'btn btn-sm btn-outline-secondary',
+                                    title: 'Télécharger la version ' ~ version.versionNumber ~ ' de ' ~ document.title,
+                                    aria_label: 'Télécharger la version ' ~ version.versionNumber ~ ' de ' ~ document.title,
+                                } only %}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                    <p class="text-body-secondary mb-0">
+                        Les anciennes versions ne sont plus accessibles qu'au Staff d'U, même par leur ancien lien :
+                        c'est ce qui fait qu'une correction corrige vraiment. Les {{ kept_versions }} dernières sont gardées.
+                    </p>
+                </details>
+            {% endif %}
         {% endblock %}
         {% block item_edit %}
             <a href="/admin/documents/{{ item.document.id }}/modifier" class="btn btn-sm btn-outline-secondary"

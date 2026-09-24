@@ -189,3 +189,85 @@ d'inventaire corrigés puis leurs suites relancées vertes ; le groupe `database
 suites `tests/Core/Database` et `tests/Integration` vert sur MariaDB ;
 `tests/Modules/Documents` : 56 tests ; `tests/js/documents-form.test.js`
 vert ; `npm run typecheck` sans erreur.
+
+---
+
+## IT-02 — Les versions
+
+**Livré.**
+- Table `document_versions` : le document, le numéro, le fichier, sa
+  taille, quand et par qui il était devenu courant, quand il a été
+  remplacé. Version du module montée à 1.1.0.
+- À chaque remplacement de fichier, l'ancien devient la version
+  précédente la plus récente et son `files.role_min` passe à `admin`, quelle
+  que soit la visibilité du document (D7) ; au-delà de cinq versions
+  précédentes, la plus ancienne est supprimée, ligne **et** fichier.
+  Supprimer un document supprime ses versions et leurs fichiers.
+- Dans l'écran de gestion, sous chaque document remplacé au moins une
+  fois, un historique replié : chaque version conservée, sa taille, sa
+  date et un bouton pour la télécharger, suivi de la phrase qui explique
+  pourquoi une ancienne version devient inaccessible. L'avertissement du
+  formulaire annonce la même chose au moment de choisir un fichier.
+- Journal : `document_file_replaced` (avec le numéro de la nouvelle
+  version) et `document_version_deleted`, niveau `info`, identifiants
+  seulement.
+- Sujet d'aide « Gérer les documents » : une section sur les versions
+  précédentes et une question de plus.
+- Tests : le sixième remplacement supprime la première version et son
+  fichier ; une ancienne version n'est plus lisible en dessous d'`admin`
+  (`FileAccessGuard`, rôle par rôle), même sur un document public ou en
+  lien direct ; l'adresse stable suit la version courante ; supprimer un
+  document supprime ses versions et leurs fichiers ; modifier sans fichier
+  ne crée pas de version ; l'historique s'affiche dans l'écran de gestion.
+
+**Décisions autonomes.**
+- **Cinq versions *précédentes*, la courante en plus.** C'est la lecture
+  qui rend vrai le test demandé par la roadmap (« le sixième remplacement
+  supprime la première version ») : après cinq remplacements, les
+  versions 1 à 5 sont gardées et la 6 est courante.
+- **La version courante n'est pas une ligne de `document_versions`** :
+  elle reste `documents.file_id`, ce qui laisse intacts la redirection et
+  tout le code de l'IT-01. Son numéro se calcule (le plus haut numéro
+  gardé, plus un).
+- **La date et l'auteur d'une version** sont recopiés de sa ligne `files`
+  au moment où elle est remplacée : c'est le seul endroit qui savait
+  quand ce fichier était devenu courant, `documents.updated_at` bougeant
+  aussi pour une simple correction de titre.
+- **Pas de `ON DELETE CASCADE` de `documents` vers `document_versions`** :
+  la cascade effacerait les lignes en laissant leurs fichiers sur le
+  disque. Le service supprime les versions, fichiers compris, avant le
+  document.
+- **L'ancien fichier est fermé avant que sa version soit écrite**, et
+  l'archivage résiste à deux modifications simultanées (relevé en deux
+  temps par la revue de la PR). Le numéro de version est calculé par
+  l'`INSERT` lui-même, pas repris d'une ligne lue plus tôt ; un fichier ne
+  peut être archivé qu'une fois (index unique sur `file_id`), si bien que
+  la requête qui arrive seconde ne fait rien au lieu d'échouer. Si
+  l'écriture échoue encore après une seconde tentative, le fichier reste
+  fermé et sur le disque — jamais supprimé sous une ligne qui pourrait le
+  désigner — et le journal le signale (`document_version_lost`, niveau
+  `warning`) sans annoncer de numéro que personne n'a reçu.
+- **Pas de restauration d'une ancienne version en un clic.** La roadmap
+  demande de consulter et de télécharger ; restaurer, c'est téléverser à
+  nouveau la version téléchargée.
+
+**À trancher pendant le chantier — cinq versions ou une durée.** Un
+plafond en nombre ne dit pas la même chose selon le document : pour un
+règlement mis à jour une fois l'an, cinq versions remontent à cinq ans ;
+pour une liste de matériel modifiée trois fois par camp, elles couvrent
+un été. Le plafond en nombre est gardé, conformément à D7 : il est simple
+à expliquer (« les cinq dernières ») et borne le stockage sans tâche
+planifiée. Une durée paraîtrait plus juste pour les documents très
+souvent remplacés ; si l'usage le confirme, la constante
+`DocumentService::KEPT_VERSIONS` est le seul endroit à changer, et le
+passage à une durée demanderait une tâche de purge. Rien n'est changé
+en silence.
+
+**Divergences avec le document de chantier.** Aucune.
+
+**Reporté.** Rien.
+
+**Vérification finale.** `vendor/bin/phpstan analyse` sans erreur ; suite
+PHPUnit complète verte (SQLite, 20 620 tests) ; groupe `database` de
+`tests/Core/Database` et `tests/Integration` vert sur MariaDB ;
+`tests/Modules/Documents` : 63 tests.
