@@ -30,6 +30,7 @@ use Tests\Modules\Registration\RegistrationTestHelper;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class PassageOptimizationServiceTest extends TestCase
 {
     private \PDO $pdo;

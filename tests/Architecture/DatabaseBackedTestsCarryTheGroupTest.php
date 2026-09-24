@@ -62,19 +62,36 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
     ];
 
     /**
-     * Every spelling counts, because the repository carries all three.
+     * What actually puts a class in the group: the ATTRIBUTE.
      *
-     * Measured when this was written: 491 files write the attribute
-     * fully-qualified, 108 import it, and 555 use the doc-comment — many
-     * of them two ways at once. Recognising one of the three would make
-     * this guard demand a second spelling of a file that already says it,
-     * which is churn rather than a rule. New files take the qualified
-     * attribute, the majority form, and it needs no import.
+     * **`@group database` in a doc-comment does nothing here.** This
+     * repository pins `phpunit/phpunit: ^13.3`, and PHPUnit 13 reads
+     * metadata from attributes only. Measured rather than inferred:
+     * `Modules\Gallery\Service\StoredFileCleanerTest` carries the
+     * doc-comment alone, holds six tests, and `--group=database` selects
+     * **none** of them.
+     *
+     * Accepting the doc-comment would therefore have this guard certify
+     * as compliant the very classes that are invisible to the command it
+     * exists to make honest — issue #395's failure, reproduced by its own
+     * fix. The doc-comment is left in the files where it explains
+     * something, but it is never what this class reads.
+     *
+     * Both spellings of the attribute count, because the repository
+     * carries both: 491 files write it fully-qualified, 108 import it.
      */
     private const CARRIES_THE_GROUP = [
         '/#\[\\\\?(?:PHPUnit\\\\Framework\\\\Attributes\\\\)?Group\(\s*[\'"]database[\'"]\s*\)\]/',
-        '/@group\s+database\b/',
     ];
+
+    /**
+     * The inert spelling, kept only to be refused.
+     *
+     * A doc-comment saying `@group database` reads like a marker and is
+     * not one. It is worth a message of its own, because the file looks
+     * right to a human and selects nothing.
+     */
+    private const INERT_DOC_COMMENT = '/@group\s+database\b/';
 
     /**
      * A floor under the scan, not a measurement of it.
@@ -90,6 +107,7 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
 
     public function testEveryClassThatBuildsADatabaseCarriesTheGroup(): void
     {
+        $root = dirname(__DIR__, 2);
         $classes = $this->testClasses();
         $ungrouped = [];
         $building = 0;
@@ -106,7 +124,14 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
             // from them, so the group there would select nothing. What is
             // demanded is the group on each class it actually runs.
             if (!$class['abstract'] && !$class['carries']) {
-                $ungrouped[] = $class['file'];
+                // A file carrying the inert doc-comment alone deserves its
+                // own words: it LOOKS right to a reader and selects
+                // nothing, which is a worse place to be than carrying no
+                // marker at all.
+                $ungrouped[] = $class['file']
+                    . (preg_match(self::INERT_DOC_COMMENT, (string) file_get_contents($root . '/' . $class['file'])) === 1
+                        ? '  (carries `@group database` only — inert under PHPUnit 13)'
+                        : '');
             }
         }
 
@@ -224,10 +249,14 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
             }
             PHP, 'Fake.php');
 
-        $this->assertTrue(
+        // This used to be the opposite assertion, and the docblock called
+        // it a known cost: prose naming the marker read as the marker. It
+        // stopped being a cost when the doc-comment stopped being read at
+        // all — only an attribute counts now, and a sentence cannot be one.
+        $this->assertFalse(
             $denyingIt['Tests\Fake\OtherTest']['carries'],
-            'prose in the heading is read as the marker — the known cost of matching text, '
-                . 'and why the heading is the narrowest window that still holds a real attribute'
+            'prose in the heading is prose: since only the attribute is read, a sentence naming '
+                . 'the group — even one refusing it — can no longer pass for a marker'
         );
     }
 

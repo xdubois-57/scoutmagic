@@ -66,6 +66,7 @@ use Tests\DatabaseTestHelper;
  * that lives in {@see SendRemoteBackupArchiveTest} next door, which
  * builds a real portable archive against MariaDB.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class SendRemoteBackupHandlerTest extends TestCase
 {
     private \PDO $pdo;

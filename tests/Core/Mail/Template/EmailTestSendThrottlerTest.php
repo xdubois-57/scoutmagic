@@ -21,6 +21,7 @@ use Tests\DatabaseTestHelper;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class EmailTestSendThrottlerTest extends TestCase
 {
     private \PDO $pdo;

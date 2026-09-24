@@ -139,10 +139,19 @@ milliseconds, while missing one that did is the silent failure. Two classes
 are in that position today and are left alone.
 
 Write it as `#[\PHPUnit\Framework\Attributes\Group('database')]`, the
-majority spelling here and the one needing no import. The guard also accepts
-the imported attribute and the `@group database` doc-comment, both of which
-this repository still carries in quantity; recognising one spelling only
-would make it demand a second from files that already say it.
+majority spelling here and the one needing no import. The imported
+attribute counts too.
+
+**A `@group database` doc-comment does not.** This repository pins
+`phpunit/phpunit: ^13.3`, and PHPUnit 13 reads metadata from attributes
+only — the doc-comment is inert, however right it looks. Measured, not
+inferred: `Modules\Gallery\Service\StoredFileCleanerTest` carried it
+alone, held six tests, and `--group=database` selected none of them. The
+guard therefore refuses it, and says so in those words, because a file that
+looks marked and selects nothing is a worse place to be than one that
+carries no marker at all. The doc-comment stays where it explains
+something; it is never what puts a class in the group. This is issue #481
+§A, done here.
 
 CI does not use the group — both PHP jobs run the whole suite, and
 `AGENTS.md` § Database says why. Its one live use is **manual selection**,

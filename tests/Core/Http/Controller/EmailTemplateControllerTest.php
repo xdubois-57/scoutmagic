@@ -49,6 +49,7 @@ use Tests\DatabaseTestHelper;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class EmailTemplateControllerTest extends TestCase
 {
     /** An e-mail declared `editable: false` — one of the four authentication ones. */

@@ -32,6 +32,7 @@ use Tests\DatabaseTestHelper;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class EmailTemplateRendererTest extends TestCase
 {
     private \PDO $pdo;

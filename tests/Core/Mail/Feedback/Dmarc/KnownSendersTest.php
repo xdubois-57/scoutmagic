@@ -27,6 +27,7 @@ use Tests\DatabaseTestHelper;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class KnownSendersTest extends TestCase
 {
     private SettingService $settings;

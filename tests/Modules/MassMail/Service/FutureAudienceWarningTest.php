@@ -41,6 +41,7 @@ use Tests\Modules\MassMail\MassMailTestHelper;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class FutureAudienceWarningTest extends TestCase
 {
     private \PDO $pdo;
