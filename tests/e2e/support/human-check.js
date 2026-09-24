@@ -11,14 +11,33 @@
 // noticing — reading the form and typing an answer takes far longer than
 // three seconds — while an automated fill takes well under one.
 //
-// The wait is computed, not guessed: the challenge token is a base64 JSON
-// object carrying the timestamp it was signed at (HumanCheckService::
-// generateChallenge()), so the deadline is known exactly and a scenario
-// never waits a second longer than the barrier actually needs.
+// Neither half of the wait is guessed. The challenge token is a base64
+// JSON object carrying the timestamp it was signed at
+// (HumanCheckService::generateChallenge()), and the THRESHOLD comes from
+// the instance under test — scripts/e2e.sh reads
+// `human_check_min_delay_seconds` out of the database it provisioned and
+// exports it. So the deadline is known exactly, and a scenario never
+// waits a second longer than the barrier actually needs.
+//
+// The threshold matters as much as the timestamp, and that is the whole
+// of issue #453: it is a SETTING, not a constant. A spec that copied its
+// default turned red the day somebody raised it, with no regression
+// behind the failure and nothing in the message to say so. Centralising
+// the copy in this file would only have made all seven specs wrong at
+// once instead of two.
 import { expect } from '@playwright/test';
 
-/** The setting's own default (Core\Security\HumanCheck\HumanCheckService). */
-const DEFAULT_MIN_DELAY_SECONDS = 3;
+/**
+ * What the instance enforces, or the shipped default when a caller runs a
+ * spec outside `scripts/e2e.sh` and nothing told us.
+ *
+ * `Number.isFinite`, not `||`: zero is a value the setting can hold — it
+ * disables the barrier — and `|| 3` would answer a three-second wait for a
+ * barrier the server is not enforcing at all. Only a threshold that could
+ * not be read falls back.
+ */
+const parsedMinDelay = Number.parseInt(process.env.E2E_HUMAN_CHECK_MIN_DELAY ?? '', 10);
+const MIN_DELAY_SECONDS = Number.isFinite(parsedMinDelay) && parsedMinDelay >= 0 ? parsedMinDelay : 3;
 
 /**
  * Wait until the human-check challenge inside `scope` is old enough to be
@@ -42,7 +61,7 @@ export async function waitOutHumanCheckDelay(page, scope) {
     // The server compares whole seconds (time() - $timestamp >= min), so
     // being level with the boundary is already enough; the extra 300 ms
     // only covers the request being in flight when the second ticks over.
-    const remaining = issuedAtMs + DEFAULT_MIN_DELAY_SECONDS * 1000 + 300 - Date.now();
+    const remaining = issuedAtMs + MIN_DELAY_SECONDS * 1000 + 300 - Date.now();
 
     if (remaining > 0) {
         await page.waitForTimeout(remaining);
