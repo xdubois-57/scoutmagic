@@ -298,37 +298,110 @@ class DeskCsvParserTest extends TestCase
     /**
      * Issue #356. The exception can only name the columns that are ABSENT,
      * and a federation renaming « Email Tiers » to « Courriel » produces
-     * thirty-four absent names and not one mention of the word that
-     * arrived instead — which is the only thing a maintainer can act on.
+     * one absent name and not one mention of the word that arrived
+     * instead — which is the only thing a maintainer can act on.
      *
      * @group database
      */
     #[\PHPUnit\Framework\Attributes\Group('database')]
-    public function testARefusedHeaderLineJournalsTheColumnActuallySeen(): void
+    public function testARenamedColumnIsJournalledUnderTheNameActuallySeen(): void
     {
         $pdo = DatabaseTestHelper::createTestDatabase();
         $parser = new DeskCsvParser(new JournalService(new JournalRepository($pdo)));
 
+        $this->refuse($parser, self::headerLineWith('Email Tiers', 'Courriel'));
+
+        $context = $this->journalledContext($pdo);
+        $this->assertContains('Courriel', $context['unexpected']);
+        $this->assertContains('Email Tiers', $context['missing']);
+    }
+
+    /**
+     * And the reason that value may be written down at all: the line was
+     * PROVEN to be the schema row. `parse()` takes line 0 as the header
+     * line with nothing to go on, so a file whose header row was stripped
+     * — or whose delimiter was misdetected — hands `validateHeaders()` a
+     * MEMBER. Journalling those cells would put a surname, a birth date,
+     * a phone number and an address into `event_log.context`, which
+     * `EventJournalCollector` copies verbatim into a support package that
+     * leaves the installation. SECURITY.md §13: « Journal stores only
+     * metadata — never raw CSV content ».
+     *
+     * @group database
+     */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
+    public function testAFileWithNoHeaderRowNeverPutsItsFirstMemberInTheJournal(): void
+    {
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        $parser = new DeskCsvParser(new JournalService(new JournalRepository($pdo)));
+
+        // A real export's first data row, in the real column order.
+        $this->refuse($parser, 'Dupont;Marie;F;12/03/2011;+3281234567;+32470123456;'
+            . "marie.dupont@example.be;Rue du Scout;12;;;5000;Namur;Belgique\n");
+
+        $context = $this->journalledContext($pdo);
+        $this->assertArrayNotHasKey(
+            'unexpected',
+            $context,
+            'not one cell of a line that is not a header line may be written down'
+        );
+        $this->assertSame(14, $context['unexpected_count'], 'the count still says what happened');
+
+        $stmt = $pdo->query("SELECT description FROM event_log WHERE event_type = 'desk_csv_header_unexpected'");
+        $description = $stmt === false ? '' : (string) $stmt->fetchColumn();
+        foreach (['Dupont', 'Marie', 'marie.dupont@example.be', '+32470123456', 'Namur'] as $personal) {
+            $this->assertStringNotContainsString($personal, $description);
+        }
+    }
+
+    /**
+     * @param string $line the header line to hand the parser
+     */
+    private function refuse(DeskCsvParser $parser, string $line): void
+    {
         $path = tempnam(sys_get_temp_dir(), 'desk') . '.csv';
-        file_put_contents($path, "Nom;Prenom;Courriel\n");
+        file_put_contents($path, $line);
 
         try {
             $parser->parse($path);
-            $this->fail('A header line missing every expected column must be refused.');
+            $this->fail('A header line missing an expected column must be refused.');
         } catch (ImportException) {
-            // The refusal is the existing behaviour; what is new is below.
+            // The refusal is the existing behaviour; what is new is the
+            // journal entry the tests above read.
         } finally {
             unlink($path);
         }
+    }
 
-        $stmt = $pdo->query("SELECT description, context FROM event_log WHERE event_type = 'desk_csv_header_unexpected'");
-        $row = $stmt === false ? null : $stmt->fetch(\PDO::FETCH_ASSOC);
-        $this->assertIsArray($row, 'A refused header line must leave a journal entry.');
+    /**
+     * The real 35-column header line, with one name replaced — the case
+     * this journal entry exists for.
+     */
+    private static function headerLineWith(string $replaced, string $replacement): string
+    {
+        $reflected = new \ReflectionClass(DeskCsvParser::class);
+        /** @var string[] $headers */
+        $headers = $reflected->getConstant('EXPECTED_HEADERS');
 
-        $context = json_decode((string) $row['context'], true);
-        $this->assertIsArray($context);
-        $this->assertContains('Courriel', $context['unexpected']);
-        $this->assertContains('Email Tiers', $context['missing']);
+        return implode(';', array_map(
+            static fn(string $header): string => $header === $replaced ? $replacement : $header,
+            $headers
+        )) . "\n";
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function journalledContext(\PDO $pdo): array
+    {
+        $stmt = $pdo->query("SELECT context FROM event_log WHERE event_type = 'desk_csv_header_unexpected'");
+        $context = $stmt === false ? null : $stmt->fetchColumn();
+        $this->assertIsString($context, 'A refused header line must leave a journal entry.');
+
+        $decoded = json_decode($context, true);
+        $this->assertIsArray($decoded);
+
+        return $decoded;
     }
 
     /**

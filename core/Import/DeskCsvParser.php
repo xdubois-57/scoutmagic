@@ -39,6 +39,32 @@ class DeskCsvParser
     private const MAX_JOURNALLED_HEADERS = 20;
     private const MAX_JOURNALLED_HEADER_LENGTH = 100;
 
+    /**
+     * How many expected headers a line must carry before its OTHER cells
+     * may be written down — SECURITY.md §13, « Journal stores only
+     * metadata — never raw CSV content », and its kept-file rule 5, « No
+     * line of CSV in a journal entry, an error message or a trace,
+     * including when the parse fails ».
+     *
+     * `parse()` treats line 0 as the header line unconditionally, because
+     * it has nothing else to go on. So when a file arrives with its header
+     * row stripped, or the delimiter is misdetected, line 0 is a MEMBER:
+     * `Dupont`, `Marie`, a birth date, a phone number, an address. Writing
+     * those cells into `event_log.context` would put personal data in a
+     * journal that `Core\Support\Collector\EventJournalCollector` copies
+     * verbatim into a support package — an archive that leaves the
+     * installation.
+     *
+     * Two thirds is the line between the two cases, and it is not a close
+     * call: the case this journal entry exists for — the federation
+     * renames `Email Tiers` to `Courriel` — still carries 34 of the 35
+     * expected names, while a row of member data carries none of them. A
+     * column name from a line PROVEN to be the schema row is metadata
+     * about the file, which is what §13 allows; anything from a line that
+     * is not is content, which it forbids.
+     */
+    private const HEADER_LINE_MIN_EXPECTED_RATIO = 2 / 3;
+
     public function __construct(
         /**
          * Where a refused header line is written down (issue #356). Null
@@ -247,18 +273,31 @@ class DeskCsvParser
         }
 
         $unexpected = array_values(array_diff($headers, self::EXPECTED_HEADERS));
+        $present = count(self::EXPECTED_HEADERS) - count($missing);
+        $isAHeaderLine = $present >= (int) ceil(count(self::EXPECTED_HEADERS) * self::HEADER_LINE_MIN_EXPECTED_RATIO);
+
+        $context = [
+            // Counts, always: they say what happened and can describe no
+            // one. `missing` names are this class's own constants, never
+            // anything the file supplied.
+            'unexpected_count' => count($unexpected),
+            'missing' => self::boundedNames($missing),
+            'code_table' => DeskMappingGapKind::CSV_HEADER->codeTable(),
+        ];
+
+        if ($isAHeaderLine) {
+            $context['unexpected'] = self::boundedNames($unexpected);
+        }
 
         $this->journal->log(
             'core',
             DeskMappingGapKind::CSV_HEADER->journalType(),
             'info',
-            'Import Desk refusé : ' . count($missing) . ' en-tête(s) attendu(s) absent(s), '
-            . count($unexpected) . ' inattendu(s)',
-            [
-                'unexpected' => self::boundedNames($unexpected),
-                'missing' => self::boundedNames($missing),
-                'code_table' => DeskMappingGapKind::CSV_HEADER->codeTable(),
-            ]
+            $isAHeaderLine
+                ? 'Import Desk refusé : ' . count($missing) . ' en-tête(s) attendu(s) absent(s), '
+                    . count($unexpected) . ' inattendu(s)'
+                : "Import Desk refusé : le fichier ne commence pas par une ligne d'en-têtes",
+            $context
         );
     }
 
