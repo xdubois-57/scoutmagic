@@ -248,6 +248,65 @@ describe('search-picker', () => {
         });
     });
 
+    describe('a choice ends every search still under way', () => {
+        beforeEach(async () => {
+            buildPicker();
+            await load();
+            answerWith(EVENTS);
+        });
+
+        it('does not reopen the list when a pause was pending at the moment of the click', async () => {
+            await type('fête');
+            search().value = 'fête l';
+            search().dispatchEvent(new Event('input'));
+            resultButtons()[1].click();
+            await vi.advanceTimersByTimeAsync(300);
+
+            expect(results().classList.contains('d-none')).toBe(true);
+            expect(posted().getAll('event_id')).toEqual(['12']);
+            expect(window.ScoutMagicApi.getJson).toHaveBeenCalledTimes(1);
+        });
+
+        it('ignores an answer still in flight when the reader chooses', async () => {
+            let release;
+            window.ScoutMagicApi.getJson = vi.fn()
+                .mockResolvedValueOnce({ ok: true, status: 200, data: { success: true, results: EVENTS } })
+                .mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+            await type('fête');
+            await type('fête b');
+            resultButtons()[0].click();
+            release({ ok: true, status: 200, data: { success: true, results: EVENTS } });
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(results().classList.contains('d-none')).toBe(true);
+        });
+
+        it('will not let Enter pick from a list that answers an older query', async () => {
+            await type('fête');
+            search().value = 'fête é';
+            search().dispatchEvent(new Event('input'));
+            const event = new KeyboardEvent('keydown', { key: 'Enter', cancelable: true });
+            search().dispatchEvent(event);
+
+            expect(event.defaultPrevented).toBe(true);
+            expect(posted().getAll('event_id')).toEqual(['']);
+        });
+    });
+
+    describe('a required single picker', () => {
+        it('keeps the requirement on the search box once the list is gone', async () => {
+            buildPicker();
+            document.getElementById('p').dataset.required = '1';
+            await load();
+            answerWith(EVENTS);
+
+            expect(search().validationMessage).toBe('Choisissez un élément dans la liste.');
+            await type('fête');
+            resultButtons()[0].click();
+            expect(search().validationMessage).toBe('');
+        });
+    });
+
     describe('multiple choice', () => {
         beforeEach(async () => {
             buildPicker({ mode: 'multiple', selected: [{ id: 11, label: "Fête d'unité — Baladins" }] });

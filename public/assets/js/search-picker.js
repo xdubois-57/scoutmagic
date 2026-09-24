@@ -77,6 +77,7 @@
         }
 
         var multiple = picker.dataset.mode === 'multiple';
+        var required = picker.dataset.required === '1';
         var fieldName = picker.dataset.fieldName || '';
         var emptyLabel = picker.dataset.emptyLabel || 'Aucun résultat ne correspond.';
         var baseUrl = picker.dataset.searchUrl || '';
@@ -154,14 +155,37 @@
         function refresh() {
             writeValues();
             drawChosen();
+            validate();
         }
 
         function hide() {
             results.classList.add('d-none');
         }
 
+        /**
+         * Nothing in flight may reopen the list once the reader has chosen:
+         * the pending pause is cancelled and every answer still on its way
+         * becomes stale.
+         */
+        function settle() {
+            clearTimeout(timeout);
+            timeout = null;
+            requestNumber++;
+        }
+
+        /**
+         * A required single picker refuses to submit empty — the rule the
+         * removed select carried, moved onto the box that replaced it.
+         */
+        function validate() {
+            if (required && !multiple) {
+                search.setCustomValidity(selected.length > 0 ? '' : 'Choisissez un élément dans la liste.');
+            }
+        }
+
         /** @param {PickerRow} row */
         function choose(row) {
+            settle();
             if (multiple) {
                 if (!isSelected(row.id)) {
                     selected.push(row);
@@ -246,12 +270,13 @@
         }
 
         async function run() {
+            timeout = null;
+            var mine = ++requestNumber;
             var query = search.value.trim();
             if (query === '') {
                 hide();
                 return;
             }
-            var mine = ++requestNumber;
             var res = await window.ScoutMagicApi.getJson(searchUrl(baseUrl, query));
             if (mine !== requestNumber) {
                 return;
@@ -285,10 +310,16 @@
         search.addEventListener('keydown', function (event) {
             if (event.key === 'Escape') {
                 hide();
-            } else if (event.key === 'Enter' && !results.classList.contains('d-none')) {
+            } else if (event.key === 'Enter' && (timeout !== null || !results.classList.contains('d-none'))) {
                 // Enter in a search box must not submit the surrounding
-                // form half-filled; it picks the first suggestion instead.
+                // form half-filled; it picks the first suggestion instead —
+                // but only a suggestion for what is typed NOW: while a
+                // search is still pending, the list on screen answers an
+                // older query, and Enter does nothing.
                 event.preventDefault();
+                if (timeout !== null) {
+                    return;
+                }
                 var first = /** @type {HTMLButtonElement|null} */ (results.querySelector('button'));
                 if (first) {
                     first.click();

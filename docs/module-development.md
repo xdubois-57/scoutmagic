@@ -499,16 +499,21 @@ single or multiple choice. ARCHITECTURE.md §8.30bis has the reasoning.
 {% include 'partials/search_picker.html.twig' with {
     picker_id: 'carpool-events',
     search_url: '/covoiturage/evenements/recherche',
-    field_name: 'event_ids',          -- multiple mode posts event_ids[]
+    field_name: 'event_ids',
     label: 'Évènements concernés',
-    mode: 'multiple',                 -- single (default) | multiple
-    options: shortlist,               -- [{value, label}], shown without JavaScript
-    selected: retained,               -- [{id, label}], already chosen
+    mode: 'multiple',
+    options: shortlist,
+    selected: retained,
     placeholder: 'Chercher un évènement, un calendrier, une section…',
     empty_label: 'Aucun évènement ne correspond.',
 } only %}
 <script src="{{ asset('/assets/js/search-picker.js') }}"></script>
 ```
+
+`mode` is `single` (the default) or `multiple`, which posts
+`field_name[]`; `options` is the `[{value, label}]` list shown without
+JavaScript, `selected` the `[{id, label}]` rows already chosen; `required`
+(single mode) is kept on the search box once the script has taken over.
 
 The endpoint behind `search_url` receives `q` and answers with
 `Core\View\SearchPickerResult::payload($results)` — a list of

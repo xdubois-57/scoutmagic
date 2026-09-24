@@ -161,6 +161,21 @@ final class SearchPickerRenderingTest extends TestCase
         );
     }
 
+    public function testARequiredSinglePickerHandsTheRequirementToTheScript(): void
+    {
+        // The select that carries `required` is removed on upgrade; the
+        // script reads this to keep the rule on the search box.
+        $picker = $this->render(['field_name' => 'event_id', 'required' => true])
+            ->query('//*[@data-search-picker]')->item(0);
+        $this->assertInstanceOf(\DOMElement::class, $picker);
+        $this->assertSame('1', $picker->getAttribute('data-required'));
+
+        $multiple = $this->render(['mode' => 'multiple', 'required' => true])
+            ->query('//*[@data-search-picker]')->item(0);
+        $this->assertInstanceOf(\DOMElement::class, $multiple);
+        $this->assertSame('0', $multiple->getAttribute('data-required'));
+    }
+
     public function testEveryControlIsLabelled(): void
     {
         $xpath = $this->render(['help' => 'Cherchez par titre.']);

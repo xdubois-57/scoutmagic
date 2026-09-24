@@ -44,7 +44,8 @@
       empty_label: 'Aucun résultat.',    -- optional, said when nothing matches
       none_label: 'Aucun',               -- optional, single mode's empty choice
       help: '…',                         -- optional help text, ARIA-wired
-      required: false,                   -- optional, single mode only
+      required: false,                   -- optional, single mode only; the
+                                         -- script keeps it on the search box
   } only %}
 
   The caller loads the script itself, once per page:
@@ -77,6 +78,7 @@
      data-search-url="{{ search_url }}"
      data-field-name="{{ _submitted_name }}"
      data-empty-label="{{ empty_label|default('Aucun résultat ne correspond.') }}"
+     data-required="{{ required|default(false) and not _multiple ? '1' : '0' }}"
      data-selected="{{ _selected|json_encode }}">
     <div data-search-picker-fallback>
         <label class="form-label" for="{{ picker_id }}-select">{{ label }}</label>
