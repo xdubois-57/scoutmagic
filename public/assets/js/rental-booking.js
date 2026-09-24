@@ -156,6 +156,21 @@
         });
     }
 
+    // « Marquer comme fait » on a step done outside the site (issue #462):
+    // ticking the box IS the submit. Delegated on the root, because the
+    // box lives in a panel this file re-renders, and `requestSubmit()`
+    // rather than `submit()` so the ordinary path below — fetch, toast,
+    // panel refresh — carries it like every other form. The box posts no
+    // value of its own: the form's hidden `done` already says which way,
+    // so a stale page can never post a state it did not render.
+    root.addEventListener('change', function (e) {
+        var box = /** @type {HTMLElement|null} */ (e.target);
+        if (!box?.matches('input[data-mark-step]')) return;
+
+        var form = /** @type {HTMLFormElement|null} */ (box.closest('form'));
+        if (form !== null) form.requestSubmit();
+    });
+
     root.addEventListener('submit', function (e) {
         // confirm.js (delegated on `document`, design.md §7.5) stops the
         // first submit of a form carrying data-confirm and replays it with

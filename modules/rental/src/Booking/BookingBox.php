@@ -23,8 +23,8 @@ namespace Modules\Rental\Booking;
  * the box where the next thing is done, and each box's own body is written
  * out by hand because no two are alike. What must not drift is the pairing
  * of a box's name with the page and anchor a journey line aims at — so all
- * three come from here, and `forMilestone()` is the one place that says
- * which milestone is settled in which box.
+ * three come from here. Which step is settled in which box is said by the
+ * step itself (`MilestoneAction`), built in `BookingMilestones`.
  */
 enum BookingBox: string
 {
@@ -113,32 +113,5 @@ enum BookingBox: string
     public function bodyAnchor(): string
     {
         return $this->anchor() . '-body';
-    }
-
-    /**
-     * Where a milestone is actually settled, or null when it is settled on
-     * the journey itself.
-     *
-     * The four that answer null are the ones whose button is right there in
-     * their phase: the dates are held by the phase's own form, and
-     * confirming or closing is a status transition, which `BookingPhase::
-     * ofTransition()` puts in the phase rather than in a box. Sending them
-     * to a box would be sending them away from the button.
-     */
-    public static function forMilestone(string $milestoneKey): ?self
-    {
-        return match ($milestoneKey) {
-            BookingMilestones::CONTRACT_SENT,
-            BookingMilestones::CONTRACT_ACCEPTED => self::DOCUMENTS,
-            BookingMilestones::DEPOSIT_RECEIVED,
-            BookingMilestones::BALANCE_RECEIVED,
-            BookingMilestones::SECURITY_DEPOSIT_RECEIVED,
-            BookingMilestones::SECURITY_DEPOSIT_RETURNED => self::PAYMENT,
-            BookingMilestones::ARRIVAL_INVENTORY,
-            BookingMilestones::METER_READINGS,
-            BookingMilestones::DEPARTURE_INVENTORY,
-            BookingMilestones::FINAL_SETTLEMENT => self::STAY,
-            default => null,
-        };
     }
 }

@@ -64,6 +64,7 @@ use Modules\Rental\Service\RentalCommunicationService;
 use Modules\Rental\Service\RentalComplianceService;
 use Modules\Rental\Service\RentalDocumentService;
 use Modules\Rental\Service\RentalException;
+use Modules\Rental\Service\RentalMilestoneMarkService;
 use Modules\Rental\Service\RentalOperationsService;
 use Modules\Rental\Service\RentalPaymentService;
 use Modules\Rental\Service\RentalPricingService;
@@ -220,7 +221,9 @@ class RentalManagementController extends AbstractController
          * section behaves like.
          */
         private ?RentalAssetReminderRepository $assetReminderRepository = null,
-        private ?SettingService $settingService = null
+        private ?SettingService $settingService = null,
+        /** « Marquer comme fait » on the steps the site cannot derive (issue #462). */
+        private ?RentalMilestoneMarkService $milestoneMarkService = null
     ) {
         parent::__construct($twig);
     }
@@ -792,6 +795,121 @@ class RentalManagementController extends AbstractController
     }
 
     /**
+     * The booking's checklist, from what its own records say (§6.15) —
+     * one place, because the page and the « Marquer comme fait » action
+     * must agree on which steps are ticked by hand.
+     *
+     * @param \Modules\Rental\Document\RentalDocument[]|null $documents
+     * @param array<string, mixed> $payment
+     * @return list<\Modules\Rental\Booking\BookingMilestone>
+     */
+    private function milestonesOf(
+        RentalBooking $booking,
+        RentalAsset $asset,
+        ?array $documents,
+        array $payment,
+        \DateTimeImmutable $now
+    ): array {
+        // Null, not [], when the stay module is unavailable: the checklist
+        // reads the difference between "no inventory on this asset" and
+        // "inventories do not exist here" (Booking\MilestoneEvidence).
+        $inventory = $this->stayService?->inventoryFor($booking->id);
+
+        $marks = [];
+        $marked = $this->decorateWithAuthors(
+            $this->milestoneMarkService?->marksFor($booking->id) ?? [],
+            'marked_by_member_id'
+        );
+        foreach ($marked as $key => $mark) {
+            if ($mark['marked_at'] instanceof \DateTimeImmutable) {
+                $marks[(string) $key] = [
+                    'at' => $mark['marked_at'],
+                    'by' => is_string($mark['author_name']) ? $mark['author_name'] : null,
+                ];
+            }
+        }
+
+        $evidence = MilestoneEvidence::collect(
+            $booking,
+            $documents,
+            $payment,
+            $inventory,
+            $this->stayService?->consumptionsFor($booking, $asset->id),
+            $this->stayService?->latestSettlement($booking->id),
+            // An asset with no inventory template has nothing the stay page
+            // could walk, so its walk-throughs are ticked by hand.
+            $this->stayService === null || $this->stayService->inventoryTemplateFor($asset->id) !== [],
+            $marks,
+            $now
+        );
+
+        return BookingMilestones::for($booking, $now, $evidence->done, $evidence->details, $evidence->offsite);
+    }
+
+    /**
+     * POST /mes-locations/etape — « Marquer comme fait » on a step the site
+     * cannot derive (issue #462, D5), or « Remettre à faire ».
+     *
+     * The journey decides whether the step may be ticked here, not the
+     * form: the step must be ticked by hand ON THIS BOOKING — an inventory
+     * the stay page records is never ticked beside it — and in a stretch the
+     * booking has reached. A hand-made POST for anything else is refused.
+     *
+     * @param array<string, string> $params
+     */
+    public function markMilestone(Request $request, array $params): Response
+    {
+        $work = function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
+            if ($this->milestoneMarkService === null) {
+                throw new RentalException("Cette étape ne peut pas être marquée ici.");
+            }
+
+            $key = (string) $request->getBody('milestone_key', '');
+            $now = new \DateTimeImmutable();
+            $milestones = $this->milestonesOf(
+                $booking,
+                $asset,
+                $this->documentService?->forBooking($booking->id),
+                $this->paymentStatus($booking, $asset),
+                $now
+            );
+
+            foreach (BookingJourney::of($milestones, $booking->status)->phases() as $phase) {
+                foreach ($phase->milestones as $milestone) {
+                    if ($milestone->key !== $key) {
+                        continue;
+                    }
+                    if (!$milestone->kind->isMarkable() || !$milestone->isApplicable || $phase->isFuture) {
+                        break 2;
+                    }
+
+                    $done = (string) $request->getBody('done', '') === '1';
+                    $this->milestoneMarkService->set(
+                        $booking,
+                        $key,
+                        $milestone->label,
+                        $done,
+                        $this->actorMemberId(),
+                        $now
+                    );
+                    FlashMessage::set(
+                        'success',
+                        $done
+                            ? '« ' . $milestone->label . ' » est marqué comme fait.'
+                            : '« ' . $milestone->label . ' » est remis à faire.'
+                    );
+
+                    return;
+                }
+            }
+
+            throw new RentalException('Cette étape ne se marque pas à la main sur cette réservation.');
+        };
+
+        return $this->bookingAction($request, $work);
+    }
+
+    /**
      * The pages this booking offers, in rail order: all four, minus
      * « Courrier » when there is no mail to read here.
      *
@@ -912,34 +1030,25 @@ class RentalManagementController extends AbstractController
      */
     private function dashboardContext(RentalBooking $booking, RentalAsset $asset, \DateTimeImmutable $now): array
     {
-        $documents = $this->documentService?->forBooking($booking->id);
         $payment = $this->paymentStatus($booking, $asset);
-        // Null, not [], when the stay module is unavailable: the checklist
-        // reads the difference between "no inventory on this asset" and
-        // "inventories do not exist here" (Booking\MilestoneEvidence).
-        $inventory = $this->stayService?->inventoryFor($booking->id);
-        $evidence = MilestoneEvidence::collect(
-            $booking,
-            $documents,
-            $payment,
-            $inventory,
-            $this->stayService?->consumptionsFor($booking, $asset->id),
-            $this->stayService?->latestSettlement($booking->id)
-        );
-
         // The checklist is derived from what the booking's own records say
         // — the contract that was sent, the deposit that arrived, the
         // inventory that was finished — never from a stored flag, so
         // pressing a button moves the line it belongs to (§6.15).
-        $milestones = BookingMilestones::for($booking, $now, $evidence->done, $evidence->details);
+        $milestones = $this->milestonesOf(
+            $booking,
+            $asset,
+            $this->documentService?->forBooking($booking->id),
+            $payment,
+            $now
+        );
         $transitions = BookingTransition::allowedFrom($booking->status);
 
         return [
-            // The checklist staged into the five stretches the page reads
-            // in, and the one outstanding milestone « L'action suivante »
-            // shows — one derivation, never two beside each other
-            // (Booking\BookingJourney).
-            'journey' => BookingJourney::of($milestones, $transitions),
+            // The checklist staged into the five stretches, with the heading
+            // that says what holds the booking up — one derivation, one
+            // component (Booking\BookingJourney, issue #462).
+            'journey' => BookingJourney::of($milestones, $booking->status),
             // Keyed by status value so the template can ask "does this
             // button write to the renter?" without knowing which statuses
             // do — that answer belongs to Booking\RenterDecision alone.
@@ -2864,8 +2973,9 @@ class RentalManagementController extends AbstractController
      * per row: a booking with forty history entries must not mean forty
      * member lookups.
      *
-     * @param array<int, array<string, mixed>> $rows
-     * @return array<int, array<string, mixed>>
+     * @template TKey of array-key
+     * @param array<TKey, array<string, mixed>> $rows
+     * @return array<TKey, array<string, mixed>>
      */
     private function decorateWithAuthors(array $rows, string $key = 'author_member_id'): array
     {

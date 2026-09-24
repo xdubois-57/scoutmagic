@@ -245,7 +245,7 @@ test.describe('Rentals — running an asset', () => {
         // page navigates, and the dialog answerConfirmation() waits for is
         // never built. See waitForConfirmReady()'s own comment.
         await waitForConfirmReady(page);
-        await page.getByRole('button', { name: 'Confirmée' }).click();
+        await page.getByRole('button', { name: 'Confirmer la réservation' }).click();
 
         // Confirming now asks first, and the dialog is where the manager
         // writes the word that travels with the decision — the field
@@ -257,8 +257,8 @@ test.describe('Rentals — running an asset', () => {
 
         // Confirming goes through the real transition table and the real
         // availability re-check, both of which can refuse. The flash is
-        // the proof it actually happened: « Confirmée » on its own also
-        // matches the button that was just pressed.
+        // the proof it actually happened: a page that merely re-rendered
+        // would show the journey unchanged and no flash at all.
         await expect(page.getByText('Réservation confirmée.')).toBeVisible();
         await expect(page.getByText('Le locataire a été prévenu par email.')).toBeVisible();
 
