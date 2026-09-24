@@ -11,10 +11,9 @@
       recognised is otherwise announced nowhere at all: it has no
       « à confirmer » state of its own, it just sorts last, for ever.
 
-      The three kinds each get their own sentence and their own action:
-      « corriger » means giving a role, choosing a logo, or settling the
-      barème, and a single generic button would send everybody to the
-      wrong place.
+      Each kind gets its own sentence and its own action: « corriger »
+      means giving a role or choosing a logo, and a single generic button
+      would send half of them to the wrong place.
     #}
     {% if mapping_gaps|length > 0 %}
         <div class="card border-warning mb-4">
@@ -37,8 +36,7 @@
                             <div class="d-flex flex-wrap align-items-baseline gap-2">
                                 <span class="badge text-bg-light">
                                     {% if gap.kind == 'function' %}Fonction
-                                    {% elseif gap.kind == 'branch' %}Branche
-                                    {% else %}Tarif
+                                    {% else %}Branche
                                     {% endif %}
                                 </span>
                                 <span class="fw-semibold flex-grow-1">{{ gap.value }}</span>
@@ -64,12 +62,9 @@
                                         Personne ne porte cette fonction cette année. Donnez-lui quand même un rôle :
                                         le prochain import s'en servira.
                                     {% endif %}
-                                {% elseif gap.kind == 'branch' %}
+                                {% else %}
                                     Le site ne reconnaît pas cette branche : elle n'a pas de logo
                                     et se range en dernier dans toutes les listes.
-                                {% else %}
-                                    Aucun montant du barème ne correspond à ce tarif : les membres qui le portent
-                                    restent hors de la comparaison des cotisations.
                                 {% endif %}
                             </p>
                             {% if gap.action_url is not null %}

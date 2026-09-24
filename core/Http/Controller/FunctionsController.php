@@ -145,9 +145,7 @@ class FunctionsController extends AbstractController
      *
      * Each kind carries its own action, because « corriger » means a
      * different thing for each: a function needs a role, a branch needs a
-     * logo, a tariff needs to be mapped onto the barème — and the tariff
-     * one is a page this module may not even have, so it is only offered
-     * when there is something to offer.
+     * logo.
      *
      * @return array<int, array{kind: string, value: string, affected: int,
      *     action_label: ?string, action_url: ?string}>
@@ -163,7 +161,6 @@ class FunctionsController extends AbstractController
                 $action = match ($gap->kind) {
                     \Core\Import\DeskMappingGapKind::FUNCTION => ['Donner un rôle', '#fonctions'],
                     \Core\Import\DeskMappingGapKind::BRANCH => ['Choisir un logo', '#branches'],
-                    \Core\Import\DeskMappingGapKind::FEE_CATEGORY => ['Régler le barème', '/admin/fees/tarifs'],
                     \Core\Import\DeskMappingGapKind::CSV_HEADER => [null, null],
                 };
 

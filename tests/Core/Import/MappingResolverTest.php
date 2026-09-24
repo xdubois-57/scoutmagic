@@ -11,7 +11,6 @@ use Core\Import\ImportSectionRepository;
 use Core\Import\MappingResolver;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
-use Modules\Fees\Api\HouseholdTariffRecognitionInterface;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
@@ -284,65 +283,15 @@ class MappingResolverTest extends TestCase
         $this->assertStringContainsString('Animateur Nutons', (string) $row['description']);
     }
 
-    public function testAFeeIsJournalledOnlyWhenTheCotisationsModuleRecognisesNothing(): void
-    {
-        $resolver = $this->journallingResolver($this->recognition(recognises: false));
-        $resolver->resolveFee('reduit_fratrie');
-
-        $this->assertSame(1, $this->journalCount('desk_fee_without_scale'));
-    }
-
-    public function testAFeeTheModuleRecognisesIsNotJournalled(): void
-    {
-        $resolver = $this->journallingResolver($this->recognition(recognises: true));
-        $resolver->resolveFee('N_N_COTISATION NORMALE');
-
-        $this->assertSame(0, $this->journalCount('desk_fee_without_scale'));
-    }
-
-    /**
-     * No cotisations module, no barème — so no tariff can be reported as
-     * missing from one. The alternative, reporting every category, would
-     * fill a maintainer's list with installations that simply do not use
-     * the feature.
-     */
-    public function testWithoutTheCotisationsModuleNoFeeIsEverJournalled(): void
-    {
-        $this->journallingResolver()->resolveFee('reduit_fratrie');
-
-        $this->assertSame(0, $this->journalCount('desk_fee_without_scale'));
-    }
-
-    private function journallingResolver(?HouseholdTariffRecognitionInterface $recognition = null): MappingResolver
+    private function journallingResolver(): MappingResolver
     {
         return new MappingResolver(
             $this->functionRepo,
             new AgeBranchRepository($this->pdo),
             new ImportSectionRepository($this->pdo),
             new FeeCategoryRepository($this->pdo),
-            new JournalService(new JournalRepository($this->pdo)),
-            $recognition
+            new JournalService(new JournalRepository($this->pdo))
         );
-    }
-
-    private function recognition(bool $recognises): HouseholdTariffRecognitionInterface
-    {
-        return new class ($recognises) implements HouseholdTariffRecognitionInterface {
-            public function __construct(private bool $recognises)
-            {
-            }
-
-            public function recognisesWording(string $deskCode, string $label): bool
-            {
-                return $this->recognises;
-            }
-
-            /** @return list<int> */
-            public function unmappedFeeCategoryIds(): array
-            {
-                return [];
-            }
-        };
     }
 
     private function journalCount(string $eventType): int

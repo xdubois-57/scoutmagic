@@ -133,24 +133,15 @@ final class SupportPackageFactory
     }
 
     /**
-     * The Desk values this installation does not recognise (issue #356).
-     *
-     * The cotisations module's recognition capability is resolved through
-     * the context like every other cross-module one, so a receiver reading
-     * this file knows that no tariff line means « module off », never
-     * « nothing to report » — the registry re-checks the providing
-     * module's enabled state on each resolve.
+     * The Desk values this installation does not recognise (issue #356) —
+     * a function nobody qualified, a branch the code sorts last.
      */
     private static function deskMappingsCollector(TaskContext $context): DeskMappingsCollector
     {
         $pdo = $context->connection->getPdo();
 
         return new DeskMappingsCollector(
-            new \Core\Import\DeskMappingGapService(
-                $pdo,
-                new \Core\Config\ScoutYearService($pdo),
-                $context->getOptional(\Modules\Fees\Api\HouseholdTariffRecognitionInterface::class)
-            )
+            new \Core\Import\DeskMappingGapService($pdo, new \Core\Config\ScoutYearService($pdo))
         );
     }
 

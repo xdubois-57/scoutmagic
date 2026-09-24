@@ -2451,6 +2451,23 @@ $superAdminService = new SuperAdminService(
         (string) $settingService->get('base_url')
     )
 );
+// The import resolver and the CSV parser now say what they could not
+// recognise, in the journal (issue #356). Nothing else about them moves:
+// the journal service is the only dependency they gained, and it exists
+// long before this line.
+$mappingResolver = new MappingResolver(
+    $functionRepo,
+    $ageBranchRepo,
+    $importSectionRepo,
+    $feeCategoryRepo,
+    $journalService
+);
+$csvParser = new DeskCsvParser($journalService);
+
+// What this installation currently fails to recognise in its Desk data —
+// read by Correspondances Desk, by the support package, and by nothing
+// that writes (issue #356).
+$deskMappingGapService = new \Core\Import\DeskMappingGapService($pdo, $scoutYearService);
 $unitStaffSectionService = new UnitStaffSectionService($pdo);
 $sectionMembershipRepository = new \Core\Member\SectionMembershipRepository($pdo);
 $sectionMembershipService = new \Core\Member\SectionMembershipService($sectionMembershipRepository, $scoutYearService);
@@ -2762,6 +2779,25 @@ $deskImportListeners = new \Core\Import\DeskImportListenerRegistry();
 // used to work (issue #222). It writes at most one journal line.
 $deskImportListeners->register(
     new \Core\Badge\TreasurerBadgeDeskImportListener($badgeService, $journalService)
+);
+$importService = new DeskImportService(
+    $pdo,
+    $encryptionService,
+    $csvParser,
+    $mappingResolver,
+    $memberRepo,
+    $memberYearRepo,
+    $importJournalRepo,
+    $userAccountRepo,
+    $unitStaffSectionService,
+    $sectionMembershipService,
+    $rosterReplacementGuard,
+    $journalService,
+    $rosterSnapshotRepository,
+    $encryptedFileStorageService,
+    $importDiffCalculator,
+    $duplicateMemberDetector,
+    $deskImportListeners
 );
 $importReportPresenter = new \Core\Import\ImportReportPresenter(
     new \Core\Import\ImportReportRepository($pdo, $encryptionService)
@@ -5562,80 +5598,6 @@ $moduleManager->loadEnabledModules();
 // of them is hot, so there is nothing for a cache to win and one
 // invariant fewer for it to break.)
 $isEnabled = static fn (string $moduleId): bool => in_array($moduleId, $moduleManager->getEnabledModuleIds(), true);
-
-// ── La pile d'import Desk ─────────────────────────────────────────────
-//
-// Assembled HERE rather than up with the repositories it uses, and the
-// reason is the line right above: the resolver now takes the cotisations
-// module's published recognition capability (issue #356), and asking
-// whether a module is enabled is impossible before `$moduleManager`
-// exists. Everything below needs only objects built far earlier, and the
-// import service's first consumer — the ImportController registration —
-// comes after this point, as does every module block that registers a
-// Desk import listener.
-// The cotisations module's published recognition capability
-// (Modules\Fees\Api\HouseholdTariffRecognitionInterface, issue #356).
-// Built HERE, far above the module's own block, for the reason the
-// usage_stats block just below the trunk's statistics wiring records: its
-// consumers — the import resolver on the next line, and the gap service
-// below it — are trunk objects constructed long before modules are wired,
-// and a capability that arrived after them would arrive too late.
-//
-// It needs nothing but the PDO and `$feeCategoryRepo`, which is why the
-// position is possible at all. The module's own block reuses the tariff
-// service rather than building a second one, so both sides of the request
-// read one cache.
-$feesTariffService = null;
-$feesTariffRecognition = null;
-if ($isEnabled('fees')) {
-    $feesTariffService = new \Modules\Fees\Service\HouseholdTariffService(
-        new \Modules\Fees\Repository\HouseholdTariffRepository($pdo),
-        $feeCategoryRepo
-    );
-    $feesTariffRecognition = new \Modules\Fees\Service\HouseholdTariffRecognition(
-        $feesTariffService,
-        $feeCategoryRepo
-    );
-}
-
-$mappingResolver = new MappingResolver(
-    $functionRepo,
-    $ageBranchRepo,
-    $importSectionRepo,
-    $feeCategoryRepo,
-    $journalService,
-    $feesTariffRecognition
-);
-$csvParser = new DeskCsvParser($journalService);
-
-// What this installation currently fails to recognise in its Desk data —
-// read by Correspondances Desk, by the support package, and by nothing
-// that writes (issue #356).
-$deskMappingGapService = new \Core\Import\DeskMappingGapService(
-    $pdo,
-    $scoutYearService,
-    $feesTariffRecognition
-);
-
-$importService = new DeskImportService(
-    $pdo,
-    $encryptionService,
-    $csvParser,
-    $mappingResolver,
-    $memberRepo,
-    $memberYearRepo,
-    $importJournalRepo,
-    $userAccountRepo,
-    $unitStaffSectionService,
-    $sectionMembershipService,
-    $rosterReplacementGuard,
-    $journalService,
-    $rosterSnapshotRepository,
-    $encryptedFileStorageService,
-    $importDiffCalculator,
-    $duplicateMemberDetector,
-    $deskImportListeners
-);
 
 // Handle naming, throughout the rest of this file: a module capability
 // consumed by other blocks is `$<module><Capability>ForOthers` —
@@ -11557,12 +11519,10 @@ if ($isEnabled('fees')) {
     \Core\Debug\RequestTimeline::mark('module_fees');
     $feesImportRepo = new \Modules\Fees\Repository\FeesImportRepository($pdo);
     $feesIgnoredHouseholdRepo = new \Modules\Fees\Repository\IgnoredHouseholdRepository($pdo, $encryptionService);
-    // $feesTariffService is already built, under this very condition,
-    // with the Desk import stack far above: the import resolver needs the
-    // recognition capability this same service backs (issue #356), and
-    // that capability cannot be built before `$moduleManager` exists.
-    // Rebuilding it here would give the request two instances and two
-    // caches of the same barème.
+    $feesTariffService = new \Modules\Fees\Service\HouseholdTariffService(
+        new \Modules\Fees\Repository\HouseholdTariffRepository($pdo),
+        $feeCategoryRepo
+    );
 
     $frontController->registerController(
         \Modules\Fees\Controller\FeesController::class,

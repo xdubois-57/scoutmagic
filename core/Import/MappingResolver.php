@@ -9,7 +9,6 @@ declare(strict_types=1);
 namespace Core\Import;
 
 use Core\Journal\JournalService;
-use Modules\Fees\Api\HouseholdTariffRecognitionInterface;
 
 class MappingResolver
 {
@@ -51,14 +50,7 @@ class MappingResolver
          * the place to discover that a dependency is missing — which is
          * also what keeps the existing test call sites valid.
          */
-        private ?JournalService $journal = null,
-        /**
-         * The cotisations module's published capability
-         * (ARCHITECTURE.md §7.5). Absent means no tariff is ever reported
-         * as being without a scale, because without that module there is
-         * no scale.
-         */
-        private ?HouseholdTariffRecognitionInterface $tariffRecognition = null
+        private ?JournalService $journal = null
     ) {
     }
 
@@ -184,18 +176,6 @@ class MappingResolver
 
         $id = $this->feeCategoryRepo->create($deskCode, $deskCode);
         $this->created['fee_categories'][] = $id;
-
-        // Asked of the WORDING, not of the stored row: the row was created
-        // one statement ago, so no unit could have mapped it by hand yet,
-        // and the settled question would answer « unrecognised » for the
-        // three ordinary cotisation types too.
-        if ($this->tariffRecognition?->recognisesWording($deskCode, $deskCode) === false) {
-            $this->journalGap(
-                DeskMappingGapKind::FEE_CATEGORY,
-                $deskCode,
-                'Tarif Desk ne correspondant à aucun barème connu'
-            );
-        }
 
         return $id;
     }

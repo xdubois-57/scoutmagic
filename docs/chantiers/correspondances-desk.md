@@ -21,32 +21,49 @@ déjà inexactes au moment où la roadmap a été écrite. Cela change ce qu'il 
 en faire — il n'y a rien à « remettre à jour », il y a des décisions à
 reprendre sur les bons faits.
 
-### Écart 1 — La table qui décide d'un tarif n'est pas celle que D1 nomme
+### Écart 1 — La nature « Tarif » n'est pas une classe de défaut
 
 D1 donne `FederalScaleLookupService::FIELD_BY_CATEGORY` comme la table du code
 à compléter pour la nature « Tarif ». Cette constante ne connaît pas Desk :
+elle traduit les trois catégories de ménage du site vers **le vocabulaire de
+la page fédérale**, pour y lire des montants. Un code tarif venu de Desk ne la
+rencontre jamais.
 
-```php
-private const FIELD_BY_CATEGORY = [
-    'normal' => 'normale', 'couple' => 'couple', 'family' => 'familiale',
-];
-```
+Ce qui décide réellement est `FeeCategoryClassifier::NEEDLES`, une heuristique
+sur le libellé replié — et c'est en regardant *cette* table que l'écart se
+révèle bien plus profond que le mauvais nom. **Un tarif hors des trois n'est
+pas un défaut.** `ARCHITECTURE.md` §8.74 l'écrit :
 
-Elle traduit les trois catégories de ménage du site vers **le vocabulaire de la
-page fédérale**, pour lire les montants dessus (`amountCentsOrNull($answer[…])`,
-son unique usage). Un code tarif venu de Desk ne la rencontre jamais.
+> **A tariff outside the three is not judged.** […] Reporting them would be a
+> false positive on every unit, on the first screen a treasurer opens.
 
-Ce qui décide réellement, c'est `FeeCategoryClassifier::NEEDLES` — une
-heuristique sur le libellé replié — et, au-dessus, la correspondance explicite
-qu'une unité peut poser (`fees_household_tariffs`,
-`HouseholdTariffService::mapping()`). `classify()` rend `null` quand aucun des
-deux ne reconnaît la valeur, et son docblock dit que ce `null` *est* une
-réponse : le membre reste simplement hors de la comparaison.
+Et `FeeCategoryClassifierTest` épingle « Cotisation invités », « Cotisation de
+solidarité » et « COT_iAM_LOCAL » comme devant rendre `null` **pour toujours**.
+Le docblock de `classify()` le dit aussi : « `null` is a real answer, not a gap
+to close ».
 
-**Conséquence sur le chantier** : la ligne « Tarif » de la page centrale
-désigne `FeeCategoryClassifier::NEEDLES`, pas `FIELD_BY_CATEGORY`. Corriger la
-mauvaise aurait produit exactement le bug que ce chantier existe pour rendre
-visible — une correspondance qu'on croit faite et qui ne l'est pas.
+Le point décisif est que **le site ne peut pas distinguer** un tarif qui n'est
+légitimement pas un des trois d'un des trois orthographié autrement — c'est
+exactement pourquoi `classify()` refuse de deviner. Il ne peut donc signaler
+ni l'un ni l'autre sans se tromper sur le second.
+
+**Conséquence** : la nature « Tarif » est retirée du chantier. Pas renommée,
+pas corrigée vers la bonne table — retirée. Avec elle disparaissent la
+capacité `Api\` que le cœur consommait pour poser la question, son
+enregistrement dans le bootstrap du planificateur, le déplacement de la pile
+d'import dans le composition root qu'elle imposait, et l'événement de journal
+`desk_fee_without_scale`.
+
+C'est la correction la plus coûteuse du chantier et la plus utile : livrée
+telle quelle, la page centrale aurait affiché un avertissement **permanent et
+insoluble** à chaque unité utilisant « Cotisation invités », et le paquet de
+support aurait dit à un mainteneur d'élargir la table que le code lui interdit
+d'élargir.
+
+*(Trouvé par la revue de #501, pas par moi. J'avais lu `FeeCategoryClassifier`
+— j'en cite le docblock plus bas pour justifier la capacité `Api\` — sans voir
+que la phrase « `null` is a real answer, not a gap to close » disait déjà que
+ce chantier n'avait rien à y faire.)*
 
 ### Écart 2 — L'en-tête CSV bloquant est l'inverse de ce qui est décrit
 
@@ -90,7 +107,7 @@ désigne comme sa forme de comparaison unique (§8.0), avec l'argument explicite
 qu'une seconde finirait par diverger de la première sur un hôte. Aucun
 normaliseur n'est donc écrit : D7 est appliqué en appelant `fold()`.
 
-### Écart 5 — D4 rencontre le contrat `Api\` sur la nature « Tarif »
+### Écart 5 — D4 rencontrait le contrat `Api\` sur la nature « Tarif »
 
 D4 veut que l'émetteur envoie un constat plutôt qu'une liste. Pour les
 fonctions et les branches, le cœur sait : `functions.confirmed` et
@@ -101,11 +118,11 @@ fonctions et les branches, le cœur sait : `functions.confirmed` et
 > `Modules\Fees` from core, which the `Api\` contract forbids
 > (ARCHITECTURE.md §7.5).
 
-Le verdict « ce tarif ne correspond à aucun barème » passe donc par une
-capacité `Api\` publiée par le module `fees` et consommée en dépendance
-nullable, sur le modèle de `Modules\UsageStats\Api\ModuleUsageInterface`.
-Module absent ou désactivé : aucun constat de tarif, ce qui est la réponse
-juste — sans le module des cotisations, il n'y a pas de barème à rater.
+Cet écart a d'abord été résolu par une capacité `Api\` publiée par le module
+`fees`. **L'écart 1 l'a rendu sans objet** : il n'y a pas de constat de tarif à
+envoyer, donc pas de question à poser au module, donc pas de capacité. Gardé
+ici parce que la contrainte reste vraie et se reposera au premier chantier qui
+voudra faire dire au cœur quelque chose qui appartient à un module.
 
 ### Écart 6 — Le site signale déjà les fonctions, et lui seul
 
@@ -133,17 +150,15 @@ d'un ticket qui sautent bien le niveau Supervision — tout cela est exact.
 **Livré.** Le site dit maintenant ce qu'il ne sait pas, à trois endroits et
 sans rien envoyer nulle part.
 
-- `Core\Import\DeskMappingGapKind` — les quatre natures, chacune portant son
-  type de journal et **la table du code à compléter**. C'est là qu'est
-  corrigé l'écart 1 : la nature « Tarif » désigne
-  `FeeCategoryClassifier::NEEDLES`.
+- `Core\Import\DeskMappingGapKind` — les trois natures, chacune portant son
+  type de journal et l'endroit du code qui décide. La nature « Tarif » n'y est
+  pas : voir l'écart 1.
 - `Core\Import\DeskMappingGap` et `Core\Import\DeskMappingGapService` — la
   liste de ce qui n'est pas résolu, **dérivée et jamais stockée**. Une
   fonction qualifiée, une branche apprise par une version, un tarif enfin
   associé : la valeur quitte la liste d'elle-même, sans rien à défaire.
-- `MappingResolver` journalise en `info` : `desk_function_unknown`,
-  `desk_branch_not_canonical`, `desk_fee_without_scale`. Une fois par valeur
-  et par import.
+- `MappingResolver` journalise en `info` : `desk_function_unknown` et
+  `desk_branch_not_canonical`. Une fois par valeur et par import.
 - `DeskCsvParser` journalise la ligne d'en-têtes refusée —
   `desk_csv_header_unexpected` — avec **les colonnes réellement vues** à côté
   des attendues manquantes.
@@ -152,8 +167,6 @@ sans rien envoyer nulle part.
   l'administrateur ce qu'il transmet.
 - L'encadré en tête de Correspondances Desk, une ligne par valeur, avec son
   effet en français et le bouton qui mène là où on la corrige.
-- `Modules\Fees\Api\HouseholdTariffRecognitionInterface` — la capacité qui
-  répond à l'écart 5.
 
 ### Les décisions prises en autonomie
 
@@ -178,24 +191,6 @@ une itération. Elle arrivera avec l'envoi, et conditionnée à
 `statistics_enabled` : une installation qui a coupé les rapports ne signale
 rien à personne, et le lui dire serait faux dans l'autre sens.
 
-**La capacité `Api\` a deux méthodes, pas une.** `recognisesWording()` est la
-question qu'on pose d'une valeur rencontrée à l'instant — la ligne vient
-d'être créée, aucune correspondance manuelle ne peut exister, et la question
-« réglée » répondrait « inconnue » y compris pour une cotisation normale tout
-à fait ordinaire. `unmappedFeeCategoryIds()` est la réponse arrêtée pour les
-lignes déjà stockées, correspondance explicite comprise. La seconde n'est pas
-le complément de la première : une unité qui désigne « le couple, c'est ce
-code-ci » retire du même geste la revendication à celui que l'heuristique
-avait deviné. Un test tient précisément ce cas.
-
-**La pile d'import Desk a été déplacée dans le composition root.** Le
-résolveur prend désormais la capacité du module des cotisations, donc il ne
-peut plus être construit avant que `$moduleManager` existe. `$importService`,
-son seul consommateur, n'est lu que bien plus bas ; l'assemblage entier est
-descendu sous la définition de `$isEnabled`, avec le commentaire qui dit
-pourquoi. Le service du barème est construit **une fois** et partagé avec le
-bloc du module, pour que la requête ne porte pas deux caches du même barème.
-
 **`AgeBranchRepository::UNKNOWN_SORT_ORDER`.** Le 99 était un littéral dans
 `canonicalSortOrder()` ; il a maintenant un second lecteur, qui s'en sert pour
 trouver les branches que ce code ne reconnaît pas.
@@ -205,7 +200,7 @@ trouver les branches que ce code ne reconnaît pas.
 Une fonction inconnue journalise une fois et une seule par import, et le
 prochain import la redit. Une branche à 99 journalise, une branche canonique
 non, **et une branche laissée à 99 par un import d'il y a six mois journalise
-aussi**. Sans le module des cotisations, aucun tarif n'est jamais signalé. Le
+aussi**. Un tarif hors des trois n'est jamais signalé, quel qu'il soit. Le
 contexte du journal ne contient que le libellé et la table à compléter — les
 clés sont vérifiées une à une. Une ligne d'en-têtes refusée nomme `Courriel`,
 la colonne réellement vue ; une colonne en trop toute seule ne refuse ni ne

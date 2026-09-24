@@ -10,7 +10,6 @@ use Core\Import\DeskMappingGapKind;
 use Core\Import\DeskMappingGapService;
 use Core\Import\FeeCategoryRepository;
 use Core\Import\FunctionRepository;
-use Modules\Fees\Api\HouseholdTariffRecognitionInterface;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
@@ -77,26 +76,18 @@ class DeskMappingGapServiceTest extends TestCase
     }
 
     /**
-     * The one the `Api\` contract decides (ARCHITECTURE.md §7.5): core
-     * cannot tell a recognised tariff from an unrecognised one, so it does
-     * not guess — no cotisations module, no fee gap.
+     * A Desk tariff is not a kind at all, and this is where that decision
+     * is checked rather than only written down: one outside the three
+     * household ones is an ordinary state, ARCHITECTURE.md §8.74 says
+     * reporting it « would be a false positive on every unit », and the
+     * site cannot tell it from one of the three spelled unusually.
      */
-    public function testWithoutTheCotisationsModuleNoTariffIsEverAGap(): void
+    public function testATariffOutsideTheThreeIsNeverAGap(): void
     {
+        $this->feeCategories->create('Cotisation invités', 'Cotisation invités');
         $this->feeCategories->create('reduit_fratrie', 'reduit_fratrie');
 
         $this->assertSame([], $this->service()->gaps());
-    }
-
-    public function testATariffTheCotisationsModuleClaimsNobodyMapsIsAGap(): void
-    {
-        $id = $this->feeCategories->create('reduit_fratrie', 'reduit_fratrie');
-
-        $gaps = $this->service(new FakeRecognition([$id]))->gaps();
-
-        $this->assertCount(1, $gaps);
-        $this->assertSame(DeskMappingGapKind::FEE_CATEGORY, $gaps[0]->kind);
-        $this->assertSame('reduit_fratrie', $gaps[0]->rawValue);
     }
 
     /**
@@ -136,9 +127,9 @@ class DeskMappingGapServiceTest extends TestCase
         $this->assertSame(0, $gaps[0]->affectedCount);
     }
 
-    private function service(?HouseholdTariffRecognitionInterface $recognition = null): DeskMappingGapService
+    private function service(): DeskMappingGapService
     {
-        return new DeskMappingGapService($this->pdo, new ScoutYearService($this->pdo), $recognition);
+        return new DeskMappingGapService($this->pdo, new ScoutYearService($this->pdo));
     }
 
     private function seedScoutYear(): int
@@ -168,30 +159,5 @@ class DeskMappingGapServiceTest extends TestCase
 
         $stmt = $this->pdo->prepare('INSERT INTO member_functions (member_year_id, function_id) VALUES (?, ?)');
         $stmt->execute([$memberYearId, $functionId]);
-    }
-}
-
-/**
- * The cotisations module's answer, stubbed. The real one is
- * `Modules\Fees\Service\HouseholdTariffRecognition`, tested against the
- * real barème in its own suite; what matters here is that core asks rather
- * than guesses.
- */
-final class FakeRecognition implements HouseholdTariffRecognitionInterface
-{
-    /** @param list<int> $unmapped */
-    public function __construct(private array $unmapped)
-    {
-    }
-
-    public function recognisesWording(string $deskCode, string $label): bool
-    {
-        return true;
-    }
-
-    /** @return list<int> */
-    public function unmappedFeeCategoryIds(): array
-    {
-        return $this->unmapped;
     }
 }

@@ -9,7 +9,6 @@ declare(strict_types=1);
 namespace Core\Import;
 
 use Core\Config\ScoutYearService;
-use Modules\Fees\Api\HouseholdTariffRecognitionInterface;
 
 /**
  * What this installation is currently failing to recognise in its Desk
@@ -36,27 +35,21 @@ use Modules\Fees\Api\HouseholdTariffRecognitionInterface;
  *   {@see AgeBranchRepository::canonicalSortOrder()} returns when none of
  *   its seven needles matched. No default logo, and an arbitrary rank in
  *   every picker.
- * - **Fee category** — whatever the cotisations module says nothing claims,
- *   asked through its published capability. The module absent means no fee
- *   gap at all, which is the honest answer rather than a silent zero.
  *
  * The CSV header kind has no entry here on purpose: an unexpected column
  * is not a state this installation is in, it is an import that stopped.
  * {@see DeskCsvParser} journals it at the moment it happens, because
  * afterwards there is nothing left to observe.
+ *
+ * **A Desk tariff is deliberately not a kind at all.** One outside the
+ * three household ones is an expected state, not a defect — see
+ * {@see DeskMappingGapKind} for the rule and the wordings that pin it.
  */
 class DeskMappingGapService
 {
     public function __construct(
         private \PDO $pdo,
-        private ScoutYearService $scoutYears,
-        /**
-         * The cotisations module's published recognition capability
-         * (ARCHITECTURE.md §7.5), consumed nullable like every other
-         * cross-boundary capability. Trailing and defaulted so no call
-         * site is forced to know about it.
-         */
-        private ?HouseholdTariffRecognitionInterface $tariffRecognition = null
+        private ScoutYearService $scoutYears
     ) {
     }
 
@@ -68,7 +61,7 @@ class DeskMappingGapService
      */
     public function gaps(): array
     {
-        $gaps = array_merge($this->functionGaps(), $this->branchGaps(), $this->feeCategoryGaps());
+        $gaps = array_merge($this->functionGaps(), $this->branchGaps());
 
         usort($gaps, static function (DeskMappingGap $a, DeskMappingGap $b): int {
             return [$b->affectedCount, $a->rawValue] <=> [$a->affectedCount, $b->rawValue];
@@ -126,43 +119,6 @@ class DeskMappingGapService
     }
 
     /**
-     * @return list<DeskMappingGap>
-     */
-    private function feeCategoryGaps(): array
-    {
-        if ($this->tariffRecognition === null) {
-            return [];
-        }
-
-        $unmapped = $this->tariffRecognition->unmappedFeeCategoryIds();
-        if ($unmapped === []) {
-            return [];
-        }
-
-        $scoutYearId = $this->currentScoutYearId();
-
-        // Read back by id rather than trusting the capability for the
-        // wording: `fee_categories` is core's table, and the label a
-        // screen shows must come from where it is stored.
-        $placeholders = implode(',', array_fill(0, count($unmapped), '?'));
-        $stmt = $this->pdo->prepare(
-            "SELECT id, desk_code, label FROM fee_categories WHERE id IN ({$placeholders}) ORDER BY desk_code"
-        );
-        $stmt->execute($unmapped);
-
-        $gaps = [];
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $gaps[] = new DeskMappingGap(
-                DeskMappingGapKind::FEE_CATEGORY,
-                self::displayValue($row),
-                $scoutYearId === null ? 0 : $this->countMembersOnFeeCategory((int) $row['id'], $scoutYearId)
-            );
-        }
-
-        return $gaps;
-    }
-
-    /**
      * Today's scout year, read and never created.
      *
      * `ScoutYearService::getCurrentYear()` would do it in one call, but it
@@ -200,16 +156,6 @@ class DeskMappingGapService
     {
         $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM sections WHERE age_branch_id = ? AND is_active = 1');
         $stmt->execute([$branchId]);
-
-        return (int) $stmt->fetchColumn();
-    }
-
-    private function countMembersOnFeeCategory(int $feeCategoryId, int $scoutYearId): int
-    {
-        $stmt = $this->pdo->prepare(
-            'SELECT COUNT(*) FROM member_years WHERE fee_category_id = ? AND scout_year_id = ? AND is_active = 1'
-        );
-        $stmt->execute([$feeCategoryId, $scoutYearId]);
 
         return (int) $stmt->fetchColumn();
     }
