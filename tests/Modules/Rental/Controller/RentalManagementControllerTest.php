@@ -741,6 +741,25 @@ class RentalManagementControllerTest extends TestCase
         $this->assertNull($mail->findOneForReference('rental', $theirs->reference, 9));
     }
 
+    /**
+     * The same message, set aside by somebody who manages both assets, is
+     * still a set-aside message on the one-asset manager's « Écartés » tab:
+     * shown as such, never as work to sort, and not theirs to put back.
+     */
+    public function testASharedSetAsideMessageStaysSetAsideForAOneAssetManager(): void
+    {
+        [$mail, $mine, $theirs] = $this->mailAcrossTwoAssets();
+        $mail->propose(10, 'rental', $theirs->reference);
+        $this->assertTrue($mail->dismissMessage('rental', [$mine->reference, $theirs->reference], 10));
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id, ['statut' => 'ecartes'])->getBody();
+
+        $this->assertStringContainsString('data-triage-message="10"', $body);
+        $this->assertStringNotContainsString('Remettre dans la liste', $body);
+        $this->assertStringNotContainsString('/mes-locations/courrier/proposition/confirmation', $body);
+        $this->assertStringNotContainsString('/mes-locations/courrier/rattacher', $body);
+    }
+
     public function testWhoeverManagesEveryAssetSortsTheUnattributedMail(): void
     {
         [, $mine] = $this->mailAcrossTwoAssets();

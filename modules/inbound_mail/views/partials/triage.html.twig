@@ -145,16 +145,20 @@
                         </div>
                     {% endif %}
 
-                    {% if status == 'ecartes' and not row.shared_with_others|default(false) %}
+                    {% if status == 'ecartes' %}
                         {# Nothing to decide about a message that was set aside
-                           except whether to take it back. #}
-                        <form method="post" class="mt-3" action="{{ ui.urls.restore|replace({'{id}': row.message.id}) }}">
-                            {{ triage.hidden_fields(ui, row.message.id) }}
-                            <button type="submit" class="btn btn-outline-secondary btn-sm">
-                                <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i>
-                                Remettre dans la liste
-                            </button>
-                        </form>
+                           except whether to take it back — and not even that
+                           when part of it is somebody else's (the set-aside is
+                           the module's, like the decision to lift it). #}
+                        {% if not row.shared_with_others|default(false) %}
+                            <form method="post" class="mt-3" action="{{ ui.urls.restore|replace({'{id}': row.message.id}) }}">
+                                {{ triage.hidden_fields(ui, row.message.id) }}
+                                <button type="submit" class="btn btn-outline-secondary btn-sm">
+                                    <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i>
+                                    Remettre dans la liste
+                                </button>
+                            </form>
+                        {% endif %}
                     {% else %}
                         {# What THIS module made of it and nothing else:
                            another module's associations are not this
