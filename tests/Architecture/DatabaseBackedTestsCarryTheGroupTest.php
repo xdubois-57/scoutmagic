@@ -57,7 +57,18 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
      */
     private const MOUNTS = [
         '/DatabaseTestHelper::createTestDatabase\s*\(/',
-        '/new\s+\\\\?PDO\s*\(\s*[\'"]sqlite::memory:/',
+
+        // ANY class constructed with the in-memory DSN, not `PDO` spelled
+        // out. What builds a database here is the DSN — `sqlite::memory:`
+        // — and the class in front of it may be a subclass:
+        // `Core\Database\InstrumentedPdo` is one, and `new InstrumentedPdo`
+        // read as « not a build » left `InstrumentedPdoTest` and
+        // `RequestTimelineTest` outside the group while both lay out
+        // tables in one. Anchoring on the literal name was a bound on the
+        // shape rather than on what makes the rule true — the same lesson
+        // this file's siblings keep learning.
+        '/new\s+\\\\?[\w\\\\]+\s*\(\s*[\'"]sqlite::memory:/',
+
         '/\w*TestHelper::createTables\s*\(/',
     ];
 
@@ -332,6 +343,91 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
         );
     }
 
+    /**
+     * A subclass of PDO carrying the in-memory DSN.
+     *
+     * What builds a database is the DSN, not the class name in front of
+     * it. Matching the literal `PDO` left `Core\Database\InstrumentedPdo`
+     * — a subclass this repository wrote itself — reading as « not a
+     * build », and two classes that lay out tables in one stayed outside
+     * the group: `InstrumentedPdoTest` and `RequestTimelineTest`.
+     */
+    public function testAnInMemoryHandleBuiltThroughASubclassIsStillABuild(): void
+    {
+        $classes = $this->classesIn(<<<'PHP'
+            <?php
+            namespace Tests\Fake;
+            class ThingTest extends TestCase
+            {
+                private function pdo(): \PDO
+                {
+                    $pdo = new InstrumentedPdo('sqlite::memory:');
+                    $pdo->exec('CREATE TABLE t (id INT)');
+
+                    return $pdo;
+                }
+            }
+            PHP, 'Fake.php');
+
+        $this->assertTrue(
+            $classes['Tests\Fake\ThingTest']['mounts'],
+            'the DSN is what builds a database; the class in front of it may be a subclass'
+        );
+    }
+
+    /**
+     * A docblock QUOTING the attribute is not the attribute.
+     *
+     * The heading is doc-comment and attribute together — the right window
+     * for « the group is on the class » — but the marker was looked for
+     * across the whole of it, so a sentence naming
+     * `#[Group('database')]` passed for one.
+     * `Core\Mail\Feedback\Bounce\BounceSendReceiptMysqlTest` writes that
+     * sentence today, harmlessly, because it also carries the real
+     * attribute — which is how a defect like this waits for the file that
+     * writes the sentence and nothing else.
+     */
+    public function testProseQuotingTheAttributeInADocblockIsNotTheAttribute(): void
+    {
+        $quotingIt = $this->classesIn(<<<'PHP'
+            <?php
+            namespace Tests\Fake;
+            /**
+             * Carrying `#[Group('database')]` is not what makes a test
+             * reach MySQL — the connection below is.
+             */
+            class ThingTest extends TestCase
+            {
+                protected function setUp(): void { $this->pdo = DatabaseTestHelper::createTestDatabase(); }
+            }
+            PHP, 'Fake.php');
+
+        $this->assertFalse(
+            $quotingIt['Tests\Fake\ThingTest']['carries'],
+            'a sentence about the marker is not the marker, however exactly it spells it'
+        );
+
+        // And the real thing, one line below the same sentence, still is.
+        $bothAtOnce = $this->classesIn(<<<'PHP'
+            <?php
+            namespace Tests\Fake;
+            /**
+             * Carrying `#[Group('database')]` is not what makes a test
+             * reach MySQL — the connection below is.
+             */
+            #[\PHPUnit\Framework\Attributes\Group('database')]
+            class OtherTest extends TestCase
+            {
+                protected function setUp(): void { $this->pdo = DatabaseTestHelper::createTestDatabase(); }
+            }
+            PHP, 'Fake.php');
+
+        $this->assertTrue(
+            $bothAtOnce['Tests\Fake\OtherTest']['carries'],
+            'and stripping the prose must not take the attribute with it'
+        );
+    }
+
     public function testAClassMarkingEachBuildingMethodNeedsNoClassLevelMarker(): void
     {
         $eachMarked = $this->classesIn(<<<'PHP'
@@ -431,13 +527,21 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
             PHP, 'Fake.php');
 
         // This used to be the opposite assertion, and the docblock called
-        // it a known cost: prose naming the marker read as the marker. It
-        // stopped being a cost when the doc-comment stopped being read at
-        // all — only an attribute counts now, and a sentence cannot be one.
+        // it a known cost: prose naming the marker read as the marker.
+        //
+        // Reading only the attribute closed HALF of that, and the message
+        // here claimed the whole — « a sentence naming the group can no
+        // longer pass for a marker ». It could, as long as the sentence
+        // spelled the ATTRIBUTE rather than the doc-comment, which is what
+        // `BounceSendReceiptMysqlTest` writes. A guard overstating what it
+        // holds is worse than one holding less, because somebody believes
+        // it. The heading now has its comment lines taken out, which is
+        // what makes the claim true — see withoutComments().
         $this->assertFalse(
             $denyingIt['Tests\Fake\OtherTest']['carries'],
-            'prose in the heading is prose: since only the attribute is read, a sentence naming '
-                . 'the group — even one refusing it — can no longer pass for a marker'
+            'prose in the heading is prose: comments are taken out before the marker is looked '
+                . 'for, so a sentence naming the group — even one spelling the attribute exactly, '
+                . 'even one refusing it — cannot pass for a marker'
         );
     }
 
@@ -660,7 +764,7 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
             // says « No `@group database`, on purpose » and passed on the
             // strength of the words refusing it.
             $headingStart = $this->headingStart($source, $offset);
-            $heading = substr($source, $headingStart, $offset - $headingStart);
+            $heading = self::withoutComments(substr($source, $headingStart, $offset - $headingStart));
 
             $mounts = false;
             foreach (self::MOUNTS as $pattern) {
@@ -756,6 +860,48 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
         }
 
         return $uncovered;
+    }
+
+    /**
+     * A heading with its comment lines taken out.
+     *
+     * The heading is doc-comment AND attribute — that is what makes it the
+     * right window for « the group is on the class ». But the marker was
+     * then looked for across the whole of it, so a docblock QUOTING
+     * `#[Group('database')]` in a sentence was indistinguishable from the
+     * class carrying it. `Core\Mail\Feedback\Bounce\BounceSendReceiptMysqlTest`
+     * writes exactly that sentence — harmlessly, because it also carries
+     * the real attribute, which is how a defect like this waits.
+     *
+     * The failure message a few lines down claims « a sentence naming the
+     * group — even one refusing it — can no longer pass for a marker ».
+     * That was true of the inert `@group database` spelling and false of
+     * this one, and a guard that overstates what it holds is worse than
+     * one that holds less: somebody believes it.
+     *
+     * Comments go; attributes stay.
+     */
+    private static function withoutComments(string $heading): string
+    {
+        $kept = [];
+
+        foreach (explode("\n", $heading) as $line) {
+            $trimmed = ltrim($line);
+
+            if ($trimmed === '' || str_starts_with($trimmed, '//')) {
+                continue;
+            }
+
+            // A docblock's opening, body and close all read as comment
+            // here; an attribute never starts with any of them.
+            if (str_starts_with($trimmed, '/*') || str_starts_with($trimmed, '*')) {
+                continue;
+            }
+
+            $kept[] = $line;
+        }
+
+        return implode("\n", $kept);
     }
 
     /**
