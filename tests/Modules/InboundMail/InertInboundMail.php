@@ -118,9 +118,37 @@ trait InertInboundMail
         string $consumerId,
         array $ownReferences,
         int $limit = 50,
-        bool $dismissed = false
+        bool $dismissed = false,
+        bool $ownReferencesOnly = false
     ): array {
         return [];
+    }
+
+    /**
+     * Built from this double's own `findForTriage()`, as the real service
+     * builds it from its own — so a double that serves messages serves
+     * the same rows a screen would get.
+     *
+     * @param string[] $ownReferences
+     * @return list<array{message: \Modules\InboundMail\Api\InboundMessage, excerpt: string, truncated: bool,
+     *     has_body: bool, attachment_count: int, links: \Modules\InboundMail\Api\MessageLink[],
+     *     candidates: \Modules\InboundMail\Api\MessageCandidate[]}>
+     */
+    public function triageRows(
+        string $consumerId,
+        array $ownReferences,
+        int $limit = 50,
+        bool $dismissed = false,
+        bool $ownReferencesOnly = false
+    ): array {
+        return \Modules\InboundMail\Service\TriageRowBuilder::build(
+            $this,
+            $consumerId,
+            $ownReferences,
+            $limit,
+            $dismissed,
+            $ownReferencesOnly
+        );
     }
 
     /**

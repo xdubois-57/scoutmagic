@@ -80,6 +80,8 @@ use Twig\Environment;
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class RentalManagementControllerTest extends TestCase
 {
+    use \Tests\Modules\InboundMail\TriageScreenScenario;
+
     private \PDO $pdo;
     private Environment $twig;
     private RentalManagementController $controller;
@@ -520,7 +522,10 @@ class RentalManagementControllerTest extends TestCase
      * what makes the fil d'Ariane render at all (Core\Http\FrontController
      * reads it off the route).
      */
-    private function filePage(BookingPage $page, string $slug, int $bookingId): Response
+    /**
+     * @param array<string, string> $query
+     */
+    private function filePage(BookingPage $page, string $slug, int $bookingId, array $query = []): Response
     {
         $routePath = '/mes-locations/{slug}/reservations/{id}' . $page->pathSuffix();
         $route = self::declaredRoute($routePath);
@@ -531,7 +536,7 @@ class RentalManagementControllerTest extends TestCase
         return $this->dispatch($router, new Request(
             'GET',
             $page->url('/mes-locations/' . $slug . '/reservations/' . $bookingId),
-            [],
+            $query,
             [],
             [],
             []
@@ -564,6 +569,16 @@ class RentalManagementControllerTest extends TestCase
     {
         $inbound = $this->createMock(\Modules\InboundMail\Api\InboundMailInterface::class);
         $inbound->method('isCollecting')->willReturn(true);
+        $this->withMailbox($inbound);
+
+        return $inbound;
+    }
+
+    /**
+     * Wires a mailbox into the controller's communication service.
+     */
+    private function withMailbox(\Modules\InboundMail\Api\InboundMailInterface $inbound): void
+    {
 
         $service = new \Modules\Rental\Service\RentalCommunicationService(
             $this->bookingRepository,
@@ -578,8 +593,342 @@ class RentalManagementControllerTest extends TestCase
         );
         (new \ReflectionProperty(RentalManagementController::class, 'communicationService'))
             ->setValue($this->controller, $service);
+    }
 
-        return $inbound;
+    // ── The shared triage screen, rentals' side (issue #462, IT-03) ─────
+
+    private ?RentalBooking $triageBooking = null;
+
+    /**
+     * The booking the scenario's page belongs to, and the one object the
+     * manager files message 7 under.
+     */
+    private function triageBooking(): RentalBooking
+    {
+        if ($this->triageBooking === null) {
+            $this->loginAsManager();
+            // Message 7 names no booking, so only somebody who manages
+            // every asset may sort it (RentalCommunicationService::withinReach()).
+            $this->addManager($this->otherAssetId, 'manager@test.be');
+            $this->withMailbox(new \Tests\Modules\InboundMail\InMemoryTriageMail(\Tests\Modules\InboundMail\InMemoryTriageMail::aMessage()));
+            $this->triageBooking = $this->createBooking();
+        }
+
+        return $this->triageBooking;
+    }
+
+    /**
+     * **The component widens no scope.** The list is read with the
+     * references of the bookings this manager may reach, and only those —
+     * never another asset's, whatever booking the page belongs to.
+     */
+    public function testTheTriageListIsReadWithTheManagersReferencesOnly(): void
+    {
+        $this->loginAsManager();
+        $inbound = $this->withCollectingMailbox();
+        $mine = $this->createBooking();
+        $theirs = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+
+        // And narrowed in the query, not after it: this manager does not
+        // run every asset, so the box read in full is left out before the
+        // limit (InboundMailInterface::findForTriage(), $ownReferencesOnly).
+        $inbound->expects($this->atLeastOnce())->method('triageRows')
+            ->with('rental', $this->callback(
+                static fn(array $references): bool => in_array($mine->reference, $references, true)
+                    && !in_array($theirs->reference, $references, true)
+            ), $this->anything(), $this->anything(), true)
+            ->willReturn([]);
+
+        $this->assertSame(200, $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id)->getStatusCode());
+    }
+
+    /**
+     * A booking of an asset the manager does not run is not a place to file
+     * mail, whatever a hand-made form says.
+     */
+    public function testMailCannotBeFiledUnderABookingOutsideTheScope(): void
+    {
+        $mail = new \Tests\Modules\InboundMail\InMemoryTriageMail(\Tests\Modules\InboundMail\InMemoryTriageMail::aMessage());
+        $this->loginAsManager();
+        $this->withMailbox($mail);
+        $mine = $this->createBooking();
+        $theirs = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+
+        $this->post('/mes-locations/courrier/rattacher', 'triageAttach', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $mine->id,
+            'message_id' => '7',
+            'booking_reference' => $theirs->reference,
+        ]);
+
+        $this->assertNull($mail->findOneForReference('rental', $theirs->reference, 7));
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+    }
+
+    /**
+     * A box dedicated to rentals is read in full by the MODULE, and its
+     * managers are not one audience: a manager of one asset reads the mail
+     * filed or proposed under their own bookings, and not what belongs to
+     * another asset's — nor what nothing attributes yet, which may be
+     * about any asset.
+     */
+    public function testAManagerOfOneAssetReadsOnlyTheMailOfTheirOwnBookings(): void
+    {
+        [$mail, $mine, $theirs] = $this->mailAcrossTwoAssets();
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id, ['statut' => 'tous'])->getBody();
+
+        $this->assertStringContainsString('data-triage-message="9"', $body, 'filed under their own booking');
+        $this->assertStringContainsString('data-triage-message="10"', $body, 'proposed for their own booking');
+        $this->assertStringNotContainsString('data-triage-message="8"', $body, "filed under another asset's booking");
+        $this->assertStringNotContainsString('data-triage-message="7"', $body, 'attributed to nobody yet');
+        $this->assertStringNotContainsString($theirs->reference, $body);
+    }
+
+    /**
+     * What is not on a manager's list cannot be reached by posting its id.
+     */
+    public function testMailOutsideTheReachCannotBeAttachedOrSetAside(): void
+    {
+        [$mail, $mine, $theirs] = $this->mailAcrossTwoAssets();
+        $form = ['asset_id' => (string) $this->assetId, 'booking_id' => (string) $mine->id];
+
+        $this->post('/mes-locations/courrier/rattacher', 'triageAttach', $form + [
+            'message_id' => '8',
+            'booking_reference' => $mine->reference,
+        ]);
+        $this->post('/mes-locations/courrier/ecarter', 'triageSetAside', $form + ['message_id' => '7']);
+
+        $this->assertNull($mail->findOneForReference('rental', $mine->reference, 8));
+        $this->assertSame(0, $mail->countDismissedMessages('rental', [$mine->reference]));
+    }
+
+    /**
+     * A set-aside is the module's, not one manager's: a message proposed
+     * for their booking AND for another asset's is not theirs alone to
+     * write off, or it would vanish from the other managers' lists.
+     */
+    public function testAMessageAlsoProposedForAnotherAssetCannotBeSetAside(): void
+    {
+        [$mail, $mine, $theirs] = $this->mailAcrossTwoAssets();
+        $mail->propose(10, 'rental', $theirs->reference);
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id)->getBody();
+        $this->post('/mes-locations/courrier/ecarter', 'triageSetAside', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $mine->id,
+            'message_id' => '10',
+        ]);
+
+        $this->assertStringContainsString('data-triage-message="10"', $body);
+        $this->assertStringNotContainsString('/mes-locations/courrier/ecarter', $body);
+        $this->assertSame(0, $mail->countDismissedMessages('rental', [$mine->reference]));
+    }
+
+    /**
+     * The service's own guard, beneath the controller's: a target booking
+     * outside the references it is given is refused even for a message
+     * that IS on the requester's list.
+     */
+    public function testTheServiceRefusesATargetOutsideTheReferencesItIsGiven(): void
+    {
+        [$mail, $mine, $theirs] = $this->mailAcrossTwoAssets();
+        $service = (new \ReflectionProperty(RentalManagementController::class, 'communicationService'))
+            ->getValue($this->controller);
+        $this->assertInstanceOf(\Modules\Rental\Service\RentalCommunicationService::class, $service);
+
+        $this->assertFalse($service->attachToBooking($theirs, 9, [$mine->reference], false, null));
+        $this->assertNull($mail->findOneForReference('rental', $theirs->reference, 9));
+    }
+
+    /**
+     * The same message, set aside by somebody who manages both assets, is
+     * still a set-aside message on the one-asset manager's « Écartés » tab:
+     * shown as such, never as work to sort, and not theirs to put back.
+     */
+    public function testASharedSetAsideMessageStaysSetAsideForAOneAssetManager(): void
+    {
+        [$mail, $mine, $theirs] = $this->mailAcrossTwoAssets();
+        $mail->propose(10, 'rental', $theirs->reference);
+        $this->assertTrue($mail->dismissMessage('rental', [$mine->reference, $theirs->reference], 10));
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id, ['statut' => 'ecartes'])->getBody();
+
+        $this->assertStringContainsString('data-triage-message="10"', $body);
+        $this->assertStringNotContainsString('Remettre dans la liste', $body);
+        $this->assertStringNotContainsString('/mes-locations/courrier/proposition/confirmation', $body);
+        $this->assertStringNotContainsString('/mes-locations/courrier/rattacher', $body);
+    }
+
+    public function testWhoeverManagesEveryAssetSortsTheUnattributedMail(): void
+    {
+        [, $mine] = $this->mailAcrossTwoAssets();
+        $this->addManager($this->otherAssetId, 'manager@test.be');
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id)->getBody();
+
+        $this->assertStringContainsString('data-triage-message="7"', $body);
+    }
+
+    public function testAPropositionIsConfirmedFromTheCourrierPage(): void
+    {
+        [$mail, $mine] = $this->mailAcrossTwoAssets();
+
+        $this->post('/mes-locations/courrier/proposition/confirmation', 'triageConfirm', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $mine->id,
+            'message_id' => '10',
+            'candidate_id' => (string) $this->proposition,
+        ]);
+
+        $this->assertNotNull($mail->findOneForReference('rental', $mine->reference, 10));
+        $this->assertSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
+    }
+
+    public function testAPropositionIsDismissedFromTheCourrierPage(): void
+    {
+        [$mail, $mine] = $this->mailAcrossTwoAssets();
+
+        $this->post('/mes-locations/courrier/proposition/rejet', 'triageReject', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $mine->id,
+            'message_id' => '10',
+            'candidate_id' => (string) $this->proposition,
+        ]);
+
+        $this->assertNull($mail->findOneForReference('rental', $mine->reference, 10));
+        $this->assertSame([], $mail->findCandidatesFor('rental', [10]));
+    }
+
+    public function testAPropositionForAnotherAssetsBookingIsRefused(): void
+    {
+        [$mail, $mine, $theirs] = $this->mailAcrossTwoAssets();
+        $foreign = $mail->propose(7, 'rental', $theirs->reference);
+
+        $this->post('/mes-locations/courrier/proposition/confirmation', 'triageConfirm', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $mine->id,
+            'message_id' => '7',
+            'candidate_id' => (string) $foreign,
+        ]);
+
+        $this->assertNull($mail->findOneForReference('rental', $theirs->reference, 7));
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+    }
+
+    public function testRelancerLAnalyseSaysWhatItFound(): void
+    {
+        [$mail, $mine] = $this->mailAcrossTwoAssets();
+
+        $this->post('/mes-locations/courrier/relancer', 'triageReanalyze', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $mine->id,
+        ]);
+
+        $this->assertSame(1, $mail->reanalyses);
+        $this->assertStringContainsString('réexaminé', \Core\Http\FlashMessage::get()['message'] ?? '');
+    }
+
+    /**
+     * The routes are `identified`, and that is not the protection: somebody
+     * who manages nothing is answered 404, and nothing is decided.
+     */
+    public function testTheCourrierActionsAreNotFoundForSomebodyWhoManagesNothing(): void
+    {
+        [$mail, $mine] = $this->mailAcrossTwoAssets();
+        AuthSession::login(2, 'personne@test.be', 'identified');
+        $form = ['asset_id' => (string) $this->assetId, 'booking_id' => (string) $mine->id];
+
+        $confirm = $this->post('/mes-locations/courrier/proposition/confirmation', 'triageConfirm', $form + [
+            'message_id' => '10',
+            'candidate_id' => (string) $this->proposition,
+        ]);
+        $reanalyze = $this->post('/mes-locations/courrier/relancer', 'triageReanalyze', $form);
+
+        $this->assertSame(404, $confirm->getStatusCode());
+        $this->assertSame(404, $reanalyze->getStatusCode());
+        $this->assertNull($mail->findOneForReference('rental', $mine->reference, 10));
+        $this->assertSame(0, $mail->reanalyses);
+    }
+
+    private int $proposition = 0;
+
+    /**
+     * A box holding four messages, for a manager of the first asset only:
+     * 7 attributed to nobody, 8 filed under the other asset's booking, 9
+     * filed under theirs, 10 proposed for theirs.
+     *
+     * @return array{\Tests\Modules\InboundMail\InMemoryTriageMail, RentalBooking, RentalBooking}
+     */
+    private function mailAcrossTwoAssets(): array
+    {
+        $mail = new \Tests\Modules\InboundMail\InMemoryTriageMail(
+            \Tests\Modules\InboundMail\InMemoryTriageMail::aMessage(7, 'Une question'),
+            \Tests\Modules\InboundMail\InMemoryTriageMail::aMessage(8, 'Pour le local des autres'),
+            \Tests\Modules\InboundMail\InMemoryTriageMail::aMessage(9, 'Pour le local'),
+            \Tests\Modules\InboundMail\InMemoryTriageMail::aMessage(10, 'Peut-être pour le local')
+        );
+        $this->loginAsManager();
+        $this->withMailbox($mail);
+        $mine = $this->createBooking();
+        $theirs = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $mail->link(8, 'rental', $theirs->reference);
+        $mail->link(9, 'rental', $mine->reference);
+        $this->proposition = $mail->propose(10, 'rental', $mine->reference);
+
+        return [$mail, $mine, $theirs];
+    }
+
+    protected function triageScreen(string $status = ''): string
+    {
+        $booking = $this->triageBooking();
+
+        return (string) $this->filePage(
+            BookingPage::MAIL,
+            'local-saint-georges',
+            $booking->id,
+            $status === '' ? [] : ['statut' => $status]
+        )->getBody();
+    }
+
+    /**
+     * @param array<string, string> $body
+     */
+    private function triagePost(string $path, string $action, int $id, array $body = []): void
+    {
+        $booking = $this->triageBooking();
+        $response = $this->post($path, $action, $body + [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'mail',
+            'message_id' => (string) $id,
+        ]);
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertStringEndsWith('/courrier', (string) $response->getHeaders()['Location']);
+    }
+
+    protected function triageAttach(int $id): void
+    {
+        $this->triagePost('/mes-locations/courrier/rattacher', 'triageAttach', $id, [
+            'booking_reference' => $this->triageBooking()->reference,
+        ]);
+    }
+
+    protected function triageDetach(int $id): void
+    {
+        $this->triagePost('/mes-locations/courrier/detacher', 'triageDetach', $id, [
+            'business_reference' => $this->triageBooking()->reference,
+        ]);
+    }
+
+    protected function triageSetAside(int $id): void
+    {
+        $this->triagePost('/mes-locations/courrier/ecarter', 'triageSetAside', $id);
+    }
+
+    protected function triageRestore(int $id): void
+    {
+        $this->triagePost('/mes-locations/courrier/reprendre', 'triageRestore', $id);
     }
 
     // ── The authorisation matrix ────────────────────────────────────────
@@ -2332,7 +2681,8 @@ class RentalManagementControllerTest extends TestCase
         $inbound = $this->withCollectingMailbox();
         $booking = $this->createBooking();
 
-        $inbound->expects($this->never())->method('findForReference');
+        $inbound->expects($this->never())->method('triageRows');
+        $inbound->expects($this->never())->method('findForTriage');
         foreach ([BookingPage::DASHBOARD, BookingPage::FINANCES, BookingPage::DOCUMENTS] as $page) {
             $this->assertSame(200, $this->filePage($page, 'local-saint-georges', $booking->id)->getStatusCode());
         }
@@ -2344,7 +2694,7 @@ class RentalManagementControllerTest extends TestCase
         $inbound = $this->withCollectingMailbox();
         $booking = $this->createBooking();
 
-        $inbound->expects($this->once())->method('findForReference')->willReturn([]);
+        $inbound->expects($this->exactly(2))->method('triageRows')->willReturn([]);
         $this->assertSame(200, $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getStatusCode());
     }
 

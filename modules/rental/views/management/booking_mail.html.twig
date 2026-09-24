@@ -1,10 +1,54 @@
 {% extends '@rental/management/_booking_frame.html.twig' %}
 {#
-  « Courrier » — the mail of one booking (Booking\BookingPage::MAIL). Only
-  reachable when `inbound_mail` collects: the controller answers 404
-  otherwise, and the rail offers no chip for it. The box arrives open: this
-  page exists for it.
+  « Courrier » — the mail rentals receive (Booking\BookingPage::MAIL), on the
+  triage screen the camps use too (@inbound_mail/partials/triage.html.twig,
+  issue #462, D9): one component, two modules, so the two screens cannot
+  drift apart.
+
+  Its scope is the manager's, not the page's booking: the mail of every
+  booking of every asset they manage (RentalCommunicationService::
+  triageBookings()), recomputed on every action. The booking the page
+  belongs to is the picker's default, nothing more.
+
+  Every form carries the page's own context (asset, booking, page), so an
+  action answers through bookingAction() like every other form of the
+  file — asynchronously, the panel below re-rendered in place — and,
+  without JavaScript, comes back here.
 #}
 {% block booking_content %}
-    {% include '@rental/management/_box_mail.html.twig' with { open: true } %}
+    <div id="{{ boxes.mail.anchor }}">
+        <div data-booking-panel="communications">
+            {% include '@inbound_mail/partials/triage.html.twig' with {
+                messages: messages, status: status, counts: counts,
+                include_bulk: include_bulk, bulk_count: bulk_count,
+                triage_ui: {
+                    has_inbound_mail: true,
+                    filter_url: booking_page.url(booking_url),
+                    urls: {
+                        reanalyze: '/mes-locations/courrier/relancer',
+                        attach: '/mes-locations/courrier/rattacher',
+                        detach: '/mes-locations/courrier/detacher',
+                        dismiss: '/mes-locations/courrier/ecarter',
+                        restore: '/mes-locations/courrier/reprendre',
+                        confirm: '/mes-locations/courrier/proposition/confirmation',
+                        reject: '/mes-locations/courrier/proposition/rejet',
+                    },
+                    hidden: { asset_id: asset.id, booking_id: booking.id, booking_page: booking_page.value },
+                    list_name: 'des locations',
+                    noun_from: 'de la réservation',
+                    attach_other: 'Rattacher à une autre réservation',
+                    attach_also: 'Rattacher aussi à une autre réservation',
+                    labels: triage_labels,
+                    reference_urls: triage_urls,
+                    booking_options: triage_booking_options,
+                    picker_template: '@rental/management/_triage_picker.html.twig',
+                },
+            } only %}
+        </div>
+    </div>
+    {% include '@inbound_mail/partials/triage_dialog.html.twig' %}
+{% endblock %}
+
+{% block booking_scripts %}
+    <script src="{{ asset('/assets/js/mail-message-dialog.js') }}" defer></script>
 {% endblock %}

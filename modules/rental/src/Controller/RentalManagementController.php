@@ -20,6 +20,7 @@ use Core\Http\Response;
 use Core\Member\MemberService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\View\DateFilterExtension;
 use Core\View\EditableContentService;
 use Core\Service\DateInput;
 use Core\Service\IntegerInput;
@@ -30,6 +31,9 @@ use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Availability\MonthWindow;
 use Modules\Rental\Booking\BookingBox;
 use Modules\Rental\Booking\BookingPage;
+use Modules\InboundMail\Api\ReanalysisReport;
+use Modules\InboundMail\Api\TriageFilter;
+use Modules\InboundMail\Api\TriageScreen;
 use Modules\Rental\Booking\BookingJourney;
 use Modules\Rental\Booking\BookingMilestones;
 use Modules\Rental\Booking\BookingStatus;
@@ -757,7 +761,7 @@ class RentalManagementController extends AbstractController
      */
     public function booking(Request $request, array $params): Response
     {
-        return $this->bookingFilePage($params, BookingPage::DASHBOARD);
+        return $this->bookingFilePage($request, $params, BookingPage::DASHBOARD);
     }
 
     /**
@@ -768,7 +772,7 @@ class RentalManagementController extends AbstractController
      */
     public function bookingFinances(Request $request, array $params): Response
     {
-        return $this->bookingFilePage($params, BookingPage::FINANCES);
+        return $this->bookingFilePage($request, $params, BookingPage::FINANCES);
     }
 
     /**
@@ -779,7 +783,7 @@ class RentalManagementController extends AbstractController
      */
     public function bookingDocuments(Request $request, array $params): Response
     {
-        return $this->bookingFilePage($params, BookingPage::DOCUMENTS);
+        return $this->bookingFilePage($request, $params, BookingPage::DOCUMENTS);
     }
 
     /**
@@ -791,7 +795,7 @@ class RentalManagementController extends AbstractController
      */
     public function bookingMail(Request $request, array $params): Response
     {
-        return $this->bookingFilePage($params, BookingPage::MAIL);
+        return $this->bookingFilePage($request, $params, BookingPage::MAIL);
     }
 
     /**
@@ -939,7 +943,7 @@ class RentalManagementController extends AbstractController
      *
      * @param array<string, string> $params
      */
-    private function bookingFilePage(array $params, BookingPage $page): Response
+    private function bookingFilePage(Request $request, array $params, BookingPage $page): Response
     {
         $asset = $this->manageableAsset($params);
         if ($asset === null) {
@@ -1008,18 +1012,237 @@ class RentalManagementController extends AbstractController
                 ],
                 // Only offered at all when a mailbox collects, which
                 // `bookingPagesOffered()` settled above.
-                BookingPage::MAIL => [
-                    'messages' => $this->communicationService?->timeline($booking) ?? [],
-                    'message_propositions' => $this->communicationService?->propositions($booking) ?? [],
-                    'message_documents' => $this->communicationService?->documentsByFileId($booking) ?? [],
-                    'move_targets' => $this->communicationService?->moveTargets(
-                        $booking,
-                        AuthSession::getEmail(),
-                        $this->scoutYearId()
-                    ) ?? [],
-                ],
+                BookingPage::MAIL => $this->mailContext($request, $booking),
             }
         );
+    }
+
+    /**
+     * The references the requester may file mail under — the triage
+     * screen's whole scope, recomputed on every action rather than trusted
+     * from the page (RentalCommunicationService::triageBookings()).
+     *
+     * @return array<string, RentalBooking>
+     */
+    private function triageScope(): array
+    {
+        return $this->communicationService?->triageBookings(AuthSession::getEmail(), $this->scoutYearId()) ?? [];
+    }
+
+    /**
+     * Whether the requester may also read the mail nothing attributes yet
+     * (RentalCommunicationService::sortsUnattributed()) — the other half of
+     * the screen's reach, recomputed on every action like the first.
+     */
+    private function sortsUnattributed(): bool
+    {
+        return $this->communicationService?->sortsUnattributed(AuthSession::getEmail(), $this->scoutYearId()) ?? false;
+    }
+
+    /**
+     * POST /mes-locations/courrier/rattacher — file a message of the triage
+     * list under one of the requester's bookings (issue #462, IT-03).
+     *
+     * @param array<string, string> $params
+     */
+    public function triageAttach(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function () use ($request): void {
+            $scope = $this->triageScope();
+            $target = $scope[(string) $request->getBody('booking_reference', '')] ?? null;
+            if ($target === null || $this->communicationService === null) {
+                throw new RentalException('Choisissez la réservation à laquelle rattacher ce message.');
+            }
+
+            if (!$this->communicationService->attachToBooking(
+                $target,
+                (int) $request->getBody('message_id', 0),
+                array_keys($scope),
+                $this->sortsUnattributed(),
+                AuthSession::getUserAccountId()
+            )) {
+                throw new RentalException("Ce message n'a pas pu être rattaché.");
+            }
+
+            FlashMessage::set('success', 'Message rattaché à la réservation ' . $target->reference . '.');
+        });
+    }
+
+    /**
+     * POST /mes-locations/courrier/detacher — take a message off one of the
+     * requester's bookings. Through the booking's own detach, so an
+     * attachment already filed as a document stays with the booking.
+     *
+     * @param array<string, string> $params
+     */
+    public function triageDetach(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function () use ($request): void {
+            $target = $this->triageScope()[(string) $request->getBody('business_reference', '')] ?? null;
+            if ($target === null || $this->communicationService === null
+                || !$this->communicationService->detach($target, (int) $request->getBody('message_id', 0), $this->actorMemberId())
+            ) {
+                throw new RentalException("Ce message n'appartient pas à cette réservation.");
+            }
+
+            FlashMessage::set('success', 'Message détaché de la réservation ' . $target->reference . '.');
+        });
+    }
+
+    /**
+     * POST /mes-locations/courrier/ecarter — « ce courrier ne concerne pas
+     * les locations ». Deletes nothing.
+     *
+     * @param array<string, string> $params
+     */
+    public function triageSetAside(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function () use ($request): void {
+            if (!($this->communicationService?->setAside(
+                array_keys($this->triageScope()),
+                $this->sortsUnattributed(),
+                (int) $request->getBody('message_id', 0),
+                AuthSession::getUserAccountId()
+            ) ?? false)) {
+                throw new RentalException("Ce courrier n'a pas pu être écarté.");
+            }
+
+            // Said in full, because the button does less than the word
+            // suggests and a manager must not believe they deleted mail.
+            FlashMessage::set('success', "Courrier écarté de la liste des locations. Il reste dans le courrier de l'unité.");
+        });
+    }
+
+    /**
+     * POST /mes-locations/courrier/reprendre — put a set-aside message back.
+     *
+     * @param array<string, string> $params
+     */
+    public function triageRestore(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function () use ($request): void {
+            if (!($this->communicationService?->restore(
+                array_keys($this->triageScope()),
+                $this->sortsUnattributed(),
+                (int) $request->getBody('message_id', 0)
+            ) ?? false)) {
+                throw new RentalException("Ce courrier n'a pas pu être remis dans la liste.");
+            }
+
+            FlashMessage::set('success', 'Courrier remis dans la liste.');
+        });
+    }
+
+    /**
+     * POST /mes-locations/courrier/proposition/confirmation
+     *
+     * @param array<string, string> $params
+     */
+    public function triageConfirm(Request $request, array $params): Response
+    {
+        return $this->triageDecide($request, true);
+    }
+
+    /**
+     * POST /mes-locations/courrier/proposition/rejet
+     *
+     * @param array<string, string> $params
+     */
+    public function triageReject(Request $request, array $params): Response
+    {
+        return $this->triageDecide($request, false);
+    }
+
+    private function triageDecide(Request $request, bool $confirm): Response
+    {
+        return $this->bookingAction($request, function () use ($request, $confirm): void {
+            if (!($this->communicationService?->decideCandidate(
+                array_keys($this->triageScope()),
+                (int) $request->getBody('message_id', 0),
+                (int) $request->getBody('candidate_id', 0),
+                $confirm,
+                AuthSession::getUserAccountId()
+            ) ?? false)) {
+                throw new RentalException("Cette proposition n'existe plus.");
+            }
+
+            FlashMessage::set('success', $confirm ? 'Message rattaché à la réservation.' : 'Proposition écartée.');
+        });
+    }
+
+    /**
+     * POST /mes-locations/courrier/relancer — offer the unattributed mail
+     * to this module again, with what the site knows today.
+     *
+     * @param array<string, string> $params
+     */
+    public function triageReanalyze(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (): void {
+            if ($this->communicationService === null) {
+                throw new RentalException("Le courrier entrant n'est pas disponible.");
+            }
+
+            FlashMessage::set(
+                'success',
+                ReanalysisReport::fromArray($this->communicationService->reanalyze())->message()
+            );
+        });
+    }
+
+    /**
+     * What the Courrier page renders: the shared triage screen (issue #462,
+     * D9), the same component as the camps', over the mail of every booking
+     * this manager may reach — their scope and nothing wider
+     * (`RentalCommunicationService::triageBookings()`).
+     *
+     * @return array<string, mixed>
+     */
+    private function mailContext(Request $request, RentalBooking $booking): array
+    {
+        $service = $this->communicationService;
+        if ($service === null) {
+            return [];
+        }
+
+        $bookings = $service->triageBookings(AuthSession::getEmail(), $this->scoutYearId());
+        $references = array_keys($bookings);
+        $unattributed = $this->sortsUnattributed();
+
+        $slugs = [];
+        foreach ($this->authorizationService->listManageableAssets(AuthSession::getEmail(), $this->scoutYearId()) as $asset) {
+            $slugs[$asset->id] = $asset->slug;
+        }
+
+        $labels = [];
+        $urls = [];
+        $options = [];
+        foreach ($bookings as $reference => $candidate) {
+            $labels[$reference] = $reference . ' — ' . $candidate->renterName;
+            if (isset($slugs[$candidate->assetId])) {
+                $urls[$reference] = '/mes-locations/' . $slugs[$candidate->assetId] . '/reservations/' . $candidate->id;
+            }
+            $options[] = [
+                'value' => $reference,
+                'label' => $labels[$reference] . ' (' . DateFilterExtension::dateFr($candidate->arrivalDate) . ')',
+                'selected' => $candidate->id === $booking->id,
+            ];
+        }
+
+        $filter = TriageFilter::fromQuery((string) $request->getQuery('statut', ''));
+        $dismissed = $service->triageRows($references, $unattributed, true);
+
+        return TriageScreen::of(
+            $service->triageRows($references, $unattributed),
+            $filter,
+            (string) $request->getQuery('automatique', '') === '1',
+            $dismissed,
+            count($dismissed)
+        )->toArray() + [
+            'triage_labels' => $labels,
+            'triage_urls' => $urls,
+            'triage_booking_options' => $options,
+        ];
     }
 
     /**
@@ -1074,39 +1297,6 @@ class RentalManagementController extends AbstractController
     }
 
     /**
-     * POST /mes-locations/message/detacher — take a message off this
-     * booking (§7.7).
-     *
-     * The message is not destroyed: it falls back into the unit's general
-     * mail, where the Chef d'Unité can re-orient it and where the module's
-     * retention removes it if nobody ever does (§8.58). What leaves the
-     * booking with it is the attachments nobody re-classified; a document
-     * a manager already filed as something stays theirs.
-     *
-     * @param array<string, string> $params
-     */
-    public function detachMessage(Request $request, array $params): Response
-    {
-        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
-            if ($this->communicationService === null) {
-                throw new RentalException("Le courrier entrant n'est pas disponible.");
-            }
-
-            $detached = $this->communicationService->detach(
-                $booking,
-                (int) $request->getBody('message_id', 0),
-                $this->actorMemberId()
-            );
-
-            if (!$detached) {
-                throw new RentalException("Ce message n'appartient pas à cette réservation.");
-            }
-
-            FlashMessage::set('success', 'Message détaché.');
-        });
-    }
-
-    /**
      * POST /mes-locations/lien-suivi — mints a fresh tracking link and
      * mails it to the renter (§8.52).
      *
@@ -1136,122 +1326,6 @@ class RentalManagementController extends AbstractController
                     ? 'Nouveau lien de suivi envoyé au locataire. L\'ancien ne fonctionne plus.'
                     : "L'ancien lien ne fonctionne plus, mais l'email portant le nouveau n'a pas pu partir : "
                         . 'régénérez-le à nouveau pour le renvoyer.'
-            );
-        });
-    }
-
-    /**
-     * POST /mes-locations/message/deplacer — move a message to another
-     * booking of an asset this manager manages (§7.7).
-     *
-     * @param array<string, string> $params
-     */
-    public function moveMessage(Request $request, array $params): Response
-    {
-        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
-            if ($this->communicationService === null) {
-                throw new RentalException("Le courrier entrant n'est pas disponible.");
-            }
-
-            $moved = $this->communicationService->move(
-                $booking,
-                (int) $request->getBody('message_id', 0),
-                (int) $request->getBody('target_booking_id', 0),
-                AuthSession::getEmail(),
-                $this->scoutYearId(),
-                $this->actorMemberId(),
-                AuthSession::getUserAccountId()
-            );
-
-            if (!$moved) {
-                throw new RentalException("Ce message n'appartient pas à cette réservation.");
-            }
-
-            FlashMessage::set('success', 'Message déplacé.');
-        });
-    }
-
-    /**
-     * POST /mes-locations/message/proposition/confirmation — a manager
-     * says yes to what the module suspected about their booking.
-     *
-     * @param array<string, string> $params
-     */
-    public function confirmMessageProposition(Request $request, array $params): Response
-    {
-        return $this->decideMessageProposition($request, true);
-    }
-
-    /**
-     * POST /mes-locations/message/proposition/rejet
-     *
-     * @param array<string, string> $params
-     */
-    public function dismissMessageProposition(Request $request, array $params): Response
-    {
-        return $this->decideMessageProposition($request, false);
-    }
-
-    private function decideMessageProposition(Request $request, bool $confirm): Response
-    {
-        return $this->bookingAction($request, function (RentalBooking $booking) use ($request, $confirm): void {
-            if ($this->communicationService === null) {
-                throw new RentalException("Le courrier entrant n'est pas disponible.");
-            }
-
-            $messageId = (int) $request->getBody('message_id', 0);
-            $candidateId = (int) $request->getBody('candidate_id', 0);
-
-            $done = $confirm
-                ? $this->communicationService->confirmProposition(
-                    $booking,
-                    $messageId,
-                    $candidateId,
-                    AuthSession::getUserAccountId()
-                )
-                : $this->communicationService->dismissProposition($booking, $messageId, $candidateId);
-
-            if (!$done) {
-                throw new RentalException("Cette proposition n'existe plus.");
-            }
-
-            FlashMessage::set('success', $confirm ? 'Message rattaché à la réservation.' : 'Proposition écartée.');
-        });
-    }
-
-    /**
-     * POST /mes-locations/message/relancer — offer the unattributed mail
-     * to this module again, with what the site knows today.
-     *
-     * @param array<string, string> $params
-     */
-    public function reanalyzeMail(Request $request, array $params): Response
-    {
-        return $this->bookingAction($request, function (): void {
-            if ($this->communicationService === null) {
-                throw new RentalException("Le courrier entrant n'est pas disponible.");
-            }
-
-            $report = $this->communicationService->reanalyze();
-            $found = [];
-            if ($report['linked'] > 0) {
-                $found[] = $report['linked'] . ' rattachement' . ($report['linked'] > 1 ? 's' : '');
-            }
-            if ($report['proposed'] > 0) {
-                $found[] = $report['proposed'] . ' proposition' . ($report['proposed'] > 1 ? 's' : '');
-            }
-
-            FlashMessage::set(
-                'success',
-                $report['examined'] === 0
-                    ? 'Aucun message en attente : tout ce qui est conservé est déjà rattaché.'
-                    : sprintf(
-                        '%d message%s réexaminé%s : %s.',
-                        $report['examined'],
-                        $report['examined'] > 1 ? 's' : '',
-                        $report['examined'] > 1 ? 's' : '',
-                        $found === [] ? 'rien de neuf pour l\'instant' : implode(' et ', $found)
-                    )
             );
         });
     }

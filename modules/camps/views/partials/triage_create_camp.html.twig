@@ -1,0 +1,12 @@
+{#
+  The message matches no known stay: create one from what it says rather
+  than retype dates that are right there. Camps only — a rental is never
+  created from a message.
+
+  Requires `row`.
+#}
+<a class="btn btn-outline-secondary btn-sm"
+   href="/chefs/camps/nouveau?message={{ row.message.id }}">
+    <i class="bi bi-plus-lg" aria-hidden="true"></i>
+    Créer un camp depuis ce message
+</a>

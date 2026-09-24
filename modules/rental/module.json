@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques.",
-  "version": "1.25.0",
+  "version": "1.26.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -166,6 +166,69 @@
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
       "action": "markMilestone",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/courrier/rattacher",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "triageAttach",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/courrier/detacher",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "triageDetach",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/courrier/ecarter",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "triageSetAside",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/courrier/reprendre",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "triageRestore",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/courrier/proposition/confirmation",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "triageConfirm",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/courrier/proposition/rejet",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "triageReject",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/courrier/relancer",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "triageReanalyze",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
@@ -382,51 +445,6 @@
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
       "action": "regenerateTrackingLink",
-      "menu": "espace_animes",
-      "role_min": "identified",
-      "label": ""
-    },
-    {
-      "path": "/mes-locations/message/detacher",
-      "method": "POST",
-      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "detachMessage",
-      "menu": "espace_animes",
-      "role_min": "identified",
-      "label": ""
-    },
-    {
-      "path": "/mes-locations/message/deplacer",
-      "method": "POST",
-      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "moveMessage",
-      "menu": "espace_animes",
-      "role_min": "identified",
-      "label": ""
-    },
-    {
-      "path": "/mes-locations/message/proposition/confirmation",
-      "method": "POST",
-      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "confirmMessageProposition",
-      "menu": "espace_animes",
-      "role_min": "identified",
-      "label": ""
-    },
-    {
-      "path": "/mes-locations/message/proposition/rejet",
-      "method": "POST",
-      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "dismissMessageProposition",
-      "menu": "espace_animes",
-      "role_min": "identified",
-      "label": ""
-    },
-    {
-      "path": "/mes-locations/message/relancer",
-      "method": "POST",
-      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "reanalyzeMail",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""

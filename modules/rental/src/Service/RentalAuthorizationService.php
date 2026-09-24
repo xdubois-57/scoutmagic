@@ -122,6 +122,29 @@ class RentalAuthorizationService
     }
 
     /**
+     * Whether $email manages every asset of the unit, archived ones
+     * included — the Staff d'U by function, or a manager named on each.
+     *
+     * The question behind mail nothing could attribute (issue #462): a
+     * message that names no booking may be about any asset, so only
+     * somebody who may see every asset's bookings may read it to sort it.
+     */
+    public function managesEveryAsset(?string $email, int $scoutYearId): bool
+    {
+        if ($email === null || $email === '') {
+            return false;
+        }
+
+        if ($this->isUnitStaff($email, $scoutYearId)) {
+            return true;
+        }
+
+        $all = array_map(static fn(RentalAsset $asset): int => $asset->id, $this->assetRepository->findAll());
+
+        return $all !== [] && array_diff($all, $this->managedAssetIdsFor($email, $scoutYearId)) === [];
+    }
+
+    /**
      * Whether $email is a unit chief (Staff d'U), and therefore an implicit
      * manager of every asset.
      */

@@ -290,3 +290,97 @@ des reports.
 ### Reporté
 
 Rien.
+
+---
+
+## IT-03 — Le composant « Courrier » partagé
+
+### Livré
+
+- **Un seul écran de tri, deux modules** (D9) :
+  `@inbound_mail/partials/triage.html.twig`, extrait de l'écran du
+  courrier des camps. Il porte les onglets et leurs compteurs, « Relancer
+  l'analyse », la lecture du message dans une boîte de dialogue, les
+  pièces jointes, les rattachements (avec leur origine : un rattachement
+  deviné est dit « incertain »), les propositions à confirmer ou écarter,
+  le rattachement libre, le détachement, l'écartement et sa reprise. Ce
+  qui diffère d'un module à l'autre — le nom de ses objets, l'adresse de
+  ses actions, le sélecteur de rattachement — lui est passé dans
+  `triage_ui`.
+- **La liste elle-même est partagée** : `InboundMailInterface::triageRows()`
+  donne les lignes, `Api\TriageScreen` et `Api\TriageFilter` les filtres
+  et les compteurs, `Api\ReanalysisReport` la phrase de « Relancer
+  l'analyse ». Les camps et les locations en font la même lecture.
+- **Les camps** passent sur le composant sans changer de comportement :
+  leurs 43 tests d'écran passent tels quels, aux identifiants de la boîte
+  de dialogue près.
+- **Les locations** : la page « Courrier » d'une réservation rend le même
+  composant, sur le courrier de toutes les réservations des biens que le
+  gestionnaire gère. Sept routes (`/mes-locations/courrier/…`) passent par
+  `bookingAction()` comme tout formulaire de la réservation : même
+  autorisation, réponse asynchrone, retour à la page. `rental` passe en
+  1.26.0.
+- **`mail-message-dialog.js`** (ex-`camps-message-dialog.js`) écoute
+  désormais sur le document : la page des locations recharge sa liste en
+  place, et « Lire le message » doit s'ouvrir sur les boutons qu'un
+  rafraîchissement apporte.
+- **Tests** : un même scénario (`TriageScreenScenario`) — rattacher,
+  détacher, écarter, remettre — joué par l'écran des camps et par celui
+  des locations sur une boîte en mémoire, avec les mêmes états attendus ;
+  la liste des locations lue avec les seules références du gestionnaire ;
+  un rattachement vers la réservation d'un autre bien refusé ; Vitest de
+  la boîte de dialogue sur un bouton arrivé après le chargement.
+
+### Décisions autonomes
+
+1. **La portée des locations est celle du gestionnaire, pas celle de la
+   page.** La page Courrier vit sous une réservation, mais le courrier
+   d'une boîte ne se trie pas réservation par réservation : la liste
+   montre tout ce que le gestionnaire peut rattacher, la réservation de la
+   page est simplement le choix proposé par défaut. Chaque action recalcule
+   cette portée (`triageBookings()`) au lieu de la croire sur parole.
+2. **Un rattachement à la main exige que le message soit dans la liste du
+   gestionnaire.** `attach()` laisse la vérification à l'appelant ;
+   rattacher un identifiant quelconque à sa propre réservation serait le
+   lire.
+3. **« Déplacer » disparaît de l'écran**, remplacé par détacher puis
+   rattacher, comme aux camps : deux écrans identiques ne peuvent pas
+   offrir deux gestes différents pour la même chose. Les méthodes du
+   service qui le faisaient restent, avec leurs tests.
+4. **Les libellés complets passent par la configuration** (« Rattacher à
+   un autre séjour », « … à une autre réservation ») plutôt que d'être
+   composés dans le gabarit : l'aide cite ces libellés, et
+   `HelpLabelDriftTest` les cherche tels quels.
+5. **Un gestionnaire ne lit que le courrier à sa portée** (relevé en
+   revue de la PR #480). Une boîte dédiée aux locations est lisible en
+   entier par le *module* ; ses gestionnaires, eux, sont chacun sur leurs
+   biens. La liste d'un gestionnaire garde ce qui est rattaché ou proposé
+   à l'une de SES réservations — et sur chaque ligne, seulement cela — et
+   le courrier que rien ne rattache seulement pour qui gère tous les biens
+   (le Staff d'U, ou un gestionnaire nommé sur chacun) : il peut concerner
+   n'importe lequel. Rattacher, écarter et reprendre passent par la même
+   liste. Pour qui ne gère pas tous les biens, la liste est restreinte
+   dans la requête, avant la limite de cent messages
+   (`findForTriage(…, ownReferencesOnly: true)`) : filtrer après coup les
+   cent plus récents de toute la boîte aurait pu ne rien lui laisser.
+6. **La liste partagée vit hors de `Api\`** au sens où ARCHITECTURE.md
+   §7.5 l'entend (relevé en revue) : une première version y mettait une
+   classe de service statique. Les lignes sont une méthode de
+   l'interface, écrite une fois (`Service\TriageRowBuilder`) ; ce qui
+   reste dans `Api\` est un enum et deux objets-valeurs.
+
+### Écarts (suite de l'écart 5)
+
+- L'écran des camps n'avait **ni suppression ni recherche plein texte**,
+  et l'API n'en offre pas : le composant partagé n'en a pas non plus. La
+  route `/supprimer` des camps garde son nom et détache, comme avant.
+- **Le courrier automatique n'était jamais replié.** L'écran des camps
+  lisait `InboundMessage::$isBulk`, une propriété qui n'existait pas :
+  PHP levait un avertissement, la lecture valait `null`, et chaque lettre
+  d'information comptait comme un message de quelqu'un. Le composant
+  partagé en avait hérité. `InboundMessage` porte désormais `isBulk`, lu
+  depuis `inbound_messages.is_bulk`.
+
+### Reporté
+
+Rien.
