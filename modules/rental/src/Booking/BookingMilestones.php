@@ -90,7 +90,7 @@ final class BookingMilestones
 
         // The two holds are one line, because to the manager they are one
         // fact — "the dates are held until X" — and the wording is what
-        // says which kind it is (§6.14).
+        // says which kind it is (specifications.md §22.5).
         $milestones[] = new BookingMilestone(
             'hold',
             $booking->holdOrigin?->managerLabel() ?? 'Dates bloquées',

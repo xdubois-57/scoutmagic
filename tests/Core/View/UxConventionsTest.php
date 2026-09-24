@@ -326,6 +326,10 @@ final class UxConventionsTest extends TestCase
      * @var list<string> route paths (module.json) that render no page
      */
     private const NON_PAGE_MODULE_ROUTES = [
+        // JSON: the carpool organiser's event search (the core search
+        // picker's endpoint) and the places of the events it retained.
+        '/covoiturage/organiser/evenements',
+        '/covoiturage/organiser/lieux',
         // XLSX download of the fee-accuracy screen, never a page.
         '/admin/fees/tarifs/export',
         // XLSX download of one invoice's verification report, likewise.

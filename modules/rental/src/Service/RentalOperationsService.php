@@ -287,7 +287,7 @@ class RentalOperationsService
     }
 
     /**
-     * Places a manager's option with a deadline (§6.14).
+     * Places a manager's option with a deadline (specifications.md §22.5).
      *
      * The same single hold mechanism the automatic block uses — only the
      * origin differs, and with it what happens when it lapses: an option is

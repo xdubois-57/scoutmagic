@@ -21,7 +21,7 @@ use Modules\Rental\Repository\RentalChangeRequestRepository;
 use Modules\Rental\Service\RentalBookingService;
 
 /**
- * Expires temporary holds whose deadline has passed (§6.14).
+ * Expires temporary holds whose deadline has passed (specifications.md §22.5).
  *
  * **One task for both origins**, because there is only one hold mechanism.
  * What differs is the meaning, and the service decides it: an `automatic`

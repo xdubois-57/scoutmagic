@@ -15,7 +15,7 @@ use Modules\InboundMail\Client\FetchedMessage;
  * A raw RFC 5322 message into a `FetchedMessage`.
  *
  * **Everything here is defensive**, because every byte of the input was
- * written by whoever knew the unit's address (§7.9). A malformed header, a
+ * written by whoever knew the unit's address (§8.58). A malformed header, a
  * missing boundary, a body that claims an encoding it does not use — none
  * of them may throw, because a message that cannot be parsed must be
  * skipped, not allowed to stop the whole synchronisation and leave the

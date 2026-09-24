@@ -37,7 +37,7 @@ use Twig\TwigFunction;
  * valid token changes nothing, and that the journal records these gestures
  * by internal id alone — this is the archive of everything the unit was
  * ever sent, and a journal that quoted it would be a second copy without a
- * retention (§7.9, §8.58).
+ * retention (§8.6, §8.58).
  *
  * @group database
  */

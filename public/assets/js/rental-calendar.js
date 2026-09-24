@@ -3,7 +3,7 @@
  * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
  *
  * Two-tap range selection on an asset's public availability calendar
- * (module spec §6.7): first tap sets the arrival, second sets the departure.
+ * (specifications.md §22.2): first tap sets the arrival, second sets the departure.
  *
  * **The mobile experience is the point.** The spec is explicit that picking
  * dates on the calendar must not be replaced by two date fields — so this

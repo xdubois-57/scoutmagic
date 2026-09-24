@@ -40,7 +40,7 @@ use Tests\Modules\Registration\RegistrationTestHelper;
  * - the opening goes to everybody, the three reminders only to those who
  *   still owe an answer;
  * - one unusable address does not cost the rest of the unit its e-mail;
- * - the journal counts families and names none (ARCHITECTURE.md § 7.9);
+ * - the journal counts families and names none (ARCHITECTURE.md §8.6);
  * - a short batch closes the campaign, a full one queues the next with a
  *   cursor whose reference cannot be queued twice.
  *

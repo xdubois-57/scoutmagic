@@ -2,7 +2,7 @@
 // network. Exercises the REAL implementation in
 // public/assets/js/rental-calendar.js (imported below, never reimplemented
 // here): the two-tap range selection on an asset's public availability
-// calendar (module spec §6.7).
+// calendar (specifications.md §22.2).
 //
 // The script decides nothing — every tap produces a URL and the server
 // recomputes states, prices and validation. So what is worth testing in

@@ -1,0 +1,136 @@
+{#
+  One car on a carpool's page. Everything in `offer` was built for this
+  reader by Service\CarpoolBoard: a request they may not see is not in
+  `offer.requests`, a phone they may not see is null. The place end of the
+  trip is the carpool's, never the offer's.
+#}
+{% set _mine = offer.my_request %}
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="d-flex flex-wrap align-items-baseline gap-2">
+            <span class="fw-semibold flex-grow-1">{{ offer.driver }}{{ offer.mine ? ' (vous)' : '' }}</span>
+            <span class="small {{ offer.left <= 0 ? 'text-danger-emphasis' : 'text-body-secondary' }}">{{ offer.free_text }}</span>
+        </div>
+        <div class="mt-1">
+            {% if offer.direction == 'outbound' %}
+                {{ offer.endpoint }} → <span class="text-body-secondary">{{ carpool.address }}</span>
+            {% else %}
+                <span class="text-body-secondary">{{ carpool.address }}</span> → {{ offer.endpoint }}
+            {% endif %}
+        </div>
+        <div class="small text-body-secondary">Départ à {{ offer.time }}</div>
+        {% if offer.note %}
+            <div class="small fst-italic text-body-secondary mt-1">« {{ offer.note }} »</div>
+        {% endif %}
+
+        {% if offer.mine and not carpool.is_past %}
+            <a href="/covoiturage/voitures/{{ offer.id }}/modifier" class="btn btn-sm btn-outline-secondary mt-2">
+                <i class="bi bi-pencil" aria-hidden="true"></i> Modifier ma voiture
+            </a>
+        {% endif %}
+
+        {% if _mine is not null %}
+            {% if _mine.status == 'accepted' %}
+                <div class="alert alert-success small mt-3 mb-0">
+                    <strong>Votre place est confirmée</strong> pour {{ _mine.who|join(' et ') }}.
+                    {% if _mine.driver_phone %}
+                        <div class="mt-1">Téléphone du conducteur : <strong>{{ _mine.driver_phone }}</strong></div>
+                    {% endif %}
+                </div>
+            {% else %}
+                <div class="alert alert-warning small mt-3 mb-0">
+                    <strong>Demande envoyée</strong> pour {{ _mine.who|join(' et ') }} — en attente de la réponse du conducteur.
+                </div>
+            {% endif %}
+            {% if not carpool.is_past %}
+                <form method="post" action="/covoiturage/demandes/{{ _mine.id }}/annuler" class="mt-2"
+                      data-confirm="Retirer votre demande ? {{ _mine.status == 'accepted' ? 'Votre place sera libérée et le conducteur prévenu.' : 'Le conducteur ne la verra plus.' }}"
+                      data-confirm-label="Retirer ma demande">
+                    {{ csrf_field()|raw }}
+                    <button type="submit" class="btn btn-sm btn-outline-danger">Retirer ma demande</button>
+                </form>
+            {% endif %}
+        {% endif %}
+
+        {% if offer.may_request and not carpool.is_past %}
+            <button class="btn btn-sm btn-outline-primary mt-3" type="button" data-bs-toggle="collapse"
+                    data-bs-target="#ask-{{ offer.id }}" aria-expanded="false" aria-controls="ask-{{ offer.id }}">
+                Demander une place
+            </button>
+            <div class="collapse" id="ask-{{ offer.id }}">
+                <form method="post" action="/covoiturage/voitures/{{ offer.id }}/demander" class="border rounded p-3 mt-2">
+                    {{ csrf_field()|raw }}
+                    <fieldset class="mb-3">
+                        <legend class="form-label fs-6 fw-semibold">Pour qui ?</legend>
+                        {% for person in prefill.family %}
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="passengers[]" value="{{ person.id }}" id="ask-{{ offer.id }}-{{ person.id }}">
+                                <label class="form-check-label" for="ask-{{ offer.id }}-{{ person.id }}">{{ person.label }}</label>
+                            </div>
+                        {% endfor %}
+                    </fieldset>
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'ask-' ~ offer.id ~ '-phone',
+                        field_name: 'phone',
+                        label: 'Votre téléphone',
+                        type: 'tel',
+                        value: prefill.phone,
+                        required: true,
+                        autocomplete: 'tel',
+                    } only %}
+                    <div class="alert alert-warning small">
+                        Ce numéro vient de votre fiche et vous pouvez le corriger. Il ne sera montré au conducteur que <strong>s'il accepte</strong>. Les animateurs de la section voient qui monte dans quelle voiture.
+                    </div>
+                    <button type="submit" class="btn btn-primary">Envoyer la demande</button>
+                </form>
+            </div>
+        {% endif %}
+
+        {% if offer.sees_requests and offer.requests is not empty %}
+            <div class="border rounded mt-3">
+                <div class="bg-body-tertiary border-bottom px-3 py-2 small fw-semibold">Demandes ({{ offer.requests|length }})</div>
+                {% for request in offer.requests %}
+                    <div class="px-3 py-2 border-bottom">
+                        <div class="d-flex flex-wrap align-items-baseline gap-2">
+                            <span class="flex-grow-1">{{ request.who|join(', ') }}</span>
+                            {% include 'partials/status_badge.html.twig' with {
+                                status: request.status == 'revoked' ? 'cancelled' : request.status,
+                                label: request.status_label,
+                            } only %}
+                        </div>
+                        <div class="small text-body-secondary">
+                            {{ request.by }}{% if request.phone %} · {{ request.phone }}{% endif %}
+                        </div>
+                        {% if request.may_decide and not carpool.is_past %}
+                            <div class="d-flex flex-wrap gap-2 mt-2">
+                                <form method="post" action="/covoiturage/demandes/{{ request.id }}/accepter">
+                                    {{ csrf_field()|raw }}
+                                    <button type="submit" class="btn btn-sm btn-primary">
+                                        Accepter {{ request.count > 1 ? 'les ' ~ request.count ~ ' places' : 'la place' }}
+                                    </button>
+                                </form>
+                                <form method="post" action="/covoiturage/demandes/{{ request.id }}/refuser"
+                                      data-confirm="Refuser cette demande ? La famille sera prévenue et pourra redemander pour moins de personnes."
+                                      data-confirm-label="Refuser">
+                                    {{ csrf_field()|raw }}
+                                    <button type="submit" class="btn btn-sm btn-outline-secondary">Refuser</button>
+                                </form>
+                            </div>
+                        {% endif %}
+                        {% if request.may_revoke and not carpool.is_past %}
+                            <form method="post" action="/covoiturage/demandes/{{ request.id }}/retirer-la-place" class="mt-2"
+                                  data-confirm="Retirer une place accordée ? {{ request.who|join(' et ') }} {{ request.count > 1 ? 'avaient' : 'avait' }} une place confirmée et s'{{ request.count > 1 ? 'organisaient' : 'organisait' }} en conséquence. La famille sera prévenue, et la place redeviendra libre."
+                                  data-confirm-label="Retirer la place">
+                                {{ csrf_field()|raw }}
+                                <button type="submit" class="btn btn-sm btn-outline-danger">Retirer cette place</button>
+                            </form>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+                <div class="bg-body-tertiary px-3 py-2 small text-body-secondary">
+                    Une demande s'accepte entière : le conducteur refuse, et la famille peut redemander pour moins de personnes.
+                </div>
+            </div>
+        {% endif %}
+    </div>
+</div>

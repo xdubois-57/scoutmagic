@@ -124,7 +124,7 @@ class PurgeSeedCopiesHandler implements TaskHandlerInterface
                 'error',
                 'Routage automatique impossible',
                 // The class, never the message: an exception text routinely
-                // carries values this journal may not hold (§7.9).
+                // carries values this journal may not hold (§8.6).
                 ['error' => $error::class]
             );
         }

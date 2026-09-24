@@ -23,7 +23,7 @@ use Modules\InboundMail\Mailbox\MailboxCredentials;
  * for how that is pinned.
  *
  * Implementations must never log a message's content or a credential
- * (§7.9), and must never swallow a TLS failure: an invalid certificate is
+ * (§8.6), and must never swallow a TLS failure: an invalid certificate is
  * an error, never a silent downgrade.
  */
 interface IncomingMailboxClientInterface

@@ -1,0 +1,73 @@
+{% extends 'base.html.twig' %}
+{% block title %}{{ carpool.title }} — {{ param('site_name') }}{% endblock %}
+{#
+  One carpool: its place, its dates, and its cars — the outbound and the
+  return as two views of one page when there is a return. The place is the
+  carpool's and every car shows it at the end it is fixed at.
+#}
+{% block content %}
+<div class="page-medium">
+    {% include 'partials/page_header.html.twig' with {
+        title: carpool.title,
+        subtitle: carpool.dates,
+    } only %}
+
+    <p class="mb-1">{{ carpool.address }}</p>
+    <p class="small mb-1">
+        <a href="{{ carpool.maps_url }}" target="_blank" rel="noopener noreferrer">Ouvrir sur une carte</a>
+    </p>
+    <p class="small text-body-secondary mb-2">
+        {% if carpool.point_line %}
+            Point précis : {{ carpool.point_line }}
+        {% else %}
+            Aucun point enregistré : la carte ouvrira l'adresse.
+        {% endif %}
+    </p>
+    {% if carpool.events|length > 1 %}
+        <div class="d-flex flex-wrap gap-1 mb-3">
+            {% for event in carpool.events %}
+                <span class="badge text-bg-light border">{{ event }}</span>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    {% if carpool.return_day %}
+        {% include 'partials/page_picker.html.twig' with {
+            picker_id: 'carpool-direction',
+            pages: [
+                { url: '/covoiturage/' ~ carpool.id, label: 'Aller · ' ~ carpool.outbound_day },
+                { url: '/covoiturage/' ~ carpool.id ~ '?sens=return', label: 'Retour · ' ~ carpool.return_day },
+            ],
+            current_path: direction == 'return' ? '/covoiturage/' ~ carpool.id ~ '?sens=return' : '/covoiturage/' ~ carpool.id,
+            aria_label: 'Sens du trajet',
+        } only %}
+    {% endif %}
+
+    {% if carpool.is_past %}
+        <p class="small text-body-secondary">Ce covoiturage est passé : il n'accepte plus de voiture ni de demande.</p>
+    {% else %}
+        <a href="/covoiturage/{{ carpool.id }}/proposer{{ direction == 'return' ? '?sens=return' : '' }}"
+           class="btn btn-primary w-100 w-sm-auto mb-3">
+            <i class="bi bi-plus-lg" aria-hidden="true"></i>
+            Proposer des places{{ carpool.return_day ? (direction == 'return' ? ' pour le retour' : ' pour l\'aller') : '' }}
+        </a>
+    {% endif %}
+
+    {% if carpool.staff_hides_passengers %}
+        <p class="small text-body-secondary bg-body-tertiary rounded px-3 py-2">
+            Vous ne voyez pas les passagers : ce covoiturage ne concerne pas votre section.
+        </p>
+    {% endif %}
+
+    {% set _offers = carpool.directions[direction] %}
+    {% if _offers is empty %}
+        {% include 'partials/empty_state.html.twig' with {
+            message: direction == 'return' ? 'Aucune voiture au retour pour le moment.' : 'Aucune voiture pour le moment.',
+            icon: 'bi-car-front',
+        } only %}
+    {% endif %}
+    {% for offer in _offers %}
+        {% include '@covoiturage/_offer_card.html.twig' with { offer: offer, carpool: carpool, prefill: prefill } only %}
+    {% endfor %}
+</div>
+{% endblock %}

@@ -89,7 +89,7 @@ class PurgeUnlinkedMessagesHandler implements TaskHandlerInterface
         if ($purged > 0) {
             // A count and nothing else. Naming a sender or a subject here
             // would put in the journal exactly what the retention exists to
-            // stop keeping (§7.9).
+            // stop keeping (§8.6).
             (new JournalService(new \Core\Journal\JournalRepository($pdo)))->log(
                 'inbound_mail',
                 'inbound_messages_purged',

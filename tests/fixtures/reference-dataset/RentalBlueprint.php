@@ -75,7 +75,7 @@ final class RentalBlueprint
      * `allowedArrivalWeekdays` is Friday and Saturday only, which is both
      * realistic and the constraint whose effect is easiest to see on the
      * public calendar: a free Tuesday that cannot be asked for is shown like
-     * the past, never like "occupé" (module spec §6.7).
+     * the past, never like "occupé" (specifications.md §22.2).
      *
      * @var array{minNights: int, maxNights: int, minNoticeDays: int, maxHorizonDays: int, allowedArrivalWeekdays: list<int>, maxPersons: ?int, bufferNights: int}
      */
