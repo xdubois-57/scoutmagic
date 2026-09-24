@@ -73,6 +73,12 @@ class E2eOverlayGestureRatchetTest extends TestCase
         // Configuration > Maintenance serves its first two cards open and
         // the backup and reset cards folded; that default is the subject.
         'tests/e2e/specs/maintenance-backup.spec.js' => 4,
+        // The three configuration boxes arrive folded. Two of them are
+        // checked again, panel and all, by openCollapse() on the way in;
+        // « États d'une demande » is never opened, so its panel is read
+        // here — the toggle's aria-expanded alone is in the markup before
+        // Bootstrap has run.
+        'tests/e2e/specs/registration-flow.spec.js' => 1,
     ];
 
     /**
@@ -83,7 +89,7 @@ class E2eOverlayGestureRatchetTest extends TestCase
      */
     private const KNOWN_OVERLAYS = [
         'associate-modal',              // partials/modal.html.twig
-        'groups-detail-modal',          // a hand-written .modal
+        'richTextEditorModal',          // a hand-written .modal
         'registration-capacities-box',  // a .collapse
     ];
 

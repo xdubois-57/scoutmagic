@@ -148,10 +148,12 @@ test('a family registers a child, follows the mailed tracking link, and the admi
     // The three configuration boxes are folded away on arrival — what this
     // page serves first is the request list, not its settings. Each toggle
     // says so; the two boxes opened below are checked folded again, panel
-    // and all, by openCollapse() on the way in.
+    // and all, by openCollapse() on the way in, and the one never opened
+    // is checked here.
     for (const name of ["Formulaire d'inscription", "États d'une demande", 'Capacités par branche']) {
         await expect(page.getByRole('button', { name, exact: true })).toHaveAttribute('aria-expanded', 'false');
     }
+    await expect(page.locator('#registration-states-box')).toBeHidden();
 
     await openConfigBox(page, "Formulaire d'inscription", 'registration-form-box');
     // The toggle is one button whose label IS the current state — waiting
