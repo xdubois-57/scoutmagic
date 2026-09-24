@@ -215,6 +215,29 @@ ce soit comme lu.
 
 **Suite complète verte** : 20 403 tests, PHPStan sans erreur.
 
+### Ce que la revue a trouvé, et que les tests ne tenaient pas
+
+**Le journal des en-têtes pouvait écrire un membre.** `parse()` prend la
+ligne 0 pour la ligne d'en-têtes sans rien avoir pour en juger : un export
+dont l'en-tête a été retiré, ou un délimiteur mal détecté, lui fait passer
+une ligne de données. `journalRefusedHeaders()` en écrivait les cellules
+dans `event_log.context` — que `EventJournalCollector` recopie dans un
+paquet de support, qui quitte l'installation. `SECURITY.md` §13 l'interdit
+en toutes lettres.
+
+**Et le test était pire que muet : il affirmait le contraire.** Sa fixture
+était `"Nom;Prenom;Courriel"` — trois colonnes, deux noms attendus
+reconnus, c'est-à-dire exactement la forme indistinguable d'une ligne de
+données. Il ne se contentait pas de laisser passer la fuite ; il vérifiait
+que cette forme-là journalise ses valeurs, et il passait. Écrire une
+fixture courte « pour aller vite » avait choisi, sans le dire, le cas que
+la règle de sécurité visait.
+
+Corrigé : les valeurs ne sont écrites que si **au moins deux tiers** des 35
+en-têtes attendus sont présents. Le cas pour lequel l'entrée existe en garde
+34 sur 35 ; une ligne de membre n'en a aucun. Les deux tests refaits sur les
+vrais cas, et celui de la fuite vérifié en retirant la garde — il tombe.
+
 ### Reporté
 
 Rien. L'écran central, l'envoi et la documentation sont les itérations
