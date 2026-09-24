@@ -870,7 +870,13 @@ toute installation ScoutMagic. Conserve-les TOUJOURS, indépendamment de {$modul
 Conserve en particulier : (a) que l'envoi des statistiques est optionnel, activable et désactivable par l'unité depuis
 la page Configuration > Diagnostic ; (b) que ce rapport **n'est pas anonyme**, puisqu'il contient l'adresse du site — ne
 le décris jamais comme anonyme ou anonymisé ; (c) qu'il ne contient aucune donnée de membre (ni nom, ni email, ni
-photo, ni contenu), uniquement des compteurs agrégés et des informations techniques sur le logiciel et l'hébergement ;
+photo, ni contenu), mais des compteurs agrégés, des informations techniques sur le logiciel et l'hébergement, et le
+vocabulaire Desk décrit en (c quater) ; (c quater) que le rapport porte les **libellés fédéraux** que l'unité a
+importés de Desk — fonctions, branches et catégories de tarif — ainsi que, parmi les fonctions et les branches, ceux
+que le site n'a pas su rattacher à ses propres tables, pour que le mainteneur puisse les ajouter dans une version suivante ; que ce sont des mots de la
+fédération et jamais une donnée de personne ; qu'aucun **nom de section** n'est transmis, parce qu'il est choisi par
+l'unité et l'identifie bien plus qu'un libellé fédéral ; et qu'aucun dénombrement de personnes n'accompagne ces
+libellés — le receveur compte des installations, jamais des membres ;
 (c bis) que si le site a été remonté ailleurs depuis une sauvegarde emportée, le rapport porte en plus l'identifiant
 technique de l'installation d'origine, pour qu'un déménagement ne soit pas compté comme deux unités — c'est un
 identifiant de site, jamais une donnée de personne, et il n'apparaît que sur une installation effectivement restaurée ;

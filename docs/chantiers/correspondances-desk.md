@@ -254,9 +254,10 @@ depuis l'autre bout.
   `canonicalSortOrder()` a répondu.
 - **Les deux bornes existantes s'appliquent au nouveau bloc**, et `total`
   déclare ce qui a été laissé de côté.
-- **`STATISTICS_SCHEMA_VERSION` passe à 2**, et
-  `SUPPORTED_SCHEMA_VERSIONS` devient `[1, 2]` — une liste qui **grandit et
-  ne se déplace pas**.
+- **La version du schéma ne monte pas**, et c'est une correction : voir
+  plus bas.
+- **La mise à jour RGPD** des deux surfaces, dans le même changement que
+  l'envoi.
 - La phrase de transparence qu'IT-01 avait différée est posée sous
   l'encadré, conditionnée à `statistics_enabled`.
 
@@ -287,6 +288,56 @@ assertions épinglaient `1`. Elles lisent désormais la constante : un numéro
 de version recopié dans un test est un test qui échoue à chaque montée sans
 rien avoir vérifié.
 
+### La montée de version était une erreur, et la règle était déjà écrite
+
+La première version de cette itération montait `STATISTICS_SCHEMA_VERSION` à
+2 et faisait accepter `[1, 2]` au receveur, en se justifiant ainsi : « une
+liste qui grandit, jamais qui se déplace — les installations ne se mettent pas
+à jour le même jour ». **Le raisonnement était juste et regardait dans le
+mauvais sens.**
+
+La version voyage de l'émetteur vers le receveur, et la liste des versions
+acceptées vit chez le **receveur**. Une montée ne protège donc pas un vieil
+émetteur d'un nouveau receveur : elle casse un **nouvel** émetteur contre un
+receveur qui n'a pas encore été mis à jour. Toute unité installant cette
+version avant `scoutmagic.be` aurait vu ses rapports refusés en 400 — et les
+données que cette fonctionnalité collecte perdues jusqu'à ce que le receveur
+rattrape.
+
+Et la règle était déjà écrite, pour ce cas exact, à propos de l'ajout de
+`desk_vocabulary` (`ARCHITECTURE.md` §8.49) :
+
+> the schema version is unchanged, since an added field is what that list's
+> tolerance exists for and a bump would make every receiver still on the
+> previous release reject the report outright
+
+Un champ ajouté ne demande donc aucune montée : un champ inconnu est conservé
+tel quel dans la charge et signalé, jamais refusé. Ce qu'une montée sert à
+dire, c'est qu'un vieux receveur lirait le document **de travers** — un champ
+dont le sens ou le type change, une suppression dont quelque chose dépend.
+Rien ici ne fait cela. Relevé par la revue de #521.
+
+### La documentation RGPD appartient à cette itération, pas à IT-04
+
+`AGENTS.md` demande la mise à jour de `RgpdContentService` — contenu par
+défaut **et** prompt de génération — dans **le même changement** que le
+nouveau flux sortant. Ce changement-ci est celui qui commence à envoyer les
+branches et le bloc des valeurs non résolues ; la reporter à IT-04 laissait
+une phrase fausse au lecteur pendant deux itérations, et `AGENTS.md` exige en
+plus qu'un report conscient devienne une issue. Relevé par la revue, et
+corrigé en déplaçant la mise à jour ici plutôt qu'en ouvrant une issue pour un
+report qui n'avait pas lieu d'être.
+
+Ce qui se trouvait déjà juste, et n'a pas bougé : la règle interdit
+explicitement de qualifier ce rapport d'anonyme, puisqu'il porte l'adresse du
+site. Ce qui était absent : les deux surfaces énuméraient ce qui part —
+« uniquement des compteurs agrégés et des informations techniques » — et le
+vocabulaire Desk n'est ni l'un ni l'autre. **Le manque est antérieur au
+chantier** : les fonctions et les catégories de tarif partaient déjà. Un test
+de couverture tient les énoncés sur les deux surfaces, parce qu'une
+régénération par un prompt qui ignorerait le vocabulaire réécrirait
+tranquillement l'ancienne version.
+
 ### Ce que les tests tiennent
 
 Une branche canonique voyage avec son rang, une branche inconnue avec 99. Le
@@ -302,9 +353,8 @@ laissé. Rien d'autre qu'une nature et un libellé ne voyage.
 
 ### Reporté
 
-La vérification de `RgpdContentService` — le bloc envoyé s'ajoute à ce que
-décrit la section sur les statistiques, et D9 demande de corriger si elle
-qualifie ces envois d'anonymes. C'est explicitement une tâche d'IT-04, pas un
-oubli.
+Rien. La vérification de `RgpdContentService` que D9 demande a d'abord été
+renvoyée à IT-04 ; la revue a eu raison de refuser ce report, et elle est
+faite ici.
 
 ---

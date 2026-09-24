@@ -410,28 +410,42 @@ class StatisticsIntakeServiceTest extends TestCase
     }
 
     /**
-     * Issue #356 bumped the schema to 2. Installations do not update on
-     * the same day, so the day after that ships most senders are still on
-     * 1 — a receiver that dropped the older version would stop hearing
-     * from every one of them at once, which is the opposite of what a
-     * version number is for.
+     * Issue #356 added two things to the payload — the Desk branches and
+     * the `desk_unresolved` block — and deliberately did NOT bump the
+     * schema version for them.
+     *
+     * The version travels from sender to receiver and the supported list
+     * lives here, so a bump would break a new SENDER against a receiver
+     * that has not upgraded: every unit installing the release before
+     * scoutmagic.be does would have its report refused, and the very data
+     * the feature collects lost. An added field needs no bump because of
+     * the tolerance this test pins.
      */
-    public function testAReportFromTheOlderSchemaIsStillAccepted(): void
-    {
-        $result = $this->receive($this->payload(['statistics_schema_version' => 1]));
-
-        $this->assertTrue($result->accepted);
-    }
-
-    public function testAReportFromTheCurrentSchemaIsAccepted(): void
+    public function testTheAddedBlockNeedsNoNewSchemaVersion(): void
     {
         $result = $this->receive($this->payload([
-            'statistics_schema_version' => 2,
             'desk_unresolved' => ['total' => 1, 'listed' => [['kind' => 'branch', 'value' => 'Nutons']]],
         ]));
 
         $this->assertTrue($result->accepted);
-        $this->assertSame([], $result->unknownFields, '`desk_unresolved` is a field this receiver knows');
+        $this->assertSame(
+            [],
+            $result->unknownFields,
+            '`desk_unresolved` is a field this receiver knows, so no sender is warned about as being ahead'
+        );
+    }
+
+    /**
+     * And the sender never emits a version this receiver refuses, which is
+     * the mechanical half of the rule above.
+     */
+    public function testTheSenderOnlyEmitsAVersionThisReceiverAccepts(): void
+    {
+        $result = $this->receive($this->payload([
+            'statistics_schema_version' => \Core\Statistics\StatisticsPayloadBuilder::STATISTICS_SCHEMA_VERSION,
+        ]));
+
+        $this->assertTrue($result->accepted);
     }
 
     /**
@@ -442,7 +456,6 @@ class StatisticsIntakeServiceTest extends TestCase
     public function testTheUnresolvedBlockIsKeptVerbatimInThePayload(): void
     {
         $this->receive($this->payload([
-            'statistics_schema_version' => 2,
             'desk_unresolved' => ['total' => 1, 'listed' => [['kind' => 'branch', 'value' => 'Nutons']]],
         ]));
 

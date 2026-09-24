@@ -42,14 +42,14 @@ class StatisticsIntakeService
 
     /**
      * Every version this receiver understands, oldest first — a list that
-     * GROWS and never moves. Installations do not update on the same day,
-     * so the day version 2 ships (the Desk branches and the
-     * `desk_unresolved` block, issue #356) most senders are still on 1,
-     * and dropping 1 would silence every one of them at once. A field this
-     * receiver does not know is kept verbatim in `payload` and warned
-     * about, never refused.
+     * GROWS and never moves, so an installation that has not updated is
+     * never silenced. It has not had to grow yet: an ADDED field needs no
+     * new version, because the tolerance below already covers it (a field
+     * this receiver does not know is kept verbatim in `payload` and warned
+     * about, never refused). The Desk branches and the `desk_unresolved`
+     * block of issue #356 arrived that way.
      */
-    private const SUPPORTED_SCHEMA_VERSIONS = [1, 2];
+    private const SUPPORTED_SCHEMA_VERSIONS = [1];
 
     /** The largest value an `INT UNSIGNED` column will accept. */
     private const MAX_UNSIGNED_INT = 4294967295;

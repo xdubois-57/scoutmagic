@@ -43,15 +43,29 @@ use Modules\UsageStats\Api\ModuleUsageInterface;
 class StatisticsPayloadBuilder
 {
     /**
-     * Bumped to 2 when the Desk vocabulary gained its branches and the
-     * `desk_unresolved` block arrived (issue #356). A receiver that only
-     * knows version 1 keeps accepting those reports — see
-     * `Modules\SupportDashboard\Service\StatisticsIntakeService`'s own
-     * list, which grows rather than moves: installations do not update on
-     * the same day, and a receiver that refused the older version would
-     * stop hearing from everybody who had not.
+     * **Unchanged when a field is added, and the Desk branches and the
+     * `desk_unresolved` block (issue #356) are added fields.**
+     *
+     * The version travels from sender to receiver, and the supported list
+     * lives on the RECEIVER. So a bump does not protect an old sender from
+     * a new receiver — it breaks a NEW sender against a receiver that has
+     * not upgraded yet: every unit that installs this release before
+     * `scoutmagic.be` does would have its report refused outright, and the
+     * very data this feature collects lost until the receiver catches up.
+     *
+     * An added field needs no bump because the receiver already tolerates
+     * one: an unrecognised top-level field is kept verbatim in the stored
+     * payload and warned about, never rejected. ARCHITECTURE.md §8.49
+     * states the rule for the `desk_vocabulary` addition in as many words —
+     * « the schema version is unchanged, since an added field is what that
+     * list's tolerance exists for and a bump would make every receiver
+     * still on the previous release reject the report outright ».
+     *
+     * What a bump is for is a change that would make an old receiver read
+     * the document WRONGLY: a field whose meaning or type changed, a
+     * removal something depends on. Nothing here does that.
      */
-    public const STATISTICS_SCHEMA_VERSION = 2;
+    public const STATISTICS_SCHEMA_VERSION = 1;
 
     /**
      * A `cron_last_run` stamp older than this means no real crontab is
