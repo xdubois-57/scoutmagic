@@ -65,6 +65,11 @@ class DatabaseTestHelper
      * ORDER BY promises an order. The catalogue is sqlite_master because
      * createTestDatabase() below builds an in-memory SQLite database.
      *
+     * `sqlite_sequence` is kept although it is an internal table, because
+     * it is the one place an insert that was rolled back or deleted still
+     * shows: the rows come back identical while the next id generated has
+     * moved. Every other `sqlite_%` table is structure, not state.
+     *
      * @return array<string, list<string>>
      */
     public static function snapshot(\PDO $pdo): array
@@ -73,7 +78,10 @@ class DatabaseTestHelper
 
         /** @var list<string> $tables */
         $tables = (array) $pdo
-            ->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+            ->query(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+                . " AND (name NOT LIKE 'sqlite_%' OR name = 'sqlite_sequence') ORDER BY name"
+            )
             ->fetchAll(\PDO::FETCH_COLUMN);
 
         foreach ($tables as $table) {

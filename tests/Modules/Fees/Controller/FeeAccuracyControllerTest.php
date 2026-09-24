@@ -232,6 +232,15 @@ class FeeAccuracyControllerTest extends TestCase
     #[\PHPUnit\Framework\Attributes\DataProvider('routeProvider')]
     public function testOneRoleBelowIsRejectedOnEveryRoute(string $method, string $path, string $action): void
     {
+        // `ignore` turns back before writing when the blind index names no
+        // household of this year, so without a member here that row would
+        // assert the snapshot against a route that could not have written
+        // anyway. `unignore` needs nothing: it logs the event whether or
+        // not `forget()` found a row.
+        if ($action === 'ignore') {
+            $this->createMember('Jean', $this->normalFeeId);
+        }
+
         AuthSession::login(1, 'chief@test.be', 'chief');
         $before = DatabaseTestHelper::snapshot($this->pdo);
 

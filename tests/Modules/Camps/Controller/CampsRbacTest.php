@@ -328,8 +328,23 @@ class CampsRbacTest extends TestCase
      * own `guardCsrf()` and writes nothing whatever the guard decides, so
      * the 403 asserted below would hold just as well with no RBAC at all.
      * With the token, the guard is the only thing left between a role one
-     * level below and the delete, the anonymisation or the merge — and
+     * level below and the delete, the anonymisation or the restore — and
      * the snapshot is what says so (issue #387).
+     *
+     * **How far that goes, measured rather than claimed.** With the guard
+     * mutated to dispatch and refuse afterwards, five of the thirty rows
+     * go red: `deleteContact`, `anonymise`, `deleteLink`, `deleteDocument`
+     * and `restorePlace`. Those are the routes that need no request body,
+     * so the fixture this class already builds is enough for them to
+     * write — and they are the destructive ones, which is where an RBAC
+     * hole costs the most.
+     *
+     * The other twenty-five turn back on a missing or empty payload before
+     * writing, so for them the snapshot asserts something true and not yet
+     * load-bearing. Giving each a body of its own is thirty fixtures and a
+     * different piece of work from this one; what matters here is that the
+     * method fails when the write it refuses moves ahead of the refusal,
+     * and it does.
      */
     #[\PHPUnit\Framework\Attributes\DataProvider('postRouteProvider')]
     public function testOneLevelBelowIsRefusedOnEveryWriteRoute(

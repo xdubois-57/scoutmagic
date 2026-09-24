@@ -212,8 +212,8 @@ class ConfigAccountControllerTest extends TestCase
 
     public function testABodyThatIsNotJsonIsRefused(): void
     {
-        $accountId = $this->createAccount('Compte unité', 'intendant');
-        $before = $this->accountRepository->findById($accountId);
+        $this->createAccount('Compte unité', 'intendant');
+        $before = DatabaseTestHelper::snapshot($this->pdo);
 
         $request = $this->getMockBuilder(Request::class)
             ->setConstructorArgs(['POST', '/config/finance/accounts', [], [], [], []])
@@ -228,14 +228,14 @@ class ConfigAccountControllerTest extends TestCase
         // reads exactly like this one, so the status code alone says
         // nothing about what the request left behind (issue #387).
         //
-        // Compared against what the account WAS, never against a status
-        // written out here: a fixture that asserts its own guess about a
-        // default is a test that breaks when the default moves and proves
-        // nothing when it does not.
-        $after = $this->accountRepository->findById($accountId);
-        $this->assertSame($before->name, $after->name);
-        $this->assertSame($before->status, $after->status);
-        $this->assertSame($before->roleMinView, $after->roleMinView);
+        // The WHOLE database, not the fields of the account seeded above.
+        // A body that does not decode leaves `$data` empty, and
+        // `ConfigAccountController::save()` defaults the action to
+        // `create` — so the only write a malformed body can reach is an
+        // INSERT of a new account, which no comparison of that one row's
+        // fields could ever see. Asserting the fields would have repeated,
+        // in the fix, the exact gap issue #387 is about.
+        $this->assertSame($before, DatabaseTestHelper::snapshot($this->pdo));
     }
 
     public function testASaveWithoutACsrfTokenCreatesNothing(): void
