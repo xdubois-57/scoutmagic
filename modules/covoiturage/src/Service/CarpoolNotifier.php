@@ -124,14 +124,20 @@ class CarpoolNotifier
             }
         }
 
-        $body = ucfirst(self::trip($carpool, $after)) . ' : ';
-        if ($before->departureTime !== $after->departureTime) {
-            $body .= 'départ à ' . CarpoolFormat::time($after->departureTime) . ' au lieu de '
-                . CarpoolFormat::time($before->departureTime) . ', ' . $after->endpoint . '.';
-        } else {
-            $body .= 'rendez-vous à ' . $after->endpoint . ' au lieu de ' . $before->endpoint . ', '
-                . CarpoolFormat::time($after->departureTime) . '.';
-        }
+        // Each change is said with what it replaces, and both when both
+        // moved: a meeting point printed bare reads as unchanged, and a
+        // passenger would go to the old one.
+        $timeChanged = $before->departureTime !== $after->departureTime;
+        $placeChanged = $before->endpoint !== $after->endpoint;
+        $time = $timeChanged
+            ? 'départ à ' . CarpoolFormat::time($after->departureTime) . ' au lieu de '
+                . CarpoolFormat::time($before->departureTime)
+            : 'départ à ' . CarpoolFormat::time($after->departureTime);
+        $place = $placeChanged
+            ? 'rendez-vous à ' . $after->endpoint . ' au lieu de ' . $before->endpoint
+            : 'rendez-vous à ' . $after->endpoint;
+        $body = ucfirst(self::trip($carpool, $after)) . ' : '
+            . ($placeChanged && !$timeChanged ? $place . ', ' . $time : $time . ', ' . $place) . '.';
 
         $this->send('covoiturage.offer_changed', $recipients, [
             'title' => 'La voiture a changé',

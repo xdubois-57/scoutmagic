@@ -156,6 +156,38 @@ final class CarpoolNotificationsTest extends TestCase
         $this->assertStringContainsString('2 places se libèrent', $this->sent[0]['body']);
     }
 
+    public function testAChangeOfTimeAndMeetingPointSaysBoth(): void
+    {
+        [$carpool, $offer] = $this->car();
+        H::request($this->pdo, $offer->id, self::RIDER, ['Tom'], SeatRequest::ACCEPTED);
+        $input = [
+            'departure_time' => '09:00', 'endpoint' => 'Gare de Wavre', 'seats' => '4',
+            'driver_name' => 'Sophie Martin', 'phone' => '0478 12 34 56', 'note' => '',
+        ];
+
+        $this->service->update($offer, $input, H::viewer(self::DRIVER), $carpool);
+
+        $body = $this->sent[0]['body'];
+        $this->assertStringContainsString('départ à 9 h 00 au lieu de 8 h 30', $body);
+        $this->assertStringContainsString('rendez-vous à Gare de Wavre au lieu de ' . $offer->endpoint, $body);
+    }
+
+    public function testAChangeOfMeetingPointAloneSaysWhatItReplaces(): void
+    {
+        [$carpool, $offer] = $this->car();
+        H::request($this->pdo, $offer->id, self::RIDER, ['Tom'], SeatRequest::ACCEPTED);
+        $input = [
+            'departure_time' => $offer->departureTime, 'endpoint' => 'Gare de Wavre', 'seats' => '4',
+            'driver_name' => 'Sophie Martin', 'phone' => '0478 12 34 56', 'note' => '',
+        ];
+
+        $this->service->update($offer, $input, H::viewer(self::DRIVER), $carpool);
+
+        $this->assertOnlySent('covoiturage.offer_changed', [self::RIDER]);
+        $this->assertStringContainsString('rendez-vous à Gare de Wavre au lieu de ' . $offer->endpoint, $this->sent[0]['body']);
+        $this->assertStringNotContainsString('au lieu de 8 h 30', $this->sent[0]['body']);
+    }
+
     public function testAWithdrawalFromTheReturnSaysLeRetour(): void
     {
         // « l'aller », but « le retour »: the article is the trip's own.
