@@ -160,6 +160,77 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
         );
     }
 
+    /**
+     * A file that declares a stub before its real test class.
+     *
+     * Reading only the FIRST declaration dropped such a class out of the
+     * index entirely — never asked for its group, and invisible to the
+     * floor too, because the stub had already answered for the file. The
+     * guard's own version of the silence it exists to catch. Three files
+     * had this shape when it was found.
+     */
+    public function testATestClassDeclaredAfterAStubIsStillIndexed(): void
+    {
+        $classes = $this->classesIn(<<<'PHP'
+            <?php
+            namespace Tests\Fake;
+            final class RecordingTransport implements Whatever {}
+            class ThingTest extends TestCase
+            {
+                protected function setUp(): void { $this->pdo = DatabaseTestHelper::createTestDatabase(); }
+            }
+            PHP, 'Fake.php');
+
+        $this->assertArrayHasKey('Tests\Fake\ThingTest', $classes, 'the class after the stub must be indexed');
+        $this->assertTrue($classes['Tests\Fake\ThingTest']['mounts'], 'and its own body is what is read for the build');
+        $this->assertFalse($classes['Tests\Fake\RecordingTransport']['mounts'], 'the stub builds nothing');
+    }
+
+    /**
+     * A group marker sitting on a method, not on the class.
+     *
+     * Matched against the whole file it passed the class as compliant
+     * while `--group=database` selected one of its twenty-eight tests.
+     * The same unanchored read accepted prose *denying* the group.
+     */
+    public function testAGroupOnAMethodDoesNotMakeTheClassCarryIt(): void
+    {
+        $onTheMethod = $this->classesIn(<<<'PHP'
+            <?php
+            namespace Tests\Fake;
+            class ThingTest extends TestCase
+            {
+                protected function setUp(): void { $this->pdo = DatabaseTestHelper::createTestDatabase(); }
+
+                #[\PHPUnit\Framework\Attributes\Group('database')]
+                public function testOne(): void {}
+            }
+            PHP, 'Fake.php');
+
+        $this->assertFalse(
+            $onTheMethod['Tests\Fake\ThingTest']['carries'],
+            'a marker on one method selects that method, not the class'
+        );
+
+        $denyingIt = $this->classesIn(<<<'PHP'
+            <?php
+            namespace Tests\Fake;
+            /**
+             * **No `@group database`, on purpose.** Nothing here needs a server.
+             */
+            class OtherTest extends TestCase
+            {
+                protected function setUp(): void { $this->pdo = DatabaseTestHelper::createTestDatabase(); }
+            }
+            PHP, 'Fake.php');
+
+        $this->assertTrue(
+            $denyingIt['Tests\Fake\OtherTest']['carries'],
+            'prose in the heading is read as the marker — the known cost of matching text, '
+                . 'and why the heading is the narrowest window that still holds a real attribute'
+        );
+    }
+
     /** The scan reads the suite rather than an empty list. */
     public function testTheScanReadsTheSuiteRatherThanAnEmptyList(): void
     {
@@ -221,24 +292,91 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
         $classes = [];
 
         foreach ($this->testFiles() as $path) {
-            $source = (string) file_get_contents($path);
-
-            if (
-                preg_match(
-                    '/^(abstract\s+|final\s+)*class\s+(\w+)(?:\s+extends\s+(\\\\?[\w\\\\]+))?/m',
-                    $source,
-                    $matches
-                ) !== 1
-            ) {
+            // This file quotes the three build idioms inside the heredoc
+            // fixtures its own shape tests are made of. They are text, not
+            // a fixture: nothing here opens a handle. Reading them would
+            // have this class demand the group of itself — the one
+            // exemption, and it is named rather than pattern-matched so
+            // that it cannot quietly grow to cover a second file.
+            if ($path === __FILE__) {
                 continue;
             }
 
-            $namespace = preg_match('/^namespace\s+([\w\\\\]+)\s*;/m', $source, $found) === 1 ? $found[1] : '';
-            $parent = ($matches[3] ?? '') === '' ? null : $this->resolve($matches[3], $namespace, $source);
+            $source = (string) file_get_contents($path);
+
+            foreach ($this->classesIn($source, substr($path, strlen($root) + 1)) as $name => $class) {
+                $classes[$name] = $class;
+            }
+        }
+
+        return $classes;
+    }
+
+    /**
+     * Every class one file declares, by fully-qualified name.
+     *
+     * Split out of the walk above so the two shapes that defeated the
+     * first version — a stub declared before the real class, and a group
+     * marker sitting on a method — can be put to it directly, as source,
+     * instead of being asserted against whichever file happens to have
+     * that shape today.
+     *
+     * @return array<string, array{file: string, parent: ?string, abstract: bool, carries: bool, mounts: bool}>
+     */
+    private function classesIn(string $source, string $file): array
+    {
+        $classes = [];
+        $namespace = preg_match('/^namespace\s+([\w\\\\]+)\s*;/m', $source, $found) === 1 ? $found[1] : '';
+
+        // EVERY declaration, not the first. A file that declares a stub
+        // before its real `*Test` class — three do today, among them
+        // Core\Support\SupportPackageServiceTest — had that `*Test` class
+        // never indexed at all: not misjudged, absent. And absent is
+        // invisible, because the stub still answered for the file in the
+        // count below, so the floor could not notice either. A guard
+        // against silence, going silent.
+        $found = preg_match_all(
+            '/^(abstract\s+|final\s+)*class\s+(\w+)(?:\s+extends\s+(\\\\?[\w\\\\]+))?/m',
+            $source,
+            $declarations,
+            PREG_SET_ORDER | PREG_OFFSET_CAPTURE
+        );
+
+        if ($found === 0 || $found === false) {
+            return $classes;
+        }
+
+        foreach ($declarations as $index => $declaration) {
+            $whole = (string) $declaration[0][0];
+            $offset = (int) $declaration[0][1];
+            $name = (string) $declaration[2][0];
+            $written = (string) ($declaration[3][0] ?? '');
+            $parent = $written === '' ? null : $this->resolve($written, $namespace, $source);
+
+            // The class's OWN text: from the end of the previous
+            // declaration to where the next one starts, or the end of file.
+            $bodyStart = $index === 0 ? 0 : (int) $declarations[$index - 1][0][1];
+            $bodyEnd = isset($declarations[$index + 1])
+                ? (int) $declarations[$index + 1][0][1]
+                : strlen($source);
+            $own = substr($source, $bodyStart, $bodyEnd - $bodyStart);
+
+            // The group must sit ON THE CLASS, so it is looked for in the
+            // docblock and attributes immediately above the declaration
+            // and nowhere else. Read across the whole file instead, a
+            // marker on a single METHOD passed the whole class as
+            // compliant: Core\Support\ApplicationCollectorsTest builds its
+            // database in setUp() and carried one such marker, so
+            // `--group=database` selected 1 of its 28 tests while this
+            // guard called it green. Worse, prose DENYING the group
+            // matched too — Core\Maintenance\Task\SendRemoteBackupHandlerTest
+            // says « No `@group database`, on purpose » and passed on the
+            // strength of the words refusing it.
+            $heading = substr($source, $bodyStart, $offset - $bodyStart);
 
             $mounts = false;
             foreach (self::MOUNTS as $pattern) {
-                if (preg_match($pattern, $source) === 1) {
+                if (preg_match($pattern, $own) === 1) {
                     $mounts = true;
 
                     break;
@@ -247,20 +385,20 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
 
             $carries = false;
             foreach (self::CARRIES_THE_GROUP as $pattern) {
-                if (preg_match($pattern, $source) === 1) {
+                if (preg_match($pattern, $heading) === 1) {
                     $carries = true;
 
                     break;
                 }
             }
 
-            $classes[$namespace === '' ? $matches[2] : $namespace . '\\' . $matches[2]] = [
-                'file' => substr($path, strlen($root) + 1),
+            $classes[$namespace === '' ? $name : $namespace . '\\' . $name] = [
+                'file' => $file,
                 'parent' => $parent,
                 // A class PHPUnit runs is a concrete one whose name ends
                 // in `Test`; the helpers, doubles and abstract bases beside
                 // them are support, and the group on support selects nothing.
-                'abstract' => str_contains($matches[0], 'abstract') || !str_ends_with($matches[2], 'Test'),
+                'abstract' => str_contains($whole, 'abstract') || !str_ends_with($name, 'Test'),
                 'carries' => $carries,
                 'mounts' => $mounts,
             ];
