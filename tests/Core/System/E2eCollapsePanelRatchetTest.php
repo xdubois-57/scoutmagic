@@ -29,6 +29,14 @@ use PHPUnit\Framework\TestCase;
  * BOTH DIRECTIONS, like `Tests\Core\System\E2eFixedWaitRatchetTest`: a
  * scenario that opens the panel without the barrier fails, and so does a
  * declared file that has stopped opening it.
+ *
+ * PER OCCURRENCE, and from the same sibling. Asking whether the barrier
+ * appears ANYWHERE in a file is not the rule: `public-home-page.spec.js`
+ * opens the panel in two independent places — its `afterEach` teardown
+ * and one test body — so a later edit dropping the barrier from one of
+ * them would stay green on the strength of the other. What is counted is
+ * therefore how many times each file opens the panel against how many
+ * barriers it holds.
  */
 class E2eCollapsePanelRatchetTest extends TestCase
 {
@@ -44,13 +52,16 @@ class E2eCollapsePanelRatchetTest extends TestCase
     private const BARRIER = 'settledPanelAround(';
 
     /**
-     * The scenarios that open that panel today.
+     * The scenarios that open that panel today, and how many times each.
      *
-     * @var list<string>
+     * The count is the point: two sites in one file are two chances to
+     * lose the race, and one barrier does not cover both.
+     *
+     * @var array<string, int>
      */
     private const OPENS_THE_PANEL = [
-        'tests/e2e/specs/finance-payment-labels.spec.js',
-        'tests/e2e/specs/public-home-page.spec.js',
+        'tests/e2e/specs/finance-payment-labels.spec.js' => 1,
+        'tests/e2e/specs/public-home-page.spec.js' => 2,
     ];
 
     public function testEveryScenarioOpeningTheReceivablePanelWaitsForItToSettle(): void
@@ -62,19 +73,26 @@ class E2eCollapsePanelRatchetTest extends TestCase
         foreach ($this->specFiles($repoRoot) as $relative => $path) {
             $source = (string) file_get_contents($path);
 
-            if (!str_contains($source, self::TOGGLE)) {
+            $opens = substr_count($source, self::TOGGLE);
+            if ($opens === 0) {
                 continue;
             }
 
-            $seen[] = $relative;
+            $seen[$relative] = $opens;
 
-            if (!str_contains($source, self::BARRIER)) {
-                $offenders[] = $relative;
+            $barriers = substr_count($source, self::BARRIER);
+            if ($barriers < $opens) {
+                $offenders[] = sprintf(
+                    '%s — opens the panel %d time(s), holds %d barrier(s)',
+                    $relative,
+                    $opens,
+                    $barriers
+                );
             }
         }
 
         sort($offenders);
-        sort($seen);
+        ksort($seen);
 
         $this->assertSame(
             [],
@@ -87,13 +105,14 @@ class E2eCollapsePanelRatchetTest extends TestCase
         );
 
         $expected = self::OPENS_THE_PANEL;
-        sort($expected);
+        ksort($expected);
 
         $this->assertSame(
             $expected,
             $seen,
             "The list of scenarios opening that panel is out of date. Add the new one — it is\n"
-            . 'already held to the rule above — or remove the entry that no longer opens it.'
+            . "already held to the rule above — remove the entry that no longer opens it, or\n"
+            . 'correct the count of a file that opens it a different number of times.'
         );
     }
 
