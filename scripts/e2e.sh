@@ -340,14 +340,6 @@ export E2E_MAILDROP
 # holding public/cron.php.
 export E2E_INSTANCE_DIR="${INSTANCE_DIR}/instance"
 
-# What the instance actually enforces as the human-check barrier, read
-# from its own settings rather than copied from the default. A scenario
-# that copied it turned red the day somebody raised the setting, with no
-# regression behind the failure (#453) — so the helper that waits it out
-# is told the truth instead of assuming it.
-E2E_HUMAN_CHECK_MIN_DELAY="$(php "${SUPPORT}" human-check-delay "${E2E_INSTANCE_DIR}" 2>/dev/null || echo 3)"
-export E2E_HUMAN_CHECK_MIN_DELAY
-
 # ---------------------------------------------------------------
 # PHP coverage of the application, when asked for. The fragments live
 # inside the run's own temporary directory, so cleanup() removes them with
@@ -458,6 +450,29 @@ while true; do
 done
 
 echo "E2E: server ready. Running the browser tests..."
+
+# ---------------------------------------------------------------
+# What the instance actually enforces as the human-check barrier, read
+# from its own settings rather than copied from the default. A scenario
+# that copied it turned red the day somebody raised the setting, with no
+# regression behind the failure (#453) — so the helper that waits it out
+# is told the truth instead of assuming it.
+#
+# HERE, and nowhere earlier, because this is the first line in the script
+# from which the answer can be true. `human_check_min_delay_seconds` is
+# registered by public/index.php, so the row does not exist until the
+# application has booted once — and the `wait-http` above is what booted
+# it. Read before `provision` the query hit a database that did not exist;
+# read between the two it hit a database without the row. Both answered
+# the shipped default, which is the very number this is meant to stop
+# copying: a lookup that cannot fail is a lookup that proves nothing.
+#
+# No fallback either: a failure to read is a broken harness, not a reason
+# to guess, and a setting genuinely absent is already answered inside
+# e2eHumanCheckMinDelaySeconds().
+# ---------------------------------------------------------------
+E2E_HUMAN_CHECK_MIN_DELAY="$(php "${SUPPORT}" human-check-delay "${E2E_INSTANCE_DIR}")"
+export E2E_HUMAN_CHECK_MIN_DELAY
 
 # ---------------------------------------------------------------
 # 6-7. Run Playwright and propagate its exit code verbatim. `set -e` is

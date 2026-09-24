@@ -30,8 +30,14 @@ import { expect } from '@playwright/test';
 /**
  * What the instance enforces, or the shipped default when a caller runs a
  * spec outside `scripts/e2e.sh` and nothing told us.
+ *
+ * `Number.isFinite`, not `||`: zero is a value the setting can hold — it
+ * disables the barrier — and `|| 3` would answer a three-second wait for a
+ * barrier the server is not enforcing at all. Only a threshold that could
+ * not be read falls back.
  */
-const MIN_DELAY_SECONDS = Number.parseInt(process.env.E2E_HUMAN_CHECK_MIN_DELAY ?? '', 10) || 3;
+const parsedMinDelay = Number.parseInt(process.env.E2E_HUMAN_CHECK_MIN_DELAY ?? '', 10);
+const MIN_DELAY_SECONDS = Number.isFinite(parsedMinDelay) && parsedMinDelay >= 0 ? parsedMinDelay : 3;
 
 /**
  * Wait until the human-check challenge inside `scope` is old enough to be

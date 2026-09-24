@@ -58,22 +58,31 @@ class E2eFixedWaitRatchetTest extends TestCase
         $repoRoot = dirname(__DIR__, 3);
 
         foreach ($this->specFiles($repoRoot) as $relative => $path) {
-            $count = 0;
+            $source = (string) file_get_contents($path);
 
-            foreach (file($path) ?: [] as $number => $line) {
-                if (!str_contains($line, 'waitForTimeout(')) {
-                    continue;
-                }
+            // The whole file, and `\s*` between the name and its
+            // parenthesis: `waitForTimeout (4000)` is the same fixed wait,
+            // so is one written across a line break, and a ratchet that a
+            // space walks past is not one.
+            $count = preg_match_all(
+                '/waitForTimeout\s*\(/',
+                $source,
+                $matches,
+                PREG_OFFSET_CAPTURE
+            );
 
-                $count++;
-                if (!isset(self::DELIBERATE[$relative])) {
-                    $offenders[] = sprintf('%s:%d — %s', $relative, $number + 1, trim($line));
+            if ($count === false || $count === 0) {
+                continue;
+            }
+
+            if (!isset(self::DELIBERATE[$relative])) {
+                foreach ($matches[0] as [, $offset]) {
+                    $line = substr_count($source, "\n", 0, $offset) + 1;
+                    $offenders[] = sprintf('%s:%d', $relative, $line);
                 }
             }
 
-            if ($count > 0) {
-                $seen[$relative] = $count;
-            }
+            $seen[$relative] = $count;
         }
 
         $this->assertSame(
