@@ -1389,11 +1389,11 @@ pas le droit de corriger.
 
 | Où | Disait | Tient |
 |---|---|---|
-| `README.md` (tableau des profils) | 528 routes | **746** |
-| `README.md` (« rejoue les … routes ») | 528 routes | **746** |
-| `README.md` (liste des jobs) | 534 routes, 3 204 couples | **746**, **4 476** |
-| `SECURITY.md` | 528 routes × 6 rôles = 3 168 paires | **746** × 6 = **4 476** |
-| `SECURITY.md` (paramètres nommés comme un identifiant) | 209 routes | **264** |
+| `README.md` (tableau des profils) | 528 routes | **747** |
+| `README.md` (« rejoue les … routes ») | 528 routes | **747** |
+| `README.md` (liste des jobs) | 534 routes, 3 204 couples | **747**, **4 482** |
+| `SECURITY.md` | 528 routes × 6 rôles = 3 168 paires | **747** × 6 = **4 482** |
+| `SECURITY.md` (paramètres nommés comme un identifiant) | 209 routes | **265** |
 
 README se contredisait lui-même — 528 deux fois, 534 une fois — et aucun des
 trois nombres n'était le bon. Ce n'est pas cosmétique, et c'est la panne que
@@ -1445,6 +1445,43 @@ longtemps pour que personne ne sache lequel était juste.
   `Core\Security\Role`, dont l'échelle 0–5 est exactement celle de
   `specifications.md` §2.1. `VERSION` dit bien `1.0.42`.
 
+**Les deux tests ont fait leur preuve avant même d'être fusionnés.** L'entrée
+a été rédigée sur un `main` que cette PR a ensuite dû rattraper de
+cinquante-cinq commits. Au premier contact avec ce `main` déplacé, les deux
+tests écrits ici sont devenus **rouges**, et sur des choses réelles :
+
+- **`AuthorizationMatrixInventoryTest`** : une route a été ajoutée entre
+  temps. Les sept chiffres publiés — 746 routes, 4 476 couples, 264 routes
+  à paramètre identifiant — sont devenus 747, 4 482 et 265, et le test les
+  a tous les sept dénoncés en nommant la phrase à corriger. C'est
+  exactement le comportement annoncé, vérifié par accident plutôt que par
+  dispositif.
+- **`ModuleSpecificationCoverageTest`** : **quatorze** entrées de menu
+  avaient été renommées depuis (« Groupes » → « Discussions »,
+  « Trombinoscope » → « Les animateurs », « Départs » → « Départs de
+  l'unité », « Passage » → « Passages de branche »…) sans que §4 suive.
+  Les quatorze sont des renommages de pages que §4 décrivait déjà, donc
+  quatorze premières cellules à réécrire — et non du contenu à inventer.
+
+Le cas le plus parlant est §4.4 « Téléphone d'urgence » : la ligne **avait**
+été mise à jour depuis « SOS Staff d'U », mais vers un libellé que le menu
+ne porte pas — il dit « Gérer le téléphone d'urgence ». Une mise à jour à la
+main, faite de bonne foi, et fausse d'un mot. C'est précisément ce qu'un
+test de présence attrape et qu'une relecture ne rattrape pas.
+
+**Et le renommage en a fait tomber un troisième, qui n'était pas le mien.**
+`Tests\Modules\Groups\DocumentationTest` garde depuis longtemps la
+présence de la page des groupes dans le tableau de §4.2 — en écrivant le
+libellé **en dur** : `assertStringContainsString('| Groupes (module) |')`.
+Son intention est juste et son commentaire l'énonce bien ; sa mise en œuvre
+recopie une valeur qui vit dans `module.json`, et elle est devenue fausse le
+jour où l'entrée est devenue « Discussions ». C'est exactement le défaut de
+#453, dans un test cette fois plutôt que dans un scénario.
+
+Il aurait suffi d'y écrire le nouveau libellé. Il lit désormais le manifeste,
+parce que remplacer un littéral périmé par un littéral frais, c'est
+reconduire la panne en la datant d'aujourd'hui.
+
 **Non vérifiable, et pourquoi** (second lot) :
 
 - **« in about a minute »**, que `SECURITY.md` écrit à côté du nombre de
@@ -1472,7 +1509,7 @@ avant et verte après — la troisième condition de §0.1 comprise :
 
 | Document | Test qui le tient |
 |---|---|
-| `specifications.md` §4.3, §4.4, §4.5 — cinq lignes, dont un déplacement | `ModuleSpecificationCoverageTest::testEveryMenuEntryAModuleAddsHasItsRowInSectionFour` |
+| `specifications.md` §4.2 à §4.5 — cinq lignes manquantes, dont un déplacement, et quatorze renommages | `ModuleSpecificationCoverageTest::testEveryMenuEntryAModuleAddsHasItsRowInSectionFour` |
 | `README.md` et `SECURITY.md` — sept chiffres | `AuthorizationMatrixInventoryTest::testTheFiguresTheDocumentationQuotesAreTheInventorysOwn` |
 | `README.md` — la puce `database-mariadb` | `EveryCiJobIsDocumentedTest` (deux directions) |
 

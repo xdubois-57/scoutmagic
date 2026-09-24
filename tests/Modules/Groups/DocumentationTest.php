@@ -56,9 +56,28 @@ class DocumentationTest extends TestCase
         $specs = $this->read('specifications.md');
 
         $this->assertStringContainsString('## 20. Groups module', $specs);
-        // §4.2 is the Espace des animés menu table — the module's page has
-        // to appear there, not only in its own section.
-        $this->assertStringContainsString('| Groupes (module) |', $specs);
+
+        // §4.2 is the Espace membres menu table — the module's page has to
+        // appear there, not only in its own section.
+        //
+        // The label is READ FROM THE MANIFEST rather than written here.
+        // This line used to say `| Groupes (module) |`, and the menu entry
+        // has since been renamed to « Discussions »: a literal restates a
+        // value that lives in module.json, and goes stale the day somebody
+        // changes it — which is the same defect this module's own tests
+        // exist to catch. Tests\Integration\ModuleSpecificationCoverageTest
+        // holds this for every module at once; this line keeps it true for
+        // groups even if that test is ever narrowed.
+        $manifest = json_decode($this->read('modules/groups/module.json'), true);
+        $label = '';
+        foreach ($manifest['routes'] ?? [] as $route) {
+            if (($route['path'] ?? '') === '/groups' && ($route['method'] ?? 'GET') === 'GET') {
+                $label = trim((string) ($route['label'] ?? ''));
+            }
+        }
+
+        $this->assertNotSame('', $label, 'modules/groups no longer gives /groups a menu label.');
+        $this->assertStringContainsString('| ' . $label . ' (module groups) |', $specs);
     }
 
     /**
