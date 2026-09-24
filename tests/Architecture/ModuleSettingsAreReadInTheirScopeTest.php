@@ -47,7 +47,7 @@ use PHPUnit\Framework\TestCase;
  * claimed it was empty — a false claim about coverage, in the one file
  * whose whole subject is that a claim about coverage gets believed.
  * Counted rather than guessed: **37** `SettingService` calls in this
- * repository pass a key that is only known at run time, 15 of them in
+ * repository pass a key that is only known at run time, 17 of them in
  * module code — `ReenrollmentCampaignService` choosing between two
  * reminder constants, `GroupLifecycleService::months()` taking its key as
  * a parameter, `RegistrationConfigController` writing a threshold picked
@@ -67,9 +67,9 @@ use PHPUnit\Framework\TestCase;
  * `SettingService`, that names **no scope at all**. Whatever that key
  * turns out to be, the call will look in `_core_`, and a module's own
  * setting is not there. It covers two families the main scan drops: the 17
- * calls whose key never resolves, and the 18 whose key resolves to
- * something no manifest declares. Thirty-four of those thirty-five are
- * scoped; the thirty-fifth is a setting nothing declares at all, found by
+ * calls whose key never resolves, and the 20 whose key resolves to
+ * something no manifest declares. Thirty-six of those thirty-seven are
+ * scoped; the thirty-seventh is a setting nothing declares at all, found by
  * this check on its first run (issue #497).
  *
  * What is still not covered, and is now the whole of it: a call that
@@ -1029,7 +1029,7 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
      *
      *  - **17** calls whose key is built at run time and does not resolve
      *    at all (issue #443's count);
-     *  - **18** whose key resolves to a literal or a class constant that no
+     *  - **20** whose key resolves to a literal or a class constant that no
      *    manifest declares — `Modules\Finance\Service\
      *    BulkCategorizationService` holds four of them as constants. This
      *    second family was missed by the first version of this very method,
@@ -1042,7 +1042,7 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
      * module's own setting is not there. It is issue #433's defect in the
      * shape the main scan cannot see.
      *
-     * Thirty-four of those thirty-five pass today. The thirty-fifth is real
+     * Thirty-six of those thirty-seven pass today. The thirty-seventh is real
      * and is named below — a setting no composition root declares, so the
      * rental contract prints an empty landlord address (issue #497). This
      * check found it on its first run, which is more than was expected of
@@ -1143,7 +1143,7 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
             $seen,
             'The scan found almost no runtime-keyed settings call in modules/, which means it '
             . 'has stopped reading them rather than that they are gone — there were '
-            . 'thirty-five when this check last counted them.'
+            . 'thirty-seven when this check last counted them.'
         );
     }
 
@@ -1158,6 +1158,7 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
     public function testEverySettingServiceReceiverIsRecognisable(): void
     {
         $offenders = [];
+        $seen = 0;
 
         foreach (self::phpFiles() as $file) {
             $source = (string) file_get_contents($file);
@@ -1172,6 +1173,7 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
                 PREG_SET_ORDER
             );
             foreach ($found as $declaration) {
+                $seen++;
                 if (preg_match(self::RECEIVER_PATTERN, $declaration[1]) === 1) {
                     continue;
                 }
@@ -1193,6 +1195,22 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
   "
             . implode("
   ", $offenders)
+        );
+
+        // A scan that matched nothing would pass for ever — the failure
+        // mode of every check written against a pattern, which
+        // testTheScanActuallyFindsTheCallSitesItIsMeantToJudge() states as
+        // this file's convention. It matters more here than anywhere else
+        // in the file: settingCallsIn() and registeredIn() both find their
+        // subject by this same name, and this test is what says that
+        // assumption still holds. An aliased import, a renamed class or a
+        // union type written differently would empty the matches for every
+        // file and leave three checks looking at nothing.
+        $this->assertGreaterThanOrEqual(
+            120,
+            $seen,
+            'The scan found almost no SettingService declaration, which means it has stopped '
+            . 'reading them rather than that they are gone — there were 157 when it last counted.'
         );
     }
 
@@ -1354,8 +1372,30 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
             if (($tokens[$i + 2] ?? null) !== '(') {
                 continue;
             }
+            // `register()` is not `SettingService`'s alone. `public/index.php`
+            // also holds `$auditAccessResolver->register(EntityType::…, …)`
+            // and its like, whose first argument resolves just as happily —
+            // and every one of those would have entered this map as a
+            // phantom core key, which is a key a module call could then be
+            // waved through on.
+            if (!self::receiverIsASettingService($tokens, $i)) {
+                continue;
+            }
 
             $arguments = self::argumentsAt($tokens, $i + 2);
+
+            // Argument 5 is `?string $moduleId`, and it is the whole
+            // difference between core's own setting and a module's declared
+            // from the composition root — `register('news_field_capacity_
+            // backfilled', …, 'news')` is a NEWS key written in
+            // `public/index.php`. Treating it as core's would make a scopeless
+            // module read of it look correct, which is the defect this file
+            // exists for.
+            $scope = self::normalise(trim($arguments[5] ?? ''));
+            if ($scope !== '' && $scope !== 'null') {
+                continue;
+            }
+
             $key = self::resolveKey(trim($arguments[0] ?? ''), self::classDeclaredIn($source), $constants, $useMap);
             if ($key !== null) {
                 $keys[] = $key;
