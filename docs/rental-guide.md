@@ -305,8 +305,11 @@ biens ; un message que rien ne rattache encore n'y apparaît que si vous
 gérez tous les biens de l'unité. **Détacher** un message le renvoie dans le
 courrier de l'unité, avec ses pièces jointes non reclassées ; pour
 changer de réservation, détachez puis rattachez. « Écarter ce courrier »
-retire de la liste un message qui ne concerne pas les locations, sans
-rien supprimer.
+retire de la liste un message qui ne concerne pas les locations sans le
+supprimer : il reste dans le courrier de l'unité jusqu'à la fin de sa
+durée de conservation habituelle. Un message qui concerne aussi le bien
+d'un autre gestionnaire ne s'écarte pas : l'écarter le retirerait aussi
+de sa liste à lui.
 
 ## 12. Le registre de conformité
 
