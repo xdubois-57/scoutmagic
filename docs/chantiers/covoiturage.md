@@ -15,9 +15,11 @@ une pull request distincte, mergée sur `main` une fois la CI verte.
 
 ## Vérification préalable du document
 
-Le document a été écrit sur le commit `89728cd` (24 septembre 2026), qui
-est aussi celui sur lequel le chantier démarre : `main` n'a pas bougé
-entre-temps. Chaque fait cité a néanmoins été relu dans le code. La
+Le document a été écrit sur le commit `89728cd` (24 septembre 2026). Le
+chantier a démarré sur ce même commit ; `main` a reçu entre-temps #475
+(pages d'une réservation, module `rental`, version 1.24.0), qui ne touche
+aucun des faits cités — ni `RentalMenuHookService`, ni la route
+`/admin/locations`. Chaque fait cité a néanmoins été relu dans le code. La
 plupart tiennent tels quels (les quatre recherches-à-la-frappe, le
 géocodage de `camps` et ses colonnes, les trois méthodes de
 `CalendarEventLookupInterface`, `EventSummary` sans lieu, `MENU_GROUPS`
