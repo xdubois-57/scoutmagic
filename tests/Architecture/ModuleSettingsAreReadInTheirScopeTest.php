@@ -66,9 +66,11 @@ use PHPUnit\Framework\TestCase;
  * question that does not need the key: a call in a module, on a
  * `SettingService`, that names **no scope at all**. Whatever that key
  * turns out to be, the call will look in `_core_`, and a module's own
- * setting is not there. Seventeen such calls exist today and all seventeen
- * are scoped, so it is green from its first run — it is written for the
- * eighteenth.
+ * setting is not there. It covers two families the main scan drops: the 17
+ * calls whose key never resolves, and the 18 whose key resolves to
+ * something no manifest declares. Thirty-four of those thirty-five are
+ * scoped; the thirty-fifth is a setting nothing declares at all, found by
+ * this check on its first run (issue #497).
  *
  * What is still not covered, and is now the whole of it: a call that
  * DOES name a scope under a key nobody can read is taken at its word.
@@ -1021,10 +1023,18 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
     /**
      * The blind spot, closed from the other side.
      *
-     * The check above can only judge a call whose key it can resolve, and a
-     * key built at run time does not resolve — so those calls were dropped
-     * before their scope was ever looked at. Sixteen of them live in
-     * `modules/` today (issue #443).
+     * The check above judges a call only when it can resolve the key **and**
+     * a `module.json` declares it. Two families fall outside that, and
+     * both were dropped before their scope was ever looked at:
+     *
+     *  - **17** calls whose key is built at run time and does not resolve
+     *    at all (issue #443's count);
+     *  - **18** whose key resolves to a literal or a class constant that no
+     *    manifest declares — `Modules\Finance\Service\
+     *    BulkCategorizationService` holds four of them as constants. This
+     *    second family was missed by the first version of this very method,
+     *    which assumed « resolves » meant « already judged »: the same
+     *    over-claim, one level down, found in review.
      *
      * This asks the one question that does not need the key: **a call in a
      * module, on a `SettingService`, that names no scope at all.** Whatever
@@ -1032,8 +1042,11 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
      * module's own setting is not there. It is issue #433's defect in the
      * shape the main scan cannot see.
      *
-     * All sixteen pass today, so this is green from its first run — which
-     * is the point. It is written for the seventeenth.
+     * Thirty-four of those thirty-five pass today. The thirty-fifth is real
+     * and is named below — a setting no composition root declares, so the
+     * rental contract prints an empty landlord address (issue #497). This
+     * check found it on its first run, which is more than was expected of
+     * it: it was written for the call that has not been made yet.
      *
      * **The trap, named rather than left to be met.** A module file may
      * legitimately read a *core* setting with a computed key, and this test
@@ -1049,7 +1062,17 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
      *
      * @var list<string> file:line, with the reason on the line
      */
-    private const CORE_KEYS_IN_MODULES = [];
+    private const CORE_KEYS_IN_MODULES = [
+        // `unit_address` is declared by no manifest, no composition root
+        // and no schema — the only place in this repository that registers
+        // it is a fixture in RentalDocumentServiceTest. So the contract's
+        // `adresse_bailleur` is the empty string on every real
+        // installation, while its own description promises « l'adresse de
+        // l'unité, telle que configurée ». Found by this very check on its
+        // first real run; whether the setting belongs to core or to the
+        // rental module is a decision, and it is issue #497's.
+        'modules/rental/src/Service/RentalDocumentService.php:603',
+    ];
 
     /**
      * How a `SettingService` is held, everywhere it is held in this
@@ -1071,8 +1094,8 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
             }
 
             foreach (self::settingCallsIn($file) as $call) {
-                if ($call['resolves']) {
-                    continue; // the scan above already judged this one
+                if ($call['judged_above']) {
+                    continue;
                 }
 
                 $seen++;
@@ -1116,11 +1139,11 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
         );
 
         $this->assertGreaterThanOrEqual(
-            12,
+            30,
             $seen,
             'The scan found almost no runtime-keyed settings call in modules/, which means it '
-            . 'has stopped reading them rather than that they are gone — there were sixteen '
-            . 'when issue #443 counted them.'
+            . 'has stopped reading them rather than that they are gone — there were '
+            . 'thirty-five when this check last counted them.'
         );
     }
 
@@ -1223,12 +1246,123 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
                     'method' => $name[1],
                     'key_expression' => $expression,
                     'scope' => $scope,
-                    'resolves' => self::resolveKey($expression, $ownClass, $constants, $useMap) !== null,
+                    'judged_above' => self::isJudgedByTheMainScan(
+                        self::resolveKey($expression, $ownClass, $constants, $useMap)
+                    ),
                 ];
             }
         }
 
         return $calls;
+    }
+
+    /**
+     * Whether `testNoModuleSettingIsReadOrWrittenOutsideItsOwnScope()`
+     * above has already had its say about this key.
+     *
+     * Resolving is **not** enough, and assuming it was left a second hole
+     * beside the one this was written to close. That scan judges a call
+     * only when the key it resolved is one a `module.json` declares
+     * (`!isset($moduleKeys[$key])` drops the rest), so a key that resolves
+     * to a literal or a class constant and is declared **nowhere** fell
+     * between the two: judged by neither.
+     *
+     * They exist. `Modules\Finance\Service\BulkCategorizationService`
+     * holds four — `ai_categorization_enabled` and its neighbours — as
+     * class constants that `modules/finance/module.json` does not declare.
+     * All four calls pass `'finance'` today; nothing would have said so if
+     * one stopped.
+     */
+    private static function isJudgedByTheMainScan(?string $key): bool
+    {
+        if ($key === null) {
+            return false;
+        }
+
+        // A key core itself registers is one a module reads WITHOUT a
+        // scope, correctly and by design — `site_name`, `base_url`,
+        // `unit_address` and their like are read that way from seven
+        // modules. Judging those as offences would not close a gap, it
+        // would make the check wrong about thirty-one call sites that are
+        // right.
+        return isset(self::declaredModuleKeys()[$key]) || isset(self::declaredCoreKeys()[$key]);
+    }
+
+    /**
+     * Every key core registers on its own behalf — the settings a
+     * scope-less read is correct for.
+     *
+     * Read from the composition roots rather than a list kept by hand, for
+     * the same reason the module keys are read from the manifests: a list
+     * somebody maintains is a list that stops being true, and this one
+     * decides whether a call site is an offence.
+     *
+     * **Both roots**, and the second is not an afterthought:
+     * `public/cron.php` registers `cron_last_run` and nothing else does,
+     * so reading only `index.php` reported two correct call sites as
+     * offences. A composition root left out of the scan is the same defect
+     * as a manifest left out of it.
+     *
+     * @return array<string, true>
+     */
+    private static function declaredCoreKeys(): array
+    {
+        static $keys = null;
+        if ($keys !== null) {
+            return $keys;
+        }
+
+        $keys = [];
+        foreach (['public/index.php', 'public/cron.php'] as $root) {
+            foreach (self::registeredIn(self::root() . '/' . $root) as $key) {
+                $keys[$key] = true;
+            }
+        }
+
+        return $keys;
+    }
+
+    /**
+     * The keys one composition root passes to `SettingService::register()`.
+     *
+     * @return list<string>
+     */
+    private static function registeredIn(string $path): array
+    {
+        if (!is_file($path)) {
+            return [];
+        }
+
+        $keys = [];
+        $source = (string) file_get_contents($path);
+        $constants = self::constantsByClass();
+        $useMap = self::useMapOf($source);
+
+        $tokens = token_get_all($source);
+        $count = count($tokens);
+
+        for ($i = 0; $i < $count; $i++) {
+            $operator = is_array($tokens[$i]) ? $tokens[$i][0] : null;
+            if ($operator !== T_OBJECT_OPERATOR && $operator !== T_NULLSAFE_OBJECT_OPERATOR) {
+                continue;
+            }
+
+            $name = $tokens[$i + 1] ?? null;
+            if (!is_array($name) || $name[0] !== T_STRING || $name[1] !== 'register') {
+                continue;
+            }
+            if (($tokens[$i + 2] ?? null) !== '(') {
+                continue;
+            }
+
+            $arguments = self::argumentsAt($tokens, $i + 2);
+            $key = self::resolveKey(trim($arguments[0] ?? ''), self::classDeclaredIn($source), $constants, $useMap);
+            if ($key !== null) {
+                $keys[] = $key;
+            }
+        }
+
+        return $keys;
     }
 
     /**
