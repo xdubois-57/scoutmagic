@@ -183,6 +183,10 @@ class E2eOverlayGestureRatchetTest extends TestCase
             <div class="navbar-collapse" id="not-a-collapse"></div>
             <div class="modal-dialog" id="not-a-modal"></div>
             <div class="collapse" id="{{ card }}-body"></div>
+            {% embed 'partials/modal.html.twig' with {
+                id: 'contact-' ~ contact.id ~ '-modal',
+                title: 'Contact',
+            } only %}{% endembed %}
             TWIG;
 
         $this->assertSame(
@@ -385,7 +389,10 @@ class E2eOverlayGestureRatchetTest extends TestCase
     {
         $ids = [];
 
-        $embed = '/([\'"])partials\/modal\.html\.twig\1\s+with\s+\{\s*id:\s*([\'"])([^\'"]+)\2/';
+        // The literal must close before the next key or the end of the map:
+        // `id: 'contact-' ~ contact.id ~ '-modal'` is a Twig-built family,
+        // not an id called `contact-`.
+        $embed = '/([\'"])partials\/modal\.html\.twig\1\s+with\s+\{\s*id:\s*([\'"])([\w-]+)\2(?=\s*[,}])/';
         if (preg_match_all($embed, $source, $embeds) > 0) {
             foreach ($embeds[3] as $id) {
                 $ids[$id] = true;

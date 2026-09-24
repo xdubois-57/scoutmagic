@@ -65,10 +65,14 @@ export async function settledPanelAround(page, inner) {
  * @returns {Promise<import('@playwright/test').Locator>} the panel, open
  */
 export async function openCollapse(page, panelId, gesture) {
+    // The library first, and the panel THERE before it is judged folded:
+    // toBeHidden() alone is also satisfied by an element not parsed yet,
+    // which would let a panel that starts open through unnoticed.
+    await page.waitForFunction(() => typeof (/** @type {any} */ (window)).bootstrap !== 'undefined');
     const panel = page.locator(`#${panelId}`);
+    await expect(panel).toBeAttached();
     await expect(panel, 'a panel is unfolded from folded').toBeHidden();
 
-    await page.waitForFunction(() => typeof (/** @type {any} */ (window)).bootstrap !== 'undefined');
     await gesture();
 
     await expect(panel).toHaveClass(/\bcollapse\b.*\bshow\b|\bshow\b.*\bcollapse\b/);
