@@ -92,13 +92,24 @@ class BootstrapRequestHandlersTest extends TestCase
             // other than its own » on every run. Risky, never failure, and
             // nothing in phpunit.xml turns that into an exit code — so it
             // said so for months into a green CI.
+            // READ BEFORE CLEANING, and the order is the whole assertion.
+            // Asserting after the loop compares a number the loop has just
+            // made true: `ob_end_clean()` drops the level by one per call,
+            // so by the time the comparison ran, a handler that had left
+            // its own buffer open looked exactly like one that had not.
+            // The assertion could only ever fail downwards — #426's
+            // original defect — and was silent on the way it was written to
+            // catch. A check the code under it repairs first is the same
+            // shape as the risky verdict this whole change is about.
+            $observed = ob_get_level();
+
             while (ob_get_level() > $level) {
                 ob_end_clean();
             }
 
             $this->assertSame(
                 $level,
-                ob_get_level(),
+                $observed,
                 'the handler must leave the output buffering stack as it found it'
             );
         }
