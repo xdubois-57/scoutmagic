@@ -441,11 +441,20 @@ final class AssertionMessagesAreEnglishTest extends TestCase
             // dropped forty-five call sites. Its FIRST argument is read
             // and the rest of the call is skipped, so the values it
             // formats stay out — they are the arguments, not the message.
+            //
+            // « Its first argument » means the WHOLE of it, not its first
+            // literal. A format string may be concatenated —
+            // `sprintf('a ' . 'b', $x)` — and stopping at the first piece
+            // dropped the rest in silence: the `.` between them cannot end
+            // the swallow, because inside `sprintf(` the term already sits
+            // at depth 1 and the swallow only ends at 0. The argument is
+            // therefore closed by its own COMMA at depth 1, which is what
+            // actually separates a format string from the values it
+            // formats. `HealthSheetLayoutTest` writes that shape today.
             if ($swallowing) {
                 if ($formatting && $termDepth === 1 && $id === T_CONSTANT_ENCAPSED_STRING) {
                     $message .= self::literalBody($text);
                     $literals++;
-                    $formatting = false;
                     continue;
                 }
 
@@ -476,6 +485,10 @@ final class AssertionMessagesAreEnglishTest extends TestCase
                     $termDepth++;
                 } elseif ($id === null && ($text === ')' || $text === ']' || $text === '}')) {
                     $termDepth--;
+                } elseif ($id === null && $text === ',' && $termDepth === 1) {
+                    // The format string ends here; everything after is a
+                    // value it formats, and values are not the message.
+                    $formatting = false;
                 } elseif ($id === null && $text === '.' && $termDepth === 0) {
                     $swallowing = false;
                 }
@@ -653,7 +666,13 @@ final class AssertionMessagesAreEnglishTest extends TestCase
      */
     public function testACallWrittenWithATrailingCommaIsStillRead(): void
     {
-        $file = tempnam(sys_get_temp_dir(), 'assertion_messages_') . '.php';
+        // No `.php` appended, here or at the eight other fixtures below:
+        // tempnam() CREATES the file it names, so a suffixed path writes
+        // and deletes a SECOND file and leaves the reservation behind on
+        // every run. token_get_all() reads content, never the extension.
+        // The same note sits in Tests\Integration\ReferenceDatasetAutoloadTest,
+        // where the trap was found the first time.
+        $file = tempnam(sys_get_temp_dir(), 'assertion_messages_');
         file_put_contents($file, <<<'PHP'
             <?php
             $this->assertSame(
@@ -691,7 +710,7 @@ final class AssertionMessagesAreEnglishTest extends TestCase
      */
     public function testAMessageBuiltAroundAnInterpolationIsRead(): void
     {
-        $file = tempnam(sys_get_temp_dir(), 'assertion_messages_') . '.php';
+        $file = tempnam(sys_get_temp_dir(), 'assertion_messages_');
         file_put_contents($file, <<<'PHP'
             <?php
             $this->assertNotNull($account, "Le compte de démonstration « {$handle} » n'a pas de membre.");
@@ -731,7 +750,7 @@ final class AssertionMessagesAreEnglishTest extends TestCase
      */
     public function testAMessageConcatenatedWithATermThatIsNotALiteralIsRead(): void
     {
-        $file = tempnam(sys_get_temp_dir(), 'assertion_messages_') . '.php';
+        $file = tempnam(sys_get_temp_dir(), 'assertion_messages_');
         file_put_contents($file, <<<'PHP'
             <?php
             $this->assertSame([], $rows, "Le lot ne contient pas " . implode(', ', $manquants) . ", qui est attendu.");
@@ -772,7 +791,7 @@ final class AssertionMessagesAreEnglishTest extends TestCase
      */
     public function testABracedInterpolationInsideASwallowedTermDoesNotEatTheRest(): void
     {
-        $file = tempnam(sys_get_temp_dir(), 'assertion_messages_') . '.php';
+        $file = tempnam(sys_get_temp_dir(), 'assertion_messages_');
         file_put_contents($file, <<<'PHP'
             <?php
             $this->assertSame([], $rows, 'La liste ' . implode(', ', array_map(fn($r) => "{$r['a']}", $rows)) . ' ne doit pas rester vide du tout');
@@ -805,7 +824,7 @@ final class AssertionMessagesAreEnglishTest extends TestCase
      */
     public function testAnInterpolationHoldingArithmeticOrACallIsStillAHole(): void
     {
-        $file = tempnam(sys_get_temp_dir(), 'assertion_messages_') . '.php';
+        $file = tempnam(sys_get_temp_dir(), 'assertion_messages_');
         file_put_contents($file, <<<'PHP'
             <?php
             $this->assertGreaterThan($a, $b, "{$row[$i]} commence avant la fin de {$row[$i - 1]}, ce qui casse la page.");
@@ -836,7 +855,7 @@ final class AssertionMessagesAreEnglishTest extends TestCase
      */
     public function testAMessageThatIsTheOnlyArgumentOfFailOrSkipIsStillRead(): void
     {
-        $file = tempnam(sys_get_temp_dir(), 'assertion_messages_') . '.php';
+        $file = tempnam(sys_get_temp_dir(), 'assertion_messages_');
         file_put_contents($file, <<<'PHP'
             <?php
             $this->fail("La chaîne n'a pas été amorcée, donc le reste du test ne veut rien dire.");
@@ -918,9 +937,55 @@ final class AssertionMessagesAreEnglishTest extends TestCase
         );
     }
 
+    /**
+     * A format string that is itself a concatenation.
+     *
+     * The ninth form, and the docblock above the reader promised more than
+     * it delivered: it said a format string's FIRST ARGUMENT is read, and
+     * only the first LITERAL of it was. `sprintf('a ' . 'b', $x)` scored
+     * `'a '` and dropped `'b'` — never appended, never counted, so the
+     * corpus floor could not see the loss either.
+     *
+     * The `.` between the two pieces cannot end the swallow: inside
+     * `sprintf(` the term already sits at depth 1, and the swallow only
+     * ends at 0. What closes the format string is its own comma at depth 1
+     * — which is also what actually separates it from the values it
+     * formats. `HealthSheetLayoutTest` writes this shape today; both its
+     * halves are English, so nothing was slipping through yet.
+     */
+    public function testAFormatStringSplitAcrossAConcatenationIsReadWhole(): void
+    {
+        $file = tempnam(sys_get_temp_dir(), 'assertion_messages_');
+        file_put_contents($file, <<<'PHP'
+            <?php
+            $this->assertTrue($ok, sprintf('Le gabarit ' . 'ne doit rien imprimer ici du tout', $name));
+            $this->assertTrue($ok, sprintf('a format string here', 'une valeur française parasite'));
+            PHP);
+
+        try {
+            $messages = self::messagesIn($file, []);
+
+            $this->assertCount(2, $messages);
+            $this->assertStringContainsString(
+                'ne doit rien imprimer ici du tout',
+                $messages[0][1],
+                'the second half of a concatenated format string is still the message'
+            );
+            $this->assertTrue(self::looksFrench($messages[0][1]));
+
+            $this->assertStringNotContainsString(
+                'valeur française parasite',
+                $messages[1][1],
+                'and what the format string formats stays out — those are arguments, not prose'
+            );
+        } finally {
+            unlink($file);
+        }
+    }
+
     public function testAMessageBuiltWithSprintfIsRead(): void
     {
-        $file = tempnam(sys_get_temp_dir(), 'assertion_messages_') . '.php';
+        $file = tempnam(sys_get_temp_dir(), 'assertion_messages_');
         file_put_contents($file, <<<'PHP'
             <?php
             $this->assertTrue($ok, sprintf('%s est écrit à %.1f mm, où le gabarit n\'imprime rien.', $name, $y));
@@ -940,7 +1005,7 @@ final class AssertionMessagesAreEnglishTest extends TestCase
 
     public function testALiteralInsideAnInterpolationIsPartOfTheHole(): void
     {
-        $file = tempnam(sys_get_temp_dir(), 'assertion_messages_') . '.php';
+        $file = tempnam(sys_get_temp_dir(), 'assertion_messages_');
         file_put_contents($file, <<<'PHP'
             <?php
             $this->assertFileExists($path, "Le manifeste référence {$row['file']}, qui manque au lot.");
@@ -970,7 +1035,7 @@ final class AssertionMessagesAreEnglishTest extends TestCase
      */
     public function testAnEscapedApostropheStillCountsAsAnElision(): void
     {
-        $file = tempnam(sys_get_temp_dir(), 'assertion_messages_') . '.php';
+        $file = tempnam(sys_get_temp_dir(), 'assertion_messages_');
         file_put_contents($file, <<<'PHP'
             <?php
             $this->assertIsArray($row, 'aucun échec d\'envoi journalisé');

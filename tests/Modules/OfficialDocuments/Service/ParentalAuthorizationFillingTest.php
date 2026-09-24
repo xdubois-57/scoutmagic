@@ -235,7 +235,7 @@ final class ParentalAuthorizationFillingTest extends TestCase
                 $this->assertNotContains(
                     $zone,
                     $strikes,
-                    sprintf('« %s » must strike nothing at all', $branch ?? 'aucune fonction')
+                    sprintf('« %s » must strike nothing at all', $branch ?? 'none')
                 );
             }
         }
