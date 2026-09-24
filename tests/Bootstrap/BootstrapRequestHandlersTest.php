@@ -252,7 +252,21 @@ class BootstrapRequestHandlersTest extends TestCase
     /**
      * Run `bootstrapSendJson()` in a real subprocess under a given
      * `output_buffering`, with `$preamble` deciding where the stray output
-     * lands, and return the whole response body.
+     * lands, and return **the last non-empty line** of what came back.
+     *
+     * The last line, not the whole output, and for the reason
+     * `BootstrapTest::lastLineOfSubprocess()` already gives: a php CLI can
+     * print noise of its own before anything under test runs — a
+     * duplicate-extension warning is the one this repository has met — and
+     * comparing the whole stream makes these tests fail on a machine rather
+     * than on a defect. `failOnRisky` landing in `phpunit.xml` in this very
+     * change leaves the suite less room for that, not more.
+     *
+     * It still catches what they are for: the warning these tests plant
+     * lands on the **same line** as the JSON, with no newline between them,
+     * because that is what `echo json_encode()` into a buffer that already
+     * holds something produces. Startup noise sits on its own line; a leak
+     * does not.
      */
     private function sendJsonInASubprocess(string $outputBuffering, string $preamble): string
     {
@@ -269,7 +283,12 @@ class BootstrapRequestHandlersTest extends TestCase
             escapeshellarg($script)
         ));
 
-        return trim((string) $output);
+        $lines = array_values(array_filter(
+            explode("\n", trim((string) $output)),
+            static fn (string $line): bool => trim($line) !== ''
+        ));
+
+        return $lines === [] ? '' : end($lines);
     }
 
     /**
