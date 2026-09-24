@@ -6,6 +6,7 @@ namespace Tests\Core\Http\Controller;
 
 use Core\File\EncryptedFileStorageService;
 use Core\File\FileAccessGuard;
+use Core\File\FileOwnershipCheckerInterface;
 use Core\File\FileRepository;
 use Core\Http\Controller\FileController;
 use Core\Http\Request;
@@ -205,6 +206,44 @@ class FileControllerTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
         $stmt = $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'owner_scoped_file_accessed'");
         $this->assertSame(0, (int) $stmt->fetchColumn());
+    }
+
+    /**
+     * A shared cache may keep a file only when role_min is the whole rule.
+     * One with an owner_type is public in role only — its checker answers
+     * per request — and a proxy that kept it would serve it to anybody.
+     */
+    public function testAPublicFileWithAnOwnerIsNeverSharedCacheable(): void
+    {
+        $checker = new class implements FileOwnershipCheckerInterface {
+            public function supports(string $ownerType): bool
+            {
+                return $ownerType === 'granted';
+            }
+
+            public function isAllowed(int $ownerId, Role $currentRole, array $linkedMemberIds): bool
+            {
+                return true;
+            }
+        };
+        $guard = new FileAccessGuard($this->fileRepository, Role::PUBLIC, [], [$checker]);
+        $controller = new FileController(new Environment(new ArrayLoader(self::REFUSAL_TEMPLATE)), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
+
+        mkdir($this->storagePath, 0755, true);
+        file_put_contents($this->storagePath . '/plain.pdf', 'content');
+        file_put_contents($this->storagePath . '/owned.pdf', 'content');
+        $stmt = $this->pdo->prepare('INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min, owner_type, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?)');
+        $stmt->execute(['plain.pdf', 'plain.pdf', 'application/pdf', 7, 'public', null, null]);
+        $plain = (int) $this->pdo->lastInsertId();
+        $stmt->execute(['owned.pdf', 'owned.pdf', 'application/pdf', 7, 'public', 'granted', 1]);
+        $owned = (int) $this->pdo->lastInsertId();
+
+        $plainResponse = $controller->serve(new Request('GET', "/files/{$plain}", [], [], [], []), ['id' => (string) $plain]);
+        $ownedResponse = $controller->serve(new Request('GET', "/files/{$owned}", [], [], [], []), ['id' => (string) $owned]);
+
+        $this->assertSame('public, max-age=86400', $plainResponse->getHeaders()['Cache-Control']);
+        $this->assertSame(200, $ownedResponse->getStatusCode());
+        $this->assertSame('private, no-cache', $ownedResponse->getHeaders()['Cache-Control']);
     }
 
     // --- thumbnail caching (audit M8) & streaming (audit M10) ---

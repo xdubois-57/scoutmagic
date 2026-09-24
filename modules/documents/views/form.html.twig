@@ -1,0 +1,115 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The one editing screen for a shared document (roadmap D8): title,
+  description, visibility, and a file — required to create, optional to
+  edit. The real case is mixed: the rules are replaced and the date in
+  their title corrected in the same gesture.
+
+  The warning about replacing the file appears ONLY once a file has been
+  chosen (public/assets/js/documents-form.js): fixing a typo has no
+  consequence, replacing the file has some that cannot be undone.
+
+  The visibility chips are the news editor's (modules/news/views/
+  editor.html.twig), labels included, so a chef d'unité sees the same
+  choice on both screens.
+#}
+{% extends "base.html.twig" %}
+
+{% block title %}{{ document ? 'Modifier « ' ~ document.title ~ ' »' : 'Ajouter un document' }} — {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="page-narrow">
+    {% include 'partials/page_header.html.twig' with {
+        title: document ? 'Modifier « ' ~ document.title ~ ' »' : 'Ajouter un document',
+    } only %}
+
+    {% if error %}
+        <div class="alert alert-danger" role="alert">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" enctype="multipart/form-data" id="document-form"
+          action="{{ document ? '/admin/documents/' ~ document.id ~ '/modifier' : '/admin/documents/nouveau' }}">
+        {{ csrf_field()|raw }}
+
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'document-title',
+            field_name: 'title',
+            label: 'Titre',
+            type: 'text',
+            value: values.title,
+            required: true,
+            maxlength: title_max,
+        } only %}
+
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'document-description',
+            field_name: 'description',
+            label: 'Description (facultative)',
+            type: 'textarea',
+            rows: 2,
+            value: values.description,
+            maxlength: description_max,
+            help: 'Une phrase qui dit à quoi sert le document. Affichée sous son titre sur la page publique.',
+        } only %}
+
+        <fieldset class="mb-3">
+            <legend class="form-label fs-6">Visible par</legend>
+            <div class="btn-group d-flex flex-wrap" id="document-visibility-group">
+                {% for choice in visibilities %}
+                    <input type="radio" class="btn-check" name="visibility" id="document-visibility-{{ choice.value }}"
+                           value="{{ choice.value }}" {{ values.visibility == choice.value ? 'checked' : '' }} required>
+                    <label class="btn btn-outline-primary" for="document-visibility-{{ choice.value }}">{{ choice.label }}</label>
+                {% endfor %}
+            </div>
+            <div class="alert alert-secondary small mt-2 mb-0{{ values.visibility == 'direct_link' ? '' : ' d-none' }}" id="document-direct-link-help">
+                <strong>Non listé, pas protégé.</strong> Le document n'apparaît sur aucune liste, mais quiconque
+                a son adresse peut le télécharger, même sans compte. Il est tenu hors des moteurs de recherche.
+                {# The slug is frozen: what decides this sentence is whether it
+                   was made random at creation, not the visibility now. #}
+                {% if document and not document.slugIsRandom %}
+                    Son adresse actuelle, <span class="font-monospace">{{ document.path() }}</span>, a été
+                    créée d'après son titre et ne change pas : quelqu'un qui connaît le titre peut la deviner.
+                    Pour une adresse impossible à deviner, ajoutez plutôt un nouveau document en « Lien direct ».
+                {% else %}
+                    Son adresse contient un segment aléatoire pour qu'on ne puisse pas la deviner.
+                {% endif %}
+            </div>
+        </fieldset>
+
+        <div class="mb-3">
+            <label for="document-file" class="form-label">
+                {{ document ? 'Remplacer le fichier (facultatif)' : 'Fichier' }}
+            </label>
+            <input type="file" class="form-control" id="document-file" name="file"
+                   aria-describedby="document-file-help"{{ document ? '' : ' required' }}>
+            <div class="form-text" id="document-file-help">
+                {% if document %}
+                    Laissez vide pour conserver le fichier actuel : {{ document.kindLabel() }},
+                    {{ document.sizeBytes|filesize }}, du {{ document.updatedAt|date_fr }}.
+                {% else %}
+                    PDF, document bureautique, tableur, texte ou image, {{ max_mb }} Mo au plus.
+                {% endif %}
+            </div>
+        </div>
+
+        {% if document %}
+            <output class="alert alert-warning small d-none d-block" id="document-replace-warning">
+                L'adresse <span class="font-monospace">{{ document.path() }}</span> ne change pas : les liens
+                déjà distribués mèneront au nouveau fichier. L'ancien fichier est supprimé.
+            </output>
+        {% endif %}
+
+        <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary">Enregistrer</button>
+            <a href="/admin/documents" class="btn btn-outline-secondary">Annuler</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ asset('/assets/js/documents-form.js') }}" defer></script>
+{% endblock %}

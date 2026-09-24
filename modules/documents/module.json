@@ -1,0 +1,136 @@
+{
+  "id": "documents",
+  "name": "Documents",
+  "description": "Les documents de l'unité à partager : règlement, charte des parents, liste de matériel…",
+  "version": "1.0.0",
+  "enabled_by_default": false,
+  "category": "communication",
+  "routes": [
+    {
+      "path": "/documents",
+      "method": "GET",
+      "controller": "Modules\\Documents\\Controller\\DocumentsPublicController",
+      "action": "index",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": "Documents",
+      "menu_icon": "bi-folder2-open",
+      "menu_order": 60,
+      "breadcrumb": {
+        "label": "Documents",
+        "parents": [
+          "Notre unité"
+        ]
+      }
+    },
+    {
+      "path": "/documents/{slug}",
+      "method": "GET",
+      "controller": "Modules\\Documents\\Controller\\DocumentsPublicController",
+      "action": "open",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
+    },
+    {
+      "path": "/admin/documents",
+      "method": "GET",
+      "controller": "Modules\\Documents\\Controller\\DocumentsAdminController",
+      "action": "index",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "Documents",
+      "menu_icon": "bi-folder2",
+      "menu_group": "communication",
+      "menu_order": 110,
+      "breadcrumb": {
+        "label": "Documents",
+        "parents": [
+          "Espace chefs d'U"
+        ]
+      }
+    },
+    {
+      "path": "/admin/documents/nouveau",
+      "method": "GET",
+      "controller": "Modules\\Documents\\Controller\\DocumentsAdminController",
+      "action": "createForm",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Ajouter un document",
+        "parents": [
+          "Espace chefs d'U"
+        ],
+        "ancestors": [
+          {
+            "label": "Documents",
+            "path": "/admin/documents"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/admin/documents/nouveau",
+      "method": "POST",
+      "controller": "Modules\\Documents\\Controller\\DocumentsAdminController",
+      "action": "create",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/documents/{id}/modifier",
+      "method": "GET",
+      "controller": "Modules\\Documents\\Controller\\DocumentsAdminController",
+      "action": "editForm",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Modifier le document",
+        "parents": [
+          "Espace chefs d'U"
+        ],
+        "ancestors": [
+          {
+            "label": "Documents",
+            "path": "/admin/documents"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/admin/documents/{id}/modifier",
+      "method": "POST",
+      "controller": "Modules\\Documents\\Controller\\DocumentsAdminController",
+      "action": "update",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/documents/reorder",
+      "method": "POST",
+      "controller": "Modules\\Documents\\Controller\\DocumentsAdminController",
+      "action": "reorder",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/documents/delete",
+      "method": "POST",
+      "controller": "Modules\\Documents\\Controller\\DocumentsAdminController",
+      "action": "delete",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    }
+  ],
+  "settings": [],
+  "cookies": [],
+  "scheduled_tasks": [],
+  "storage": {}
+}

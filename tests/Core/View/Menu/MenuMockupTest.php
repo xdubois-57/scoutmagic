@@ -43,6 +43,7 @@ final class MenuMockupTest extends TestCase
         'Rétrospective' => 'provider (retro) — unit-chief hook',
         'Supervision' => 'visible_when (support_dashboard) — support installations',
         'Outils de test' => 'visible_when (test_tools) — test installations',
+        'Documents' => 'module arrived after the mockup (documents, #508) — Notre unité and Espace chefs d\'U › Communication',
     ];
 
     /**

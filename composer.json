@@ -38,6 +38,7 @@
             "Modules\\Calendar\\": "modules/calendar/src/",
             "Modules\\Camps\\": "modules/camps/src/",
             "Modules\\Covoiturage\\": "modules/covoiturage/src/",
+            "Modules\\Documents\\": "modules/documents/src/",
             "Modules\\Fees\\": "modules/fees/src/",
             "Modules\\Finance\\": "modules/finance/src/",
             "Modules\\Gallery\\": "modules/gallery/src/",
