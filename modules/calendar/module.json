@@ -2,7 +2,7 @@
   "id": "calendar",
   "name": "Calendrier",
   "description": "Un calendrier par section, abonnable depuis un téléphone.",
-  "version": "1.8.4",
+  "version": "1.9.0",
   "enabled_by_default": true,
   "routes": [
     {

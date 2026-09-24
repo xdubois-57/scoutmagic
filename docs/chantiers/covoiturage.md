@@ -176,3 +176,55 @@ changement d'adresse » existait déjà et passe inchangé.
 5. **Les messages de refus des coordonnées** sont ceux de `camps`, repris
    mot pour mot dans `GeoPoint::fromInput()` ; le contrôleur de `camps`
    attrape `GeoPointException` à côté de `CampsException`.
+
+---
+
+## IT-03 — L'API du calendrier
+
+**Livré.** `EventSummary` expose `location` (le lieu de l'évènement, ou
+`null` pour un champ vide ou blanc), `sectionId` et `sectionName` (la
+section dont le calendrier porte l'évènement, `null` pour un calendrier
+supplémentaire) — dans les trois méthodes qui en construisent.
+`CalendarEventLookupInterface::searchUpcomingEvents($query, $role,
+$limit)` cherche dans le titre, le nom du calendrier et la section, sans
+accents ni casse et en exigeant chaque mot, sur les seuls calendriers
+visibles du rôle, parmi les évènements dont la date de fin effective est
+aujourd'hui ou plus tard ; une requête vide rend les plus proches (la liste
+de repli d'un sélecteur). Le point d'extension
+`Api\EventDescriptionEnricherInterface` et son registre
+`Service\EventDescriptionEnricherRegistry` ne sont lus que par
+`PersonalFeedService`, câblés dans `public/index.php`
+(`$calendarDescriptionEnrichers`, `null` sans `calendar`). Version de
+`calendar` montée à 1.9.0. Documentation : `ARCHITECTURE.md` §7.6,
+`docs/module-development.md`.
+
+**Tests.** `CalendarEventSearchTest` (le lieu et la section remontent,
+recherche sans accents sur titre, calendrier et section, passé exclu mais
+week-end en cours inclus, calendriers invisibles du rôle exclus, ordre et
+limite) ; `EventDescriptionEnrichmentFeedTest`, **un test par flux** : la
+ligne apparaît dans le flux personnel, et ni le flux d'un calendrier ni
+celui de l'unité ne la portent — l'enrichisseur n'y est même pas appelé ;
+un enrichisseur qui lève est ignoré sans casser le flux.
+
+**Décisions autonomes.**
+
+1. **`sectionId` et `sectionName` ajoutés à `EventSummary`**, que le
+   document ne demandait pas : D3 fait dériver la visibilité du staff des
+   sections des évènements liés, et la maquette affiche la section en
+   pastille dans le sélecteur. L'identifiant interne du calendrier, lui,
+   reste caché.
+2. **Filtrage en PHP plutôt qu'en SQL** pour la recherche : l'insensibilité
+   aux accents doit être celle de `TextNormalizerService::fold()`, et le
+   `LIKE` des deux moteurs ne la reproduit pas à l'identique. La requête
+   reste bornée (deux ans devant, `$limit` résultats).
+3. **L'enrichisseur n'est pas appelé du tout** pour un flux sans lecteur
+   identifié, plutôt qu'appelé avec un lecteur anonyme : ce qui n'est
+   jamais construit ne peut pas fuiter.
+
+**Écart précisé.** Le point 4 de la vérification préalable se lit plus
+exactement ainsi : les liens « Rétrospective » et « Prendre les
+présences » passent déjà par des registres mutables
+(`RetroEventLinkRegistry`, `PresenceSheetLinkRegistry`), mais dont les
+interfaces vivent dans les `Api\` de `retro` et de `presences`, que
+`calendar` nomme. Leur migration vers le nouveau point d'extension est
+notée dans `ARCHITECTURE.md` §7.6 et n'est pas faite ici.

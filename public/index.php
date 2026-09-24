@@ -6733,6 +6733,10 @@ $calendarRetroLinks = null;
 // nothing to publish onto and never builds a lookup.
 $calendarPresenceSheetLinks = null;
 
+// The description enrichers of real events (§7.6), for the personal feed —
+// null when calendar is disabled, so an enriching module provably skips.
+$calendarDescriptionEnrichers = null;
+
 // And once more for the other direction of the same pair: deleting an
 // evening must erase the sheet somebody took on it, which no foreign key
 // can do across two modules' tables.
@@ -6758,6 +6762,11 @@ if ($isEnabled('calendar')) {
     // the virtual-event registry from the public controller.
     $calendarRetroLinks = new \Modules\Calendar\Service\RetroEventLinkRegistry();
     $calendarPresenceSheetLinks = new \Modules\Calendar\Service\PresenceSheetLinkRegistry();
+    // The lines other modules add to a REAL event's description (§7.6,
+    // Api\EventDescriptionEnricherInterface) — carpool is the first. Built
+    // empty here, filled from each module's own block, read by the
+    // personal feed only: the one feed with an identified reader.
+    $calendarDescriptionEnrichers = new \Modules\Calendar\Service\EventDescriptionEnricherRegistry();
     $calendarPresenceEventCleanup = new \Modules\Calendar\Service\PresenceEventCleanupRegistry();
     $calendarRepo = new \Modules\Calendar\Repository\CalendarRepository($pdo, $encryptionService);
     $calendarEventRepo = new \Modules\Calendar\Repository\CalendarEventRepository($pdo);
@@ -6818,7 +6827,8 @@ if ($isEnabled('calendar')) {
         // session — nothing has resolved a scout year for them, so an
         // access question about them is asked over the whole authorization
         // set rather than in a year picked for them.
-        $authorizationYearService
+        $authorizationYearService,
+        $calendarDescriptionEnrichers
     );
     $calendarPickerService = new \Modules\Calendar\Service\CalendarPickerService(
         $calendarService,

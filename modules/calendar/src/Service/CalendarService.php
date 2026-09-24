@@ -12,6 +12,7 @@ use Core\Member\SectionService;
 use Core\Security\CapabilityToken;
 use Core\Security\Role;
 use Core\Service\DateInput;
+use Core\Service\TextNormalizerService;
 use Core\View\MonthGrid\GridEvent;
 use Modules\Calendar\Api\CalendarEventLookupInterface;
 use Modules\Calendar\Api\EventSummary;
@@ -281,19 +282,9 @@ class CalendarService implements
             $windowStart->format('Y-m-d'),
             $windowEnd->format('Y-m-d')
         );
-        $labels = $this->labelsByCalendarId();
+        $context = $this->summaryContext();
 
-        return array_map(
-            fn(CalendarEvent $e) => new EventSummary(
-                id: $e->id,
-                title: $e->title,
-                calendarName: $labels[$e->calendarId] ?? 'Calendrier',
-                startDate: $e->startDate,
-                endDate: $e->endDate ?? $e->startDate,
-                description: $e->description
-            ),
-            $events
-        );
+        return array_map(fn(CalendarEvent $e) => $this->summarize($e, $context), $events);
     }
 
     /**
@@ -311,15 +302,95 @@ class CalendarService implements
             return null;
         }
 
+        return $this->summarize($event, $this->summaryContext());
+    }
+
+    /**
+     * Api\CalendarEventLookupInterface implementation — see its docblock.
+     *
+     * Bounded twice: two years ahead at most, and $limit results. A unit
+     * publishes a few hundred events a year across all its calendars, so
+     * one fetch filtered here stays small — and the folding has to be
+     * TextNormalizerService's, which no SQL LIKE reproduces on both engines.
+     */
+    public function searchUpcomingEvents(string $query, Role $viewerRole, int $limit = 20): array
+    {
+        $calendarIds = array_values(array_map(fn(Calendar $c) => $c->id, $this->getVisibleCalendars($viewerRole)));
+        if ($calendarIds === [] || $limit <= 0) {
+            return [];
+        }
+
+        $today = new \DateTimeImmutable('today');
+        $events = $this->eventRepository->findByCalendarIdsWithEffectiveEndInRange(
+            $calendarIds,
+            $today->format('Y-m-d'),
+            $today->modify('+2 years')->format('Y-m-d')
+        );
+
+        $words = array_values(array_filter(
+            explode(' ', TextNormalizerService::fold($query)),
+            static fn(string $word): bool => $word !== ''
+        ));
+        $context = $this->summaryContext();
+
+        $found = [];
+        foreach ($events as $event) {
+            $summary = $this->summarize($event, $context);
+            $haystack = TextNormalizerService::fold(
+                $summary->title . ' ' . $summary->calendarName . ' ' . ($summary->sectionName ?? '')
+            );
+            foreach ($words as $word) {
+                if (!str_contains($haystack, $word)) {
+                    continue 2;
+                }
+            }
+            $found[] = $summary;
+            if (count($found) >= $limit) {
+                break;
+            }
+        }
+
+        return $found;
+    }
+
+    /**
+     * What turning an event into an Api\EventSummary needs, fetched once
+     * per call rather than once per event: every calendar's label, and the
+     * section (id and name) behind each section calendar.
+     *
+     * @return array{labels: array<int, string>, sections: array<int, array{id: int, name: string}>}
+     */
+    private function summaryContext(): array
+    {
         $labels = $this->labelsByCalendarId();
+        $sections = [];
+        foreach ($this->calendarRepository->findAll() as $calendar) {
+            if ($calendar->sectionId !== null) {
+                $sections[$calendar->id] = ['id' => $calendar->sectionId, 'name' => $labels[$calendar->id] ?? 'Section'];
+            }
+        }
+
+        return ['labels' => $labels, 'sections' => $sections];
+    }
+
+    /**
+     * @param array{labels: array<int, string>, sections: array<int, array{id: int, name: string}>} $context
+     */
+    private function summarize(CalendarEvent $event, array $context): EventSummary
+    {
+        $section = $context['sections'][$event->calendarId] ?? null;
+        $location = $event->location !== null && trim($event->location) !== '' ? $event->location : null;
 
         return new EventSummary(
             id: $event->id,
             title: $event->title,
-            calendarName: $labels[$event->calendarId] ?? 'Calendrier',
+            calendarName: $context['labels'][$event->calendarId] ?? 'Calendrier',
             startDate: $event->startDate,
             endDate: $event->endDate ?? $event->startDate,
-            description: $event->description
+            description: $event->description,
+            location: $location,
+            sectionId: $section['id'] ?? null,
+            sectionName: $section['name'] ?? null
         );
     }
 
