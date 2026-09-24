@@ -42,7 +42,16 @@ class DatabaseTestHelper
      */
     public static function skipOnlyWhenNoServerWasPromised(string $reason): never
     {
-        if (getenv('TEST_DB_HOST') === false && getenv('CI') === false) {
+        // Falsy, not `=== false`, and the difference is not cosmetic: the
+        // twenty-seven classes build their host as
+        // `getenv('TEST_DB_HOST') ?: '127.0.0.1'`, so an exported-but-empty
+        // TEST_DB_HOST sends them to the default and they connect. Reading
+        // the empty string as a promise would make this throw exactly where
+        // they are green — and would disagree with
+        // Tests\Architecture\DatabaseBackedTestsReallyRunTest, whose own
+        // guard says so in as many words after the same bug was fixed there
+        // (PR #394's review, docs/chantiers/CHANTIER-revue-des-tests.md).
+        if ((getenv('TEST_DB_HOST') ?: '') === '' && getenv('CI') === false) {
             TestCase::markTestSkipped($reason);
         }
 

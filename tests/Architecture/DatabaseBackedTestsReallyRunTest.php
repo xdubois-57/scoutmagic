@@ -172,10 +172,6 @@ final class DatabaseBackedTestsReallyRunTest extends TestCase
     }
 
     /**
-     * The premise of the test above: there are test files to read at all.
-     * A glob that stopped matching would make it pass over nothing.
-     */
-    /**
      * And the other half: no class decides this for itself any more.
      *
      * The guard above asks « could the connection have been made? », which
@@ -232,6 +228,10 @@ final class DatabaseBackedTestsReallyRunTest extends TestCase
         );
     }
 
+    /**
+     * The premise of the test above: there are test files to read at all.
+     * A glob that stopped matching would make it pass over nothing.
+     */
     public function testTheScanReadsTheSuiteRatherThanAnEmptyList(): void
     {
         $this->assertGreaterThan(1000, count($this->testFiles()));
@@ -273,6 +273,21 @@ final class DatabaseBackedTestsReallyRunTest extends TestCase
                 'threw',
                 $this->outcomeOfTheHelper(),
                 'CI alone is the same promise — it is what the runner sets'
+            );
+
+            // The fourth state, and the one that reads as a promise until
+            // you look: an EXPORTED but empty TEST_DB_HOST. Every class
+            // that opens its own connection writes
+            // `getenv('TEST_DB_HOST') ?: '127.0.0.1'`, so this sends them
+            // to the default host exactly as an unset variable does.
+            // Reading it as a promise would throw where all of them are
+            // green.
+            putenv('TEST_DB_HOST=');
+            putenv('CI');
+            $this->assertSame(
+                'skipped',
+                $this->outcomeOfTheHelper(),
+                'an exported-but-empty host is the default host, not a promise of a server'
             );
         } finally {
             putenv($host === false ? 'TEST_DB_HOST' : 'TEST_DB_HOST=' . $host);
