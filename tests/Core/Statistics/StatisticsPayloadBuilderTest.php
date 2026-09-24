@@ -716,8 +716,23 @@ class StatisticsPayloadBuilderTest extends TestCase
     }
 
     /**
-     * The entry cap is still the second bound: ordinary short labels are
-     * limited by count long before they are limited by bytes.
+     * An absurd number of short labels is truncated, and says so.
+     *
+     * This test used to assert exactly a hundred, on the reasoning that
+     * « ordinary short labels are limited by count long before they are
+     * limited by bytes ». That was true only while the byte budget was
+     * counted on the compact encoding; counted on the one the receiver
+     * measures, a four-line entry carries sixteen spaces of indentation
+     * per line, and a short entry costs about 126 bytes rather than 60.
+     * So the BYTE cap now bites first even here, which is the honest
+     * outcome — bytes are the bound that can lose a report, and
+     * `MAX_VOCABULARY_ENTRIES` is the outer guard that keeps a runaway
+     * table from being fetched at all.
+     *
+     * Hence no exact count: the assertion is that the list was cut, that
+     * it is not empty, and that `total` still declares the whole table.
+     * A unit configures three cotisation types, so what matters is that a
+     * hundred and fifty never travel whole and never travel silently.
      */
     public function testAnAbsurdNumberOfCategoriesIsTruncatedAndSaysSo(): void
     {
@@ -729,9 +744,15 @@ class StatisticsPayloadBuilderTest extends TestCase
         }
 
         $payload = $this->builder()->build();
+        $listed = $payload['desk_vocabulary']['fee_categories']['listed'];
 
         $this->assertSame(150, $payload['desk_vocabulary']['fee_categories']['total']);
-        $this->assertCount(100, $payload['desk_vocabulary']['fee_categories']['listed']);
+        $this->assertLessThan(150, count($listed), 'a hundred and fifty must never travel whole');
+        $this->assertGreaterThan(
+            20,
+            count($listed),
+            'and the cut must leave a list worth reading: a unit configures three, so twenty is already generous'
+        );
         $this->assertLessThan(65536, strlen($this->builder()->buildJson()));
     }
 
@@ -869,5 +890,139 @@ class StatisticsPayloadBuilderTest extends TestCase
         $listed = $this->builder(mappingGaps: $this->gapService())->build()['desk_unresolved']['listed'];
 
         $this->assertSame(['kind', 'value'], array_keys($listed[0]));
+    }
+
+    /**
+     * The bound none of the tests above was watching: the receiver
+     * measures the WHOLE body, and this chantier took the number of lists
+     * whose size a unit's own data decides from two to four.
+     *
+     * Every test above maxes out one list, or two, and each passes — which
+     * is exactly how the aggregate came to be unbounded without anybody
+     * noticing. Four lists at their own cap is not four times a case that
+     * passes: the caps are per list, the limit is per body.
+     *
+     * The worst case is NOT the widest label. At a hundred-odd bytes per
+     * field the byte cap bites after thirty entries; at about twenty it
+     * lets all hundred through, and a hundred entries of four lines each
+     * cost more in `JSON_PRETTY_PRINT` indentation — which the cap was not
+     * counting at all — than the labels themselves. So this seeds labels
+     * of that width deliberately, and it is the shape a real unit has.
+     */
+    public function testAllFourVocabularyListsAtOnceStayUnderTheReceiversBodyLimit(): void
+    {
+        $this->seedScoutYear();
+
+        // Twenty-odd characters: an entry short enough that a hundred fit
+        // under the byte cap, long enough that a hundred of them matter.
+        $label = static fn(string $prefix, int $i): string
+            => $prefix . ' ' . str_pad((string) $i, 3, '0', STR_PAD_LEFT) . ' ' . str_repeat('x', 12);
+
+        $fees = $this->pdo->prepare('INSERT INTO fee_categories (desk_code, label) VALUES (?, ?)');
+        $functions = new \Core\Import\FunctionRepository($this->pdo);
+        $branches = new \Core\Import\AgeBranchRepository($this->pdo);
+
+        for ($i = 0; $i < 150; $i++) {
+            $fees->execute([$label('TARIF', $i), $label('Cotisation', $i)]);
+            // Unconfirmed, so the same rows fill `functions` AND the
+            // unresolved list — which is how a real unit gets both at
+            // once, and why the two lists cannot be budgeted apart.
+            $functions->create($label('FONCTION', $i), $label('Animateur', $i), 'identified', false);
+            $branches->create($label('BRANCHE', $i), $label('Branche', $i));
+        }
+
+        $builder = $this->builder(mappingGaps: $this->gapService());
+        $payload = $builder->build();
+
+        // All four lists are genuinely at their cap — without this the
+        // assertion below would pass for the wrong reason.
+        $this->assertNotSame([], $payload['desk_vocabulary']['functions']['listed']);
+        $this->assertNotSame([], $payload['desk_vocabulary']['fee_categories']['listed']);
+        $this->assertNotSame([], $payload['desk_vocabulary']['branches']['listed']);
+        $this->assertNotSame([], $payload['desk_unresolved']['listed']);
+        $this->assertSame(150, $payload['desk_vocabulary']['fee_categories']['total']);
+        $this->assertSame(300, $payload['desk_unresolved']['total']);
+
+        $body = strlen($builder->buildJson());
+
+        $this->assertLessThan(
+            65536,
+            $body,
+            'the receiver checks MAX_BODY_BYTES on the raw body before parsing: over it, '
+            . 'the whole report is answered 413 and lost, not merely truncated'
+        );
+
+        // And the assertion above is not enough on its own, which is the
+        // second half of what went wrong. This harness wires no
+        // ModuleManager and no usage capability, so `modules` and
+        // `module_usage` are null here — about 5 500 bytes on the
+        // twenty-five real modules. A version of this code that budgeted
+        // on the COMPACT encoding while transmitting the pretty-printed
+        // one came to 63 033 bytes and passed the assertion above with
+        // 2 503 to spare, then lost the report on any real installation.
+        // So: the worst case must leave the rest of the payload room,
+        // not merely squeeze inside the limit.
+        $this->assertLessThan(
+            45056,
+            $body,
+            'the vocabulary must leave 20 KB for the rest of the payload — `modules` and `module_usage` alone '
+            . 'cost about 5 500 bytes, and this harness wires neither'
+        );
+    }
+
+    /**
+     * And the guard that will still be there when somebody adds a fifth
+     * list, which is how the fourth came to break the bound.
+     *
+     * Every list whose size a unit's own data decides is shaped
+     * `{total, listed}`, so they can be counted rather than listed by
+     * hand here — a new one is caught by arriving, not by somebody
+     * remembering to name it. The invariant is the one the per-list cap
+     * cannot state on its own: the shares have to fit in the total.
+     */
+    public function testEveryDataSizedListFitsInTheSharedByteBudget(): void
+    {
+        $this->seedScoutYear();
+        $this->seedVocabulary();
+
+        $payload = $this->builder(mappingGaps: $this->gapService())->build();
+
+        $reflection = new \ReflectionClass(StatisticsPayloadBuilder::class);
+        $total = (int) $reflection->getConstant('MAX_VOCABULARY_BYTES');
+        $perList = (int) $reflection->getConstant('MAX_VOCABULARY_LIST_BYTES');
+
+        $lists = self::countBudgetedLists($payload);
+
+        $this->assertGreaterThanOrEqual(4, $lists, 'the four lists this chantier left behind must still be found');
+        $this->assertLessThanOrEqual(
+            $total,
+            $lists * $perList,
+            $lists . ' lists of ' . $perList . ' bytes exceed the ' . $total . '-byte budget for the whole '
+            . 'document: a list was added without giving it a share, which is exactly how four lists of 8 KB '
+            . 'came to sit 2 503 bytes under the receiver\'s 64 KB body limit'
+        );
+    }
+
+    /**
+     * How many `{total, listed}` pairs the document carries, at any depth.
+     *
+     * @param array<string, mixed> $node
+     */
+    private static function countBudgetedLists(array $node): int
+    {
+        $found = 0;
+        $keys = array_keys($node);
+        sort($keys);
+        if ($keys === ['listed', 'total']) {
+            $found++;
+        }
+
+        foreach ($node as $value) {
+            if (is_array($value)) {
+                $found += self::countBudgetedLists($value);
+            }
+        }
+
+        return $found;
     }
 }

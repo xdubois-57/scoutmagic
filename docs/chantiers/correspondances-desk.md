@@ -281,7 +281,7 @@ nature de risque : ce sont les seules parties de la charge dont la taille est
 décidée par les données d'une unité, et la borne qui mord vraiment est les
 65 536 octets que le receveur mesure sur le corps brut. Une unité au
 vocabulaire délirant doit coûter à ce champ sa complétude, jamais au rapport
-entier.
+entier. **Reprendre la borne ne suffisait pas** — voir plus bas.
 
 **La version du schéma n'est plus écrite en dur dans les tests.** Trois
 assertions épinglaient `1`. Elles lisent désormais la constante : un numéro
@@ -338,6 +338,63 @@ de couverture tient les énoncés sur les deux surfaces, parce qu'une
 régénération par un prompt qui ignorerait le vocabulaire réécrirait
 tranquillement l'ancienne version.
 
+### Passer de deux listes à quatre avait défait la borne d'octets
+
+La seconde revue a trouvé ce que les tests ne pouvaient pas trouver : la borne
+s'appliquait **par liste**, et cette itération faisait passer de **deux** à
+**quatre** le nombre de listes dont la taille est décidée par les données
+d'une unité (`functions`, `fee_categories`, puis `branches` et
+`desk_unresolved`). L'arithmétique qui rendait la borne sûre vivait dans un
+commentaire — « 8 Ko par liste laisse les deux sous 16 Ko » — et pas dans le
+code. Chaque test saturait **une** liste, ou deux, et passait ; aucun ne les
+saturait toutes.
+
+Deux défauts distincts, tous deux mesurés avant d'être corrigés.
+
+**Le budget ne tenait pas compte de l'encodage transmis.** Il était compté sur
+l'encodage compact, alors que le corps part en `JSON_PRETTY_PRINT`. Pour une
+entrée de quatre lignes nichée à seize espaces d'indentation, l'indentation
+coûte plus que les libellés : une entrée courte pèse ~126 octets et non ~60.
+Le pire cas n'est donc **pas** le libellé le plus large — à cent octets par
+champ la borne mord après trente entrées, à vingt caractères elle laisse
+passer les cent, et cent entrées coûtent plus cher.
+
+**Les quatre listes à leur borne donnaient 63 033 octets**, soit 2 503 sous les
+65 536 du receveur — et ce, sur une installation **sans aucun module câblé**.
+`modules` et `module_usage` sur les vingt-cinq modules réels coûtent ~5 500
+octets de plus. Le rapport entier serait refusé en 413, ce que la borne
+existait précisément pour empêcher.
+
+**Deux bornes plutôt qu'une.** Un plafond total de 32 Ko pour tout le
+document, et une part de 8 Ko par liste. Le total est ce qui protège le
+rapport : une cinquième liste ajoutée demain puise dans la même bourse au lieu
+de relever le plafond. La part garde les listes honnêtes entre elles — une
+bourse unique en ordre de lecture laissait `functions` tout manger et
+`branches` repartir **vide** avec `total` à cent cinquante, ce qui est le pire
+des résultats disponibles : `branches` est dans cette charge parce qu'un rang
+à 99 est la correspondance la plus coûteuse à manquer et la seule muette côté
+unité. Pas de report du solde non dépensé d'une liste à la suivante : cela
+ferait dépendre le contenu d'une liste de sa position dans `build()`.
+
+Pire cas après correction : **32 775 octets**, la moitié de la limite, les
+quatre listes servies.
+
+**Trois garde-fous, chacun prouvé en le cassant.** Revenir à la mesure
+compacte, supprimer la part par liste, ajouter une cinquième liste sans lui
+donner de part : chaque mutation fait rougir un test, chaque restauration le
+fait reverdir. Le troisième compte les listes de forme `{total, listed}` dans
+la charge construite, donc une liste future est attrapée **en arrivant**, pas
+parce que quelqu'un aura pensé à la nommer.
+
+**Un test existant disait désormais faux.** Il affirmait que « les libellés
+courts sont bornés par le nombre bien avant de l'être par les octets » et
+épinglait exactement cent entrées. Mesurée sur l'encodage réel, la borne
+d'octets mord à ~66. `MAX_VOCABULARY_ENTRIES` est donc rétrogradée à ce
+qu'elle est : le `LIMIT` qui évite de lire une table emballée, pas la borne
+qui opère. Le test assure maintenant que la liste est coupée, non vide, et que
+`total` déclare la table entière — sans épingler un nombre qui n'était vrai
+que par accident d'encodage.
+
 ### Ce que les tests tiennent
 
 Une branche canonique voyage avec son rang, une branche inconnue avec 99. Le
@@ -349,7 +406,7 @@ survit **verbatim** dans `support_installations.payload` — ce que la page
 centrale lira à l'itération suivante. La troncature déclare ce qu'elle a
 laissé. Rien d'autre qu'une nature et un libellé ne voyage.
 
-**Suite complète verte** : 20 414 tests, PHPStan sans erreur.
+**Suite complète verte**, PHPStan sans erreur.
 
 ### Reporté
 
