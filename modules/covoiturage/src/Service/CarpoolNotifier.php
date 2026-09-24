@@ -75,7 +75,7 @@ class CarpoolNotifier
             'body' => $request->requesterName . ' a retiré sa demande — '
                 . ($request->isAccepted()
                     ? self::seats($request->passengerCount) . ($request->passengerCount > 1 ? ' se libèrent' : ' se libère')
-                        . ' sur l\'' . self::trip($carpool, $offer)
+                        . ' sur ' . ($offer->isOutbound() ? 'l\'' : 'le ') . self::trip($carpool, $offer)
                     : self::trip($carpool, $offer))
                 . '.',
             'url' => self::url($carpool, $offer),

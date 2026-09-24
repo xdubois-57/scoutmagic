@@ -156,6 +156,22 @@ final class CarpoolNotificationsTest extends TestCase
         $this->assertStringContainsString('2 places se libèrent', $this->sent[0]['body']);
     }
 
+    public function testAWithdrawalFromTheReturnSaysLeRetour(): void
+    {
+        // « l'aller », but « le retour »: the article is the trip's own.
+        $carpool = $this->carpools->findById(H::carpool($this->pdo, 10, 11));
+        $this->assertNotNull($carpool);
+        $offer = $this->offers->findById(H::offer($this->pdo, $carpool->id, self::DRIVER, 4, 'return'));
+        $this->assertNotNull($offer);
+        $request = $this->requests->findById(H::request($this->pdo, $offer->id, self::RIDER, ['Tom'], SeatRequest::ACCEPTED));
+        $this->assertNotNull($request);
+
+        $this->service->withdraw($request, H::viewer(self::RIDER), $carpool, $offer);
+
+        $this->assertStringContainsString('sur le retour du', $this->sent[0]['body']);
+        $this->assertStringNotContainsString("l'retour", $this->sent[0]['body']);
+    }
+
     public function testAChangedCarIsToldToTheAcceptedPassengersOnly(): void
     {
         [$carpool, $offer] = $this->car();
