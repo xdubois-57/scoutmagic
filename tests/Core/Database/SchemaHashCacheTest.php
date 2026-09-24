@@ -17,6 +17,7 @@ use Tests\DatabaseTestHelper;
  * directory it must hash the schema files once and answer from the
  * files' mtime/size signature afterwards, and notice the first edit.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class SchemaHashCacheTest extends TestCase
 {
     private string $base;

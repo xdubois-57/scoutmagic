@@ -32,6 +32,7 @@ use Tests\Modules\Fees\Support\FakeLlmConnector;
  * and the answer to a request nobody waited for lands on whatever comes
  * next) it read as the maintenance update having failed.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class TicketAnalysisOutcomeTest extends TestCase
 {
     private \PDO $pdo;

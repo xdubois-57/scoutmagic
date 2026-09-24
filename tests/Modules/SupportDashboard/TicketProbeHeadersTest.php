@@ -28,6 +28,7 @@ use Twig\Environment;
  * answer are pinned here — the headers are on the ticket page, and they
  * are in a file that can be kept and forwarded.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class TicketProbeHeadersTest extends TestCase
 {
     private const HEADERS = "Return-Path: <unite@example.be>\r\n"

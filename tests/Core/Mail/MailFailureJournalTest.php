@@ -26,6 +26,7 @@ use Tests\DatabaseTestHelper;
  * is gone on the next page load. So the entry is written at the single
  * point they all go through, and no call site can forget it.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class MailFailureJournalTest extends TestCase
 {
     private string $tempDir;

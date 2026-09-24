@@ -22,6 +22,7 @@ use Tests\DatabaseTestHelper;
  * Everything else on this installation reports a failure; this one reports
  * an archive holding the site's master key that nobody carried away.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class PortableBackupLingerCheckTest extends TestCase
 {
     private \PDO $pdo;

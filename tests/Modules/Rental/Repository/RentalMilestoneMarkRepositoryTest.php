@@ -16,6 +16,7 @@ use Tests\Modules\Rental\RentalTestHelper;
  * The steps ticked by hand (issue #462, D5): what is stored is exactly what
  * is ticked — a second tick is not a new fact, an untick leaves no row.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class RentalMilestoneMarkRepositoryTest extends TestCase
 {
     private \PDO $pdo;

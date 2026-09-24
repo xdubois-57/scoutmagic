@@ -20,6 +20,7 @@ use Tests\Modules\Rental\RentalTestHelper;
  * asset's data. Every case below is therefore a real authorization
  * assertion, not a convenience check.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class RentalAuthorizationServiceTest extends TestCase
 {
     private \PDO $pdo;

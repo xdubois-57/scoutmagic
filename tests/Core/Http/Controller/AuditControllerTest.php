@@ -15,6 +15,7 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class AuditControllerTest extends TestCase
 {
     private AuditService $auditService;

@@ -7,6 +7,7 @@ namespace Tests\Core\File;
 use Core\File\FileRepository;
 use PHPUnit\Framework\TestCase;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class FileRepositoryTest extends TestCase
 {
     private \PDO $pdo;

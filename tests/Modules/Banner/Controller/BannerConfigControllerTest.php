@@ -26,6 +26,7 @@ use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 use Twig\TwigFunction;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class BannerConfigControllerTest extends TestCase
 {
     private \PDO $pdo;

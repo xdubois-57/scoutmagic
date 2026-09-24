@@ -22,6 +22,7 @@ use Tests\Modules\Covoiturage\CovoiturageTestHelper as H;
  * staff gets nothing on account of its role (D11); a chief who drives gets
  * the driver's, once; and no phone number is ever in one.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class CarpoolNotificationsTest extends TestCase
 {
     private const DRIVER = 1;

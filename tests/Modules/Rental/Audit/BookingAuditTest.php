@@ -22,6 +22,7 @@ use Tests\Modules\Rental\RentalTestHelper;
  * labels, and the one translation core cannot make for it — "which member
  * did this" into "which account did this".
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class BookingAuditTest extends TestCase
 {
     private \PDO $pdo;

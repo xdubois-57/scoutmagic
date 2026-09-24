@@ -17,6 +17,7 @@ use PHPUnit\Framework\TestCase;
  * document blanking the inbound message whose attachment it was — and the
  * cases below are the ones those bugs were made of.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class AttachedFileRemoverTest extends TestCase
 {
     private \PDO $pdo;

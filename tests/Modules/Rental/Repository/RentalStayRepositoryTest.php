@@ -24,6 +24,7 @@ use Tests\Modules\Rental\RentalTestHelper;
  * that makes a validated document immutable. A service test can pass while
  * the query underneath quietly does the other thing.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class RentalStayRepositoryTest extends TestCase
 {
     private \PDO $pdo;

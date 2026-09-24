@@ -23,6 +23,7 @@ use Tests\DatabaseTestHelper;
  * calendar, and reading its silence as a zero is the one mistake that would
  * make a maintainer retire a module people use every week.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class ModuleAdoptionTest extends TestCase
 {
     private \PDO $pdo;

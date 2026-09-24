@@ -29,6 +29,7 @@ use Tests\DatabaseTestHelper;
  * looked and declined, and a module that crashed all produced exactly the
  * same silence.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class AnalysisJournalTest extends TestCase
 {
     private \PDO $pdo;

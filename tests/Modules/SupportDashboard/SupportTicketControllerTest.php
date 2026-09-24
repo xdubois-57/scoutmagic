@@ -33,6 +33,7 @@ use Twig\Environment;
  * be mentioned to it, and a page that half-renders one is worse than a
  * page without it.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class SupportTicketControllerTest extends TestCase
 {
     private \PDO $pdo;

@@ -14,6 +14,7 @@ use Modules\SupportDashboard\Service\StatisticsIntakeService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class StatisticsIntakeServiceTest extends TestCase
 {
     private \PDO $pdo;

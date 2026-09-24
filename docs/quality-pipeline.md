@@ -122,6 +122,38 @@ count still** — the guard answers « could the connection have been made? »,
 which is the same question only while every database skip is a refused
 connection.
 
+### Who carries `database`, and what the group is still for
+
+**Every test class that builds a database carries it.**
+`Tests\Architecture\DatabaseBackedTestsCarryTheGroupTest` holds that, and
+"builds one" means the three idioms this suite uses:
+`DatabaseTestHelper::createTestDatabase()`, a bare
+`new \PDO('sqlite::memory:')`, or a module helper's `createTables()`.
+Inheritance counts — the four `Modules\Groups\Controller` classes build
+nothing themselves and are held to the rule anyway, because
+`GroupsControllerTestCase` builds it for them.
+
+The rule runs **one way only**. A class carrying the group without building
+one is not a defect: selecting a test that needed no database costs
+milliseconds, while missing one that did is the silent failure. Two classes
+are in that position today and are left alone.
+
+Write it as `#[\PHPUnit\Framework\Attributes\Group('database')]`, the
+majority spelling here and the one needing no import. The guard also accepts
+the imported attribute and the `@group database` doc-comment, both of which
+this repository still carries in quantity; recognising one spelling only
+would make it demand a second from files that already say it.
+
+CI does not use the group — both PHP jobs run the whole suite, and
+`AGENTS.md` § Database says why. Its one live use is **manual selection**,
+which this repository recommends in the place a newcomer cannot miss: the
+`SessionStart` hook prints
+`run 'vendor/bin/phpunit --group=database' for the MySQL-backed suite` on
+every open. That is what makes the omission expensive rather than untidy.
+Measured for issue #395, the group selected 9 586 tests where it should have
+selected 11 540: someone following that advice to check "the database part"
+of a change got five sixths of it, and nothing in the output said so.
+
 ### The engine a test actually runs on, which is not what the group says
 
 `#[Group('database')]` selects tests for the `database-mariadb` job. It

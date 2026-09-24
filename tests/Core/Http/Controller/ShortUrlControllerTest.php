@@ -12,6 +12,7 @@ use PHPUnit\Framework\TestCase;
 use Twig\Environment;
 use Twig\Loader\ArrayLoader;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class ShortUrlControllerTest extends TestCase
 {
     private \PDO $pdo;

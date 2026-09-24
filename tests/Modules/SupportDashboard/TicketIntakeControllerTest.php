@@ -29,6 +29,7 @@ use Twig\Loader\ArrayLoader;
  * status codes, the absence of an echo, the closed CSRF question, and the
  * category list every answer carries.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class TicketIntakeControllerTest extends TestCase
 {
     private \PDO $pdo;

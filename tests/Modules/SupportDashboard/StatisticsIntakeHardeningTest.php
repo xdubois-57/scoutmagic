@@ -26,6 +26,7 @@ use Tests\DatabaseTestHelper;
  * the guard order and trust-on-first-use; this one covers what a crafted
  * payload can and cannot do.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class StatisticsIntakeHardeningTest extends TestCase
 {
     private \PDO $pdo;

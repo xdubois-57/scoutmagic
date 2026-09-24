@@ -22,6 +22,7 @@ use Tests\Modules\Rental\RentalTestHelper;
  * a row deleted is a reminder back on the unit's default rather than one
  * frozen at whatever the default happened to be that day.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class RentalAssetReminderRepositoryTest extends TestCase
 {
     private \PDO $pdo;

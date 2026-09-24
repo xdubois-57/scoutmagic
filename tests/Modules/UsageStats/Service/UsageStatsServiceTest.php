@@ -15,6 +15,7 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\UsageStats\UsageStatsTestHelper;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class UsageStatsServiceTest extends TestCase
 {
     private const NOW = '2026-08-14 10:00:00';

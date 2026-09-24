@@ -24,6 +24,7 @@ use Tests\DatabaseTestHelper;
  * destination has to satisfy the same guards a usage report satisfies,
  * by calling them rather than by copying them.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class TicketIdentityServiceTest extends TestCase
 {
     private \PDO $pdo;

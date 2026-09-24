@@ -10,6 +10,7 @@ use Core\File\FileRepository;
 use Core\Security\Role;
 use PHPUnit\Framework\TestCase;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class FileAccessGuardTest extends TestCase
 {
     private \PDO $pdo;
