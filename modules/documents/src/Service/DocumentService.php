@@ -218,33 +218,34 @@ class DocumentService
         $visibility = $this->cleanVisibility($visibilityInput);
         $now = $this->now();
 
+        // One rule for every file this edit touches: closed before the
+        // document row changes, opened to its role only once the row says
+        // what it is for. DocumentFileOwnershipChecker judges a document's
+        // file by the row's CURRENT visibility on every request, so a file
+        // whose role and row disagree even briefly is served by the wrong
+        // rule — an unlisted file as a listed one, typically.
         $newFileId = null;
         if ($uploadedFile !== null && $this->hasUpload($uploadedFile)) {
-            // Stored closed, like create(): the document row still carries
-            // its OLD visibility until updateDetails() below, and a file
-            // opened now would be judged by it.
             $newFileId = $this->storeUpload($uploadedFile, DocumentVisibility::ADMIN, $actorId, $id);
         }
 
-        // A visibility change on the current file follows the same rule:
-        // closed before the document changes, opened to the new role after.
-        $retargetsCurrentFile = $newFileId === null && $visibility !== $document->visibility;
-        if ($retargetsCurrentFile) {
+        // The outgoing or current file is closed whenever the visibility
+        // changes, whether or not a new file comes with it.
+        $visibilityChanges = $visibility !== $document->visibility;
+        if ($visibilityChanges) {
             $this->fileRepository->updateRoleMin($document->fileId, DocumentVisibility::ADMIN->fileRoleMin());
         }
 
         try {
-            $this->repository->updateDetails($id, $title, $description, $visibility, $actorId, $now);
-            if ($newFileId !== null) {
-                $this->repository->replaceFile($id, $newFileId, $actorId, $now);
-            }
+            // Visibility and file in one statement: never half-applied.
+            $this->repository->applyEdit($id, $title, $description, $visibility, $newFileId, $actorId, $now);
         } catch (\Throwable $e) {
             // The new file is stored and the document does not point at it.
             if ($newFileId !== null) {
                 $this->fileRemover->removeOrphan($newFileId);
             }
-            // The document kept its old visibility: so does its file.
-            if ($retargetsCurrentFile) {
+            // The document kept its old visibility and file: so does the file.
+            if ($visibilityChanges) {
                 $this->fileRepository->updateRoleMin($document->fileId, $document->visibility->fileRoleMin());
             }
             throw $e;
@@ -262,7 +263,7 @@ class DocumentService
                 ['document_id' => $id],
                 $actorId
             );
-        } elseif ($visibility !== $document->visibility) {
+        } elseif ($visibilityChanges) {
             $this->fileRepository->updateRoleMin($document->fileId, $visibility->fileRoleMin());
         }
 

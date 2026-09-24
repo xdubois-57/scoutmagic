@@ -98,27 +98,27 @@ class DocumentRepository implements AttachedFileRepository
         return (int) $this->pdo->lastInsertId();
     }
 
-    /** Title, description and visibility — never the slug, which is frozen. */
-    public function updateDetails(
+    /**
+     * One edit, in ONE statement: title, description, visibility and —
+     * when one was uploaded — the current file. Never the slug, which is
+     * frozen. A single UPDATE is what keeps the row from ever carrying the
+     * new visibility with the old file, or the reverse, if the write fails
+     * half-way: files.role_min is derived from this row (DocumentService).
+     */
+    public function applyEdit(
         int $id,
         string $title,
         ?string $description,
         DocumentVisibility $visibility,
+        ?int $newFileId,
         ?int $updatedBy,
         string $now
     ): void {
         $stmt = $this->pdo->prepare(
-            'UPDATE documents SET title = ?, description = ?, visibility = ?, updated_by = ?, updated_at = ?'
-                . ' WHERE id = ?'
+            'UPDATE documents SET title = ?, description = ?, visibility = ?, file_id = COALESCE(?, file_id),'
+                . ' updated_by = ?, updated_at = ? WHERE id = ?'
         );
-        $stmt->execute([$title, $description, $visibility->value, $updatedBy, $now, $id]);
-    }
-
-    /** Points the document at a new current file. */
-    public function replaceFile(int $id, int $fileId, ?int $updatedBy, string $now): void
-    {
-        $stmt = $this->pdo->prepare('UPDATE documents SET file_id = ?, updated_by = ?, updated_at = ? WHERE id = ?');
-        $stmt->execute([$fileId, $updatedBy, $now, $id]);
+        $stmt->execute([$title, $description, $visibility->value, $newFileId, $updatedBy, $now, $id]);
     }
 
     /**

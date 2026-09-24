@@ -97,26 +97,72 @@ final class DirectLinkAccessTest extends TestCase
         $document = $this->service->create('ROI', null, 'public', DocumentsTestHelper::upload(), null);
         $seen = [];
         $spy = new class ($this->pdo, $seen) extends DocumentRepository {
-            /** @param list<string> $seen */
+            /** @param list<list<string>> $seen */
             public function __construct(private \PDO $db, private array &$seen)
             {
                 parent::__construct($db);
             }
 
-            public function replaceFile(int $id, int $fileId, ?int $updatedBy, string $now): void
-            {
-                $query = $this->db->prepare('SELECT role_min FROM files WHERE id = ?');
-                $query->execute([$fileId]);
-                $this->seen[] = (string) $query->fetchColumn();
-                parent::replaceFile($id, $fileId, $updatedBy, $now);
+            public function applyEdit(
+                int $id,
+                string $title,
+                ?string $description,
+                DocumentVisibility $visibility,
+                ?int $newFileId,
+                ?int $updatedBy,
+                string $now
+            ): void {
+                // Both files as the row is about to switch: the new one and
+                // the outgoing one must both be closed at this instant.
+                $query = $this->db->prepare(
+                    'SELECT f.role_min FROM files f WHERE f.id = ? OR f.id = (SELECT file_id FROM documents WHERE id = ?)'
+                    . ' ORDER BY f.id'
+                );
+                $query->execute([$newFileId, $id]);
+                $this->seen[] = array_map('strval', $query->fetchAll(\PDO::FETCH_COLUMN));
+                parent::applyEdit($id, $title, $description, $visibility, $newFileId, $updatedBy, $now);
             }
         };
         $service = DocumentsTestHelper::service($this->pdo, $this->storage, null, $spy);
 
         $updated = $service->update($document->id, 'ROI', null, 'direct_link', DocumentsTestHelper::upload('v2.pdf'), null);
 
-        $this->assertSame(['admin'], $seen, 'The new file was open before the document was.');
+        $this->assertSame([['admin', 'admin']], $seen, 'A file was open while the row still carried the old visibility.');
         $this->assertSame('public', DocumentsTestHelper::fileRoleMin($this->pdo, $updated->fileId));
+    }
+
+    /**
+     * An edit that fails leaves the document AND its file as they were:
+     * the row keeps its visibility, the file its role, the new upload
+     * does not linger.
+     */
+    public function testAFailedEditLeavesTheDocumentAndItsFileAsTheyWere(): void
+    {
+        $document = $this->service->create('PV AG', null, 'direct_link', DocumentsTestHelper::upload(), null);
+        $failing = new class ($this->pdo) extends DocumentRepository {
+            public function applyEdit(
+                int $id,
+                string $title,
+                ?string $description,
+                DocumentVisibility $visibility,
+                ?int $newFileId,
+                ?int $updatedBy,
+                string $now
+            ): void {
+                throw new \RuntimeException('lost connection');
+            }
+        };
+        $service = DocumentsTestHelper::service($this->pdo, $this->storage, null, $failing);
+
+        try {
+            $service->update($document->id, 'PV AG', null, 'public', DocumentsTestHelper::upload('v2.pdf'), null);
+            $this->fail('The failing write was swallowed.');
+        } catch (\RuntimeException) {
+        }
+
+        $this->assertSame('public', DocumentsTestHelper::fileRoleMin($this->pdo, $document->fileId));
+        $this->assertSame(DocumentVisibility::DIRECT_LINK, $this->service->findById($document->id)?->visibility);
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
     }
 
     public function testAReplacementFileIsOwnedByItsDocumentToo(): void

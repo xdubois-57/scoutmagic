@@ -142,7 +142,12 @@ La roadmap a été écrite sur le commit `fb9e661` ; elle a été relue contre
   enregistré fermé et n'est ouvert qu'une fois la nouvelle visibilité
   écrite sur le document ; un changement de visibilité sans nouveau
   fichier ferme le fichier courant avant et le rouvre au bon rôle après
-  (et lui rend l'ancien si l'enregistrement échoue).
+  (et lui rend l'ancien si l'enregistrement échoue). Dernière forme,
+  après une quatrième remarque de la revue : l'ancien fichier est fermé
+  dès que la visibilité change, nouveau fichier ou non, et la visibilité
+  comme le fichier courant s'écrivent en une seule requête
+  (`DocumentRepository::applyEdit()`) — un échec à mi-chemin ne peut plus
+  laisser la ligne et le `role_min` du fichier en désaccord.
 - **Un envoi de nouveau fichier qui échoue en cours de modification**
   retire le fichier qu'il venait d'enregistrer, comme l'ajout le faisait
   déjà (relevé par la même revue).
