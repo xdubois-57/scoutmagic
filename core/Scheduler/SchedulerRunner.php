@@ -88,6 +88,24 @@ class SchedulerRunner
      */
     public function processOverdue(?float $deadline = null): int
     {
+        // Before claiming anything: hand back the rows a previous pass
+        // claimed and never finished. Nothing else does — a handler killed
+        // outright takes none of the three ways out of a claim, and its
+        // row then reads as a live chain forever, so seed() stops
+        // re-arming and the task simply stops happening. Reclaiming first
+        // means a row freed here is picked up by this very pass rather
+        // than waiting for the next one.
+        foreach ($this->repository->reclaimAbandoned() as $abandoned) {
+            $this->journal->log(
+                'core',
+                'scheduler_task_reclaimed',
+                'warning',
+                "Tâche planifiée « {$abandoned['task_key']} » reprise : elle était retenue depuis trop "
+                    . 'longtemps par une passe qui ne l\'a jamais terminée.',
+                ['task_id' => $abandoned['id'], 'module_id' => $abandoned['module_id']]
+            );
+        }
+
         RequestTimeline::mark('scheduler_claim_overdue_start');
         $tasks = $this->repository->claimOverdue();
         RequestTimeline::mark('scheduler_claim_overdue_done', ['task_count' => count($tasks)]);

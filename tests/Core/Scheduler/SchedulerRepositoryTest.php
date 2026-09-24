@@ -180,4 +180,156 @@ class SchedulerRepositoryTest extends TestCase
     {
         $this->assertSame(0, $this->repo->deleteByTaskKey('camps', 'jamais_planifiee'));
     }
+
+    /**
+     * Claim a row and then pretend the process that claimed it died
+     * `$hoursAgo` hours ago, by writing the claim stamp a handler would
+     * have left behind.
+     *
+     * `$claimedAt === null` reproduces a row claimed before `claimed_at`
+     * existed: that is what every installation's stranded rows look like
+     * the moment this migration lands, and it is the case the fallback on
+     * `run_at` is for.
+     */
+    private function claimAndStrand(string $taskKey, string $runAt, ?string $claimedAt): int
+    {
+        $this->insertAction($taskKey, $runAt);
+        $claimed = $this->repo->claimOverdue();
+        $id = (int) $claimed[array_key_last($claimed)]['id'];
+
+        $stmt = $this->pdo->prepare('UPDATE scheduled_actions SET claimed_at = ? WHERE id = ?');
+        $stmt->execute([
+            $claimedAt === null ? null : (new \DateTimeImmutable($claimedAt))->format('Y-m-d H:i:s'),
+            $id,
+        ]);
+
+        return $id;
+    }
+
+    /**
+     * The failure this closes: a handler killed outright — OOM, a shared
+     * host's max_execution_time, a power cut — takes none of the three
+     * ways out of a claim, so its row stays 'processing' forever.
+     * `hasLive()` counts that row as a live chain, `SchedulerService::
+     * seed()` therefore never re-arms, and the task stops happening with
+     * nothing logged and nothing failing.
+     */
+    public function testARowHeldSinceLongerThanAnyRealTaskIsHandedBack(): void
+    {
+        $id = $this->claimAndStrand('abandoned_task', '-1 minute', '-12 hours');
+
+        $reclaimed = $this->repo->reclaimAbandoned();
+
+        $this->assertCount(1, $reclaimed);
+        $this->assertSame($id, (int) $reclaimed[0]['id']);
+        $this->assertSame('abandoned_task', $reclaimed[0]['task_key']);
+
+        $row = $this->repo->findById($id);
+        $this->assertSame('pending', $row['status']);
+        $this->assertNull($row['claimed_at'], 'a row handed back carries no claim');
+    }
+
+    /**
+     * The other direction, and the one that matters more: a full backup or
+     * an update install legitimately holds its row across several passes,
+     * and reclaiming it would start a SECOND copy beside the first — two
+     * processes copying an extracted archive over the live install at
+     * once. The threshold is set from that end.
+     */
+    public function testARowClaimedRecentlyIsLeftAlone(): void
+    {
+        $id = $this->claimAndStrand('long_running_task', '-1 minute', '-30 minutes');
+
+        $this->assertSame([], $this->repo->reclaimAbandoned());
+        $this->assertSame('processing', $this->repo->findById($id)['status']);
+    }
+
+    /**
+     * A row claimed before the column existed has no stamp at all, and
+     * `run_at` is the only timestamp it carries. Those are exactly the
+     * rows that have been stranded the longest, so they must be reclaimed
+     * rather than left because their stamp is missing.
+     */
+    public function testARowStrandedBeforeTheClaimStampExistedIsStillHandedBack(): void
+    {
+        $id = $this->claimAndStrand('stranded_before_migration', '-3 days', null);
+
+        $reclaimed = $this->repo->reclaimAbandoned();
+
+        $this->assertCount(1, $reclaimed);
+        $this->assertSame($id, (int) $reclaimed[0]['id']);
+        $this->assertSame('pending', $this->repo->findById($id)['status']);
+    }
+
+    /**
+     * And a stampless row that only became due a moment ago is NOT
+     * reclaimed: the fallback reads `run_at`, so it has to stop being
+     * generous somewhere, and "due one minute ago" is a task a pass may
+     * simply still be running.
+     */
+    public function testAStamplessRowThatOnlyJustBecameDueIsLeftAlone(): void
+    {
+        $id = $this->claimAndStrand('just_claimed', '-1 minute', null);
+
+        $this->assertSame([], $this->repo->reclaimAbandoned());
+        $this->assertSame('processing', $this->repo->findById($id)['status']);
+    }
+
+    /**
+     * Reclaiming touches nothing that has left 'processing' on its own.
+     * The guard is the same `AND status = 'processing'` the claim uses, so
+     * a pass reclaiming while another finishes the very same task cannot
+     * resurrect a row that has just been marked done.
+     */
+    public function testReclaimingLeavesEveryOtherStatusWhereItIs(): void
+    {
+        $done = $this->claimAndStrand('finished_task', '-1 minute', '-12 hours');
+        $this->repo->markDone($done);
+
+        $failed = $this->claimAndStrand('broken_task', '-1 minute', '-12 hours');
+        $this->repo->markFailed($failed, 'boom');
+
+        $this->assertSame([], $this->repo->reclaimAbandoned());
+        $this->assertSame('done', $this->repo->findById($done)['status']);
+        $this->assertSame('failed', $this->repo->findById($failed)['status']);
+    }
+
+    /**
+     * Every way out of a claim clears the stamp, so a row that comes back
+     * to 'pending' and is claimed again is judged on its NEW claim and not
+     * on the one before it.
+     */
+    public function testEveryWayOutOfAClaimClearsTheStamp(): void
+    {
+        $released = $this->claimAndStrand('released_task', '-1 minute', '-12 hours');
+        $this->repo->release($released);
+        $this->assertNull($this->repo->findById($released)['claimed_at']);
+
+        $done = $this->claimAndStrand('done_task', '-1 minute', '-12 hours');
+        $this->repo->markDone($done);
+        $this->assertNull($this->repo->findById($done)['claimed_at']);
+
+        $failed = $this->claimAndStrand('failed_task', '-1 minute', '-12 hours');
+        $this->repo->markFailed($failed, 'boom');
+        $this->assertNull($this->repo->findById($failed)['claimed_at']);
+    }
+
+    /**
+     * And the claim itself stamps: a row that is 'processing' without
+     * saying since when cannot be told apart from an abandoned one, which
+     * is the whole question reclaimAbandoned() answers.
+     */
+    public function testClaimingStampsTheRowWithTheMomentItWasClaimed(): void
+    {
+        $this->insertAction('due_task', '-1 minute');
+
+        $claimed = $this->repo->claimOverdue();
+
+        $this->assertNotNull($claimed[0]['claimed_at']);
+        $this->assertLessThanOrEqual(
+            5,
+            abs(time() - (int) strtotime((string) $claimed[0]['claimed_at'])),
+            'the stamp is the moment of the claim, not of anything else'
+        );
+    }
 }
