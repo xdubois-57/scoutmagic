@@ -14,7 +14,7 @@ namespace Modules\Rental\Availability;
  * AvailabilityCalculator's separate concern.
  *
  * **Keeping the two apart is the point.** A day inside the minimum-notice
- * window is *free*; it is merely too late to request. Module spec §6.7 is
+ * window is *free*; it is merely too late to request. Module spec specifications.md §22.2 is
  * explicit that such a day must be shown like the past and never like
  * "occupé" — a visitor told a free day is taken concludes the asset is
  * booked and gives up on it, which is a worse failure than showing nothing

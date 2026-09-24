@@ -13,7 +13,7 @@ namespace Modules\InboundMail\Service;
  *
  * `$stored` and `$seen` are counts and nothing else: no subject, no
  * address, no Message-ID. This object reaches a task log and a page, and
- * neither is a place for the content of somebody's mail (§7.9).
+ * neither is a place for the content of somebody's mail (§8.6).
  */
 class SyncOutcome
 {

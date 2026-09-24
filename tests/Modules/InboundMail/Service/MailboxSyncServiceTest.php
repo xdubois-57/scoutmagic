@@ -320,7 +320,7 @@ class MailboxSyncServiceTest extends TestCase
     public function testTheConsumerSeesASanitisedBodyBeforeItDecides(): void
     {
         // Looking for a reference in a body must not be where raw
-        // attacker-supplied HTML is first handled (§7.9).
+        // attacker-supplied HTML is first handled (§8.58).
         $consumer = $this->consumer(static fn(): AnalysisResult => AnalysisResult::nothing());
         $this->registry->register($consumer);
 
@@ -605,7 +605,7 @@ class MailboxSyncServiceTest extends TestCase
         $this->assertContains('disconnect', $this->client->calls);
     }
 
-    // ── Failures (§7.9) ─────────────────────────────────────────────────
+    // ── Failures (§8.6) ─────────────────────────────────────────────────
 
     public function testATlsFailureIsRecordedInPlainLanguageAndNeverSwallowed(): void
     {

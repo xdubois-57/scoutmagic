@@ -243,7 +243,7 @@ class InboundMessageAccessRegistryTest extends TestCase
      * stay true here of all places: the thing being refused is somebody
      * else's correspondence, and a journal line naming its subject, its
      * sender or its attachment's filename would put in the journal exactly
-     * what the refusal was protecting (§7.9).
+     * what the refusal was protecting (§8.6).
      */
     public function testARefusedDownloadIsJournalledWithoutAnythingFromTheMessage(): void
     {

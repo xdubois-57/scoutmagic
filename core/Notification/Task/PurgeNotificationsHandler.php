@@ -44,7 +44,7 @@ class PurgeNotificationsHandler implements TaskHandlerInterface
         $cutoff = (new \DateTimeImmutable())->modify("-{$retentionDays} days");
         $deleted = $repository->deleteReadOlderThan($cutoff);
 
-        // A count and a retention, never a recipient or a title (§7.9).
+        // A count and a retention, never a recipient or a title (§8.6).
         // Silence here meant « mes notifications ont disparu » had no
         // answer at all — not even « la conservation les a prises, elle
         // est réglée à 90 jours ».

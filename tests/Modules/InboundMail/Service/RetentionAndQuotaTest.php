@@ -314,7 +314,7 @@ class RetentionAndQuotaTest extends TestCase
     {
         // The journal line is the sensitive part. Naming a sender or a
         // subject there would write down exactly what the retention exists
-        // to stop keeping (§7.9), so the entry carries a number and
+        // to stop keeping (§8.6), so the entry carries a number and
         // nothing else.
         // handle() reads the real clock rather than this file's frozen
         // 2027, so this one message is dated against it.

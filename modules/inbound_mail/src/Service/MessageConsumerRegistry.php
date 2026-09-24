@@ -130,7 +130,7 @@ class MessageConsumerRegistry
      * other consumer's mail unread behind a stuck cursor. It is no longer
      * skipped *silently*, though: the failure reaches the journal as an
      * `error`, naming the module and the box and nothing of the message
-     * itself (§7.9). Swallowing it whole was how a module could decline to
+     * itself (§8.6). Swallowing it whole was how a module could decline to
      * read a unit's mail for weeks with nothing anywhere to say so.
      *
      * `$only` narrows the question to the consumers the mailbox's own

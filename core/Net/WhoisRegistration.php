@@ -20,7 +20,7 @@ namespace Core\Net;
  * **The registrant is deliberately not among them**, and that is a rule
  * rather than an omission. A unit's domain is often registered by a
  * volunteer in their own name, so `Registrant Name` and its neighbours are
- * a natural person's identity (§7.9) — and a parsed copy of them would be
+ * a natural person's identity (§8.6) — and a parsed copy of them would be
  * a clear-text column, sortable, searchable and exportable, which is
  * exactly what a raw response kept encrypted and read by one person is
  * not. What the registry sent is kept whole; what this application
@@ -65,7 +65,7 @@ final class WhoisRegistration
      * under each `nic-hdl`, and an American registrant's address block
      * prints `State:`. Either would land a natural person's data in
      * `whois_registration`, a clear-text, filterable, exportable column
-     * (§7.9) — the exact outcome « le titulaire n'est jamais analysé »
+     * (§8.6) — the exact outcome « le titulaire n'est jamais analysé »
      * promises will not happen. `$block` persists until the next heading,
      * so the guard has to be here rather than at the `Registrant:` line.
      *

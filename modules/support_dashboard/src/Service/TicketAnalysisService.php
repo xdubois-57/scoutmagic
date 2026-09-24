@@ -164,7 +164,7 @@ class TicketAnalysisService
     /**
      * One entry per outcome, in the words of the outcome itself.
      *
-     * Counts, never a word of a description (§7.9): a journal entry says
+     * Counts, never a word of a description (§8.6): a journal entry says
      * that a transmission happened and how big it was, and travels in the
      * diagnostic archive where a ticket's text has no business being.
      */

@@ -1591,7 +1591,7 @@ class InboundMessageRepository
      * figure the attention page shows.
      *
      * A count, never a listing: an attention point says how many and where
-     * to go, never who wrote or what about (§7.9).
+     * to go, never who wrote or what about (§8.6).
      */
     public function countUnassociated(bool $includeBulk = false): int
     {

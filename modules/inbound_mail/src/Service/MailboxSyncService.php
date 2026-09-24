@@ -244,7 +244,7 @@ class MailboxSyncService
             sentAt: $message->sentAt,
             // Sanitised before a consumer ever reads it: looking for a
             // reference in a body must not be where raw attacker HTML is
-            // first handled (§7.9).
+            // first handled (§8.58).
             bodyText: $this->sanitizer->sanitizeText($message->bodyText),
             bodyHtml: $this->sanitizer->sanitizeHtml($message->bodyHtml),
             attachments: $this->candidateAttachments($message),
@@ -410,7 +410,7 @@ class MailboxSyncService
         // One line per message, whatever came of it — « personne ne l'a
         // reconnu » included, which is the answer a unit most often needs
         // and the one that was hardest to get. Never the subject, never the
-        // sender: an internal id and what each module answered (§7.9).
+        // sender: an internal id and what each module answered (§8.6).
         $this->analysisJournal?->analysed(
             $storedId,
             $mailbox->id,
@@ -741,7 +741,7 @@ class MailboxSyncService
      * images — an attachment photographed inside somebody's home carries
      * GPS coordinates — the file lands outside `public/`, and the row it
      * creates is what `FileAccessGuard` later checks. Reimplementing that
-     * here would mean maintaining a second copy of it (§7.9).
+     * here would mean maintaining a second copy of it (§8.58).
      *
      * **The file is owned by the message**, which is what actually
      * partitions it. `role_min = 'intendant'` is a floor, not a lock: on

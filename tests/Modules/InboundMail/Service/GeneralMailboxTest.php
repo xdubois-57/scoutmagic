@@ -301,7 +301,7 @@ class GeneralMailboxTest extends TestCase
 
     public function testTheAttentionPointNamesNobodyAndQuotesNothing(): void
     {
-        // §7.9: a summary is not an exception. The page is screenshotted
+        // §8.6: a summary is not an exception. The page is screenshotted
         // and exported.
         $this->store('bare@x');
 

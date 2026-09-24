@@ -2061,7 +2061,7 @@ class RentalManagementController extends AbstractController
     }
 
     /**
-     * POST /mes-locations/option — a manager's hold with a deadline (§6.14).
+     * POST /mes-locations/option — a manager's hold with a deadline (specifications.md §22.5).
      *
      * @param array<string, string> $params
      */

@@ -187,7 +187,7 @@ final class UnattendedReceiptFilingTest extends TestCase
         $this->assertCount(1, $reported, 'a receipt finance refused must leave a trace somewhere');
         // What the composition roots journal: enough to find the
         // attachment and to know why, and no filename — that is personal
-        // data (ARCHITECTURE.md §7.9).
+        // data (ARCHITECTURE.md §8.6).
         $this->assertSame('Compte introuvable.', $reported[0]['message']);
         $this->assertSame('image/png', $reported[0]['mime']);
         $this->assertSame(88, $reported[0]['id']);

@@ -28,7 +28,7 @@
 //     styles can tell the difference, which is exactly why the check is
 //     here and not in a controller test.
 //   - A manual block entered on that calendar reaches the public
-//     calendar as an indistinguishable "occupé" (§6.7).
+//     calendar as an indistinguishable "occupé" (specifications.md §22.2).
 //   - Confirming a request moves it through the real transition table and
 //     the real availability re-check.
 //
@@ -145,7 +145,7 @@ test.describe('Rentals — running an asset', () => {
         await expect(page.getByText('Chantier toiture')).toBeVisible();
 
         // ── What the public sees of it: that the days are taken, and not
-        //    one word about why (§6.7). ───────────────────────────────────
+        //    one word about why (specifications.md §22.2). ───────────────────────────────────
         await page.context().clearCookies();
         await page.goto(`/locations/${ASSET_SLUG}?month=${BLOCK_START.slice(0, 7)}`);
 

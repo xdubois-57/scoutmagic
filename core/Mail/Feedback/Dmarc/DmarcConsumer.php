@@ -204,7 +204,7 @@ final class DmarcConsumer implements MessageConsumerInterface, PayloadConsumerIn
     public function triageAudienceCount(): int
     {
         // Nobody is shown these messages. Inflating the figure would make
-        // every other consumer's count read as noise (§7.9).
+        // every other consumer's count read as noise (§8.6).
         return 0;
     }
 }

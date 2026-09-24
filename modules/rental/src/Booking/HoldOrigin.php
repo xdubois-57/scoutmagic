@@ -9,7 +9,7 @@ declare(strict_types=1);
 namespace Modules\Rental\Booking;
 
 /**
- * Why a booking is holding its dates temporarily (module spec §6.14).
+ * Why a booking is holding its dates temporarily (specifications.md §22.5).
  *
  * **There is exactly one hold mechanism**, carried by the booking itself
  * with one deadline and this origin — not two parallel systems. That is what

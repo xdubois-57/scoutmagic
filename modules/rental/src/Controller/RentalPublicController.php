@@ -37,7 +37,7 @@ use Twig\Environment;
  * price actually paid; a document; an access code; an internal comment. The
  * calendar shows *that* a day is taken and never *why* — a booking, a
  * temporary hold and a manual block are one indistinguishable state
- * (§6.7/§6.14).
+ * (specifications.md §22.2).
  *
  * The "Gérer ce bien" button is rendered conditionally, and that condition
  * is **presentation only** — the managed space re-checks authority
@@ -46,7 +46,7 @@ use Twig\Environment;
 class RentalPublicController extends AbstractController
 {
     /**
-     * A visitor may never page backwards past the current month (§6.7), and
+     * A visitor may never page backwards past the current month (specifications.md §22.2), and
      * this caps how far forward they may go in one page load — a bound on
      * the query, not a booking rule (that is the configurable horizon).
      */
@@ -264,7 +264,7 @@ class RentalPublicController extends AbstractController
     /**
      * The month to render.
      *
-     * Clamped at both ends: **a visitor can never go into the past** (§6.7),
+     * Clamped at both ends: **a visitor can never go into the past** (specifications.md §22.2),
      * and cannot page arbitrarily far forward either. Clamping here rather
      * than only hiding the arrow matters — the month is a query parameter,
      * and a hidden button is not a boundary.
@@ -357,7 +357,7 @@ class RentalPublicController extends AbstractController
      * Runs through the very same engine as the configuration simulator and
      * the contract. When something needed is still missing — no head count
      * yet, no category chosen — the quote reports it and the template says
-     * "dès X €" rather than a number it would have to walk back (§6.7).
+     * "dès X €" rather than a number it would have to walk back (specifications.md §22.2).
      *
      * @param array{0: string, 1: string|null}|null $selection
      * @return array{quote: \Modules\Rental\Pricing\PriceQuote, errors: string[]}|null

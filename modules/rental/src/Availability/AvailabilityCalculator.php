@@ -552,7 +552,7 @@ class AvailabilityCalculator
 
     /**
      * Whether a candidate range crosses anything unavailable — the check
-     * behind "impossible de traverser une indisponibilité" (§6.7).
+     * behind "impossible de traverser une indisponibilité" (specifications.md §22.2).
      *
      * @param Occupancy[] $occupancies
      */

@@ -547,7 +547,7 @@ class RentalRbacTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
     }
 
-    // ── The public calendar (§6.7) ──────────────────────────────────────
+    // ── The public calendar (specifications.md §22.2) ──────────────────────────────────────
 
     public function testThePublicPageRendersAnAvailabilityCalendar(): void
     {
@@ -563,7 +563,7 @@ class RentalRbacTest extends TestCase
 
     public function testTheCalendarCannotBePagedIntoThePastEvenViaTheQueryString(): void
     {
-        // §6.7: a visitor can never go into the past. Clamping in the
+        // specifications.md §22.2: a visitor can never go into the past. Clamping in the
         // controller — not just hiding the arrow — is what makes that true,
         // since the month is a query parameter.
         $this->createAsset('Local', 'local');
@@ -657,7 +657,7 @@ class RentalRbacTest extends TestCase
 
     public function testAnIncompleteEstimateIsPresentedAsAStartingPriceNotAFirmOne(): void
     {
-        // §6.7's "dès X €": with no category chosen the quote is incomplete,
+        // specifications.md §22.2's "dès X €": with no category chosen the quote is incomplete,
         // and the page must not show a number it would have to walk back.
         $assetId = $this->createAsset('Local', 'local');
         $pricingService = $this->pricingServiceFor();
@@ -786,7 +786,7 @@ class RentalRbacTest extends TestCase
 
     public function testARangeViolatingAConstraintIsReportedWithoutClaimingUnavailability(): void
     {
-        // A notice-period refusal must never read as "occupé" (§6.7).
+        // A notice-period refusal must never read as "occupé" (specifications.md §22.2).
         $assetId = $this->createAsset('Local', 'local');
         $this->pricingServiceFor()->saveAssetPricing($assetId, 'per_night', 8000, null, null);
         $this->availabilityServiceFor()->saveConstraints($assetId, 0, 0, 60, 0, [], null, 0);

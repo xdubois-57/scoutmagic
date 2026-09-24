@@ -17,7 +17,7 @@
 // hidden, and opening the dialog appends that element to the dialog's body;
 // closing puts it back where it came from. No HTML string travels through a
 // data attribute and nothing is assigned to innerHTML — the body is already
-// sanitised and stripped of remote images at storage (§7.9), and that is
+// sanitised and stripped of remote images at storage (§8.58), and that is
 // not a reason to hand it to a second parser in the browser.
 (function () {
     'use strict';

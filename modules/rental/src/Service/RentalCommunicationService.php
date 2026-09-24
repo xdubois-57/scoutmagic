@@ -149,7 +149,7 @@ class RentalCommunicationService
 
             // The booking's reference and the message's internal id, and
             // nothing else — never the sender, the subject or a word of the
-            // content (§7.9).
+            // content (§8.6).
             $this->journal->log(
                 'rental',
                 'rental_message_detached',

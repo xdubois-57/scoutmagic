@@ -236,7 +236,7 @@ class ImapClientBehaviourTest extends TestCase
      * choice — an operator debugging a hostile IMAP host needs the
      * server's own words. The objection to it is real and worth pinning:
      * `UserFacingException` says a cause "carries the detail to the
-     * journal", and §7.9 forbids personal data there. If both were true
+     * journal", and §8.6 forbids personal data there. If both were true
      * of this chain, the mailbox address and the password inside that
      * cause would land in a table any chef d'unité can read.
      *
