@@ -307,10 +307,10 @@ Rien.
   qui diffère d'un module à l'autre — le nom de ses objets, l'adresse de
   ses actions, le sélecteur de rattachement — lui est passé dans
   `triage_ui`.
-- **La liste elle-même est partagée** : `Api\TriageList` construit les
-  lignes, les filtres, les compteurs et le message de « Relancer
-  l'analyse » à partir de `InboundMailInterface` seul. Les camps et les
-  locations en font la même lecture.
+- **La liste elle-même est partagée** : `InboundMailInterface::triageRows()`
+  donne les lignes, `Api\TriageScreen` et `Api\TriageFilter` les filtres
+  et les compteurs, `Api\ReanalysisReport` la phrase de « Relancer
+  l'analyse ». Les camps et les locations en font la même lecture.
 - **Les camps** passent sur le composant sans changer de comportement :
   leurs 43 tests d'écran passent tels quels, aux identifiants de la boîte
   de dialogue près.
@@ -351,6 +351,20 @@ Rien.
    un autre séjour », « … à une autre réservation ») plutôt que d'être
    composés dans le gabarit : l'aide cite ces libellés, et
    `HelpLabelDriftTest` les cherche tels quels.
+5. **Un gestionnaire ne lit que le courrier à sa portée** (relevé en
+   revue de la PR #480). Une boîte dédiée aux locations est lisible en
+   entier par le *module* ; ses gestionnaires, eux, sont chacun sur leurs
+   biens. La liste d'un gestionnaire garde ce qui est rattaché ou proposé
+   à l'une de SES réservations — et sur chaque ligne, seulement cela — et
+   le courrier que rien ne rattache seulement pour qui gère tous les biens
+   (le Staff d'U, ou un gestionnaire nommé sur chacun) : il peut concerner
+   n'importe lequel. Rattacher, écarter et reprendre passent par la même
+   liste.
+6. **La liste partagée vit hors de `Api\`** au sens où ARCHITECTURE.md
+   §7.5 l'entend (relevé en revue) : une première version y mettait une
+   classe de service statique. Les lignes sont une méthode de
+   l'interface, écrite une fois (`Service\TriageRowBuilder`) ; ce qui
+   reste dans `Api\` est un enum et deux objets-valeurs.
 
 ### Écarts (suite de l'écart 5)
 

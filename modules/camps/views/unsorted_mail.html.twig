@@ -10,7 +10,15 @@
         {# The screen is the component every module's triage shares
            (@inbound_mail/partials/triage.html.twig, issue #462): what is
            the camps' own here is only what their objects are called, where
-           the actions post, and how a stay is picked. #}
+           the actions post, and how a stay is picked. That namespace exists
+           only while inbound_mail is enabled, and this page does not need
+           the module: without it, it says so and names nothing there. #}
+        {% if not inbound_mail_enabled %}
+            {% include 'partials/empty_state.html.twig' with {
+                message: 'Le module Courrier entrant n\'est pas activé : rien n\'arrive ici.',
+                icon: 'bi-envelope',
+            } only %}
+        {% else %}
         {% include '@inbound_mail/partials/triage.html.twig' with {
             messages: messages, status: status, counts: counts,
             include_bulk: include_bulk, bulk_count: bulk_count,
@@ -38,8 +46,11 @@
                 row_extra_template: '@camps/partials/triage_create_camp.html.twig',
             },
         } only %}
+        {% endif %}
     </div>
-    {% include '@inbound_mail/partials/triage_dialog.html.twig' %}
+    {% if inbound_mail_enabled %}
+        {% include '@inbound_mail/partials/triage_dialog.html.twig' %}
+    {% endif %}
 {% endblock %}
 
 {% block scripts %}

@@ -11,7 +11,6 @@ namespace Modules\Rental\Service;
 use Core\Journal\JournalService;
 use Modules\InboundMail\Api\InboundMailInterface;
 use Modules\InboundMail\Api\InboundMessage;
-use Modules\InboundMail\Api\TriageList;
 use Modules\Rental\Mail\RentalMessageConsumer;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Document\DocumentType;
@@ -27,16 +26,17 @@ use Modules\Rental\Repository\RentalDocumentRepository;
  * and everything about who may see a booking lives here. The two rules this
  * class exists to enforce:
  *
- * - **A manager may only move a message to a booking of an asset they
+ * - **A manager may only file a message under a booking of an asset they
  *   manage.** The list of targets is derived from their own manageable
  *   assets rather than filtered from a global list, so a hand-crafted POST
  *   naming somebody else's booking finds no candidate rather than being
  *   rejected after the fact — and the target list is never a doorway into
  *   the rest of the unit's bookings.
- * - **A manager cannot attach a new message.** There is no surface for it
- *   anywhere in this class, because there is no surface onto the mailbox at
- *   all: attaching is what the automatic rules do, and correcting them is
- *   what detach and move are for.
+ * - **A manager reads only the mail within their reach** (`withinReach()`):
+ *   what is filed or proposed under their own bookings, and — for somebody
+ *   who manages every asset — what nothing attributes yet. A box dedicated
+ *   to rentals is readable in full by the module; its managers are not one
+ *   audience, and this is where they are told apart.
  *
  * The whole class degrades to nothing when `inbound_mail` is disabled —
  * `$inboundMail` is null and every method answers as if no message ever
@@ -68,11 +68,8 @@ class RentalCommunicationService
 
     /**
      * The bookings a person may file mail under — every booking of every
-     * asset they manage — keyed by reference.
-     *
-     * This IS the triage screen's scope: every read and every write below
-     * is bounded by these references and nothing else, so the shared screen
-     * cannot show a manager the mail of an asset somebody else manages.
+     * asset they manage — keyed by reference. With `sortsUnattributed()`,
+     * the whole of the triage screen's reach.
      *
      * @return array<string, RentalBooking>
      */
@@ -95,36 +92,104 @@ class RentalCommunicationService
     }
 
     /**
-     * The triage screen's list for those bookings (Api\TriageList).
+     * Whether this person may read mail nothing attributes yet: a message
+     * naming no booking may be about any asset, so only somebody who
+     * manages every one of them may open it to sort it.
+     */
+    public function sortsUnattributed(?string $email, int $scoutYearId): bool
+    {
+        return $this->authorizationService->managesEveryAsset($email, $scoutYearId);
+    }
+
+    /**
+     * The triage screen's list within that reach (`withinReach()`).
      *
      * @param string[] $references
      * @return list<array<string, mixed>>
      */
-    public function triageRows(array $references, bool $dismissed = false): array
+    public function triageRows(array $references, bool $sortsUnattributed, bool $dismissed = false): array
     {
         if ($this->inboundMail === null || $references === []) {
             return [];
         }
 
-        return TriageList::rows(
-            $this->inboundMail,
-            RentalMessageConsumer::CONSUMER_ID,
+        return self::withinReach(
+            $this->inboundMail->triageRows(
+                RentalMessageConsumer::CONSUMER_ID,
+                $references,
+                self::TRIAGE_LIMIT,
+                $dismissed
+            ),
             $references,
-            self::TRIAGE_LIMIT,
-            $dismissed
+            $sortsUnattributed
         );
     }
 
     /**
+     * How many set-aside messages are within that reach — counted on the
+     * list itself, since the API's own count covers everything the module
+     * may read. Bounded like the list, which is what the tab shows.
+     *
      * @param string[] $references
      */
-    public function countDismissed(array $references): int
+    public function countDismissed(array $references, bool $sortsUnattributed): int
     {
-        if ($this->inboundMail === null || $references === []) {
-            return 0;
+        return count($this->triageRows($references, $sortsUnattributed, true));
+    }
+
+    /**
+     * Keeps the rows a manager may read, and on each only what is theirs.
+     *
+     * `findForTriage()` answers for the module: on a box dedicated to
+     * rentals that is the whole box, the operator having said the module
+     * reads everything there. A manager is narrower than the module. A row
+     * stays when a link or a proposition names one of THEIR bookings — and
+     * then shows those only, never the reference of a booking they do not
+     * manage — or when nothing attributes it at all and they manage every
+     * asset. Mail filed under somebody else's booking is not on their
+     * screen, and so cannot be attached, set aside or restored from it.
+     *
+     * @param list<array<string, mixed>> $rows
+     * @param string[] $references
+     * @return list<array<string, mixed>>
+     */
+    private static function withinReach(array $rows, array $references, bool $sortsUnattributed): array
+    {
+        $mine = static fn(object $item): bool => in_array($item->businessReference, $references, true);
+
+        $kept = [];
+        foreach ($rows as $row) {
+            $links = array_values(array_filter($row['links'], $mine));
+            $candidates = array_values(array_filter($row['candidates'], $mine));
+            $unattributed = $row['links'] === [] && $row['candidates'] === [];
+
+            if ($links !== [] || $candidates !== [] || ($unattributed && $sortsUnattributed)) {
+                $kept[] = ['links' => $links, 'candidates' => $candidates] + $row;
+            }
         }
 
-        return $this->inboundMail->countDismissedMessages(RentalMessageConsumer::CONSUMER_ID, $references);
+        return $kept;
+    }
+
+    /**
+     * Whether one message is on this person's list — the only authority a
+     * message id posted by a form carries.
+     *
+     * @param string[] $references
+     */
+    private function isWithinReach(
+        array $references,
+        bool $sortsUnattributed,
+        int $messageId,
+        bool $dismissed = false
+    ): bool {
+        foreach ($this->triageRows($references, $sortsUnattributed, $dismissed) as $row) {
+            if ($row['message']->id === $messageId) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -135,8 +200,8 @@ class RentalCommunicationService
      * leaves the requester's reach to the caller, and an id in a form is not
      * an authorisation: attaching an arbitrary message to one's own booking
      * would be reading it. So the message must be one the triage list of
-     * THESE references shows. The booking's own hooks then file its
-     * attachments (`RentalMessageConsumer::onLinked()`).
+     * THIS person shows. The booking's own hooks then file its attachments
+     * (`RentalMessageConsumer::onLinked()`).
      *
      * @param string[] $references
      */
@@ -144,20 +209,13 @@ class RentalCommunicationService
         RentalBooking $target,
         int $messageId,
         array $references,
+        bool $sortsUnattributed,
         ?int $userAccountId
     ): bool {
-        if ($this->inboundMail === null || !in_array($target->reference, $references, true)) {
-            return false;
-        }
-
-        $inScope = false;
-        foreach ($this->inboundMail->findForTriage(RentalMessageConsumer::CONSUMER_ID, $references, self::TRIAGE_LIMIT) as $message) {
-            if ($message->id === $messageId) {
-                $inScope = true;
-                break;
-            }
-        }
-        if (!$inScope) {
+        if ($this->inboundMail === null
+            || !in_array($target->reference, $references, true)
+            || !$this->isWithinReach($references, $sortsUnattributed, $messageId)
+        ) {
             return false;
         }
 
@@ -170,31 +228,35 @@ class RentalCommunicationService
     }
 
     /**
-     * « Ce courrier ne concerne pas les locations » — scoped by the API to
-     * the requester's own list.
+     * « Ce courrier ne concerne pas les locations » — for a message on the
+     * requester's own list only.
      *
      * @param string[] $references
      */
-    public function setAside(array $references, int $messageId, ?int $userAccountId): bool
+    public function setAside(array $references, bool $sortsUnattributed, int $messageId, ?int $userAccountId): bool
     {
-        return $references !== [] && ($this->inboundMail?->dismissMessage(
-            RentalMessageConsumer::CONSUMER_ID,
-            $references,
-            $messageId,
-            $userAccountId
-        ) ?? false);
+        return $this->inboundMail !== null
+            && $this->isWithinReach($references, $sortsUnattributed, $messageId)
+            && $this->inboundMail->dismissMessage(
+                RentalMessageConsumer::CONSUMER_ID,
+                $references,
+                $messageId,
+                $userAccountId
+            );
     }
 
     /**
      * @param string[] $references
      */
-    public function restore(array $references, int $messageId): bool
+    public function restore(array $references, bool $sortsUnattributed, int $messageId): bool
     {
-        return $references !== [] && ($this->inboundMail?->restoreMessage(
-            RentalMessageConsumer::CONSUMER_ID,
-            $references,
-            $messageId
-        ) ?? false);
+        return $this->inboundMail !== null
+            && $this->isWithinReach($references, $sortsUnattributed, $messageId, true)
+            && $this->inboundMail->restoreMessage(
+                RentalMessageConsumer::CONSUMER_ID,
+                $references,
+                $messageId
+            );
     }
 
     /**

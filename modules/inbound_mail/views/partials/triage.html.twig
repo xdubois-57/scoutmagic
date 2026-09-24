@@ -3,14 +3,14 @@
   camps and for rentals, so the two screens cannot drift apart the day
   after they were separated.
 
-  The list is `Api\TriageList`'s; what differs between modules is only what
+  The list is `Api\TriageScreen`'s; what differs between modules is only what
   their objects are called, where their actions post and how one of their
   objects is picked, all of it in `triage_ui`. The component invents no
   access: every row comes from `InboundMailInterface::findForTriage()` with
   the references the consumer says its user may reach, and every form posts
   to the consumer's own controller, which checks them again.
 
-  Requires the output of `TriageList::screen()` (`messages`, `status`,
+  Requires `Api\TriageScreen::toArray()` (`messages`, `status`,
   `counts`, `include_bulk`, `bulk_count`) and `triage_ui`:
 
     has_inbound_mail   -- false: no box is read at all, and the screen says so

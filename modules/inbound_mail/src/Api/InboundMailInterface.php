@@ -111,6 +111,29 @@ interface InboundMailInterface
     ): array;
 
     /**
+     * The rows of a triage screen (`TriageScreen`, issue #462): the
+     * messages `findForTriage()` returns, each with this consumer's own
+     * links and standing propositions and what a row needs to render — a
+     * one-line excerpt, whether it was cut, whether there is a body at all,
+     * how many attachments.
+     *
+     * Only THIS consumer's links and propositions: another module's
+     * business on the same message is not this screen's, and showing it
+     * would leak one module's guesses into another's audience. Scoped
+     * exactly as `findForTriage()` is, which it reads through.
+     *
+     * @param string[] $ownReferences references the requester may manage
+     * @return list<array{message: InboundMessage, excerpt: string, truncated: bool, has_body: bool,
+     *     attachment_count: int, links: MessageLink[], candidates: MessageCandidate[]}>
+     */
+    public function triageRows(
+        string $consumerId,
+        array $ownReferences,
+        int $limit = 50,
+        bool $dismissed = false
+    ): array;
+
+    /**
      * « Ce courrier ne concerne pas ce module. »
      *
      * A dedicated mailbox collects newsletters, bounces and delivery

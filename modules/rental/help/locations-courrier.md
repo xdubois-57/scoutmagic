@@ -15,7 +15,9 @@ related: gerer-les-locations, courrier-entrant, courrier-reponse, courrier-unite
 Si l'unité relève ses e-mails depuis ScoutMagic, la page « Courrier »
 d'une réservation montre le courrier des locations — celui de toutes les
 réservations des biens que vous gérez, pas seulement de celle-ci. C'est
-le même écran que le courrier des camps.
+le même écran que le courrier des camps. Un message que rien ne rattache
+encore n'y apparaît que si vous gérez tous les biens : il peut concerner
+n'importe lequel.
 
 Les onglets trient la liste : **À trier** (ce que rien ne rattache
 encore), **Rattachés**, **Tous**, et **Écartés** une fois que vous avez

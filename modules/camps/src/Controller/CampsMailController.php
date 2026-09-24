@@ -22,7 +22,9 @@ use Modules\Camps\Mail\ExistingStayMatcher;
 use Modules\Camps\Service\CampLabels;
 use Modules\Camps\Service\StaySearchService;
 use Modules\InboundMail\Api\InboundMailInterface;
-use Modules\InboundMail\Api\TriageList;
+use Modules\InboundMail\Api\ReanalysisReport;
+use Modules\InboundMail\Api\TriageFilter;
+use Modules\InboundMail\Api\TriageScreen;
 use Twig\Environment;
 
 /**
@@ -85,13 +87,14 @@ class CampsMailController extends AbstractController
      */
     public function unsorted(Request $request, array $params): Response
     {
-        $triage = TriageList::screen(
+        $filter = TriageFilter::fromQuery((string) $request->getQuery('statut', ''));
+        $triage = TriageScreen::of(
             $this->messages(),
-            TriageList::status((string) $request->getQuery('statut', '')),
+            $filter,
             (string) $request->getQuery('automatique', '') === '1',
-            fn(): array => $this->messages(dismissed: true),
+            $filter === TriageFilter::DISMISSED ? $this->messages(dismissed: true) : [],
             $this->dismissedCount()
-        );
+        )->toArray();
 
         // The stays as a chief names them, once for the page: « Rattaché —
         // camp-51 » told nobody anything, and the label the picker already
@@ -106,6 +109,10 @@ class CampsMailController extends AbstractController
 
         return $this->render('@camps/unsorted_mail.html.twig', $triage + [
             'can_search_stays' => $this->staySearch !== null,
+            // Whether the module is there at all: its views are registered
+            // only while it is enabled, so without it the shared screen
+            // cannot even be named.
+            'inbound_mail_enabled' => $this->inboundMail !== null,
             'has_inbound_mail' => $this->inboundMail !== null && $this->inboundMail->isCollecting(),
             'labels' => $labels,
             'reference_urls' => $urls,
@@ -164,7 +171,8 @@ class CampsMailController extends AbstractController
      */
     public function restore(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request, '/chefs/camps/courrier?statut=' . self::STATUS_DISMISSED)) !== null) {
+        $back = '/chefs/camps/courrier?statut=' . TriageFilter::DISMISSED->value;
+        if (($guard = $this->guardCsrf($request, $back)) !== null) {
             return $guard;
         }
 
@@ -179,7 +187,7 @@ class CampsMailController extends AbstractController
             $done ? 'Courrier remis dans la liste.' : 'Ce courrier n\'a pas pu être remis dans la liste.'
         );
 
-        return $this->redirect('/chefs/camps/courrier?statut=' . self::STATUS_DISMISSED);
+        return $this->redirect($back);
     }
 
     private function dismissedCount(): int
@@ -189,16 +197,6 @@ class CampsMailController extends AbstractController
             $this->stayReferences()
         ) ?? 0;
     }
-
-    /**
-     * The filters of the screen, now shared with every module's triage
-     * (Api\TriageList, issue #462). Kept here as aliases: other code of
-     * this module names them through this class.
-     */
-    public const STATUS_UNLINKED = TriageList::STATUS_UNLINKED;
-    public const STATUS_LINKED = TriageList::STATUS_LINKED;
-    public const STATUS_ALL = TriageList::STATUS_ALL;
-    public const STATUS_DISMISSED = TriageList::STATUS_DISMISSED;
 
     /**
      * « Relancer l'analyse » — offer every unattributed message to this
@@ -231,7 +229,7 @@ class CampsMailController extends AbstractController
 
         $report = $this->inboundMail->reanalyzeUnlinked(CampsMessageConsumer::CONSUMER_ID, self::MAX_MESSAGES);
 
-        FlashMessage::set('success', TriageList::reanalysisMessage($report));
+        FlashMessage::set('success', ReanalysisReport::fromArray($report)->message());
 
         return $this->redirect('/chefs/camps/courrier');
     }
@@ -442,20 +440,21 @@ class CampsMailController extends AbstractController
             return [];
         }
 
-        return TriageList::rows(
-            $this->inboundMail,
-            CampsMessageConsumer::CONSUMER_ID,
-            $this->stayReferences(),
-            self::MAX_MESSAGES,
-            $dismissed,
-            fn(\Modules\InboundMail\Api\InboundMessage $message): array => [
+        return array_map(
+            fn(array $row): array => $row + [
                 // Its own shortlist, because the stay its own dates name
                 // belongs at the top of ITS list and nowhere else. One
                 // query for the lot — `Service\StaySearchService` reads
                 // the stays once and ranks them per message.
-                'preferred_stay_ids' => $preferred = $this->preferredStayIds($message),
+                'preferred_stay_ids' => $preferred = $this->preferredStayIds($row['message']),
                 'camp_options' => $this->campOptions($preferred),
-            ]
+            ],
+            $this->inboundMail->triageRows(
+                CampsMessageConsumer::CONSUMER_ID,
+                $this->stayReferences(),
+                self::MAX_MESSAGES,
+                $dismissed
+            )
         );
     }
 

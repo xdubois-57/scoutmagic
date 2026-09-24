@@ -69,7 +69,7 @@ class InboundMessage
         /**
          * Sent to a list rather than written to this unit — a newsletter,
          * a notification (`Mime\BulkMailDetector`). A triage screen folds
-         * these away behind their count (`Api\TriageList::screen()`).
+         * these away behind their count (`Api\TriageScreen::of()`).
          */
         public readonly bool $isBulk = false
     ) {

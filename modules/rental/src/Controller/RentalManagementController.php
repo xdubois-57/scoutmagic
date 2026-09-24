@@ -20,6 +20,7 @@ use Core\Http\Response;
 use Core\Member\MemberService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\View\DateFilterExtension;
 use Core\View\EditableContentService;
 use Core\Service\DateInput;
 use Core\Service\IntegerInput;
@@ -30,7 +31,9 @@ use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Availability\MonthWindow;
 use Modules\Rental\Booking\BookingBox;
 use Modules\Rental\Booking\BookingPage;
-use Modules\InboundMail\Api\TriageList;
+use Modules\InboundMail\Api\ReanalysisReport;
+use Modules\InboundMail\Api\TriageFilter;
+use Modules\InboundMail\Api\TriageScreen;
 use Modules\Rental\Booking\BookingJourney;
 use Modules\Rental\Booking\BookingMilestones;
 use Modules\Rental\Booking\BookingStatus;
@@ -1027,6 +1030,16 @@ class RentalManagementController extends AbstractController
     }
 
     /**
+     * Whether the requester may also read the mail nothing attributes yet
+     * (RentalCommunicationService::sortsUnattributed()) — the other half of
+     * the screen's reach, recomputed on every action like the first.
+     */
+    private function sortsUnattributed(): bool
+    {
+        return $this->communicationService?->sortsUnattributed(AuthSession::getEmail(), $this->scoutYearId()) ?? false;
+    }
+
+    /**
      * POST /mes-locations/courrier/rattacher — file a message of the triage
      * list under one of the requester's bookings (issue #462, IT-03).
      *
@@ -1045,6 +1058,7 @@ class RentalManagementController extends AbstractController
                 $target,
                 (int) $request->getBody('message_id', 0),
                 array_keys($scope),
+                $this->sortsUnattributed(),
                 AuthSession::getUserAccountId()
             )) {
                 throw new RentalException("Ce message n'a pas pu être rattaché.");
@@ -1086,6 +1100,7 @@ class RentalManagementController extends AbstractController
         return $this->bookingAction($request, function () use ($request): void {
             if (!($this->communicationService?->setAside(
                 array_keys($this->triageScope()),
+                $this->sortsUnattributed(),
                 (int) $request->getBody('message_id', 0),
                 AuthSession::getUserAccountId()
             ) ?? false)) {
@@ -1108,6 +1123,7 @@ class RentalManagementController extends AbstractController
         return $this->bookingAction($request, function () use ($request): void {
             if (!($this->communicationService?->restore(
                 array_keys($this->triageScope()),
+                $this->sortsUnattributed(),
                 (int) $request->getBody('message_id', 0)
             ) ?? false)) {
                 throw new RentalException("Ce courrier n'a pas pu être remis dans la liste.");
@@ -1167,7 +1183,10 @@ class RentalManagementController extends AbstractController
                 throw new RentalException("Le courrier entrant n'est pas disponible.");
             }
 
-            FlashMessage::set('success', TriageList::reanalysisMessage($this->communicationService->reanalyze()));
+            FlashMessage::set(
+                'success',
+                ReanalysisReport::fromArray($this->communicationService->reanalyze())->message()
+            );
         });
     }
 
@@ -1188,6 +1207,7 @@ class RentalManagementController extends AbstractController
 
         $bookings = $service->triageBookings(AuthSession::getEmail(), $this->scoutYearId());
         $references = array_keys($bookings);
+        $unattributed = $this->sortsUnattributed();
 
         $slugs = [];
         foreach ($this->authorizationService->listManageableAssets(AuthSession::getEmail(), $this->scoutYearId()) as $asset) {
@@ -1204,18 +1224,21 @@ class RentalManagementController extends AbstractController
             }
             $options[] = [
                 'value' => $reference,
-                'label' => $labels[$reference] . ' (' . $candidate->arrivalDate . ')',
+                'label' => $labels[$reference] . ' (' . DateFilterExtension::dateFr($candidate->arrivalDate) . ')',
                 'selected' => $candidate->id === $booking->id,
             ];
         }
 
-        return TriageList::screen(
-            $service->triageRows($references),
-            TriageList::status((string) $request->getQuery('statut', '')),
+        $filter = TriageFilter::fromQuery((string) $request->getQuery('statut', ''));
+        $dismissed = $service->triageRows($references, $unattributed, true);
+
+        return TriageScreen::of(
+            $service->triageRows($references, $unattributed),
+            $filter,
             (string) $request->getQuery('automatique', '') === '1',
-            static fn(): array => $service->triageRows($references, true),
-            $service->countDismissed($references)
-        ) + [
+            $dismissed,
+            count($dismissed)
+        )->toArray() + [
             'triage_labels' => $labels,
             'triage_urls' => $urls,
             'triage_booking_options' => $options,

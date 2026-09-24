@@ -7,6 +7,7 @@ namespace Tests\Modules\InboundMail;
 use Modules\InboundMail\Api\InboundMailInterface;
 use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\LinkOrigin;
+use Modules\InboundMail\Api\MessageCandidate;
 use Modules\InboundMail\Api\MessageLink;
 
 /**
@@ -35,6 +36,44 @@ final class InMemoryTriageMail implements InboundMailInterface
 
     /** @var array<string, array<int, true>> consumer => set-aside message ids */
     private array $setAside = [];
+
+    /** @var array<int, array{message: int, candidate: MessageCandidate}> standing propositions, by id */
+    private array $candidates = [];
+
+    /** How many times « Relancer l'analyse » reached this double. */
+    public int $reanalyses = 0;
+
+    /**
+     * Files a message under an object, as the automatic rules would have —
+     * the state a test starts from.
+     */
+    public function link(int $messageId, string $consumerId, string $businessReference): void
+    {
+        $this->links[$messageId][] = new MessageLink($consumerId, $businessReference, LinkOrigin::REFERENCE);
+    }
+
+    /**
+     * Proposes a message for an object, as an analysis would have. Returns
+     * the proposition's id.
+     */
+    public function propose(int $messageId, string $consumerId, string $businessReference): int
+    {
+        $id = count($this->candidates) + 1;
+        $this->candidates[$id] = [
+            'message' => $messageId,
+            'candidate' => new MessageCandidate(
+                $businessReference,
+                $businessReference,
+                'sender',
+                'Même expéditeur',
+                0,
+                $id,
+                $consumerId
+            ),
+        ];
+
+        return $id;
+    }
 
     public function __construct(InboundMessage ...$messages)
     {
@@ -122,6 +161,77 @@ final class InMemoryTriageMail implements InboundMailInterface
     public function countDismissedMessages(string $consumerId, array $ownReferences): int
     {
         return count($this->setAside[$consumerId] ?? []);
+    }
+
+    public function findCandidatesFor(string $consumerId, array $messageIds): array
+    {
+        $found = [];
+        foreach ($this->candidates as $standing) {
+            if ($standing['candidate']->consumerId === $consumerId && in_array($standing['message'], $messageIds, true)) {
+                $found[$standing['message']][] = $standing['candidate'];
+            }
+        }
+
+        return $found;
+    }
+
+    public function confirmCandidate(
+        string $consumerId,
+        array $ownReferences,
+        int $messageId,
+        int $candidateId,
+        ?int $userAccountId = null
+    ): bool {
+        $candidate = $this->ownCandidate($consumerId, $ownReferences, $messageId, $candidateId);
+        if ($candidate === null) {
+            return false;
+        }
+        unset($this->candidates[$candidateId]);
+        $this->links[$messageId][] = new MessageLink($consumerId, $candidate->businessReference, LinkOrigin::MANUAL);
+
+        return true;
+    }
+
+    public function dismissCandidate(string $consumerId, array $ownReferences, int $messageId, int $candidateId): bool
+    {
+        if ($this->ownCandidate($consumerId, $ownReferences, $messageId, $candidateId) === null) {
+            return false;
+        }
+        unset($this->candidates[$candidateId]);
+
+        return true;
+    }
+
+    public function reanalyzeUnlinked(string $consumerId, int $limit = 100): array
+    {
+        $this->reanalyses++;
+        $unlinked = array_filter(
+            array_keys($this->messages),
+            fn(int $id): bool => $this->withLinks($this->messages[$id])->linksFor($consumerId) === []
+        );
+
+        return ['examined' => count($unlinked), 'linked' => 0, 'proposed' => 0];
+    }
+
+    /**
+     * The standing proposition, when it is this consumer's, on this message
+     * and for one of the requester's objects — the same scoping as the
+     * real service.
+     *
+     * @param string[] $ownReferences
+     */
+    private function ownCandidate(string $consumerId, array $ownReferences, int $messageId, int $candidateId): ?MessageCandidate
+    {
+        $standing = $this->candidates[$candidateId] ?? null;
+        if ($standing === null
+            || $standing['message'] !== $messageId
+            || $standing['candidate']->consumerId !== $consumerId
+            || !in_array($standing['candidate']->businessReference, $ownReferences, true)
+        ) {
+            return null;
+        }
+
+        return $standing['candidate'];
     }
 
     private function withLinks(InboundMessage $message): InboundMessage

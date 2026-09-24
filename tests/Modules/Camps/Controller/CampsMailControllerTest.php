@@ -759,6 +759,25 @@ class CampsMailControllerTest extends TestCase
         $this->assertSame($this->campId, $body['stays'][0]['id']);
     }
 
+    /**
+     * `@inbound_mail` is a namespace only while that module is enabled
+     * (`public/index.php` registers module views for enabled modules), and
+     * this screen lives on without it: it must render without naming it.
+     */
+    public function testTheScreenRendersWhenInboundMailIsDisabled(): void
+    {
+        $root = dirname(__DIR__, 4);
+        $bare = new CampsMailController(
+            TwigFactory::create($root . '/core/View/templates', false, ['camps' => $root . '/modules/camps/views']),
+            $this->camps
+        );
+
+        $response = $bare->unsorted(new Request('GET', '/chefs/camps/courrier', [], [], [], []), []);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('est pas activé : rien', $response->getBody());
+    }
+
     public function testTheSearchEndpointAnswersNothingRatherThanFailingWithoutTheService(): void
     {
         $root = dirname(__DIR__, 4);
