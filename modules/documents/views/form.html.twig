@@ -94,10 +94,10 @@
         </div>
 
         {% if document %}
-            <div class="alert alert-warning small d-none" id="document-replace-warning" role="status">
+            <output class="alert alert-warning small d-none d-block" id="document-replace-warning">
                 L'adresse <span class="font-monospace">{{ document.path() }}</span> ne change pas : les liens
                 déjà distribués mèneront au nouveau fichier. L'ancien fichier est supprimé.
-            </div>
+            </output>
         {% endif %}
 
         <div class="d-flex gap-2">

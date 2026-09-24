@@ -261,7 +261,7 @@ final class DocumentsControllerTest extends TestCase
         $body = $this->handle('GET', '/admin/documents/{id}/modifier', 'editForm', 'admin', '/admin/documents/' . $this->documentId . '/modifier')->getBody();
 
         $this->assertStringContainsString('Remplacer le fichier (facultatif)', $body);
-        $this->assertMatchesRegularExpression('/class="alert alert-warning small d-none" id="document-replace-warning"/', $body);
+        $this->assertMatchesRegularExpression('/<output class="alert alert-warning small d-none d-block" id="document-replace-warning">/', $body);
         $this->assertStringContainsString('Lien direct', $body);
         $this->assertStringContainsString('/assets/js/documents-form.js', $body);
     }
