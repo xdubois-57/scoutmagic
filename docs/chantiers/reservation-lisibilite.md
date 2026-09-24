@@ -407,7 +407,7 @@ Rien.
   l'opérateur l'a désactivée, `RentalBookingMailService` passe l'adresse
   de la boîte dédiée au lieu de `null`, qui aurait laissé partir la
   réponse vers l'adresse générale du site. Deux boîtes : aucune.
-- `inbound_mail` passe en 1.13.0, `rental` en 1.27.0. L'aide
+- `inbound_mail` passe en 1.13.0, `rental` en 1.28.0 (la 1.27.0 est prise par le covoiturage, IT-06). L'aide
   « Le courrier des locations » et « Ce que chaque module fait d'une
   boîte » disent la condition.
 - **Tests** : pas de boîte dédiée ou deux → ni onglet ni page (404) ; la
