@@ -7287,8 +7287,18 @@ if ($isEnabled('banner')) {
 // download goes through /files/{id} and FileAccessGuard (SECURITY.md §6).
 if ($isEnabled('documents')) {
     \Core\Debug\RequestTimeline::mark('module_documents');
+    $documentRepository = new \Modules\Documents\Repository\DocumentRepository($pdo);
+    $documentDirectLinkGrants = new \Modules\Documents\File\DirectLinkGrants();
+    // A document's file (owner_type 'document') is served past its
+    // role_min only by this checker: an unlisted one only to a session
+    // that came through its address. With the module off, no checker
+    // answers and the guard refuses — fail-closed.
+    $fileOwnershipCheckers[] = new \Modules\Documents\File\DocumentFileOwnershipChecker(
+        $documentRepository,
+        $documentDirectLinkGrants
+    );
     $documentService = new \Modules\Documents\Service\DocumentService(
-        new \Modules\Documents\Repository\DocumentRepository($pdo),
+        $documentRepository,
         $uploadHandler,
         $fileRepository,
         $attachedFileRemover,
@@ -7298,7 +7308,7 @@ if ($isEnabled('documents')) {
     );
     $frontController->registerController(
         \Modules\Documents\Controller\DocumentsPublicController::class,
-        new \Modules\Documents\Controller\DocumentsPublicController($twig, $documentService)
+        new \Modules\Documents\Controller\DocumentsPublicController($twig, $documentService, $documentDirectLinkGrants)
     );
     $frontController->registerController(
         \Modules\Documents\Controller\DocumentsAdminController::class,

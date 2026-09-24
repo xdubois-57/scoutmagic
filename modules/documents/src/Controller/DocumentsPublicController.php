@@ -13,7 +13,9 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Security\AuthSession;
 use Core\Security\Role;
+use Modules\Documents\File\DirectLinkGrants;
 use Modules\Documents\Service\DocumentService;
+use Modules\Documents\Service\DocumentVisibility;
 use Twig\Environment;
 
 /**
@@ -27,7 +29,8 @@ class DocumentsPublicController extends AbstractController
 {
     public function __construct(
         protected Environment $twig,
-        private DocumentService $documentService
+        private DocumentService $documentService,
+        private DirectLinkGrants $directLinkGrants
     ) {
     }
 
@@ -66,6 +69,13 @@ class DocumentsPublicController extends AbstractController
         $document = $this->documentService->findBySlug((string) ($params['slug'] ?? ''));
         if ($document === null) {
             return $this->notFound();
+        }
+
+        // An unlisted document's file answers only a session that came
+        // through this address (File\DocumentFileOwnershipChecker): its
+        // id alone, being sequential, would be found by counting.
+        if ($document->visibility === DocumentVisibility::DIRECT_LINK) {
+            $this->directLinkGrants->grant($document->id);
         }
 
         $response = $this->redirect('/files/' . $document->fileId)

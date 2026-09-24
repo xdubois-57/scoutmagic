@@ -26,11 +26,12 @@ appareil.
 ## Ce que vous voyez dépend de qui vous êtes
 
 Certains documents s'adressent à tout le monde, d'autres aux seuls
-membres de l'unité, aux animateurs ou au Staff d'Unité. La page ne vous
-montre que ceux qui vous sont destinés, et vous dit combien d'autres
-existent sans vous concerner.
+membres de l'unité, aux animateurs ou au Staff d'Unité. Une fois
+connecté, la page ne vous montre que ceux qui vous sont destinés, et
+vous dit combien d'autres existent sans vous concerner.
 
-Sans être connecté, vous ne voyez que les documents publics : connectez-vous
+Sans être connecté, vous ne voyez que les documents publics, et la page
+vous signale quand d'autres sont réservés aux membres : connectez-vous
 pour voir ceux qui vous concernent. Une petite étiquette signale un
 document qui n'est pas public, par exemple « Membres connectés ».
 

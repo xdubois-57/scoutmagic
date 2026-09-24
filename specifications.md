@@ -155,7 +155,7 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 | Calendrier (module) | Public activity calendar (month/week view); read-only ICS subscription feeds. Accepts `?section={id}` to preselect that section's calendar (used by the member page's own link, §4.2). |
 | Actualités (module) | Public news article list/detail, each with an optional registration form (fields, capacity, payment) |
 | Inscriptions (module) | Public form to request a spot for a child (open/closed by the admin, optionally on a schedule), with an optional availability display by birth year; a tracking link/page for the family (minimal view by token, full view once identified and linked); see §17 for the staff side |
-| Documents (module documents) | The documents the unit shares — rules, equipment list, forms — in the order the Staff d'U set, each with its type, size and date and a download button. Filtered by the reader: a visitor sees the public ones, a member what is meant for them, and the page says how many it keeps back. See §46 |
+| Documents (module documents) | The documents the unit shares — rules, equipment list, forms — in the order the Staff d'U set, each with its type, size and date and a download button. Filtered by the reader: a visitor sees the public ones, a member what is meant for them, and the page tells a signed-in reader how many it keeps back — an anonymous one is invited to sign in instead. See §46 |
 
 ### 4.2 Espace membres
 
@@ -3184,8 +3184,12 @@ Les mêmes que celles des actualités, avec les mêmes libellés : **Public**,
 L'intendant voit ce qui est destiné aux membres connectés, jamais ce qui est
 réservé aux animateurs. « Lien direct » n'est pas un rôle : le document
 n'apparaît sur aucune liste, pour personne, et quiconque a son adresse le
-télécharge, même sans compte ; son adresse porte un segment aléatoire pour
-ne pas se deviner. La page publique ne compte jamais un document en lien
+télécharge, même sans compte — mais seulement en passant par cette
+adresse : son fichier ne s'ouvre pas en devinant son numéro. Un document
+créé en « Lien direct » reçoit une adresse portant un segment aléatoire,
+pour ne pas se deviner ; un document listé qu'on passe ensuite en « Lien
+direct » garde son adresse, tirée du titre et donc devinable, et le
+formulaire le dit. La page publique ne compte jamais un document en lien
 direct parmi ceux qu'elle ne montre pas.
 
 ### 46.3 L'adresse stable

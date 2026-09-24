@@ -14,6 +14,7 @@ use Core\Security\Role;
 use Core\View\TwigFactory;
 use Modules\Documents\Controller\DocumentsAdminController;
 use Modules\Documents\Controller\DocumentsPublicController;
+use Modules\Documents\File\DirectLinkGrants;
 use Modules\Documents\Service\DocumentService;
 use Modules\Documents\Service\DocumentVisibility;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -57,12 +58,13 @@ final class DocumentsControllerTest extends TestCase
         $twig->addFunction(new \Twig\TwigFunction('param', static fn(string $key): string => 'Test Unit'));
         $this->twig = $twig;
 
-        $this->public = new DocumentsPublicController($twig, $this->service);
+        $this->public = new DocumentsPublicController($twig, $this->service, new DirectLinkGrants());
         $this->admin = new DocumentsAdminController($twig, $this->service, 'https://unite.example/');
 
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
         }
+        $_SESSION = [];
     }
 
     protected function tearDown(): void
@@ -124,7 +126,9 @@ final class DocumentsControllerTest extends TestCase
 
         $response = $this->handle($method, $path, $action, $floor, $this->resolve($path));
 
-        $this->assertContains($response->getStatusCode(), [302, 403], "{$below} reached {$method} {$path}");
+        // 403 exactly: a 302 would also be what guardCsrf() answers a POST
+        // that got PAST the guard, and could hide a lowered role_min.
+        $this->assertSame(403, $response->getStatusCode(), "{$below} reached {$method} {$path}");
     }
 
     /**
@@ -230,6 +234,18 @@ final class DocumentsControllerTest extends TestCase
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertSame('noindex', $response->getHeaders()['X-Robots-Tag'] ?? null);
+    }
+
+    public function testTheAddressOfAnUnlistedDocumentOpensItForThisSession(): void
+    {
+        $document = $this->service->findById(H::create($this->service, 'PV AG', DocumentVisibility::DIRECT_LINK));
+        \assert($document !== null);
+        $grants = new DirectLinkGrants();
+        $this->assertFalse($grants->has($document->id));
+
+        $this->handle('GET', '/documents/{slug}', 'open', 'public', '/documents/' . $document->slug);
+
+        $this->assertTrue($grants->has($document->id));
     }
 
     public function testAnUnknownAddressIsNotFound(): void

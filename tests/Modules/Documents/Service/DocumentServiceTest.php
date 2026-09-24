@@ -194,7 +194,9 @@ final class DocumentServiceTest extends TestCase
 
     private function storedPath(int $fileId): string
     {
-        $relative = $this->pdo->query('SELECT relative_path FROM files WHERE id = ' . $fileId)->fetchColumn();
+        $stmt = $this->pdo->prepare('SELECT relative_path FROM files WHERE id = ?');
+        $stmt->execute([$fileId]);
+        $relative = $stmt->fetchColumn();
         return $this->storage . '/' . $relative;
     }
 }

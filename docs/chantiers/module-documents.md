@@ -110,6 +110,24 @@ La roadmap a été écrite sur le commit `fb9e661` ; elle a été relue contre
   la rend devinable et propose de créer un nouveau document à la place.
 - **Le bouton de suppression de `list_editor`** garde son libellé
   générique (D10 : pas de fork).
+- **L'adresse d'un Lien direct est la seule clé de son fichier.** Relevé
+  par la revue de la PR : un fichier en `role_min: public` se télécharge
+  par `/files/{id}`, et ces identifiants se suivent — n'importe qui les
+  comptant trouverait les documents non listés, ce qui rendait le segment
+  aléatoire de D6 inutile. Le fichier garde `role_min: public` (D4 : pas
+  de compte requis), mais tout fichier de document porte désormais
+  `owner_type = 'document'`, et `File\DocumentFileOwnershipChecker` —
+  le point d'extension de `FileAccessGuard` prévu pour ça — ne le sert,
+  pour un Lien direct, qu'à une session passée par `/documents/{slug}`
+  (`File\DirectLinkGrants`, en session, cookie `SameSite=Lax`, qui suit
+  la redirection depuis un lien d'e-mail). Le Staff d'U lit tout ; un
+  document listé n'ajoute rien à son `role_min` ; module désactivé,
+  aucun vérificateur ne répond et le garde refuse. Coût assumé : un
+  client sans cookies (un gestionnaire de téléchargement, un robot)
+  n'obtient pas le fichier par l'adresse.
+- **Un envoi de nouveau fichier qui échoue en cours de modification**
+  retire le fichier qu'il venait d'enregistrer, comme l'ajout le faisait
+  déjà (relevé par la même revue).
 - **Namespace `Modules\Documents\` déclaré dans `composer.json`**, comme
   chaque module.
 - **Une première section de `specifications.md` (§46) et les deux lignes
@@ -131,12 +149,13 @@ La roadmap a été écrite sur le commit `fb9e661` ; elle a été relue contre
 - La roadmap demande un `<meta name="robots" content="noindex">` sur la
   page d'un document non public. Il n'existe pas de page HTML par
   document : l'adresse stable est une redirection. Le `noindex` est donc
-  porté par l'en-tête `X-Robots-Tag` de cette redirection. Limite connue :
-  la cible `/files/{id}` ne porte aucun en-tête robots. Pour un document
-  réservé, c'est sans effet (un robot n'a pas de session) ; pour un Lien
-  direct, dont le fichier est `public`, un robot qui suivrait la
-  redirection pourrait indexer le fichier. À traiter dans le cœur
-  (`FileController`), hors de ce chantier.
+  porté par l'en-tête `X-Robots-Tag` de cette redirection. La cible
+  `/files/{id}` ne porte aucun en-tête robots, mais un robot ne l'atteint
+  pas : pour un document réservé, il n'a pas de session au bon rôle ; pour
+  un Lien direct, il lui faudrait l'adresse et garder le cookie de
+  session entre la redirection et le fichier (voir la décision ci-dessus).
+  Un en-tête `noindex` servi par `FileController` lui-même resterait
+  une défense de plus, à placer dans le cœur, hors de ce chantier.
 
 **Reporté.** Les versions (IT-02) ; la documentation d'architecture et les
 spécifications (IT-03).
@@ -145,5 +164,5 @@ spécifications (IT-03).
 la suite PHPUnit complète (SQLite) passée une fois, ses quinze échecs
 d'inventaire corrigés puis leurs suites relancées vertes ; le groupe `database` des
 suites `tests/Core/Database` et `tests/Integration` vert sur MariaDB ;
-`tests/Modules/Documents` : 46 tests ; `tests/js/documents-form.test.js`
+`tests/Modules/Documents` : 56 tests ; `tests/js/documents-form.test.js`
 vert ; `npm run typecheck` sans erreur.

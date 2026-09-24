@@ -17,6 +17,7 @@ use Core\Journal\JournalService;
 use Core\Page\TextPageService;
 use Core\Pdf\PdfCompressor;
 use Core\Security\Role;
+use Modules\Documents\File\DocumentFileOwnershipChecker;
 use Modules\Documents\Repository\Document;
 use Modules\Documents\Repository\DocumentRepository;
 
@@ -172,6 +173,8 @@ class DocumentService
             $this->fileRemover->removeOrphan($fileId);
             throw $e;
         }
+        // Only now does the document have the id its file is owned by.
+        $this->fileRepository->updateOwner($fileId, DocumentFileOwnershipChecker::OWNER_TYPE, $id);
 
         $this->journalService->log(
             'documents',
@@ -211,13 +214,23 @@ class DocumentService
 
         $newFileId = null;
         if ($uploadedFile !== null && $this->hasUpload($uploadedFile)) {
-            $newFileId = $this->storeUpload($uploadedFile, $visibility, $actorId);
+            $newFileId = $this->storeUpload($uploadedFile, $visibility, $actorId, $id);
         }
 
-        $this->repository->updateDetails($id, $title, $description, $visibility, $actorId, $now);
+        try {
+            $this->repository->updateDetails($id, $title, $description, $visibility, $actorId, $now);
+            if ($newFileId !== null) {
+                $this->repository->replaceFile($id, $newFileId, $actorId, $now);
+            }
+        } catch (\Throwable $e) {
+            // The new file is stored and the document does not point at it.
+            if ($newFileId !== null) {
+                $this->fileRemover->removeOrphan($newFileId);
+            }
+            throw $e;
+        }
 
         if ($newFileId !== null) {
-            $this->repository->replaceFile($id, $newFileId, $actorId, $now);
             $this->fileRemover->removeOrphan($document->fileId);
             $this->journalService->log(
                 'documents',
@@ -327,8 +340,12 @@ class DocumentService
      * @param array<string, mixed> $uploadedFile
      * @throws UploadException
      */
-    private function storeUpload(array $uploadedFile, DocumentVisibility $visibility, ?int $actorId): int
-    {
+    private function storeUpload(
+        array $uploadedFile,
+        DocumentVisibility $visibility,
+        ?int $actorId,
+        ?int $documentId = null
+    ): int {
         $fileId = $this->uploadHandler->handle(
             $uploadedFile,
             self::STORAGE_SUBDIRECTORY,
@@ -336,7 +353,9 @@ class DocumentService
             self::MAX_BYTES,
             $visibility->fileRoleMin(),
             'documents',
-            $actorId
+            $actorId,
+            $documentId === null ? null : DocumentFileOwnershipChecker::OWNER_TYPE,
+            $documentId
         );
 
         $this->compressIfPdf($fileId);
