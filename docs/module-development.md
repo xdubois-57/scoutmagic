@@ -827,6 +827,29 @@ And two rules for the registry itself: **swallow a contributor's exception** (on
 
 Test both directions of disabling. The contributor must degrade to "feature not offered", and the extended module must work with an empty registry — including producing a valid, complete output rather than a truncated one.
 
+### The calendar's two extension points, and the calendar API for pickers
+
+`calendar` publishes two contribution interfaces, and they answer different
+questions:
+
+- **`VirtualEventProviderInterface`** — your module *makes* events the
+  calendar renders (a rental booking, an on-call duty). They appear on the
+  pages and in every feed, reduced to what each viewer may see.
+- **`EventDescriptionEnricherInterface`** — your module adds lines to the
+  description of an event that *already exists* in `calendar_events` (a
+  carpool line under a weekend). Register into
+  `$calendarDescriptionEnrichers` (a `Service\EventDescriptionEnricherRegistry`,
+  `null` when `calendar` is off). **Only the personal ICS feed reads it** —
+  never a calendar's own feed nor the whole-unit feed, which have no
+  identified reader. Plain text, no phone number: it lands in Google or
+  iCloud.
+
+To let a user *pick* an event, read `CalendarEventLookupInterface`:
+`searchUpcomingEvents($query, $role, $limit)` searches title, calendar name
+and section name of upcoming events the role may see, and every
+`EventSummary` carries `location`, `sectionId` and `sectionName`. Pair it
+with `partials/search_picker.html.twig` and `Core\View\SearchPickerResult`.
+
 ## Storing media in a gallery album you own (`Modules\Gallery\Api`)
 
 A module that needs to store photos or videos should not build its own upload, thumbnail, storage-backend and retention machinery — the `gallery` module already has all of it, and its `Api` namespace exposes it as a **delegated album**: a real gallery album that belongs to your module, never listed in the gallery's own pages, whose access rule is entirely yours.
