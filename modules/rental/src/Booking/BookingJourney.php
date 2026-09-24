@@ -205,8 +205,10 @@ final class BookingJourney
         return match ($this->next->key) {
             BookingMilestones::DEPOSIT_RECEIVED,
             BookingMilestones::BALANCE_RECEIVED,
-            BookingMilestones::SECURITY_DEPOSIT_RECEIVED => MilestoneAction::openBox('Voir les paiements', BookingBox::PAYMENT),
-            BookingMilestones::CONTRACT_ACCEPTED => MilestoneAction::openBox('Voir les documents', BookingBox::DOCUMENTS),
+            BookingMilestones::SECURITY_DEPOSIT_RECEIVED
+                => MilestoneAction::openBox('Voir les paiements', BookingBox::PAYMENT),
+            BookingMilestones::CONTRACT_ACCEPTED
+                => MilestoneAction::openBox('Voir les documents', BookingBox::DOCUMENTS),
             default => null,
         };
     }

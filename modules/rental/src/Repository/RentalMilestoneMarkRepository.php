@@ -43,7 +43,9 @@ class RentalMilestoneMarkRepository
             }
             $marks[(string) $row['milestone_key']] = [
                 'marked_at' => $at,
-                'marked_by_member_id' => $row['marked_by_member_id'] !== null ? (int) $row['marked_by_member_id'] : null,
+                'marked_by_member_id' => $row['marked_by_member_id'] !== null
+                    ? (int) $row['marked_by_member_id']
+                    : null,
             ];
         }
 

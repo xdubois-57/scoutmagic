@@ -125,7 +125,9 @@ final class MilestoneEvidence
                 $record(
                     BookingMilestones::DEPOSIT_RECEIVED,
                     $isReceived,
-                    $isReceived ? null : self::owed($depositCents - $receivedCents, $payment['deposit_due_date'] ?? null, $today)
+                    $isReceived
+                        ? null
+                        : self::owed($depositCents - $receivedCents, $payment['deposit_due_date'] ?? null, $today)
                 );
             }
 
@@ -135,7 +137,9 @@ final class MilestoneEvidence
                 $record(
                     BookingMilestones::BALANCE_RECEIVED,
                     $isPaid,
-                    $isPaid ? null : self::owed($totalCents - $receivedCents, $payment['balance_due_date'] ?? null, $today)
+                    $isPaid
+                        ? null
+                        : self::owed($totalCents - $receivedCents, $payment['balance_due_date'] ?? null, $today)
                 );
             }
         }
@@ -174,7 +178,8 @@ final class MilestoneEvidence
                     $mark !== null,
                     $mark === null
                         ? null
-                        : 'fait le ' . $mark['at']->format('d/m/Y') . ($mark['by'] !== null ? ' par ' . $mark['by'] : '')
+                        : 'fait le ' . $mark['at']->format('d/m/Y')
+                            . ($mark['by'] !== null ? ' par ' . $mark['by'] : '')
                 );
             }
         } elseif ($inventory !== []) {

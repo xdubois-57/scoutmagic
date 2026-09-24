@@ -165,7 +165,7 @@
     // so a stale page can never post a state it did not render.
     root.addEventListener('change', function (e) {
         var box = /** @type {HTMLElement|null} */ (e.target);
-        if (box === null || !box.matches('input[data-mark-step]')) return;
+        if (!box?.matches('input[data-mark-step]')) return;
 
         var form = /** @type {HTMLFormElement|null} */ (box.closest('form'));
         if (form !== null) form.requestSubmit();

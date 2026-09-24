@@ -12,7 +12,7 @@
     folds every other decision behind a secondary button;
   - **the stretches** follow the scout-year page's timeline pattern (D4):
     five sections, the current one open, each step numbered, with its
-    nature and its control (`_journey_step.html.twig`). Two things of that
+    nature and its control (`_journey_steps.html.twig`). Two things of that
     page are deliberately NOT copied (D5): there is no indicative date per
     stretch, since a booking's dates are its stay's, not the site's; and
     the order is a lock here, not advice — `BookingStatus` is a real
@@ -99,15 +99,10 @@
                 <div class="collapse{{ phase.isCurrent ? ' show' }}" id="{{ phase_id }}">
                     <div class="pb-3">
                         <p class="text-body-secondary small">{{ phase.description }}</p>
-                        <ol class="list-unstyled step-list mb-0">
-                            {% for milestone in phase.milestones %}
-                                {% include '@rental/management/_journey_step.html.twig' with {
-                                    milestone: milestone, number: loop.index, future: phase.isFuture,
-                                    is_next: journey.next is not null and journey.next.key == milestone.key,
-                                    asset: asset, booking: booking, booking_url: booking_url, renter_decisions: renter_decisions,
-                                } only %}
-                            {% endfor %}
-                        </ol>
+                        {% include '@rental/management/_journey_steps.html.twig' with {
+                            phase: phase, next_key: journey.next ? journey.next.key : null,
+                            asset: asset, booking: booking, booking_url: booking_url, renter_decisions: renter_decisions,
+                        } only %}
 
                         {% if phase.key == 'request' %}
                             {# The option lives with the request it holds the dates for. #}

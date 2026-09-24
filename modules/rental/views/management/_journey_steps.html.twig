@@ -19,9 +19,19 @@
   is the textual form of the disc, which is aria-hidden: a screen reader
   and the end-to-end suite read the same words.
 
-  Requires `milestone`, `number`, `future`, `is_next`, `asset`, `booking`,
-  `booking_url` and `renter_decisions`.
+  The whole list of one stretch, `ol` included, rather than one `li`
+  rendered into a list the caller opens: a list item outside its list is
+  invalid markup in the file that holds it.
+
+  Requires `phase` (a Booking\JourneyPhase), `next_key` (the key of the
+  step heading the journey, or null), `asset`, `booking`, `booking_url`
+  and `renter_decisions`.
 #}
+<ol class="list-unstyled step-list mb-0">
+{% for milestone in phase.milestones %}
+{% set number = loop.index %}
+{% set future = phase.isFuture %}
+{% set is_next = next_key is not null and next_key == milestone.key %}
 {% set state = not milestone.isApplicable ? 'na' : (milestone.isDone ? 'done' : 'todo') %}
 <li class="step-item d-flex gap-3 pb-3 {{ state == 'done' ? 'step-item--done' : (future or state == 'na' ? 'step-item--upcoming' : 'step-item--current') }}"
     data-milestone="{{ milestone.key }}" data-kind="{{ milestone.kind.value }}">
@@ -102,3 +112,5 @@
         {% endif %}
     </div>
 </li>
+{% endfor %}
+</ol>

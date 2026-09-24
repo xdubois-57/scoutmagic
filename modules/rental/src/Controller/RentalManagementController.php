@@ -859,7 +859,7 @@ class RentalManagementController extends AbstractController
      */
     public function markMilestone(Request $request, array $params): Response
     {
-        return $this->bookingAction($request, function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
+        $work = function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
             if ($this->milestoneMarkService === null) {
                 throw new RentalException("Cette étape ne peut pas être marquée ici.");
             }
@@ -884,17 +884,29 @@ class RentalManagementController extends AbstractController
                     }
 
                     $done = (string) $request->getBody('done', '') === '1';
-                    $this->milestoneMarkService->set($booking, $key, $milestone->label, $done, $this->actorMemberId(), $now);
-                    FlashMessage::set('success', $done
-                        ? '« ' . $milestone->label . ' » est marqué comme fait.'
-                        : '« ' . $milestone->label . ' » est remis à faire.');
+                    $this->milestoneMarkService->set(
+                        $booking,
+                        $key,
+                        $milestone->label,
+                        $done,
+                        $this->actorMemberId(),
+                        $now
+                    );
+                    FlashMessage::set(
+                        'success',
+                        $done
+                            ? '« ' . $milestone->label . ' » est marqué comme fait.'
+                            : '« ' . $milestone->label . ' » est remis à faire.'
+                    );
 
                     return;
                 }
             }
 
             throw new RentalException('Cette étape ne se marque pas à la main sur cette réservation.');
-        });
+        };
+
+        return $this->bookingAction($request, $work);
     }
 
     /**
