@@ -46,7 +46,8 @@ final class DocumentsTestHelper
             uploaded_at TEXT NOT NULL,
             uploaded_by INTEGER NULL,
             archived_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE (document_id, version_number)
+            UNIQUE (document_id, version_number),
+            UNIQUE (file_id)
         )");
     }
 

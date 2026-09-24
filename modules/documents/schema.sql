@@ -81,6 +81,9 @@ CREATE TABLE IF NOT EXISTS document_versions (
     archived_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     UNIQUE INDEX idx_document_versions_number (document_id, version_number),
+    -- A file is one version of one document, once: what makes archiving
+    -- the same outgoing file twice (two edits racing) a no-op.
+    UNIQUE INDEX idx_document_versions_file (file_id),
     CONSTRAINT fk_document_versions_document FOREIGN KEY (document_id) REFERENCES documents(id),
     CONSTRAINT fk_document_versions_file FOREIGN KEY (file_id) REFERENCES files(id),
     CONSTRAINT fk_document_versions_uploaded_by FOREIGN KEY (uploaded_by) REFERENCES user_accounts(id) ON DELETE SET NULL

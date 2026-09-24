@@ -132,18 +132,40 @@ final class DocumentVersionsTest extends TestCase
     }
 
     /**
-     * A version row that cannot be written (two edits racing for one
-     * version number) must not leave the outgoing file open, nor on disk
-     * with nothing pointing at it.
+     * Two edits racing: the other one already archived the outgoing file.
+     * This one must not archive it twice, nor delete a file a kept version
+     * points at — archiving is idempotent.
      */
-    public function testAFailedArchiveNeverLeavesTheOutgoingFileOpen(): void
+    public function testArchivingAFileTheOtherEditAlreadyArchivedIsANoOp(): void
+    {
+        $document = $this->service->create('ROI', null, 'public', DocumentsTestHelper::upload(), null);
+        $path = $this->storedPath($document->fileId);
+        // The racing edit got there first.
+        (new DocumentVersionRepository($this->pdo))->archive($document->id, $document->fileId, '2026-09-24 20:00:00');
+
+        $this->replace($document);
+
+        $versions = $this->service->versionsByDocument()[$document->id];
+        $this->assertCount(1, $versions);
+        $this->assertSame($document->fileId, $versions[0]->fileId);
+        $this->assertFileExists($path);
+        $this->assertSame('admin', DocumentsTestHelper::fileRoleMin($this->pdo, $document->fileId));
+    }
+
+    /**
+     * A version row that cannot be written at all leaves the outgoing
+     * file closed and on disk — never open, never deleted from under a
+     * row that might point at it — and the journal says so without
+     * claiming a version number nobody was given.
+     */
+    public function testAnArchiveThatKeepsFailingLeavesTheFileClosedAndSaysSo(): void
     {
         $document = $this->service->create('ROI', null, 'public', DocumentsTestHelper::upload(), null);
         $path = $this->storedPath($document->fileId);
         $failing = new class ($this->pdo) extends DocumentVersionRepository {
-            public function archive(int $documentId, int $versionNumber, int $fileId, string $now): void
+            public function archive(int $documentId, int $fileId, string $now): int
             {
-                throw new \RuntimeException('duplicate version number');
+                throw new \PDOException('duplicate version number');
             }
         };
         $service = DocumentsTestHelper::service($this->pdo, $this->storage, null, null, $failing);
@@ -151,9 +173,10 @@ final class DocumentVersionsTest extends TestCase
         $updated = $service->update($document->id, 'ROI', null, 'public', DocumentsTestHelper::upload('v2.pdf'), null);
 
         $this->assertNotSame($document->fileId, $updated->fileId);
-        $this->assertNull(DocumentsTestHelper::fileRoleMin($this->pdo, $document->fileId));
-        $this->assertFileDoesNotExist($path);
+        $this->assertSame('admin', DocumentsTestHelper::fileRoleMin($this->pdo, $document->fileId));
+        $this->assertFileExists($path);
         $this->assertSame(1, $this->journalEntries('document_version_lost'));
+        $this->assertSame(0, $this->journalEntries('document_file_replaced'));
     }
 
     public function testEditingWithoutAFileMakesNoVersion(): void

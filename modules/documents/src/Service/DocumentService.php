@@ -335,32 +335,32 @@ class DocumentService
         // outgoing file is already out of reach of every old link.
         $this->fileRepository->updateRoleMin($document->fileId, self::PAST_VERSION_ROLE);
 
-        try {
-            $this->versions->archive($document->id, $document->versionNumber, $document->fileId, $now);
-        } catch (\Throwable $e) {
-            // No version row — typically two edits of the same document
-            // racing for one version number. A past file nothing points at
-            // would never be pruned nor deleted with its document: it goes
-            // now, and the journal says a version was lost.
-            $this->fileRemover->removeOrphan($document->fileId);
+        $archived = $this->archiveOnce($document->id, $document->fileId, $now)
+            ?? $this->archiveOnce($document->id, $document->fileId, $now);
+
+        if ($archived === null) {
+            // Twice refused — nothing left to race with, so something else
+            // is wrong. The file stays closed and on disk: deleting bytes a
+            // row might yet point at is worse than keeping bytes nobody
+            // lists. The journal says so, for the Staff d'U to look at.
             $this->journalService->log(
                 'documents',
                 'document_version_lost',
                 'warning',
-                'Ancienne version d\'un document partagé non conservée',
-                ['document_id' => $document->id, 'version' => $document->versionNumber],
+                'Ancienne version d\'un document partagé non enregistrée',
+                ['document_id' => $document->id, 'file_id' => $document->fileId],
+                $actorId
+            );
+        } else {
+            $this->journalService->log(
+                'documents',
+                'document_file_replaced',
+                'info',
+                'Nouvelle version d\'un document partagé',
+                ['document_id' => $document->id, 'archived_version' => $archived],
                 $actorId
             );
         }
-
-        $this->journalService->log(
-            'documents',
-            'document_file_replaced',
-            'info',
-            'Nouvelle version d\'un document partagé',
-            ['document_id' => $document->id, 'version' => $document->versionNumber + 1],
-            $actorId
-        );
 
         $kept = $this->versions->findByDocument($document->id);
         foreach (array_slice($kept, self::KEPT_VERSIONS) as $version) {
@@ -373,6 +373,20 @@ class DocumentService
                 ['document_id' => $document->id, 'version' => $version->versionNumber],
                 $actorId
             );
+        }
+    }
+
+    /**
+     * One attempt at filing the outgoing file as a version: its number, or
+     * null when a concurrent edit took that number first — the caller
+     * tries once more, and the repository then computes the next one.
+     */
+    private function archiveOnce(int $documentId, int $fileId, string $now): ?int
+    {
+        try {
+            return $this->versions->archive($documentId, $fileId, $now);
+        } catch (\PDOException) {
+            return $this->versions->versionNumberOf($fileId);
         }
     }
 

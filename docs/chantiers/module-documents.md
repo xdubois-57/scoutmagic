@@ -237,12 +237,16 @@ vert ; `npm run typecheck` sans erreur.
   la cascade effacerait les lignes en laissant leurs fichiers sur le
   disque. Le service supprime les versions, fichiers compris, avant le
   document.
-- **L'ancien fichier est fermé avant que sa version soit écrite**
-  (relevé par la revue de la PR). Si la ligne de version ne peut pas être
-  écrite — deux modifications simultanées qui visent le même numéro —, le
-  fichier est supprimé plutôt que laissé sans ligne, donc jamais élagué ni
-  supprimé avec son document ; le journal le dit
-  (`document_version_lost`, niveau `warning`).
+- **L'ancien fichier est fermé avant que sa version soit écrite**, et
+  l'archivage résiste à deux modifications simultanées (relevé en deux
+  temps par la revue de la PR). Le numéro de version est calculé par
+  l'`INSERT` lui-même, pas repris d'une ligne lue plus tôt ; un fichier ne
+  peut être archivé qu'une fois (index unique sur `file_id`), si bien que
+  la requête qui arrive seconde ne fait rien au lieu d'échouer. Si
+  l'écriture échoue encore après une seconde tentative, le fichier reste
+  fermé et sur le disque — jamais supprimé sous une ligne qui pourrait le
+  désigner — et le journal le signale (`document_version_lost`, niveau
+  `warning`) sans annoncer de numéro que personne n'a reçu.
 - **Pas de restauration d'une ancienne version en un clic.** La roadmap
   demande de consulter et de télécharger ; restaurer, c'est téléverser à
   nouveau la version téléchargée.

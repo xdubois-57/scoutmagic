@@ -22,18 +22,49 @@ class DocumentVersionRepository
     }
 
     /**
-     * Files the outgoing file of $documentId as its version
-     * $versionNumber. When and by whom that file became current is read
+     * Files $fileId as the newest past version of $documentId and returns
+     * the number it was given. The number is computed by the INSERT itself
+     * (the highest kept, plus one), not handed in from a row read earlier:
+     * two edits racing see the same document, never the same MAX once the
+     * first has written. When and by whom the file became current is read
      * from its own files row, the one place that recorded it.
+     *
+     * Idempotent: a file already archived (the other side of that race) is
+     * not archived twice — its existing number is returned. A collision
+     * the unique indexes still catch is the caller's to resolve.
      */
-    public function archive(int $documentId, int $versionNumber, int $fileId, string $now): void
+    public function archive(int $documentId, int $fileId, string $now): int
     {
+        $existing = $this->versionNumberOf($fileId);
+        if ($existing !== null) {
+            return $existing;
+        }
+
         $stmt = $this->pdo->prepare(
             'INSERT INTO document_versions'
             . ' (document_id, version_number, file_id, size_bytes, uploaded_at, uploaded_by, archived_at)'
-            . ' SELECT ?, ?, f.id, f.size_bytes, f.created_at, f.created_by, ? FROM files f WHERE f.id = ?'
+            . ' SELECT ?, next.n, f.id, f.size_bytes, f.created_at, f.created_by, ?'
+            . ' FROM files f, (SELECT COALESCE(MAX(version_number), 0) + 1 AS n'
+            . ' FROM document_versions WHERE document_id = ?) next'
+            . ' WHERE f.id = ?'
         );
-        $stmt->execute([$documentId, $versionNumber, $now, $fileId]);
+        $stmt->execute([$documentId, $now, $documentId, $fileId]);
+
+        $number = $this->versionNumberOf($fileId);
+        \assert($number !== null);
+        return $number;
+    }
+
+    /**
+     * The version number $fileId was archived under, or null when it is
+     * not a kept version.
+     */
+    public function versionNumberOf(int $fileId): ?int
+    {
+        $stmt = $this->pdo->prepare('SELECT version_number FROM document_versions WHERE file_id = ?');
+        $stmt->execute([$fileId]);
+        $number = $stmt->fetchColumn();
+        return $number === false ? null : (int) $number;
     }
 
     /**
