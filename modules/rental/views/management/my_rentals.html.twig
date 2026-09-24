@@ -1,7 +1,7 @@
 {% extends 'base.html.twig' %}
-{% block title %}Mes locations — {{ site_name }}{% endblock %}
+{% block title %}Gérer mes locations — {{ site_name }}{% endblock %}
 {#
-  "Mes locations" (§6.5) — the managers' daily entry point: every asset they
+  "Gérer mes locations" (§6.5) — the managers' daily entry point: every asset they
   manage, all assets at once, with the number of requests waiting on each.
   The public page stays a secondary way in.
 
@@ -11,7 +11,7 @@
 {% block content %}
     <div class="page-medium">
         {% include 'partials/page_header.html.twig' with {
-            title: 'Mes locations',
+            title: 'Gérer mes locations',
             subtitle: is_unit_staff
                 ? "En tant que membre du Staff d'U, vous gérez tous les biens de l'unité."
                 : 'Les biens dont vous êtes gestionnaire.',

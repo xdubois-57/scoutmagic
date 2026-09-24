@@ -15,7 +15,7 @@ Primary device is mobile. Base CSS for mobile, `min-width` breakpoints for large
 
 The row this replaced wrapped to three lines at Configuration's nineteen entries, changed height with the active menu, and gave "Maintenance" and "Galerie" exactly the same weight.
 
-**Espace membres panel**: a "Mes membres" column (dynamic member entries — avatar, totem/prénom, section) beside a "Pages" column of static and module pages.
+**Espace membres panel**: three columns — « Mes membres » (dynamic member entries — avatar, totem/prénom, section — and Notifications), « Activités » (Photos, Covoiturage) and « L'unité » (Les animateurs, Discussions, Gérer mes locations). A column with nothing the reader may see draws no title.
 
 **Breadcrumb**: visible at every width, desktop included — with the sub-menu row gone, it is the only thing on screen naming the current page's ancestry (§7.3).
 

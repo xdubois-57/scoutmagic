@@ -2980,7 +2980,7 @@ class RentalManagementController extends AbstractController
      */
     private function assetTrail(): array
     {
-        return [['label' => 'Mes locations', 'url' => '/mes-locations']];
+        return [['label' => 'Gérer mes locations', 'url' => '/mes-locations']];
     }
 
     /**

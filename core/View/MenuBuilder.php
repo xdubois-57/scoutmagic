@@ -72,6 +72,7 @@ class MenuBuilder
         self::MENU_NOTRE_UNITE => [],
         self::MENU_ESPACE_ANIMES => [
             ['id' => 'mes_membres', 'label' => 'Mes membres'],
+            ['id' => 'activites',   'label' => 'Activités'],
             ['id' => 'unite',       'label' => "L'unité"],
         ],
         self::MENU_ESPACE_CHEFS => [

@@ -2,7 +2,7 @@
   "id": "covoiturage",
   "name": "Covoiturage",
   "description": "Les familles proposent les places libres de leur voiture pour une sortie, ou en demandent une.",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -12,13 +12,16 @@
       "action": "index",
       "menu": "espace_animes",
       "role_min": "identified",
-      "label": "",
+      "label": "Covoiturage",
       "breadcrumb": {
         "label": "Covoiturage",
         "parents": [
           "Espace membres"
         ]
-      }
+      },
+      "menu_icon": "bi-car-front",
+      "menu_group": "activites",
+      "menu_order": 25
     },
     {
       "path": "/covoiturage/organiser",
@@ -27,13 +30,16 @@
       "action": "index",
       "menu": "espace_chefs",
       "role_min": "chief",
-      "label": "",
+      "label": "Organiser les covoiturages",
       "breadcrumb": {
         "label": "Organiser les covoiturages",
         "parents": [
           "Espace animateurs"
         ]
-      }
+      },
+      "menu_icon": "bi-car-front",
+      "menu_group": "activites",
+      "menu_order": 80
     },
     {
       "path": "/covoiturage/organiser/nouveau",

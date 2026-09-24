@@ -26,8 +26,8 @@ use Modules\Rental\Repository\RentalAssetRepository;
  *   push everything else in that menu off the screen, and the index page
  *   already lists them with the context — type, capacity, a photo — that a
  *   bare menu label cannot carry.
- * - **"Espace membres"** — "Mes locations", visible only to a visitor who
- *   actually manages at least one asset.
+ * - **"Espace membres"** — "Gérer mes locations", visible only to a
+ *   visitor who actually manages at least one asset.
  *
  * **Menu visibility is never a permission.** Every route these entries
  * point at carries its own `role_min`, and the managed space re-checks
@@ -49,12 +49,16 @@ class RentalMenuHookService implements MenuEntryProvider
      * One constant used to serve both, because they happened to want the
      * same place. The menu reorganisation is the day they stopped:
      * « Locations » sits between « Calendrier » and « Contact » in the
-     * public menu, while « Mes locations » moved into « Mes membres »,
-     * right after « Notifications » — it is one of the few pages that is
-     * about the reader rather than about the unit.
+     * public menu. « Gérer mes locations » sits in « L'unité », after
+     * « Discussions »: managing an asset of the unit is a responsibility
+     * held FOR the unit, not a page about the reader — which is where the
+     * menu reorganisation had first put it, beside the reader's own
+     * members (docs/chantiers/covoiturage.md, IT-06). And its label says
+     * what the page does: it manages assets, it does not list stays the
+     * reader has rented.
      */
     private const PUBLIC_INDEX_ORDER = 60;
-    private const MY_RENTALS_ORDER = 20;
+    private const MY_RENTALS_ORDER = 60;
 
     public function __construct(
         private RentalAssetRepository $assetRepository,
@@ -85,13 +89,13 @@ class RentalMenuHookService implements MenuEntryProvider
             );
         }
 
-        // "Mes locations" — the managers' daily entry point (§6.5). Only
+        // "Gérer mes locations" — the managers' daily entry point (§6.5). Only
         // for someone who actually manages something, so an ordinary
         // identified visitor never sees it.
         if ($email !== null && $this->authorizationService->managesAnyAsset($email, $this->scoutYearId)) {
             $entries[] = new MenuEntry(
                 MenuBuilder::MENU_ESPACE_ANIMES,
-                'Mes locations',
+                'Gérer mes locations',
                 '/mes-locations',
                 'identified',
                 self::MY_RENTALS_ORDER,
@@ -99,7 +103,7 @@ class RentalMenuHookService implements MenuEntryProvider
                 null,
                 MenuBuilder::SORT_GROUP_MODULE,
                 'bi-key',
-                'mes_membres'
+                'unite'
             );
         }
 

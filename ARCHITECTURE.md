@@ -1512,7 +1512,7 @@ An earlier iteration drew the line at *structural configuration vs. day-to-day o
 
 **Public confidentiality is absolute, not configurable** (`specifications.md` §22.2). A public page never renders a manager's name, phone or email; the asset's emergency phone; anything about a renter or a booking; a price actually paid; a document; an access code; an internal comment. The `is_renter_contact` flag on a grant widens the audience from "internal" to "internal + this booking's renter" — it never means "public". A non-public or archived asset is a **404** for anyone who cannot manage it, never a 403: telling an anonymous visitor "this exists but you may not see it" is itself a disclosure.
 
-**Menu entries** come from `Core\Module\MenuEntryProvider` (§7.4): the "Locations" index and one entry per pinned public asset in "Notre unité" (public, so the hook runs for an anonymous visitor too), plus "Mes locations" in "Espace membres" for an actual manager. The index page exists as soon as **any** public asset does — not only when one is pinned — because an unpinned public asset would otherwise have no menu entry and no index to be listed on, i.e. be reachable only by someone who already knew the URL.
+**Menu entries** come from `Core\Module\MenuEntryProvider` (§7.4): the "Locations" index and one entry per pinned public asset in "Notre unité" (public, so the hook runs for an anonymous visitor too), plus "Gérer mes locations" in "Espace membres › L'unité" for an actual manager — in « L'unité » since the carpool chantier, because managing an asset is a responsibility held for the unit, and named for what the page does (it manages assets); the admin page `/admin/locations` is « Biens à louer », so the two entries no longer differ by one word across two menus. The index page exists as soon as **any** public asset does — not only when one is pinned — because an unpinned public asset would otherwise have no menu entry and no index to be listed on, i.e. be reachable only by someone who already knew the URL.
 
 ### 8.44 Rental pricing engine (`Modules\Rental\Pricing`)
 
@@ -2033,7 +2033,7 @@ Receivables are raised **at confirmation**, which is when the unit actually expe
 **One definition, four readers.** « À traiter » used to be
 `$booking->status->needsAttention()`, written out at four call sites: the
 asset overview's list, the same page's figure above it, the bookings list's
-own filter, and the per-asset badge on « Mes locations ». Four copies of one
+own filter, and the per-asset badge on « Gérer mes locations ». Four copies of one
 rule is four chances for a tile to say « 2 » over a list of five — and
 widening one of them without the others would have guaranteed it.
 

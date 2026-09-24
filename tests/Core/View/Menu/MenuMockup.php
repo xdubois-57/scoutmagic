@@ -41,7 +41,7 @@ use PHPUnit\Framework\Assert;
  * reason — the thing being read is not loadable in this context.
  *
  * That makes the reading itself a thing that can break silently, so
- * MenuMockupTest asserts the shape it found (five menus, nineteen
+ * MenuMockupTest asserts the shape it found (five menus, twenty
  * columns) before trusting a single comparison. A mockup that stopped
  * parsing would otherwise match everything.
  */

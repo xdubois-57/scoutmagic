@@ -77,7 +77,7 @@ class RentalAuthorizationService
     /**
      * Every asset $email may manage, resolved in one pass.
      *
-     * Used by the "Mes locations" page and by anything that has to render a
+     * Used by the "Gérer mes locations" page and by anything that has to render a
      * list rather than answer a single yes/no — calling canManageAsset() in
      * a loop over every asset would be the same answer at N times the cost,
      * and would re-resolve the visitor's Staff d'U status on every
@@ -102,7 +102,7 @@ class RentalAuthorizationService
 
     /**
      * Whether $email manages at least one asset — the cheap gate behind the
-     * "Mes locations" menu entry, which must not run a full asset load on
+     * "Gérer mes locations" menu entry, which must not run a full asset load on
      * every request that builds a menu.
      */
     public function managesAnyAsset(?string $email, int $scoutYearId): bool
