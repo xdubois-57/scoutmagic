@@ -5240,11 +5240,14 @@ to sign in at all, and the role. **Every refusal is the identical
 nothing**, so no caller can learn from the answer whether an address has
 an account, whether a credential exists, or whether a role changed.
 
-**Two screens.** « Appareils synchronisés », under Mon compte at
+**Two screens.** « Synchroniser mes contacts », under Mon compte at
 `role_min: admin` — the list, the creation, the revocation, and the
 unpleasant truth said before the button rather than after it: the copy
 that came down stays on the device, follows its backups, and revoking
-erases none of it. And Configuration > « Synchronisation des contacts »
+erases none of it. It is named for the action and not « Synchronisation
+des contacts », which the Configuration screen below already carries: a
+superadmin sees both, and two pages under one name is a question nobody
+should have to answer twice. And Configuration > « Synchronisation des contacts »
 at `role_min: superadmin` — the cut-out for the whole site, and every
 device of every account with a revocation on each. A feature that
 replicates personal data onto personal telephones needs both; a superadmin

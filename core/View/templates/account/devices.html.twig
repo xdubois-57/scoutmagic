@@ -3,12 +3,12 @@
  Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
 #}
 {% extends 'base.html.twig' %}
-{% block title %}Appareils synchronisés — Mon compte — {{ param('site_name') }}{% endblock %}
+{% block title %}Synchroniser mes contacts — Mon compte — {{ param('site_name') }}{% endblock %}
 
 {% block content %}
 {% include 'partials/page_header.html.twig' with {
-    title: 'Appareils synchronisés',
-    subtitle: 'Les identifiants avec lesquels un carnet d\'adresses se synchronise.',
+    title: 'Synchroniser mes contacts',
+    subtitle: 'Retrouvez les contacts des animateurs et du Staff d\'U dans le carnet d\'adresses de votre téléphone ou de votre ordinateur.',
 } only %}
 
 <div class="page-narrow">
@@ -16,8 +16,8 @@
         <output class="alert alert-warning d-flex align-items-start gap-2">
             <i class="bi bi-plug flex-shrink-0" aria-hidden="true"></i>
             <div>
-                La synchronisation est <strong>coupée pour tout le site</strong>. Vos appareils
-                restent enregistrés, mais aucun ne peut se synchroniser tant qu'un
+                La synchronisation est <strong>coupée pour tout le site</strong>. Vos accès
+                restent valides, mais aucun appareil ne peut se synchroniser tant qu'un
                 superadministrateur ne l'a pas réactivée.
             </div>
         </output>
@@ -52,15 +52,25 @@
                 <dt class="col-sm-4">Type de compte</dt>
                 <dd class="col-sm-8">CardDAV</dd>
                 <dt class="col-sm-4">Serveur</dt>
-                <dd class="col-sm-8"><code class="user-select-all">{{ site_url }}</code></dd>
+                <dd class="col-sm-8"><code class="user-select-all">{{ site_url }}{{ carddav_collection_path }}</code></dd>
                 <dt class="col-sm-4">Nom d'utilisateur</dt>
                 <dd class="col-sm-8"><code class="user-select-all">{{ account_email }}</code></dd>
                 <dt class="col-sm-4">Mot de passe</dt>
-                <dd class="col-sm-8">celui affiché une seule fois à l'enregistrement de l'appareil</dd>
+                <dd class="col-sm-8">celui affiché une seule fois à la création de l'accès</dd>
             </dl>
             <p class="small text-body-secondary mb-3">
-                Si votre application demande une adresse complète plutôt qu'un domaine, donnez-lui
-                <code class="user-select-all">{{ site_url }}{{ carddav_collection_path }}</code>.
+                Sur iPhone : <strong>Réglages → Contacts → Comptes → Ajouter un compte → Autre →
+                Ajouter un compte CardDAV</strong>, et collez cette adresse complète dans le champ
+                <strong>Serveur</strong>.
+            </p>
+            <p class="small text-body-secondary mb-3">
+                Certaines applications acceptent le domaine seul,
+                <code class="user-select-all">{{ site_url }}</code> : elles cherchent alors
+                <code>/.well-known/carddav</code>, que <strong>certains hébergements bloquent avant
+                même que le site ne réponde</strong>. L'adresse complète évite ce détour, et c'est
+                pourquoi c'est elle qui est donnée ci-dessus.
+            </p>
+            <p class="small text-body-secondary mb-3">
                 Le carnet est en <strong>lecture seule</strong> : les modifications faites sur
                 l'appareil ne remontent jamais, et seront écrasées à la synchronisation suivante.
             </p>
@@ -77,7 +87,7 @@
 
     <div class="card mb-3">
         <div class="card-body">
-            <h2 class="h5 mb-3">Mes appareils</h2>
+            <h2 class="h5 mb-3">Mes accès</h2>
 
             <div id="device-error" class="alert alert-danger d-none" role="alert"></div>
 
@@ -86,15 +96,24 @@
             <div id="device-secret-panel" class="alert alert-success d-none">
                 <p class="mb-2 fw-semibold">
                     <i class="bi bi-check2-circle" aria-hidden="true"></i>
-                    Appareil enregistré. Copiez le mot de passe maintenant.
+                    Accès créé. Copiez ces informations maintenant.
                 </p>
                 <p class="small mb-2">
-                    Il ne sera <strong>plus jamais affiché</strong>. Si vous le perdez, révoquez
-                    cet appareil et enregistrez-en un autre.
+                    Le mot de passe ne sera <strong>plus jamais affiché</strong>. Si vous le perdez,
+                    révoquez cet accès et créez-en un autre.
                 </p>
+                {# The three values a phone asks for, together. The server
+                   address used to be further up the page only, so the one
+                   screen where somebody is configuring their phone gave
+                   them two of the three and left them to scroll for the
+                   third (#483). #}
                 <dl class="row small mb-0">
+                    <dt class="col-sm-4">Serveur</dt>
+                    <dd class="col-sm-8">
+                        <code class="user-select-all">{{ site_url }}{{ carddav_collection_path }}</code>
+                    </dd>
                     <dt class="col-sm-4">Nom d'utilisateur</dt>
-                    <dd class="col-sm-8"><code>{{ account_email }}</code></dd>
+                    <dd class="col-sm-8"><code class="user-select-all">{{ account_email }}</code></dd>
                     <dt class="col-sm-4">Mot de passe</dt>
                     <dd class="col-sm-8"><code id="device-secret-value" class="user-select-all"></code></dd>
                 </dl>
@@ -111,7 +130,7 @@
                                     {% if credential.isRevoked %}
                                         Révoqué le {{ credential.revokedAt|date_fr }}
                                     {% elseif credential.hasNeverSynchronised %}
-                                        Enregistré le {{ credential.createdAt|date_fr }} — jamais synchronisé
+                                        Créé le {{ credential.createdAt|date_fr }} — jamais synchronisé
                                     {% else %}
                                         Dernière synchronisation : {{ credential.lastSyncAt|date_fr }}
                                     {% endif %}
@@ -131,7 +150,7 @@
                     </div>
                 {% else %}
                     {% include 'partials/empty_state.html.twig' with {
-                        message: 'Aucun appareil enregistré.',
+                        message: 'Aucun accès créé.',
                         compact: true,
                     } only %}
                 {% endfor %}
@@ -139,17 +158,17 @@
 
             {% if can_create %}
                 <div class="mt-3" id="device-add-section" data-csrf="{{ csrf_token() }}">
-                    <label class="form-label small" for="device-label">Nom de cet appareil</label>
+                    <label class="form-label small" for="device-label">Nom de cet accès</label>
                     <input type="text" id="device-label" class="form-control form-control-sm mb-2"
                            placeholder="ex. Téléphone de la chef d'unité" maxlength="{{ max_label_length|default(100) }}">
                     <button type="button" class="btn btn-outline-primary w-100 w-sm-auto" id="device-add-btn">
-                        <i class="bi bi-plus-lg" aria-hidden="true"></i> Enregistrer un appareil
+                        <i class="bi bi-plus-lg" aria-hidden="true"></i> Créer un accès
                     </button>
                 </div>
             {% else %}
                 <p class="small text-body-secondary mt-3 mb-0">
-                    Vous avez atteint la limite de {{ max_per_account }} appareils. Révoquez-en un
-                    pour pouvoir en enregistrer un autre.
+                    Vous avez atteint la limite de {{ max_per_account }} accès. Révoquez-en un
+                    pour pouvoir en créer un autre.
                 </p>
             {% endif %}
         </div>

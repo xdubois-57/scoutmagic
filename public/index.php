@@ -3961,7 +3961,7 @@ $router->addRoute(
 $router->addRoute('POST', '/account/passkey/register', AccountController::class, 'passkeyRegister', 'identified');
 $router->addRoute('POST', '/account/passkey/delete', AccountController::class, 'passkeyDelete', 'identified');
 $router->addRoute('POST', '/account/photo/delete', AccountController::class, 'deletePhoto', 'identified');
-// « Appareils synchronisés » (Core\Contact\Device, ARCHITECTURE.md
+// « Synchroniser mes contacts » (Core\Contact\Device, ARCHITECTURE.md
 // §8.117). `role_min: admin` and not `identified` like the rest of Mon
 // compte: the address book these credentials open is the staff's, and
 // DeviceAuthenticator refuses anything below that floor on every single
@@ -3973,7 +3973,7 @@ $router->addRoute(
     \Core\Contact\Controller\DeviceCredentialController::class,
     'index',
     'admin',
-    ['label' => 'Appareils synchronisés', 'parents' => [],
+    ['label' => 'Synchroniser mes contacts', 'parents' => [],
         'ancestors' => [['label' => 'Mon compte', 'path' => '/account']]]
 );
 // JSON, because the answer carries the one cleartext copy of the secret
