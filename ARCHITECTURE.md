@@ -2333,9 +2333,10 @@ when the list holds exactly one. Two boxes dedicated to rentals give **no**
 page: the page shows one box's mail, and choosing between two would be
 arbitrary — the incoming-mail configuration list says so where it can be
 fixed (`Service\MailboxAdminService::dedicationConflicts()`), and the
-change that creates or alters the case is journaled once
-(`inbound_mailbox_dedication_conflict`), not every later save that leaves
-it as it was. A shared box feeds the automatic
+change that brings a box into the case is journaled once
+(`inbound_mailbox_dedication_conflict`) — compared by box id, so a rename
+or a later save that leaves the case as it was writes nothing. A shared
+box feeds the automatic
 filing and the booking's history, never this page.
 
 **A renter's « Répondre » reaches that box.** Every booking mail carries the
