@@ -300,7 +300,9 @@ reclassez en un clic.
 La page « Courrier » est le même écran que le courrier des camps : les
 messages à trier, rattachés, tous, écartés ; les propositions à confirmer
 ou écarter ; le rattachement à la main, uniquement vers une réservation
-d'un bien que vous gérez. **Détacher** un message le renvoie dans le
+d'un bien que vous gérez. Vous y voyez le courrier des réservations de vos
+biens ; un message que rien ne rattache encore n'y apparaît que si vous
+gérez tous les biens de l'unité. **Détacher** un message le renvoie dans le
 courrier de l'unité, avec ses pièces jointes non reclassées ; pour
 changer de réservation, détachez puis rattachez. « Écarter ce courrier »
 retire de la liste un message qui ne concerne pas les locations, sans

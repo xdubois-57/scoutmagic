@@ -447,8 +447,11 @@ Rien.
     `bookingPagesOffered()`), le parcours et sa tête, les natures d'étape
     (`MilestoneKind`) et la coche « Fait » des étapes hors du site. Le
     paragraphe des « quatre mouvements » est remplacé.
-  - §8.58 décrit le composant de tri partagé (`Api\TriageList`, le
-    partial, `triage_ui`) et `dedicatedMailboxesFor()`.
+  - §8.58 décrit le composant de tri partagé (`triageRows()`,
+    `Api\TriageScreen`, le partial, `triage_ui`) et
+    `dedicatedMailboxesFor()`.
+  - §8.59 dit aussi la portée d'un gestionnaire sur une boîte dédiée
+    (`withinReach()`).
   - §8.59 décrit la page Courrier, sa condition (une boîte dédiée, une
     seule) et le `Reply-To`. Les phrases sur « déplacer » et sur
     l'absence de rattachement à la main sont réécrites.

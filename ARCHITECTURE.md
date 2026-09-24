@@ -2168,7 +2168,7 @@ What does protect the files is the ordinary mechanism: `File\RentalDocumentOwner
 
 **`Rafraîchir maintenant` runs a synchronisation inside the request, behind an expiring lock.** Two clicks a second apart would open two IMAP sessions on one box and race on the cursor — and the loser's write moves it *backwards*, so the next scheduled run re-reads what was already read. The lock is a setting rather than a table (one row, no schema, readable from the scheduled path too) and it expires after ten minutes, because a request killed by `max_execution_time` never clears it and a permanently locked button is a feature that silently stopped existing. `Service\ManualRefreshService` takes a **closure**, not the sync service: it is constructed on every page view so the button can exist, and assembling a synchronisation graph is the one thing a page view must never do.
 
-**One triage screen for every consumer that has one** (`Api\TriageList`, `views/partials/triage.html.twig`, issue #462). The list a consumer's users sort — its rows, the four tabs and their counts, the « Relancer l'analyse » message — is built from `InboundMailInterface` alone, so it inherits that interface's scoping and adds none of its own; the partial renders it with the reading dialog (`public/assets/js/mail-message-dialog.js`, one document-level listener, so a list re-rendered in place still opens). A consumer passes what is its own in `triage_ui`: the noun for its objects, its action URLs, its picker template. The camps' unsorted mail and the rentals' « Courrier » page are its two callers today. `dedicatedMailboxesFor()` tells a consumer which enabled boxes are dedicated to it — `Api\DedicatedMailbox`, an id, a name and an address, never a host or an account — and the mailbox list warns when two are dedicated to the same module, since a consumer with two has none of its own.
+**One triage screen for every consumer that has one** (`views/partials/triage.html.twig`, issue #462). The list a consumer's users sort is `InboundMailInterface::triageRows()` — `findForTriage()`'s messages with this consumer's own links and propositions, written once in `Service\TriageRowBuilder` so that every implementation of the interface answers it the same way — so it inherits that interface's scoping and adds none of its own. `Api\TriageScreen` (an immutable value object) makes one tab of it, with `Api\TriageFilter` for the tabs and their counts, and `Api\ReanalysisReport` says what « Relancer l'analyse » found; nothing in `Api\` computes on its own (§7.5). A consumer whose users are narrower than the module filters the rows further — rentals do (§8.59); the partial renders it with the reading dialog (`public/assets/js/mail-message-dialog.js`, one document-level listener, so a list re-rendered in place still opens). A consumer passes what is its own in `triage_ui`: the noun for its objects, its action URLs, its picker template. The camps' unsorted mail and the rentals' « Courrier » page are its two callers today. `dedicatedMailboxesFor()` tells a consumer which enabled boxes are dedicated to it — `Api\DedicatedMailbox`, an id, a name and an address, never a host or an account — and the mailbox list warns when two are dedicated to the same module, since a consumer with two has none of its own.
 
 **The inter-module API is scoped to one consumer and one business reference on every call** (`Api\InboundMailInterface`). There is no `findAll()`, no `findByMailbox()` and no `search()`, and that absence is the enforcement: a manager who may open a booking must not thereby gain a window onto the unit's whole mailbox. Detaching removes **one association**, and stops there. It used to destroy the message once the last association went, which meant that correcting a mis-filing destroyed the thing being corrected — the message could never reach the right booking. It now falls back into the general mail and lives out the retention. `purgeReference()` is the one that still destroys, and the distinction is the point: it is a consumer's RGPD erasure of a business object, where the promise made to the person concerned is that the mail attached to their file goes with the file. A file the consumer re-classified is *released* from the message (`AttachmentOmission::RECLASSIFIED`) rather than left pointing at it, so the retention purge ninety days on cannot take a booking's signed contract away with the email it arrived in; the consumer that names it takes over `files.owner_id` with it. What this module cannot check is whether the *user* may reach the reference — only the consumer knows its own authorisation rules, so that check stays in the consumer's controller and the interface says so.
 
@@ -2297,7 +2297,7 @@ crosses that boundary — and points at the scope screen for the rest.
 
 **The « Courrier » page is the camps' triage screen, not a look-alike**
 (issue #462). Both modules render `@inbound_mail/partials/triage.html.twig`
-over `Api\TriageList` (§8.58): the same tabs and counts (« À trier »,
+over `triageRows()` and `Api\TriageScreen` (§8.58): the same tabs and counts (« À trier »,
 « Rattachés », « Tous », « Écartés »), the same dialog for reading a message,
 the same propositions to confirm or dismiss, the same attach, detach, set
 aside, restore and « Relancer l'analyse ». What differs is passed in
@@ -2306,7 +2306,19 @@ and one scenario (`TriageScreenScenario`) is played against both screens so
 they cannot drift into two behaviours. The rentals' list is the manager's
 scope, not the page's: every booking of every asset they manage
 (`triageBookings()`), recomputed on each action rather than trusted from the
-form; the booking of the page is only the picker's default. The seven
+form; the booking of the page is only the picker's default.
+
+**A manager reads only the mail within their reach**
+(`RentalCommunicationService::withinReach()`). On a box dedicated to
+rentals, `findForTriage()` answers for the *module*, which reads the whole
+box; a manager is narrower than the module. A row stays when a link or a
+proposition names one of their own bookings — and then carries only those,
+so another booking's reference never reaches the page — or when nothing
+attributes it and they manage every asset
+(`RentalAuthorizationService::managesEveryAsset()`: the Staff d'U, or a
+manager named on each), since such a message may be about any of them.
+Attach, set aside and restore check a posted message id against that same
+list: what a manager cannot see, they cannot act on. The seven
 `/mes-locations/courrier/*` routes go through `bookingAction()` like every
 form of the booking.
 
