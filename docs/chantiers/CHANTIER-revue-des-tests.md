@@ -1361,17 +1361,17 @@ chercher §8.6 — que rien ne lui désigne.
 
 **Et §7.9 n'est pas seul.** La même confrontation appliquée aux renvois
 **internes** de chaque document — un `§X` écrit sans nom de fichier — fait
-apparaître un second foyer : **`6.7` (33 occurrences) et `6.14` (24)**, qui
+apparaître un second foyer : **le numéro `6.7` (33 occurrences) et `6.14` (24)**, qui
 ne résolvent dans aucun document non plus. Leur origine est plus lisible :
-plusieurs citations disent « **module spec** 6.7 », c'est-à-dire une
+plusieurs citations disent « **module spec** », suivi du numéro 6.7, c'est-à-dire une
 spécification propre au module locations, avec sa propre numérotation. Ce
 document n'existe plus : la spécification de `rental` est aujourd'hui
 `specifications.md` **§22**, dont les sous-sections vont de §22.1 à §22.13.
 La règle désignée s'y trouve bien — « A manual block and a letting are
 deliberately [indistinguishables] », « A visitor cannot page into the past »
 sont §22.2, et ce que le calendrier publié laisse voir est §22.8 — sous
-d'autres numéros. `SECURITY.md:760` en hérite et écrit « the boundary 6.7
-exists to enforce », dans un fichier dont le §6 s'intitule « File access » et
+d'autres numéros. `SECURITY.md:760` en hérite et écrit « the boundary »
+suivi du même numéro 6.7 « exists to enforce », dans un fichier dont le §6 s'intitule « File access » et
 n'a aucune sous-section.
 
 **121 renvois au total**, vers trois numérotations disparues, tous propagés
