@@ -56,7 +56,7 @@ numéro dans l'`INSERT` et n'archive jamais deux fois le même fichier.
   téléversés par `UploadHandler` en `role_min: identified` ; le code
   passe par `EncryptedFileStorageService`. Constaté pendant la
   vérification préalable, non corrigé ici : ce n'est pas le module de
-  ce chantier.
+  ce chantier. Suivi : #532.
 - Cinq versions ou une durée : voir IT-02.
 
 ---
