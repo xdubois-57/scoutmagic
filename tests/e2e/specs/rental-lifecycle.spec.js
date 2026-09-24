@@ -240,13 +240,15 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         await expect(milestone(page, 'Caution restituée')).toContainText(NOT_APPLICABLE);
 
         // ── The contract: generated, then sent ───────────────────────────
-        // « Documents » is a box of « Le dossier » and boxes ship folded
-        // (IT-05): the page opens on the one thing to do, not on eight
-        // panels at once. Opened ONCE here — its fold lives outside the
-        // `data-booking-panel` wrapper, so the four presses below, each of
-        // which re-renders the panel, must all leave it open. A box that
-        // folded under the manager's hands after every action is the
-        // regression this single call is watching for.
+        // « Documents » is a page of the booking's own (issue #462), reached
+        // by its chip in the booking's rail — the one that replaced the
+        // asset's. Its box arrives open; `openCard` asserts that rather
+        // than assuming it, and the fold lives outside the
+        // `data-booking-panel` wrapper, so the presses below, each of which
+        // re-renders the panel, must all leave it open.
+        const dashboard = page.url();
+        await page.locator('#rental-booking-picker').getByRole('link', { name: 'Documents' }).click();
+        await page.waitForURL(/\/reservations\/\d+\/documents$/, { waitUntil: 'load' });
         await openCard(page, 'dossier-documents');
 
         // A marker on the live document. If any of the presses below makes
@@ -272,19 +274,12 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         const send = page.getByRole('button', { name: /^Envoyer «/ });
 
         await expect(send).toBeVisible({ timeout: scaled(45_000) });
-        await expect(milestone(page, 'Contrat envoyé')).toContainText(TODO);
 
         // The dialog this raises — sending freezes the document's text — is
         // answered by autoConfirm() at the top of the scenario.
         await send.click();
-        await expect(milestone(page, 'Contrat envoyé')).toContainText(DONE);
-        // The date the line carries is the send date. Matched as a shape
-        // rather than as today's date written out here: the assertion is
-        // that the line became concrete, and a spec that computed the same
-        // string a second way would only ever agree with itself.
-        await expect(milestone(page, 'Contrat envoyé')).toContainText(/\d{2}\/\d{2}\/\d{4}/);
         // The row now offers « Renvoyer » — the document knows it has gone
-        // out, which is the same fact the milestone just read.
+        // out, which is the fact the dashboard's milestone reads below.
         await expect(page.getByRole('button', { name: /^Renvoyer «/ })).toBeVisible();
 
         // ── The signed copy coming back ──────────────────────────────────
@@ -307,16 +302,27 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         // Playwright refuses the click. Scoping to the form does not help —
         // both live inside it.
         await upload.getByRole('button', { name: 'Ajouter', exact: true }).click();
+        await expect(page.locator('[data-booking-panel="documents-figure"]')).toContainText('2 documents');
 
+        // Three presses, three panel swaps, and the document was never
+        // replaced.
+        expect(await page.evaluate(() => window.__notReloaded === true)).toBe(true);
+
+        // ── The checklist those presses moved ────────────────────────────
+        // On the dashboard, which a fresh load renders from the same
+        // records the Documents page just wrote.
+        await page.goto(dashboard, { waitUntil: 'load' });
+        await expect(milestone(page, 'Contrat envoyé')).toContainText(DONE);
+        // The date the line carries is the send date. Matched as a shape
+        // rather than as today's date written out here: the assertion is
+        // that the line became concrete, and a spec that computed the same
+        // string a second way would only ever agree with itself.
+        await expect(milestone(page, 'Contrat envoyé')).toContainText(/\d{2}\/\d{2}\/\d{4}/);
         await expect(milestone(page, 'Conditions et contrat acceptés')).toContainText(DONE);
         // The detail is the signed copy's own date now — the acknowledgement
         // it replaced is gone from the line.
         await expect(milestone(page, 'Conditions et contrat acceptés'))
             .not.toContainText('conditions acceptées le');
-
-        // Four presses, four panel swaps, and the document was never
-        // replaced.
-        expect(await page.evaluate(() => window.__notReloaded === true)).toBe(true);
 
         // ── The stay: meters, then the two inventories ───────────────────
         // A different page, and deliberately a plainer one: stay.html.twig
@@ -410,7 +416,7 @@ test.describe('Rentals — the milestones after a confirmation', () => {
 });
 
 /**
- * One line of « Où en est cette location », by the label
+ * One line of « Où en est cette réservation », by the label
  * `Booking\BookingMilestones` gives it.
  *
  * Addressed through `[data-booking-panel="milestones"]` because that
@@ -444,7 +450,7 @@ function milestone(page, label) {
  * @param {import('@playwright/test').Page} page
  */
 function bookingUrl(page) {
-    return page.url().replace(/\/sejour$/, '').split('?')[0];
+    return page.url().split(/[?#]/)[0].replace(/\/(sejour|finances|documents|courrier)$/, '');
 }
 
 /**

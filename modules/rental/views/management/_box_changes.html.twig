@@ -1,0 +1,28 @@
+{#
+  The « Demandes et propositions » box (Booking\BookingBox::CHANGES),
+  folded on the dashboard; its body is `_changes.html.twig`.
+#}
+{% set pending_changes = change_requests|filter(c => c.isPending)|length %}
+<div class="card mb-3" id="{{ boxes.changes.anchor }}">
+    {% embed '@rental/management/_dossier_header.html.twig' with {
+        box: boxes.changes, target_id: boxes.changes.bodyAnchor,
+        change_requests: change_requests, pending_changes: pending_changes,
+    } only %}
+        {% block figure %}
+            <span class="text-body-secondary small" data-booking-panel="changes-figure">
+                {% if pending_changes > 0 %}
+                    <span class="badge text-bg-warning">{{ pending_changes }} en attente</span>
+                {% elseif change_requests is empty %}
+                    Aucune demande
+                {% else %}
+                    {{ change_requests|length }} demande{{ change_requests|length > 1 ? 's' : '' }}
+                {% endif %}
+            </span>
+        {% endblock %}
+    {% endembed %}
+    <div class="collapse" id="{{ boxes.changes.bodyAnchor }}">
+        <div data-booking-panel="changes">
+            {% include '@rental/management/_changes.html.twig' %}
+        </div>
+    </div>
+</div>

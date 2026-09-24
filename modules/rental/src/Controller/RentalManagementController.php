@@ -29,6 +29,7 @@ use Modules\Calendar\Api\CalendarDirectoryInterface;
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Availability\MonthWindow;
 use Modules\Rental\Booking\BookingBox;
+use Modules\Rental\Booking\BookingPage;
 use Modules\Rental\Booking\BookingJourney;
 use Modules\Rental\Booking\BookingMilestones;
 use Modules\Rental\Booking\BookingStatus;
@@ -746,11 +747,81 @@ class RentalManagementController extends AbstractController
     }
 
     /**
-     * GET /mes-locations/{slug}/reservations/{id} — one booking's file.
+     * GET /mes-locations/{slug}/reservations/{id} — one booking's file, on
+     * its dashboard (Booking\BookingPage::DASHBOARD).
      *
      * @param array<string, string> $params
      */
     public function booking(Request $request, array $params): Response
+    {
+        return $this->bookingFilePage($params, BookingPage::DASHBOARD);
+    }
+
+    /**
+     * GET /mes-locations/{slug}/reservations/{id}/finances — the price and
+     * the payments of one booking.
+     *
+     * @param array<string, string> $params
+     */
+    public function bookingFinances(Request $request, array $params): Response
+    {
+        return $this->bookingFilePage($params, BookingPage::FINANCES);
+    }
+
+    /**
+     * GET /mes-locations/{slug}/reservations/{id}/documents — the papers of
+     * one booking.
+     *
+     * @param array<string, string> $params
+     */
+    public function bookingDocuments(Request $request, array $params): Response
+    {
+        return $this->bookingFilePage($params, BookingPage::DOCUMENTS);
+    }
+
+    /**
+     * GET /mes-locations/{slug}/reservations/{id}/courrier — the mail of one
+     * booking; a 404 where `inbound_mail` collects nothing, the same answer
+     * as a page that does not exist, because here it does not.
+     *
+     * @param array<string, string> $params
+     */
+    public function bookingMail(Request $request, array $params): Response
+    {
+        return $this->bookingFilePage($params, BookingPage::MAIL);
+    }
+
+    /**
+     * The pages this booking offers, in rail order: all four, minus
+     * « Courrier » when there is no mail to read here.
+     *
+     * @return list<BookingPage>
+     */
+    private function bookingPagesOffered(): array
+    {
+        $communications = $this->communicationService?->isAvailable() ?? false;
+
+        // Filtering drops « Courrier », the last case, so what remains is
+        // still a list in rail order.
+        return array_filter(
+            BookingPage::cases(),
+            static fn(BookingPage $page): bool => $page !== BookingPage::MAIL || $communications
+        );
+    }
+
+    /**
+     * One page of a booking's file (issue #462). Every page is rendered
+     * from the same context: the pages split the file for the reader, not
+     * for the data, and the dashboard's journey needs the documents, the
+     * payments and the stay to say where the booking stands anyway.
+     *
+     * The authorisation is the one the file always had, and it is decided
+     * before the page is: a booking of another asset, or of no asset this
+     * person manages, is a 404 on every page of it.
+     *
+     * @param array<string, string> $params
+     */
+    private function bookingFilePage(array $params, BookingPage $page): Response
     {
         $asset = $this->manageableAsset($params);
         if ($asset === null) {
@@ -762,26 +833,12 @@ class RentalManagementController extends AbstractController
             return $this->notFound();
         }
 
+        $pages = $this->bookingPagesOffered();
+        if (!in_array($page, $pages, true)) {
+            return $this->notFound();
+        }
+
         $now = new \DateTimeImmutable();
-
-        $documents = $this->documentService?->forBooking($booking->id);
-        $payment = $this->paymentStatus($booking, $asset);
-        // Null, not [], when the stay module is unavailable: the checklist
-        // reads the difference between "no inventory on this asset" and
-        // "inventories do not exist here" (Booking\MilestoneEvidence).
-        $inventory = $this->stayService?->inventoryFor($booking->id);
-        $consumptions = $this->stayService?->consumptionsFor($booking, $asset->id);
-        $evidence = MilestoneEvidence::collect(
-            $booking,
-            $documents,
-            $payment,
-            $inventory,
-            $consumptions,
-            $this->stayService?->latestSettlement($booking->id)
-        );
-
-        $milestones = BookingMilestones::for($booking, $now, $evidence->done, $evidence->details);
-        $transitions = BookingTransition::allowedFrom($booking->status);
 
         // Keyed by the enum's own value so the template writes
         // `boxes.payment.anchor` rather than the string that anchor
@@ -793,35 +850,103 @@ class RentalManagementController extends AbstractController
             $boxes[$box->value] = $box;
         }
 
-        return $this->render('@rental/management/booking.html.twig', [
+        $context = [
             'asset' => $asset,
             'booking' => $booking,
-            // The one box that is a page rather than a fold, so the
-            // journey's links to it need a URL and not a fragment
-            // (`BookingBox::isPage()`).
-            'stay_url' => $this->bookingUrl($asset, $booking) . '/sejour',
+            // The base every link of the file is built on: the rail's
+            // chips (`BookingPage::url()`) and the journey's links into a
+            // box, wherever it lives (`BookingBox::href()`).
+            'booking_url' => $this->bookingUrl($asset, $booking),
+            'booking_page' => $page,
+            'booking_pages' => $pages,
+            // The same last crumb on the four pages: they are one booking's
+            // file, and the rail — not the breadcrumb — says which part of
+            // it is open. Every ancestor stays a real link, which is the way
+            // back to the asset now that the booking's rail replaces the
+            // asset's.
             'breadcrumb_current' => $booking->reference,
             'breadcrumb_trail' => $this->bookingTrail($asset),
-            // The checklist is derived from what the booking's own records
-            // say — the contract that was sent, the deposit that arrived,
-            // the inventory that was finished — never from a stored flag,
-            // so pressing a button on this page moves the box it belongs to
-            // (§6.15).
-            'milestones' => $milestones,
-            // The same checklist, staged into the five stretches the page
-            // reads in — and the one outstanding milestone « L'action
-            // suivante » shows. Derived from `milestones` above, never
-            // beside it: two derivations of one lifecycle is exactly how a
-            // page starts telling two stories (Booking\BookingJourney).
+            'is_in_progress' => $booking->isInProgress($now),
+            'nav_page' => 'bookings',
+            'boxes' => $boxes,
+        ];
+
+        // Each page loads what it renders and nothing else: the pages
+        // split the file for the reader, and a Finances page — refreshed
+        // after every price line — has no business reading the mailbox or
+        // the history.
+        return $this->render(
+            self::BOOKING_PAGE_TEMPLATES[$page->value],
+            $context + match ($page) {
+                BookingPage::DASHBOARD => $this->dashboardContext($booking, $asset, $now),
+                BookingPage::FINANCES => [
+                    'quote' => $this->operationsService->workingQuote($booking, $asset),
+                    'payment' => $this->paymentStatus($booking, $asset),
+                ],
+                BookingPage::DOCUMENTS => [
+                    'documents' => $this->documentService?->forBooking($booking->id) ?? [],
+                    'uploadable_types' => DocumentType::uploadable(),
+                    'billing' => $this->operationsService->billingIdentity($booking->id),
+                ],
+                // Only offered at all when a mailbox collects, which
+                // `bookingPagesOffered()` settled above.
+                BookingPage::MAIL => [
+                    'messages' => $this->communicationService?->timeline($booking) ?? [],
+                    'message_propositions' => $this->communicationService?->propositions($booking) ?? [],
+                    'message_documents' => $this->communicationService?->documentsByFileId($booking) ?? [],
+                    'move_targets' => $this->communicationService?->moveTargets(
+                        $booking,
+                        AuthSession::getEmail(),
+                        $this->scoutYearId()
+                    ) ?? [],
+                ],
+            }
+        );
+    }
+
+    /**
+     * What the dashboard renders: the journey, the details, and the boxes
+     * that stayed with them.
+     *
+     * @return array<string, mixed>
+     */
+    private function dashboardContext(RentalBooking $booking, RentalAsset $asset, \DateTimeImmutable $now): array
+    {
+        $documents = $this->documentService?->forBooking($booking->id);
+        $payment = $this->paymentStatus($booking, $asset);
+        // Null, not [], when the stay module is unavailable: the checklist
+        // reads the difference between "no inventory on this asset" and
+        // "inventories do not exist here" (Booking\MilestoneEvidence).
+        $inventory = $this->stayService?->inventoryFor($booking->id);
+        $evidence = MilestoneEvidence::collect(
+            $booking,
+            $documents,
+            $payment,
+            $inventory,
+            $this->stayService?->consumptionsFor($booking, $asset->id),
+            $this->stayService?->latestSettlement($booking->id)
+        );
+
+        // The checklist is derived from what the booking's own records say
+        // — the contract that was sent, the deposit that arrived, the
+        // inventory that was finished — never from a stored flag, so
+        // pressing a button moves the line it belongs to (§6.15).
+        $milestones = BookingMilestones::for($booking, $now, $evidence->done, $evidence->details);
+        $transitions = BookingTransition::allowedFrom($booking->status);
+
+        return [
+            // The checklist staged into the five stretches the page reads
+            // in, and the one outstanding milestone « L'action suivante »
+            // shows — one derivation, never two beside each other
+            // (Booking\BookingJourney).
             'journey' => BookingJourney::of($milestones, $transitions),
-            'allowed_transitions' => $transitions,
             // Keyed by status value so the template can ask "does this
             // button write to the renter?" without knowing which statuses
             // do — that answer belongs to Booking\RenterDecision alone.
             'renter_decisions' => self::renterDecisionPrompts($transitions),
-            'can_confirm' => BookingTransition::isAllowed($booking->status, BookingStatus::CONFIRMED),
+            // The details' total, and what has been paid against it.
             'quote' => $this->operationsService->workingQuote($booking, $asset),
-            'price_is_agreed' => $booking->priceHasBeenAgreed(),
+            'payment' => $payment,
             'comments' => $this->decorateWithAuthors($this->commentRepository->findForBooking($booking->id)),
             // The booking's own change history (§6.15), through Core\Audit
             // (§8.66) like every other timeline on the site. The partial
@@ -836,27 +961,7 @@ class RentalManagementController extends AbstractController
             ),
             'audit_labels' => BookingAudit::FIELD_LABELS,
             'change_requests' => $this->changeRequestRepository->findForBooking($booking->id),
-            'is_in_progress' => $booking->isInProgress($now),
-            'payment' => $payment,
-            'documents' => $documents ?? [],
-            // Communications (§7.7). Absent rather than empty when
-            // `inbound_mail` is disabled or no mailbox is enabled: a tab
-            // that can only ever be empty is noise on a busy page.
-            'communications_available' => $this->communicationService?->isAvailable() ?? false,
-            'messages' => $this->communicationService?->timeline($booking) ?? [],
-            'message_propositions' => $this->communicationService?->propositions($booking) ?? [],
-            'message_documents' => $this->communicationService?->documentsByFileId($booking) ?? [],
-            'move_targets' => $this->communicationService?->moveTargets(
-                $booking,
-                AuthSession::getEmail(),
-                $this->scoutYearId()
-            ) ?? [],
-            'uploadable_types' => DocumentType::uploadable(),
-            'billing' => $this->operationsService->billingIdentity($booking->id),
-            'csrf_token' => CsrfGuard::generateToken(),
-            'nav_page' => 'bookings',
-            'boxes' => $boxes,
-        ]);
+        ];
     }
 
     /**
@@ -2446,7 +2551,13 @@ class RentalManagementController extends AbstractController
             return $this->json(self::flashAsJson());
         }
 
-        return $this->redirect($this->bookingUrl($asset, $booking));
+        // Back to the page the form was on, when it says which: a manager
+        // recording a payment without JavaScript lands on Finances, not on
+        // the dashboard. Read against the closed enum, so the value can
+        // only ever name one of this booking's own pages — never a URL.
+        $page = BookingPage::tryFrom((string) $request->getBody('booking_page', '')) ?? BookingPage::DASHBOARD;
+
+        return $this->redirect($page->url($this->bookingUrl($asset, $booking)));
     }
 
     /**
@@ -2641,6 +2752,16 @@ class RentalManagementController extends AbstractController
      * the action still happens, it is simply recorded without an author,
      * which is honest rather than inventing one.
      */
+    /**
+     * The template of each page of a booking's file.
+     */
+    private const BOOKING_PAGE_TEMPLATES = [
+        'dashboard' => '@rental/management/booking.html.twig',
+        'finances' => '@rental/management/booking_finances.html.twig',
+        'documents' => '@rental/management/booking_documents.html.twig',
+        'mail' => '@rental/management/booking_mail.html.twig',
+    ];
+
     /**
      * The management URL of one booking. Assembled here rather than at each
      * redirect, so the four or five places that end on this page cannot

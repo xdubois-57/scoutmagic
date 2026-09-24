@@ -22,7 +22,7 @@ namespace Modules\Rental\Booking;
  *   done, and nothing else. One card, one thing to do. When every
  *   applicable milestone is done there is none, and the card says so rather
  *   than inventing work.
- * - **« Où en est cette location »** — the five stretches, the one holding
+ * - **« Où en est cette réservation »** — the five stretches, the one holding
  *   that milestone unfolded and the rest reduced to a count. A phase with
  *   nothing applicable in it (no contract on this asset, the stay module
  *   off) still appears, greyed: a stretch that disappears reads as a

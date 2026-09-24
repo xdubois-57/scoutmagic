@@ -22,6 +22,7 @@ trouve être exécutable ailleurs.
 | `maquette-modules.jsx` | Réorganisation des menus | `/config/modules` — superadmin | IT-03 |
 | `maquette-stockage.jsx` | Emplacements de stockage | `/config/stockage` — superadmin, les deux sous-pages | IT-02, IT-07 |
 | `maquette-galerie-config.jsx` | Emplacements de stockage | `/config/gallery` — superadmin, les quatre onglets | IT-02 |
+| `maquette-reservation-462.jsx` | Lisibilité de la page d'une réservation (#462) | `/mes-locations/{bien}/reservations/{id}` — gestionnaire du bien, les quatre pages et le parcours | IT-01, IT-02, IT-04 |
 
 ## Le cas du trombinoscope imprimable
 

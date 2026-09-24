@@ -17,17 +17,20 @@
   an `h6` put on the heading itself would deliver neither — the size goes on
   the span inside.
 
-  Boxes ship folded. `box` is a Booking\BookingBox, which is also what the
-  journey's links are built from, so the card id a link aims at and the
-  panel this button opens can never be two different strings.
+  Boxes ship folded on the dashboard, where they sit under the journey,
+  and open on the page that exists for them (`open`): a Finances page whose
+  two boxes both need a click says nothing a closed door would not.
+  `box` is a Booking\BookingBox, which is also what the journey's links are
+  built from, so the card id a link aims at and the panel this button opens
+  can never be two different strings.
 
-  Requires `box` and `target_id`.
+  Requires `box` and `target_id`; `open` is optional and false by default.
 #}
 <h3 class="mb-0">
     <button type="button"
-            class="btn collapsed w-100 d-flex align-items-center gap-2 p-3 text-start"
+            class="btn{{ open|default(false) ? '' : ' collapsed' }} w-100 d-flex align-items-center gap-2 p-3 text-start"
             data-bs-toggle="collapse" data-bs-target="#{{ target_id }}"
-            aria-expanded="false" aria-controls="{{ target_id }}">
+            aria-expanded="{{ open|default(false) ? 'true' : 'false' }}" aria-controls="{{ target_id }}">
         <span class="h6 mb-0 flex-grow-1">{{ box.label }}</span>
         {% block figure %}{% endblock %}
         <i class="bi bi-chevron-down text-body-tertiary" aria-hidden="true"></i>

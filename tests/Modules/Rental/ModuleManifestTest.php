@@ -66,10 +66,13 @@ class ModuleManifestTest extends TestCase
      *
      * 1.22.0 adds a route too: the renter fills in their own billing
      * coordinates from their tracking page (§22.6).
+     *
+     * 1.24.0 adds three: a booking's file is spread over four pages, each
+     * with its own chip (issue #462, IT-01).
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.23.2', $this->manifest->version);
+        $this->assertSame('1.24.0', $this->manifest->version);
     }
 
     /**

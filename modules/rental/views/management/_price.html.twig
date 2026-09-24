@@ -55,6 +55,7 @@
                                             {{ csrf_field()|raw }}
                                             <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                             <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                            <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
                                             <input type="hidden" name="line_action" value="remove">
                                             <input type="hidden" name="index" value="{{ loop.index0 }}">
                                             <button type="submit" class="btn btn-sm btn-outline-danger">
@@ -69,6 +70,7 @@
                                             {{ csrf_field()|raw }}
                                             <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                             <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                            <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
                                             <input type="hidden" name="line_action" value="edit">
                                             <input type="hidden" name="index" value="{{ loop.index0 }}">
                                             <div class="col-12 col-md-5">
@@ -110,6 +112,7 @@
                     {{ csrf_field()|raw }}
                     <input type="hidden" name="asset_id" value="{{ asset.id }}">
                     <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                    <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
                     <input type="hidden" name="line_action" value="add">
                     <div class="col-12 col-md-5">
                         <label class="form-label" for="new-label">Nouvelle ligne</label>
@@ -135,6 +138,7 @@
                     {{ csrf_field()|raw }}
                     <input type="hidden" name="asset_id" value="{{ asset.id }}">
                     <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                    <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
                     <input type="hidden" name="line_action" value="recalculate">
                     <button type="submit" class="btn btn-sm btn-outline-secondary">
                         Recalculer les lignes automatiques
