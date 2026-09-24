@@ -33,6 +33,11 @@ namespace Core\Geo;
  * ever and blocks the one-at-a-time queue behind it — and it leaves any
  * point already there untouched: no answer is not an answer of « nowhere ».
  *
+ * **An automatic point belongs to the address it was found for.** When the
+ * address changes, `forgetGeocoding()` drops it along with the stamp: kept,
+ * it would survive a failed lookup of the new address and stay on the map,
+ * stamped as done, at a place the row no longer describes.
+ *
  * The table name is a constant of the calling repository, checked here
  * against a strict pattern before it is ever written into a statement;
  * every VALUE is bound.
@@ -70,12 +75,15 @@ final class GeoPointStore
      * Puts an automatically-placed row back in the geocoding queue — for an
      * address that changed. `geocoded_at` means « we have tried this
      * address », so it has to be cleared when the address is a different
-     * one. A manual row stays out of the queue.
+     * one, and the point found for the old address goes with it. A manual
+     * row keeps its point and stays out of the queue.
      */
     public function forgetGeocoding(int $id): void
     {
         $stmt = $this->pdo->prepare(
-            "UPDATE {$this->table} SET geocoded_at = NULL WHERE id = ? AND coordinates_are_manual = 0"
+            "UPDATE {$this->table}
+                SET latitude = NULL, longitude = NULL, geocoded_at = NULL
+              WHERE id = ? AND coordinates_are_manual = 0"
         );
         $stmt->execute([$id]);
     }

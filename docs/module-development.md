@@ -546,7 +546,8 @@ uses the core's map rather than a copy of it (ARCHITECTURE.md §8.119):
   table name: `setManual()` for a point a human typed, dragged or removed
   (it locks the row for ever), `recordGeocoding()` for an automatic result
   (a failure is stamped and erases nothing), `forgetGeocoding()` when the
-  address changed. Parse a form's two boxes with `GeoPoint::fromInput()`
+  address changed (it also drops the automatic point found for the old
+  one). Parse a form's two boxes with `GeoPoint::fromInput()`
   and let its `GeoPointException` reach the reader.
 - **Geocode in a scheduled task, one row per run**, re-arming itself while
   rows are pending, and seeded only when something is pending — the shape

@@ -136,13 +136,14 @@ requête par seconde exprimée par la forme de la tâche (docblock de
 `GeocodingService`, la tâche de `camps` restant la référence).
 
 **Tests.** `Tests\Core\Geo\GeoPointStoreTest` (point manuel jamais écrasé,
-échec de géocodage horodaté sans effacer le point existant, point retiré à
+échec de géocodage horodaté sans effacer le point existant, changement
+d'adresse qui retire le point automatique de l'ancienne, point retiré à
 la main qui reste verrouillé, copie qui ne déverrouille jamais, nom de
 table contrôlé), `GeoPointTest` (analyse et refus), `MapTilesTest` déplacé
 et étendu (aucun autre script ne nomme l'hôte des tuiles),
 `CampsMapStorageTest` (la clé de stockage du repli, restée dans `camps`),
 `tests/js/map.test.js`, et dans `camps` un nouveau cas « un échec après un
-changement d'adresse garde le point » ; « un point manuel survit à un
+changement d'adresse ne laisse aucun point périmé » ; « un point manuel survit à un
 changement d'adresse » existait déjà et passe inchangé.
 
 **Décisions autonomes.**
@@ -160,10 +161,12 @@ changement d'adresse » existait déjà et passe inchangé.
 2. **Un échec de géocodage n'efface plus un point automatique existant.**
    Avant, `recordGeocoding(null, null)` écrivait `NULL` dans les
    coordonnées. Le document demande le contraire (« sans écraser un point
-   existant ») ; c'est désormais `COALESCE` dans le cœur. Conséquence
-   visible : un lieu dont la nouvelle adresse n'est pas reconnue garde le
-   point de l'ancienne jusqu'à ce qu'un animateur le corrige, plutôt que de
-   disparaître de la carte.
+   existant ») ; c'est désormais `COALESCE` dans le cœur. En revanche, **un
+   changement d'adresse retire le point automatique trouvé pour
+   l'ancienne** (`forgetGeocoding()`) : gardé, il aurait survécu à l'échec
+   du géocodage de la nouvelle adresse et serait resté sur la carte,
+   horodaté comme traité, au mauvais endroit (relevé à la relecture de la
+   PR). Un point manuel, lui, reste en place.
 3. **Une copie de point (fusion de lieux) ne déverrouille jamais une ligne
    manuelle**, là où l'ancien code réécrivait le drapeau tel quel. Le cas
    réel était marginal (un lieu cible sans point mais verrouillé), mais

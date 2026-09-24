@@ -56,7 +56,6 @@ final class GeoPointStoreTest extends TestCase
     public function testAFailedLookupIsStampedWithoutErasingAnExistingPoint(): void
     {
         $this->store->recordGeocoding(1, new GeoPoint(50.44, 5.0), new \DateTimeImmutable('2026-09-01'));
-        $this->store->forgetGeocoding(1);
 
         $this->store->recordGeocoding(1, null, new \DateTimeImmutable('2026-09-24 10:00'));
 
@@ -66,6 +65,29 @@ final class GeoPointStoreTest extends TestCase
         // And no answer is not an answer of « nowhere ».
         $this->assertEqualsWithDelta(50.44, (float) $this->row()['latitude'], 0.000001);
         $this->assertEqualsWithDelta(5.0, (float) $this->row()['longitude'], 0.000001);
+    }
+
+    public function testForgettingDropsTheAutomaticPointFoundForTheOldAddress(): void
+    {
+        $this->store->recordGeocoding(1, new GeoPoint(50.44, 5.0), new \DateTimeImmutable('2026-09-01'));
+
+        $this->store->forgetGeocoding(1);
+        // The new address means nothing to the gazetteer.
+        $this->store->recordGeocoding(1, null, new \DateTimeImmutable('2026-09-24 10:00'));
+
+        // No pin left at a place the row no longer describes.
+        $this->assertNull($this->row()['latitude']);
+        $this->assertNull($this->row()['longitude']);
+        $this->assertSame('2026-09-24 10:00:00', $this->row()['geocoded_at']);
+    }
+
+    public function testForgettingKeepsAManualPoint(): void
+    {
+        $this->store->setManual(1, new GeoPoint(50.7, 4.6), new \DateTimeImmutable());
+
+        $this->store->forgetGeocoding(1);
+
+        $this->assertEqualsWithDelta(50.7, (float) $this->row()['latitude'], 0.000001);
     }
 
     public function testAManualPointIsNeverOverwrittenByGeocoding(): void

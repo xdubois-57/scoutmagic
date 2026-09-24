@@ -50,11 +50,12 @@ class GeocodingTest extends TestCase
         $this->assertFalse($this->places->findById($id)?->hasCoordinates());
     }
 
-    public function testAFailedLookupAfterAnAddressChangeKeepsTheExistingPoint(): void
+    public function testAFailedLookupAfterAnAddressChangeLeavesNoStalePoint(): void
     {
-        // The rule is the core's (Core\Geo\GeoPointStore): a failed lookup
-        // is stamped, so the place leaves the queue, but no answer is not
-        // an answer of « nowhere » and the point it had stays.
+        // The rule is the core's (Core\Geo\GeoPointStore): the point found
+        // for the old address goes when the address changes, so a lookup of
+        // the new one that fails leaves the place off the map rather than
+        // stamped as done at the old spot. It still leaves the queue.
         $id = $this->places->create('Domaine de Mozet', 'Rue du Tronquoy', '5340', 'Mozet', 'Belgique', null);
         $this->places->recordGeocoding($id, 50.44, 5.00, new \DateTimeImmutable());
         $this->places->clearGeocoding($id);
@@ -64,7 +65,7 @@ class GeocodingTest extends TestCase
         $place = $this->places->findById($id);
         $this->assertNotNull($place?->geocodedAt);
         $this->assertNull($this->places->findNextToGeocode());
-        $this->assertEqualsWithDelta(50.44, (float) $place->latitude, 0.000001);
+        $this->assertFalse($place->hasCoordinates());
     }
 
     public function testChangingTheAddressPutsThePlaceBackInTheQueue(): void
