@@ -67,7 +67,7 @@ final class EspaceMembresGroupsTest extends TestCase
     public function testTheRentalEntriesAreNoLongerTwoWordsApart(): void
     {
         $this->assertContains('Biens à louer', self::columns('admin', "Espace chefs d'U")["Services de l'unité"]);
-        $all = (string) json_encode(MenuInventory::render('superadmin', false));
+        $all = (string) json_encode(MenuInventory::render('superadmin', false), JSON_UNESCAPED_UNICODE);
         $this->assertStringNotContainsString('Gérer les locations', $all);
     }
 
