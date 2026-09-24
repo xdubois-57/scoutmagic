@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Tests\Modules\Camps\Service;
+namespace Tests\Core\Geo;
 
-use Modules\Camps\Service\MapTiles;
+use Core\Geo\MapTiles;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -18,25 +18,40 @@ use PHPUnit\Framework\TestCase;
  * contacts — or worse, failing to name one it does — is a compliance
  * defect that no amount of testing the map itself would reveal.
  *
- * The map's browser-storage key is a fourth agreement of the same shape,
- * added when the map became expanded by default: JavaScript writes it,
- * module.json declares it to the consent banner and the cookie
- * preferences page, and nothing in either language can see the other.
- * AGENTS.md § Cookie consent makes the declaration mandatory, so a key
- * renamed on one side only is a site quietly storing something it never
- * told the visitor about.
+ * The provider moved from the camps module to the core with the carpool
+ * chantier (docs/chantiers/covoiturage.md, IT-02), and this test moved with
+ * it: it now reads public/assets/js/map.js, the one script every map on the
+ * site draws its tiles through. The camps map's own storage key is checked
+ * where it lives, in Tests\Modules\Camps\Service\CampsMapStorageTest.
  */
 final class MapTilesTest extends TestCase
 {
     public function testTheJavascriptDrawsTilesFromTheOriginTheCspAllows(): void
     {
-        $js = (string) file_get_contents(self::root() . '/public/assets/js/camps-map.js');
+        $js = (string) file_get_contents(self::root() . '/public/assets/js/map.js');
 
         $this->assertStringContainsString(
             MapTiles::ORIGIN . '/',
             $js,
-            'camps-map.js requests tiles from a host the CSP does not allow — every tile would be blocked.'
+            'map.js requests tiles from a host the CSP does not allow — every tile would be blocked.'
         );
+    }
+
+    public function testNoOtherScriptNamesATileHostOfItsOwn(): void
+    {
+        // The whole point of the extraction: one script says where tiles
+        // come from. A second copy is a second place for the host to
+        // change without the CSP.
+        foreach (glob(self::root() . '/public/assets/js/*.js') ?: [] as $file) {
+            if (basename($file) === 'map.js') {
+                continue;
+            }
+            $this->assertStringNotContainsString(
+                'tile.openstreetmap.org',
+                (string) file_get_contents($file),
+                basename($file) . ' names the tile host itself instead of drawing through map.js.'
+            );
+        }
     }
 
     public function testTheRgpdPageNamesTheTileAndGeocodingProvider(): void
@@ -53,7 +68,7 @@ final class MapTilesTest extends TestCase
 
     public function testTheGeocoderCallsTheHostTheRgpdPageDescribes(): void
     {
-        $service = (string) file_get_contents(self::root() . '/modules/camps/src/Service/GeocodingService.php');
+        $service = (string) file_get_contents(self::root() . '/core/Geo/GeocodingService.php');
 
         $this->assertStringContainsString(MapTiles::GEOCODER_ORIGIN . '/', $service);
     }
@@ -86,43 +101,6 @@ final class MapTilesTest extends TestCase
         $list = (string) file_get_contents($root . '/modules/camps/views/list.html.twig');
         $this->assertStringNotContainsString('unpkg.com', $list);
         $this->assertStringNotContainsString('cdn.jsdelivr', $list);
-    }
-
-    public function testTheMapsStorageKeyIsDeclaredAsAFunctionalCookieOfThisModule(): void
-    {
-        $root = self::root();
-        $js = (string) file_get_contents($root . '/public/assets/js/camps-map.js');
-
-        // Read the key out of the JavaScript rather than writing it here
-        // twice: a test that hardcodes the name goes on passing after a
-        // rename on one side, which is the whole failure it exists for.
-        $this->assertSame(
-            1,
-            preg_match("/STORAGE_KEY = '([a-z0-9_]+)'/", $js, $match),
-            'camps-map.js no longer declares a single STORAGE_KEY this test can read.'
-        );
-        $key = $match[1];
-
-        /** @var array{cookies?: array<int, array<string, string>>} $manifest */
-        $manifest = json_decode((string) file_get_contents($root . '/modules/camps/module.json'), true);
-        $declared = [];
-        foreach ($manifest['cookies'] ?? [] as $cookie) {
-            $declared[$cookie['name']] = $cookie;
-        }
-
-        $this->assertArrayHasKey(
-            $key,
-            $declared,
-            "camps-map.js writes '{$key}' to localStorage but modules/camps/module.json declares no such entry — "
-            . 'the consent banner and the cookie preferences page would both be an incomplete picture '
-            . '(AGENTS.md § Cookie consent).'
-        );
-        // Functional and not necessary: the map works without it, so it
-        // is gated on consent client-side, and a category of 'necessary'
-        // here would silently exempt it from that gate.
-        $this->assertSame('functional', $declared[$key]['category']);
-        $this->assertNotEmpty($declared[$key]['purpose']);
-        $this->assertNotEmpty($declared[$key]['duration']);
     }
 
     public function testTheRgpdPageDescribesAMapThatIsOpenBeforeAnybodyAsksOnAWideScreen(): void
@@ -160,6 +138,6 @@ final class MapTilesTest extends TestCase
 
     private static function root(): string
     {
-        return dirname(__DIR__, 4);
+        return dirname(__DIR__, 3);
     }
 }

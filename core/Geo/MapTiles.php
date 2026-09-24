@@ -6,7 +6,7 @@
 
 declare(strict_types=1);
 
-namespace Modules\Camps\Service;
+namespace Core\Geo;
 
 /**
  * The map's tile provider, named once.
@@ -14,13 +14,13 @@ namespace Modules\Camps\Service;
  * Three places need to agree about it and they are in three different
  * languages: the Content-Security-Policy built in PHP
  * (Core\Http\Response::addImgSrcOrigin), the tile URL in JavaScript
- * (public/assets/js/camps-map.js), and the subprocessor list in the RGPD
- * page (Core\View\RgpdContentService). A tile host that changes in one
+ * (public/assets/js/map.js, which every map on the site draws through),
+ * and the subprocessor list in the RGPD page (Core\View\RgpdContentService). A tile host that changes in one
  * and not the others gives a blocked map, or worse, a privacy notice that
  * names the wrong company.
  *
  * This constant is what the PHP side reads, and
- * Tests\Modules\Camps\Service\MapTilesTest is what checks the JavaScript
+ * Tests\Core\Geo\MapTilesTest is what checks the JavaScript
  * and the RGPD text still say the same thing.
  */
 final class MapTiles

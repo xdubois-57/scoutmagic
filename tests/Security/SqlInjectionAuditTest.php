@@ -151,6 +151,15 @@ class SqlInjectionAuditTest extends TestCase
             '{$drop[\'constraint\']}' => 'Same drops.sql entry, same check.',
         ],
 
+        // A table name the calling repository passes as a literal
+        // ('camp_places', 'carpools'), matched against
+        // /^[a-z][a-z0-9_]*$/ in the constructor before any statement is
+        // built — and never anything a request carries.
+        'core/Geo/GeoPointStore.php' => [
+            '{$this->table}' => 'The table carrying the four point columns, a literal of the calling repository, '
+                . 'checked against a strict identifier pattern in the constructor.',
+        ],
+
         // Column names the code picks, never a caller.
         'core/Security/LoginThrottler.php' => [
             '{$column}' => 'The parameter of two PRIVATE methods (lockoutFor/countRecentFailures) whose only call '

@@ -533,6 +533,34 @@ Three things the component does that a copy would forget:
   and removal, `detail.selected` holding the retained rows with every field
   the server sent — listen to it to react to the combination chosen.
 
+## Placing something on a map (`Core\Geo`)
+
+A module whose rows have a location — a camp field, a carpool destination —
+uses the core's map rather than a copy of it (ARCHITECTURE.md §8.119):
+
+- **Declare the four point columns** in your table, under exactly these
+  names: `latitude DECIMAL(9, 6) NULL`, `longitude DECIMAL(9, 6) NULL`,
+  `coordinates_are_manual BOOLEAN NOT NULL DEFAULT FALSE`,
+  `geocoded_at DATETIME NULL` (plus `updated_at`).
+- **Write them only through `Core\Geo\GeoPointStore`**, built with your
+  table name: `setManual()` for a point a human typed, dragged or removed
+  (it locks the row for ever), `recordGeocoding()` for an automatic result
+  (a failure is stamped and erases nothing), `forgetGeocoding()` when the
+  address changed. Parse a form's two boxes with `GeoPoint::fromInput()`
+  and let its `GeoPointException` reach the reader.
+- **Geocode in a scheduled task, one row per run**, re-arming itself while
+  rows are pending, and seeded only when something is pending — the shape
+  of `Modules\Camps\Task\GeocodePlacesHandler`. Never on a page load:
+  `Core\Geo\GeocodingService` calls a free third-party service allowed one
+  request per second.
+- **Draw with `public/assets/js/map.js`** (`window.ScoutMagicMap.create()`),
+  loaded after `/assets/vendor/leaflet/leaflet.js`, and set `$mapTileOrigin
+  = \Core\Geo\MapTiles::ORIGIN` in your wiring block of `public/index.php`
+  so the CSP lets the tiles through. Never name the tile host in your own
+  script: `Tests\Core\Geo\MapTilesTest` fails on it.
+- **Say so on the RGPD page**: the tiles hand the reader's IP to
+  OpenStreetMap, and the geocoder sends it an address.
+
 ## Contributing menu entries (`Core\Module\MenuEntryProvider`)
 
 A module's own pages get their menu entry from `module.json` automatically — a route with a non-empty `label` becomes one. Use this hook only for entries the manifest cannot express: one per row of your own data, or one that depends on who is looking.
