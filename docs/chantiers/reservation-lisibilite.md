@@ -480,9 +480,29 @@ Rien.
 | IT-01 | #475 | Le rail, les quatre pages, les boîtes réparties |
 | IT-02 | #477 | Un seul parcours, la nature des étapes, « Fait » hors du site |
 | IT-03 | #480 | Un seul écran de courrier pour les camps et les locations |
-| IT-04 | (cette série) | La page Courrier sur boîte dédiée, `Reply-To` |
-| IT-05 | (cette série) | Documentation et aide |
+| IT-04 | #489 | La page Courrier sur boîte dédiée, `Reply-To` |
+| IT-05 | cette PR | Documentation et aide |
 
 Aucun changement de permission ni de machine à états. Les écarts relevés
 contre le commit 5af544e sont en tête de ce journal ; ceux apparus en
 cours de route sont dans la section de leur itération.
+
+**Ce que les revues ont trouvé.** Deux revues automatiques relisaient
+chaque PR. Sur l'IT-03, elles ont trouvé :
+
+- une fuite entre gestionnaires : sur une boîte dédiée aux locations,
+  chacun lisait et pouvait rattacher le courrier des biens des autres ;
+- une limite de cent messages appliquée avant ce filtrage ;
+- une classe de service dans `Api\` ;
+- un écran des camps qui échouait sans le module Courrier entrant.
+
+Sur l'IT-04, elles ont trouvé un journal des conflits de boîtes qui se
+répétait ou restait muet selon le chemin. Tout est corrigé dans la PR de
+l'itération, avec un test qui échoue sans le correctif.
+
+Deux PR hors roadmap sont nées en chemin, parce qu'elles bloquaient la
+CI de toutes les PR :
+
+- #500 : `main` était rouge après deux PR qui se contredisaient sur les
+  renvois « § » ;
+- #504 : un test comparait tout le dossier temporaire partagé du runner.
