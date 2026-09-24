@@ -569,6 +569,9 @@ class RentalManagementControllerTest extends TestCase
     {
         $inbound = $this->createMock(\Modules\InboundMail\Api\InboundMailInterface::class);
         $inbound->method('isCollecting')->willReturn(true);
+        $inbound->method('dedicatedMailboxesFor')->willReturn([
+            new \Modules\InboundMail\Api\DedicatedMailbox(3, 'Locations', 'locations@unite.be'),
+        ]);
         $this->withMailbox($inbound);
 
         return $inbound;
@@ -2711,6 +2714,59 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringNotContainsString('/courrier"', $body);
         $this->assertStringNotContainsString('<span>Courrier</span>', $body);
         $this->assertSame(404, $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getStatusCode());
+    }
+
+    /**
+     * « Courrier » exists for rentals' own mailbox and for nothing else
+     * (issue #462, D8): a box that collects but is not dedicated to rentals
+     * gives no page, and neither do two dedicated ones — the page shows ONE
+     * box's whole mail, and picking between two would be arbitrary.
+     *
+     * @return array<string, array{list<\Modules\InboundMail\Api\DedicatedMailbox>}>
+     */
+    public static function mailboxesThatGiveNoPage(): array
+    {
+        return [
+            'a collecting box, dedicated to nobody' => [[]],
+            'two boxes dedicated to rentals' => [[
+                new \Modules\InboundMail\Api\DedicatedMailbox(3, 'Locations', 'locations@unite.be'),
+                new \Modules\InboundMail\Api\DedicatedMailbox(4, 'Chalet', 'chalet@unite.be'),
+            ]],
+        ];
+    }
+
+    /**
+     * @param list<\Modules\InboundMail\Api\DedicatedMailbox> $boxes
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('mailboxesThatGiveNoPage')]
+    public function testCourrierNeedsExactlyOneDedicatedMailbox(array $boxes): void
+    {
+        $this->loginAsManager();
+        $inbound = $this->createMock(\Modules\InboundMail\Api\InboundMailInterface::class);
+        $inbound->method('isCollecting')->willReturn(true);
+        $inbound->method('dedicatedMailboxesFor')->willReturn($boxes);
+        $this->withMailbox($inbound);
+        $booking = $this->createBooking();
+
+        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $this->assertStringNotContainsString('<span>Courrier</span>', $body);
+        $this->assertSame(404, $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getStatusCode());
+    }
+
+    /**
+     * With its one box, the page says which box it is and that renters
+     * answer to it.
+     */
+    public function testTheCourrierPageNamesItsMailbox(): void
+    {
+        $this->loginAsManager();
+        $this->withCollectingMailbox();
+        $booking = $this->createBooking();
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString('<strong>locations@unite.be</strong>', $body);
+        $this->assertStringContainsString('portent cette adresse en réponse', $body);
     }
 
     /**

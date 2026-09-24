@@ -76,6 +76,11 @@ trait InertInboundMail
         return 0;
     }
 
+    public function dedicatedMailboxesFor(string $consumerId): array
+    {
+        return [];
+    }
+
     public function isCollecting(): bool
     {
         return false;

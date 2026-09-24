@@ -224,6 +224,75 @@ class InboundMailConfigControllerTest extends TestCase
         $this->assertStringNotContainsString('imap.test', $row);
     }
 
+    // ── Two boxes dedicated to one module (issue #462, IT-04) ──────────
+
+    /**
+     * A module has a box of its own only when exactly one is dedicated to
+     * it: the rentals' Courrier page disappears with a second one. The
+     * operator who made that configuration is told on the screen where it
+     * can be undone, and the journal keeps it for whoever asks later why
+     * the page went away.
+     */
+    public function testASecondBoxDedicatedToTheSameModuleIsExplainedAndJournaled(): void
+    {
+        $this->post(['purpose' => MailboxPurpose::DEDICATED->value, 'dedicated_to' => 'rental']);
+        $this->assertStringNotContainsString(
+            'data-dedication-conflict',
+            $this->controller->index($this->get('/config/courrier-entrant'), [])->getBody()
+        );
+        $this->assertSame(0, $this->conflictEntries());
+
+        $second = $this->mailboxes->create(
+            'Boîte du chalet',
+            ProviderType::IMAP,
+            'imap.test',
+            993,
+            'ssl',
+            'chalet@unite.be',
+            'secret',
+            [],
+            true
+        );
+        $this->post(
+            ['purpose' => MailboxPurpose::DEDICATED->value, 'dedicated_to' => 'rental'],
+            $second
+        );
+
+        $body = $this->controller->index($this->get('/config/courrier-entrant'), [])->getBody();
+        $this->assertStringContainsString('data-dedication-conflict', $body);
+        $this->assertStringContainsString('2 boîtes sont dédiées à « Rental »', $body);
+        $this->assertStringContainsString('Boîte des locations, Boîte du chalet', $body);
+        $this->assertSame(1, $this->conflictEntries());
+    }
+
+    public function testOneDedicatedBoxPerModuleIsNoConflict(): void
+    {
+        $this->post(['purpose' => MailboxPurpose::DEDICATED->value, 'dedicated_to' => 'rental']);
+        $second = $this->mailboxes->create(
+            'Boîte des camps',
+            ProviderType::IMAP,
+            'imap.test',
+            993,
+            'ssl',
+            'camps@unite.be',
+            'secret',
+            [],
+            true
+        );
+        $this->post(['purpose' => MailboxPurpose::DEDICATED->value, 'dedicated_to' => 'camps'], $second);
+
+        $body = $this->controller->index($this->get('/config/courrier-entrant'), [])->getBody();
+        $this->assertStringNotContainsString('data-dedication-conflict', $body);
+        $this->assertSame(0, $this->conflictEntries());
+    }
+
+    private function conflictEntries(): int
+    {
+        return (int) $this->pdo->query(
+            "SELECT COUNT(*) FROM event_log WHERE event_type = 'inbound_mailbox_dedication_conflict'"
+        )->fetchColumn();
+    }
+
     // ── « Rafraîchir maintenant » ───────────────────────────────────────
 
     public function testTheRefreshButtonIsNotOfferedWhenNothingCanRunIt(): void
@@ -273,13 +342,14 @@ class InboundMailConfigControllerTest extends TestCase
     /**
      * @param array<string, mixed> $body
      */
-    private function post(array $body): \Core\Http\Response
+    private function post(array $body, ?int $mailboxId = null): \Core\Http\Response
     {
         $body['_csrf_token'] = $this->token();
+        $mailboxId ??= $this->mailboxId;
 
         return $this->controller->saveScopes(
-            new Request('POST', $this->scopeUrl(), [], $body, [], []),
-            $this->id()
+            new Request('POST', '/config/courrier-entrant/boites/' . $mailboxId . '/portee', [], $body, [], []),
+            ['id' => (string) $mailboxId]
         );
     }
 

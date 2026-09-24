@@ -915,13 +915,16 @@ class RentalManagementController extends AbstractController
 
     /**
      * The pages this booking offers, in rail order: all four, minus
-     * « Courrier » when there is no mail to read here.
+     * « Courrier » unless rentals have a mailbox of their own — exactly one,
+     * designated by the configuration (issue #462, D8). The page shows that
+     * box's whole mail, so without it there is no page: an absent chip,
+     * never a disabled one.
      *
      * @return list<BookingPage>
      */
     private function bookingPagesOffered(): array
     {
-        $communications = $this->communicationService?->isAvailable() ?? false;
+        $communications = $this->communicationService?->dedicatedMailbox() !== null;
 
         // Filtering drops « Courrier », the last case, so what remains is
         // still a list in rail order.
@@ -1229,6 +1232,7 @@ class RentalManagementController extends AbstractController
             ];
         }
 
+        $mailbox = $service->dedicatedMailbox();
         $filter = TriageFilter::fromQuery((string) $request->getQuery('statut', ''));
         $dismissed = $service->triageRows($references, $unattributed, true);
 
@@ -1242,6 +1246,7 @@ class RentalManagementController extends AbstractController
             'triage_labels' => $labels,
             'triage_urls' => $urls,
             'triage_booking_options' => $options,
+            'mailbox_address' => $mailbox?->address,
         ];
     }
 

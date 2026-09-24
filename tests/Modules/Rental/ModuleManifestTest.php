@@ -79,10 +79,13 @@ class ModuleManifestTest extends TestCase
      * 1.27.0 renames what a unit sees: « Gérer mes locations » moves to
      * « L'unité » and « Gérer les locations » becomes « Biens à louer »
      * (docs/chantiers/covoiturage.md, IT-06).
+     *
+     * 1.28.0 offers the booking's « Courrier » page only with exactly one mailbox dedicated to
+     * rentals, and replies to it (issue #462, IT-04).
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.27.0', $this->manifest->version);
+        $this->assertSame('1.28.0', $this->manifest->version);
     }
 
     /**

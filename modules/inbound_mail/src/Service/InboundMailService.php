@@ -718,6 +718,18 @@ class InboundMailService implements InboundMailInterface
      * race, and « je ne sais pas » and « non » lead to the same, safe,
      * behaviour here.
      */
+    public function dedicatedMailboxesFor(string $consumerId): array
+    {
+        $boxes = [];
+        foreach ($this->mailboxRepository->findEnabled() as $mailbox) {
+            if ($mailbox->isDedicated() && $mailbox->dedicatedTo === $consumerId) {
+                $boxes[] = new \Modules\InboundMail\Api\DedicatedMailbox($mailbox->id, $mailbox->name, $mailbox->username);
+            }
+        }
+
+        return $boxes;
+    }
+
     public function isDedicatedTo(string $consumerId, int $mailboxId): bool
     {
         $mailbox = $this->mailboxRepository->findById($mailboxId);

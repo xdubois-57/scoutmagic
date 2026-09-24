@@ -384,3 +384,52 @@ Rien.
 ### Reporté
 
 Rien.
+
+---
+
+## IT-04 — Le courrier sur boîte dédiée
+
+### Livré
+
+- **La page « Courrier » n'existe qu'avec une boîte dédiée aux
+  locations, et une seule** (D8). `InboundMailInterface` dit à un module
+  quelles boîtes actives lui sont dédiées (`dedicatedMailboxesFor()`,
+  `Api\DedicatedMailbox`) ; `RentalCommunicationService::dedicatedMailbox()`
+  n'en rend une que s'il y en a exactement une. Sans elle, ni onglet dans
+  le rail ni page : l'adresse répond 404. La page nomme sa boîte.
+- **Deux boîtes dédiées au même module : dit et journalisé.** La liste
+  des boîtes (`/config/courrier-entrant`) affiche un avertissement qui
+  nomme le module et les boîtes et dit ce qui disparaît ; l'enregistrement
+  d'une portée ou l'activation d'une boîte qui crée ce cas écrit
+  `inbound_mailbox_dedication_conflict` (avertissement) au journal.
+- **`Reply-To` explicite vers cette boîte.** L'adresse signée reste la
+  première (elle tombe déjà sur la boîte dédiée, écart 6) ; quand
+  l'opérateur l'a désactivée, `RentalBookingMailService` passe l'adresse
+  de la boîte dédiée au lieu de `null`, qui aurait laissé partir la
+  réponse vers l'adresse générale du site. Deux boîtes : aucune.
+- `inbound_mail` passe en 1.13.0, `rental` en 1.27.0. L'aide
+  « Le courrier des locations » et « Ce que chaque module fait d'une
+  boîte » disent la condition.
+- **Tests** : pas de boîte dédiée ou deux → ni onglet ni page (404) ; la
+  page nomme sa boîte ; l'avertissement et l'entrée de journal
+  apparaissent à la deuxième boîte dédiée, pas avec une boîte par module ;
+  `Reply-To` sur une, deux ou aucune boîte ; `dedicatedMailboxesFor()`
+  ignore les boîtes partagées, inactives ou dédiées à un autre module.
+
+### Décisions autonomes
+
+1. **Deux boîtes, c'est aucune**, comme le demande la roadmap, plutôt que
+   « la première » : un choix que l'opérateur ne voit pas serait un choix
+   arbitraire. Le cas est dit là où il se corrige.
+2. **Le journal est écrit au moment où la configuration change**, pas à
+   chaque affichage de page : une entrée par changement, lisible à
+   distance, plutôt qu'une entrée par visite d'un gestionnaire.
+3. **Le courrier de masse n'est pas touché.** Le changement de
+   `Reply-To` vit dans `RentalBookingMailService`, que le module
+   `mass_mail` n'appelle pas ; ses envois gardent l'adresse de réponse
+   qu'ils avaient. Rien à tester de son côté sinon qu'il ne consulte pas
+   les boîtes dédiées, ce qu'une recherche dans son code établit.
+
+### Reporté
+
+Rien.

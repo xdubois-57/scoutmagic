@@ -12,12 +12,13 @@ paths: /mes-locations/*/reservations/*, /mes-locations/*/reservations/*/courrier
 related: gerer-les-locations, courrier-entrant, courrier-reponse, courrier-unite
 ---
 
-Si l'unité relève ses e-mails depuis ScoutMagic, la page « Courrier »
-d'une réservation montre le courrier des locations — celui de toutes les
-réservations des biens que vous gérez, pas seulement de celle-ci. C'est
-le même écran que le courrier des camps. Un message que rien ne rattache
-encore n'y apparaît que si vous gérez tous les biens : il peut concerner
-n'importe lequel.
+La page « Courrier » d'une réservation existe quand une boîte e-mail est
+dédiée aux locations — une seule. Elle montre le courrier des locations :
+celui de toutes les réservations des biens que vous gérez, pas seulement
+de celle-ci. C'est le même écran que le courrier des camps. Les e-mails
+que le site envoie au locataire portent cette boîte en adresse de
+réponse. Un message que rien ne rattache encore n'y apparaît que si vous
+gérez tous les biens : il peut concerner n'importe lequel.
 
 Les onglets trient la liste : **À trier** (ce que rien ne rattache
 encore), **Rattachés**, **Tous**, et **Écartés** une fois que vous avez

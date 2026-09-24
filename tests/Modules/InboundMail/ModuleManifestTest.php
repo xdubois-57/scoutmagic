@@ -45,10 +45,13 @@ class ModuleManifestTest extends TestCase
      * its mailbox's purpose, and a consumer now naming its own business
      * references are all things a unit sees, and AGENTS.md asks for a bump
      * whenever the module changes in a way its users should see.
+     *
+     * 1.13.0 tells a module which boxes are its own, and warns on the list
+     * of boxes when two are dedicated to the same one (issue #462, IT-04).
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.12.5', $this->manifest->version);
+        $this->assertSame('1.13.0', $this->manifest->version);
     }
 
     /**

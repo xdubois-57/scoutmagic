@@ -2,7 +2,7 @@
   "id": "inbound_mail",
   "name": "Courrier entrant",
   "description": "Relève les boîtes mail de l'unité et répartit les messages.",
-  "version": "1.12.5",
+  "version": "1.13.0",
   "enabled_by_default": false,
   "routes": [
     {

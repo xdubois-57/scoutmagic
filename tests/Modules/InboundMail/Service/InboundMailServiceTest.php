@@ -11,6 +11,7 @@ use Modules\InboundMail\Mailbox\ProviderType;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
 use Modules\InboundMail\Repository\InboundMessageRepository;
 use Modules\InboundMail\Service\InboundMailService;
+use Modules\InboundMail\Api\MailboxPurpose;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\InboundMail\InboundMailTestHelper;
@@ -108,6 +109,28 @@ class InboundMailServiceTest extends TestCase
 
         $this->assertTrue($this->service->findOneForReference('rental', 'LOC-2027-0042', $bulk)?->isBulk);
         $this->assertFalse($this->service->findOneForReference('rental', 'LOC-2027-0042', $person)?->isBulk);
+    }
+
+    /**
+     * A module's own boxes (issue #462): the enabled ones the operator
+     * declared dedicated to it, with the address they receive on — never a
+     * shared box, never another module's, never a disabled one.
+     */
+    public function testAConsumerIsToldWhichEnabledBoxesAreItsOwn(): void
+    {
+        $this->mailboxRepository->setPurpose($this->mailboxId, MailboxPurpose::DEDICATED, 'rental');
+        $camps = $this->mailboxRepository->create('Camps', ProviderType::IMAP, 'imap.test', 993, 'ssl', 'camps@unite.be', 'secret', ['INBOX'], true);
+        $this->mailboxRepository->setPurpose($camps, MailboxPurpose::DEDICATED, 'camps');
+        $disabled = $this->mailboxRepository->create('Ancienne', ProviderType::IMAP, 'imap.test', 993, 'ssl', 'ancienne@unite.be', 'secret', ['INBOX'], false);
+        $this->mailboxRepository->setPurpose($disabled, MailboxPurpose::DEDICATED, 'rental');
+        $this->mailboxRepository->create('Unité', ProviderType::IMAP, 'imap.test', 993, 'ssl', 'unite@unite.be', 'secret', ['INBOX'], true);
+
+        $boxes = $this->service->dedicatedMailboxesFor('rental');
+
+        $this->assertCount(1, $boxes);
+        $this->assertSame($this->mailboxId, $boxes[0]->id);
+        $this->assertSame('locations@unite.be', $boxes[0]->address);
+        $this->assertSame([], $this->service->dedicatedMailboxesFor('finance'));
     }
 
     private function storeMessage(
