@@ -36,6 +36,7 @@ class ImportRbacTest extends TestCase
             session_write_close();
         }
         $_SESSION = [];
+        ImportStubController::$writesReached = 0;
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $this->twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);
@@ -119,6 +120,11 @@ class ImportRbacTest extends TestCase
         AuthSession::login(1, 'c@test.com', 'chief');
         $response = $this->buildFrontController()->handle(new Request('POST', '/admin/import', [], [], [], []));
         $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(
+            0,
+            ImportStubController::$writesReached,
+            'the refusal must happen before the write, not after it'
+        );
     }
 
     public function testAdminAllowedOnThePost(): void
@@ -190,6 +196,11 @@ class ImportRbacTest extends TestCase
         AuthSession::login(1, 'c@test.com', 'chief');
         $response = $this->buildFrontController()->handle(new Request('POST', '/admin/doublons/1/fusionner', [], [], [], []));
         $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(
+            0,
+            ImportStubController::$writesReached,
+            'the refusal must happen before the write, not after it'
+        );
     }
 
     public function testTheDuplicatesPageAllowsAdmin(): void
@@ -212,6 +223,16 @@ class ImportRbacTest extends TestCase
 class ImportStubController extends AbstractController
 {
     /**
+     * How many times the WRITE action was actually reached.
+     *
+     * A refusal test reading only the status code is satisfied by a
+     * dispatch that runs the action and answers 403 afterwards — the
+     * import, or the merge of two members, would already have happened.
+     * The action stands for that write here (issue #387).
+     */
+    public static int $writesReached = 0;
+
+    /**
      * @param array<string, string> $params
      */
     public function index(Request $request, array $params): Response
@@ -224,6 +245,8 @@ class ImportStubController extends AbstractController
      */
     public function import(Request $request, array $params): Response
     {
+        self::$writesReached++;
+
         return new Response('ok', 200);
     }
 }

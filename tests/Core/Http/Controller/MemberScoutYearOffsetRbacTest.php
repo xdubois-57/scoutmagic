@@ -29,6 +29,7 @@ class MemberScoutYearOffsetRbacTest extends TestCase
             session_write_close();
         }
         $_SESSION = [];
+        ScoutYearOffsetStubController::$reached = 0;
 
         $configFile = sys_get_temp_dir() . '/test_app_config_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
@@ -87,6 +88,11 @@ class MemberScoutYearOffsetRbacTest extends TestCase
 
         $response = $this->buildFrontController()->handle(new Request('POST', '/members/1/scout-year-offset', [], [], [], []));
         $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(
+            0,
+            ScoutYearOffsetStubController::$reached,
+            'the refusal must happen before the action, not after it'
+        );
     }
 
     public function testIdentifiedIsDenied(): void
@@ -96,6 +102,11 @@ class MemberScoutYearOffsetRbacTest extends TestCase
 
         $response = $this->buildFrontController()->handle(new Request('POST', '/members/1/scout-year-offset', [], [], [], []));
         $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(
+            0,
+            ScoutYearOffsetStubController::$reached,
+            'the refusal must happen before the action, not after it'
+        );
     }
 
     public function testUnauthenticatedRedirectsToLogin(): void
@@ -105,16 +116,34 @@ class MemberScoutYearOffsetRbacTest extends TestCase
         $response = $this->buildFrontController()->handle(new Request('POST', '/members/1/scout-year-offset', [], [], [], []));
         $this->assertSame(302, $response->getStatusCode());
         $this->assertSame('/login', $response->getHeaders()['Location']);
+        $this->assertSame(
+            0,
+            ScoutYearOffsetStubController::$reached,
+            'a visitor sent to the login page must not have written anything on the way'
+        );
     }
 }
 
 class ScoutYearOffsetStubController extends AbstractController
 {
     /**
+     * How many times the action was actually reached.
+     *
+     * A refusal test that only reads the status code is satisfied by a
+     * dispatch that runs the action and answers 403 afterwards — the write
+     * would already have happened. Here the action stands for the write,
+     * so counting it is how « denied » stops being a claim about the
+     * response alone (issue #387).
+     */
+    public static int $reached = 0;
+
+    /**
      * @param array<string, string> $params
      */
     public function update(Request $request, array $params): Response
     {
+        self::$reached++;
+
         return $this->json(['success' => true]);
     }
 }

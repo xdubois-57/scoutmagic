@@ -200,6 +200,10 @@ class RetroChiefControllerTest extends TestCase
     {
         AuthSession::logout();
         AuthSession::login(3, 'intendant@test.be', 'intendant');
+        // The refusal AND what it protects. A 403 alone is satisfied by a
+        // controller that does the work first and refuses afterwards —
+        // measured, on this very method (issue #387).
+        $this->boardService->expects($this->never())->method('close');
         $token = $this->csrfToken();
 
         $response = $this->controller->close(new Request('POST', '/retro/1/close', [], ['_csrf_token' => $token], [], []), ['id' => '1']);
@@ -221,6 +225,10 @@ class RetroChiefControllerTest extends TestCase
     {
         AuthSession::logout();
         AuthSession::login(3, 'intendant@test.be', 'intendant');
+        // The refusal AND what it protects. A 403 alone is satisfied by a
+        // controller that does the work first and refuses afterwards —
+        // measured, on this very method (issue #387).
+        $this->boardService->expects($this->never())->method('regenerateLink');
         $token = $this->csrfToken();
 
         $response = $this->controller->regenerateLink(new Request('POST', '/retro/1/regenerate-link', [], ['_csrf_token' => $token], [], []), ['id' => '1']);
@@ -241,6 +249,10 @@ class RetroChiefControllerTest extends TestCase
     {
         AuthSession::logout();
         AuthSession::login(3, 'intendant@test.be', 'intendant');
+        // The refusal AND what it protects. A 403 alone is satisfied by a
+        // controller that does the work first and refuses afterwards —
+        // measured, on this very method (issue #387).
+        $this->boardService->expects($this->never())->method('reopen');
         $token = $this->csrfToken();
 
         $response = $this->controller->reopen(new Request('POST', '/retro/1/reopen', [], ['_csrf_token' => $token], [], []), ['id' => '1']);
@@ -262,6 +274,10 @@ class RetroChiefControllerTest extends TestCase
     {
         AuthSession::logout();
         AuthSession::login(3, 'intendant@test.be', 'intendant');
+        // The refusal AND what it protects. A 403 alone is satisfied by a
+        // controller that does the work first and refuses afterwards —
+        // measured, on this very method (issue #387).
+        $this->boardService->expects($this->never())->method('archive');
         $token = $this->csrfToken();
 
         $response = $this->controller->archive(new Request('POST', '/retro/1/archive', [], ['_csrf_token' => $token], [], []), ['id' => '1']);
@@ -283,6 +299,10 @@ class RetroChiefControllerTest extends TestCase
     {
         AuthSession::logout();
         AuthSession::login(3, 'intendant@test.be', 'intendant');
+        // The refusal AND what it protects. A 403 alone is satisfied by a
+        // controller that does the work first and refuses afterwards —
+        // measured, on this very method (issue #387).
+        $this->boardService->expects($this->never())->method('unarchive');
         $token = $this->csrfToken();
 
         $response = $this->controller->unarchive(new Request('POST', '/retro/1/unarchive', [], ['_csrf_token' => $token], [], []), ['id' => '1']);
