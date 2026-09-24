@@ -24,7 +24,10 @@ bien rattacher un message à une réservation sans que ses utilisateurs
 aient à voir le reste de la boîte.
 
 **Boîte dédiée** — une adresse créée pour un seul usage. Le module
-choisi lit et classe tout, aucun autre module n'y touche.
+choisi lit et classe tout, aucun autre module n'y touche. Dédiez-lui
+une seule boîte : avec deux, aucune ne compte comme la sienne, et la
+page « Courrier » d'une réservation disparaît. La liste des boîtes le
+signale.
 
 ### Qui peut lire ce courrier ?
 

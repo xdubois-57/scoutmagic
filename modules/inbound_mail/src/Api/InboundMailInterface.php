@@ -345,6 +345,21 @@ interface InboundMailInterface
     public function isDedicatedTo(string $consumerId, int $mailboxId): bool;
 
     /**
+     * Every ENABLED mailbox the operator declared to be this consumer's own
+     * (issue #462, D8).
+     *
+     * A list rather than « the » box, and deliberately: the configuration
+     * screen lets two boxes be dedicated to one module, and the consumer —
+     * not this module — decides what that means for it. A rental's
+     * « Courrier » page exists for exactly one; with two, it exists for
+     * neither rather than for an arbitrary one, and the configuration screen
+     * says why. A disabled box is absent: nothing arrives in it.
+     *
+     * @return list<DedicatedMailbox>
+     */
+    public function dedicatedMailboxesFor(string $consumerId): array;
+
+    /**
      * Offer this consumer, again, every stored message that belongs to
      * nothing — « relancer l'analyse ».
      *

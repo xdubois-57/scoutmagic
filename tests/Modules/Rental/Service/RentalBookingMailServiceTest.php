@@ -140,6 +140,70 @@ final class RentalBookingMailServiceTest extends TestCase
         $this->assertSame([null], $replyTos);
     }
 
+    /**
+     * Signed addresses switched off: the renter's answer still has to reach
+     * the box the Courrier page reads, not the site's general reply address
+     * MailService would otherwise fall back on (issue #462, IT-04). Two
+     * dedicated boxes are no box at all — which one would be arbitrary.
+     *
+     * @return array<string, array{list<?string>, ?string}>
+     */
+    public static function dedicatedBoxes(): array
+    {
+        return [
+            'one box: its address' => [['locations@unite.be'], 'locations@unite.be'],
+            'two boxes: none' => [['locations@unite.be', 'chalet@unite.be'], null],
+            'no box: none' => [[], null],
+            'one box on a bare login: none' => [[null], null],
+        ];
+    }
+
+    /**
+     * @param list<?string> $addresses
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('dedicatedBoxes')]
+    public function testWithoutASignedAddressTheReplyGoesToRentalsOwnBox(array $addresses, ?string $expected): void
+    {
+        $replyTos = [];
+        $mail = $this->createMock(MailService::class);
+        $mail->method('send')->willReturnCallback(
+            static function (string $to, string $subject, string $html, string $text, ?string $replyTo) use (&$replyTos): void {
+                $replyTos[] = $replyTo;
+            }
+        );
+        $inboundMail = new class ($addresses) implements \Modules\InboundMail\Api\InboundMailInterface {
+            use \Tests\Modules\InboundMail\InertInboundMail;
+
+            /** @param list<?string> $addresses */
+            public function __construct(private readonly array $addresses)
+            {
+            }
+
+            public function dedicatedMailboxesFor(string $consumerId): array
+            {
+                return $consumerId !== 'rental' ? [] : array_map(
+                    static fn (?string $address, int $i): \Modules\InboundMail\Api\DedicatedMailbox
+                        => new \Modules\InboundMail\Api\DedicatedMailbox($i + 1, 'Boîte ' . $i, $address),
+                    $this->addresses,
+                    array_keys($this->addresses)
+                );
+            }
+        };
+        $settings = $this->createMock(SettingService::class);
+        $settings->method('get')->willReturn(null);
+        $service = new RentalBookingMailService(
+            $mail,
+            EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'rental'),
+            $settings,
+            $this->createMock(JournalService::class),
+            $inboundMail
+        );
+
+        $service->sendAcknowledgement($this->booking(), $this->asset(), str_repeat('a', 64));
+
+        $this->assertSame([$expected], $replyTos);
+    }
+
     private function recordingMailService(bool $succeeds = true): MailService
     {
         $mock = $this->createMock(MailService::class);

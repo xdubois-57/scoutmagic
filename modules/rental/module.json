@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques.",
-  "version": "1.27.0",
+  "version": "1.28.0",
   "enabled_by_default": false,
   "routes": [
     {

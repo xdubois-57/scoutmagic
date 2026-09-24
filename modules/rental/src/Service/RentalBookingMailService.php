@@ -64,10 +64,25 @@ class RentalBookingMailService
      */
     private function replyAddressFor(RentalBooking $booking): ?string
     {
-        return $this->inboundMail?->replyAddressFor(
-            \Modules\Rental\Mail\RentalMessageConsumer::CONSUMER_ID,
-            $booking->reference
-        );
+        $consumer = \Modules\Rental\Mail\RentalMessageConsumer::CONSUMER_ID;
+
+        // The signed address first: it lands on rentals' own box AND names
+        // the booking. Without it — the operator turned signed addresses
+        // off — the box itself, when rentals have exactly one: passed
+        // explicitly, because MailService otherwise falls back to the
+        // SITE's reply address, and renters' answers would go to the unit's
+        // general inbox instead of the box the Courrier page reads
+        // (issue #462, IT-04).
+        $signed = $this->inboundMail?->replyAddressFor($consumer, $booking->reference);
+        if ($signed !== null) {
+            return $signed;
+        }
+
+        $boxes = $this->inboundMail?->dedicatedMailboxesFor($consumer) ?? [];
+
+        // A box whose account is a login rather than an address has none
+        // to give: null, and the mail goes out as it did before.
+        return count($boxes) === 1 ? $boxes[0]->address : null;
     }
 
     private function messageIdFor(RentalBooking $booking): string

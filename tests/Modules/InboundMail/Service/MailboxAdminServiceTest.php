@@ -65,6 +65,31 @@ class MailboxAdminServiceTest extends TestCase
         );
     }
 
+    // ── Dedication conflicts (issue #462) ───────────────────────────────
+
+    /**
+     * Two enabled boxes dedicated to one module are a conflict: that module
+     * has no box of its own. One box per module, a disabled second box, or
+     * a shared one, are not.
+     */
+    public function testTwoEnabledBoxesDedicatedToOneModuleAreAConflict(): void
+    {
+        $locations = $this->createMailbox('Locations');
+        $chalet = $this->createMailbox('Chalet');
+        $camps = $this->createMailbox('Camps');
+        $old = $this->createMailbox('Ancienne');
+        $this->repository->setPurpose($locations, \Modules\InboundMail\Api\MailboxPurpose::DEDICATED, 'rental');
+        $this->repository->setPurpose($camps, \Modules\InboundMail\Api\MailboxPurpose::DEDICATED, 'camps');
+        $this->repository->setPurpose($old, \Modules\InboundMail\Api\MailboxPurpose::DEDICATED, 'camps');
+        $this->service->setEnabled($old, false);
+
+        $this->assertSame([], $this->service->dedicationConflicts());
+
+        $this->repository->setPurpose($chalet, \Modules\InboundMail\Api\MailboxPurpose::DEDICATED, 'rental');
+
+        $this->assertSame(['rental' => [$chalet => 'Chalet', $locations => 'Locations']], $this->service->dedicationConflicts());
+    }
+
     // ── Several boxes at once (§7.4) ────────────────────────────────────
 
     public function testSeveralMailboxesCanBeConfiguredAtOnce(): void
