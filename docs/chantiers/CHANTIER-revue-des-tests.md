@@ -1413,11 +1413,50 @@ la direction dangereuse.
 **Mutations tentées** (second lot), chacune prouvée appliquée par
 comparaison de fichiers avant verdict :
 
-- **Retirer la puce `database-mariadb`** → rouge, sur elle seule.
+- **Retirer la puce `database-mariadb`** → rouge, sur elle seule. **Et
+  cette mutation ne prouvait presque rien**, ce que la revue a établi et
+  que j'avais manqué : voir ci-dessous.
 - **Ajouter un job au workflow** → rouge, en le nommant.
 - **Renommer une puce** (`security` → `securite`) → rouge.
 - **Ajouter une puce pour un job inexistant** → rouge, par l'autre
   direction du test.
+
+**La mutation qui passait pour la bonne raison, et qui ne prouvait rien.**
+C'est le constat le plus utile de tout le chantier, et il porte sur mon
+propre test. `EveryCiJobIsDocumentedTest` cherchait d'abord le nom du job
+**dans tout le README** (`str_contains($readme, '`' . $job . '`')`). Or
+quatre des huit jobs sont cités entre accents graves **ailleurs que dans
+leur propre puce** — « la même suite complète que `test` », « indépendamment
+du job `test` » :
+
+| Job | Mentions dans README | Retirer sa puce le rendait-il rouge ? |
+|---|---|---|
+| `test` | 5 | non |
+| `sonarqube` | 5 | non |
+| `e2e-tests` | 2 | non |
+| `javascript-tests` | 2 | non |
+| `database-mariadb` | **1** | oui |
+| `security`, `authorization-matrix`, `dast-passive` | 1 | oui |
+
+**J'avais muté le seul job incapable de révéler la faiblesse.** Le rouge
+obtenu était vrai, et il ne disait rien des quatre autres : le test était
+inerte pour la moitié de ce qu'il prétendait tenir, et ma mutation
+l'avait certifié bon. C'est exactement la panne que §0.3 décrit — un vert
+qui ressemble à une garantie —, transposée d'un cran : **une mutation qui
+passe pour la bonne raison sur le mauvais échantillon**.
+
+Le test parcourt désormais la liste à puces de la section, comme le faisait
+déjà son jumeau dans l'autre direction. Les quatre mutations qui ne
+faisaient rien font chacune tomber le test, en le nommant :
+
+    retirer la puce de `test`             → rouge : test
+    retirer la puce de `sonarqube`        → rouge : sonarqube
+    retirer la puce de `e2e-tests`        → rouge : e2e-tests
+    retirer la puce de `javascript-tests` → rouge : javascript-tests
+
+**La leçon se range à côté de §0.3** : choisir la cible d'une mutation dans
+le cas le plus commode, c'est se répondre à soi-même. La cible doit être
+celle qui a le plus de chances de survivre.
 
 Les chiffres, eux, ont été rendus rouges d'un coup : le test les a tous les
 sept dénoncés avant correction, ce qui est la preuve qu'il les lit et ne les

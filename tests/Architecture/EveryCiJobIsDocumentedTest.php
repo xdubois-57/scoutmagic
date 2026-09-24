@@ -35,7 +35,23 @@ final class EveryCiJobIsDocumentedTest extends TestCase
 
     public function testEveryJobOfTheReusableWorkflowIsNamedInTheReadme(): void
     {
-        $readme = $this->read(self::README);
+        // The job must have an ENTRY of its own, not merely be mentioned.
+        // Searching the whole file for `job` was the first version, and it
+        // was nearly inert: `test`, `sonarqube`, `e2e-tests` and
+        // `javascript-tests` are each quoted in a neighbouring bullet's
+        // prose ("la même suite complète que `test`"), so deleting their
+        // own entry left the name matching elsewhere and the test green.
+        // Only `database-mariadb` is quoted exactly once in README — which
+        // is why the mutation that removed ITS bullet went red, and why
+        // that red proved nothing about the other seven.
+        preg_match_all(
+            '/^- \*\*`([a-z0-9-]+)`\*\*/m',
+            $this->continuousIntegrationSection(),
+            $listed
+        );
+
+        $this->assertNotEmpty($listed[1], "README.md's job list could not be parsed.");
+
         $undocumented = [];
 
         foreach ($this->jobs() as $job) {
@@ -43,7 +59,7 @@ final class EveryCiJobIsDocumentedTest extends TestCase
                 continue;
             }
 
-            if (!str_contains($readme, '`' . $job . '`')) {
+            if (!in_array($job, $listed[1], true)) {
                 $undocumented[] = $job;
             }
         }
@@ -51,8 +67,8 @@ final class EveryCiJobIsDocumentedTest extends TestCase
         $this->assertSame(
             [],
             $undocumented,
-            "Jobs of " . self::WORKFLOW . " that README.md's « Intégration continue » section "
-            . "does not name:\n  " . implode("\n  ", $undocumented)
+            'Jobs of ' . self::WORKFLOW . " that README.md's « Intégration continue » section "
+            . "gives no entry of its own:\n  " . implode("\n  ", $undocumented)
         );
     }
 

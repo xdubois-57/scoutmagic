@@ -231,7 +231,7 @@ class AuthorizationMatrixInventoryTest extends TestCase
      * The documentation quotes the matrix's size in four places. Nothing
      * checked those figures, and all four had gone stale — README said
      * 528 routes twice and 534 once, SECURITY.md said 528 × 6 = 3 168,
-     * while the inventory above held 746.
+     * while the inventory above held 747.
      *
      * A stale figure here is not cosmetic, and it is the same failure
      * this class already exists to catch, one level up. The reader these
