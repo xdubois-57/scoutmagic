@@ -19,6 +19,7 @@ use Core\Mail\Feedback\Bounce\BounceService;
 use Core\Mail\Feedback\Bounce\BounceSeverity;
 use Core\Mail\Feedback\Bounce\BounceStateRepository;
 use Core\Member\MemberEmailService;
+use PHPUnit\Framework\MockObject\Rule\InvocationOrder;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\Security\EncryptionService;
@@ -32,6 +33,32 @@ use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class MemberEmailServiceTest extends TestCase
 {
+    /**
+     * Record every address `MailService::send()` is handed, in order.
+     *
+     * A doubled `send()` with no argument constraint accepts any
+     * argument, so counting sends says a message left and says nothing
+     * about where it went. Measured on this very file: replacing
+     * `to: $to` in MemberEmailService with a fixed foreign address left
+     * all forty-six tests green — a hundred and three assertions, not one
+     * of them looking at the recipient (issue #439).
+     *
+     * That matters more here than almost anywhere: the thing being
+     * delivered is an address-confirmation link. Sent to the wrong
+     * person, it hands them the means to attach an address to somebody
+     * else's profile.
+     *
+     * @param list<string> $recipients written to by the double
+     */
+    private function recordRecipients(InvocationOrder $times, array &$recipients): void
+    {
+        $this->mailService->expects($times)
+            ->method('send')
+            ->willReturnCallback(function (...$arguments) use (&$recipients): void {
+                $recipients[] = (string) $arguments[0];
+            });
+    }
+
     private \PDO $pdo;
     private EncryptionService $encryption;
     private MemberEmailRepository $repository;
@@ -137,10 +164,13 @@ class MemberEmailServiceTest extends TestCase
 
     public function testAddEmailCreatesAPendingRowAndSendsConfirmation(): void
     {
-        $this->mailService->expects($this->once())->method('send');
+        $recipients = [];
+        $this->recordRecipients($this->once(), $recipients);
 
         $row = $this->service->addEmail($this->memberId, 'Secondary@Example.com', null);
 
+        // The address that was added, normalised — and nobody else's.
+        $this->assertSame(['secondary@example.com'], $recipients);
         $this->assertSame('secondary@example.com', $row->email);
         $this->assertTrue($row->isPending());
         $this->assertSame(MemberEmail::SOURCE_MANUAL, $row->source);
@@ -151,11 +181,20 @@ class MemberEmailServiceTest extends TestCase
         // Five unique addresses are allowed; the sixth is refused before it
         // creates a row or sends a confirmation — the mail-bomb cap (audit
         // M15). Exactly five sends.
-        $this->mailService->expects($this->exactly(5))->method('send');
+        $recipients = [];
+        $this->recordRecipients($this->exactly(5), $recipients);
 
         for ($i = 1; $i <= 5; $i++) {
             $this->service->addEmail($this->memberId, "addr{$i}@example.com", null);
         }
+
+        // Five sends AND five different addresses, each the one just
+        // added: a cap that let five confirmations leave for the same
+        // address would count the same.
+        $this->assertSame(
+            ['addr1@example.com', 'addr2@example.com', 'addr3@example.com', 'addr4@example.com', 'addr5@example.com'],
+            $recipients
+        );
 
         try {
             $this->service->addEmail($this->memberId, 'one-too-many@example.com', null);
@@ -169,11 +208,14 @@ class MemberEmailServiceTest extends TestCase
 
     public function testAddingTheSameAddressTwiceReusesTheExistingRow(): void
     {
-        $this->mailService->expects($this->once())->method('send'); // only the first add sends — second is within cooldown
+        $recipients = [];
+        // Only the first add sends — the second is within the cooldown.
+        $this->recordRecipients($this->once(), $recipients);
 
         $first = $this->service->addEmail($this->memberId, 'dup@example.com', null);
         $second = $this->service->addEmail($this->memberId, 'dup@example.com', null);
 
+        $this->assertSame(['dup@example.com'], $recipients);
         $this->assertSame($first->id, $second->id);
         $this->assertCount(1, $this->repository->findByMember($this->memberId));
     }
@@ -301,8 +343,13 @@ class MemberEmailServiceTest extends TestCase
         $this->pdo->prepare('UPDATE member_emails SET last_confirmation_sent_at = ? WHERE id = ?')
             ->execute([(new \DateTimeImmutable('-6 minutes'))->format('Y-m-d H:i:s'), $row->id]);
 
-        $this->mailService->expects($this->once())->method('send');
+        $recipients = [];
+        $this->recordRecipients($this->once(), $recipients);
         $updated = $this->service->resendConfirmation($this->memberId, $row->id, null);
+
+        // A resend goes to the address being confirmed, not to whoever
+        // asked for it.
+        $this->assertSame(['aftercooldown@example.com'], $recipients);
 
         // The resend succeeded (no exception) and restarted its own
         // cooldown — confirms this is a fresh send, not a rejected one.
