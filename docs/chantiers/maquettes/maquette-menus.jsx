@@ -55,8 +55,8 @@ const AFTER = [
     note: "« Protection des données » reste accessible en pied de page, où elle figure déjà." },
   { label: "Espace membres", icon: "👥", role: 1, groups: [
     { label: "Mes membres", items: [["Lutin (Baladins)", 1], ["Hibou (Louveteaux)", 1], ["Notifications", 1]] },
-    // Chantier covoiturage (IT-06) : « Activités » rejoint l'Espace membres ;
-    // « Photos » y passe, à côté de « Covoiturage ».
+    // Carpool chantier (IT-06): "Activités" joins the Espace membres, and
+    // "Photos" moves into it, next to "Covoiturage".
     { label: "Activités", items: [["Photos", 1], ["Covoiturage", 1]] },
     { label: "L'unité", items: [["Les animateurs", 1], ["Discussions", 1]] }] },
   { label: "Espace animateurs", icon: "⭐", role: 2, groups: [
