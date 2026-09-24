@@ -1998,15 +1998,19 @@ The edited quote is stored as `agreed_price_snapshot`, a **second column** besid
 
 **A manual block over an already-booked period is accepted** (`specifications.md` §22.8) — it must neither fail silently nor overwrite the booking, because a caretaker away during a rental is a real thing to record. The two coexist: availability adds them up and the private calendar shows both. What the manager gets instead of a refusal is a warning naming how many bookings overlap, so an accidental overlap is visible rather than hidden. Blocks are their own table rather than bookings with a special status: a block has no renter, no price, no lifecycle and no email, and forcing it into `rental_bookings` would put a nullable renter on every row.
 
-**The milestone checklist is derived, never stored** (`specifications.md` §22.5). Every line is computed from the booking's own records, so it can never drift from what the rest of the page shows and no scheduled task has to keep them in step. A line still renders *not applicable* — greyed, not unticked — when nothing behind it can ever happen here: no security deposit configured, no meter on the asset, the stay or Finance module off. An unreachable unticked box reads as outstanding work and would make the whole checklist noise.
+**The milestone checklist is derived, never stored** (`specifications.md` §22.5). Every line is computed from the booking's own records, so it can never drift from what the rest of the page shows and no scheduled task has to keep them in step. A line still renders *not applicable* — greyed, not unticked — when nothing behind it can ever happen here: no security deposit configured, no meter on the asset, the stay or Finance module off. An unreachable unticked box reads as outstanding work and would make the whole checklist noise. The one thing stored is what the site cannot see: a step that happens away from it, ticked by hand (below).
 
 `BookingMilestones::for()` takes those lines as an `$extras` map whose absent keys are the greyed ones, and **for a long time nothing built one**: written while the contract, the payments, the meters, the inventories and the settlement were each still an unlanded iteration, it was never wired once they landed. Ten of the fourteen lines were therefore permanently "sans objet" — a manager could send the contract, cash the deposit and finish both inventories without a single box moving, which is the exact drift the derived design exists to prevent. `Booking\MilestoneEvidence::collect()` is that map: pure, and **fed rather than self-loading** — the booking page has already queried the documents, the payment status, the inventory, the meter consumptions and the latest settlement for its own panels, and a service that re-queried them would put the checklist one round trip behind the page showing the same facts. `null` for a collection means "this installation cannot do this at all" and greys the line; an empty collection ("no meters on this asset") greys it too, for the same reason. Two rules inside are worth keeping: sending a contract is not generating one (the line is about what left for the renter), and an inventory line found *manquant* IS an observation — only `NOT_CHECKED` leaves a phase unfinished.
 
 **The booking file acts without reloading.** Its sixteen POST forms all funnel through `RentalManagementController::bookingAction()`, so one branch there — `X-Requested-With: XMLHttpRequest` answers `{success, type, message}` (the flash, consumed, since nothing is going to render it) instead of redirecting — makes the whole page asynchronous with no per-handler change. `public/assets/js/rental-booking.js` posts each form with `fetch`, toasts that message, then **re-fetches the page and swaps the contents of every `[data-booking-panel]` wrapper**. Re-rendering rather than patching is deliberate: one action moves several panels at once — sending the contract also ticks a milestone and writes a history line — and a client-side guess about which is how a page starts lying. The wrappers are always present even when what they hold is conditional, so a card that appears or disappears swaps like any other. Without JavaScript every form still posts, redirects and renders its flash exactly as before.
 
-**The booking file is read in four movements, and only one of them is unfolded.** `Booking\BookingJourney` is the staging of that same derived checklist — it takes what `BookingMilestones::for()` produced and adds no fact of its own, which is the whole point: the five stretches and the fifteen lines cannot tell different stories because there is only one derivation. The page reads: what the rental is, **« L'action suivante »** (the first applicable unticked line, and nothing else), the journey, then **« Le dossier »** — price, payments, documents, mail, change requests, comments and history, folded, each carrying the figure that answers the question it would have been opened for. `Booking\BookingPhase` groups milestone keys into the five stretches and `Booking\BookingBox` pairs each box's name with the anchor a journey line links to, so the link and the card it aims at cannot become two different strings. Three consequences worth stating: the « État » card is **gone** (its badge is in the details at the top and its buttons were never a state, so each now sits in the stretch whose decision it is); a decision lifted into « L'action suivante » is not also rendered inside its stretch, because one page offering « Confirmée » twice is one where pressing either is a guess; and the checklist gained a line it never had — « Décision prise sur la demande », done exactly when `BookingTransition` no longer offers confirming, since « Demande reçue » ticks on arrival and a request nobody had looked at therefore used to point the manager straight at the contract.
+**The booking is four pages, not one long file** (issue #462). `Booking\BookingPage` names them — « Tableau de bord » (the booking's own URL), « Finances », « Documents », « Courrier » — and `_booking_nav.html.twig` renders them as a rail under a frame (`_booking_frame.html.twig`) that every one of them shares: the reference, the renter and the dates, once, and « En cours » while the stay is under way. Where the booking stands is not repeated there: the dashboard's journey header says it. `Booking\BookingBox::page()` says which page each box lives on (price and payments on Finances, documents on Documents, mail on Courrier, change requests, comments and history on the dashboard) and `href()` builds a link into a box from anywhere on the booking — the page's URL and the box's anchor — so a journey line pointing at the contract lands on the Documents page with that box open, and the link and the card it aims at cannot become two strings. The stay keeps its own page one level deeper, deliberately not a fifth chip. `RentalManagementController::bookingFilePage()` serves all four and loads only what the page it renders shows; `bookingPagesOffered()` is the one place deciding which exist (Courrier needs the rentals' own mailbox, §8.59), and a page not offered answers **404**, never an empty page. A form posts a hidden `booking_page` so a submission without JavaScript comes back to the page it was on.
 
-**A box's fold lives outside its refresh wrapper.** `data-booking-panel` sits *inside* the `.collapse`, and the figure on the header carries a wrapper of its own — so cashing a payment re-renders the box's body and its figure while leaving the box open at the line somebody was reading. Re-rendering the card around it would have folded the box under their hands. The journey's own stretches are the deliberate exception: an action that moves the booking on moves which stretch is current, and the fresh render opening the new one is the answer rather than a lost place.
+**The dashboard leads with the journey, and the journey is the checklist staged** (`Booking\BookingJourney`). It takes what `BookingMilestones::for()` produced and adds no fact of its own, which is the whole point: the phases and their lines cannot tell different stories because there is only one derivation. Its header states where the booking stands (`headline()`), offers the one step that moves it on (`primaryAction()`) and the status's other decisions beside it (`otherDecisions()`) — **every status decision is rendered once on the page**, in that header, because a page offering « Confirmer la réservation » twice is one where pressing either is a guess. Below it the phases are listed step by step; a phase after the current one whose booking is not yet confirmed is shown as future and offers nothing.
+
+**Every line says what kind of step it is** (`Booking\MilestoneKind`, carried by `BookingMilestone` with an `explanation` and a `MilestoneAction`): *derived* (ticks itself from the site's own records), *here* (done on one of the booking's pages — the action is a link into that box), *renter* (waiting on the renter, nothing for a manager to press) or *offsite* (happens away from the site). Only an **offsite** line can be ticked by hand: the arrival and departure inventories when the stay module is off or the asset keeps no inventory template (`MilestoneEvidence::collect()` builds that list). « Marquer comme fait » writes a row in `rental_booking_milestone_marks` — the date and the member — through `Service\RentalMilestoneMarkService`, and a line in the booking's history (`STEP_MARKED`). A line the site can derive is never markable: a checkbox beside a fact the site already knows would be a second, contradictable answer.
+
+**A box's fold lives outside its refresh wrapper.** `data-booking-panel` sits *inside* the `.collapse`, and the figure on the header carries a wrapper of its own — so cashing a payment re-renders the box's body and its figure while leaving the box open at the line somebody was reading. Re-rendering the card around it would have folded the box under their hands.
 
 **A change request is validated where it is made.** `RentalOperationsService::requestChange()` is the one door both the renter's form and a manager's proposal go through, and until IT-03 it checked only that the dates parsed and were in order — so a period the asset's own rules forbid, or one already taken, was recorded, queued, and refused weeks later in the manager's face. It now calls `RentalAvailabilityService::validateRange()`, the same method the public request form uses, and reports the same French sentences — **for the renter's own request**. A manager's proposal is not put through it: they see the calendar, the notice period and the arrival weekdays shape what a *visitor* may ask, and `acceptChange()` already guards the write with `firmOnly: true` precisely so that a competing request's soft hold does not stop the arbitration a manager is there to make. What binds both is physical and is asked of both — a hall that holds sixty holds sixty — so capacity goes through `validateRange()`'s own `validatePersons()`, on its own when only the head count changes, since re-validating a period nobody touched answers « Cette date est déjà passée » about a stay already under way. For the same reason `validateRange()` takes `$arrivalIsNew`: extending a departure must not re-ask whether the stay may begin on the day it began. **The acceptance-time check stays**, and the two are not redundant: "is this askable at all" is asked when the renter asks, "is it still free" is asked inside the lock when a manager answers. `ChangeRequestKind` stopped being a choice and became a derivation (`forChange()`) of what actually differs from the booking, which is what lets one row carry a change of dates *and* of head count — the columns always could, only the enum forbade it — and `affectsAvailability()` now reads "dates are present" rather than "this is the dates-only kind", so the combined case cannot slip past the one check that protects the calendar.
 
@@ -2164,6 +2168,8 @@ What does protect the files is the ordinary mechanism: `File\RentalDocumentOwner
 
 **`Rafraîchir maintenant` runs a synchronisation inside the request, behind an expiring lock.** Two clicks a second apart would open two IMAP sessions on one box and race on the cursor — and the loser's write moves it *backwards*, so the next scheduled run re-reads what was already read. The lock is a setting rather than a table (one row, no schema, readable from the scheduled path too) and it expires after ten minutes, because a request killed by `max_execution_time` never clears it and a permanently locked button is a feature that silently stopped existing. `Service\ManualRefreshService` takes a **closure**, not the sync service: it is constructed on every page view so the button can exist, and assembling a synchronisation graph is the one thing a page view must never do.
 
+**One triage screen for every consumer that has one** (`views/partials/triage.html.twig`, issue #462). The list a consumer's users sort is `InboundMailInterface::triageRows()` — `findForTriage()`'s messages with this consumer's own links and propositions, written once in `Service\TriageRowBuilder` so that every implementation of the interface answers it the same way — so it inherits that interface's scoping and adds none of its own. `Api\TriageScreen` (an immutable value object) makes one tab of it, with `Api\TriageFilter` for the tabs and their counts, and `Api\ReanalysisReport` says what « Relancer l'analyse » found; nothing in `Api\` computes on its own (§7.5). A consumer whose users are narrower than the module filters the rows further — rentals do (§8.59); the partial renders it with the reading dialog (`public/assets/js/mail-message-dialog.js`, one document-level listener, so a list re-rendered in place still opens). A consumer passes what is its own in `triage_ui`: the noun for its objects, its action URLs, its picker template. The camps' unsorted mail and the rentals' « Courrier » page are its two callers today. `dedicatedMailboxesFor()` tells a consumer which enabled boxes are dedicated to it — `Api\DedicatedMailbox`, an id, a name and an address, never a host or an account — and the mailbox list warns when two are dedicated to the same module, since a consumer with two has none of its own.
+
 **The inter-module API is scoped to one consumer and one business reference on every call** (`Api\InboundMailInterface`). There is no `findAll()`, no `findByMailbox()` and no `search()`, and that absence is the enforcement: a manager who may open a booking must not thereby gain a window onto the unit's whole mailbox. Detaching removes **one association**, and stops there. It used to destroy the message once the last association went, which meant that correcting a mis-filing destroyed the thing being corrected — the message could never reach the right booking. It now falls back into the general mail and lives out the retention. `purgeReference()` is the one that still destroys, and the distinction is the point: it is a consumer's RGPD erasure of a business object, where the promise made to the person concerned is that the mail attached to their file goes with the file. A file the consumer re-classified is *released* from the message (`AttachmentOmission::RECLASSIFIED`) rather than left pointing at it, so the retention purge ninety days on cannot take a booking's signed contract away with the email it arrived in; the consumer that names it takes over `files.owner_id` with it. What this module cannot check is whether the *user* may reach the reference — only the consumer knows its own authorisation rules, so that check stays in the consumer's controller and the interface says so.
 
 **Gmail connects over IMAP with an app password, deliberately.** A native connector would need Google's `gmail.readonly` scope, which is *restricted*: every unit deploying ScoutMagic would owe an annual paid security assessment, and without it their tokens expire every seven days and their sync breaks weekly. `Mailbox\ProviderType` keeps the abstraction so a native connector could be added later; it is not implemented.
@@ -2205,8 +2211,9 @@ answer:**
 
 0. **The signed reply address** the site's own mail carried (§8.58,
    `LinkOrigin::REPLY_ADDRESS`) — verified by the gateway, checked here
-   only for a booking that still exists. Second to the reference below,
-   because the reference is what the subject says NOW.
+   only for a booking that still exists. It comes before the reference
+   below: the site minted it for one booking and the gateway verified it,
+   while a subject can quote any reference.
 1. **A reference in the subject** (`[LOC-2027-0042]`) — the module put it
    there itself, so a reply carrying it back is as close to certain as
    automatic attachment gets. Bracketed beats bare, and the subject beats
@@ -2262,22 +2269,23 @@ Detaching removes the association and the `Non classé` documents nobody
 re-classified; the message itself falls back into the unit's general mail
 (§8.58) and a document already filed as a signed contract survives — it is
 the manager's, not the message's, and `onUnlinked()` takes back only what is
-still `Non classé`. Moving is offered only to bookings of that manager's own
+still `Non classé`. Attaching is offered only to bookings of that manager's own
 assets, and the target list is **built from their assets** rather than
 filtered from a global list, so the picker is never itself a window onto the
 unit's other bookings; a hand-crafted POST naming somebody else's booking
 gets the same "not accessible" as one naming a booking that does not exist.
-A moved message takes its documents with it — moved *before* the association
-changes hands, so the consumer's callbacks find nothing to take back and
-nothing to file twice, and a re-classified document keeps its type — since
-`FileAccessGuard` resolves a rental file's readers through its document row.
-The moved association is recorded as `manual`, naming the manager (D20).
+The screen offers no « move »: changing a message's booking is detaching it
+and attaching it to the right one, as on the camps screen. The service's
+`move()` stays — a moved message takes its documents with it, moved *before*
+the association changes hands, and is recorded as `manual` (D20).
 
 **Attaching by hand is confirming a proposition, or naming an object the
 requester may reach** (`InboundMailInterface::attach()`, `confirmCandidate()`),
 never browsing the mailbox: the scoped API (`specifications.md` §23.5) hands a
-consumer only the messages it recognised or proposed on, and a button that
-opened the whole box would be a doorway onto everybody's correspondence.
+consumer only the messages it recognised or proposed on. `attach()` leaves the
+authorisation to its caller, so `RentalCommunicationService::attachToBooking()`
+first requires the message to be in the manager's own triage list — attaching
+an arbitrary message id to one's own booking would be reading it.
 
 **Which mailboxes feed the module is the mailbox configuration's answer, and
 nothing of the module's own.** `rental` used to keep its own list of box ids
@@ -2288,18 +2296,66 @@ rental configuration page names the unit's boxes and their state — never a
 host, a port or an account, `listMailboxSummaries()` is the whole of what
 crosses that boundary — and points at the scope screen for the rest.
 
-**The manager answers the module's propositions on the booking itself.** The
-« Courrier » panel lists, ahead of the attached messages, every message the
-consumer proposed towards this booking (`findForTriage()` scoped to the one
-reference, `findCandidatesFor()`), with « Rattacher » and « Écarter » going
-through `confirmCandidate()` / `dismissCandidate()` scoped the same way. Until
-then a rental proposition could only ever be answered by the Chef d'Unité on
-`/courrier`, which is to say never. « Relancer l'analyse » sits on the same
-panel for the same reason it sits on the camps screen.
+**The « Courrier » page is the camps' triage screen, not a look-alike**
+(issue #462). Both modules render `@inbound_mail/partials/triage.html.twig`
+over `triageRows()` and `Api\TriageScreen` (§8.58): the same tabs and counts (« À trier »,
+« Rattachés », « Tous », « Écartés »), the same dialog for reading a message,
+the same propositions to confirm or dismiss, the same attach, detach, set
+aside, restore and « Relancer l'analyse ». What differs is passed in
+`triage_ui` — the name of the module's objects, its action URLs, its picker —
+and one scenario (`TriageScreenScenario`) is played against both screens so
+they cannot drift into two behaviours. The rentals' list is the manager's
+scope, not the page's: every booking of every asset they manage
+(`triageBookings()`), recomputed on each action rather than trusted from the
+form; the booking of the page is only the picker's default.
 
-**Without `inbound_mail` the booking page loses a tab and nothing else.**
-`RentalCommunicationService` takes the API as a nullable dependency and
-answers as though no message ever arrived, which is exactly true.
+**A manager reads only the mail within their reach**
+(`RentalCommunicationService::withinReach()`). On a box dedicated to
+rentals, `findForTriage()` answers for the *module*, which reads the whole
+box; a manager is narrower than the module. A row stays when a link or a
+proposition names one of their own bookings — and then carries only those,
+so another booking's reference never reaches the page — or when nothing
+attributes it and they manage every asset
+(`RentalAuthorizationService::managesEveryAsset()`: the Staff d'U, or a
+manager named on each), since such a message may be about any of them.
+Attach, set aside and restore check a posted message id against that same
+list: what a manager cannot see, they cannot act on. For somebody who does
+not manage every asset the narrowing starts in the query
+(`findForTriage(…, ownReferencesOnly: true)` leaves the box read in full
+out), before the screenful's limit: the whole box's hundred most recent
+messages are not a sample of anybody's own. The seven
+`/mes-locations/courrier/*` routes go through `bookingAction()` like every
+form of the booking.
+
+**The page exists only for rentals' own mailbox, and only when there is
+exactly one.** `InboundMailInterface::dedicatedMailboxesFor()` names the
+enabled boxes dedicated to a consumer; `dedicatedMailbox()` answers one only
+when the list holds exactly one. Two boxes dedicated to rentals give **no**
+page: the page shows one box's mail, and choosing between two would be
+arbitrary — the incoming-mail configuration list says so where it can be
+fixed (`Service\MailboxAdminService::dedicationConflicts()`), and the
+change that brings a box into the case is journaled once
+(`inbound_mailbox_dedication_conflict`) — compared by box id, so a rename
+or a later save that leaves the case as it was writes nothing. A shared
+box feeds the automatic
+filing and the booking's history, never this page.
+
+**A renter's « Répondre » reaches that box.** Every booking mail carries the
+signed reply address when the operator allows it
+(`ReplyAddressService::mailboxFor()` mints it on the box dedicated to
+rentals, else on the first shared box that analyses them). With signed
+addresses off, it carries the dedicated box's own address when there is
+exactly one, passed explicitly: `MailService` would fall back on the site's
+reply address, and the answer would go to the unit's general inbox instead
+of the page that reads it. Otherwise — signed addresses off and no dedicated
+box, or two — nothing is passed and the site's ordinary reply address
+applies. The mass mail module never goes through `RentalBookingMailService`
+and is untouched.
+
+**Without `inbound_mail` the booking page loses its « Courrier » chip and
+nothing else.** `RentalCommunicationService` takes the API as a nullable
+dependency and answers as though no message ever arrived, which is exactly
+true.
 
 ### 8.60 The paperwork register and the reminders (`Modules\Rental\Compliance`, `Modules\Rental\Reminder`)
 
