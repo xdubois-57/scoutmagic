@@ -52,6 +52,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';
+import { settledPanelAround } from '../support/collapse.js';
 import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { scaled } from '../support/timeouts.js';
@@ -197,7 +198,18 @@ test('a campaign prints a sheet of payment labels, and a receivable that stops o
     // and that path is already covered by finance-receipts.spec.js.
     // ---------------------------------------------------------------
     await page.getByRole('button', { name: 'Détail de la créance' }).filter({ visible: true }).first().click();
-    await page.getByRole('button', { name: 'Abandonner la créance' }).filter({ visible: true }).first().click();
+    const waive = page.getByRole('button', { name: 'Abandonner la créance' })
+        .filter({ visible: true }).first();
+    // The panel must have stopped moving before the button is aimed at —
+    // see tests/e2e/support/collapse.js for what a click lands on when it
+    // has not. Then wait on the redirect the POST causes rather than on
+    // the POST itself, so the assertions below read the page that answered
+    // it and not the one being left.
+    await settledPanelAround(page, waive);
+    await Promise.all([
+        page.waitForURL(/\/finance\/campaigns\/\d+\?filter=/, { waitUntil: 'domcontentloaded' }),
+        waive.click(),
+    ]);
 
     // Scoped to <main>: the same string unscoped would be a strict-mode
     // violation the day a toast or a nav badge repeats it.

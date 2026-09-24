@@ -2360,7 +2360,7 @@ The cadence therefore lives in the claim's `WHERE` clause (a guarded
 unique index: `SchemaComparator` matches an index by NAME only and nothing
 ever drops one, so redefining `idx_rental_reminder_once` would have left
 every installed site exactly as it was while passing on a fresh install
-(AGENTS.md § Schema). The index keeps doing the one job it was written for.
+(AGENTS.md § Database). The index keeps doing the one job it was written for.
 
 **Reminders are addressed, never broadcast**: to the managers of *that*
 asset. And **no personal data travels in one** — a title and body name a

@@ -2,7 +2,24 @@
 <phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
          bootstrap="tests/bootstrap.php"
-         colors="true">
+         colors="true"
+         failOnRisky="true">
+    <!--
+        failOnRisky, because a risky test is a test saying the code it
+        exercises broke the state of the process, and without this the
+        command exits 0 and CI says nothing.
+
+        Fifteen tests in tests/Bootstrap/ said exactly that on every run
+        from the day they were written: bootstrapSendJson() unwound the
+        WHOLE output-buffering stack, destroying the buffer PHPUnit was
+        holding (#426). Nobody saw it for months — not because anyone was
+        careless, but because the only place it appeared was a line in the
+        middle of a passing run.
+
+        failOnWarning is deliberately NOT set with it: six warnings remain
+        in the suite, and turning them red is a separate piece of work
+        rather than a switch to flip in passing.
+    -->
     <testsuites>
         <testsuite name="Core">
             <directory>tests/Core</directory>
