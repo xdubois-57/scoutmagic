@@ -800,12 +800,64 @@ final class AssertionMessagesAreEnglishTest extends TestCase
      * other non-literal term is swallowed, hid forty-five call sites,
      * three of them French.
      */
+    /**
+     * Every fixture the shape tests are made of is valid PHP.
+     *
+     * `testAMessageBuiltWithSprintfIsRead()` shipped with a bare `'` in
+     * « n'imprime », which closes a single-quoted literal. The fixture was
+     * therefore malformed — and NOTHING said so. `token_get_all()` runs
+     * with default flags, so it does not throw: it lexed the rest of the
+     * file as one unterminated string, the reader returned the message
+     * truncated at « le gabarit n », and all four assertions passed on
+     * that. The worst of them was `assertStringNotContainsString('$name')`,
+     * which exists to prove that what a format string formats stays out of
+     * the message — and passed because `$name` sat inside the unterminated
+     * token and was never reached at all.
+     *
+     * A test that passes for a reason it does not name is the failure this
+     * whole class is about, so the fixtures get the same treatment as the
+     * corpus. `TOKEN_PARSE` is the flag whose absence bought the silence,
+     * and it is used here, on the fixtures only: the detector keeps the
+     * default flags, because a malformed file somewhere in `tests/` should
+     * make this class report, not crash.
+     */
+    public function testEveryFixtureTheseShapeTestsUseIsValidPhp(): void
+    {
+        $source = (string) file_get_contents(__FILE__);
+        $found = preg_match_all("/<<<'PHP'\n(.*?)\n\s*PHP\)/s", $source, $matches);
+
+        $malformed = [];
+        foreach ($matches[1] as $index => $fixture) {
+            try {
+                token_get_all((string) preg_replace('/^ {12}/m', '', $fixture), TOKEN_PARSE);
+            } catch (\ParseError $error) {
+                $malformed[] = 'fixture ' . ($index + 1) . ' — ' . $error->getMessage();
+            }
+        }
+
+        $this->assertSame(
+            [],
+            $malformed,
+            "A fixture below is not valid PHP, so the shape it is supposed to freeze is not the shape\n"
+                . "the reader was given. The assertions around it will still pass, on whatever the lexer\n"
+                . "made of the wreckage — which is exactly the kind of green this class exists to refuse.\n"
+                . implode("\n", $malformed)
+        );
+
+        $this->assertGreaterThanOrEqual(
+            8,
+            $found,
+            'the fixture scan found ' . $found . ' fixtures, fewer than the shape tests below declare — '
+                . 'a regex that stopped matching would make the check above pass over nothing'
+        );
+    }
+
     public function testAMessageBuiltWithSprintfIsRead(): void
     {
         $file = tempnam(sys_get_temp_dir(), 'assertion_messages_') . '.php';
         file_put_contents($file, <<<'PHP'
             <?php
-            $this->assertTrue($ok, sprintf('%s est écrit à %.1f mm, où le gabarit n'imprime rien.', $name, $y));
+            $this->assertTrue($ok, sprintf('%s est écrit à %.1f mm, où le gabarit n\'imprime rien.', $name, $y));
             PHP);
 
         try {
