@@ -2004,11 +2004,11 @@ The edited quote is stored as `agreed_price_snapshot`, a **second column** besid
 
 **The booking file acts without reloading.** Its sixteen POST forms all funnel through `RentalManagementController::bookingAction()`, so one branch there — `X-Requested-With: XMLHttpRequest` answers `{success, type, message}` (the flash, consumed, since nothing is going to render it) instead of redirecting — makes the whole page asynchronous with no per-handler change. `public/assets/js/rental-booking.js` posts each form with `fetch`, toasts that message, then **re-fetches the page and swaps the contents of every `[data-booking-panel]` wrapper**. Re-rendering rather than patching is deliberate: one action moves several panels at once — sending the contract also ticks a milestone and writes a history line — and a client-side guess about which is how a page starts lying. The wrappers are always present even when what they hold is conditional, so a card that appears or disappears swaps like any other. Without JavaScript every form still posts, redirects and renders its flash exactly as before.
 
-**The booking is four pages, not one long file** (issue #462). `Booking\BookingPage` names them — « Tableau de bord » (the booking's own URL), « Finances », « Documents », « Courrier » — and `_booking_nav.html.twig` renders them as a rail under a frame (`_booking_frame.html.twig`) that every one of them shares: the renter, the dates, the status badge, once. `Booking\BookingBox::page()` says which page each box lives on (price and payments on Finances, documents on Documents, mail on Courrier, change requests, comments and history on the dashboard) and `href()` builds a link into a box from anywhere on the booking — the page's URL and the box's anchor — so a journey line pointing at the contract lands on the Documents page with that box open, and the link and the card it aims at cannot become two strings. The stay keeps its own page one level deeper, deliberately not a fifth chip. `RentalManagementController::bookingFilePage()` serves all four and loads only what the page it renders shows; `bookingPagesOffered()` is the one place deciding which exist (Courrier needs the rentals' own mailbox, §8.59), and a page not offered answers **404**, never an empty page. A form posts a hidden `booking_page` so a submission without JavaScript comes back to the page it was on.
+**The booking is four pages, not one long file** (issue #462). `Booking\BookingPage` names them — « Tableau de bord » (the booking's own URL), « Finances », « Documents », « Courrier » — and `_booking_nav.html.twig` renders them as a rail under a frame (`_booking_frame.html.twig`) that every one of them shares: the reference, the renter and the dates, once, and « En cours » while the stay is under way. Where the booking stands is not repeated there: the dashboard's journey header says it. `Booking\BookingBox::page()` says which page each box lives on (price and payments on Finances, documents on Documents, mail on Courrier, change requests, comments and history on the dashboard) and `href()` builds a link into a box from anywhere on the booking — the page's URL and the box's anchor — so a journey line pointing at the contract lands on the Documents page with that box open, and the link and the card it aims at cannot become two strings. The stay keeps its own page one level deeper, deliberately not a fifth chip. `RentalManagementController::bookingFilePage()` serves all four and loads only what the page it renders shows; `bookingPagesOffered()` is the one place deciding which exist (Courrier needs the rentals' own mailbox, §8.59), and a page not offered answers **404**, never an empty page. A form posts a hidden `booking_page` so a submission without JavaScript comes back to the page it was on.
 
 **The dashboard leads with the journey, and the journey is the checklist staged** (`Booking\BookingJourney`). It takes what `BookingMilestones::for()` produced and adds no fact of its own, which is the whole point: the phases and their lines cannot tell different stories because there is only one derivation. Its header states where the booking stands (`headline()`), offers the one step that moves it on (`primaryAction()`) and the status's other decisions beside it (`otherDecisions()`) — **every status decision is rendered once on the page**, in that header, because a page offering « Confirmer la réservation » twice is one where pressing either is a guess. Below it the phases are listed step by step; a phase after the current one whose booking is not yet confirmed is shown as future and offers nothing.
 
-**Every line says what kind of step it is** (`Booking\MilestoneKind`, carried by `BookingMilestone` with an `explanation` and a `MilestoneAction`): *derived* (ticks itself from the site's own records), *here* (done on one of the booking's pages — the action is a link into that box), *renter* (waiting on the renter, nothing for a manager to press) or *offsite* (happens away from the site). Only an **offsite** line can be ticked by hand: the arrival and departure inventories when the stay module is off or the asset keeps no inventory template (`MilestoneEvidence::collect()` builds that list). « Fait » writes a row in `rental_booking_milestone_marks` — the date and the member — through `Service\RentalMilestoneMarkService`, and a line in the booking's history (`STEP_MARKED`). A line the site can derive is never markable: a checkbox beside a fact the site already knows would be a second, contradictable answer.
+**Every line says what kind of step it is** (`Booking\MilestoneKind`, carried by `BookingMilestone` with an `explanation` and a `MilestoneAction`): *derived* (ticks itself from the site's own records), *here* (done on one of the booking's pages — the action is a link into that box), *renter* (waiting on the renter, nothing for a manager to press) or *offsite* (happens away from the site). Only an **offsite** line can be ticked by hand: the arrival and departure inventories when the stay module is off or the asset keeps no inventory template (`MilestoneEvidence::collect()` builds that list). « Marquer comme fait » writes a row in `rental_booking_milestone_marks` — the date and the member — through `Service\RentalMilestoneMarkService`, and a line in the booking's history (`STEP_MARKED`). A line the site can derive is never markable: a checkbox beside a fact the site already knows would be a second, contradictable answer.
 
 **A box's fold lives outside its refresh wrapper.** `data-booking-panel` sits *inside* the `.collapse`, and the figure on the header carries a wrapper of its own — so cashing a payment re-renders the box's body and its figure while leaving the box open at the line somebody was reading. Re-rendering the card around it would have folded the box under their hands.
 
@@ -2211,8 +2211,9 @@ answer:**
 
 0. **The signed reply address** the site's own mail carried (§8.58,
    `LinkOrigin::REPLY_ADDRESS`) — verified by the gateway, checked here
-   only for a booking that still exists. Second to the reference below,
-   because the reference is what the subject says NOW.
+   only for a booking that still exists. It comes before the reference
+   below: the site minted it for one booking and the gateway verified it,
+   while a subject can quote any reference.
 1. **A reference in the subject** (`[LOC-2027-0042]`) — the module put it
    there itself, so a reply carrying it back is as close to certain as
    automatic attachment gets. Bracketed beats bare, and the subject beats
@@ -2340,12 +2341,16 @@ box feeds the automatic
 filing and the booking's history, never this page.
 
 **A renter's « Répondre » reaches that box.** Every booking mail carries the
-signed reply address when the operator allows it — it already lands on the
-dedicated box — and otherwise the box's own address, passed explicitly:
-`MailService` would fall back on the site's reply address, and the answer
-would go to the unit's general inbox instead of the page that reads it. With
-no dedicated box, or two, nothing is passed. The mass mail module never goes
-through `RentalBookingMailService` and is untouched.
+signed reply address when the operator allows it
+(`ReplyAddressService::mailboxFor()` mints it on the box dedicated to
+rentals, else on the first shared box that analyses them). With signed
+addresses off, it carries the dedicated box's own address when there is
+exactly one, passed explicitly: `MailService` would fall back on the site's
+reply address, and the answer would go to the unit's general inbox instead
+of the page that reads it. Otherwise — signed addresses off and no dedicated
+box, or two — nothing is passed and the site's ordinary reply address
+applies. The mass mail module never goes through `RentalBookingMailService`
+and is untouched.
 
 **Without `inbound_mail` the booking page loses its « Courrier » chip and
 nothing else.** `RentalCommunicationService` takes the API as a nullable

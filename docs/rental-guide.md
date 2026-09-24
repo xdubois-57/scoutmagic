@@ -142,7 +142,7 @@ son titre : **Tableau de bord**, **Finances** (le prix et les paiements),
 propose l'étape qui la fait avancer ; dessous, le parcours, étape par
 étape, dit pour chacune si le site la coche tout seul, si elle se fait
 sur l'une des pages, si elle attend le locataire ou si elle se passe hors
-du site — celles-là seules se cochent à la main (« Fait »), et la coche
+du site — celles-là seules se cochent à la main (« Marquer comme fait »), et la coche
 est tracée dans l'historique.
 
 On y trouve aussi :

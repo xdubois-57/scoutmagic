@@ -445,7 +445,7 @@ Rien.
 - **`ARCHITECTURE.md`** :
   - §8.53 décrit les quatre pages (`BookingPage`, `BookingBox::page()`,
     `bookingPagesOffered()`), le parcours et sa tête, les natures d'étape
-    (`MilestoneKind`) et la coche « Fait » des étapes hors du site. Le
+    (`MilestoneKind`) et la coche « Marquer comme fait » des étapes hors du site. Le
     paragraphe des « quatre mouvements » est remplacé.
   - §8.58 décrit le composant de tri partagé (`triageRows()`,
     `Api\TriageScreen`, le partial, `triage_ui`) et
@@ -461,7 +461,8 @@ Rien.
   - §22.9 : la page Courrier.
 - **`docs/rental-guide.md`** : §6 (les pages de la réservation) et §11
   (le courrier) mis à jour.
-- **Aide** : un sujet par page de la réservation.
+- **Aide** : au moins un sujet par page de la réservation, deux pour le
+  tableau de bord (la fiche et le parcours).
 
   | Page | Sujet |
   |---|---|
