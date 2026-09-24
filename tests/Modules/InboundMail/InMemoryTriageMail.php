@@ -89,6 +89,15 @@ final class InMemoryTriageMail implements InboundMailInterface
     }
 
     /**
+     * One box of each consumer's own: the screens under test exist for a
+     * dedicated box (issue #462, D8).
+     */
+    public function dedicatedMailboxesFor(string $consumerId): array
+    {
+        return [new \Modules\InboundMail\Api\DedicatedMailbox(1, 'Boîte ' . $consumerId, $consumerId . '@unite.be')];
+    }
+
+    /**
      * Every message is in a box this consumer reads in full, as on a box
      * dedicated to it — unless `$ownReferencesOnly` narrows the list to what
      * is filed or proposed under `$ownReferences`.

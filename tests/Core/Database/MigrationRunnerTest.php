@@ -11,6 +11,7 @@ use Core\Database\SchemaIntrospector;
 use Core\Database\SqlParser;
 use Core\Journal\JournalService;
 use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
 
 /**
  * @group database
@@ -37,7 +38,7 @@ class MigrationRunnerTest extends TestCase
 
         $result = $connection->testConnection();
         if ($result !== true) {
-            $this->markTestSkipped('Database connection not available: ' . $result);
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database connection not available: ' . $result);
         }
 
         $this->connection = $connection;

@@ -1,7 +1,7 @@
 {#
   One line of « À traiter » (§22.5).
 
-  Shared by the asset's overview and by « Mes locations », because the two
+  Shared by the asset's overview and by « Gérer mes locations », because the two
   lists answer the same question and a second copy would drift the day one
   of them learns a new reason.
 
@@ -12,7 +12,7 @@
   without saying why reads as a list that has broken.
 
   Requires `attention` (Booking\BookingAttention) and `asset`.
-  Optional: `show_asset_name` — « Mes locations » spans several assets and
+  Optional: `show_asset_name` — « Gérer mes locations » spans several assets and
   has to name them; an asset's own overview does not.
 #}
 <a href="/mes-locations/{{ asset.slug }}/reservations/{{ attention.booking.id }}"

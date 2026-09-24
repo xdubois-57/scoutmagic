@@ -47,7 +47,7 @@ use PHPUnit\Framework\TestCase;
  * claimed it was empty — a false claim about coverage, in the one file
  * whose whole subject is that a claim about coverage gets believed.
  * Counted rather than guessed: **37** `SettingService` calls in this
- * repository pass a key that is only known at run time, 15 of them in
+ * repository pass a key that is only known at run time, 17 of them in
  * module code — `ReenrollmentCampaignService` choosing between two
  * reminder constants, `GroupLifecycleService::months()` taking its key as
  * a parameter, `RegistrationConfigController` writing a threshold picked
@@ -56,11 +56,29 @@ use PHPUnit\Framework\TestCase;
  * `GalleryConfigController`, `CalendarConfigController` and
  * `ReenrollmentConfigController`.
  *
- * Every one of those 15 passes its module's scope correctly today — which
- * was verified, not assumed. So there is no bug hiding there right now;
- * there is only a part of the codebase this test says nothing about, and
- * the next person is meant to know that rather than be reassured. Issue
- * #443 carries the durable form.
+ * Every one of those passes its module's scope correctly today — which
+ * was verified, not assumed. So there was no bug hiding there; there was
+ * a part of the codebase this test said nothing about, while reading as
+ * though it did.
+ *
+ * **Closed from the other side** (issue #443).
+ * `testAModuleCallWithAnUnreadableKeyStillNamesItsScope()` asks the one
+ * question that does not need the key: a call in a module, on a
+ * `SettingService`, that names **no scope at all**. Whatever that key
+ * turns out to be, the call will look in `_core_`, and a module's own
+ * setting is not there. It covers two families the main scan drops: the 17
+ * calls whose key never resolves, and the 20 whose key resolves to
+ * something no manifest declares. Thirty-six of those thirty-seven are
+ * scoped; the thirty-seventh is a setting nothing declares at all, found by
+ * this check on its first run (issue #497).
+ *
+ * What is still not covered, and is now the whole of it: a call that
+ * DOES name a scope under a key nobody can read is taken at its word.
+ * Judging that one means knowing which module the key belongs to, which
+ * means resolving the key — the thing that could not be done in the first
+ * place. #443's options 2 and 3 (following a ternary of constants back to
+ * its branches, or a key parameter back to its callers) are a flow
+ * analysis, and a test is not the place for one.
  */
 class ModuleSettingsAreReadInTheirScopeTest extends TestCase
 {
@@ -1000,6 +1018,431 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
         sort($files);
 
         return $files;
+    }
+
+    /**
+     * The blind spot, closed from the other side.
+     *
+     * The check above judges a call only when it can resolve the key **and**
+     * a `module.json` declares it. Two families fall outside that, and
+     * both were dropped before their scope was ever looked at:
+     *
+     *  - **17** calls whose key is built at run time and does not resolve
+     *    at all (issue #443's count);
+     *  - **20** whose key resolves to a literal or a class constant that no
+     *    manifest declares — `Modules\Finance\Service\
+     *    BulkCategorizationService` holds four of them as constants. This
+     *    second family was missed by the first version of this very method,
+     *    which assumed « resolves » meant « already judged »: the same
+     *    over-claim, one level down, found in review.
+     *
+     * This asks the one question that does not need the key: **a call in a
+     * module, on a `SettingService`, that names no scope at all.** Whatever
+     * that key turns out to be, `_core_` is where the call will look, and a
+     * module's own setting is not there. It is issue #433's defect in the
+     * shape the main scan cannot see.
+     *
+     * Thirty-six of those thirty-seven pass today. The thirty-seventh is real
+     * and is named below — a setting no composition root declares, so the
+     * rental contract prints an empty landlord address (issue #497). This
+     * check found it on its first run, which is more than was expected of
+     * it: it was written for the call that has not been made yet.
+     *
+     * **The trap, named rather than left to be met.** A module file may
+     * legitimately read a *core* setting with a computed key, and this test
+     * would call it an offence. None exists today. When one is written, it
+     * is a decision to take explicitly — add it to `CORE_KEYS_IN_MODULES`
+     * with the reason — rather than a rule to soften, because « a module
+     * reaching into core's scope with a key nobody can read » deserves to
+     * be looked at once by a person.
+     *
+     * What it still does not see, said as plainly as the docblock above:
+     * a call whose receiver is not named for what it is. That is what
+     * `testEverySettingServiceReceiverIsRecognisable()` holds.
+     *
+     * @var list<string> file:line, with the reason on the line
+     */
+    private const CORE_KEYS_IN_MODULES = [
+        // `unit_address` is declared by no manifest, no composition root
+        // and no schema — the only place in this repository that registers
+        // it is a fixture in RentalDocumentServiceTest. So the contract's
+        // `adresse_bailleur` is the empty string on every real
+        // installation, while its own description promises « l'adresse de
+        // l'unité, telle que configurée ». Found by this very check on its
+        // first real run; whether the setting belongs to core or to the
+        // rental module is a decision, and it is issue #497's.
+        'modules/rental/src/Service/RentalDocumentService.php:603',
+    ];
+
+    /**
+     * How a `SettingService` is held, everywhere it is held in this
+     * repository: `$this->settingService`, `$this->settings`,
+     * `$settingService`, `$settings`, `$context->settings`,
+     * `$this->coreSettingService`.
+     */
+    private const RECEIVER_PATTERN = '/(^|>)(core|setup)?[sS]etting(s|Service)$/';
+
+    public function testAModuleCallWithAnUnreadableKeyStillNamesItsScope(): void
+    {
+        $offenders = [];
+        $seen = 0;
+
+        foreach (self::phpFiles() as $file) {
+            $relative = substr($file, strlen(self::root()) + 1);
+            if (!str_starts_with($relative, 'modules/')) {
+                continue;
+            }
+
+            foreach (self::settingCallsIn($file) as $call) {
+                if ($call['judged_above']) {
+                    continue;
+                }
+
+                $seen++;
+                $scope = self::normalise($call['scope']);
+                if ($scope !== '' && $scope !== 'null') {
+                    continue;
+                }
+
+                $where = $relative . ':' . $call['line'];
+                if (in_array($where, self::CORE_KEYS_IN_MODULES, true)) {
+                    continue;
+                }
+
+                $offenders[] = sprintf(
+                    '%s — %s(%s) names no scope, so whatever that key is it will be read from `_core_`',
+                    $where,
+                    $call['method'],
+                    $call['key_expression']
+                );
+            }
+        }
+
+        $this->assertSame(
+            [],
+            $offenders,
+            "A module reading a setting under a key this check cannot resolve must still say
+"
+            . "which module's scope it means. Without one the call reads `_core_`, finds
+"
+            . "nothing and answers the default — the defect of issue #433, in the shape the
+"
+            . "main scan above cannot see (issue #443).
+
+"
+            . "If the key really is a CORE setting, that is a decision to take out loud:
+"
+            . "add the line to CORE_KEYS_IN_MODULES with its reason.
+  "
+            . implode("
+  ", $offenders)
+        );
+
+        $this->assertGreaterThanOrEqual(
+            30,
+            $seen,
+            'The scan found almost no runtime-keyed settings call in modules/, which means it '
+            . 'has stopped reading them rather than that they are gone — there were '
+            . 'thirty-seven when this check last counted them.'
+        );
+    }
+
+    /**
+     * A `SettingService` held under a name this file does not recognise is
+     * a call neither check sees, so the naming is the invariant.
+     *
+     * Read from the constructor promotions and properties typed
+     * `SettingService`, rather than from a list somebody has to keep: the
+     * type is what makes it one, and the name is what makes it findable.
+     */
+    public function testEverySettingServiceReceiverIsRecognisable(): void
+    {
+        $offenders = [];
+        $seen = 0;
+
+        foreach (self::phpFiles() as $file) {
+            $source = (string) file_get_contents($file);
+            if (!str_contains($source, 'SettingService')) {
+                continue;
+            }
+
+            preg_match_all(
+                '/\bSettingService\s+\$([A-Za-z_][A-Za-z0-9_]*)/',
+                $source,
+                $found,
+                PREG_SET_ORDER
+            );
+            foreach ($found as $declaration) {
+                $seen++;
+                if (preg_match(self::RECEIVER_PATTERN, $declaration[1]) === 1) {
+                    continue;
+                }
+
+                $offenders[] = substr($file, strlen(self::root()) + 1) . ' — $' . $declaration[1];
+            }
+        }
+
+        $this->assertSame(
+            [],
+            $offenders,
+            "A SettingService has to be held under a name saying so — `\$settingService`,
+"
+            . "`\$settings`, or one of the forms RECEIVER_PATTERN knows. The checks in this
+"
+            . "file find their call sites by that name, so one held under another goes
+"
+            . "unread by both of them, silently.
+  "
+            . implode("
+  ", $offenders)
+        );
+
+        // A scan that matched nothing would pass for ever — the failure
+        // mode of every check written against a pattern, which
+        // testTheScanActuallyFindsTheCallSitesItIsMeantToJudge() states as
+        // this file's convention. It matters more here than anywhere else
+        // in the file: settingCallsIn() and registeredIn() both find their
+        // subject by this same name, and this test is what says that
+        // assumption still holds. An aliased import, a renamed class or a
+        // union type written differently would empty the matches for every
+        // file and leave three checks looking at nothing.
+        $this->assertGreaterThanOrEqual(
+            120,
+            $seen,
+            'The scan found almost no SettingService declaration, which means it has stopped '
+            . 'reading them rather than that they are gone — there were 157 when it last counted.'
+        );
+    }
+
+    /**
+     * Every call on a `SettingService` in one file, whether or not its key
+     * can be resolved — which is the difference from `callsToModuleKeys()`,
+     * where an unresolvable key ends the examination.
+     *
+     * The receiver is recognised by name, and that is a choice with a
+     * guard: `testEverySettingServiceReceiverIsRecognisable()` is what
+     * keeps the names true. Reading the type through to the call site would
+     * mean resolving `$this->x` back to a promoted constructor property
+     * across a whole file, which is a type checker, not a test.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private static function settingCallsIn(string $file): array
+    {
+        $source = (string) file_get_contents($file);
+        $constants = self::constantsByClass();
+        $ownClass = self::classDeclaredIn($source);
+        $useMap = self::useMapOf($source);
+
+        $tokens = token_get_all($source);
+        $count = count($tokens);
+        $calls = [];
+
+        for ($i = 0; $i < $count; $i++) {
+            $operator = is_array($tokens[$i]) ? $tokens[$i][0] : null;
+            if ($operator !== T_OBJECT_OPERATOR && $operator !== T_NULLSAFE_OBJECT_OPERATOR) {
+                continue;
+            }
+
+            $name = $tokens[$i + 1] ?? null;
+            if (!is_array($name) || $name[0] !== T_STRING || !isset(self::SCOPED_METHODS[$name[1]])) {
+                continue;
+            }
+            if (($tokens[$i + 2] ?? null) !== '(') {
+                continue;
+            }
+            if (!self::receiverIsASettingService($tokens, $i)) {
+                continue;
+            }
+
+            $arguments = self::argumentsAt($tokens, $i + 2);
+            $scope = trim($arguments[self::SCOPED_METHODS[$name[1]]] ?? '');
+
+            foreach (self::keyExpressionsOf($name[1], trim($arguments[0] ?? '')) as $expression) {
+                $calls[] = [
+                    'line' => $name[2],
+                    'method' => $name[1],
+                    'key_expression' => $expression,
+                    'scope' => $scope,
+                    'judged_above' => self::isJudgedByTheMainScan(
+                        self::resolveKey($expression, $ownClass, $constants, $useMap)
+                    ),
+                ];
+            }
+        }
+
+        return $calls;
+    }
+
+    /**
+     * Whether `testNoModuleSettingIsReadOrWrittenOutsideItsOwnScope()`
+     * above has already had its say about this key.
+     *
+     * Resolving is **not** enough, and assuming it was left a second hole
+     * beside the one this was written to close. That scan judges a call
+     * only when the key it resolved is one a `module.json` declares
+     * (`!isset($moduleKeys[$key])` drops the rest), so a key that resolves
+     * to a literal or a class constant and is declared **nowhere** fell
+     * between the two: judged by neither.
+     *
+     * They exist. `Modules\Finance\Service\BulkCategorizationService`
+     * holds four — `ai_categorization_enabled` and its neighbours — as
+     * class constants that `modules/finance/module.json` does not declare.
+     * All four calls pass `'finance'` today; nothing would have said so if
+     * one stopped.
+     */
+    private static function isJudgedByTheMainScan(?string $key): bool
+    {
+        if ($key === null) {
+            return false;
+        }
+
+        // A key core itself registers is one a module reads WITHOUT a
+        // scope, correctly and by design. Measured: `base_url` (16 call
+        // sites), `site_name` (12), `cron_last_run` (2) and `short_name`
+        // are read that way from eleven modules. Judging those as
+        // offences would not close a gap, it would make the check wrong
+        // about thirty-one call sites that are right.
+        //
+        // `unit_address` is NOT one of them, however it reads: nothing
+        // registers it anywhere, which is why it is listed as the one
+        // exception in CORE_KEYS_IN_MODULES rather than passing through
+        // here. Naming it among core's own keys would tell a reader the
+        // opposite of what that list says about it.
+        return isset(self::declaredModuleKeys()[$key]) || isset(self::declaredCoreKeys()[$key]);
+    }
+
+    /**
+     * Every key core registers on its own behalf — the settings a
+     * scope-less read is correct for.
+     *
+     * Read from the composition roots rather than a list kept by hand, for
+     * the same reason the module keys are read from the manifests: a list
+     * somebody maintains is a list that stops being true, and this one
+     * decides whether a call site is an offence.
+     *
+     * **Both roots**, and the second is not an afterthought:
+     * `public/cron.php` registers `cron_last_run` and nothing else does,
+     * so reading only `index.php` reported two correct call sites as
+     * offences. A composition root left out of the scan is the same defect
+     * as a manifest left out of it.
+     *
+     * @return array<string, true>
+     */
+    private static function declaredCoreKeys(): array
+    {
+        static $keys = null;
+        if ($keys !== null) {
+            return $keys;
+        }
+
+        $keys = [];
+        foreach (['public/index.php', 'public/cron.php'] as $root) {
+            foreach (self::registeredIn(self::root() . '/' . $root) as $key) {
+                $keys[$key] = true;
+            }
+        }
+
+        return $keys;
+    }
+
+    /**
+     * The keys one composition root passes to `SettingService::register()`.
+     *
+     * @return list<string>
+     */
+    private static function registeredIn(string $path): array
+    {
+        if (!is_file($path)) {
+            return [];
+        }
+
+        $keys = [];
+        $source = (string) file_get_contents($path);
+        $constants = self::constantsByClass();
+        $useMap = self::useMapOf($source);
+
+        $tokens = token_get_all($source);
+        $count = count($tokens);
+
+        for ($i = 0; $i < $count; $i++) {
+            $operator = is_array($tokens[$i]) ? $tokens[$i][0] : null;
+            if ($operator !== T_OBJECT_OPERATOR && $operator !== T_NULLSAFE_OBJECT_OPERATOR) {
+                continue;
+            }
+
+            $name = $tokens[$i + 1] ?? null;
+            if (!is_array($name) || $name[0] !== T_STRING || $name[1] !== 'register') {
+                continue;
+            }
+            if (($tokens[$i + 2] ?? null) !== '(') {
+                continue;
+            }
+            // `register()` is not `SettingService`'s alone. `public/index.php`
+            // also holds `$auditAccessResolver->register(EntityType::…, …)`
+            // and its like, whose first argument resolves just as happily —
+            // and every one of those would have entered this map as a
+            // phantom core key, which is a key a module call could then be
+            // waved through on.
+            if (!self::receiverIsASettingService($tokens, $i)) {
+                continue;
+            }
+
+            $arguments = self::argumentsAt($tokens, $i + 2);
+
+            // Argument 5 is `?string $moduleId`, and it is the whole
+            // difference between core's own setting and a module's declared
+            // from the composition root — `register('news_field_capacity_
+            // backfilled', …, 'news')` is a NEWS key written in
+            // `public/index.php`. Treating it as core's would make a scopeless
+            // module read of it look correct, which is the defect this file
+            // exists for.
+            $scope = self::normalise(trim($arguments[5] ?? ''));
+            if ($scope !== '' && $scope !== 'null') {
+                continue;
+            }
+
+            $key = self::resolveKey(trim($arguments[0] ?? ''), self::classDeclaredIn($source), $constants, $useMap);
+            if ($key !== null) {
+                $keys[] = $key;
+            }
+        }
+
+        return $keys;
+    }
+
+    /**
+     * Walks back from the `->` to the identifier the call is made on, and
+     * asks whether it is named for a `SettingService`.
+     *
+     * `$this->settingService`, `$settings`, `$context->settings` — the walk
+     * stops at the first `$variable` or `->property` to its left, which is
+     * enough for every shape this repository writes.
+     *
+     * @param array<int, mixed> $tokens
+     */
+    private static function receiverIsASettingService(array $tokens, int $operatorIndex): bool
+    {
+        for ($i = $operatorIndex - 1; $i >= 0; $i--) {
+            $token = $tokens[$i];
+
+            if (is_array($token) && ($token[0] === T_WHITESPACE || $token[0] === T_COMMENT)) {
+                continue;
+            }
+
+            if (is_array($token) && ($token[0] === T_VARIABLE || $token[0] === T_STRING)) {
+                $identifier = ltrim($token[1], '$');
+                $previous = $tokens[$i - 1] ?? null;
+                $afterAnArrow = is_array($previous)
+                    && ($previous[0] === T_OBJECT_OPERATOR || $previous[0] === T_NULLSAFE_OBJECT_OPERATOR);
+
+                return preg_match(self::RECEIVER_PATTERN, ($afterAnArrow ? '>' : '') . $identifier) === 1;
+            }
+
+            return false;
+        }
+
+        return false;
     }
 
     /** The repository root, which every path in this file is relative to. */

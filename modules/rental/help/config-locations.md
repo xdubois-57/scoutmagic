@@ -1,6 +1,6 @@
 ---
 id: config-locations
-title: Créer les biens à louer
+title: Biens à louer
 summary: Déclarer un bien, désigner ses gestionnaires, l'archiver.
 category: Espace chefs d'U
 role_min: admin
@@ -13,7 +13,7 @@ related: gerer-les-locations, locations
 La page « Locations » de l'espace chefs d'U répond à une seule
 question : quels biens existent, et qui s'en occupe. Tout le reste —
 tarifs, règles, documents — appartient aux gestionnaires de chaque
-bien, dans « Mes locations ».
+bien, dans « Gérer mes locations ».
 
 ## Créer un bien
 

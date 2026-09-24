@@ -17,6 +17,7 @@ use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\Fixtures\ReferenceDataset\CampsBlueprint;
 use Tests\Fixtures\ReferenceDataset\UnitBlueprint;
+use Tests\DatabaseTestHelper;
 
 /**
  * `build.php`, run for real: a throwaway installation, a real MySQL/MariaDB
@@ -109,7 +110,9 @@ final class ReferenceDatasetBuildTest extends TestCase
     public static function setUpBeforeClass(): void
     {
         if (self::serverPdo() === null) {
-            self::markTestSkipped('No MySQL/MariaDB server reachable through TEST_DB_* — see CONTRIBUTING.md.');
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised(
+                'No MySQL/MariaDB server reachable through TEST_DB_* — see CONTRIBUTING.md.'
+            );
         }
 
         self::$instanceRoot = sys_get_temp_dir() . '/scoutmagic_refdataset_build_' . uniqid() . '/instance';

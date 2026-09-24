@@ -1,7 +1,8 @@
 {% extends '@rental/management/_booking_frame.html.twig' %}
 {#
-  « Courrier » — the mail rentals receive (Booking\BookingPage::MAIL), on the
-  triage screen the camps use too (@inbound_mail/partials/triage.html.twig,
+  « Courrier » — the mail of rentals' own mailbox (Booking\BookingPage::MAIL),
+  offered only when exactly one box is dedicated to them (issue #462, D8),
+  on the triage screen the camps use too (@inbound_mail/partials/triage.html.twig,
   issue #462, D9): one component, two modules, so the two screens cannot
   drift apart.
 
@@ -16,6 +17,26 @@
   without JavaScript, comes back here.
 #}
 {% block booking_content %}
+    {# The page exists only because rentals have a mailbox of their own
+       (issue #462, D8), so it says so — and says what follows from it:
+       whose mail of that box this manager sees
+       (RentalCommunicationService::withinReach()), and the address renters
+       answer. #}
+    <div class="card mb-3">
+        <div class="card-body small text-body-secondary">
+            Cette page existe parce que les locations disposent d'une boîte dédiée,
+            <strong>{{ mailbox_address ?: mailbox_name }}</strong>. Elle en montre le courrier des
+            réservations des biens que vous gérez{% if sorts_unattributed %}, et ce que rien ne
+            rattache encore{% endif %}.
+            {# The signed reply address when the operator allows it, the box's
+               own otherwise: both land in this box, which is what is said. #}
+            {% if mailbox_address %}
+                Quand un locataire répond à un e-mail du site, sa réponse
+                arrive dans cette boîte.
+            {% endif %}
+        </div>
+    </div>
+
     <div id="{{ boxes.mail.anchor }}">
         <div data-booking-panel="communications">
             {% include '@inbound_mail/partials/triage.html.twig' with {

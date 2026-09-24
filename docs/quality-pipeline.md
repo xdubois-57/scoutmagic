@@ -93,6 +93,35 @@ Inside a Claude Code remote session the `SessionStart` hook has started
 MariaDB and exported `TEST_DB_*`; in a local checkout that hook exits at its
 first line. Read the skipped count before believing a green run.
 
+**A skip is right on a laptop and wrong on a runner, and until issue #393
+twenty-four classes could not tell the two apart.** `TEST_DB_HOST` being set
+— or `CI` — is a promise that a server is there, so a refused connection is
+then a broken run, not a test to quietly drop. Measured by pointing those
+variables at nothing:
+
+| | before | after |
+|---|---:|---:|
+| Skipped | 154 | **3** |
+| Errors | 28 | **194** |
+
+The 28 were the three classes that already made the distinction in their
+own words; the other hundred and fifty-one tests stopped being verified in
+silence, in a run that still exited 0. What they cover is exactly what
+SQLite cannot show — declared-schema migration, default-value introspection
+where the two engines disagree, the install and cron locks, backup and
+restore, the portable package — so the `database-mariadb` job, which exists
+*because* production runs MariaDB, degraded into a second SQLite pass that
+looked identical to the one it is built to differ from.
+
+The rule now lives in one place, `Tests\DatabaseTestHelper::
+skipOnlyWhenNoServerWasPromised()`, and
+`Tests\Architecture\DatabaseBackedTestsReallyRunTest` holds it there: a
+database-motivated `markTestSkipped()` written anywhere else fails the
+build, so the twenty-fifth class cannot re-decide it. **Read the skipped
+count still** — the guard answers « could the connection have been made? »,
+which is the same question only while every database skip is a refused
+connection.
+
 ### The engine a test actually runs on, which is not what the group says
 
 `#[Group('database')]` selects tests for the `database-mariadb` job. It
@@ -1519,6 +1548,21 @@ nothing**:
   label applied, an agent launched — read back from the transcript or from
   GitHub's own state. Anything a job asserts about its agent must be a
   count of one of those.
+- **A test can report a defect on every run and never make the suite red.**
+  PHPUnit's *risky* and *warning* verdicts are printed and then forgotten:
+  the command exits 0 unless `failOnRisky` / `failOnWarning` say otherwise,
+  and `phpunit.xml` declared neither. Fifteen tests in
+  `Tests\Bootstrap\BootstrapRequestHandlersTest` reported « Test code or
+  tested code closed output buffers other than its own » on every run since
+  they were written — a real defect in `bootstrapSendJson()`, named in the
+  output, under a green `test` job, for months. What made it invisible is
+  not that nobody looked: it is that the only thing anyone reads about a
+  suite is whether it passed, and this verdict does not change that answer.
+  `failOnRisky` is on now (issue #426); `failOnWarning` is deliberately not,
+  because six warnings remain and turning them red is its own piece of work.
+  The order matters and is the general rule for this whole family: **bring
+  the count to zero first, then close the door**, or the flag lands red on
+  day one and is reverted before it has ever protected anything.
 - A `CODEOWNERS` entry naming a non-collaborator is **ignored silently**, so
   a protection rule can be enabled, appear active, and match nothing.
 - A local reproduction that runs on the wrong database engine, or without
@@ -1661,9 +1705,23 @@ nothing**:
   neither can say is that the other exists. The logic inside `sw.js` is
   genuinely tested; its **lifecycle** — install, activate, a fetch served
   from a real Cache Storage, a navigation made offline, the installed
-  app's wake — is tested by nothing, and no red anywhere would announce
-  it. The one browser scenario that touches the offline manifest,
-  `pwa-prefetch-once.spec.js`, runs with the worker blocked like the rest.
+  app's wake — was tested by nothing, and no red anywhere would have
+  announced it. The one browser scenario that touches the offline
+  manifest, `pwa-prefetch-once.spec.js`, runs with the worker blocked like
+  the rest.
+
+  *Closed by issue #452.* `playwright.config.js` now declares a second
+  project, `service-worker`, the only one with `serviceWorkers: 'allow'`,
+  matching `specs/service-worker/**` — which the default project ignores,
+  so the determinism every other spec depends on is untouched.
+  `specs/service-worker/lifecycle.spec.js` runs the worker: install and
+  activate both completed, the app shell read back out of a real Cache
+  Storage, a navigation made with the network down answered by the
+  application's own page rather than the browser's interstitial, and a
+  precached stylesheet still served offline. Each of the three was shown
+  failing under a mutation of `public/sw.js`. What the entry above says
+  remains the lesson: the two layers were each right about themselves, and
+  the gap lived in what neither could name.
 
 The habit that catches these is cheap: ask what a green result would look
 like if the thing had not run at all. When the answer is "the same", the

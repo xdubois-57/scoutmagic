@@ -209,6 +209,8 @@ class ConfigDangerControllerTest extends TestCase
 
     public function testAMalformedBodyIsRejected(): void
     {
+        $this->createTransaction($this->accountId);
+
         $request = $this->getMockBuilder(Request::class)
             ->setConstructorArgs(['POST', '/config/finance/danger', [], [], [], []])
             ->onlyMethods(['getRawBody'])
@@ -216,6 +218,11 @@ class ConfigDangerControllerTest extends TestCase
         $request->method('getRawBody')->willReturn('not json');
 
         $this->assertSame(400, $this->controller->execute($request, [])->getStatusCode());
+        // The refusal AND what it protects: this controller's whole job is
+        // destroying rows, so a 400 rendered after the destruction would
+        // read exactly like this one. Its neighbour above already asserts
+        // the ledger this way (issue #387).
+        $this->assertCount(1, $this->transactionRepository->findByAccountId($this->accountId));
     }
 
     /**

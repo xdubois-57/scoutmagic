@@ -750,11 +750,21 @@ set +e
 # a proxy that records and replays every request, that is minutes of extra
 # traffic examining module toggling twenty times over, for no header or
 # cookie the confidence scenarios don't already show ZAP.
+#
+# --project=chromium: the `service-worker` project (issue #452) is the one
+# place in the suite where a real worker registers, and a worker answering
+# navigations out of Cache Storage is a request ZAP never sees. That is
+# worse than noise here — it SHRINKS the site map this scan is measured
+# against (scripts/dast-support.php's assert-sitemap), so a page the
+# worker served would look like a page the application does not have.
+# Naming the project is also what keeps that decision visible: a third
+# project added later is skipped here on purpose or not at all, never by
+# accident.
 E2E_BASE_URL="${BROWSER_URL}" \
 E2E_PROXY_SERVER="${ZAP_PROXY}" \
 E2E_IGNORE_HTTPS_ERRORS="1" \
 E2E_TIMEOUT_FACTOR="${DAST_TIMEOUT_FACTOR}" \
-    npm exec --no -- playwright test --config="${REPO_ROOT}/tests/e2e/playwright.config.js" --grep-invert @full ${PLAYWRIGHT_ARGS[@]+"${PLAYWRIGHT_ARGS[@]}"} &
+    npm exec --no -- playwright test --config="${REPO_ROOT}/tests/e2e/playwright.config.js" --project=chromium --grep-invert @full ${PLAYWRIGHT_ARGS[@]+"${PLAYWRIGHT_ARGS[@]}"} &
 PLAYWRIGHT_PID=$!
 wait "${PLAYWRIGHT_PID}"
 PLAYWRIGHT_EXIT=$?

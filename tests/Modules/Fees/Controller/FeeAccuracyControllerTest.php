@@ -220,15 +220,38 @@ class FeeAccuracyControllerTest extends TestCase
         $this->assertContains($response->getStatusCode(), [200, 302], (string) $response->getBody());
     }
 
-    /** @dataProvider routeProvider */
+    /**
+     * The refusal AND what it protects. The body carries a valid CSRF
+     * token and a real blind index, so nothing but the guard stands
+     * between a chief and the row `ignore` would insert or `unignore`
+     * would remove — and a 403 rendered after the write would read
+     * exactly like this one (issue #387).
+     *
+     * @dataProvider routeProvider
+     */
     #[\PHPUnit\Framework\Attributes\DataProvider('routeProvider')]
     public function testOneRoleBelowIsRejectedOnEveryRoute(string $method, string $path, string $action): void
     {
+        // `ignore` turns back before writing when the blind index names no
+        // household of this year, so without a member here that row would
+        // assert the snapshot against a route that could not have written
+        // anyway. `unignore` needs nothing: it logs the event whether or
+        // not `forget()` found a row.
+        if ($action === 'ignore') {
+            $this->createMember('Jean', $this->normalFeeId);
+        }
+
         AuthSession::login(1, 'chief@test.be', 'chief');
+        $before = DatabaseTestHelper::snapshot($this->pdo);
 
         $response = $this->dispatch($method, $path, $action, $method === 'POST' ? $this->validBody() : []);
 
         $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(
+            $before,
+            DatabaseTestHelper::snapshot($this->pdo),
+            "{$method} {$path} changed the database before refusing a chief"
+        );
     }
 
     public function testTheScreenNamesTheCountAndTheExpectedTariff(): void

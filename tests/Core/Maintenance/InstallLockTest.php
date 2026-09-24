@@ -6,6 +6,7 @@ namespace Tests\Core\Maintenance;
 
 use Core\Maintenance\InstallLock;
 use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
 
 /**
  * The lock has to be real to be worth anything: what it protects is two
@@ -53,7 +54,7 @@ class InstallLockTest extends TestCase
                 [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
             );
         } catch (\PDOException $e) {
-            $this->markTestSkipped('Database connection not available: ' . $e->getMessage());
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database connection not available: ' . $e->getMessage());
         }
 
         return $pdo;

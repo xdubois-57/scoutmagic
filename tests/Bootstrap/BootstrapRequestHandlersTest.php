@@ -78,9 +78,40 @@ class BootstrapRequestHandlersTest extends TestCase
             $handler();
         } finally {
             stream_wrapper_restore('php');
-            while (ob_get_level() < $level) {
-                ob_start();
+
+            // The handler opens exactly one buffer of its own and unwinds
+            // to the level it found, so anything still above that level is
+            // ours to close — and the buffers below are the ones PHPUnit
+            // was holding, untouched.
+            //
+            // This used to re-open buffers to make the COUNT match, which
+            // is not the same thing as leaving them alone: the originals
+            // had been destroyed with their contents, PHPUnit compares the
+            // state rather than the cardinal, and fifteen tests here were
+            // reported « Test code or tested code closed output buffers
+            // other than its own » on every run. Risky, never failure, and
+            // nothing in phpunit.xml turns that into an exit code — so it
+            // said so for months into a green CI.
+            // READ BEFORE CLEANING, and the order is the whole assertion.
+            // Asserting after the loop compares a number the loop has just
+            // made true: `ob_end_clean()` drops the level by one per call,
+            // so by the time the comparison ran, a handler that had left
+            // its own buffer open looked exactly like one that had not.
+            // The assertion could only ever fail downwards — #426's
+            // original defect — and was silent on the way it was written to
+            // catch. A check the code under it repairs first is the same
+            // shape as the risky verdict this whole change is about.
+            $observed = ob_get_level();
+
+            while (ob_get_level() > $level) {
+                ob_end_clean();
             }
+
+            $this->assertSame(
+                $level,
+                $observed,
+                'the handler must leave the output buffering stack as it found it'
+            );
         }
     }
 
@@ -142,6 +173,150 @@ class BootstrapRequestHandlersTest extends TestCase
             is_dir($path) && !is_link($path) ? $this->removeDirectory($path) : @unlink($path);
         }
         @rmdir($dir);
+    }
+
+    // -------------------------------------------------------------------
+    // bootstrapSendJson()
+    // -------------------------------------------------------------------
+
+    /**
+     * **The response is exactly one JSON document, whatever else printed.**
+     *
+     * This is the whole reason the function exists rather than a bare
+     * `echo json_encode()`: a host with `display_errors` on, or an
+     * unsuppressed `mkdir()` hitting an edge case, prints a warning ahead
+     * of the JSON and `response.json()` fails client-side with an opaque
+     * "did not match the expected pattern" — on the install screen, where
+     * the operator has no other channel.
+     *
+     * Serving a request the handler is alone on the stack, its floor is
+     * 0, and the whole stack unwinds — taking the stray output with it.
+     * That is what this pins: the floor added for #426 protects buffers
+     * the function did not open and must not weaken this.
+     *
+     * **In a subprocess on purpose.** Proving it means letting the
+     * function unwind to zero, which is exactly what destroys PHPUnit's
+     * own buffer — the defect this test accompanies. A test that caused
+     * it to prove it had been fixed would be its own counter-example.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('hostOutputBuffering')]
+    public function testAStrayWarningNeverReachesTheJsonBody(string $outputBuffering): void
+    {
+        // Printed INSIDE the handler's own buffer — the ordinary case: an
+        // unsuppressed mkdir() during the step itself.
+        $this->assertSame(
+            '{"done":true}',
+            $this->sendJsonInASubprocess(
+                $outputBuffering,
+                "\$buffering = ob_get_level();\n"
+                . "ob_start();\n"
+                . "echo 'Warning: mkdir(): File exists in /htdocs/x.php on line 1';"
+            ),
+            'a warning printed while the handler runs must not reach the body'
+        );
+    }
+
+    /**
+     * And the harder half: a warning printed BEFORE the handler opened
+     * anything.
+     *
+     * Only asserted where the function can still reach it. With
+     * `output_buffering` off, such output has already left for the client
+     * and no code anywhere can recall it — that was as true of the
+     * previous release as it is here. With it **on**, PHP holds it in an
+     * implicit buffer, and that is the case this pins: the floor is 1,
+     * closing "down to the floor" stops one level short of it, and the
+     * JSON would be appended behind the warning in the very same buffer.
+     *
+     * The value is the one nobody chooses. **4096 is the default** in
+     * both `php.ini-production` and `php.ini-development`, and the norm on
+     * the shared hosting this installer targets — while the CLI SAPI
+     * forces it off, so a subprocess run without `-d` proves only the easy
+     * half. Measured on this machine at 4096: the floor-only version
+     * answered `Warning: … {"done":true}`, its predecessor `{"done":true}`.
+     */
+    public function testAWarningPrintedBeforeTheHandlerOpenedAnythingIsStillDiscarded(): void
+    {
+        $this->assertSame(
+            '{"done":true}',
+            $this->sendJsonInASubprocess(
+                '4096',
+                "\$buffering = ob_get_level();\n"
+                . "echo 'Warning: mkdir(): File exists in /htdocs/x.php on line 1';\n"
+                . 'ob_start();'
+            ),
+            'a host holding the warning in its implicit buffer must not serve it with the JSON'
+        );
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function hostOutputBuffering(): array
+    {
+        return [
+            'off — the CLI default' => ['0'],
+            'on — what php.ini-production ships' => ['4096'],
+        ];
+    }
+
+    /**
+     * Run `bootstrapSendJson()` in a real subprocess under a given
+     * `output_buffering`, with `$preamble` deciding where the stray output
+     * lands, and return **the last non-empty line** of what came back.
+     *
+     * The last line, not the whole output, and for the reason
+     * `BootstrapTest::lastLineOfSubprocess()` already gives: a php CLI can
+     * print noise of its own before anything under test runs — a
+     * duplicate-extension warning is the one this repository has met — and
+     * comparing the whole stream makes these tests fail on a machine rather
+     * than on a defect. `failOnRisky` landing in `phpunit.xml` in this very
+     * change leaves the suite less room for that, not more.
+     *
+     * It still catches what they are for: the warning these tests plant
+     * lands on the **same line** as the JSON, with no newline between them,
+     * because that is what `echo json_encode()` into a buffer that already
+     * holds something produces. Startup noise sits on its own line; a leak
+     * does not.
+     */
+    private function sendJsonInASubprocess(string $outputBuffering, string $preamble): string
+    {
+        $bootstrap = dirname(__DIR__, 2) . '/bootstrap/bootstrap.php';
+        $script = "define('BOOTSTRAP_TEST', true);\n"
+            . 'require ' . var_export($bootstrap, true) . ";\n"
+            . $preamble . "\n"
+            . 'bootstrapSendJson([\'done\' => true], $buffering);';
+
+        $output = shell_exec(sprintf(
+            '%s -d output_buffering=%s -r %s 2>&1',
+            escapeshellarg(PHP_BINARY),
+            escapeshellarg($outputBuffering),
+            escapeshellarg($script)
+        ));
+
+        $lines = array_values(array_filter(
+            explode("\n", trim((string) $output)),
+            static fn (string $line): bool => trim($line) !== ''
+        ));
+
+        return $lines === [] ? '' : end($lines);
+    }
+
+    /**
+     * And the other half, which is what #426 was about: given a floor, it
+     * unwinds to the floor and no further. Fifteen tests in this file
+     * reported « closed output buffers other than its own » on every run
+     * because "as far down as I opened" and "as far down as there is"
+     * were the same sentence.
+     */
+    public function testAFloorIsRespectedSoACallersBuffersSurvive(): void
+    {
+        $floor = ob_get_level();
+
+        ob_start();
+        \bootstrapSendJson(['done' => true], $floor);
+
+        $this->assertSame($floor, ob_get_level());
     }
 
     // -------------------------------------------------------------------

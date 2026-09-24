@@ -102,6 +102,7 @@ class InboundMailConfigController extends AbstractController
         return $this->render('@inbound_mail/config/index.html.twig', [
             'mailboxes' => $mailboxes,
             'scope_summaries' => $summaries,
+            'dedication_conflicts' => $this->namedConflicts($this->adminService->dedicationConflicts()),
             'stored_counts' => $this->adminService->storedMessageCounts(),
             'can_refresh' => $this->refreshService !== null,
             'cron_detected' => $this->cronDetected(),
@@ -159,6 +160,7 @@ class InboundMailConfigController extends AbstractController
             return $this->notFound();
         }
 
+        $conflictsBefore = $this->adminService->dedicationConflicts();
         $purpose = MailboxPurpose::fromString((string) $request->getBody('purpose', ''));
 
         if ($purpose === MailboxPurpose::DEDICATED) {
@@ -185,6 +187,7 @@ class InboundMailConfigController extends AbstractController
             ['mailbox_id' => $id, 'purpose' => $purpose->value]
         );
         FlashMessage::set('success', 'Portée enregistrée.');
+        $this->journalNewDedicationConflicts($conflictsBefore);
 
         return $this->redirect('/config/courrier-entrant');
     }
@@ -240,6 +243,58 @@ class InboundMailConfigController extends AbstractController
         }
 
         return $answers;
+    }
+
+    /**
+     * The conflicts as the screen and the journal say them: the module by
+     * its name, the boxes by theirs.
+     *
+     * @param array<string, array<int, string>> $conflicts
+     * @return list<array{module: string, boxes: list<string>}>
+     */
+    private function namedConflicts(array $conflicts): array
+    {
+        $named = [];
+        foreach ($conflicts as $consumerId => $boxes) {
+            $named[] = [
+                'module' => $this->consumerRegistry?->find($consumerId)?->displayName() ?? $consumerId,
+                'boxes' => array_values($boxes),
+            ];
+        }
+
+        return $named;
+    }
+
+    /**
+     * Journals the conflicts a change CREATED — a box that joined one, by
+     * being dedicated or enabled: that is the configuration a support
+     * request will need explained from a distance (« la page Courrier a
+     * disparu »), and the journal is where that answer is read. Compared by
+     * box id, so a conflict the change left as it was — a box renamed, one
+     * of three boxes taken out — is not written again: one entry per change
+     * that made it, not one per later save.
+     *
+     * @param array<string, array<int, string>> $before the conflicts before the change
+     */
+    private function journalNewDedicationConflicts(array $before): void
+    {
+        $created = array_filter(
+            $this->adminService->dedicationConflicts(),
+            static fn(array $boxes, string $consumerId): bool
+                => array_diff_key($boxes, $before[$consumerId] ?? []) !== [],
+            ARRAY_FILTER_USE_BOTH
+        );
+
+        foreach ($this->namedConflicts($created) as $conflict) {
+            $this->journalService->log(
+                'inbound_mail',
+                'inbound_mailbox_dedication_conflict',
+                'warning',
+                'Plusieurs boîtes sont dédiées à « ' . $conflict['module'] . ' » : '
+                    . implode(', ', $conflict['boxes']) . '. Aucune ne compte comme la sienne.',
+                ['module' => $conflict['module'], 'mailboxes' => $conflict['boxes']]
+            );
+        }
     }
 
     /**
@@ -326,6 +381,9 @@ class InboundMailConfigController extends AbstractController
         }
 
         if ($id > 0) {
+            // The edit form carries « activée » too: re-enabling a box here
+            // can create a conflict as surely as the toggle can.
+            $conflictsBefore = $this->adminService->dedicationConflicts();
             $this->adminService->update(
                 $id,
                 $name,
@@ -345,6 +403,7 @@ class InboundMailConfigController extends AbstractController
                 ['mailbox_id' => $id]
             );
             FlashMessage::set('success', 'Boîte mise à jour.');
+            $this->journalNewDedicationConflicts($conflictsBefore);
 
             return $this->redirect('/config/courrier-entrant');
         }
@@ -455,6 +514,7 @@ class InboundMailConfigController extends AbstractController
         $id = (int) ($params['id'] ?? 0);
         $enable = $request->getBody('enable') !== null;
 
+        $conflictsBefore = $this->adminService->dedicationConflicts();
         $this->adminService->setEnabled($id, $enable);
         $this->journalService->log(
             'inbound_mail',
@@ -464,6 +524,7 @@ class InboundMailConfigController extends AbstractController
             ['mailbox_id' => $id]
         );
         FlashMessage::set('success', $enable ? 'Boîte réactivée.' : 'Boîte désactivée.');
+        $this->journalNewDedicationConflicts($conflictsBefore);
 
         return $this->redirect('/config/courrier-entrant');
     }

@@ -711,6 +711,27 @@ class InboundMailService implements InboundMailInterface
     }
 
     /**
+     * The enabled boxes dedicated to one consumer — see
+     * `Api\InboundMailInterface`. The address is the account name when it
+     * is an address, and null for a bare IMAP login, which has no domain
+     * anybody could write to.
+     *
+     * @return list<\Modules\InboundMail\Api\DedicatedMailbox>
+     */
+    public function dedicatedMailboxesFor(string $consumerId): array
+    {
+        $boxes = [];
+        foreach ($this->mailboxRepository->findEnabled() as $mailbox) {
+            if ($mailbox->isDedicated() && $mailbox->dedicatedTo === $consumerId) {
+                $address = filter_var($mailbox->username, FILTER_VALIDATE_EMAIL) !== false ? $mailbox->username : null;
+                $boxes[] = new \Modules\InboundMail\Api\DedicatedMailbox($mailbox->id, $mailbox->name, $address);
+            }
+        }
+
+        return $boxes;
+    }
+
+    /**
      * Answered from the box's own purpose, and from nowhere else.
      *
      * A missing box answers false rather than throwing: a consumer asking

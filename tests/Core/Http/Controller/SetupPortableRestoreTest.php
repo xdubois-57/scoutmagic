@@ -25,6 +25,7 @@ use Core\View\TwigFactory;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Twig\Environment;
+use Tests\DatabaseTestHelper;
 
 /**
  * Who may reach the wizard's portable restore, and who may not.
@@ -672,7 +673,7 @@ final class SetupPortableRestoreTest extends TestCase
         );
         $result = $connection->testConnection();
         if ($result !== true) {
-            $this->markTestSkipped('Database not available: ' . (is_string($result) ? $result : 'unknown error'));
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database not available: ' . (is_string($result) ? $result : 'unknown error'));
         }
 
         (new MigrationRunner(

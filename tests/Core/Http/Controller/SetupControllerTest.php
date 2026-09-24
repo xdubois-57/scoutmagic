@@ -894,7 +894,7 @@ class SetupControllerTest extends TestCase
             $pdo = new \PDO($dsn, $user, $password);
             $this->dropAllTables($pdo);
         } catch (\PDOException $e) {
-            $this->markTestSkipped('Database not available: ' . $e->getMessage());
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database not available: ' . $e->getMessage());
         }
 
         return [$pdo, [
@@ -1096,7 +1096,7 @@ class SetupControllerTest extends TestCase
             $pdo = new \PDO($dsn, $user, $password);
             $this->dropAllTables($pdo);
         } catch (\PDOException $e) {
-            $this->markTestSkipped('Database not available: ' . $e->getMessage());
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database not available: ' . $e->getMessage());
         }
 
         $token = \Core\Security\CsrfGuard::generateToken();
@@ -1183,7 +1183,7 @@ class SetupControllerTest extends TestCase
             $pdo = new \PDO($dsn, $user, $password);
             $this->dropAllTables($pdo);
         } catch (\PDOException $e) {
-            $this->markTestSkipped('Database not available: ' . $e->getMessage());
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database not available: ' . $e->getMessage());
         }
 
         $preGeneratedPublicKey = $this->dkimManager->generateKey();

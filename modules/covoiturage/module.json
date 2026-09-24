@@ -2,7 +2,7 @@
   "id": "covoiturage",
   "name": "Covoiturage",
   "description": "Les familles proposent les places libres de leur voiture pour une sortie, ou en demandent une.",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -12,13 +12,16 @@
       "action": "index",
       "menu": "espace_animes",
       "role_min": "identified",
-      "label": "",
+      "label": "Covoiturage",
       "breadcrumb": {
         "label": "Covoiturage",
         "parents": [
           "Espace membres"
         ]
-      }
+      },
+      "menu_icon": "bi-car-front",
+      "menu_group": "activites",
+      "menu_order": 25
     },
     {
       "path": "/covoiturage/organiser",
@@ -27,13 +30,16 @@
       "action": "index",
       "menu": "espace_chefs",
       "role_min": "chief",
-      "label": "",
+      "label": "Organiser les covoiturages",
       "breadcrumb": {
         "label": "Organiser les covoiturages",
         "parents": [
           "Espace animateurs"
         ]
-      }
+      },
+      "menu_icon": "bi-car-front",
+      "menu_group": "activites",
+      "menu_order": 80
     },
     {
       "path": "/covoiturage/organiser/nouveau",
@@ -283,9 +289,111 @@
     {
       "key": "geocode_carpools",
       "handler": "Modules\\Covoiturage\\Task\\GeocodeCarpoolsHandler"
+    },
+    {
+      "key": "remind_pending_requests",
+      "handler": "Modules\\Covoiturage\\Task\\RemindPendingRequestsHandler"
     }
   ],
   "storage": {},
   "emails": [],
-  "category": "activites"
+  "category": "activites",
+  "notifications": [
+    {
+      "id": "covoiturage.request_received",
+      "label": "Nouvelle demande de place",
+      "description": "Quand une famille demande une place dans votre voiture.",
+      "group": "Covoiturage",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "on",
+        "push": "default_on",
+        "email": "default_on"
+      }
+    },
+    {
+      "id": "covoiturage.request_pending",
+      "label": "Demande en attente de votre réponse",
+      "description": "Rappel quand une demande de place dans votre voiture attend votre réponse depuis quelques jours.",
+      "group": "Covoiturage",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "on",
+        "push": "default_on",
+        "email": "off"
+      }
+    },
+    {
+      "id": "covoiturage.request_withdrawn",
+      "label": "Demande retirée",
+      "description": "Quand une famille retire sa demande de place dans votre voiture.",
+      "group": "Covoiturage",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "on",
+        "push": "default_on",
+        "email": "off"
+      }
+    },
+    {
+      "id": "covoiturage.request_accepted",
+      "label": "Place confirmée",
+      "description": "Quand le conducteur accepte votre demande de place.",
+      "group": "Covoiturage",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "on",
+        "push": "default_on",
+        "email": "default_on"
+      }
+    },
+    {
+      "id": "covoiturage.request_refused",
+      "label": "Demande refusée",
+      "description": "Quand le conducteur ne peut pas vous prendre.",
+      "group": "Covoiturage",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "on",
+        "push": "default_on",
+        "email": "default_on"
+      }
+    },
+    {
+      "id": "covoiturage.seat_revoked",
+      "label": "Place retirée",
+      "description": "Quand le conducteur retire une place qu'il vous avait accordée.",
+      "group": "Covoiturage",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "on",
+        "push": "default_on",
+        "email": "default_on"
+      }
+    },
+    {
+      "id": "covoiturage.offer_changed",
+      "label": "Voiture modifiée",
+      "description": "Quand l'heure ou le point de rendez-vous d'une voiture où vous avez une place change.",
+      "group": "Covoiturage",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "on",
+        "push": "default_on",
+        "email": "default_on"
+      }
+    },
+    {
+      "id": "covoiturage.offer_cancelled",
+      "label": "Voiture annulée",
+      "description": "Quand le conducteur retire une voiture où vous aviez une place ou une demande.",
+      "group": "Covoiturage",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "on",
+        "push": "default_on",
+        "email": "default_on"
+      }
+    }
+  ]
 }

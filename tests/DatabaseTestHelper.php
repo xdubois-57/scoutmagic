@@ -4,8 +4,63 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use PHPUnit\Framework\TestCase;
+
 class DatabaseTestHelper
 {
+    /**
+     * A refused database connection: skip it on a laptop, REPORT it
+     * anywhere a server was promised.
+     *
+     * `TEST_DB_*` being set is that promise. A developer's machine with
+     * nothing on 3306 has nothing to prove and skipping is right; a runner
+     * whose credentials are wrong, whose service container died, or whose
+     * variables were dropped from the workflow has a broken run, and a
+     * skip there is a green result that proves nothing — the failure mode
+     * `docs/quality-pipeline.md` keeps a list of.
+     *
+     * **Measured, not feared.** Pointing `TEST_DB_*` at nothing on
+     * `e70bac2` moved the suite from `Skipped: 3` to `Skipped: 154` while
+     * still exiting 0: a hundred and fifty-one tests stopped being checked
+     * and only the twenty-eight belonging to the three classes that
+     * already made this distinction said so (issue #393). What those
+     * classes cover is exactly what SQLite cannot show — declared-schema
+     * migration, default-value introspection where the two engines
+     * disagree, the install and cron locks, backup and restore, the
+     * portable package.
+     *
+     * `CI` counts as a promise too: a continuous-integration run that
+     * cannot reach a database is a broken runner whether or not anybody
+     * remembered to export `TEST_DB_HOST`. The `database-mariadb` job
+     * exists *because* production runs MariaDB, and a job that quietly
+     * degrades to a second SQLite pass is the one result that looks
+     * exactly like the one it was built to differ from.
+     *
+     * Throws rather than returning a verdict so a caller cannot forget the
+     * other half: every call site is one line, and the line either skips
+     * or ends the test.
+     */
+    public static function skipOnlyWhenNoServerWasPromised(string $reason): never
+    {
+        // Falsy, not `=== false`, and the difference is not cosmetic: the
+        // twenty-seven classes build their host as
+        // `getenv('TEST_DB_HOST') ?: '127.0.0.1'`, so an exported-but-empty
+        // TEST_DB_HOST sends them to the default and they connect. Reading
+        // the empty string as a promise would make this throw exactly where
+        // they are green — and would disagree with
+        // Tests\Architecture\DatabaseBackedTestsReallyRunTest, whose own
+        // guard says so in as many words after the same bug was fixed there
+        // (PR #394's review, docs/chantiers/CHANTIER-revue-des-tests.md).
+        if ((getenv('TEST_DB_HOST') ?: '') === '' && getenv('CI') === false) {
+            TestCase::markTestSkipped($reason);
+        }
+
+        throw new \RuntimeException(
+            'A database was promised (TEST_DB_HOST or CI is set) and could not be reached, so this '
+            . 'class proved nothing and says so rather than skipping: ' . $reason
+        );
+    }
+
     /**
      * The `(label, start_date, end_date)` of a scout year, relative to the
      * one the application considers current RIGHT NOW.
@@ -46,6 +101,53 @@ class DatabaseTestHelper
             sprintf('%d-09-01', $startYear),
             sprintf('%d-08-31', $startYear + 1),
         ];
+    }
+
+    /**
+     * Every row of every table, in a shape two snapshots can be compared
+     * with — « nothing was written » stated as a fact rather than as a
+     * status code.
+     *
+     * An RBAC refusal test asserts a 403, and a 403 rendered AFTER the
+     * write reads exactly like a 403 rendered instead of it. Taking the
+     * snapshot on both sides of the request is what tells the two apart
+     * (issue #387), and doing it over the whole database rather than over
+     * the table a given route happens to touch is what lets one assertion
+     * cover a provider spanning thirty routes and four controllers.
+     *
+     * Rows are serialised rather than JSON-encoded because several
+     * columns hold ciphertext, and sorted because no SELECT without an
+     * ORDER BY promises an order. The catalogue is sqlite_master because
+     * createTestDatabase() below builds an in-memory SQLite database.
+     *
+     * `sqlite_sequence` is kept although it is an internal table, because
+     * it is the one place an insert that was rolled back or deleted still
+     * shows: the rows come back identical while the next id generated has
+     * moved. Every other `sqlite_%` table is structure, not state.
+     *
+     * @return array<string, list<string>>
+     */
+    public static function snapshot(\PDO $pdo): array
+    {
+        $snapshot = [];
+
+        /** @var list<string> $tables */
+        $tables = (array) $pdo
+            ->query(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+                . " AND (name NOT LIKE 'sqlite_%' OR name = 'sqlite_sequence') ORDER BY name"
+            )
+            ->fetchAll(\PDO::FETCH_COLUMN);
+
+        foreach ($tables as $table) {
+            /** @var list<array<string, mixed>> $rows */
+            $rows = (array) $pdo->query('SELECT * FROM `' . $table . '`')->fetchAll(\PDO::FETCH_ASSOC);
+            $serialised = array_map(static fn (array $row): string => serialize($row), $rows);
+            sort($serialised);
+            $snapshot[$table] = $serialised;
+        }
+
+        return $snapshot;
     }
 
     /**

@@ -1,6 +1,6 @@
 ---
 id: gerer-les-locations
-title: Gérer les locations d'un bien
+title: Gérer mes locations
 summary: Les réservations, les paiements, les documents et le séjour.
 category: Espace membres
 role_min: identified
@@ -11,7 +11,7 @@ paths: /mes-locations, /mes-locations/*, /mes-locations/*/calendrier, /mes-locat
 related: locations, locations-reservation, locations-documents, locations-courrier, config-locations, courrier-entrant, locations-reglages, locations-conformite
 ---
 
-« Mes locations » est l'espace des gestionnaires : les personnes
+« Gérer mes locations » est l'espace des gestionnaires : les personnes
 désignées sur chaque bien, plus le Staff d'Unité qui voit tout. La
 page d'accueil rassemble ce qui attend une action, tous biens
 confondus.

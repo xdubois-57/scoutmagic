@@ -20,6 +20,7 @@ use Modules\OfficialDocuments\Repository\HealthSheetRepository;
 use Modules\OfficialDocuments\Task\PurgeHealthSheetsHandler;
 use Modules\OfficialDocuments\Value\HealthSheet;
 use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
 
 /**
  * The one job on this installation that deletes children's health data, on
@@ -393,7 +394,7 @@ final class PurgeHealthSheetsHandlerTest extends TestCase
                 [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
             );
         } catch (\PDOException $e) {
-            $this->markTestSkipped('Database connection not available: ' . $e->getMessage());
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database connection not available: ' . $e->getMessage());
         }
     }
 
