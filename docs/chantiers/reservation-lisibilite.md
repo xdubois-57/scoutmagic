@@ -359,7 +359,10 @@ Rien.
    le courrier que rien ne rattache seulement pour qui gère tous les biens
    (le Staff d'U, ou un gestionnaire nommé sur chacun) : il peut concerner
    n'importe lequel. Rattacher, écarter et reprendre passent par la même
-   liste.
+   liste. Pour qui ne gère pas tous les biens, la liste est restreinte
+   dans la requête, avant la limite de cent messages
+   (`findForTriage(…, ownReferencesOnly: true)`) : filtrer après coup les
+   cent plus récents de toute la boîte aurait pu ne rien lui laisser.
 6. **La liste partagée vit hors de `Api\`** au sens où ARCHITECTURE.md
    §7.5 l'entend (relevé en revue) : une première version y mettait une
    classe de service statique. Les lignes sont une méthode de

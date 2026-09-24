@@ -629,11 +629,14 @@ class RentalManagementControllerTest extends TestCase
         $mine = $this->createBooking();
         $theirs = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
 
+        // And narrowed in the query, not after it: this manager does not
+        // run every asset, so the box read in full is left out before the
+        // limit (InboundMailInterface::findForTriage(), $ownReferencesOnly).
         $inbound->expects($this->atLeastOnce())->method('triageRows')
             ->with('rental', $this->callback(
                 static fn(array $references): bool => in_array($mine->reference, $references, true)
                     && !in_array($theirs->reference, $references, true)
-            ))
+            ), $this->anything(), $this->anything(), true)
             ->willReturn([]);
 
         $this->assertSame(200, $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id)->getStatusCode());

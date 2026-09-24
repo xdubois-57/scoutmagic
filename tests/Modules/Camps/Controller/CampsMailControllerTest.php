@@ -943,7 +943,8 @@ class RecordingInboundMail implements InboundMailInterface
         string $consumerId,
         array $ownReferences,
         int $limit = 50,
-        bool $dismissed = false
+        bool $dismissed = false,
+        bool $ownReferencesOnly = false
     ): array {
         return $dismissed ? $this->setAsideMessages : $this->messages;
     }

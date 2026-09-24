@@ -38,9 +38,10 @@ final class TriageRowBuilder
         string $consumerId,
         array $ownReferences,
         int $limit,
-        bool $dismissed
+        bool $dismissed,
+        bool $ownReferencesOnly = false
     ): array {
-        $messages = $mail->findForTriage($consumerId, $ownReferences, $limit, $dismissed);
+        $messages = $mail->findForTriage($consumerId, $ownReferences, $limit, $dismissed, $ownReferencesOnly);
         $candidates = $mail->findCandidatesFor(
             $consumerId,
             array_map(static fn(InboundMessage $message): int => $message->id, $messages)

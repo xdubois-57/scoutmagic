@@ -88,16 +88,22 @@ final class InMemoryTriageMail implements InboundMailInterface
         return true;
     }
 
+    /**
+     * Every message is in a box this consumer reads in full, as on a box
+     * dedicated to it — unless `$ownReferencesOnly` narrows the list to what
+     * is filed or proposed under `$ownReferences`.
+     */
     public function findForTriage(
         string $consumerId,
         array $ownReferences,
         int $limit = 50,
-        bool $dismissed = false
+        bool $dismissed = false,
+        bool $ownReferencesOnly = false
     ): array {
         $list = [];
         foreach ($this->messages as $id => $message) {
             $isSetAside = isset($this->setAside[$consumerId][$id]);
-            if ($isSetAside === $dismissed) {
+            if ($isSetAside === $dismissed && (!$ownReferencesOnly || $this->isOwn($consumerId, $ownReferences, $id))) {
                 $list[] = $this->withLinks($message);
             }
         }
@@ -232,6 +238,28 @@ final class InMemoryTriageMail implements InboundMailInterface
         }
 
         return $standing['candidate'];
+    }
+
+    /**
+     * @param string[] $ownReferences
+     */
+    private function isOwn(string $consumerId, array $ownReferences, int $messageId): bool
+    {
+        foreach ($this->links[$messageId] ?? [] as $link) {
+            if ($link->consumerId === $consumerId && in_array($link->businessReference, $ownReferences, true)) {
+                return true;
+            }
+        }
+        foreach ($this->candidates as $standing) {
+            if ($standing['message'] === $messageId
+                && $standing['candidate']->consumerId === $consumerId
+                && in_array($standing['candidate']->businessReference, $ownReferences, true)
+            ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function withLinks(InboundMessage $message): InboundMessage

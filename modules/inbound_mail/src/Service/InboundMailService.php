@@ -164,12 +164,13 @@ class InboundMailService implements InboundMailInterface
         string $consumerId,
         array $ownReferences,
         int $limit = 50,
-        bool $dismissed = false
+        bool $dismissed = false,
+        bool $ownReferencesOnly = false
     ): array {
         return $this->messageRepository->findForTriage(
             $consumerId,
             array_values(array_unique($ownReferences)),
-            $this->mailboxRepository->mailboxIdsReadableInFull($consumerId),
+            $ownReferencesOnly ? [] : $this->mailboxRepository->mailboxIdsReadableInFull($consumerId),
             $limit,
             $dismissed
         );
@@ -187,9 +188,10 @@ class InboundMailService implements InboundMailInterface
         string $consumerId,
         array $ownReferences,
         int $limit = 50,
-        bool $dismissed = false
+        bool $dismissed = false,
+        bool $ownReferencesOnly = false
     ): array {
-        return TriageRowBuilder::build($this, $consumerId, $ownReferences, $limit, $dismissed);
+        return TriageRowBuilder::build($this, $consumerId, $ownReferences, $limit, $dismissed, $ownReferencesOnly);
     }
 
     /**

@@ -118,7 +118,8 @@ trait InertInboundMail
         string $consumerId,
         array $ownReferences,
         int $limit = 50,
-        bool $dismissed = false
+        bool $dismissed = false,
+        bool $ownReferencesOnly = false
     ): array {
         return [];
     }
@@ -137,9 +138,17 @@ trait InertInboundMail
         string $consumerId,
         array $ownReferences,
         int $limit = 50,
-        bool $dismissed = false
+        bool $dismissed = false,
+        bool $ownReferencesOnly = false
     ): array {
-        return \Modules\InboundMail\Service\TriageRowBuilder::build($this, $consumerId, $ownReferences, $limit, $dismissed);
+        return \Modules\InboundMail\Service\TriageRowBuilder::build(
+            $this,
+            $consumerId,
+            $ownReferences,
+            $limit,
+            $dismissed,
+            $ownReferencesOnly
+        );
     }
 
     /**

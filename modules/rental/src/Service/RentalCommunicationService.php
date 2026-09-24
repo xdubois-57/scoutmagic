@@ -113,12 +113,16 @@ class RentalCommunicationService
             return [];
         }
 
+        // Narrowed in the query for somebody who does not sort the
+        // unattributed mail: the whole box's hundred most recent messages
+        // may hold none of theirs (InboundMailInterface::findForTriage()).
         return self::withinReach(
             $this->inboundMail->triageRows(
                 RentalMessageConsumer::CONSUMER_ID,
                 $references,
                 self::TRIAGE_LIMIT,
-                $dismissed
+                $dismissed,
+                !$sortsUnattributed
             ),
             $references,
             $sortsUnattributed
