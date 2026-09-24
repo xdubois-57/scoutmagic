@@ -6,7 +6,10 @@ namespace Tests\Core\Import;
 
 use Core\Import\DeskCsvParser;
 use Core\Import\ImportException;
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
 use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
 
 class DeskCsvParserTest extends TestCase
 {
@@ -290,5 +293,72 @@ class DeskCsvParserTest extends TestCase
         // prove the right one is used.
         $this->assertSame('SV025B1', $selim->functions[0]->sectionCode);
         $this->assertSame('SV025B1', $selim->functions[0]->sectionName);
+    }
+
+    /**
+     * Issue #356. The exception can only name the columns that are ABSENT,
+     * and a federation renaming « Email Tiers » to « Courriel » produces
+     * thirty-four absent names and not one mention of the word that
+     * arrived instead — which is the only thing a maintainer can act on.
+     *
+     * @group database
+     */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
+    public function testARefusedHeaderLineJournalsTheColumnActuallySeen(): void
+    {
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        $parser = new DeskCsvParser(new JournalService(new JournalRepository($pdo)));
+
+        $path = tempnam(sys_get_temp_dir(), 'desk') . '.csv';
+        file_put_contents($path, "Nom;Prenom;Courriel\n");
+
+        try {
+            $parser->parse($path);
+            $this->fail('A header line missing every expected column must be refused.');
+        } catch (ImportException) {
+            // The refusal is the existing behaviour; what is new is below.
+        } finally {
+            unlink($path);
+        }
+
+        $stmt = $pdo->query("SELECT description, context FROM event_log WHERE event_type = 'desk_csv_header_unexpected'");
+        $row = $stmt === false ? null : $stmt->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($row, 'A refused header line must leave a journal entry.');
+
+        $context = json_decode((string) $row['context'], true);
+        $this->assertIsArray($context);
+        $this->assertContains('Courriel', $context['unexpected']);
+        $this->assertContains('Email Tiers', $context['missing']);
+    }
+
+    /**
+     * And the case that is NOT a defect: Desk adds a column this parser
+     * has no use for. Nothing is missing, the import runs, and the journal
+     * stays quiet — the roadmap for #356 had this the other way round, and
+     * the parser is what decides.
+     *
+     * @group database
+     */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
+    public function testAnExtraColumnAloneIsNeitherRefusedNorJournalled(): void
+    {
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        $parser = new DeskCsvParser(new JournalService(new JournalRepository($pdo)));
+
+        $original = (string) file_get_contents($this->fixturePath);
+        $lines = explode("\n", $original);
+        $lines[0] .= ';Courriel';
+        $path = tempnam(sys_get_temp_dir(), 'desk') . '.csv';
+        file_put_contents($path, implode("\n", $lines));
+
+        try {
+            $result = $parser->parse($path);
+            $this->assertCount(3, $result->members);
+        } finally {
+            unlink($path);
+        }
+
+        $stmt = $pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'desk_csv_header_unexpected'");
+        $this->assertSame(0, $stmt === false ? -1 : (int) $stmt->fetchColumn());
     }
 }

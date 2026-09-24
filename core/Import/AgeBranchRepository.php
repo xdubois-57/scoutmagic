@@ -30,6 +30,18 @@ class AgeBranchRepository
         70 => 'logo_iama.png',
     ];
 
+    /**
+     * What {@see self::canonicalSortOrder()} answers for a branch none of
+     * its needles matched: last in every ordering, and no default logo.
+     *
+     * Named because a second reader appeared — {@see DeskMappingGapService}
+     * asks which branches sit on it, which is the one honest way to find
+     * out that this installation does not recognise a branch at all. The
+     * value is a rank rather than a flag, so nothing in the database says
+     * « unknown » on its own.
+     */
+    public const UNKNOWN_SORT_ORDER = 99;
+
     public function __construct(private \PDO $pdo)
     {
     }
@@ -102,7 +114,7 @@ class AgeBranchRepository
             str_contains($normalized, 'staff'), str_contains($normalized, 'unité') => 50,
             str_contains($normalized, 'route'), str_contains($normalized, 'routier') => 60,
             str_contains($normalized, 'iama') => 70,
-            default => 99,
+            default => self::UNKNOWN_SORT_ORDER,
         };
     }
 

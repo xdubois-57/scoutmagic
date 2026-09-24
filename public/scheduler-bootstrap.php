@@ -183,6 +183,23 @@ function scoutmagicBootstrapScheduler(
         )
     );
 
+    // Whether a Desk tariff means one of the three household cotisations
+    // (issue #356). Registered for the scheduled path because that is
+    // where a support package is built and where the daily report is
+    // assembled, and core cannot answer the question itself: naming
+    // Modules\Fees from core is what the Api\ contract forbids.
+    $capabilities->register(
+        \Modules\Fees\Api\HouseholdTariffRecognitionInterface::class,
+        'fees',
+        static fn (): object => new \Modules\Fees\Service\HouseholdTariffRecognition(
+            new \Modules\Fees\Service\HouseholdTariffService(
+                new \Modules\Fees\Repository\HouseholdTariffRepository($pdo),
+                new \Core\Import\FeeCategoryRepository($pdo)
+            ),
+            new \Core\Import\FeeCategoryRepository($pdo)
+        )
+    );
+
     $capabilities->register(
         \Modules\InboundMail\Api\InboundMailInterface::class,
         'inbound_mail',

@@ -9,6 +9,9 @@ use Core\Import\FeeCategoryRepository;
 use Core\Import\FunctionRepository;
 use Core\Import\ImportSectionRepository;
 use Core\Import\MappingResolver;
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
+use Modules\Fees\Api\HouseholdTariffRecognitionInterface;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
@@ -189,5 +192,164 @@ class MappingResolverTest extends TestCase
         // Resolving same again should not increase count
         $this->resolver->resolveFunction('Fn1');
         $this->assertSame(2, $this->resolver->getNewFunctionsCount());
+    }
+
+    /**
+     * Issue #356: a value this code does not recognise is created anyway,
+     * and until now nothing said so anywhere. These tests are about the
+     * saying, which is the whole feature — the creating already worked.
+     */
+    public function testAnUnknownFunctionIsJournalledOncePerImport(): void
+    {
+        $resolver = $this->journallingResolver();
+
+        // Two members holding the same unknown function, which is the
+        // ordinary case: an import calls resolve*() once per CSV row.
+        $resolver->resolveFunction('Animateur Nutons');
+        $resolver->resolveFunction('Animateur Nutons');
+
+        $this->assertSame(1, $this->journalCount('desk_function_unknown'));
+    }
+
+    public function testTheNextImportSaysItAgain(): void
+    {
+        $resolver = $this->journallingResolver();
+        $resolver->resolveFunction('Animateur Nutons');
+
+        // A second import through the same object, which is what
+        // resetImportState() marks. Still unqualified, still worth saying:
+        // "once per import" is the promise, never "once ever".
+        $resolver->resetImportState();
+        $resolver->resolveFunction('Animateur Nutons');
+
+        $this->assertSame(2, $this->journalCount('desk_function_unknown'));
+    }
+
+    public function testAFunctionThisSiteAlreadyKnowsIsNotJournalled(): void
+    {
+        $this->functionRepo->create('Animateur', 'Animateur', 'chief', true);
+        $this->journallingResolver()->resolveFunction('Animateur');
+
+        $this->assertSame(0, $this->journalCount('desk_function_unknown'));
+    }
+
+    public function testABranchTheSortOrderDoesNotRecogniseIsJournalled(): void
+    {
+        $this->journallingResolver()->resolveBranch('Nutons');
+
+        $this->assertSame(1, $this->journalCount('desk_branch_not_canonical'));
+    }
+
+    public function testACanonicalBranchIsNotJournalled(): void
+    {
+        $this->journallingResolver()->resolveBranch('Baladins');
+
+        $this->assertSame(0, $this->journalCount('desk_branch_not_canonical'));
+    }
+
+    /**
+     * The case D1 of issue #356 calls the failure with no signal at all:
+     * the row was created by an import months ago and has sorted last ever
+     * since. Nothing creates it today, so a report that only watched
+     * creations would never mention it.
+     */
+    public function testABranchLeftOnNinetyNineByAnEarlierImportIsJournalledToo(): void
+    {
+        $ageBranchRepo = new AgeBranchRepository($this->pdo);
+        $ageBranchRepo->create('Nutons', 'Nutons');
+
+        $this->journallingResolver()->resolveBranch('Nutons');
+
+        $this->assertSame(1, $this->journalCount('desk_branch_not_canonical'));
+    }
+
+    /**
+     * SECURITY.md §11. The context is a federal label and the name of the
+     * table to complete — never a member, and never anything a reader
+     * could narrow down to one.
+     */
+    public function testNothingPersonalReachesTheJournal(): void
+    {
+        $resolver = $this->journallingResolver();
+        $resolver->resolveFunction('Animateur Nutons');
+
+        $stmt = $this->pdo->query("SELECT description, context FROM event_log WHERE event_type = 'desk_function_unknown'");
+        $row = $stmt === false ? null : $stmt->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($row);
+
+        $context = json_decode((string) $row['context'], true);
+        $this->assertIsArray($context);
+        $this->assertSame(['value', 'code_table'], array_keys($context));
+        $this->assertSame('Animateur Nutons', $context['value']);
+        $this->assertStringContainsString('Animateur Nutons', (string) $row['description']);
+    }
+
+    public function testAFeeIsJournalledOnlyWhenTheCotisationsModuleRecognisesNothing(): void
+    {
+        $resolver = $this->journallingResolver($this->recognition(recognises: false));
+        $resolver->resolveFee('reduit_fratrie');
+
+        $this->assertSame(1, $this->journalCount('desk_fee_without_scale'));
+    }
+
+    public function testAFeeTheModuleRecognisesIsNotJournalled(): void
+    {
+        $resolver = $this->journallingResolver($this->recognition(recognises: true));
+        $resolver->resolveFee('N_N_COTISATION NORMALE');
+
+        $this->assertSame(0, $this->journalCount('desk_fee_without_scale'));
+    }
+
+    /**
+     * No cotisations module, no barème — so no tariff can be reported as
+     * missing from one. The alternative, reporting every category, would
+     * fill a maintainer's list with installations that simply do not use
+     * the feature.
+     */
+    public function testWithoutTheCotisationsModuleNoFeeIsEverJournalled(): void
+    {
+        $this->journallingResolver()->resolveFee('reduit_fratrie');
+
+        $this->assertSame(0, $this->journalCount('desk_fee_without_scale'));
+    }
+
+    private function journallingResolver(?HouseholdTariffRecognitionInterface $recognition = null): MappingResolver
+    {
+        return new MappingResolver(
+            $this->functionRepo,
+            new AgeBranchRepository($this->pdo),
+            new ImportSectionRepository($this->pdo),
+            new FeeCategoryRepository($this->pdo),
+            new JournalService(new JournalRepository($this->pdo)),
+            $recognition
+        );
+    }
+
+    private function recognition(bool $recognises): HouseholdTariffRecognitionInterface
+    {
+        return new class ($recognises) implements HouseholdTariffRecognitionInterface {
+            public function __construct(private bool $recognises)
+            {
+            }
+
+            public function recognisesWording(string $deskCode, string $label): bool
+            {
+                return $this->recognises;
+            }
+
+            /** @return list<int> */
+            public function unmappedFeeCategoryIds(): array
+            {
+                return [];
+            }
+        };
+    }
+
+    private function journalCount(string $eventType): int
+    {
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM event_log WHERE event_type = ?');
+        $stmt->execute([$eventType]);
+
+        return (int) $stmt->fetchColumn();
     }
 }

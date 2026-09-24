@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Import;
 
+use Core\Journal\JournalService;
+
 /**
  * Desk CSV export parser.
  *
@@ -28,6 +30,25 @@ namespace Core\Import;
  */
 class DeskCsvParser
 {
+    /**
+     * How many column names one journal entry may quote, and how long
+     * each may be. A refused header line is a diagnostic, not a place to
+     * mirror an arbitrary file: the names come from a document this site
+     * did not write, and a malformed one can carry hundreds.
+     */
+    private const MAX_JOURNALLED_HEADERS = 20;
+    private const MAX_JOURNALLED_HEADER_LENGTH = 100;
+
+    public function __construct(
+        /**
+         * Where a refused header line is written down (issue #356). Null
+         * parses exactly as before — every existing call site, tests
+         * included, keeps working.
+         */
+        private ?JournalService $journal = null
+    ) {
+    }
+
     /** @var string[] */
     private const EXPECTED_HEADERS = [
         'Nom', 'Prenom', 'Genre', 'Date de naissance', 'Tél', 'GSM',
@@ -200,10 +221,57 @@ class DeskCsvParser
         }
 
         if (count($missing) > 0) {
+            // What the file actually carried where an expected column
+            // should have been. The exception can only name what is
+            // absent, and « Email Tiers manquant » is the symptom of
+            // « Courriel est arrivé à sa place » — a rename nobody can
+            // act on without seeing the new spelling, and the reason
+            // EXPECTED_HEADERS warns that two of its entries are not
+            // typos (issue #356).
+            $this->journalRefusedHeaders($headers, $missing);
+
             throw new ImportException(
                 'En-têtes CSV manquants : ' . implode(', ', $missing)
             );
         }
+    }
+
+    /**
+     * @param string[] $headers the header line exactly as read
+     * @param string[] $missing the expected names it does not carry
+     */
+    private function journalRefusedHeaders(array $headers, array $missing): void
+    {
+        if ($this->journal === null) {
+            return;
+        }
+
+        $unexpected = array_values(array_diff($headers, self::EXPECTED_HEADERS));
+
+        $this->journal->log(
+            'core',
+            DeskMappingGapKind::CSV_HEADER->journalType(),
+            'info',
+            'Import Desk refusé : ' . count($missing) . ' en-tête(s) attendu(s) absent(s), '
+            . count($unexpected) . ' inattendu(s)',
+            [
+                'unexpected' => self::boundedNames($unexpected),
+                'missing' => self::boundedNames($missing),
+                'code_table' => DeskMappingGapKind::CSV_HEADER->codeTable(),
+            ]
+        );
+    }
+
+    /**
+     * @param string[] $names
+     * @return string[]
+     */
+    private static function boundedNames(array $names): array
+    {
+        return array_map(
+            static fn(string $name): string => mb_substr($name, 0, self::MAX_JOURNALLED_HEADER_LENGTH),
+            array_slice($names, 0, self::MAX_JOURNALLED_HEADERS)
+        );
     }
 
     private function stripBom(string $content): string

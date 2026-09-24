@@ -32,6 +32,8 @@ final class ArchiveContents
      */
     private const DESCRIPTIONS = [
         'statistics' => "Les compteurs agrégés du site : version, modules actifs, effectifs. Aucune donnée de membre.",
+        'desk_mappings' => "Les valeurs venues de Desk que le site ne reconnaît pas — un libellé de fonction, "
+            . "de branche ou de tarif, et combien de fiches le portent. Du vocabulaire fédéral, aucun nom de membre.",
         'database_structure' => 'La structure des tables — jamais leur contenu.',
         'configuration_parameters' => "Les paramètres de configuration du site, secrets retirés.",
         'event_journal' => "Un résumé du journal des évènements des dernières 48 h, qui contient des identifiants "

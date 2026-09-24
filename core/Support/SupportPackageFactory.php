@@ -18,6 +18,7 @@ use Core\Support\Collector\CommandsCollector;
 use Core\Support\Collector\ConfigurationParametersCollector;
 use Core\Support\Collector\CronCadenceCollector;
 use Core\Support\Collector\DatabaseStructureCollector;
+use Core\Support\Collector\DeskMappingsCollector;
 use Core\Support\Collector\EventJournalCollector;
 use Core\Support\Collector\ExtensionsCollector;
 use Core\Support\Collector\FilesystemCollector;
@@ -73,6 +74,7 @@ final class SupportPackageFactory
     {
         return [
             new StatisticsCollector(StatisticsServiceFactory::payloadBuilder($context)),
+            self::deskMappingsCollector($context),
             new DatabaseStructureCollector(),
             new ConfigurationParametersCollector(),
             new EventJournalCollector(),
@@ -109,6 +111,7 @@ final class SupportPackageFactory
     {
         return [
             'statistics',
+            'desk_mappings',
             'database_structure',
             'configuration_parameters',
             'event_journal',
@@ -127,6 +130,28 @@ final class SupportPackageFactory
             'webserver',
             'logs',
         ];
+    }
+
+    /**
+     * The Desk values this installation does not recognise (issue #356).
+     *
+     * The cotisations module's recognition capability is resolved through
+     * the context like every other cross-module one, so a receiver reading
+     * this file knows that no tariff line means « module off », never
+     * « nothing to report » — the registry re-checks the providing
+     * module's enabled state on each resolve.
+     */
+    private static function deskMappingsCollector(TaskContext $context): DeskMappingsCollector
+    {
+        $pdo = $context->connection->getPdo();
+
+        return new DeskMappingsCollector(
+            new \Core\Import\DeskMappingGapService(
+                $pdo,
+                new \Core\Config\ScoutYearService($pdo),
+                $context->getOptional(\Modules\Fees\Api\HouseholdTariffRecognitionInterface::class)
+            )
+        );
     }
 
     /**
