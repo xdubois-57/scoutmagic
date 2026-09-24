@@ -231,6 +231,62 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
         );
     }
 
+    /**
+     * Each window is bounded by its OWN class, on both sides.
+     *
+     * `PREG_OFFSET_CAPTURE` hands back where a match STARTS, and using the
+     * previous declaration's offset as this class's left edge swallowed the
+     * whole class before it. `StubAttentionProvider`, which contains
+     * nothing at all, read as building a database because its window
+     * reached back into `AttentionControllerTest::setUp()`.
+     *
+     * That alone only inflated a counter. The half that mattered is the
+     * heading: a marker on a METHOD of the preceding class satisfied the
+     * NEXT class — which is the leak this guard had just been corrected
+     * for, returning through the other side the moment a file declares two
+     * `*Test` classes in a row.
+     */
+    public function testOneClassNeverAnswersForItsNeighbour(): void
+    {
+        $classes = $this->classesIn(<<<'PHP'
+            <?php
+            namespace Tests\Fake;
+
+            class FirstTest extends TestCase
+            {
+                protected function setUp(): void { $this->pdo = DatabaseTestHelper::createTestDatabase(); }
+
+                #[\PHPUnit\Framework\Attributes\Group('database')]
+                public function testOne(): void {}
+            }
+
+            final class StubProvider implements Whatever
+            {
+                public function points(): array { return []; }
+            }
+
+            class SecondTest extends TestCase
+            {
+                public function testTwo(): void {}
+            }
+            PHP, 'Fake.php');
+
+        $this->assertTrue($classes['Tests\Fake\FirstTest']['mounts'], 'the first class does build one');
+
+        $this->assertFalse(
+            $classes['Tests\Fake\StubProvider']['mounts'],
+            'a stub that builds nothing must not inherit the build of the class above it'
+        );
+        $this->assertFalse(
+            $classes['Tests\Fake\SecondTest']['mounts'],
+            'nor must the class after the stub'
+        );
+        $this->assertFalse(
+            $classes['Tests\Fake\SecondTest']['carries'],
+            'and a marker on a method of an earlier class must not answer for this one'
+        );
+    }
+
     /** The scan reads the suite rather than an empty list. */
     public function testTheScanReadsTheSuiteRatherThanAnEmptyList(): void
     {
@@ -353,13 +409,17 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
             $written = (string) ($declaration[3][0] ?? '');
             $parent = $written === '' ? null : $this->resolve($written, $namespace, $source);
 
-            // The class's OWN text: from the end of the previous
-            // declaration to where the next one starts, or the end of file.
-            $bodyStart = $index === 0 ? 0 : (int) $declarations[$index - 1][0][1];
+            // The class's OWN text starts at ITS OWN declaration, and ends
+            // where the next class's heading begins. Starting it at the
+            // PREVIOUS declaration — which is what an offset capture hands
+            // back, the start and not the end — put the whole preceding
+            // class inside the window: `StubAttentionProvider`, which
+            // contains nothing at all, read as building a database because
+            // the window reached back into `AttentionControllerTest::setUp()`.
             $bodyEnd = isset($declarations[$index + 1])
-                ? (int) $declarations[$index + 1][0][1]
+                ? $this->headingStart($source, (int) $declarations[$index + 1][0][1])
                 : strlen($source);
-            $own = substr($source, $bodyStart, $bodyEnd - $bodyStart);
+            $own = substr($source, $offset, $bodyEnd - $offset);
 
             // The group must sit ON THE CLASS, so it is looked for in the
             // docblock and attributes immediately above the declaration
@@ -372,7 +432,8 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
             // matched too — Core\Maintenance\Task\SendRemoteBackupHandlerTest
             // says « No `@group database`, on purpose » and passed on the
             // strength of the words refusing it.
-            $heading = substr($source, $bodyStart, $offset - $bodyStart);
+            $headingStart = $this->headingStart($source, $offset);
+            $heading = substr($source, $headingStart, $offset - $headingStart);
 
             $mounts = false;
             foreach (self::MOUNTS as $pattern) {
@@ -405,6 +466,44 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
         }
 
         return $classes;
+    }
+
+    /**
+     * Where a declaration's heading begins.
+     *
+     * The heading is the unbroken run of doc-comment, attribute and blank
+     * lines sitting immediately above the `class` keyword — which is what
+     * « the group is on the class » means, and the only window narrow
+     * enough to mean it. Bounding it by the previous declaration instead
+     * let a marker on a METHOD of the class before satisfy the class
+     * after, which is the failure this guard was just corrected for,
+     * coming back through the other side.
+     */
+    private function headingStart(string $source, int $offset): int
+    {
+        $start = $offset;
+
+        while ($start > 0) {
+            $lineEnd = $start - 1;
+            $lineStart = strrpos(substr($source, 0, $lineEnd), "\n");
+            $lineStart = $lineStart === false ? 0 : $lineStart + 1;
+            $line = trim(substr($source, $lineStart, $lineEnd - $lineStart));
+
+            $isHeading = $line === ''
+                || str_starts_with($line, '#[')
+                || str_starts_with($line, '/**')
+                || str_starts_with($line, '*')
+                || str_starts_with($line, '//')
+                || str_ends_with($line, ']');
+
+            if (!$isHeading) {
+                break;
+            }
+
+            $start = $lineStart;
+        }
+
+        return $start;
     }
 
     /**
