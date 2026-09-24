@@ -153,7 +153,7 @@ final class ShippedEmailTemplateTest extends TestCase
         $html = $twig->render($template->template, $context);
         $text = $twig->render(self::textTemplateOf($template), $context);
 
-        foreach (['html' => $html, 'texte' => $text] as $half => $rendered) {
+        foreach (['html' => $html, 'text' => $text] as $half => $rendered) {
             $this->assertSame(
                 1,
                 substr_count($rendered, 'Bien à vous'),
