@@ -14,6 +14,7 @@ use Core\View\EditableContentService;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Service\RegistrationException;
 use Modules\Registration\Service\RequestEmailService;
+use PHPUnit\Framework\MockObject\Rule\InvocationOrder;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Registration\RegistrationTestHelper;
@@ -92,16 +93,44 @@ class RequestEmailServiceTest extends TestCase
         $service->sendRefused($request, '2026-2027');
     }
 
+    /**
+     * Record every address the doubled `MailService::send()` is handed.
+     *
+     * Counting sends says a message left and says nothing about where it
+     * went: a double with no argument constraint accepts any argument.
+     * Measured on this file — replacing `to: $request->email` with a fixed
+     * foreign address left all ten tests green (issue #439). What is
+     * carried here is a decision on a child's enrolment, addressed to the
+     * family who asked; delivered elsewhere it is a personal matter handed
+     * to a stranger.
+     *
+     * @param list<string> $recipients written to by the double
+     */
+    private function recordRecipients(
+        MailService&\PHPUnit\Framework\MockObject\MockObject $mailService,
+        InvocationOrder $times,
+        array &$recipients
+    ): void {
+        $mailService->expects($times)
+            ->method('send')
+            ->willReturnCallback(function (...$arguments) use (&$recipients): void {
+                $recipients[] = (string) $arguments[0];
+            });
+    }
+
     public function testSendAcceptedSucceedsAndMarksSentOnceBodyIsWritten(): void
     {
         $this->editableContentService->set('registration_email_accepted_body', '<p>Bienvenue {{prenom_enfant}} !</p>', 'rich_text', 1);
         $mailService = $this->createMock(MailService::class);
-        $mailService->expects($this->once())->method('send');
+        $recipients = [];
+        $this->recordRecipients($mailService, $this->once(), $recipients);
         $service = $this->buildService($mailService);
         $requestId = $this->createRequest();
 
         $service->sendAccepted($this->requestRepository->findById($requestId), '2026-2027');
 
+        // The address the family wrote on its own request, and no other.
+        $this->assertSame(['marie@example.com'], $recipients);
         $this->assertNotNull($this->requestRepository->findById($requestId)->acceptedEmailSentAt);
     }
 
@@ -109,13 +138,16 @@ class RequestEmailServiceTest extends TestCase
     {
         $this->editableContentService->set('registration_email_accepted_body', '<p>Bienvenue !</p>', 'rich_text', 1);
         $mailService = $this->createMock(MailService::class);
-        $mailService->expects($this->exactly(2))->method('send');
+        $recipients = [];
+        $this->recordRecipients($mailService, $this->exactly(2), $recipients);
         $service = $this->buildService($mailService);
         $requestId = $this->createRequest();
 
         $service->sendAccepted($this->requestRepository->findById($requestId), '2026-2027');
         $service->sendAccepted($this->requestRepository->findById($requestId), '2026-2027');
 
+        // A resend goes back to the same family, twice.
+        $this->assertSame(['marie@example.com', 'marie@example.com'], $recipients);
         $this->assertNotNull($this->requestRepository->findById($requestId)->acceptedEmailSentAt);
     }
 
@@ -202,7 +234,8 @@ class RequestEmailServiceTest extends TestCase
     {
         $this->editableContentService->set('registration_email_accepted_body', '<p>Bienvenue !</p>', 'rich_text', 1);
         $mailService = $this->createMock(MailService::class);
-        $mailService->method('send');
+        $recipients = [];
+        $this->recordRecipients($mailService, $this->once(), $recipients);
         $service = $this->buildService($mailService);
 
         $created = $this->requestRepository->create($this->scoutYearId, [
@@ -214,6 +247,10 @@ class RequestEmailServiceTest extends TestCase
 
         $service->sendAccepted($this->requestRepository->findById($created['id']), '2026-2027');
 
+        // This request carries a different address from the fixture's, so
+        // the assertion tells the two apart rather than matching whatever
+        // the service last sent to.
+        $this->assertSame(['p@example.com'], $recipients);
         $this->assertFalse($this->requestRepository->verifyTrackingToken($created['id'], $created['tracking_token']));
     }
 
