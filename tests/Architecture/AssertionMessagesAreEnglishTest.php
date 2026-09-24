@@ -449,7 +449,30 @@ final class AssertionMessagesAreEnglishTest extends TestCase
                     continue;
                 }
 
-                if ($id === null && ($text === '(' || $text === '[' || $text === '{')) {
+                // `{` opening an interpolation is NOT a bare token — it
+                // is T_CURLY_OPEN, and `${` is T_DOLLAR_OPEN_CURLY_BRACES
+                // — while the `}` that closes it IS bare. Counting only
+                // the close drove the depth NEGATIVE, so it never returned
+                // to exactly 0 and the swallow never ended: everything
+                // after the term was eaten too. Measured on
+                // `'La liste ' . implode(', ', array_map(fn($r) => "{$r['a']}", $rows)) . ' ne doit pas rester vide du tout'`:
+                //
+                //   before  'La liste  '
+                //   after   'La liste   ne doit pas rester vide du tout'
+                //
+                // The reverse bites as well: an unmatched `}` landing the
+                // depth back on 0 ends the swallow EARLY, and fixture text
+                // is read as message prose.
+                //
+                // This is the third time in this file that a depth counter
+                // has had to be taught the brace it does not look like —
+                // the argument splitter and the `$hole` walker were the
+                // first two — and it is the same lesson each time: count
+                // the brace and its mate, never the shape they happen to
+                // have.
+                if ($id === T_CURLY_OPEN || $id === T_DOLLAR_OPEN_CURLY_BRACES) {
+                    $termDepth++;
+                } elseif ($id === null && ($text === '(' || $text === '[' || $text === '{')) {
                     $termDepth++;
                 } elseif ($id === null && ($text === ')' || $text === ']' || $text === '}')) {
                     $termDepth--;
@@ -722,6 +745,49 @@ final class AssertionMessagesAreEnglishTest extends TestCase
             $this->assertStringContainsString('Le lot ne contient pas', $messages[0][1]);
             $this->assertStringContainsString('qui est attendu.', $messages[0][1]);
             $this->assertStringNotContainsString('implode', $messages[0][1], 'the call is a hole, not prose');
+            $this->assertTrue(self::looksFrench($messages[0][1]));
+        } finally {
+            unlink($file);
+        }
+    }
+
+    /**
+     * A braced interpolation NESTED INSIDE a swallowed term.
+     *
+     * The eighth form, and the third time a depth counter in this file has
+     * had to be taught a brace that does not look like one. `{` opening an
+     * interpolation is `T_CURLY_OPEN`, not a bare token; the `}` closing it
+     * IS bare. Counting only the close drove the term's depth NEGATIVE, so
+     * it never came back to exactly 0, the swallow never ended, and every
+     * word after the term went with it:
+     *
+     * ```
+     * before  'La liste  '
+     * after   'La liste   ne doit pas rester vide du tout'
+     * ```
+     *
+     * Silent in the worst way, again: the tail is not mis-scored, it is
+     * gone, so a French message can fall under MINIMUM_WORDS and be missed
+     * while the sentinel sees a corpus of the usual size.
+     */
+    public function testABracedInterpolationInsideASwallowedTermDoesNotEatTheRest(): void
+    {
+        $file = tempnam(sys_get_temp_dir(), 'assertion_messages_') . '.php';
+        file_put_contents($file, <<<'PHP'
+            <?php
+            $this->assertSame([], $rows, 'La liste ' . implode(', ', array_map(fn($r) => "{$r['a']}", $rows)) . ' ne doit pas rester vide du tout');
+            PHP);
+
+        try {
+            $messages = self::messagesIn($file, []);
+
+            $this->assertCount(1, $messages);
+            $this->assertStringContainsString(
+                'ne doit pas rester vide du tout',
+                $messages[0][1],
+                'the words after the swallowed term must survive it'
+            );
+            $this->assertStringNotContainsString('implode', $messages[0][1], 'and the term itself stays out');
             $this->assertTrue(self::looksFrench($messages[0][1]));
         } finally {
             unlink($file);
