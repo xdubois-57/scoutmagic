@@ -72,10 +72,13 @@ class ModuleManifestTest extends TestCase
      *
      * 1.25.0 is a schema change again: the steps a manager ticks by hand
      * are stored (`rental_booking_milestone_marks`, issue #462, IT-02).
+     *
+     * 1.26.0 replaces the booking's mail box with the triage screen shared
+     * with the camps, and its routes (issue #462, IT-03).
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.25.0', $this->manifest->version);
+        $this->assertSame('1.26.0', $this->manifest->version);
     }
 
     /**

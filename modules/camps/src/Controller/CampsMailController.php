@@ -22,6 +22,7 @@ use Modules\Camps\Mail\ExistingStayMatcher;
 use Modules\Camps\Service\CampLabels;
 use Modules\Camps\Service\StaySearchService;
 use Modules\InboundMail\Api\InboundMailInterface;
+use Modules\InboundMail\Api\TriageList;
 use Twig\Environment;
 
 /**
@@ -49,9 +50,6 @@ use Twig\Environment;
  */
 class CampsMailController extends AbstractController
 {
-    /** How much of a message the card shows before it has to be opened. */
-    private const EXCERPT_LENGTH = 220;
-
     /**
      * One screenful. A dedicated box that has been collecting for three
      * years holds thousands of messages, and a page that renders all of
@@ -87,44 +85,30 @@ class CampsMailController extends AbstractController
      */
     public function unsorted(Request $request, array $params): Response
     {
-        $everything = $this->messages();
-        $status = self::status((string) $request->getQuery('statut', ''));
-        $includeBulk = (string) $request->getQuery('automatique', '') === '1';
+        $triage = TriageList::screen(
+            $this->messages(),
+            TriageList::status((string) $request->getQuery('statut', '')),
+            (string) $request->getQuery('automatique', '') === '1',
+            fn(): array => $this->messages(dismissed: true),
+            $this->dismissedCount()
+        );
 
-        // Automatic mail — newsletters, bounces, acknowledgements — is out
-        // of the work list unless asked for, exactly as it is on the
-        // chief's `/courrier`: a newsletter under « À trier » is not a
-        // decision anybody has to make.
-        $all = $includeBulk
-            ? $everything
-            : array_values(array_filter($everything, static fn(array $row): bool => !$row['message']->isBulk));
+        // The stays as a chief names them, once for the page: « Rattaché —
+        // camp-51 » told nobody anything, and the label the picker already
+        // shows is the one the badge should carry.
+        $labels = [];
+        $urls = [];
+        foreach ($this->camps->findAllWithPlaceName() as $row) {
+            $reference = CampsMessageConsumer::referenceFor($row['camp']->id);
+            $labels[$reference] = StaySearchService::labelFor($row['camp'], $row['place_name']);
+            $urls[$reference] = '/chefs/camps/sejours/' . $row['camp']->id;
+        }
 
-        // The set-aside list is its own read: it answers a different
-        // question — « qu'est-ce que j'ai écarté ? » — and loading it on
-        // every visit would pay for a list nobody normally opens.
-        $rows = $status === self::STATUS_DISMISSED
-            ? $this->messages(dismissed: true)
-            : self::filtered($all, $status);
-
-        return $this->render('@camps/unsorted_mail.html.twig', [
-            'messages' => $rows,
+        return $this->render('@camps/unsorted_mail.html.twig', $triage + [
             'can_search_stays' => $this->staySearch !== null,
             'has_inbound_mail' => $this->inboundMail !== null && $this->inboundMail->isCollecting(),
-            'status' => $status,
-            'include_bulk' => $includeBulk,
-            'bulk_count' => count($everything) - count(array_filter(
-                $everything,
-                static fn(array $row): bool => !$row['message']->isBulk
-            )),
-            'counts' => [
-                self::STATUS_UNLINKED => count(self::filtered($all, self::STATUS_UNLINKED)),
-                self::STATUS_LINKED => count(self::filtered($all, self::STATUS_LINKED)),
-                self::STATUS_ALL => count($all),
-                // Counted rather than derived from $all: a set-aside
-                // message is not in that list, which is the whole point of
-                // having set it aside.
-                self::STATUS_DISMISSED => $this->dismissedCount(),
-            ],
+            'labels' => $labels,
+            'reference_urls' => $urls,
             'breadcrumb_current' => 'Courrier des camps',
         ]);
     }
@@ -207,62 +191,14 @@ class CampsMailController extends AbstractController
     }
 
     /**
-     * The three answers the filter can take, and the default.
-     *
-     * **Unattached is the default, and that is the point of the screen.**
-     * What a chief comes here to do is decide about the mail nobody could
-     * attribute; the messages this module already filed are on their
-     * stays' own pages, and a list that opens on everything buries the
-     * dozen that need a decision under the hundreds that do not.
+     * The filters of the screen, now shared with every module's triage
+     * (Api\TriageList, issue #462). Kept here as aliases: other code of
+     * this module names them through this class.
      */
-    public const STATUS_UNLINKED = 'non_rattaches';
-    public const STATUS_LINKED = 'rattaches';
-    public const STATUS_ALL = 'tous';
-
-    /**
-     * What a chief set aside — « ce courrier ne concerne pas les camps »
-     * (#174).
-     *
-     * A separate list rather than a fourth column of the same one: these
-     * messages are the ones the screen was asked to stop showing, and the
-     * only reason to look at them is to change one's mind. Reading them
-     * costs its own query, so it happens when this filter is chosen and
-     * not on every load.
-     */
-    public const STATUS_DISMISSED = 'ecartes';
-
-    /** An unknown value reads as the default rather than as an error. */
-    private static function status(string $raw): string
-    {
-        return in_array($raw, [self::STATUS_LINKED, self::STATUS_ALL, self::STATUS_DISMISSED], true)
-            ? $raw
-            : self::STATUS_UNLINKED;
-    }
-
-    /**
-     * Filtered here rather than in SQL, deliberately: the read is already
-     * bounded to one screenful by `findForTriage()`, the association is
-     * this MODULE's (`linksFor()`) rather than any link the message
-     * carries, and a filter that had to travel through
-     * `Api\InboundMailInterface` would be a query shape every consumer
-     * inherits for one screen's sake.
-     *
-     * @param array<int, array<string, mixed>> $rows
-     * @return array<int, array<string, mixed>>
-     */
-    private static function filtered(array $rows, string $status): array
-    {
-        if ($status === self::STATUS_ALL) {
-            return $rows;
-        }
-
-        $wantLinked = $status === self::STATUS_LINKED;
-
-        return array_values(array_filter(
-            $rows,
-            static fn(array $row): bool => (($row['links'] ?? []) !== []) === $wantLinked
-        ));
-    }
+    public const STATUS_UNLINKED = TriageList::STATUS_UNLINKED;
+    public const STATUS_LINKED = TriageList::STATUS_LINKED;
+    public const STATUS_ALL = TriageList::STATUS_ALL;
+    public const STATUS_DISMISSED = TriageList::STATUS_DISMISSED;
 
     /**
      * « Relancer l'analyse » — offer every unattributed message to this
@@ -295,44 +231,11 @@ class CampsMailController extends AbstractController
 
         $report = $this->inboundMail->reanalyzeUnlinked(CampsMessageConsumer::CONSUMER_ID, self::MAX_MESSAGES);
 
-        FlashMessage::set('success', self::reanalysisMessage($report));
+        FlashMessage::set('success', TriageList::reanalysisMessage($report));
 
         return $this->redirect('/chefs/camps/courrier');
     }
 
-    /**
-     * What happened, in the words a chief would use — and « rien de neuf »
-     * said plainly rather than dressed up.
-     *
-     * A run that changes nothing is the ordinary outcome and has to read
-     * like one: the alternative is a button whose success message always
-     * sounds like something happened, which teaches people to stop reading
-     * it.
-     *
-     * @param array{examined: int, linked: int, proposed: int} $report
-     */
-    private static function reanalysisMessage(array $report): string
-    {
-        if ($report['examined'] === 0) {
-            return 'Aucun message en attente : tout ce qui est conservé est déjà rattaché.';
-        }
-
-        $found = [];
-        if ($report['linked'] > 0) {
-            $found[] = $report['linked'] . ' rattachement' . ($report['linked'] > 1 ? 's' : '');
-        }
-        if ($report['proposed'] > 0) {
-            $found[] = $report['proposed'] . ' proposition' . ($report['proposed'] > 1 ? 's' : '');
-        }
-
-        return sprintf(
-            '%d message%s réexaminé%s : %s. La lecture des pièces jointes se poursuit en arrière-plan.',
-            $report['examined'],
-            $report['examined'] > 1 ? 's' : '',
-            $report['examined'] > 1 ? 's' : '',
-            $found === [] ? 'rien de neuf pour l\'instant' : implode(' et ', $found)
-        );
-    }
 
     /**
      * Confirm one of this module's propositions.
@@ -539,55 +442,21 @@ class CampsMailController extends AbstractController
             return [];
         }
 
-        $messages = $this->inboundMail->findForTriage(
+        return TriageList::rows(
+            $this->inboundMail,
             CampsMessageConsumer::CONSUMER_ID,
             $this->stayReferences(),
             self::MAX_MESSAGES,
-            $dismissed
-        );
-
-        $candidates = $this->inboundMail->findCandidatesFor(
-            CampsMessageConsumer::CONSUMER_ID,
-            array_map(static fn($message) => $message->id, $messages)
-        );
-
-        // The stays as a chief names them, once for the page: « Rattaché —
-        // camp-51 » told nobody anything, and the label the picker already
-        // shows is the one the badge should carry.
-        $labels = [];
-        foreach ($this->camps->findAllWithPlaceName() as $row) {
-            $labels[CampsMessageConsumer::referenceFor($row['camp']->id)]
-                = StaySearchService::labelFor($row['camp'], $row['place_name']);
-        }
-
-        $rows = [];
-        foreach ($messages as $message) {
-            $body = trim($message->bodyText);
-            $rows[] = [
-                'message' => $message,
-                'labels' => $labels,
-                'excerpt' => mb_substr($body, 0, self::EXCERPT_LENGTH),
-                // Whether the excerpt actually cut something off, so the
-                // screen can promise "there is more" only when there is.
-                'truncated' => mb_strlen($body) > self::EXCERPT_LENGTH,
-                'has_body' => $body !== '' || trim($message->bodyHtml) !== '',
-                'attachment_count' => count($message->attachments),
-                // Only THIS module's links and propositions. Another
-                // module's business on the same message is not this
-                // screen's, and showing it would leak one module's guesses
-                // into another's audience.
-                'links' => $message->linksFor(CampsMessageConsumer::CONSUMER_ID),
-                'candidates' => $candidates[$message->id] ?? [],
+            $dismissed,
+            fn(\Modules\InboundMail\Api\InboundMessage $message): array => [
                 // Its own shortlist, because the stay its own dates name
                 // belongs at the top of ITS list and nowhere else. One
                 // query for the lot — `Service\StaySearchService` reads
                 // the stays once and ranks them per message.
                 'preferred_stay_ids' => $preferred = $this->preferredStayIds($message),
                 'camp_options' => $this->campOptions($preferred),
-            ];
-        }
-
-        return $rows;
+            ]
+        );
     }
 
     /**

@@ -80,6 +80,8 @@ use Twig\Environment;
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class RentalManagementControllerTest extends TestCase
 {
+    use \Tests\Modules\InboundMail\TriageScreenScenario;
+
     private \PDO $pdo;
     private Environment $twig;
     private RentalManagementController $controller;
@@ -520,7 +522,10 @@ class RentalManagementControllerTest extends TestCase
      * what makes the fil d'Ariane render at all (Core\Http\FrontController
      * reads it off the route).
      */
-    private function filePage(BookingPage $page, string $slug, int $bookingId): Response
+    /**
+     * @param array<string, string> $query
+     */
+    private function filePage(BookingPage $page, string $slug, int $bookingId, array $query = []): Response
     {
         $routePath = '/mes-locations/{slug}/reservations/{id}' . $page->pathSuffix();
         $route = self::declaredRoute($routePath);
@@ -531,7 +536,7 @@ class RentalManagementControllerTest extends TestCase
         return $this->dispatch($router, new Request(
             'GET',
             $page->url('/mes-locations/' . $slug . '/reservations/' . $bookingId),
-            [],
+            $query,
             [],
             [],
             []
@@ -564,6 +569,16 @@ class RentalManagementControllerTest extends TestCase
     {
         $inbound = $this->createMock(\Modules\InboundMail\Api\InboundMailInterface::class);
         $inbound->method('isCollecting')->willReturn(true);
+        $this->withMailbox($inbound);
+
+        return $inbound;
+    }
+
+    /**
+     * Wires a mailbox into the controller's communication service.
+     */
+    private function withMailbox(\Modules\InboundMail\Api\InboundMailInterface $inbound): void
+    {
 
         $service = new \Modules\Rental\Service\RentalCommunicationService(
             $this->bookingRepository,
@@ -578,8 +593,122 @@ class RentalManagementControllerTest extends TestCase
         );
         (new \ReflectionProperty(RentalManagementController::class, 'communicationService'))
             ->setValue($this->controller, $service);
+    }
 
-        return $inbound;
+    // ── The shared triage screen, rentals' side (issue #462, IT-03) ─────
+
+    private ?RentalBooking $triageBooking = null;
+
+    /**
+     * The booking the scenario's page belongs to, and the one object the
+     * manager files message 7 under.
+     */
+    private function triageBooking(): RentalBooking
+    {
+        if ($this->triageBooking === null) {
+            $this->loginAsManager();
+            $this->withMailbox(new \Tests\Modules\InboundMail\InMemoryTriageMail(\Tests\Modules\InboundMail\InMemoryTriageMail::aMessage()));
+            $this->triageBooking = $this->createBooking();
+        }
+
+        return $this->triageBooking;
+    }
+
+    /**
+     * **The component widens no scope.** The list is read with the
+     * references of the bookings this manager may reach, and only those —
+     * never another asset's, whatever booking the page belongs to.
+     */
+    public function testTheTriageListIsReadWithTheManagersReferencesOnly(): void
+    {
+        $this->loginAsManager();
+        $inbound = $this->withCollectingMailbox();
+        $mine = $this->createBooking();
+        $theirs = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+
+        $inbound->expects($this->atLeastOnce())->method('findForTriage')
+            ->with('rental', $this->callback(
+                static fn(array $references): bool => in_array($mine->reference, $references, true)
+                    && !in_array($theirs->reference, $references, true)
+            ))
+            ->willReturn([]);
+
+        $this->assertSame(200, $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id)->getStatusCode());
+    }
+
+    /**
+     * A booking of an asset the manager does not run is not a place to file
+     * mail, whatever a hand-made form says.
+     */
+    public function testMailCannotBeFiledUnderABookingOutsideTheScope(): void
+    {
+        $mail = new \Tests\Modules\InboundMail\InMemoryTriageMail(\Tests\Modules\InboundMail\InMemoryTriageMail::aMessage());
+        $this->loginAsManager();
+        $this->withMailbox($mail);
+        $mine = $this->createBooking();
+        $theirs = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+
+        $this->post('/mes-locations/courrier/rattacher', 'triageAttach', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $mine->id,
+            'message_id' => '7',
+            'booking_reference' => $theirs->reference,
+        ]);
+
+        $this->assertNull($mail->findOneForReference('rental', $theirs->reference, 7));
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+    }
+
+    protected function triageScreen(string $status = ''): string
+    {
+        $booking = $this->triageBooking();
+
+        return (string) $this->filePage(
+            BookingPage::MAIL,
+            'local-saint-georges',
+            $booking->id,
+            $status === '' ? [] : ['statut' => $status]
+        )->getBody();
+    }
+
+    /**
+     * @param array<string, string> $body
+     */
+    private function triagePost(string $path, string $action, int $id, array $body = []): void
+    {
+        $booking = $this->triageBooking();
+        $response = $this->post($path, $action, $body + [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'mail',
+            'message_id' => (string) $id,
+        ]);
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertStringEndsWith('/courrier', (string) $response->getHeaders()['Location']);
+    }
+
+    protected function triageAttach(int $id): void
+    {
+        $this->triagePost('/mes-locations/courrier/rattacher', 'triageAttach', $id, [
+            'booking_reference' => $this->triageBooking()->reference,
+        ]);
+    }
+
+    protected function triageDetach(int $id): void
+    {
+        $this->triagePost('/mes-locations/courrier/detacher', 'triageDetach', $id, [
+            'business_reference' => $this->triageBooking()->reference,
+        ]);
+    }
+
+    protected function triageSetAside(int $id): void
+    {
+        $this->triagePost('/mes-locations/courrier/ecarter', 'triageSetAside', $id);
+    }
+
+    protected function triageRestore(int $id): void
+    {
+        $this->triagePost('/mes-locations/courrier/reprendre', 'triageRestore', $id);
     }
 
     // ── The authorisation matrix ────────────────────────────────────────
@@ -2332,7 +2461,7 @@ class RentalManagementControllerTest extends TestCase
         $inbound = $this->withCollectingMailbox();
         $booking = $this->createBooking();
 
-        $inbound->expects($this->never())->method('findForReference');
+        $inbound->expects($this->never())->method('findForTriage');
         foreach ([BookingPage::DASHBOARD, BookingPage::FINANCES, BookingPage::DOCUMENTS] as $page) {
             $this->assertSame(200, $this->filePage($page, 'local-saint-georges', $booking->id)->getStatusCode());
         }
@@ -2344,7 +2473,7 @@ class RentalManagementControllerTest extends TestCase
         $inbound = $this->withCollectingMailbox();
         $booking = $this->createBooking();
 
-        $inbound->expects($this->once())->method('findForReference')->willReturn([]);
+        $inbound->expects($this->once())->method('findForTriage')->willReturn([]);
         $this->assertSame(200, $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getStatusCode());
     }
 

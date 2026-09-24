@@ -56,7 +56,7 @@ réservation ».
 
 ## Le courrier reçu
 
-Voir « Le courrier d'une réservation ».
+Voir « Le courrier des locations ».
 
 ## Le séjour
 
