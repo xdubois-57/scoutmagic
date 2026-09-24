@@ -49,7 +49,7 @@ final class HealthSheetLabelsTest extends TestCase
         $this->assertSame(
             $expected,
             array_keys(HealthSheet::LABELS),
-            'Une réponse sans libellé sortirait telle quelle sur la page, en anglais.'
+            'an answer with no label would come out on the page as is, in English'
         );
     }
 

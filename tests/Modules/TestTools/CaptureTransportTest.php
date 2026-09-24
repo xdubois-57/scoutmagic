@@ -564,7 +564,7 @@ class CaptureTransportTest extends TestCase
                 bodyText: 'Connectez-vous',
                 purpose: MailPurpose::MagicLink
             );
-            $this->fail('Une MailException était attendue.');
+            $this->fail('a MailException was expected');
         } catch (MailException $e) {
             $this->assertStringContainsString('serveur de messagerie injoignable', $e->getMessage());
         }
@@ -654,7 +654,7 @@ class CaptureTransportTest extends TestCase
                 bodyText: 'Connectez-vous',
                 purpose: MailPurpose::MagicLink
             );
-            $this->fail('Une MailException était attendue.');
+            $this->fail('a MailException was expected');
         } catch (MailException) {
             // Expected — the delivery really did fail here.
         }

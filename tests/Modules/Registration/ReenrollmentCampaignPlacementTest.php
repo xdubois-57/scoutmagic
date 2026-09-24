@@ -39,7 +39,7 @@ class ReenrollmentCampaignPlacementTest extends TestCase
             }
         }
 
-        $this->assertNotSame([], $this->routes, 'la page de campagne a disparu du manifeste');
+        $this->assertNotSame([], $this->routes, 'the campaign page is gone from the manifest');
     }
 
     /**

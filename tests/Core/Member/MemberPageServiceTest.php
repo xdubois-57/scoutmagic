@@ -671,7 +671,7 @@ class MemberPageServiceTest extends TestCase
         $chief = $service->buildPageData($profile, $this->scoutYearId, false, true, Role::ADMIN);
 
         $this->assertInstanceOf(OfficialDocumentsSummary::class, $own['official_documents']);
-        $this->assertNull($chief['official_documents'], 'aucune vue staff sur ces documents, jamais');
+        $this->assertNull($chief['official_documents'], 'no staff view of these documents, ever');
     }
 
     /**

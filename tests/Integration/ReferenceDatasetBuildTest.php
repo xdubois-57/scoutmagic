@@ -239,7 +239,7 @@ final class ReferenceDatasetBuildTest extends TestCase
             );
         }
 
-        self::assertGreaterThan(0, $checked, "Aucun paiement de campagne n'a été importé.");
+        self::assertGreaterThan(0, $checked, "no campaign payment was imported");
     }
 
     /**
@@ -423,7 +423,7 @@ final class ReferenceDatasetBuildTest extends TestCase
              WHERE f.access = 'identified' AND r.user_account_id IS NULL"
         )->fetchColumn();
 
-        self::assertSame(0, $orphans, 'Une réponse sans compte sur un formulaire réservé aux connectés.');
+        self::assertSame(0, $orphans, 'a response with no account, on a form reserved for signed-in visitors');
     }
 
     /**
@@ -436,7 +436,7 @@ final class ReferenceDatasetBuildTest extends TestCase
         $paths = $this->query(
             "SELECT relative_path FROM files WHERE relative_path LIKE 'news/images/%'"
         );
-        self::assertNotSame([], $paths, "Aucune image d'article n'a été stockée.");
+        self::assertNotSame([], $paths, "no article image was stored");
 
         // Asked of the service itself rather than recomputed here: the
         // naming rule of a derivative is its business, and a test that

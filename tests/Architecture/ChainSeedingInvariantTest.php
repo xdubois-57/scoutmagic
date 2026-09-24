@@ -124,7 +124,7 @@ class ChainSeedingInvariantTest extends TestCase
             }
         }
 
-        self::assertNotSame([], $cases, 'aucun amorceur trouvé — le test ne teste plus rien');
+        self::assertNotSame([], $cases, 'no seeding call found — the test no longer tests anything');
 
         return $cases;
     }
@@ -147,9 +147,9 @@ class ChainSeedingInvariantTest extends TestCase
         $this->assertGreaterThan(
             20,
             count($seeds),
-            "Le balayage des points d'entrée ne trouve presque plus d'amorçage : soit le fichier a été "
-                . "déplacé, soit le lecteur de jetons ne reconnaît plus ces appels. Dans les deux cas il ne "
-                . "juge plus rien, et un rearm() réintroduit passerait au vert."
+            "The entry-point scan barely finds any seeding left: either the file moved, or the token "
+                . "reader no longer recognises these calls. Either way it judges nothing any more, and a "
+                . "reintroduced rearm() would pass green."
         );
     }
 
@@ -158,8 +158,8 @@ class ChainSeedingInvariantTest extends TestCase
         $this->assertContains(
             'public/index.php',
             array_map([self::class, 'relative'], self::entryPointFiles()),
-            "public/index.php est LE point d'entrée web et la racine de composition où les vingt-deux "
-                . "amorçages de l'issue #435 s'étaient accumulés. S'il sort du balayage, le test perd son sujet."
+            "public/index.php is THE web entry point and the composition root where the twenty-two "
+                . "seeding calls of issue #435 had accumulated. If it leaves the scan, the test loses its subject."
         );
     }
 

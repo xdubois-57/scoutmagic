@@ -147,7 +147,7 @@ final class ParentalAuthorizationPdfServiceTest extends TestCase
         );
 
         $this->assertContains('place', $result['overflowing']);
-        $this->assertStringStartsWith('%PDF-', $result['pdf'], 'le document doit tout de même être produit');
+        $this->assertStringStartsWith('%PDF-', $result['pdf'], 'the document must still be produced');
     }
 
     /**
@@ -173,7 +173,7 @@ final class ParentalAuthorizationPdfServiceTest extends TestCase
         $this->assertNotContains(
             'unit',
             \Modules\OfficialDocuments\Service\ParentalAuthorizationFilling::PARENT_EDITABLE,
-            'le code d\'unité n\'est pas quelque chose qu\'un parent peut raccourcir'
+            'a unit code is not something a parent can shorten'
         );
     }
 

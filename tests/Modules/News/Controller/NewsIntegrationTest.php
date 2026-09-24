@@ -2392,7 +2392,7 @@ class NewsIntegrationTest extends TestCase
         );
 
         $this->assertSame(302, $submit()->getStatusCode());
-        $this->assertSame(302, $submit()->getStatusCode(), 'le second envoi doit répondre comme le premier');
+        $this->assertSame(302, $submit()->getStatusCode(), 'the second send must answer like the first');
 
         $this->assertSame(
             1,

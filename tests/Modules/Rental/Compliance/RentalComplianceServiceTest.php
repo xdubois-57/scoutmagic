@@ -216,7 +216,7 @@ class RentalComplianceServiceTest extends TestCase
         $service->attachFile($this->assetId, $itemId, $fileId, null);
         $service->delete($this->assetId, $itemId);
 
-        $this->assertFileDoesNotExist($blob, 'la ligne est partie, le fichier est resté');
+        $this->assertFileDoesNotExist($blob, 'the row is gone, the file stayed');
         $this->assertNull((new \Core\File\FileRepository($this->pdo))->findById($fileId));
 
         @rmdir(dirname($blob));

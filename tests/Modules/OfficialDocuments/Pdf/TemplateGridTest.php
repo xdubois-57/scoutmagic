@@ -73,7 +73,7 @@ final class TemplateGridTest extends TestCase
         $this->assertSame(
             '/tmp/FICHE.pdf-grid.pdf',
             TemplateGrid::defaultTargetFor('/tmp/FICHE.pdf.pdf'),
-            'seule la dernière extension est remplacée'
+            'only the last extension is replaced'
         );
     }
 }

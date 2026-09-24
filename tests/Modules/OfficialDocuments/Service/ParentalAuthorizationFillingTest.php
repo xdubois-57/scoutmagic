@@ -172,7 +172,7 @@ final class ParentalAuthorizationFillingTest extends TestCase
             self::leaderWith('Avenue des Anciens Combattants de la Seconde Guerre mondiale', '1348', 'Ottignies')
         );
 
-        $this->assertNotSame('', $second, 'une adresse trop longue doit passer sur la seconde ligne');
+        $this->assertNotSame('', $second, 'an address too long must wrap onto the second line');
         $this->assertStringEndsNotWith(',', $first);
         $this->assertStringStartsNotWith(' ', $second);
         // Nothing lost between the two halves.

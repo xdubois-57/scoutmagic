@@ -595,7 +595,7 @@ class RentalMessageConsumerTest extends TestCase
         $this->deliver(10, 'Re: [LOC-2027-0042]', from: 'quelquun@ailleurs.example');
         $this->sync();
 
-        $this->assertSame(0, $this->countRentalAssociations(), 'La référence seule a suffi à rattacher.');
+        $this->assertSame(0, $this->countRentalAssociations(), 'the reference alone was enough to file the message');
         $this->assertSame([], $this->communicationService->timeline($booking));
 
         // Nothing is lost: the message is kept and named, one click from

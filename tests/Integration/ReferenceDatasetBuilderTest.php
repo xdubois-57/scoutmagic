@@ -91,7 +91,7 @@ final class ReferenceDatasetBuilderTest extends TestCase
         $counts = $seeder->seed();
 
         self::assertSame(count(BankBlueprint::ACCOUNTS), $counts['accounts']);
-        self::assertGreaterThan(100, $counts['imported'], 'Le jeu de données a perdu des mouvements.');
+        self::assertGreaterThan(100, $counts['imported'], 'the dataset lost transactions');
 
         // Two accounts, two later years, three repeated lines each: the
         // overlap between successive files, recognised rather than re-imported.
@@ -139,7 +139,7 @@ final class ReferenceDatasetBuilderTest extends TestCase
         $seeder->seed();
 
         $categories = (int) ($this->pdo->query('SELECT COUNT(*) AS n FROM finance_categories')?->fetch()['n'] ?? 0);
-        self::assertGreaterThanOrEqual(10, $categories, 'Les catégories par défaut n\'ont pas été semées.');
+        self::assertGreaterThanOrEqual(10, $categories, 'the default categories were not seeded');
 
         $total = (int) ($this->pdo->query('SELECT COUNT(*) AS n FROM finance_transactions')?->fetch()['n'] ?? 0);
         $categorised = (int) ($this->pdo->query(
@@ -204,7 +204,7 @@ final class ReferenceDatasetBuilderTest extends TestCase
 
         self::assertSame(2, $counts['décalages d\'année']);
         self::assertSame(count(ExtrasBlueprint::DEPARTURES), $counts['départs marqués']);
-        self::assertGreaterThan(30, $counts['photos de membres'], 'Les portraits ne sont plus attribués.');
+        self::assertGreaterThan(30, $counts['photos de membres'], 'portraits are no longer assigned');
         self::assertSame(count(PhotoLot::GROUP_PHOTOS, COUNT_RECURSIVE) - count(PhotoLot::GROUP_PHOTOS), $counts['photos de groupe']);
     }
 
@@ -289,18 +289,18 @@ final class ReferenceDatasetBuilderTest extends TestCase
         )?->fetch()['n'] ?? 0);
 
         self::assertGreaterThan(30, $memberPhotos);
-        self::assertSame($memberPhotos, $memberFiles, 'Chaque photo de membre doit avoir sa ligne files.');
+        self::assertSame($memberPhotos, $memberFiles, 'every member photo must have its files row');
         self::assertGreaterThan(0, $sectionPhotos);
 
         $derivatives = glob($this->storagePath . '/core/member_photos/*.thumb.webp') ?: [];
-        self::assertCount($memberPhotos, $derivatives, 'Chaque portrait doit avoir sa vignette.');
+        self::assertCount($memberPhotos, $derivatives, 'every portrait must have its thumbnail');
 
         $stored = glob($this->storagePath . '/core/section_photos/*') ?: [];
         $stored = array_values(array_filter($stored, static fn (string $p): bool => !str_contains($p, '.md.webp')));
         self::assertNotEmpty($stored);
         $size = getimagesize($stored[0]);
         self::assertNotFalse($size);
-        self::assertEqualsWithDelta(4 / 3, $size[0] / $size[1], 0.01, 'Une photo de groupe n\'a pas été recadrée en 4:3.');
+        self::assertEqualsWithDelta(4 / 3, $size[0] / $size[1], 0.01, 'a group photo was not cropped to 4:3');
     }
 
     public function testAReceivableExistsForEveryStructuredCommunication(): void
@@ -341,7 +341,7 @@ final class ReferenceDatasetBuilderTest extends TestCase
             self::assertSame(0, $result['counts'][$label] ?? null, "Le compteur « {$label} » devrait être à zéro.");
             self::assertSame($module, $result['skipped'][$label] ?? null, "Le saut de « {$label} » n'est pas signalé.");
         }
-        self::assertGreaterThan(0, $result['counts']['créances attendues'], 'Les modules présents doivent, eux, être traités.');
+        self::assertGreaterThan(0, $result['counts']['créances attendues'], 'the modules that ARE present must be processed');
         self::assertArrayNotHasKey('créances attendues', $result['skipped']);
     }
 
@@ -369,7 +369,7 @@ final class ReferenceDatasetBuilderTest extends TestCase
         $this->replayDesk();
         $this->seedConfigurationRows();
 
-        self::assertGreaterThan(0, $this->rowsIn('members'), 'Le test part déjà d\'une base vide.');
+        self::assertGreaterThan(0, $this->rowsIn('members'), 'the test already starts from an empty database');
 
         $result = (new InstanceReset(
             Connection::withPdo($this->pdo),
@@ -377,7 +377,7 @@ final class ReferenceDatasetBuilderTest extends TestCase
             dirname($this->storagePath),
         ))->run(false);
 
-        self::assertSame(0, $this->rowsIn('members'), 'Le vidage a laissé des membres derrière lui.');
+        self::assertSame(0, $this->rowsIn('members'), 'the wipe left members behind');
         self::assertSame(0, $this->rowsIn('member_years'));
         self::assertSame(0, $this->rowsIn('sections'));
         self::assertSame(0, $this->rowsIn('user_accounts'));
@@ -392,7 +392,7 @@ final class ReferenceDatasetBuilderTest extends TestCase
         );
 
         self::assertNull($result['backupPath']);
-        self::assertNotNull($result['backupError'], 'Une sauvegarde sautée doit être dite, pas passée sous silence.');
+        self::assertNotNull($result['backupError'], 'a skipped backup must be said out loud, never passed over in silence');
         self::assertGreaterThan(0, $result['tables']);
     }
 
@@ -506,12 +506,12 @@ final class ReferenceDatasetBuilderTest extends TestCase
 
         try {
             $reset->run(true);
-            self::fail('Un dump de sécurité en échec doit interrompre la réinitialisation.');
+            self::fail('a failed safety dump must stop the reset');
         } catch (\RuntimeException $exception) {
             self::assertStringContainsString('--no-backup', $exception->getMessage());
         }
 
-        self::assertSame($before, $this->rowsIn('members'), 'Des lignes ont été perdues malgré l\'échec du dump.');
+        self::assertSame($before, $this->rowsIn('members'), 'rows were lost although the dump failed');
     }
 
     private function rowsIn(string $table): int

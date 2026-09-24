@@ -74,7 +74,7 @@ final class ReferenceDatasetNewsAccessTest extends TestCase
             $covers++;
         }
 
-        self::assertSame(count(NewsBlueprint::ARTICLES), $covers, 'Le jeu de référence a changé de taille.');
+        self::assertSame(count(NewsBlueprint::ARTICLES), $covers, 'the reference dataset changed size');
     }
 
     /**
@@ -114,7 +114,7 @@ final class ReferenceDatasetNewsAccessTest extends TestCase
             $bodyImages++;
         }
 
-        self::assertGreaterThan(0, $bodyImages, 'Aucune image de corps : le test ne prouve plus rien.');
+        self::assertGreaterThan(0, $bodyImages, 'no body image: the test no longer proves anything');
     }
 
     private function seed(): void

@@ -178,10 +178,10 @@ final class ReferenceDatasetImportTest extends TestCase
         // annual snapshot and simply does not exist for a year they were not
         // in. Losing the members row would break the Tiers continuity every
         // other scenario depends on.
-        self::assertNotNull($this->memberIdOf('T0008'), 'La ligne members de T0008 a disparu.');
+        self::assertNotNull($this->memberIdOf('T0008'), 'the members row for T0008 is gone');
 
         self::assertNotNull($this->memberYearIdOf('T0008', '2024-2025'));
-        self::assertNull($this->memberYearIdOf('T0008', '2025-2026'), 'T0008 a un member_years en A2 alors qu\'il est parti.');
+        self::assertNull($this->memberYearIdOf('T0008', '2025-2026'), 'T0008 has a member_years in A2 although they left');
         self::assertNull($this->memberYearIdOf('T0008', '2026-2027'));
     }
 
@@ -225,11 +225,11 @@ final class ReferenceDatasetImportTest extends TestCase
              WHERE m.desk_id = ? AND my.scout_year_id = ?'
         );
         $stmt->execute(['T0009', $yearIds['2025-2026']]);
-        self::assertFalse($stmt->fetch(), 'T0009 doit rester absent de A2.');
+        self::assertFalse($stmt->fetch(), 'T0009 must stay absent from A2');
 
         $stmt->execute(['T0009', $yearIds['2026-2027']]);
         $lastYearRow = $stmt->fetch();
-        self::assertNotFalse($lastYearRow, 'T0009 devrait être revenu en A3.');
+        self::assertNotFalse($lastYearRow, 'T0009 should have come back in A3');
         self::assertSame(
             1,
             (int) $lastYearRow['scout_year_offset'],
@@ -259,8 +259,8 @@ final class ReferenceDatasetImportTest extends TestCase
         // is left inactive, never dropped.
         $row = $this->sectionRow('Iama Horizon');
 
-        self::assertNotNull($row, 'La section vidée a été supprimée au lieu d\'être désactivée.');
-        self::assertSame(0, (int) $row['is_active'], 'Iama Horizon devrait être inactive après l\'import de A3.');
+        self::assertNotNull($row, 'the emptied section was deleted instead of being deactivated');
+        self::assertSame(0, (int) $row['is_active'], 'Iama Horizon should be inactive after the A3 import');
     }
 
     public function testTheSectionThatOnlyExistsFromA2Exists(): void
@@ -269,7 +269,7 @@ final class ReferenceDatasetImportTest extends TestCase
         // it: created late is not the same thing as emptied.
         $row = $this->sectionRow('Ribambelle Verte');
 
-        self::assertNotNull($row, 'La section apparue en A2 n\'a pas été créée.');
+        self::assertNotNull($row, 'the section that appeared in A2 was not created');
         self::assertSame(1, (int) $row['is_active']);
         self::assertSame(0, $this->countInSection('2024-2025', 'Ribambelle Verte', ['Animé']));
         self::assertGreaterThan(0, $this->countInSection('2025-2026', 'Ribambelle Verte', ['Animé']));
@@ -302,7 +302,7 @@ final class ReferenceDatasetImportTest extends TestCase
         // import can never know a ROLE: the membership only appears once
         // Correspondances Desk confirms "Chef d'unité" as admin.
         $section = $this->sectionRow(null, UnitStaffSectionService::DESK_CODE);
-        self::assertNotNull($section, 'La section Staff d\'U n\'a pas été créée.');
+        self::assertNotNull($section, 'the Staff d\'U section was not created');
 
         self::assertSame(
             0,
@@ -340,7 +340,7 @@ final class ReferenceDatasetImportTest extends TestCase
         $stmt->execute([UnitBlueprint::BRAND_NEW_FUNCTION]);
         $row = $stmt->fetch();
 
-        self::assertNotFalse($row, 'La fonction inédite de A3 n\'a pas été créée.');
+        self::assertNotFalse($row, 'the function new in A3 was not created');
         self::assertSame('identified', (string) $row['role']);
 
         // And it STAYS unconfirmed after Correspondances Desk is replayed, because it
@@ -476,8 +476,8 @@ final class ReferenceDatasetImportTest extends TestCase
         }
 
         self::assertNotNull($indexes['T0020']);
-        self::assertSame($indexes['T0020'], $indexes['T0021'], 'Deux membres d\'une même fratrie ont des foyers différents.');
-        self::assertSame($indexes['T0020'], $indexes['T0022'], 'Le troisième enfant n\'a pas rejoint le foyer.');
+        self::assertSame($indexes['T0020'], $indexes['T0021'], 'two members of the same sibling group have different households');
+        self::assertSame($indexes['T0020'], $indexes['T0022'], 'the third child did not join the household');
     }
 
     public function testTheHouseholdShrinksWhenAChildLeaves(): void
@@ -513,7 +513,7 @@ final class ReferenceDatasetImportTest extends TestCase
         self::assertSame(['Adresse secondaire', 'Domicile'], $types);
 
         $functions = $this->functionRowsOf('T0026', '2024-2025');
-        self::assertCount(1, $functions, 'Les deux lignes du CSV ne décrivent qu\'une fonction.');
+        self::assertCount(1, $functions, 'the two CSV lines describe only one function');
         self::assertSame('Animé', (string) $functions[0]['desk_code']);
 
         // A section now holds exactly as many member_functions rows as it
@@ -522,7 +522,7 @@ final class ReferenceDatasetImportTest extends TestCase
         $distinct = $this->countInSection('2024-2025', 'Troupe du Faucon', ['Animé']);
         $rows = $this->countFunctionRowsInSection('2024-2025', 'Troupe du Faucon', ['Animé']);
 
-        self::assertSame($rows, $distinct, 'Un doublon de fonction est réapparu dans le jeu de données.');
+        self::assertSame($rows, $distinct, 'a duplicate function reappeared in the dataset');
         self::assertSame(
             UnitBlueprint::HEADCOUNT['2024-2025']['ecl1'][0],
             $distinct,

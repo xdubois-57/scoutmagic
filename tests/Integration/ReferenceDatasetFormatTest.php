@@ -327,8 +327,8 @@ final class ReferenceDatasetFormatTest extends TestCase
         self::assertNotEmpty($lines, "Le relevé {$year}/{$account} ne contient aucune ligne exploitable.");
 
         foreach ($lines as $line) {
-            self::assertNotSame('', $line->bankReference, 'Une ligne sans REFERENCE BANQUE ne peut pas être dédupliquée.');
-            self::assertNotSame('', $line->label, 'Une ligne sans libellé ne montre rien à un trésorier.');
+            self::assertNotSame('', $line->bankReference, 'a line with no REFERENCE BANQUE cannot be deduplicated');
+            self::assertNotSame('', $line->label, 'a line with no label shows a treasurer nothing');
         }
     }
 
@@ -343,8 +343,8 @@ final class ReferenceDatasetFormatTest extends TestCase
         $last = new \DateTimeImmutable((UnitBlueprint::referenceYear($lastYear) + 1) . '-08-31');
 
         foreach ((new BnpParser())->parse(self::datasetRoot() . '/' . BankBlueprint::fileFor($year, $account)) as $line) {
-            self::assertGreaterThanOrEqual($first, $line->transactionDate, 'Ligne antérieure au premier exercice du jeu de données.');
-            self::assertLessThanOrEqual($last, $line->transactionDate, 'Ligne postérieure au dernier exercice du jeu de données.');
+            self::assertGreaterThanOrEqual($first, $line->transactionDate, 'a line earlier than the first fiscal year of the dataset');
+            self::assertLessThanOrEqual($last, $line->transactionDate, 'a line later than the last fiscal year of the dataset');
         }
     }
 
@@ -400,9 +400,9 @@ final class ReferenceDatasetFormatTest extends TestCase
             $amounts[] = $line->amount;
         }
 
-        self::assertContains(1284.50, $amounts, 'Le montant à séparateur de milliers (1.284,50) a disparu ou est mal lu.');
-        self::assertContains(-35.98, $amounts, 'Le montant en décimale pointée (-35.98) a disparu ou est lu comme -3598.');
-        self::assertNotContains(-3598.0, $amounts, 'La décimale pointée a été lue comme un séparateur de milliers.');
+        self::assertContains(1284.50, $amounts, 'the amount with a thousands separator (1.284,50) is gone, or is misread');
+        self::assertContains(-35.98, $amounts, 'the amount with a dotted decimal (-35.98) is gone, or is read as -3598');
+        self::assertNotContains(-3598.0, $amounts, 'the dotted decimal was read as a thousands separator');
     }
 
     public function testTheRefusedLineNeverReachesTheImport(): void
@@ -411,10 +411,10 @@ final class ReferenceDatasetFormatTest extends TestCase
         // account. It must be in the file and absent from the parse.
         $path = self::datasetRoot() . '/' . BankBlueprint::fileFor(UnitBlueprint::YEARS[0], 'unite');
 
-        self::assertStringContainsString('Refusé', (string) file_get_contents($path), 'Le relevé ne contient plus de ligne refusée.');
+        self::assertStringContainsString('Refusé', (string) file_get_contents($path), 'the statement no longer holds a rejected line');
 
         foreach ((new BnpParser())->parse($path) as $line) {
-            self::assertNotSame(-142.60, $line->amount, 'La ligne refusée a été importée.');
+            self::assertNotSame(-142.60, $line->amount, 'the rejected line was imported');
         }
     }
 
@@ -428,8 +428,8 @@ final class ReferenceDatasetFormatTest extends TestCase
         $out = $this->findLineByAmount($parser->parse(self::datasetRoot() . '/' . BankBlueprint::fileFor($year, 'unite')), -1500.00);
         $in = $this->findLineByAmount($parser->parse(self::datasetRoot() . '/' . BankBlueprint::fileFor($year, 'camps')), 1500.00);
 
-        self::assertNotNull($out, 'Le débit du virement interne a disparu.');
-        self::assertNotNull($in, 'Le crédit du virement interne a disparu.');
+        self::assertNotNull($out, 'the debit of the internal transfer is gone');
+        self::assertNotNull($in, 'the credit of the internal transfer is gone');
         self::assertSame($out->transactionDate->format('Y-m-d'), $in->transactionDate->format('Y-m-d'));
         self::assertSame(BankBlueprint::compactIban(BankBlueprint::ACCOUNTS['camps']['iban']), $out->counterpartyAccount);
         self::assertSame(BankBlueprint::compactIban(BankBlueprint::ACCOUNTS['unite']['iban']), $in->counterpartyAccount);

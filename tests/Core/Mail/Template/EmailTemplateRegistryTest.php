@@ -56,7 +56,7 @@ class EmailTemplateRegistryTest extends TestCase
         self::assertSame(
             array_values(array_unique($ids)),
             $ids,
-            'Deux gabarits partagent le même identifiant.'
+            'two templates share the same identifier'
         );
     }
 
@@ -111,7 +111,7 @@ class EmailTemplateRegistryTest extends TestCase
     {
         $grouped = $this->registryWithEveryModule()->groupedByModule();
 
-        self::assertArrayHasKey('', $grouped, 'Les gabarits core doivent former un groupe.');
+        self::assertArrayHasKey('', $grouped, 'the core templates must form a group');
         self::assertArrayHasKey('rental', $grouped);
         self::assertCount(6, $grouped['rental']);
     }
