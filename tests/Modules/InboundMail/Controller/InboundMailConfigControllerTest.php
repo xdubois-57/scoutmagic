@@ -292,6 +292,82 @@ class InboundMailConfigControllerTest extends TestCase
         $this->assertSame(1, $this->conflictEntries());
     }
 
+    /**
+     * Enabling a box is a change like a scope save: turning on a second box
+     * dedicated to a module journals the conflict, and switching an
+     * unrelated box on and off afterwards does not write it again.
+     */
+    public function testEnablingASecondDedicatedBoxJournalsTheConflictOnce(): void
+    {
+        $this->post(['purpose' => MailboxPurpose::DEDICATED->value, 'dedicated_to' => 'rental']);
+        $chalet = $this->disabledBoxDedicatedTo('rental', 'Boîte du chalet');
+        $unrelated = $this->disabledBoxDedicatedTo('camps', 'Boîte des camps');
+        $this->assertSame(0, $this->conflictEntries());
+
+        $this->toggle($chalet, true);
+        $this->assertSame(1, $this->conflictEntries());
+
+        $this->toggle($unrelated, true);
+        $this->toggle($unrelated, false);
+        $this->assertSame(1, $this->conflictEntries());
+    }
+
+    /**
+     * The edit form carries « activée » as well, so re-enabling a box from
+     * there is the same change and is journaled the same way.
+     */
+    public function testEnablingASecondDedicatedBoxFromItsEditFormJournalsTheConflict(): void
+    {
+        $this->post(['purpose' => MailboxPurpose::DEDICATED->value, 'dedicated_to' => 'rental']);
+        $chalet = $this->disabledBoxDedicatedTo('rental', 'Boîte du chalet');
+
+        $this->controller->save(new Request('POST', '/config/courrier-entrant/boites', [], [
+            '_csrf_token' => $this->token(),
+            'id' => (string) $chalet,
+            'name' => 'Boîte du chalet',
+            'host' => 'imap.test',
+            'port' => '993',
+            'encryption' => 'ssl',
+            'username' => 'chalet@unite.be',
+            'folders' => 'INBOX',
+            'is_enabled' => '1',
+        ], [], []), []);
+
+        $this->assertTrue($this->mailboxes->findById($chalet)?->isEnabled);
+        $this->assertSame(1, $this->conflictEntries());
+    }
+
+    private function disabledBoxDedicatedTo(string $consumerId, string $name): int
+    {
+        $id = $this->mailboxes->create(
+            $name,
+            ProviderType::IMAP,
+            'imap.test',
+            993,
+            'ssl',
+            strtolower(str_replace(' ', '.', $name)) . '@unite.be',
+            'secret',
+            ['INBOX'],
+            false
+        );
+        $this->mailboxes->setPurpose($id, MailboxPurpose::DEDICATED, $consumerId);
+
+        return $id;
+    }
+
+    private function toggle(int $mailboxId, bool $enable): void
+    {
+        $body = ['_csrf_token' => $this->token()];
+        if ($enable) {
+            $body['enable'] = '1';
+        }
+
+        $this->controller->toggle(
+            new Request('POST', '/config/courrier-entrant/boites/' . $mailboxId . '/activation', [], $body, [], []),
+            ['id' => (string) $mailboxId]
+        );
+    }
+
     public function testOneDedicatedBoxPerModuleIsNoConflict(): void
     {
         $this->post(['purpose' => MailboxPurpose::DEDICATED->value, 'dedicated_to' => 'rental']);

@@ -379,6 +379,9 @@ class InboundMailConfigController extends AbstractController
         }
 
         if ($id > 0) {
+            // The edit form carries « activée » too: re-enabling a box here
+            // can create a conflict as surely as the toggle can.
+            $conflictsBefore = $this->adminService->dedicationConflicts();
             $this->adminService->update(
                 $id,
                 $name,
@@ -398,6 +401,7 @@ class InboundMailConfigController extends AbstractController
                 ['mailbox_id' => $id]
             );
             FlashMessage::set('success', 'Boîte mise à jour.');
+            $this->journalNewDedicationConflicts($conflictsBefore);
 
             return $this->redirect('/config/courrier-entrant');
         }
