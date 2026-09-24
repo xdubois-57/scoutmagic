@@ -108,3 +108,71 @@ et le message quand rien ne correspond.
    que d'en écrire une quatrième copie.
 5. **Aucun consommateur dans cette itération**, conformément au document :
    le composant naît seul.
+
+---
+
+## IT-02 — Le géocodage et la carte, dans le cœur
+
+**Livré.** `Core\Geo` : `GeocodingService` et `MapTiles` déplacés depuis
+`modules/camps/src/Service/`, plus `GeoPoint` (le couple de coordonnées,
+avec l'analyse de ce qu'un formulaire a porté), `GeoPointException` et
+`GeoPointStore` (le verrou manuel). `public/assets/js/map.js`
+(`window.ScoutMagicMap`) porte l'hôte des tuiles, l'attribution et la vue
+par défaut ; `camps-map.js` n'y garde que ce qui est propre à la liste des
+camps (épingles, fiches, repli mémorisé) et dessine au travers. Le CSP lit
+`$mapTileOrigin` (anciennement `$campsMapTileOrigin`). `camps` consomme le
+cœur : son dépôt écrit les colonnes de point par `GeoPointStore`, son
+service de lieux analyse les coordonnées par `GeoPoint`, sa tâche appelle
+le géocodeur du cœur. Version de `camps` montée à 1.17.0. Documentation :
+`ARCHITECTURE.md` §8.119 (et §8.67 mis à jour), `docs/module-development.md`
+§ Placing something on a map.
+
+**Les trois avertissements reportés tels quels** : le fournisseur de tuiles
+nommé une seule fois (docblocks de `MapTiles` et de `map.js`, test d'accord
+PHP/JavaScript déplacé en `Tests\Core\Geo\MapTilesTest`), le verrou manuel
+jamais effacé (docblock de `GeoPointStore`, clause `AND
+coordinates_are_manual = 0` dans chaque écriture automatique), et une
+requête par seconde exprimée par la forme de la tâche (docblock de
+`GeocodingService`, la tâche de `camps` restant la référence).
+
+**Tests.** `Tests\Core\Geo\GeoPointStoreTest` (point manuel jamais écrasé,
+échec de géocodage horodaté sans effacer le point existant, changement
+d'adresse qui retire le point automatique de l'ancienne, point retiré à
+la main qui reste verrouillé, copie qui ne déverrouille jamais, nom de
+table contrôlé), `GeoPointTest` (analyse et refus), `MapTilesTest` déplacé
+et étendu (aucun autre script ne nomme l'hôte des tuiles),
+`CampsMapStorageTest` (la clé de stockage du repli, restée dans `camps`),
+`tests/js/map.test.js`, et dans `camps` un nouveau cas « un échec après un
+changement d'adresse ne laisse aucun point périmé » ; « un point manuel survit à un
+changement d'adresse » existait déjà et passe inchangé.
+
+**Décisions autonomes.**
+
+1. **Les quatre colonnes restent dans `camp_places`.** Le document demande
+   que `camps` « ne déclare plus rien » du couple coordonnées + verrou
+   manuel. Le schéma de ce dépôt est déclaratif et n'a aucun mécanisme pour
+   déplacer des données d'une table à une autre : une table de points
+   partagée dans `schema/core.sql` aurait fait perdre à chaque installation
+   les points posés à la main — exactement ce que le verrou protège. Ce qui
+   a quitté `camps`, c'est la **règle** : les colonnes suivent une
+   convention de nom fixée par le cœur, et toute écriture qui pourrait la
+   violer passe par `GeoPointStore`. C'est un écart assumé avec la lettre du
+   document.
+2. **Un échec de géocodage n'efface plus un point automatique existant.**
+   Avant, `recordGeocoding(null, null)` écrivait `NULL` dans les
+   coordonnées. Le document demande le contraire (« sans écraser un point
+   existant ») ; c'est désormais `COALESCE` dans le cœur. En revanche, **un
+   changement d'adresse retire le point automatique trouvé pour
+   l'ancienne** (`forgetGeocoding()`) : gardé, il aurait survécu à l'échec
+   du géocodage de la nouvelle adresse et serait resté sur la carte,
+   horodaté comme traité, au mauvais endroit (relevé à la relecture de la
+   PR). Un point manuel, lui, reste en place.
+3. **Une copie de point (fusion de lieux) ne déverrouille jamais une ligne
+   manuelle**, là où l'ancien code réécrivait le drapeau tel quel. Le cas
+   réel était marginal (un lieu cible sans point mais verrouillé), mais
+   « jamais effacé » ne souffre pas d'exception.
+4. **L'en-tête `User-Agent` devient `ScoutMagic/1.0`** au lieu de
+   `ScoutMagic-Camps/1.0` : c'est désormais le client de tout le site.
+5. **Les messages de refus des coordonnées** sont ceux de `camps`, repris
+   mot pour mot dans `GeoPoint::fromInput()` ; le contrôleur de `camps`
+   attrape `GeoPointException` à côté de `CampsException`.

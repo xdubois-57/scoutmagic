@@ -6,13 +6,17 @@
 
 declare(strict_types=1);
 
-namespace Modules\Camps\Service;
-
-use Modules\Camps\Support;
+namespace Core\Geo;
 
 /**
- * Turns a place's address into a point, using Nominatim
- * (OpenStreetMap) — free, no key, no account.
+ * Turns an address into a point, using Nominatim (OpenStreetMap) — free,
+ * no key, no account.
+ *
+ * Born in the camps module for its places, moved to the core when the
+ * carpool module needed the same thing (docs/chantiers/covoiturage.md,
+ * IT-02): an optional module cannot be a hard dependency of another, and
+ * with two consumers the house rule is extraction. Every consumer shares
+ * this one client and therefore the one User-Agent Nominatim sees.
  *
  * Same outbound-HTTP approach as Core\Maintenance\GitHubReleaseClient:
  * file_get_contents() over a stream context, no new Composer dependency
@@ -20,12 +24,12 @@ use Modules\Camps\Support;
  *
  * Nominatim's usage policy requires an identifying User-Agent and at most
  * ONE request per second. Core\Scheduler has no rate limiting, so the
- * rate limit is expressed as a shape instead: Task\GeocodePlacesHandler
- * geocodes exactly one place per run and re-schedules itself when more
- * are pending, the same way Core\Maintenance\Task\AutoBackupHandler
- * paces itself. On a site without a real cron this is slow; that is
- * acceptable, because coordinates are a convenience and typing them by
- * hand always works.
+ * rate limit is expressed as a shape instead: a consumer's task geocodes
+ * exactly one row per run and re-schedules itself when more are pending
+ * (the camps module's place geocoding task is the reference shape), the
+ * same way Core\Maintenance\Task\AutoBackupHandler paces itself. On a
+ * site without a real cron this is slow; that is acceptable, because
+ * coordinates are a convenience and typing them by hand always works.
  *
  * NEVER called from a web request. An outbound HTTP call on a page load
  * makes the page as slow as the slowest third party, and this one is a
@@ -42,7 +46,7 @@ class GeocodingService
      * URL is the honest identifier — a generic string would name this
      * software, not the installation actually making the requests.
      */
-    private const USER_AGENT_PREFIX = 'ScoutMagic-Camps/1.0';
+    private const USER_AGENT_PREFIX = 'ScoutMagic/1.0';
 
     public function __construct(private string $contactUrl = '')
     {
@@ -94,20 +98,27 @@ class GeocodingService
      */
     private function buildQuery(?string $address, ?string $postalCode, ?string $city, ?string $country): ?string
     {
-        $city = Support::clean($city);
-        $postalCode = Support::clean($postalCode);
+        $city = self::clean($city);
+        $postalCode = self::clean($postalCode);
         if ($city === null && $postalCode === null) {
             return null;
         }
 
         $parts = array_values(array_filter([
-            Support::clean($address),
+            self::clean($address),
             $postalCode,
             $city,
-            Support::clean($country),
+            self::clean($country),
         ], static fn(?string $p): bool => $p !== null));
 
         return implode(', ', $parts);
+    }
+
+    private static function clean(?string $value): ?string
+    {
+        $value = $value !== null ? trim($value) : null;
+
+        return $value !== null && $value !== '' ? $value : null;
     }
 
     private function fetch(string $url): ?string

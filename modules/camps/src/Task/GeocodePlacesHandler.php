@@ -8,11 +8,11 @@ declare(strict_types=1);
 
 namespace Modules\Camps\Task;
 
+use Core\Geo\GeocodingService;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Modules\Camps\Repository\PlaceRepository;
-use Modules\Camps\Service\GeocodingService;
 
 /**
  * Geocodes exactly ONE place per run, then re-schedules itself when more
@@ -63,7 +63,8 @@ class GeocodePlacesHandler implements TaskHandlerInterface
         // Stamped either way. A failed lookup is a result: without it,
         // a place whose address means nothing to Nominatim would be
         // retried on every single run, for ever, and would block the
-        // queue behind it.
+        // queue behind it. The rule itself is the core's
+        // (Core\Geo\GeoPointStore): a failure never erases a point.
         $places->recordGeocoding(
             $place->id,
             $point['latitude'] ?? null,

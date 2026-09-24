@@ -10,6 +10,7 @@ namespace Modules\Camps\Service;
 
 use Core\Audit\AuditService;
 use Core\Audit\AuditSource;
+use Core\Geo\GeoPoint;
 use Modules\Camps\Repository\Place;
 use Modules\Camps\Repository\PlaceRepository;
 use Modules\Camps\Support;
@@ -131,22 +132,18 @@ class PlaceService
      */
     private function updateCoordinates(Place $place, array $fields, AuditSource $source, ?int $actorUserAccountId): void
     {
-        $latitude = $this->cleanCoordinate($fields['latitude'] ?? null, -90.0, 90.0, 'latitude');
-        $longitude = $this->cleanCoordinate($fields['longitude'] ?? null, -180.0, 180.0, 'longitude');
+        // The core parses and refuses (GeoPointException, user-facing):
+        // the same inputs are refused with the same sentences on every
+        // form that places something on the map.
+        $point = GeoPoint::fromInput($fields['latitude'] ?? null, $fields['longitude'] ?? null);
 
-        if (($latitude === null) !== ($longitude === null)) {
-            throw new CampsException(
-                'Indiquez la latitude ET la longitude, ou laissez les deux vides — un point a besoin des deux.'
-            );
-        }
-
-        $before = $this->coordinateLine($place->latitude, $place->longitude);
-        $after = $this->coordinateLine($latitude, $longitude);
+        $before = GeoPoint::fromColumns($place->latitude, $place->longitude)?->line();
+        $after = $point?->line();
         if ($before === $after) {
             return;
         }
 
-        $this->places->setManualCoordinates($place->id, $latitude, $longitude);
+        $this->places->setManualCoordinates($place->id, $point?->latitude, $point?->longitude);
         $this->audit->record(
             self::ENTITY_TYPE,
             $place->id,
@@ -158,33 +155,6 @@ class PlaceService
             null,
             $actorUserAccountId
         );
-    }
-
-    private function cleanCoordinate(?string $value, float $min, float $max, string $label): ?float
-    {
-        $value = $value !== null ? trim(str_replace(',', '.', $value)) : '';
-        if ($value === '') {
-            return null;
-        }
-        if (!is_numeric($value)) {
-            throw new CampsException("La {$label} doit être un nombre, par exemple 50.443210.");
-        }
-
-        $number = (float) $value;
-        if ($number < $min || $number > $max) {
-            throw new CampsException("La {$label} doit être comprise entre {$min} et {$max}.");
-        }
-
-        return $number;
-    }
-
-    private function coordinateLine(?float $latitude, ?float $longitude): ?string
-    {
-        if ($latitude === null || $longitude === null) {
-            return null;
-        }
-
-        return number_format($latitude, 6, '.', '') . ', ' . number_format($longitude, 6, '.', '');
     }
 
     /**

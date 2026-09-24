@@ -9843,7 +9843,9 @@ if ($isEnabled('camps')) {
     $fileOwnershipCheckers[] = new \Modules\Camps\Service\CampFileOwnershipChecker();
 
     // Read back at the very end of this file, when the response exists.
-    $campsMapTileOrigin = \Modules\Camps\Service\MapTiles::ORIGIN;
+    // The provider is the core's (Core\Geo\MapTiles); what this module
+    // decides is only that its pages draw a map.
+    $mapTileOrigin = \Core\Geo\MapTiles::ORIGIN;
 
     // Inbound mail. The mail-reading services below serve the WEB
     // controllers (« Créer un camp depuis ce message », field
@@ -11869,16 +11871,17 @@ try {
     // would write a journal line per page view.
 }
 
-// The camps map draws OpenStreetMap tiles, which are <img> from another
-// origin — the CSP's img-src has to name it or every tile is blocked and
-// the map is a grey box. Read from a variable the module's own wiring
-// block set, exactly like the gallery's S3 origin just above, rather than
-// re-testing getEnabledModuleIds() here: this is the response-building
-// tail, and a module-enabled test at this point reads as a per-module
-// wiring block that arrives long after FileAccessGuard was built
+// A map draws OpenStreetMap tiles, which are <img> from another origin —
+// the CSP's img-src has to name it or every tile is blocked and the map is
+// a grey box. Read from a variable set by the wiring block of whichever
+// module draws a map (camps today), exactly like the gallery's S3 origin
+// just above, rather than re-testing getEnabledModuleIds() here: this is
+// the response-building tail, and a module-enabled test at this point
+// reads as a per-module wiring block that arrives long after
+// FileAccessGuard was built
 // (Tests\Core\File\FileOwnershipCheckerWiringTest).
-if (isset($campsMapTileOrigin)) {
-    $response->addImgSrcOrigin($campsMapTileOrigin);
+if (isset($mapTileOrigin)) {
+    $response->addImgSrcOrigin($mapTileOrigin);
 }
 
 // The account scope the SESSION SERVING THIS RESPONSE is in — the same
