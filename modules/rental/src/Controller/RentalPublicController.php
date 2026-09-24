@@ -357,7 +357,7 @@ class RentalPublicController extends AbstractController
      * Runs through the very same engine as the configuration simulator and
      * the contract. When something needed is still missing — no head count
      * yet, no category chosen — the quote reports it and the template says
-     * "dès X €" rather than a number it would have to walk back (specifications.md §22.2).
+     * "dès X €" rather than a number it would have to walk back (specifications.md §22.4).
      *
      * @param array{0: string, 1: string|null}|null $selection
      * @return array{quote: \Modules\Rental\Pricing\PriceQuote, errors: string[]}|null

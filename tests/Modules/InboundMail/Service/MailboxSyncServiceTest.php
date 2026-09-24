@@ -605,7 +605,7 @@ class MailboxSyncServiceTest extends TestCase
         $this->assertContains('disconnect', $this->client->calls);
     }
 
-    // ── Failures (§8.6) ─────────────────────────────────────────────────
+    // ── Failures (ARCHITECTURE.md §8.58) ────────────────────────────────
 
     public function testATlsFailureIsRecordedInPlainLanguageAndNeverSwallowed(): void
     {

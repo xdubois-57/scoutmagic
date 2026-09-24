@@ -113,7 +113,9 @@ final class BounceConsumer implements MessageConsumerInterface
     public function triageAudienceCount(): int
     {
         // Nobody is shown these messages. Inflating the figure would make
-        // every other consumer's count read as noise (§8.6).
+        // every other consumer's count read as noise — the rule is on
+        // MessageConsumerInterface::triageAudienceCount(), which is where
+        // it says why the figure has to be exact or is worse than absent.
         return 0;
     }
 }

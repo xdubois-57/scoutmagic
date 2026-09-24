@@ -1023,6 +1023,8 @@ An asset is let either **by night** (a hall: the departure day is free again for
 
 Money is integers in cents, everywhere. A quote is built from the asset's own tariff — per person per night, per night, per stay, per unit — plus fees and taxes, with a billable minimum and per-renter-category rates. The billing unit is asked at the asset's creation (with a suggestion following the asset type) because it decides the calendar, the price and the availability together; it stays editable with the rest of the tariff. **An asset with no configured rate answers "tarif sur demande"** — never a table adding up to 0,00 € — and the managed and admin spaces both flag it until somebody fills the tariff in. Three amounts never mix: the **estimate** the visitor was shown, the **agreed** price the unit negotiated, and what has actually been **received**. The estimate is frozen at submission and never rewritten, precisely so a later negotiation cannot rewrite what somebody was told.
 
+**An estimate still missing something is presented as « dès X € », never as a total.** No head count yet, no renter category chosen: what can be computed is a floor, and saying so is what keeps the site from quoting a figure it would have to walk back once the missing piece arrives. A complete estimate says « Total estimé ».
+
 A line a manager edited by hand is never re-priced, in either direction. When the head count falls below the billable minimum the line says so out loud — « 25 pers. (minimum) » — rather than quietly quoting for more people than are coming.
 
 **No VAT is ever computed.** Prices are what the renter pays, with a per-asset exemption note.

@@ -47,10 +47,48 @@ use PHPUnit\Framework\TestCase;
  *
  * The first batch is done: `§7.9` (64) now points at §8.6 and §8.58, and
  * `§6.7`/`§6.14` (62) at `specifications.md` §22.2 and §22.5.
+ *
+ * WHAT IT LOOKS AT, AND WHY EACH PART IS NEEDED
+ *
+ * The source trees **and the documentation**. Leaving the documents out
+ * while claiming to cover every citation in the repository was the same
+ * defect one level up: they cite each other constantly, and `§8.6bis` —
+ * quoted inside `ARCHITECTURE.md` itself, resolving nowhere — is what the
+ * scan found the moment it looked there.
+ *
+ * A citation that **names a document** is answered by that document or by
+ * nothing. Merged into one map, `ARCHITECTURE.md §22.2` resolved against
+ * `specifications.md`: a reader sent somewhere real and still wrong, which
+ * is the exact failure this file exists to catch. That is how
+ * `specifications.md §8.47` was found on `VolumeUsage`: §8.47 is real,
+ * and it is `ARCHITECTURE.md`'s.
+ *
+ * A citation naming a file that is **not** one of the documents —
+ * « `core/View/rgpd_default.html` §2.12 » — is out of scope: it sends the
+ * reader to that file, whose numbering is its own.
+ *
+ * A **bare** number resolves against any document, and additionally
+ * against the file it is written in when that file is Markdown. The
+ * chantier documents number their own preamble and quote it constantly
+ * (« relève de §0.1 »), and a self-reference is exactly the citation a
+ * reader has no trouble following.
+ *
+ * The **suffix is part of the number**. `§8.6bis` and `§8.6` are two
+ * sections; dropping the suffix on one side and stopping before it on the
+ * other made either satisfy the other.
  */
 class CrossReferenceResolutionRatchetTest extends TestCase
 {
-    /** @var list<string> */
+    /**
+     * The documents a citation can name.
+     *
+     * Matched by BASENAME, because that is how they are cited: nobody
+     * writes the path. The reference dataset's own README is here for that
+     * reason — `tests/` cites « README.md §8.2 » meaning that one, and the
+     * repository's root README has no §8.2.
+     *
+     * @var list<string>
+     */
     private const DOCUMENTS = [
         'ARCHITECTURE.md',
         'specifications.md',
@@ -59,6 +97,7 @@ class CrossReferenceResolutionRatchetTest extends TestCase
         'README.md',
         'AGENTS.md',
         'CONTRIBUTING.md',
+        'tests/fixtures/reference-dataset/README.md',
     ];
 
     /** @var list<string> */
@@ -88,8 +127,14 @@ class CrossReferenceResolutionRatchetTest extends TestCase
         '11.9', '11.10',
         // sos_staff's.
         '2.7',
-        // RFC 7489, named a line above the number.
-        '6.6.2',
+        // Two external standards whose name sits a line above the number
+        // rather than beside it, so the strip below cannot see it:
+        // RFC 7489 §6.6.2, and RFC 7208 §4.6.4.
+        '6.6.2', '4.6.4',
+        // A chantier journal quoting the numbering of the brief it was
+        // handed — a document that was never committed, and whose own
+        // §0.7 the entry is reporting a divergence from.
+        '0.7',
     ];
 
     /**
@@ -97,8 +142,14 @@ class CrossReferenceResolutionRatchetTest extends TestCase
      * than an exact count: the point is that they must not spread, and a
      * reference deleted alongside the code that carried it is not a
      * regression to report.
+     *
+     * It moved from 580 to 584 when the scan was widened to the
+     * documentation — those four were always there and were simply not
+     * being looked at. A ceiling that rises because the measurement got
+     * honest is not the same event as one that rises because a comment was
+     * copied, and only the second is what this number guards.
      */
-    private const OCCURRENCE_CEILING = 580;
+    private const OCCURRENCE_CEILING = 584;
 
     public function testNoNewCrossReferencePointsAtASectionThatDoesNotExist(): void
     {
@@ -107,14 +158,28 @@ class CrossReferenceResolutionRatchetTest extends TestCase
         $occurrences = 0;
         $examples = [];
 
-        foreach ($this->citations() as [$number, $where]) {
-            if (isset($sections[$number])) {
-                continue;
+        foreach ($this->citations() as [$number, $where, $document, $ownPath]) {
+            // A citation naming a document is answered by that document, or
+            // by nothing.
+            if ($document !== '') {
+                if (isset($sections[$document][$number])) {
+                    continue;
+                }
+            } else {
+                // Naming none, it is asking "anywhere" — and inside a
+                // Markdown file its own headings are part of anywhere.
+                if (isset($sections[''][$number])) {
+                    continue;
+                }
+                if ($ownPath !== '' && isset($this->headingsOf($ownPath)[$number])) {
+                    continue;
+                }
             }
 
-            $dangling[$number] = true;
+            $key = $document === '' ? $number : $document . ' §' . $number;
+            $dangling[$key] = true;
             $occurrences++;
-            $examples[$number] ??= $where;
+            $examples[$key] ??= $where;
         }
 
         $found = array_keys($dangling);
@@ -129,7 +194,11 @@ class CrossReferenceResolutionRatchetTest extends TestCase
             "A cross-reference must point at a section that exists — a reader who looks and\n"
             . "finds nothing concludes the rule is not written down.\n\n"
             . implode("\n", array_map(
-                static fn (string $n): string => sprintf('  §%s — first seen at %s', $n, $examples[$n]),
+                static fn (string $n): string => sprintf(
+                    '  %s — first seen at %s',
+                    str_contains($n, ' ') ? $n : '§' . $n,
+                    $examples[$n]
+                ),
                 $appeared
             ))
         );
@@ -149,26 +218,64 @@ class CrossReferenceResolutionRatchetTest extends TestCase
     }
 
     /**
-     * @return array<string, true> every `§N.M` a reader could be sent to
+     * The `### N.M` headings one file declares, suffix included.
+     *
+     * @return array<string, true>
+     */
+    private function headingsOf(string $path): array
+    {
+        static $cache = [];
+
+        if (isset($cache[$path])) {
+            return $cache[$path];
+        }
+
+        $headings = [];
+        preg_match_all(
+            '/^#{2,6}\\s*([0-9]+(?:\\.[0-9]+)*)(bis|ter|quater|quinquies)?[.)]?\\s/m',
+            is_file($path) ? (string) file_get_contents($path) : '',
+            $found,
+            PREG_SET_ORDER
+        );
+        foreach ($found as $heading) {
+            $headings[$heading[1] . ($heading[2] ?? '')] = true;
+        }
+
+        return $cache[$path] = $headings;
+    }
+
+    /**
+     * Every `§N.M` a reader could be sent to, **per document**.
+     *
+     * Per document and not merged, because a citation that names one —
+     * `ARCHITECTURE.md §22.2` — is answered by that document or by nothing:
+     * merging the headings into one map made it resolve against
+     * `specifications.md` §22.2, which is a reader sent somewhere real and
+     * still wrong. The empty key holds the union, for the citations that
+     * name no document and are therefore asking "anywhere".
+     *
+     * The suffix is part of the key. `§8.6bis` and `§8.6` are two
+     * sections, and dropping the suffix on one side and stopping before it
+     * on the other made either satisfy the other.
+     *
+     * @return array<string, array<string, true>> document (or '') => numbers
      */
     private function declaredSections(): array
     {
-        $sections = [];
+        $sections = ['' => []];
         $root = dirname(__DIR__, 2);
 
         foreach (self::DOCUMENTS as $document) {
             $path = $root . '/' . $document;
+            $basename = basename($document);
+            $sections[$basename] ??= [];
             if (!is_file($path)) {
                 continue;
             }
 
-            preg_match_all(
-                '/^#{2,6}\s*([0-9]+(?:\.[0-9]+)*)(?:bis|ter|quater|quinquies)?[.)]?\s/m',
-                (string) file_get_contents($path),
-                $found
-            );
-            foreach ($found[1] as $number) {
-                $sections[$number] = true;
+            foreach (array_keys($this->headingsOf($path)) as $number) {
+                $sections[$basename][$number] = true;
+                $sections[''][$number] = true;
             }
         }
 
@@ -176,46 +283,111 @@ class CrossReferenceResolutionRatchetTest extends TestCase
     }
 
     /**
-     * @return list<array{0: string, 1: string}> number, and where it is quoted
+     * @return list<array{0: string, 1: string, 2: string, 3: string}> the
+     *         number, where it is quoted, the document it names (empty when it
+     *         names none) and, for a Markdown file, its own path
      */
     private function citations(): array
     {
         $citations = [];
         $root = dirname(__DIR__, 2);
 
-        foreach (self::SCANNED as $directory) {
-            $iterator = new \RecursiveIteratorIterator(
-                new \RecursiveDirectoryIterator($root . '/' . $directory, \FilesystemIterator::SKIP_DOTS)
-            );
-            /** @var \SplFileInfo $file */
-            foreach ($iterator as $file) {
-                if (!$file->isFile() || !in_array($file->getExtension(), ['php', 'js', 'twig'], true)) {
-                    continue;
-                }
+        $documents = array_map(static fn (string $d): string => basename($d), self::DOCUMENTS);
 
-                $relative = substr($file->getPathname(), strlen($root) + 1);
+        foreach ($this->scannedFiles($root) as $relative => $path) {
+            // A Markdown file answers its own bare citations: the chantier
+            // documents number their preamble and quote it throughout.
+            $self = str_ends_with($relative, '.md') ? $path : '';
 
-                // This file quotes the numbers it is about, in prose, and
-                // reading itself would report them as found in the wild.
-                if ($relative === self::HOME) {
-                    continue;
-                }
+            foreach (file($path) ?: [] as $index => $line) {
+                // An external standard carries its own numbering and is not
+                // this repository's to resolve. Only the reference itself is
+                // removed, never the line: skipping the whole line let an
+                // invalid citation sitting beside an RFC one escape entirely.
+                $line = (string) preg_replace(
+                    '/(RFC\s*\d+|RGPD|GDPR|ISO\s*\d+)\s*§\s*[0-9]+(?:\.[0-9]+)*/',
+                    '',
+                    $line
+                );
 
-                foreach (file($file->getPathname()) ?: [] as $index => $line) {
-                    // An external standard carries its own numbering and is
-                    // not this repository's to resolve.
-                    if (preg_match('/(RFC\s*\d+|RGPD|GDPR|ISO\s*\d+)\s*§/', $line) === 1) {
+                preg_match_all(
+                    '/(?:`?([A-Za-z][A-Za-z0-9_\/.-]*\.[a-z]{2,4})`?\s*)?§\s*'
+                    . '([0-9]+\.[0-9]+(?:\.[0-9]+)*)(bis|ter|quater|quinquies)?/',
+                    $line,
+                    $found,
+                    PREG_SET_ORDER
+                );
+                foreach ($found as $citation) {
+                    $named = $citation[1] === '' ? '' : basename($citation[1]);
+
+                    // A file that is not one of the documents sends the
+                    // reader to ITS numbering, which is not this
+                    // repository's to resolve.
+                    if ($named !== '' && !in_array($named, $documents, true)) {
                         continue;
                     }
 
-                    preg_match_all('/§\s*([0-9]+\.[0-9]+(?:\.[0-9]+)*)/', $line, $found);
-                    foreach ($found[1] as $number) {
-                        $citations[] = [$number, $relative . ':' . ($index + 1)];
-                    }
+                    $citations[] = [
+                        $citation[2] . ($citation[3] ?? ''),
+                        $relative . ':' . ($index + 1),
+                        $named,
+                        $self,
+                    ];
                 }
             }
         }
 
         return $citations;
+    }
+
+    /**
+     * Everywhere a citation can be written: the source trees, and the
+     * documentation itself.
+     *
+     * The documents were outside the scan while the class claimed every
+     * citation in the repository was inside it — and they cite each other
+     * constantly, so an invalid reference between two of them was exactly
+     * the kind this file exists to catch and exactly the kind it could not
+     * see. The set stays explicit: the seven documents of `DOCUMENTS`, plus
+     * `docs/`, which is the one directory this repository keeps prose in.
+     *
+     * @return array<string, string> relative path => absolute path
+     */
+    private function scannedFiles(string $root): array
+    {
+        $found = [];
+
+        foreach (self::DOCUMENTS as $document) {
+            if (is_file($root . '/' . $document)) {
+                $found[$document] = $root . '/' . $document;
+            }
+        }
+
+        foreach ([...self::SCANNED, 'docs'] as $directory) {
+            if (!is_dir($root . '/' . $directory)) {
+                continue;
+            }
+
+            $iterator = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($root . '/' . $directory, \FilesystemIterator::SKIP_DOTS)
+            );
+            /** @var \SplFileInfo $file */
+            foreach ($iterator as $file) {
+                if (!$file->isFile()) {
+                    continue;
+                }
+                if (!in_array($file->getExtension(), ['php', 'js', 'twig', 'md'], true)) {
+                    continue;
+                }
+
+                $found[substr($file->getPathname(), strlen($root) + 1)] = $file->getPathname();
+            }
+        }
+
+        // This file quotes the numbers it is about, in prose, and reading
+        // itself would report them as found in the wild.
+        unset($found[self::HOME]);
+
+        return $found;
     }
 }

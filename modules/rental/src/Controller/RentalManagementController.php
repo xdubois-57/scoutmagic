@@ -2061,7 +2061,13 @@ class RentalManagementController extends AbstractController
     }
 
     /**
-     * POST /mes-locations/option — a manager's hold with a deadline (specifications.md §22.5).
+     * POST /mes-locations/option — a manager's hold with a deadline.
+     *
+     * The hold itself is `specifications.md` §22.5. What a manager's own
+     * deadline adds to it — an option is a promise, so letting it lapse
+     * expires the booking rather than merely freeing the dates — no section
+     * states, and it is written where it is enforced:
+     * `RentalOperationsService::placeOption()`.
      *
      * @param array<string, string> $params
      */

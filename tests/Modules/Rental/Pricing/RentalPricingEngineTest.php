@@ -559,7 +559,7 @@ class RentalPricingEngineTest extends TestCase
 
         $quote = $this->engine->quote($settings, new PricingRequest('2027-03-05', '2027-03-06'));
 
-        $this->assertFalse($quote->isComplete(), 'Drives the "dès X €" presentation of specifications.md §22.2.');
+        $this->assertFalse($quote->isComplete(), 'Drives the "dès X €" presentation of specifications.md §22.4.');
         $this->assertSame(4000, $quote->totalCents);
     }
 

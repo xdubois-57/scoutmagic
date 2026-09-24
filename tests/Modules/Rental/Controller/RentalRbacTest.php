@@ -657,7 +657,7 @@ class RentalRbacTest extends TestCase
 
     public function testAnIncompleteEstimateIsPresentedAsAStartingPriceNotAFirmOne(): void
     {
-        // specifications.md §22.2's "dès X €": with no category chosen the quote is incomplete,
+        // specifications.md §22.4's "dès X €": with no category chosen the quote is incomplete,
         // and the page must not show a number it would have to walk back.
         $assetId = $this->createAsset('Local', 'local');
         $pricingService = $this->pricingServiceFor();
