@@ -20,7 +20,7 @@ chacune, fusionnées sur `main` une fois la CI verte :
 |---|---|
 | IT-01 (#512) | Le module `documents` : la page publique filtrée par lecteur, l'écran de gestion, les cinq visibilités des actualités, l'adresse stable `/documents/{slug}` qui redirige vers `/files/{id}`, deux sujets d'aide, la matrice complète des tests |
 | IT-02 (#524) | Les versions : l'ancien fichier devient une version précédente réservée au Staff d'U, cinq gardées, historique replié dans l'écran de gestion, journalisation |
-| IT-03 | `ARCHITECTURE.md` §8.121 (dont la dette du cinquième mécanisme de documents), `specifications.md` §46 complété, les deux sujets d'aide affinés |
+| IT-03 | `ARCHITECTURE.md` §8.121 (dont la dette du cinquième mécanisme de documents), `specifications.md` §46 complété, le sujet d'aide public affiné |
 
 **Corrections de revue.** Sur la PR de l'IT-01, la revue automatique a
 relevé deux vrais défauts, corrigés avant la fusion : l'écran de gestion
