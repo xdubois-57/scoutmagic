@@ -187,7 +187,7 @@ final class ParentalAuthorizationFillingTest extends TestCase
         foreach (SignatoryCapacity::all() as $chosen) {
             $strikes = ParentalAuthorizationFilling::strikes(self::member(), self::input($chosen));
 
-            $this->assertNotContains($chosen->strikeZone(), $strikes, $chosen->value . ' ne doit pas être barré');
+            $this->assertNotContains($chosen->strikeZone(), $strikes, $chosen->value . ' must not be struck through');
             foreach (SignatoryCapacity::all() as $other) {
                 if ($other !== $chosen) {
                     $this->assertContains($other->strikeZone(), $strikes, $other->value . ' doit être barré');

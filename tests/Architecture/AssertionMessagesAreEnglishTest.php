@@ -64,7 +64,7 @@ final class AssertionMessagesAreEnglishTest extends TestCase
      * A DENSITY, not a count, for the reason the Twig sibling gives:
      * counting hits makes length the real test, and these messages are
      * short. 0.13 comes from the corpus rather than from taste. Measured
-     * over all 2791 messages the scan below reads, the two hundred and
+     * over all 3010 messages the scan below reads, the two hundred and
      * four French ones scored 0.143 and up, and the highest-scoring
      * English one —
      * « De, À, Sujet — the order every mail client uses. », which names
@@ -81,7 +81,7 @@ final class AssertionMessagesAreEnglishTest extends TestCase
     private const MINIMUM_FRENCH_DENSITY = 0.13;
 
     /**
-     * The corpus is 2791 messages today. A scan that suddenly reads far
+     * The corpus is 3010 messages today. A scan that suddenly reads far
      * fewer is a scan that has stopped working, and this is the number
      * that says so out loud rather than letting an empty result read as
      * an enforced rule. Deliberately slack — assertions are added every
@@ -96,7 +96,7 @@ final class AssertionMessagesAreEnglishTest extends TestCase
      * while this number sat comfortably above its floor. A number cannot
      * see a shape; only a test naming the shape can.
      */
-    private const MINIMUM_MESSAGES_SCANNED = 2000;
+    private const MINIMUM_MESSAGES_SCANNED = 2600;
 
     /**
      * The tokens an interpolation is made of, inside a double-quoted or
@@ -331,6 +331,20 @@ final class AssertionMessagesAreEnglishTest extends TestCase
             array_pop($arguments);
         }
 
+        // PHPUnit's optional message is never an assertion's ONLY
+        // argument, so a one-argument call has no message to read and its
+        // single argument is the subject. That matters now that a term
+        // which is not a literal is swallowed rather than refused:
+        // `assertFileExists($dir . '/notes-du-chef.txt')` would otherwise
+        // hand its own path over as prose, and « notes du chef » scores
+        // French on the strength of « du ». It is the same protection the
+        // docblock of messagesIn() describes — an expected value ending on
+        // a variable yields nothing — held at the one place the widening
+        // took it away.
+        if (count($arguments) < 2) {
+            return null;
+        }
+
         $last = end($arguments);
         if ($last === false) {
             return null;
@@ -346,11 +360,68 @@ final class AssertionMessagesAreEnglishTest extends TestCase
         // `assertSame($a, $b)` in the suite suddenly counting as a
         // message made of one space.
         $inString = false;
+        // How deep inside a braced interpolation — `{$row[$i - 1]}` — the
+        // walk is. Everything between the brace and its match is the hole,
+        // whatever it is made of: an array key, arithmetic, a method call.
+        // Listing the token kinds allowed in there instead was the fifth
+        // way this reader found to go silent, because the list can never
+        // be finished — `$i - 1` alone defeated it.
+        $hole = 0;
+        // Whether the walk is swallowing a term of a top-level
+        // concatenation that is not a literal, as in `'texte ' . $count`.
+        // One space per term, not one per token, or the word count the
+        // density divides by would grow with the length of an expression
+        // nobody wrote as prose.
+        $swallowing = false;
+        // Bracket depth inside that term, so a `.` belonging to a nested
+        // call does not end it early.
+        $termDepth = 0;
 
         foreach ($last as $token) {
-            if (is_array($token)) {
-                if ($token[0] === T_CONSTANT_ENCAPSED_STRING && !$inString) {
-                    $message .= self::literalBody($token[1]);
+            $id = is_array($token) ? $token[0] : null;
+            $text = is_array($token) ? $token[1] : $token;
+
+            if ($hole > 0) {
+                if ($id === null && ($text === '{' || $text === '}')) {
+                    $hole += $text === '{' ? 1 : -1;
+                }
+                if ($id === T_CURLY_OPEN || $id === T_DOLLAR_OPEN_CURLY_BRACES) {
+                    $hole++;
+                }
+
+                continue;
+            }
+
+            // A term of the concatenation that is not written down is
+            // swallowed WHOLE — the literals inside it included. Emitting
+            // a space and then carrying on reading literals was the first
+            // attempt, and it made `assertSame($x, ['Le grand chapiteau',
+            // 'Chapiteau'])` a French message: fixture data read as prose,
+            // a hundred and twenty-two false positives, most of them not
+            // assertion messages at all.
+            if ($swallowing) {
+                if ($id === null && ($text === '(' || $text === '[' || $text === '{')) {
+                    $termDepth++;
+                } elseif ($id === null && ($text === ')' || $text === ']' || $text === '}')) {
+                    $termDepth--;
+                } elseif ($id === null && $text === '.' && $termDepth === 0) {
+                    $swallowing = false;
+                }
+
+                continue;
+            }
+
+            if ($id === T_CURLY_OPEN || $id === T_DOLLAR_OPEN_CURLY_BRACES) {
+                // A space, not nothing: `{$a}` sitting between two words
+                // must not glue them into one.
+                $message .= ' ';
+                $hole = 1;
+                continue;
+            }
+
+            if ($id !== null) {
+                if ($id === T_CONSTANT_ENCAPSED_STRING && !$inString) {
+                    $message .= self::literalBody($text);
                     $literals++;
                     continue;
                 }
@@ -358,53 +429,61 @@ final class AssertionMessagesAreEnglishTest extends TestCase
                 // or heredoc message. Reading only the whole-literal token
                 // above dropped every such call outright — see
                 // INTERPOLATION_TOKENS for what that cost.
-                if ($token[0] === T_ENCAPSED_AND_WHITESPACE && $inString) {
-                    $message .= $token[1];
+                if ($id === T_ENCAPSED_AND_WHITESPACE && $inString) {
+                    $message .= $text;
                     $literals++;
                     continue;
                 }
-                if ($token[0] === T_START_HEREDOC) {
+                if ($id === T_START_HEREDOC) {
                     $inString = true;
                     continue;
                 }
-                if ($token[0] === T_END_HEREDOC) {
+                if ($id === T_END_HEREDOC) {
                     $inString = false;
                     continue;
                 }
                 // An array key or a method argument INSIDE an
-                // interpolation — `{$row['file']}` — is a whole literal
-                // token arriving while the walk is inside a string. It is
-                // part of the hole, not part of the message, and reading
-                // it as a message literal dropped the call outright.
-                if ($inString && $token[0] === T_CONSTANT_ENCAPSED_STRING) {
+                // unbraced interpolation is part of the hole, not part of
+                // the message, and reading it as a message literal dropped
+                // the call outright.
+                if ($inString && ($id === T_CONSTANT_ENCAPSED_STRING || in_array($id, self::INTERPOLATION_TOKENS, true))) {
                     $message .= ' ';
                     continue;
                 }
-                if ($inString && in_array($token[0], self::INTERPOLATION_TOKENS, true)) {
-                    // A space, not nothing: `{$a}` sitting between two
-                    // words must not glue them into one, which would
-                    // change the word count the density divides by.
-                    $message .= ' ';
+                if (in_array($id, [T_WHITESPACE, T_COMMENT], true)) {
                     continue;
                 }
-                if (in_array($token[0], [T_WHITESPACE, T_COMMENT], true)) {
-                    continue;
-                }
-
-                return null;
             }
 
             // The `"` of an interpolated string is a bare token of its
             // own, unlike the quotes of a whole literal, which arrive
             // inside T_CONSTANT_ENCAPSED_STRING.
-            if ($token === '"') {
+            if ($id === null && $text === '"') {
                 $inString = !$inString;
+                $swallowing = false;
                 continue;
             }
-            if ($token === '.' && !$inString) {
+            if ($id === null && $text === '.' && !$inString) {
+                $swallowing = false;
                 continue;
             }
-            if ($inString && ($token === '}' || $token === '[' || $token === ']')) {
+            if ($inString && $id === null && ($text === '}' || $text === '[' || $text === ']')) {
+                continue;
+            }
+
+            // Anything else outside a string is a term of the
+            // concatenation that is not written down: `$count`,
+            // `implode(', ', $x)`, `self::NAME`. It is a hole exactly like
+            // an interpolation, and dropping the whole call over it left
+            // real French messages unscored AND uncounted — invisible to
+            // the sentinel too, which is the failure this class exists to
+            // prevent. A call with no literal at all still returns null
+            // below, so `assertSame($a, $b)` does not become a message.
+            if (!$inString) {
+                $message .= ' ';
+                $swallowing = true;
+                $termDepth = $id === null && ($text === '(' || $text === '[' || $text === '{') ? 1 : 0;
+
                 continue;
             }
 
@@ -567,6 +646,68 @@ final class AssertionMessagesAreEnglishTest extends TestCase
      * and dropped the call — ten more French messages, in files this same
      * change had already translated twice over.
      */
+    /**
+     * A term of a top-level concatenation that is not a literal.
+     *
+     * `'texte ' . $count . ' fois'` is the shape the reader refused
+     * outright, dropping the whole call — unscored, and uncounted, so the
+     * sentinel could not see the hole either. It is now swallowed WHOLE,
+     * the literals inside it included: emitting a space and then reading
+     * on made `assertSame($x, ['Le grand chapiteau', 'Chapiteau'])` a
+     * French message, fixture data mistaken for prose.
+     */
+    public function testAMessageConcatenatedWithATermThatIsNotALiteralIsRead(): void
+    {
+        $file = tempnam(sys_get_temp_dir(), 'assertion_messages_') . '.php';
+        file_put_contents($file, <<<'PHP'
+            <?php
+            $this->assertSame([], $rows, "Le lot ne contient pas " . implode(', ', $manquants) . ", qui est attendu.");
+            $this->assertSame($expected, ['Le grand chapiteau', 'Chapiteau']);
+            PHP);
+
+        try {
+            $messages = self::messagesIn($file, []);
+
+            $this->assertCount(1, $messages, 'the array of fixture data is a term, not a message');
+            $this->assertStringContainsString('Le lot ne contient pas', $messages[0][1]);
+            $this->assertStringContainsString('qui est attendu.', $messages[0][1]);
+            $this->assertStringNotContainsString('implode', $messages[0][1], 'the call is a hole, not prose');
+            $this->assertTrue(self::looksFrench($messages[0][1]));
+        } finally {
+            unlink($file);
+        }
+    }
+
+    /**
+     * An interpolation whose braces hold more than a plain variable.
+     *
+     * `{$row[$i - 1]}` and `{$x->label()}` carry arithmetic and calls, and
+     * listing the token kinds allowed inside was always going to be a list
+     * that could not be finished — `-` alone defeated it, and the call was
+     * dropped whole. The brace and its match now bound the hole, so what
+     * is written between them never has to be enumerated.
+     */
+    public function testAnInterpolationHoldingArithmeticOrACallIsStillAHole(): void
+    {
+        $file = tempnam(sys_get_temp_dir(), 'assertion_messages_') . '.php';
+        file_put_contents($file, <<<'PHP'
+            <?php
+            $this->assertGreaterThan($a, $b, "{$row[$i]} commence avant la fin de {$row[$i - 1]}, ce qui casse la page.");
+            PHP);
+
+        try {
+            $messages = self::messagesIn($file, []);
+
+            $this->assertCount(1, $messages);
+            $this->assertStringContainsString('commence avant la fin de', $messages[0][1]);
+            $this->assertStringContainsString('ce qui casse la page.', $messages[0][1]);
+            $this->assertStringNotContainsString('row', $messages[0][1], 'everything between the braces is the hole');
+            $this->assertTrue(self::looksFrench($messages[0][1]));
+        } finally {
+            unlink($file);
+        }
+    }
+
     public function testALiteralInsideAnInterpolationIsPartOfTheHole(): void
     {
         $file = tempnam(sys_get_temp_dir(), 'assertion_messages_') . '.php';

@@ -829,8 +829,8 @@ final class ReferenceDatasetImportTest extends TestCase
         foreach (ScenarioCatalog::pinnedTiers() as $tiers) {
             self::assertNotNull(
                 $this->memberIdOf($tiers),
-                "Le Tiers {$tiers}, épinglé par le scénario " . ScenarioCatalog::scenarioOf($tiers)
-                . ", n'a pas survécu à l'import.",
+                "Tiers {$tiers}, pinned by scenario " . ScenarioCatalog::scenarioOf($tiers)
+                . ", did not survive the import.",
             );
         }
     }

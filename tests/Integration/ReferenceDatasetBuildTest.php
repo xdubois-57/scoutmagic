@@ -345,7 +345,7 @@ final class ReferenceDatasetBuildTest extends TestCase
         self::assertStringContainsString(
             'Modules activés : ' . $onDisk,
             self::$buildOutput,
-            "Le builder n'a pas activé tous les modules présents sur le disque. Sa sortie :\n" . self::$buildOutput,
+            "The builder did not activate every module present on disk. Its output:\n" . self::$buildOutput,
         );
         self::assertStringNotContainsString('non activé', self::$buildOutput);
         self::assertSame(

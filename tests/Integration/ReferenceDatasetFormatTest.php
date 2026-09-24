@@ -100,8 +100,8 @@ final class ReferenceDatasetFormatTest extends TestCase
             self::assertArrayHasKey(
                 $tiers,
                 $everywhere,
-                "Le Tiers {$tiers}, épinglé par le scénario "
-                . ScenarioCatalog::scenarioOf($tiers) . ", n'apparaît dans aucun export.",
+                "Tiers {$tiers}, pinned by scenario "
+                . ScenarioCatalog::scenarioOf($tiers) . ", appears in no export.",
             );
         }
 
@@ -127,9 +127,9 @@ final class ReferenceDatasetFormatTest extends TestCase
         self::assertSame(
             [],
             $differences,
-            "Les fichiers commités ne correspondent plus au générateur.\n"
+            "The committed files no longer match the generator.\n"
             . implode("\n", $differences)
-            . "\nRelancez « php tests/fixtures/reference-dataset/generate.php » et committez le résultat.",
+            . "\nRe-run « php tests/fixtures/reference-dataset/generate.php » and commit the result.",
         );
     }
 
@@ -244,8 +244,8 @@ final class ReferenceDatasetFormatTest extends TestCase
                 self::assertCount(
                     1,
                     $holders[$name] ?? [],
-                    "« " . UnitBlueprint::SECTION_LEAD_FUNCTION . " » doit être porté par exactement une personne "
-                    . "dans {$name} en {$year}.",
+                    "« " . UnitBlueprint::SECTION_LEAD_FUNCTION . " » must be held by exactly one person "
+                    . "in {$name} in {$year}.",
                 );
             }
 

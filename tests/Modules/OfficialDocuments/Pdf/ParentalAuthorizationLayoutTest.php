@@ -125,7 +125,7 @@ final class ParentalAuthorizationLayoutTest extends TestCase
                 $this->assertGreaterThan(
                     $zones[$row[$i - 1]]->right(),
                     $zones[$row[$i]]->x,
-                    "{$row[$i]} commence avant la fin de {$row[$i - 1]}"
+                    "{$row[$i]} starts before {$row[$i - 1]} ends"
                 );
             }
         }

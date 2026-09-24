@@ -81,11 +81,11 @@ class ChainSeedingInvariantTest extends TestCase
         $this->assertSame(
             [],
             $offences,
-            "Un point d'entrée amorce une chaîne : il n'est jamais le gestionnaire en train de se replanifier, "
-                . "donc il doit passer par seed()/seedAfter(). La garde de rearm() ne voit que les lignes "
-                . "`pending`, donc pendant toute une passe du planificateur — où la ligne de la chaîne est "
-                . "`processing` — chaque requête web en empile une de plus. Voir ARCHITECTURE.md §8.5 et "
-                . "Core\\Scheduler\\SchedulerService::seed(). Points d'appel fautifs :\n  "
+            "An entry point seeding a chain is never the handler rescheduling itself, so it has to go "
+                . "through seed()/seedAfter(). The guard in rearm() sees `pending` rows only, so for a "
+                . "whole scheduler pass — where the chain's row is `processing` — every web request piles "
+                . "on one more. See ARCHITECTURE.md §8.5 and Core\\Scheduler\\SchedulerService::seed(). "
+                . "Offending call sites:\n  "
                 . implode("\n  ", $offences)
         );
     }
@@ -101,10 +101,10 @@ class ChainSeedingInvariantTest extends TestCase
         $this->assertSame(
             [],
             $offences,
-            "Un amorceur appelé depuis une racine de composition doit passer par seed()/seedAfter() : "
-                . "la garde de rearm() ne voit que les lignes `pending`, donc pendant toute une passe du "
-                . "planificateur — où la ligne de la chaîne est `processing` — chaque requête web en "
-                . "empile une de plus. Voir Core\\Scheduler\\SchedulerService::seed(). Trouvé : "
+            "A seeder called from a composition root has to go through seed()/seedAfter(): the guard in "
+                . "rearm() sees `pending` rows only, so for a whole scheduler pass — where the chain's "
+                . "row is `processing` — every web request piles on one more. "
+                . "See Core\\Scheduler\\SchedulerService::seed(). Found: "
                 . implode(', ', $offences)
         );
     }
