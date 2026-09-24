@@ -15,9 +15,9 @@ related: gerer-les-locations, courrier-entrant, courrier-reponse, courrier-unite
 La page « Courrier » d'une réservation existe quand une boîte e-mail est
 dédiée aux locations — une seule. Elle montre le courrier des locations :
 celui de toutes les réservations des biens que vous gérez, pas seulement
-de celle-ci. C'est le même écran que le courrier des camps. Les e-mails
-que le site envoie au locataire portent cette boîte en adresse de
-réponse. Un message que rien ne rattache encore n'y apparaît que si vous
+de celle-ci. C'est le même écran que le courrier des camps. Si le compte
+de cette boîte est une adresse e-mail, les e-mails que le site envoie au
+locataire portent cette boîte en adresse de réponse. Un message que rien ne rattache encore n'y apparaît que si vous
 gérez tous les biens : il peut concerner n'importe lequel.
 
 Les onglets trient la liste : **À trier** (ce que rien ne rattache

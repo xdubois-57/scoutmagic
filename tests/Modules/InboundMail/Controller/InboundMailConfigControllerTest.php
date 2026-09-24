@@ -288,9 +288,10 @@ class InboundMailConfigControllerTest extends TestCase
 
     private function conflictEntries(): int
     {
-        return (int) $this->pdo->query(
-            "SELECT COUNT(*) FROM event_log WHERE event_type = 'inbound_mailbox_dedication_conflict'"
-        )->fetchColumn();
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM event_log WHERE event_type = ?');
+        $stmt->execute(['inbound_mailbox_dedication_conflict']);
+
+        return (int) $stmt->fetchColumn();
     }
 
     // ── « Rafraîchir maintenant » ───────────────────────────────────────

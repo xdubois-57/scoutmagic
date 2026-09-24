@@ -48,9 +48,9 @@
     <div class="alert alert-warning" role="alert" data-dedication-conflict>
         <strong>{{ conflict.boxes|length }} boîtes sont dédiées à « {{ conflict.module }} »</strong>
         ({{ conflict.boxes|join(', ') }}). Un module n'a de boîte à lui que si une seule lui est
-        dédiée : tant que c'est le cas, les écrans qui existent pour cette boîte — la page
-        « Courrier » d'une réservation, pour les locations — n'apparaissent pas. Rendez l'une des
-        boîtes partagée, ou dédiez-la à un autre module.
+        dédiée : tant que plusieurs boîtes lui sont dédiées, les écrans qui existent pour cette
+        boîte — la page « Courrier » d'une réservation, pour les locations — n'apparaissent pas.
+        Rendez l'une des boîtes partagée, ou dédiez-la à un autre module.
     </div>
 {% endfor %}
 
