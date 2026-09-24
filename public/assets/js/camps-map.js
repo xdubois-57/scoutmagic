@@ -3,9 +3,10 @@
  * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
  */
 
-// The camps map (ARCHITECTURE.md §8.67). Leaflet is vendored under
-// /assets/vendor/leaflet/ — no npm, no build step, no CDN, same treatment
-// as Bootstrap and Chart.js.
+// The camps map (ARCHITECTURE.md §8.67). The map itself — Leaflet, the
+// tile provider, its attribution — is the core's (public/assets/js/map.js,
+// window.ScoutMagicMap), loaded before this file; what is here is what only
+// the camps list does: its pins, its cards and its fold.
 //
 // Markers are PLACES, not stays: a place camped on four times is one pin,
 // and clicking it opens a small card rather than navigating away, because
@@ -54,9 +55,6 @@
 (function () {
     'use strict';
 
-    var TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-    var ATTRIBUTION = '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a>';
-
     /** localStorage key holding the fold — see the header. */
     var STORAGE_KEY = 'camps_map_collapsed';
 
@@ -65,10 +63,6 @@
      * components.css already mean by it.
      */
     var DESKTOP_QUERY = '(min-width: 992px)';
-
-    /** Wallonia, as a first view when there is nothing to fit. */
-    var FALLBACK_CENTER = /** @type {[number, number]} */ ([50.45, 4.87]);
-    var FALLBACK_ZOOM = 8;
 
     var built = false;
 
@@ -267,14 +261,13 @@
      * @param {HTMLElement} container
      */
     function build(container) {
-        if (built || typeof L === 'undefined') {
+        if (built || typeof L === 'undefined' || !window.ScoutMagicMap) {
             return;
         }
         built = true;
 
         var list = places(container);
-        var map = L.map(container).setView(FALLBACK_CENTER, FALLBACK_ZOOM);
-        L.tileLayer(TILE_URL, { attribution: ATTRIBUTION, maxZoom: 18 }).addTo(map);
+        var map = window.ScoutMagicMap.create(container);
 
         var markers = [];
         list.forEach(function (place) {

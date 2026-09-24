@@ -14,23 +14,25 @@ namespace Modules\Rental\Booking;
  * `BookingPhase` says which stretches exist; this says what this booking's
  * records make of one. Everything on it is computed by `BookingJourney` —
  * nothing recomputes anything, so the summary line a folded phase shows and
- * the boxes an open one shows can never disagree.
+ * the steps an open one shows can never disagree.
  */
 final class JourneyPhase
 {
     /**
      * @param list<BookingMilestone> $milestones in the order
      *   `BookingMilestones::for()` produced them
-     * @param list<BookingStatus> $transitions the status buttons that belong
-     *   to this stretch (`BookingPhase::ofTransition()`)
      */
     public function __construct(
         public readonly BookingPhase $phase,
         public readonly array $milestones,
-        public readonly array $transitions,
         public readonly bool $isCurrent,
-        /** The box this stretch's next piece of work is done in, if any. */
-        public readonly ?BookingBox $box = null
+        /**
+         * A stretch the booking has not reached. Its steps stay visible —
+         * a stretch that disappears reads as one somebody skipped — but
+         * inert: `BookingStatus` is a real machine, and a contract cannot
+         * be sent before anybody decided (issue #462, D5).
+         */
+        public readonly bool $isFuture = false
     ) {
     }
 

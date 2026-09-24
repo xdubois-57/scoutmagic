@@ -44,6 +44,7 @@ final class BookingAudit
     public const CHANGE_REQUESTED = 'change_requested';
     public const CHANGE_DECIDED = 'change_decided';
     public const COMMENT_ADDED = 'comment_added';
+    public const STEP_MARKED = 'step_marked';
 
     /**
      * What a reader sees instead of the raw key. A key with no entry falls
@@ -61,6 +62,7 @@ final class BookingAudit
         self::CHANGE_REQUESTED => 'Demande de modification',
         self::CHANGE_DECIDED => 'Décision sur la modification',
         self::COMMENT_ADDED => 'Commentaire',
+        self::STEP_MARKED => 'Étape hors du site',
     ];
 
     public function __construct(

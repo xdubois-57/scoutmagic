@@ -57,4 +57,24 @@ interface CalendarEventLookupInterface
      * @return array<int, SectionMonthActivity> keyed by section id
      */
     public function sectionActivityForMonth(int $year, int $month, Role $viewerRole): array;
+
+    /**
+     * Upcoming events whose title, calendar name or section name contains
+     * $query — accents and case ignored, every word of the query required —
+     * on calendars visible to $viewerRole, soonest first, at most $limit.
+     * Introduced for the carpool module's event picker (a carpool for an
+     * outing already over makes no sense, hence « upcoming »).
+     *
+     * « Upcoming » is the effective end date (end_date, falling back to
+     * start_date) today or later, so a weekend that started yesterday is
+     * still offered. A blank $query returns the soonest events, which is
+     * the shortlist a picker shows before anything is typed.
+     *
+     * One call, one bounded query, filtered in PHP: the matching has to
+     * ignore accents the way Core\Service\TextNormalizerService::fold()
+     * does, which neither engine's LIKE does identically.
+     *
+     * @return list<EventSummary>
+     */
+    public function searchUpcomingEvents(string $query, Role $viewerRole, int $limit = 20): array;
 }

@@ -42,6 +42,7 @@ import { loginAsAdmin } from '../support/admin-login.js';
 import { expectRendersAsACalendar } from '../support/calendar.js';
 import { answerConfirmation, waitForConfirmReady } from '../support/confirm-dialog.js';
 import { openSectionEditor } from '../support/section-editor.js';
+import { waitOutHumanCheckDelay } from '../support/human-check.js';
 
 /** A date far enough out to clear any notice period the asset declares. */
 function isoDaysFromNow(days) {
@@ -222,8 +223,10 @@ test.describe('Rentals — running an asset', () => {
 
         // Core\Security\HumanCheck refuses a form submitted faster than a
         // human could have filled it. Cleared the way a visitor does, not
-        // configured away.
-        await page.waitForTimeout(4000);
+        // configured away — and waited out from the token rather than by a
+        // copy of the server's threshold, which is a setting
+        // (`human_check_min_delay_seconds`) and not a constant.
+        await waitOutHumanCheckDelay(page);
         await page.getByRole('button', { name: 'Envoyer ma demande' }).click();
 
         const heading = page.getByRole('heading', { name: /Votre demande LOC-\d{4}-\d+/ });
@@ -242,7 +245,7 @@ test.describe('Rentals — running an asset', () => {
         // page navigates, and the dialog answerConfirmation() waits for is
         // never built. See waitForConfirmReady()'s own comment.
         await waitForConfirmReady(page);
-        await page.getByRole('button', { name: 'Confirmée' }).click();
+        await page.getByRole('button', { name: 'Confirmer la réservation' }).click();
 
         // Confirming now asks first, and the dialog is where the manager
         // writes the word that travels with the decision — the field
@@ -254,8 +257,8 @@ test.describe('Rentals — running an asset', () => {
 
         // Confirming goes through the real transition table and the real
         // availability re-check, both of which can refuse. The flash is
-        // the proof it actually happened: « Confirmée » on its own also
-        // matches the button that was just pressed.
+        // the proof it actually happened: a page that merely re-rendered
+        // would show the journey unchanged and no flash at all.
         await expect(page.getByText('Réservation confirmée.')).toBeVisible();
         await expect(page.getByText('Le locataire a été prévenu par email.')).toBeVisible();
 

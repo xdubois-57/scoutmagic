@@ -1,0 +1,30 @@
+{#
+  The « Paiements » box (Booking\BookingBox::PAYMENT). Rendered on the
+  Finances page, open there; its body is `_payment.html.twig`.
+
+  Optional: `open` — the box arrives unfolded.
+#}
+<div class="card mb-3" id="{{ boxes.payment.anchor }}">
+    {% embed '@rental/management/_dossier_header.html.twig' with {
+        box: boxes.payment, target_id: boxes.payment.bodyAnchor, payment: payment, open: open|default(false),
+    } only %}
+        {% block figure %}
+            <span class="text-body-secondary small" data-booking-panel="payment-figure">
+                {% if not payment.available %}
+                    Suivi hors ScoutMagic
+                {% elseif not payment.enabled %}
+                    Non activés
+                {% elseif payment.remaining_cents > 0 %}
+                    {{ payment.remaining_cents|money_cents }} dus
+                {% else %}
+                    Soldé
+                {% endif %}
+            </span>
+        {% endblock %}
+    {% endembed %}
+    <div class="collapse{{ open|default(false) ? ' show' }}" id="{{ boxes.payment.bodyAnchor }}">
+        <div data-booking-panel="payment">
+            {% include '@rental/management/_payment.html.twig' %}
+        </div>
+    </div>
+</div>

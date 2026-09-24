@@ -63,6 +63,32 @@
             Écrit à toutes les familles qui n'ont pas encore répondu pour tous leurs enfants. Un email par
             adresse, listant les enfants concernés.
         </p>
+        {# What actually went out, and when. A chief who clicks « Relancer »
+           gets a scheduled job and a success message; without this the page
+           never said whether it ran, so the only way to find out was to
+           click again — and send a second email to every silent family. #}
+        <dl class="row small mb-3">
+            {% for type, label in {
+                'opening': 'Ouverture',
+                'reminder_1': 'Premier rappel',
+                'reminder_2': 'Second rappel',
+                'closing': 'Fermeture'
+            } %}
+                <dt class="col-sm-4 fw-normal text-body-secondary">{{ label }}</dt>
+                <dd class="col-sm-8">
+                    {% if emails[type].at %}
+                        Envoyé le {{ emails[type].at|datetime_fr }}
+                    {% elseif emails[type].sent %}
+                        {# Sent, but before the moment was recorded — an
+                           installation upgraded mid-campaign. Saying
+                           « pas encore » here would be false. #}
+                        <span class="text-body-secondary">Envoyé, date inconnue</span>
+                    {% else %}
+                        <span class="text-body-secondary">Pas encore envoyé</span>
+                    {% endif %}
+                </dd>
+            {% endfor %}
+        </dl>
         {% if is_open %}
             <form method="post" action="/config/reinscription/relance">
                 {{ csrf_field()|raw }}

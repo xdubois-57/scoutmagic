@@ -1,0 +1,17 @@
+{#
+  « Rattacher à » on the rentals' triage screen: which booking, among the
+  ones this manager may reach — and only those, since the list is the
+  controller's (RentalCommunicationService::triageBookings()) and the action
+  checks the choice against it again. The page's own booking comes first
+  selected. Posts `booking_reference`.
+
+  Requires `row` and `triage_ui` (with `booking_options`).
+#}
+{% include 'partials/form_field.html.twig' with {
+    field_id: 'booking-for-' ~ row.message.id,
+    field_name: 'booking_reference',
+    label: 'Rattacher à',
+    type: 'select', size: 'sm',
+    options: triage_ui.booking_options,
+    wrapper_class: 'mb-0',
+} only %}

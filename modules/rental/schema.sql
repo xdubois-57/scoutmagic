@@ -665,6 +665,24 @@ CREATE TABLE IF NOT EXISTS rental_booking_comments (
         FOREIGN KEY (booking_id) REFERENCES rental_bookings (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- The steps of a booking a manager ticked by hand (issue #462, D5): the
+-- walk-throughs, on an asset whose inventory the site does not keep. Only
+-- those — a step the site can derive is never stored, so a hand tick can
+-- never sit beside the real answer. Who and when, because a tick nobody
+-- can attribute is a claim nobody can check; the history carries the same
+-- fact through Core\Audit.
+CREATE TABLE IF NOT EXISTS rental_booking_milestone_marks (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    booking_id INT UNSIGNED NOT NULL,
+    milestone_key VARCHAR(40) NOT NULL,
+    marked_by_member_id INT UNSIGNED NULL,
+    marked_at DATETIME NOT NULL,
+
+    UNIQUE KEY idx_rental_milestone_marks_unique (booking_id, milestone_key),
+    CONSTRAINT fk_rental_milestone_marks_booking
+        FOREIGN KEY (booking_id) REFERENCES rental_bookings (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 
 -- ─────────────────────────────────────────────────────────────────────
 -- Change requests and proposals (§6.16, §6.17)

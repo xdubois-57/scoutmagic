@@ -80,6 +80,36 @@ class InboundMailServiceTest extends TestCase
         );
     }
 
+    /**
+     * Whether a message was sent to a list is stored at the relève, and the
+     * triage screens fold such messages away. It has to survive the read
+     * back: while `InboundMessage` carried no such property, every screen
+     * counted a newsletter as a person's message.
+     */
+    public function testAMessageSentToAListIsReadBackAsOne(): void
+    {
+        $bulk = $this->messageRepository->create(
+            mailboxId: $this->mailboxId,
+            folder: 'INBOX',
+            uidValidity: 1,
+            imapUid: 11,
+            messageId: 'lettre@example.be',
+            inReplyTo: null,
+            subject: 'Lettre d\'information',
+            fromEmail: 'news@example.be',
+            fromName: null,
+            bodyText: 'Nouvelles',
+            bodyHtml: '<p>Nouvelles</p>',
+            sentAt: new \DateTimeImmutable('2027-07-12 10:00:00'),
+            isBulk: true
+        );
+        $this->messageRepository->addLink($bulk, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
+        $person = $this->storeMessage();
+
+        $this->assertTrue($this->service->findOneForReference('rental', 'LOC-2027-0042', $bulk)?->isBulk);
+        $this->assertFalse($this->service->findOneForReference('rental', 'LOC-2027-0042', $person)?->isBulk);
+    }
+
     private function storeMessage(
         string $reference = 'LOC-2027-0042',
         string $consumerId = 'rental',

@@ -1,0 +1,10 @@
+{% extends '@rental/management/_booking_frame.html.twig' %}
+{#
+  « Finances » — the money of one booking (Booking\BookingPage::FINANCES):
+  the price as it is being agreed, and what has been paid against it. Both
+  boxes arrive open: this page exists for them.
+#}
+{% block booking_content %}
+    {% include '@rental/management/_box_price.html.twig' with { open: true } %}
+    {% include '@rental/management/_box_payment.html.twig' with { open: true } %}
+{% endblock %}

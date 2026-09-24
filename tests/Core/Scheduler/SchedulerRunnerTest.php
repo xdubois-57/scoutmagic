@@ -453,6 +453,76 @@ class SchedulerRunnerTest extends TestCase
         $this->assertGreaterThan(0, count($entries));
         $this->assertSame('scheduler_task_done', $entries[0]['event_type']);
     }
+
+    /**
+     * A pass hands back what an earlier pass claimed and never finished,
+     * and then runs it — the row freed here must not wait for the next
+     * pass, which on a daily crontab is a day.
+     *
+     * The failure behind this: a handler killed outright takes none of the
+     * three ways out of a claim, so its row stays 'processing'; `hasLive()`
+     * reads it as a live chain and `SchedulerService::seed()` stops
+     * re-arming. Nothing fails and nothing is logged — the task just stops
+     * happening.
+     */
+    public function testAPassHandsBackAndThenRunsATaskAnEarlierPassAbandoned(): void
+    {
+        $handler = new class implements TaskHandlerInterface {
+            public bool $called = false;
+
+            public function handle(array $payload, TaskContext $context): void
+            {
+                $this->called = true;
+            }
+        };
+        $this->runner->registerHandler('core', 'abandoned_task', $handler);
+
+        $id = $this->repo->create(
+            'core',
+            'abandoned_task',
+            (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s'),
+            null,
+            null
+        );
+        // Claimed, then the process holding it disappears.
+        $this->repo->claimOverdue();
+        $stmt = $this->pdo->prepare('UPDATE scheduled_actions SET claimed_at = ? WHERE id = ?');
+        $stmt->execute([(new \DateTimeImmutable('-12 hours'))->format('Y-m-d H:i:s'), $id]);
+
+        $this->runner->processOverdue();
+
+        $this->assertTrue($handler->called, 'the reclaimed task runs in the very pass that freed it');
+        $this->assertSame('done', $this->repo->findById($id)['status']);
+    }
+
+    /**
+     * And it says so. A chain that froze and was restarted is a fact an
+     * administrator has to be able to find afterwards — silently repairing
+     * it would replace one invisible state with another.
+     */
+    public function testReclaimingATaskIsJournaled(): void
+    {
+        $id = $this->repo->create(
+            'core',
+            'abandoned_task',
+            (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s'),
+            null,
+            null
+        );
+        $this->repo->claimOverdue();
+        $stmt = $this->pdo->prepare('UPDATE scheduled_actions SET claimed_at = ? WHERE id = ?');
+        $stmt->execute([(new \DateTimeImmutable('-12 hours'))->format('Y-m-d H:i:s'), $id]);
+
+        $this->runner->processOverdue();
+
+        $entries = $this->pdo->query(
+            "SELECT level, description FROM event_log WHERE event_type = 'scheduler_task_reclaimed'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+
+        $this->assertCount(1, $entries);
+        $this->assertSame('warning', $entries[0]['level']);
+        $this->assertStringContainsString('abandoned_task', $entries[0]['description']);
+    }
 }
 
 /**

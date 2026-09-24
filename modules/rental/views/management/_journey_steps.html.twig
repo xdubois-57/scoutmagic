@@ -1,0 +1,116 @@
+{#
+  One step of the journey (Booking\BookingMilestone), on the scout-year
+  page's timeline pattern (`step-list` / `step-item` / `step-circle`,
+  app.css): a numbered disc, a connecting line, the label, what the step
+  asks, the derived sentence, and — by its nature (issue #462, D6) — a
+  button, a box to tick, or nothing at all.
+
+  **The nature decides the control, and only one nature gets a box.** A
+  derived line shows its sentence and nothing to press; a line waiting on
+  the renter shows its sentence too; a line done here offers its action; a
+  line done outside the site — the one thing nobody here could guess —
+  offers « Marquer comme fait », which records who and when. A box beside a
+  derived line would be a second truth (D5).
+
+  **A stretch the booking has not reached is inert** (`future`): its steps
+  are visible, never actionable — no button, a disabled box.
+
+  The visually-hidden « Fait : » / « À faire : » / « Sans objet : » prefix
+  is the textual form of the disc, which is aria-hidden: a screen reader
+  and the end-to-end suite read the same words.
+
+  The whole list of one stretch, `ol` included, rather than one `li`
+  rendered into a list the caller opens: a list item outside its list is
+  invalid markup in the file that holds it.
+
+  Requires `phase` (a Booking\JourneyPhase), `next_key` (the key of the
+  step heading the journey, or null), `asset`, `booking`, `booking_url`
+  and `renter_decisions`.
+#}
+<ol class="list-unstyled step-list mb-0">
+{% for milestone in phase.milestones %}
+{% set number = loop.index %}
+{% set future = phase.isFuture %}
+{% set is_next = next_key is not null and next_key == milestone.key %}
+{% set state = not milestone.isApplicable ? 'na' : (milestone.isDone ? 'done' : 'todo') %}
+<li class="step-item d-flex gap-3 pb-3 {{ state == 'done' ? 'step-item--done' : (future or state == 'na' ? 'step-item--upcoming' : 'step-item--current') }}"
+    data-milestone="{{ milestone.key }}" data-kind="{{ milestone.kind.value }}">
+    <div class="step-item__marker flex-shrink-0">
+        <span class="step-circle {{ state == 'done' ? 'step-circle--done' : 'step-circle--pending' }}" aria-hidden="true">
+            {% if state == 'done' %}
+                <i class="bi bi-check-lg"></i>
+            {% elseif state == 'na' %}
+                <i class="bi bi-dash"></i>
+            {% else %}
+                {{ number }}
+            {% endif %}
+        </span>
+    </div>
+    <div class="flex-grow-1 {{ state == 'na' ? 'text-body-secondary opacity-50' : '' }}">
+        <div class="d-flex flex-wrap align-items-baseline gap-2">
+            <span class="visually-hidden">{{ state == 'done' ? 'Fait :' : (state == 'na' ? 'Sans objet :' : 'À faire :') }}</span>
+            <span class="fw-semibold {{ state == 'done' ? 'text-success-emphasis' : '' }}">{{ milestone.label }}</span>
+            {% if state == 'todo' %}
+                {% set kind_class = {
+                    derived: 'bg-secondary-subtle text-secondary-emphasis',
+                    here: 'bg-primary-subtle text-primary-emphasis',
+                    renter: 'bg-warning-subtle text-warning-emphasis',
+                    offsite: 'bg-info-subtle text-info-emphasis',
+                } %}
+                <span class="badge {{ kind_class[milestone.kind.value] }}">{{ milestone.kind.label }}</span>
+            {% endif %}
+        </div>
+
+        {% if state == 'todo' and milestone.explanation %}
+            <p class="text-body-secondary small mb-1">{{ milestone.explanation }}</p>
+        {% endif %}
+        {% if milestone.detail and state != 'na' %}
+            <p class="small mb-1"><i class="bi bi-clipboard-data me-1" aria-hidden="true"></i>{{ milestone.detail }}</p>
+        {% endif %}
+
+        {#
+          A step offers only the WAY to where it is done — a page, a box.
+          Every status decision lives in the journey's heading, the proposed
+          one and the others behind it, and nowhere else: one page offering
+          « Clôturer la location » twice is a page where pressing either is
+          a guess about which one counts. The step heading the journey has
+          its way up there already.
+        #}
+        {% if state == 'todo' and not future and milestone.kind.value == 'here' and not is_next
+            and milestone.action and milestone.action.box %}
+            <div class="mt-2">
+                {% include '@rental/management/_milestone_action.html.twig' with {
+                    action: milestone.action, small: true,
+                    asset: asset, booking: booking, booking_url: booking_url, renter_decisions: renter_decisions,
+                } only %}
+            </div>
+        {% endif %}
+
+        {% if milestone.kind.isMarkable and state != 'na' %}
+            <form method="post" action="/mes-locations/etape" class="mt-2">
+                {{ csrf_field()|raw }}
+                <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                <input type="hidden" name="milestone_key" value="{{ milestone.key }}">
+                <input type="hidden" name="done" value="{{ milestone.isDone ? '0' : '1' }}">
+                {# The box carries no name: the hidden `done` says which way,
+                   and rental-booking.js submits the form when it changes. #}
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" data-mark-step
+                           id="mark-{{ milestone.key }}"
+                           {{ milestone.isDone ? 'checked' : '' }} {{ future ? 'disabled' : '' }}>
+                    <label class="form-check-label small" for="mark-{{ milestone.key }}">
+                        {{ milestone.isDone ? 'Fait' : 'Marquer comme fait' }}
+                    </label>
+                </div>
+                <noscript>
+                    <button type="submit" class="btn btn-sm btn-outline-secondary mt-1" {{ future ? 'disabled' : '' }}>
+                        {{ milestone.isDone ? 'Remettre à faire' : 'Marquer comme fait' }}
+                    </button>
+                </noscript>
+            </form>
+        {% endif %}
+    </div>
+</li>
+{% endfor %}
+</ol>

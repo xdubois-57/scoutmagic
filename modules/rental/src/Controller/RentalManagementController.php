@@ -20,6 +20,7 @@ use Core\Http\Response;
 use Core\Member\MemberService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\View\DateFilterExtension;
 use Core\View\EditableContentService;
 use Core\Service\DateInput;
 use Core\Service\IntegerInput;
@@ -29,6 +30,10 @@ use Modules\Calendar\Api\CalendarDirectoryInterface;
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Availability\MonthWindow;
 use Modules\Rental\Booking\BookingBox;
+use Modules\Rental\Booking\BookingPage;
+use Modules\InboundMail\Api\ReanalysisReport;
+use Modules\InboundMail\Api\TriageFilter;
+use Modules\InboundMail\Api\TriageScreen;
 use Modules\Rental\Booking\BookingJourney;
 use Modules\Rental\Booking\BookingMilestones;
 use Modules\Rental\Booking\BookingStatus;
@@ -63,6 +68,7 @@ use Modules\Rental\Service\RentalCommunicationService;
 use Modules\Rental\Service\RentalComplianceService;
 use Modules\Rental\Service\RentalDocumentService;
 use Modules\Rental\Service\RentalException;
+use Modules\Rental\Service\RentalMilestoneMarkService;
 use Modules\Rental\Service\RentalOperationsService;
 use Modules\Rental\Service\RentalPaymentService;
 use Modules\Rental\Service\RentalPricingService;
@@ -219,7 +225,9 @@ class RentalManagementController extends AbstractController
          * section behaves like.
          */
         private ?RentalAssetReminderRepository $assetReminderRepository = null,
-        private ?SettingService $settingService = null
+        private ?SettingService $settingService = null,
+        /** « Marquer comme fait » on the steps the site cannot derive (issue #462). */
+        private ?RentalMilestoneMarkService $milestoneMarkService = null
     ) {
         parent::__construct($twig);
     }
@@ -746,11 +754,196 @@ class RentalManagementController extends AbstractController
     }
 
     /**
-     * GET /mes-locations/{slug}/reservations/{id} — one booking's file.
+     * GET /mes-locations/{slug}/reservations/{id} — one booking's file, on
+     * its dashboard (Booking\BookingPage::DASHBOARD).
      *
      * @param array<string, string> $params
      */
     public function booking(Request $request, array $params): Response
+    {
+        return $this->bookingFilePage($request, $params, BookingPage::DASHBOARD);
+    }
+
+    /**
+     * GET /mes-locations/{slug}/reservations/{id}/finances — the price and
+     * the payments of one booking.
+     *
+     * @param array<string, string> $params
+     */
+    public function bookingFinances(Request $request, array $params): Response
+    {
+        return $this->bookingFilePage($request, $params, BookingPage::FINANCES);
+    }
+
+    /**
+     * GET /mes-locations/{slug}/reservations/{id}/documents — the papers of
+     * one booking.
+     *
+     * @param array<string, string> $params
+     */
+    public function bookingDocuments(Request $request, array $params): Response
+    {
+        return $this->bookingFilePage($request, $params, BookingPage::DOCUMENTS);
+    }
+
+    /**
+     * GET /mes-locations/{slug}/reservations/{id}/courrier — the mail of one
+     * booking; a 404 where `inbound_mail` collects nothing, the same answer
+     * as a page that does not exist, because here it does not.
+     *
+     * @param array<string, string> $params
+     */
+    public function bookingMail(Request $request, array $params): Response
+    {
+        return $this->bookingFilePage($request, $params, BookingPage::MAIL);
+    }
+
+    /**
+     * The booking's checklist, from what its own records say (§6.15) —
+     * one place, because the page and the « Marquer comme fait » action
+     * must agree on which steps are ticked by hand.
+     *
+     * @param \Modules\Rental\Document\RentalDocument[]|null $documents
+     * @param array<string, mixed> $payment
+     * @return list<\Modules\Rental\Booking\BookingMilestone>
+     */
+    private function milestonesOf(
+        RentalBooking $booking,
+        RentalAsset $asset,
+        ?array $documents,
+        array $payment,
+        \DateTimeImmutable $now
+    ): array {
+        // Null, not [], when the stay module is unavailable: the checklist
+        // reads the difference between "no inventory on this asset" and
+        // "inventories do not exist here" (Booking\MilestoneEvidence).
+        $inventory = $this->stayService?->inventoryFor($booking->id);
+
+        $marks = [];
+        $marked = $this->decorateWithAuthors(
+            $this->milestoneMarkService?->marksFor($booking->id) ?? [],
+            'marked_by_member_id'
+        );
+        foreach ($marked as $key => $mark) {
+            if ($mark['marked_at'] instanceof \DateTimeImmutable) {
+                $marks[(string) $key] = [
+                    'at' => $mark['marked_at'],
+                    'by' => is_string($mark['author_name']) ? $mark['author_name'] : null,
+                ];
+            }
+        }
+
+        $evidence = MilestoneEvidence::collect(
+            $booking,
+            $documents,
+            $payment,
+            $inventory,
+            $this->stayService?->consumptionsFor($booking, $asset->id),
+            $this->stayService?->latestSettlement($booking->id),
+            // An asset with no inventory template has nothing the stay page
+            // could walk, so its walk-throughs are ticked by hand.
+            $this->stayService === null || $this->stayService->inventoryTemplateFor($asset->id) !== [],
+            $marks,
+            $now
+        );
+
+        return BookingMilestones::for($booking, $now, $evidence->done, $evidence->details, $evidence->offsite);
+    }
+
+    /**
+     * POST /mes-locations/etape — « Marquer comme fait » on a step the site
+     * cannot derive (issue #462, D5), or « Remettre à faire ».
+     *
+     * The journey decides whether the step may be ticked here, not the
+     * form: the step must be ticked by hand ON THIS BOOKING — an inventory
+     * the stay page records is never ticked beside it — and in a stretch the
+     * booking has reached. A hand-made POST for anything else is refused.
+     *
+     * @param array<string, string> $params
+     */
+    public function markMilestone(Request $request, array $params): Response
+    {
+        $work = function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
+            if ($this->milestoneMarkService === null) {
+                throw new RentalException("Cette étape ne peut pas être marquée ici.");
+            }
+
+            $key = (string) $request->getBody('milestone_key', '');
+            $now = new \DateTimeImmutable();
+            $milestones = $this->milestonesOf(
+                $booking,
+                $asset,
+                $this->documentService?->forBooking($booking->id),
+                $this->paymentStatus($booking, $asset),
+                $now
+            );
+
+            foreach (BookingJourney::of($milestones, $booking->status)->phases() as $phase) {
+                foreach ($phase->milestones as $milestone) {
+                    if ($milestone->key !== $key) {
+                        continue;
+                    }
+                    if (!$milestone->kind->isMarkable() || !$milestone->isApplicable || $phase->isFuture) {
+                        break 2;
+                    }
+
+                    $done = (string) $request->getBody('done', '') === '1';
+                    $this->milestoneMarkService->set(
+                        $booking,
+                        $key,
+                        $milestone->label,
+                        $done,
+                        $this->actorMemberId(),
+                        $now
+                    );
+                    FlashMessage::set(
+                        'success',
+                        $done
+                            ? '« ' . $milestone->label . ' » est marqué comme fait.'
+                            : '« ' . $milestone->label . ' » est remis à faire.'
+                    );
+
+                    return;
+                }
+            }
+
+            throw new RentalException('Cette étape ne se marque pas à la main sur cette réservation.');
+        };
+
+        return $this->bookingAction($request, $work);
+    }
+
+    /**
+     * The pages this booking offers, in rail order: all four, minus
+     * « Courrier » when there is no mail to read here.
+     *
+     * @return list<BookingPage>
+     */
+    private function bookingPagesOffered(): array
+    {
+        $communications = $this->communicationService?->isAvailable() ?? false;
+
+        // Filtering drops « Courrier », the last case, so what remains is
+        // still a list in rail order.
+        return array_filter(
+            BookingPage::cases(),
+            static fn(BookingPage $page): bool => $page !== BookingPage::MAIL || $communications
+        );
+    }
+
+    /**
+     * One page of a booking's file (issue #462). Every page is rendered
+     * from the same context: the pages split the file for the reader, not
+     * for the data, and the dashboard's journey needs the documents, the
+     * payments and the stay to say where the booking stands anyway.
+     *
+     * The authorisation is the one the file always had, and it is decided
+     * before the page is: a booking of another asset, or of no asset this
+     * person manages, is a 404 on every page of it.
+     *
+     * @param array<string, string> $params
+     */
+    private function bookingFilePage(Request $request, array $params, BookingPage $page): Response
     {
         $asset = $this->manageableAsset($params);
         if ($asset === null) {
@@ -762,26 +955,12 @@ class RentalManagementController extends AbstractController
             return $this->notFound();
         }
 
+        $pages = $this->bookingPagesOffered();
+        if (!in_array($page, $pages, true)) {
+            return $this->notFound();
+        }
+
         $now = new \DateTimeImmutable();
-
-        $documents = $this->documentService?->forBooking($booking->id);
-        $payment = $this->paymentStatus($booking, $asset);
-        // Null, not [], when the stay module is unavailable: the checklist
-        // reads the difference between "no inventory on this asset" and
-        // "inventories do not exist here" (Booking\MilestoneEvidence).
-        $inventory = $this->stayService?->inventoryFor($booking->id);
-        $consumptions = $this->stayService?->consumptionsFor($booking, $asset->id);
-        $evidence = MilestoneEvidence::collect(
-            $booking,
-            $documents,
-            $payment,
-            $inventory,
-            $consumptions,
-            $this->stayService?->latestSettlement($booking->id)
-        );
-
-        $milestones = BookingMilestones::for($booking, $now, $evidence->done, $evidence->details);
-        $transitions = BookingTransition::allowedFrom($booking->status);
 
         // Keyed by the enum's own value so the template writes
         // `boxes.payment.anchor` rather than the string that anchor
@@ -793,35 +972,313 @@ class RentalManagementController extends AbstractController
             $boxes[$box->value] = $box;
         }
 
-        return $this->render('@rental/management/booking.html.twig', [
+        $context = [
             'asset' => $asset,
             'booking' => $booking,
-            // The one box that is a page rather than a fold, so the
-            // journey's links to it need a URL and not a fragment
-            // (`BookingBox::isPage()`).
-            'stay_url' => $this->bookingUrl($asset, $booking) . '/sejour',
+            // The base every link of the file is built on: the rail's
+            // chips (`BookingPage::url()`) and the journey's links into a
+            // box, wherever it lives (`BookingBox::href()`).
+            'booking_url' => $this->bookingUrl($asset, $booking),
+            'booking_page' => $page,
+            'booking_pages' => $pages,
+            // The same last crumb on the four pages: they are one booking's
+            // file, and the rail — not the breadcrumb — says which part of
+            // it is open. Every ancestor stays a real link, which is the way
+            // back to the asset now that the booking's rail replaces the
+            // asset's.
             'breadcrumb_current' => $booking->reference,
             'breadcrumb_trail' => $this->bookingTrail($asset),
-            // The checklist is derived from what the booking's own records
-            // say — the contract that was sent, the deposit that arrived,
-            // the inventory that was finished — never from a stored flag,
-            // so pressing a button on this page moves the box it belongs to
-            // (§6.15).
-            'milestones' => $milestones,
-            // The same checklist, staged into the five stretches the page
-            // reads in — and the one outstanding milestone « L'action
-            // suivante » shows. Derived from `milestones` above, never
-            // beside it: two derivations of one lifecycle is exactly how a
-            // page starts telling two stories (Booking\BookingJourney).
-            'journey' => BookingJourney::of($milestones, $transitions),
-            'allowed_transitions' => $transitions,
+            'is_in_progress' => $booking->isInProgress($now),
+            'nav_page' => 'bookings',
+            'boxes' => $boxes,
+        ];
+
+        // Each page loads what it renders and nothing else: the pages
+        // split the file for the reader, and a Finances page — refreshed
+        // after every price line — has no business reading the mailbox or
+        // the history.
+        return $this->render(
+            self::BOOKING_PAGE_TEMPLATES[$page->value],
+            $context + match ($page) {
+                BookingPage::DASHBOARD => $this->dashboardContext($booking, $asset, $now),
+                BookingPage::FINANCES => [
+                    'quote' => $this->operationsService->workingQuote($booking, $asset),
+                    'payment' => $this->paymentStatus($booking, $asset),
+                ],
+                BookingPage::DOCUMENTS => [
+                    'documents' => $this->documentService?->forBooking($booking->id) ?? [],
+                    'uploadable_types' => DocumentType::uploadable(),
+                    'billing' => $this->operationsService->billingIdentity($booking->id),
+                ],
+                // Only offered at all when a mailbox collects, which
+                // `bookingPagesOffered()` settled above.
+                BookingPage::MAIL => $this->mailContext($request, $booking),
+            }
+        );
+    }
+
+    /**
+     * The references the requester may file mail under — the triage
+     * screen's whole scope, recomputed on every action rather than trusted
+     * from the page (RentalCommunicationService::triageBookings()).
+     *
+     * @return array<string, RentalBooking>
+     */
+    private function triageScope(): array
+    {
+        return $this->communicationService?->triageBookings(AuthSession::getEmail(), $this->scoutYearId()) ?? [];
+    }
+
+    /**
+     * Whether the requester may also read the mail nothing attributes yet
+     * (RentalCommunicationService::sortsUnattributed()) — the other half of
+     * the screen's reach, recomputed on every action like the first.
+     */
+    private function sortsUnattributed(): bool
+    {
+        return $this->communicationService?->sortsUnattributed(AuthSession::getEmail(), $this->scoutYearId()) ?? false;
+    }
+
+    /**
+     * POST /mes-locations/courrier/rattacher — file a message of the triage
+     * list under one of the requester's bookings (issue #462, IT-03).
+     *
+     * @param array<string, string> $params
+     */
+    public function triageAttach(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function () use ($request): void {
+            $scope = $this->triageScope();
+            $target = $scope[(string) $request->getBody('booking_reference', '')] ?? null;
+            if ($target === null || $this->communicationService === null) {
+                throw new RentalException('Choisissez la réservation à laquelle rattacher ce message.');
+            }
+
+            if (!$this->communicationService->attachToBooking(
+                $target,
+                (int) $request->getBody('message_id', 0),
+                array_keys($scope),
+                $this->sortsUnattributed(),
+                AuthSession::getUserAccountId()
+            )) {
+                throw new RentalException("Ce message n'a pas pu être rattaché.");
+            }
+
+            FlashMessage::set('success', 'Message rattaché à la réservation ' . $target->reference . '.');
+        });
+    }
+
+    /**
+     * POST /mes-locations/courrier/detacher — take a message off one of the
+     * requester's bookings. Through the booking's own detach, so an
+     * attachment already filed as a document stays with the booking.
+     *
+     * @param array<string, string> $params
+     */
+    public function triageDetach(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function () use ($request): void {
+            $target = $this->triageScope()[(string) $request->getBody('business_reference', '')] ?? null;
+            if ($target === null || $this->communicationService === null
+                || !$this->communicationService->detach($target, (int) $request->getBody('message_id', 0), $this->actorMemberId())
+            ) {
+                throw new RentalException("Ce message n'appartient pas à cette réservation.");
+            }
+
+            FlashMessage::set('success', 'Message détaché de la réservation ' . $target->reference . '.');
+        });
+    }
+
+    /**
+     * POST /mes-locations/courrier/ecarter — « ce courrier ne concerne pas
+     * les locations ». Deletes nothing.
+     *
+     * @param array<string, string> $params
+     */
+    public function triageSetAside(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function () use ($request): void {
+            if (!($this->communicationService?->setAside(
+                array_keys($this->triageScope()),
+                $this->sortsUnattributed(),
+                (int) $request->getBody('message_id', 0),
+                AuthSession::getUserAccountId()
+            ) ?? false)) {
+                throw new RentalException("Ce courrier n'a pas pu être écarté.");
+            }
+
+            // Said in full, because the button does less than the word
+            // suggests and a manager must not believe they deleted mail.
+            FlashMessage::set('success', "Courrier écarté de la liste des locations. Il reste dans le courrier de l'unité.");
+        });
+    }
+
+    /**
+     * POST /mes-locations/courrier/reprendre — put a set-aside message back.
+     *
+     * @param array<string, string> $params
+     */
+    public function triageRestore(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function () use ($request): void {
+            if (!($this->communicationService?->restore(
+                array_keys($this->triageScope()),
+                $this->sortsUnattributed(),
+                (int) $request->getBody('message_id', 0)
+            ) ?? false)) {
+                throw new RentalException("Ce courrier n'a pas pu être remis dans la liste.");
+            }
+
+            FlashMessage::set('success', 'Courrier remis dans la liste.');
+        });
+    }
+
+    /**
+     * POST /mes-locations/courrier/proposition/confirmation
+     *
+     * @param array<string, string> $params
+     */
+    public function triageConfirm(Request $request, array $params): Response
+    {
+        return $this->triageDecide($request, true);
+    }
+
+    /**
+     * POST /mes-locations/courrier/proposition/rejet
+     *
+     * @param array<string, string> $params
+     */
+    public function triageReject(Request $request, array $params): Response
+    {
+        return $this->triageDecide($request, false);
+    }
+
+    private function triageDecide(Request $request, bool $confirm): Response
+    {
+        return $this->bookingAction($request, function () use ($request, $confirm): void {
+            if (!($this->communicationService?->decideCandidate(
+                array_keys($this->triageScope()),
+                (int) $request->getBody('message_id', 0),
+                (int) $request->getBody('candidate_id', 0),
+                $confirm,
+                AuthSession::getUserAccountId()
+            ) ?? false)) {
+                throw new RentalException("Cette proposition n'existe plus.");
+            }
+
+            FlashMessage::set('success', $confirm ? 'Message rattaché à la réservation.' : 'Proposition écartée.');
+        });
+    }
+
+    /**
+     * POST /mes-locations/courrier/relancer — offer the unattributed mail
+     * to this module again, with what the site knows today.
+     *
+     * @param array<string, string> $params
+     */
+    public function triageReanalyze(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (): void {
+            if ($this->communicationService === null) {
+                throw new RentalException("Le courrier entrant n'est pas disponible.");
+            }
+
+            FlashMessage::set(
+                'success',
+                ReanalysisReport::fromArray($this->communicationService->reanalyze())->message()
+            );
+        });
+    }
+
+    /**
+     * What the Courrier page renders: the shared triage screen (issue #462,
+     * D9), the same component as the camps', over the mail of every booking
+     * this manager may reach — their scope and nothing wider
+     * (`RentalCommunicationService::triageBookings()`).
+     *
+     * @return array<string, mixed>
+     */
+    private function mailContext(Request $request, RentalBooking $booking): array
+    {
+        $service = $this->communicationService;
+        if ($service === null) {
+            return [];
+        }
+
+        $bookings = $service->triageBookings(AuthSession::getEmail(), $this->scoutYearId());
+        $references = array_keys($bookings);
+        $unattributed = $this->sortsUnattributed();
+
+        $slugs = [];
+        foreach ($this->authorizationService->listManageableAssets(AuthSession::getEmail(), $this->scoutYearId()) as $asset) {
+            $slugs[$asset->id] = $asset->slug;
+        }
+
+        $labels = [];
+        $urls = [];
+        $options = [];
+        foreach ($bookings as $reference => $candidate) {
+            $labels[$reference] = $reference . ' — ' . $candidate->renterName;
+            if (isset($slugs[$candidate->assetId])) {
+                $urls[$reference] = '/mes-locations/' . $slugs[$candidate->assetId] . '/reservations/' . $candidate->id;
+            }
+            $options[] = [
+                'value' => $reference,
+                'label' => $labels[$reference] . ' (' . DateFilterExtension::dateFr($candidate->arrivalDate) . ')',
+                'selected' => $candidate->id === $booking->id,
+            ];
+        }
+
+        $filter = TriageFilter::fromQuery((string) $request->getQuery('statut', ''));
+        $dismissed = $service->triageRows($references, $unattributed, true);
+
+        return TriageScreen::of(
+            $service->triageRows($references, $unattributed),
+            $filter,
+            (string) $request->getQuery('automatique', '') === '1',
+            $dismissed,
+            count($dismissed)
+        )->toArray() + [
+            'triage_labels' => $labels,
+            'triage_urls' => $urls,
+            'triage_booking_options' => $options,
+        ];
+    }
+
+    /**
+     * What the dashboard renders: the journey, the details, and the boxes
+     * that stayed with them.
+     *
+     * @return array<string, mixed>
+     */
+    private function dashboardContext(RentalBooking $booking, RentalAsset $asset, \DateTimeImmutable $now): array
+    {
+        $payment = $this->paymentStatus($booking, $asset);
+        // The checklist is derived from what the booking's own records say
+        // — the contract that was sent, the deposit that arrived, the
+        // inventory that was finished — never from a stored flag, so
+        // pressing a button moves the line it belongs to (§6.15).
+        $milestones = $this->milestonesOf(
+            $booking,
+            $asset,
+            $this->documentService?->forBooking($booking->id),
+            $payment,
+            $now
+        );
+        $transitions = BookingTransition::allowedFrom($booking->status);
+
+        return [
+            // The checklist staged into the five stretches, with the heading
+            // that says what holds the booking up — one derivation, one
+            // component (Booking\BookingJourney, issue #462).
+            'journey' => BookingJourney::of($milestones, $booking->status),
             // Keyed by status value so the template can ask "does this
             // button write to the renter?" without knowing which statuses
             // do — that answer belongs to Booking\RenterDecision alone.
             'renter_decisions' => self::renterDecisionPrompts($transitions),
-            'can_confirm' => BookingTransition::isAllowed($booking->status, BookingStatus::CONFIRMED),
+            // The details' total, and what has been paid against it.
             'quote' => $this->operationsService->workingQuote($booking, $asset),
-            'price_is_agreed' => $booking->priceHasBeenAgreed(),
+            'payment' => $payment,
             'comments' => $this->decorateWithAuthors($this->commentRepository->findForBooking($booking->id)),
             // The booking's own change history (§6.15), through Core\Audit
             // (§8.66) like every other timeline on the site. The partial
@@ -836,60 +1293,7 @@ class RentalManagementController extends AbstractController
             ),
             'audit_labels' => BookingAudit::FIELD_LABELS,
             'change_requests' => $this->changeRequestRepository->findForBooking($booking->id),
-            'is_in_progress' => $booking->isInProgress($now),
-            'payment' => $payment,
-            'documents' => $documents ?? [],
-            // Communications (§7.7). Absent rather than empty when
-            // `inbound_mail` is disabled or no mailbox is enabled: a tab
-            // that can only ever be empty is noise on a busy page.
-            'communications_available' => $this->communicationService?->isAvailable() ?? false,
-            'messages' => $this->communicationService?->timeline($booking) ?? [],
-            'message_propositions' => $this->communicationService?->propositions($booking) ?? [],
-            'message_documents' => $this->communicationService?->documentsByFileId($booking) ?? [],
-            'move_targets' => $this->communicationService?->moveTargets(
-                $booking,
-                AuthSession::getEmail(),
-                $this->scoutYearId()
-            ) ?? [],
-            'uploadable_types' => DocumentType::uploadable(),
-            'billing' => $this->operationsService->billingIdentity($booking->id),
-            'csrf_token' => CsrfGuard::generateToken(),
-            'nav_page' => 'bookings',
-            'boxes' => $boxes,
-        ]);
-    }
-
-    /**
-     * POST /mes-locations/message/detacher — take a message off this
-     * booking (§7.7).
-     *
-     * The message is not destroyed: it falls back into the unit's general
-     * mail, where the Chef d'Unité can re-orient it and where the module's
-     * retention removes it if nobody ever does (§8.58). What leaves the
-     * booking with it is the attachments nobody re-classified; a document
-     * a manager already filed as something stays theirs.
-     *
-     * @param array<string, string> $params
-     */
-    public function detachMessage(Request $request, array $params): Response
-    {
-        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
-            if ($this->communicationService === null) {
-                throw new RentalException("Le courrier entrant n'est pas disponible.");
-            }
-
-            $detached = $this->communicationService->detach(
-                $booking,
-                (int) $request->getBody('message_id', 0),
-                $this->actorMemberId()
-            );
-
-            if (!$detached) {
-                throw new RentalException("Ce message n'appartient pas à cette réservation.");
-            }
-
-            FlashMessage::set('success', 'Message détaché.');
-        });
+        ];
     }
 
     /**
@@ -922,122 +1326,6 @@ class RentalManagementController extends AbstractController
                     ? 'Nouveau lien de suivi envoyé au locataire. L\'ancien ne fonctionne plus.'
                     : "L'ancien lien ne fonctionne plus, mais l'email portant le nouveau n'a pas pu partir : "
                         . 'régénérez-le à nouveau pour le renvoyer.'
-            );
-        });
-    }
-
-    /**
-     * POST /mes-locations/message/deplacer — move a message to another
-     * booking of an asset this manager manages (§7.7).
-     *
-     * @param array<string, string> $params
-     */
-    public function moveMessage(Request $request, array $params): Response
-    {
-        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
-            if ($this->communicationService === null) {
-                throw new RentalException("Le courrier entrant n'est pas disponible.");
-            }
-
-            $moved = $this->communicationService->move(
-                $booking,
-                (int) $request->getBody('message_id', 0),
-                (int) $request->getBody('target_booking_id', 0),
-                AuthSession::getEmail(),
-                $this->scoutYearId(),
-                $this->actorMemberId(),
-                AuthSession::getUserAccountId()
-            );
-
-            if (!$moved) {
-                throw new RentalException("Ce message n'appartient pas à cette réservation.");
-            }
-
-            FlashMessage::set('success', 'Message déplacé.');
-        });
-    }
-
-    /**
-     * POST /mes-locations/message/proposition/confirmation — a manager
-     * says yes to what the module suspected about their booking.
-     *
-     * @param array<string, string> $params
-     */
-    public function confirmMessageProposition(Request $request, array $params): Response
-    {
-        return $this->decideMessageProposition($request, true);
-    }
-
-    /**
-     * POST /mes-locations/message/proposition/rejet
-     *
-     * @param array<string, string> $params
-     */
-    public function dismissMessageProposition(Request $request, array $params): Response
-    {
-        return $this->decideMessageProposition($request, false);
-    }
-
-    private function decideMessageProposition(Request $request, bool $confirm): Response
-    {
-        return $this->bookingAction($request, function (RentalBooking $booking) use ($request, $confirm): void {
-            if ($this->communicationService === null) {
-                throw new RentalException("Le courrier entrant n'est pas disponible.");
-            }
-
-            $messageId = (int) $request->getBody('message_id', 0);
-            $candidateId = (int) $request->getBody('candidate_id', 0);
-
-            $done = $confirm
-                ? $this->communicationService->confirmProposition(
-                    $booking,
-                    $messageId,
-                    $candidateId,
-                    AuthSession::getUserAccountId()
-                )
-                : $this->communicationService->dismissProposition($booking, $messageId, $candidateId);
-
-            if (!$done) {
-                throw new RentalException("Cette proposition n'existe plus.");
-            }
-
-            FlashMessage::set('success', $confirm ? 'Message rattaché à la réservation.' : 'Proposition écartée.');
-        });
-    }
-
-    /**
-     * POST /mes-locations/message/relancer — offer the unattributed mail
-     * to this module again, with what the site knows today.
-     *
-     * @param array<string, string> $params
-     */
-    public function reanalyzeMail(Request $request, array $params): Response
-    {
-        return $this->bookingAction($request, function (): void {
-            if ($this->communicationService === null) {
-                throw new RentalException("Le courrier entrant n'est pas disponible.");
-            }
-
-            $report = $this->communicationService->reanalyze();
-            $found = [];
-            if ($report['linked'] > 0) {
-                $found[] = $report['linked'] . ' rattachement' . ($report['linked'] > 1 ? 's' : '');
-            }
-            if ($report['proposed'] > 0) {
-                $found[] = $report['proposed'] . ' proposition' . ($report['proposed'] > 1 ? 's' : '');
-            }
-
-            FlashMessage::set(
-                'success',
-                $report['examined'] === 0
-                    ? 'Aucun message en attente : tout ce qui est conservé est déjà rattaché.'
-                    : sprintf(
-                        '%d message%s réexaminé%s : %s.',
-                        $report['examined'],
-                        $report['examined'] > 1 ? 's' : '',
-                        $report['examined'] > 1 ? 's' : '',
-                        $found === [] ? 'rien de neuf pour l\'instant' : implode(' et ', $found)
-                    )
             );
         });
     }
@@ -2452,7 +2740,13 @@ class RentalManagementController extends AbstractController
             return $this->json(self::flashAsJson());
         }
 
-        return $this->redirect($this->bookingUrl($asset, $booking));
+        // Back to the page the form was on, when it says which: a manager
+        // recording a payment without JavaScript lands on Finances, not on
+        // the dashboard. Read against the closed enum, so the value can
+        // only ever name one of this booking's own pages — never a URL.
+        $page = BookingPage::tryFrom((string) $request->getBody('booking_page', '')) ?? BookingPage::DASHBOARD;
+
+        return $this->redirect($page->url($this->bookingUrl($asset, $booking)));
     }
 
     /**
@@ -2648,6 +2942,16 @@ class RentalManagementController extends AbstractController
      * which is honest rather than inventing one.
      */
     /**
+     * The template of each page of a booking's file.
+     */
+    private const BOOKING_PAGE_TEMPLATES = [
+        'dashboard' => '@rental/management/booking.html.twig',
+        'finances' => '@rental/management/booking_finances.html.twig',
+        'documents' => '@rental/management/booking_documents.html.twig',
+        'mail' => '@rental/management/booking_mail.html.twig',
+    ];
+
+    /**
      * The management URL of one booking. Assembled here rather than at each
      * redirect, so the four or five places that end on this page cannot
      * drift apart.
@@ -2749,8 +3053,9 @@ class RentalManagementController extends AbstractController
      * per row: a booking with forty history entries must not mean forty
      * member lookups.
      *
-     * @param array<int, array<string, mixed>> $rows
-     * @return array<int, array<string, mixed>>
+     * @template TKey of array-key
+     * @param array<TKey, array<string, mixed>> $rows
+     * @return array<TKey, array<string, mixed>>
      */
     private function decorateWithAuthors(array $rows, string $key = 'author_member_id'): array
     {

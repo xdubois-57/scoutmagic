@@ -327,12 +327,48 @@ class Router
      */
     private function matchPath(string $pattern, string $path): ?array
     {
-        // Convert route pattern to regex
-        $regex = preg_replace_callback('/\{([a-zA-Z_]+)\}/', function (array $matches): string {
-            return '(?P<' . $matches[1] . '>' . self::placeholderPattern($matches[1]) . ')';
-        }, $pattern);
+        // **The literal parts are quoted, the placeholders are not.**
+        //
+        // This used to interpolate the declared path whole and replace only
+        // the `{…}`, so every regex metacharacter left in the literal parts
+        // kept its regex meaning — and this application declares plenty:
+        // `/favicon.ico`, `/manifest.webmanifest`, `/pwa/icon-{size}.png`,
+        // `/.well-known/carddav`, four `.ics` feeds, `{member_id}.vcf`.
+        //
+        // `.` matches any character, so every one of them already answered
+        // addresses nobody declared: `/faviconXico`, `/manifest-webmanifest`,
+        // `/calendar/feed/abcXics`. Not hypothetical, and not waiting on a
+        // future route — live, on every one of those paths, and invisible
+        // because nothing ever asked them a question they should refuse.
+        //
+        // It matters beyond tidiness because `resolve()` stops at the first
+        // route that answers: an over-broad route shadows one declared
+        // after it on a neighbouring address. A `#` is the other edge — it
+        // closes the delimiter and breaks the route in silence.
+        //
+        // That matters beyond tidiness because `resolve()` stops at the
+        // first route that answers: an over-broad route can shadow one
+        // declared after it on a neighbouring address. It is not an
+        // authorization bypass — `role_min` is checked on whichever route
+        // wins — but a route's real reach should be the path it declares
+        // and nothing more.
+        //
+        // Splitting on the placeholders and quoting what lies between is
+        // what keeps the two apart: `preg_quote()` over the whole pattern
+        // would escape the braces too, and quoting after substitution
+        // would escape the groups this very callback builds.
+        $regex = '';
+        $offset = 0;
+        preg_match_all('/\{([a-zA-Z_]+)\}/', $pattern, $placeholders, PREG_OFFSET_CAPTURE);
 
-        $regex = '#^' . $regex . '$#';
+        foreach ($placeholders[0] as $index => [$whole, $at]) {
+            $regex .= preg_quote(substr($pattern, $offset, $at - $offset), '#')
+                . '(?P<' . $placeholders[1][$index][0] . '>'
+                . self::placeholderPattern($placeholders[1][$index][0]) . ')';
+            $offset = $at + strlen($whole);
+        }
+
+        $regex = '#^' . $regex . preg_quote(substr($pattern, $offset), '#') . '$#';
 
         if (preg_match($regex, $path, $matches)) {
             // Extract only named parameters

@@ -1,0 +1,27 @@
+{#
+  The booking's own rail (issue #462): one chip per page of its file,
+  through the shared partials/page_picker.html.twig (design.md §7.6).
+
+  It REPLACES the asset's rail (`_nav.html.twig`) on these pages rather
+  than sitting under it — the breadcrumb is the way back to the asset.
+
+  The pages come from the controller (`booking_pages`, a list of
+  Booking\BookingPage) because only it knows whether « Courrier » exists
+  here: a chip that does nothing is worse than one that is not there, the
+  rule `_nav.html.twig` already follows, so an unavailable page is absent
+  rather than disabled. « Séjour » is never one of them: it has its own page
+  one level deeper in the breadcrumb, and a chip would put it on this level.
+
+  Requires `booking_pages`, `booking_page` and `booking_url`.
+#}
+{% set pages = [] %}
+{% for page in booking_pages %}
+    {% set pages = pages|merge([{url: page.url(booking_url), label: page.label}]) %}
+{% endfor %}
+{% include 'partials/page_picker.html.twig' with {
+    picker_id: 'rental-booking-picker',
+    pages: pages,
+    current_path: booking_page.url(booking_url),
+    sheet_title: 'Choisir une page',
+    aria_label: 'Pages de la réservation',
+} only %}

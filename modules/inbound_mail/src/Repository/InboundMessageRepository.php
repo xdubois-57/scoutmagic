@@ -2062,7 +2062,8 @@ class InboundMessageRepository
             omittedAttachments: $omittedAttachments,
             rawHeaders: ($row['raw_headers_encrypted'] ?? null) !== null
                 ? $this->encryption->decrypt((string) $row['raw_headers_encrypted'], 'inbound_messages.raw_headers')
-                : null
+                : null,
+            isBulk: (bool) ($row['is_bulk'] ?? false)
         );
     }
 

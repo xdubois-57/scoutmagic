@@ -7,7 +7,7 @@ role_min: identified
 question: Comment modifier le contrat d'une location déjà envoyé ?
 question: Pourquoi ne puis-je plus modifier le texte de ma facture ?
 question: Comment envoyer le contrat de location au locataire ?
-paths: /mes-locations/*/reservations/*/document/*
+paths: /mes-locations/*/reservations/*/document/*, /mes-locations/*/reservations/*/documents
 related: gerer-les-locations, locations-reglages, locations-courrier
 ---
 

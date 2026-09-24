@@ -121,4 +121,30 @@ final class BookingTransition
 
         return 'Une réservation « ' . $from->label() . ' » ne peut pas passer à « ' . $to->label() . ' ».';
     }
+
+    /**
+     * What the button that makes this transition says: a verb, because a
+     * button is something you do, where `BookingStatus::label()` is a state
+     * the booking is in (issue #462, D7).
+     *
+     * The same cancellation reads differently before and after a
+     * confirmation — a request is withdrawn, a booking is cancelled — and
+     * that is the only reason the origin is asked for.
+     */
+    public static function actionLabel(BookingStatus $from, BookingStatus $to): string
+    {
+        $confirmed = $from === BookingStatus::CONFIRMED || $from === BookingStatus::CLOSED;
+
+        return match ($to) {
+            BookingStatus::RECEIVED => 'Remettre en attente',
+            BookingStatus::REVIEWING => 'Mettre en examen',
+            BookingStatus::INFO_REQUESTED => 'Demander une précision',
+            BookingStatus::PROPOSED => 'Faire une proposition',
+            BookingStatus::CONFIRMED => 'Confirmer la réservation',
+            BookingStatus::REFUSED => 'Refuser la demande',
+            BookingStatus::CANCELLED => $confirmed ? 'Annuler la réservation' : 'Annuler la demande',
+            BookingStatus::EXPIRED => 'Marquer comme expirée',
+            BookingStatus::CLOSED => 'Clôturer la location',
+        };
+    }
 }

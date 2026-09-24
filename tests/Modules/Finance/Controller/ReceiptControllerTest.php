@@ -944,7 +944,8 @@ final class TriageMail implements \Modules\InboundMail\Api\InboundMailInterface
         string $consumerId,
         array $ownReferences,
         int $limit = 50,
-        bool $dismissed = false
+        bool $dismissed = false,
+        bool $ownReferencesOnly = false
     ): array {
         $this->askedReferences = $ownReferences;
 

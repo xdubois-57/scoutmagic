@@ -6733,6 +6733,10 @@ $calendarRetroLinks = null;
 // nothing to publish onto and never builds a lookup.
 $calendarPresenceSheetLinks = null;
 
+// The description enrichers of real events (§7.6), for the personal feed —
+// null when calendar is disabled, so an enriching module provably skips.
+$calendarDescriptionEnrichers = null;
+
 // And once more for the other direction of the same pair: deleting an
 // evening must erase the sheet somebody took on it, which no foreign key
 // can do across two modules' tables.
@@ -6758,6 +6762,11 @@ if ($isEnabled('calendar')) {
     // the virtual-event registry from the public controller.
     $calendarRetroLinks = new \Modules\Calendar\Service\RetroEventLinkRegistry();
     $calendarPresenceSheetLinks = new \Modules\Calendar\Service\PresenceSheetLinkRegistry();
+    // The lines other modules add to a REAL event's description (§7.6,
+    // Api\EventDescriptionEnricherInterface) — carpool is the first. Built
+    // empty here, filled from each module's own block, read by the
+    // personal feed only: the one feed with an identified reader.
+    $calendarDescriptionEnrichers = new \Modules\Calendar\Service\EventDescriptionEnricherRegistry();
     $calendarPresenceEventCleanup = new \Modules\Calendar\Service\PresenceEventCleanupRegistry();
     $calendarRepo = new \Modules\Calendar\Repository\CalendarRepository($pdo, $encryptionService);
     $calendarEventRepo = new \Modules\Calendar\Repository\CalendarEventRepository($pdo);
@@ -6818,7 +6827,8 @@ if ($isEnabled('calendar')) {
         // session — nothing has resolved a scout year for them, so an
         // access question about them is asked over the whole authorization
         // set rather than in a year picked for them.
-        $authorizationYearService
+        $authorizationYearService,
+        $calendarDescriptionEnrichers
     );
     $calendarPickerService = new \Modules\Calendar\Service\CalendarPickerService(
         $calendarService,
@@ -9843,7 +9853,9 @@ if ($isEnabled('camps')) {
     $fileOwnershipCheckers[] = new \Modules\Camps\Service\CampFileOwnershipChecker();
 
     // Read back at the very end of this file, when the response exists.
-    $campsMapTileOrigin = \Modules\Camps\Service\MapTiles::ORIGIN;
+    // The provider is the core's (Core\Geo\MapTiles); what this module
+    // decides is only that its pages draw a map.
+    $mapTileOrigin = \Core\Geo\MapTiles::ORIGIN;
 
     // Inbound mail. The mail-reading services below serve the WEB
     // controllers (« Créer un camp depuis ce message », field
@@ -11210,7 +11222,13 @@ if ($isEnabled('rental')) {
             // The « Rappels » section reads both: the asset's own overrides
             // and the unit's defaults it falls back to (§6.29).
             $rentalAssetReminderRepository,
-            $settingService
+            $settingService,
+            // « Marquer comme fait » on the steps the site cannot derive —
+            // the walk-throughs of an asset with no inventory (issue #462).
+            new \Modules\Rental\Service\RentalMilestoneMarkService(
+                new \Modules\Rental\Repository\RentalMilestoneMarkRepository($pdo),
+                $rentalBookingAudit
+            )
         )
     );
     $frontController->registerController(
@@ -11863,16 +11881,17 @@ try {
     // would write a journal line per page view.
 }
 
-// The camps map draws OpenStreetMap tiles, which are <img> from another
-// origin — the CSP's img-src has to name it or every tile is blocked and
-// the map is a grey box. Read from a variable the module's own wiring
-// block set, exactly like the gallery's S3 origin just above, rather than
-// re-testing getEnabledModuleIds() here: this is the response-building
-// tail, and a module-enabled test at this point reads as a per-module
-// wiring block that arrives long after FileAccessGuard was built
+// A map draws OpenStreetMap tiles, which are <img> from another origin —
+// the CSP's img-src has to name it or every tile is blocked and the map is
+// a grey box. Read from a variable set by the wiring block of whichever
+// module draws a map (camps today), exactly like the gallery's S3 origin
+// just above, rather than re-testing getEnabledModuleIds() here: this is
+// the response-building tail, and a module-enabled test at this point
+// reads as a per-module wiring block that arrives long after
+// FileAccessGuard was built
 // (Tests\Core\File\FileOwnershipCheckerWiringTest).
-if (isset($campsMapTileOrigin)) {
-    $response->addImgSrcOrigin($campsMapTileOrigin);
+if (isset($mapTileOrigin)) {
+    $response->addImgSrcOrigin($mapTileOrigin);
 }
 
 // The account scope the SESSION SERVING THIS RESPONSE is in — the same

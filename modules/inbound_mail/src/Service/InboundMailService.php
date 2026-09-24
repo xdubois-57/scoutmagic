@@ -164,15 +164,34 @@ class InboundMailService implements InboundMailInterface
         string $consumerId,
         array $ownReferences,
         int $limit = 50,
-        bool $dismissed = false
+        bool $dismissed = false,
+        bool $ownReferencesOnly = false
     ): array {
         return $this->messageRepository->findForTriage(
             $consumerId,
             array_values(array_unique($ownReferences)),
-            $this->mailboxRepository->mailboxIdsReadableInFull($consumerId),
+            $ownReferencesOnly ? [] : $this->mailboxRepository->mailboxIdsReadableInFull($consumerId),
             $limit,
             $dismissed
         );
+    }
+
+    /**
+     * The rows of a triage screen — see `Api\InboundMailInterface`.
+     *
+     * @param string[] $ownReferences
+     * @return list<array{message: InboundMessage, excerpt: string, truncated: bool, has_body: bool,
+     *     attachment_count: int, links: \Modules\InboundMail\Api\MessageLink[],
+     *     candidates: \Modules\InboundMail\Api\MessageCandidate[]}>
+     */
+    public function triageRows(
+        string $consumerId,
+        array $ownReferences,
+        int $limit = 50,
+        bool $dismissed = false,
+        bool $ownReferencesOnly = false
+    ): array {
+        return TriageRowBuilder::build($this, $consumerId, $ownReferences, $limit, $dismissed, $ownReferencesOnly);
     }
 
     /**

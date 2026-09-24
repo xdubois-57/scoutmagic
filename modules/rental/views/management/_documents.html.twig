@@ -53,6 +53,7 @@
                 {{ csrf_field()|raw }}
                 <input type="hidden" name="asset_id" value="{{ asset.id }}">
                 <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
                 <input type="hidden" name="document_type" value="contract">
                 <button type="submit" class="btn btn-sm btn-outline-secondary">Générer le contrat</button>
             </form>
@@ -60,6 +61,7 @@
                 {{ csrf_field()|raw }}
                 <input type="hidden" name="asset_id" value="{{ asset.id }}">
                 <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
                 <input type="hidden" name="document_type" value="invoice">
                 <button type="submit" class="btn btn-sm btn-outline-secondary">Générer la facture</button>
             </form>
@@ -138,6 +140,7 @@
                                                 {{ csrf_field()|raw }}
                                                 <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                                 <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                                <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
                                                 <input type="hidden" name="document_id" value="{{ document.id }}">
                                                 <button type="submit" class="btn btn-sm btn-outline-secondary"
                                                         title="{{ document.hasBeenSent ? 'Renvoyer' : 'Envoyer' }} « {{ document.label }} » au locataire"
@@ -159,6 +162,7 @@
                                                 {{ csrf_field()|raw }}
                                                 <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                                 <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                                <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
                                                 <input type="hidden" name="document_id" value="{{ document.id }}">
                                                 <label class="visually-hidden" for="reclass-{{ document.id }}">
                                                     Reclasser
@@ -201,6 +205,7 @@
                                             {{ csrf_field()|raw }}
                                             <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                             <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                            <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
                                             <input type="hidden" name="document_id" value="{{ document.id }}">
                                             <button type="submit" class="btn btn-sm btn-outline-danger"
                                                     title="Supprimer « {{ document.label }} »"
@@ -223,6 +228,7 @@
             {{ csrf_field()|raw }}
             <input type="hidden" name="asset_id" value="{{ asset.id }}">
             <input type="hidden" name="booking_id" value="{{ booking.id }}">
+            <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
             <div class="col-12 col-md-4">
                 {% include 'partials/drop_zone.html.twig' with {
                     id: 'document-drop-zone',
@@ -273,6 +279,7 @@
             {{ csrf_field()|raw }}
             <input type="hidden" name="asset_id" value="{{ asset.id }}">
             <input type="hidden" name="booking_id" value="{{ booking.id }}">
+            <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
             <div class="col-12 col-md-6">
                 <label class="form-label" for="billing-name">Raison sociale</label>
                 <input type="text" class="form-control form-control-sm" id="billing-name" name="billing_name"
