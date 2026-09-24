@@ -46,6 +46,22 @@ class CookieConsentService
     private bool $cookieWasSet = false;
 
     /**
+     * The attributes each cookie was written with, kept only in test mode.
+     *
+     * The jar below used to record the NAME and the VALUE and drop
+     * everything else — which is to say it dropped `expires`, the one
+     * attribute CONSENT_DURATION_DAYS governs. The constant was therefore
+     * unobservable from a test: measured, it could be set to thirty days
+     * or to ten years and the whole of tests/Core/Cookie/ and
+     * tests/Core/View/ stayed green (issue #444). Ten years is the one
+     * that matters: it is past the ePrivacy ceiling this site announces to
+     * the visitor as « 13 mois ».
+     *
+     * @var array<string, array{expires: int, path: string, httponly: bool, secure: bool, samesite: string}>
+     */
+    private array $writtenCookieOptions = [];
+
+    /**
      * @param array<string, mixed>|null $cookieJar Injectable cookie source (null = use $_COOKIE)
      */
     public function __construct(?array $cookieJar = null)
@@ -211,24 +227,32 @@ class CookieConsentService
 
     /**
      * Write a cookie. In test mode (with cookieJar), writes to the jar instead of calling setcookie().
+     *
+     * The attributes are assembled BEFORE the two paths part, and both
+     * keep them: production hands them to `setcookie()`, the jar records
+     * them. That order is the whole point — computing them after the test
+     * path returned is what made the expiry, and with it the thirteen
+     * months the site promises, impossible to observe from a test
+     * (issue #444). What production sends is unchanged.
      */
     private function writeCookie(string $name, string $value): void
     {
+        $options = [
+            'expires' => time() + (self::CONSENT_DURATION_DAYS * 86400),
+            'path' => '/',
+            'httponly' => false,
+            'secure' => RequestScheme::isHttps($_SERVER),
+            'samesite' => 'Lax',
+        ];
+
         if ($this->cookieJar !== null) {
             $this->cookieJar[$name] = $value;
+            $this->writtenCookieOptions[$name] = $options;
             $this->cookieWasSet = true;
             return;
         }
 
-        $isHttps = RequestScheme::isHttps($_SERVER);
-
-        setcookie($name, $value, [
-            'expires' => time() + (self::CONSENT_DURATION_DAYS * 86400),
-            'path' => '/',
-            'httponly' => false,
-            'secure' => $isHttps,
-            'samesite' => 'Lax',
-        ]);
+        setcookie($name, $value, $options);
 
         // Also set in $_COOKIE for immediate availability in this request
         $_COOKIE[$name] = $value;
@@ -241,4 +265,16 @@ class CookieConsentService
     {
         return $this->cookieWasSet;
     }
+
+    /**
+     * The attributes a cookie was written with, or null if it was not
+     * written — for testing, and only ever populated in test mode.
+     *
+     * @return array{expires: int, path: string, httponly: bool, secure: bool, samesite: string}|null
+     */
+    public function writtenCookieOptions(string $name): ?array
+    {
+        return $this->writtenCookieOptions[$name] ?? null;
+    }
+
 }
