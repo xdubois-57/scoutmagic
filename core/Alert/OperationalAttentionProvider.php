@@ -35,7 +35,7 @@ use Core\Attention\AttentionPointProvider;
  */
 final class OperationalAttentionProvider implements AttentionPointProvider
 {
-    /** The destination that suits eleven of the twelve checks. */
+    /** The destination that suits twelve of the thirteen checks. */
     private const DEFAULT_WHY = 'Le site l\'a signalé aux administrateurs et le répète ici tant que c\'est '
         . 'vrai. La page Maintenance en dit le détail.';
 
