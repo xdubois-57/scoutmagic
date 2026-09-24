@@ -362,8 +362,38 @@ class ModuleManifest
             }
         }
 
-        $enabledByDefault = (bool) ($data['enabled_by_default'] ?? false);
-        $description = (string) ($data['description'] ?? '');
+        // The last two fields that were read by cast rather than checked,
+        // and the cast is what made them dangerous rather than merely lax.
+        //
+        // `(bool) "non"` is TRUE, and so is `(bool) "false"`, `(bool) 0.1`
+        // and `(bool) [0]` — so a manifest saying no in any shape but a JSON
+        // boolean said yes, and the module activated itself on first
+        // discovery, which is the one thing its author was trying to
+        // prevent. `(bool) null` said no, silently, which is a different
+        // wrong answer to a field somebody wrote on purpose.
+        //
+        // `(string) ["…"]` is the literal "Array", with a PHP warning, and
+        // that string is what the Modules page then shows. `(string) 42` is
+        // "42". Neither is a value anybody meant.
+        //
+        // `array_key_exists()` rather than `isset()`, like the twelve
+        // optional sections above: an explicit `null` is a value somebody
+        // typed, and refusing it is how they learn it means nothing here.
+        $enabledByDefault = false;
+        if (array_key_exists('enabled_by_default', $data)) {
+            if (!is_bool($data['enabled_by_default'])) {
+                throw new ModuleException("Module '{$id}' enabled_by_default must be a boolean");
+            }
+            $enabledByDefault = $data['enabled_by_default'];
+        }
+
+        $description = '';
+        if (array_key_exists('description', $data)) {
+            if (!is_string($data['description'])) {
+                throw new ModuleException("Module '{$id}' description must be a string");
+            }
+            $description = $data['description'];
+        }
 
         // Validate visible_when (Core\Module\InstallationProfile flags).
         //
