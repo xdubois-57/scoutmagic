@@ -137,7 +137,12 @@ La roadmap a été écrite sur le commit `fb9e661` ; elle a été relue contre
   vignette et les variantes. Et à la création, le fichier est enregistré
   fermé (`admin`, sans propriétaire) puis ouvert à son rôle seulement une
   fois possédé par le document : sinon, le temps de la compression PDF,
-  le fichier d'un lien direct était un fichier public ordinaire.
+  le fichier d'un lien direct était un fichier public ordinaire. La
+  même règle vaut à la modification : un fichier de remplacement est
+  enregistré fermé et n'est ouvert qu'une fois la nouvelle visibilité
+  écrite sur le document ; un changement de visibilité sans nouveau
+  fichier ferme le fichier courant avant et le rouvre au bon rôle après
+  (et lui rend l'ancien si l'enregistrement échoue).
 - **Un envoi de nouveau fichier qui échoue en cours de modification**
   retire le fichier qu'il venait d'enregistrer, comme l'ajout le faisait
   déjà (relevé par la même revue).

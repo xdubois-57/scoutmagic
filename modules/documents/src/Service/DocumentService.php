@@ -220,7 +220,17 @@ class DocumentService
 
         $newFileId = null;
         if ($uploadedFile !== null && $this->hasUpload($uploadedFile)) {
-            $newFileId = $this->storeUpload($uploadedFile, $visibility, $actorId, $id);
+            // Stored closed, like create(): the document row still carries
+            // its OLD visibility until updateDetails() below, and a file
+            // opened now would be judged by it.
+            $newFileId = $this->storeUpload($uploadedFile, DocumentVisibility::ADMIN, $actorId, $id);
+        }
+
+        // A visibility change on the current file follows the same rule:
+        // closed before the document changes, opened to the new role after.
+        $retargetsCurrentFile = $newFileId === null && $visibility !== $document->visibility;
+        if ($retargetsCurrentFile) {
+            $this->fileRepository->updateRoleMin($document->fileId, DocumentVisibility::ADMIN->fileRoleMin());
         }
 
         try {
@@ -233,10 +243,16 @@ class DocumentService
             if ($newFileId !== null) {
                 $this->fileRemover->removeOrphan($newFileId);
             }
+            // The document kept its old visibility: so does its file.
+            if ($retargetsCurrentFile) {
+                $this->fileRepository->updateRoleMin($document->fileId, $document->visibility->fileRoleMin());
+            }
             throw $e;
         }
 
         if ($newFileId !== null) {
+            // The document now says what the file is for: open it.
+            $this->fileRepository->updateRoleMin($newFileId, $visibility->fileRoleMin());
             $this->fileRemover->removeOrphan($document->fileId);
             $this->journalService->log(
                 'documents',

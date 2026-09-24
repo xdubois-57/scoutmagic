@@ -86,6 +86,39 @@ final class DirectLinkAccessTest extends TestCase
         $this->assertSame('public', DocumentsTestHelper::fileRoleMin($this->pdo, $document->fileId));
     }
 
+    /**
+     * The same on replacement: the new file must not open before the
+     * document row carries the visibility it is opened for — a document
+     * switched to « Lien direct » with a new file would otherwise have
+     * that file judged, for a while, by its old listed visibility.
+     */
+    public function testAReplacementFileIsStoredClosedUntilTheDocumentSaysWhatItIs(): void
+    {
+        $document = $this->service->create('ROI', null, 'public', DocumentsTestHelper::upload(), null);
+        $seen = [];
+        $spy = new class ($this->pdo, $seen) extends DocumentRepository {
+            /** @param list<string> $seen */
+            public function __construct(private \PDO $db, private array &$seen)
+            {
+                parent::__construct($db);
+            }
+
+            public function replaceFile(int $id, int $fileId, ?int $updatedBy, string $now): void
+            {
+                $query = $this->db->prepare('SELECT role_min FROM files WHERE id = ?');
+                $query->execute([$fileId]);
+                $this->seen[] = (string) $query->fetchColumn();
+                parent::replaceFile($id, $fileId, $updatedBy, $now);
+            }
+        };
+        $service = DocumentsTestHelper::service($this->pdo, $this->storage, null, $spy);
+
+        $updated = $service->update($document->id, 'ROI', null, 'direct_link', DocumentsTestHelper::upload('v2.pdf'), null);
+
+        $this->assertSame(['admin'], $seen, 'The new file was open before the document was.');
+        $this->assertSame('public', DocumentsTestHelper::fileRoleMin($this->pdo, $updated->fileId));
+    }
+
     public function testAReplacementFileIsOwnedByItsDocumentToo(): void
     {
         $document = $this->service->create('ROI', null, 'direct_link', DocumentsTestHelper::upload(), null);
