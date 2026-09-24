@@ -45,8 +45,9 @@ document : si l'unité le corrige, le même lien donne la version corrigée.
 Si ce lien affiche « Ce fichier n'est pas accessible avec votre
 compte. », le document est réservé aux membres de l'unité ou à
 l'encadrement : connectez-vous avec le compte lié à votre famille, puis
-rouvrez le lien. Le même message apparaît sur l'ancien lien d'une
-version remplacée depuis : demandez à l'unité l'adresse du document.
+rouvrez le lien. Si le message revient, le document ne vous est pas
+destiné. Le même message apparaît aussi sur l'ancien lien d'une version
+remplacée depuis : demandez à l'unité l'adresse du document.
 
 Certains documents ne figurent sur aucune liste et ne s'ouvrent que par
 leur adresse : c'est normal, l'unité les partage directement avec les
