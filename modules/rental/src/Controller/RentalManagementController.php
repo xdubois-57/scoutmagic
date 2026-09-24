@@ -1247,6 +1247,7 @@ class RentalManagementController extends AbstractController
             'triage_urls' => $urls,
             'triage_booking_options' => $options,
             'mailbox_address' => $mailbox?->address,
+            'sorts_unattributed' => $unattributed,
             'mailbox_name' => $mailbox?->name,
         ];
     }

@@ -18,13 +18,16 @@
 #}
 {% block booking_content %}
     {# The page exists only because rentals have a mailbox of their own
-       (issue #462, D8), so it says so — and says what follows from it: the
-       whole box, not only what is filed, and the address renters answer. #}
+       (issue #462, D8), so it says so — and says what follows from it:
+       whose mail of that box this manager sees
+       (RentalCommunicationService::withinReach()), and the address renters
+       answer. #}
     <div class="card mb-3">
         <div class="card-body small text-body-secondary">
             Cette page existe parce que les locations disposent d'une boîte dédiée,
-            <strong>{{ mailbox_address ?: mailbox_name }}</strong>. Elle montre donc tout son courrier,
-            pas seulement les messages déjà rattachés à une réservation.
+            <strong>{{ mailbox_address ?: mailbox_name }}</strong>. Elle en montre le courrier des
+            réservations des biens que vous gérez{% if sorts_unattributed %}, et ce que rien ne
+            rattache encore{% endif %}.
             {% if mailbox_address %}
                 Les e-mails que le site envoie aux locataires portent
                 cette adresse en réponse.
