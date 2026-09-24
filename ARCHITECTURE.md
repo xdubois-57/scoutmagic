@@ -2318,7 +2318,11 @@ attributes it and they manage every asset
 (`RentalAuthorizationService::managesEveryAsset()`: the Staff d'U, or a
 manager named on each), since such a message may be about any of them.
 Attach, set aside and restore check a posted message id against that same
-list: what a manager cannot see, they cannot act on. The seven
+list: what a manager cannot see, they cannot act on. For somebody who does
+not manage every asset the narrowing starts in the query
+(`findForTriage(…, ownReferencesOnly: true)` leaves the box read in full
+out), before the screenful's limit: the whole box's hundred most recent
+messages are not a sample of anybody's own. The seven
 `/mes-locations/courrier/*` routes go through `bookingAction()` like every
 form of the booking.
 
