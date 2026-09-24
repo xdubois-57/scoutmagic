@@ -346,6 +346,9 @@ final class UxConventionsTest extends TestCase
         '/calendar/feed/personal/{token}.ics',
         '/calendar/feed/unit/{token}.ics',
         '/calendar/feed/{token}.ics',
+        // A shared document's stable address: a 302 to the current
+        // version's /files/{id}, never a page.
+        '/documents/{slug}',
         // JSON for the « Rattacher à » stay picker on the camps mail
         // screen — the twin of /finance/reconciliation/creances below,
         // never a page.

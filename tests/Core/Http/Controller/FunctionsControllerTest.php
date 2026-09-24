@@ -13,7 +13,9 @@ use Core\Config\ScoutYearService;
 use Core\Database\Connection;
 use Core\Http\Controller\FunctionsController;
 use Core\Http\Request;
+use Core\Config\ScoutYearService as ConfigScoutYearService;
 use Core\Import\AgeBranchRepository;
+use Core\Import\DeskMappingGapService;
 use Core\Import\FunctionRepository;
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
@@ -91,7 +93,11 @@ class FunctionsControllerTest extends TestCase
         $this->twig->addFunction(new \Twig\TwigFunction('file_url', fn() => ''));
         $this->twig->addFunction(new \Twig\TwigFunction('param', fn(string $k) => 'Test'));
 
-        $this->controller = new FunctionsController($this->twig, $this->functionRepo, $journalService, $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, new AgeBranchRepository($this->pdo));
+        // With the mapping-gap service, because that is how the
+        // composition root serves this page: a controller without it
+        // renders a page missing its top box, which is not a state any
+        // visitor is ever in.
+        $this->controller = new FunctionsController($this->twig, $this->functionRepo, $journalService, $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, new AgeBranchRepository($this->pdo), null, new DeskMappingGapService($this->pdo, new ConfigScoutYearService($this->pdo)));
     }
 
     public function testIndexRendersEmptyState(): void
@@ -119,7 +125,7 @@ class FunctionsControllerTest extends TestCase
         $response = $this->controller->index($request, []);
 
         $body = $response->getBody();
-        $h2Pos = strpos($body, '<h2 class="h4">Fonctions</h2>');
+        $h2Pos = strpos($body, '<h2 class="h4" id="fonctions">Fonctions</h2>');
         $pPos = strpos($body, 'Associez chaque fonction importée depuis Desk');
 
         $this->assertNotFalse($h2Pos);
@@ -137,7 +143,9 @@ class FunctionsControllerTest extends TestCase
         $response = $this->controller->index($request, []);
 
         $body = $response->getBody();
-        $this->assertStringContainsString('2 fonction(s) à confirmer', $body);
+        // The top-of-page summary is now the mapping-gap box, which says
+        // the same thing about a wider set (issue #356).
+        $this->assertStringContainsString('2 valeurs que le site ne connaît pas', $body);
         $this->assertStringContainsString('Non confirmée', $body);
         $this->assertStringContainsString('Scout', $body);
         $this->assertStringContainsString('Animé', $body);
@@ -888,5 +896,85 @@ class FunctionsControllerTest extends TestCase
         $hooks = new \Core\Module\HookRegistry();
         $hooks->register(\Core\Module\FunctionFlagsProvider::class, $provider);
         return $hooks;
+    }
+
+    /**
+     * Issue #356. The box at the top of this page is the first place a
+     * chief is told that an import created something the site does not
+     * understand — and, for a branch, the ONLY place: a branch sorted last
+     * has no « à confirmer » state of its own and is announced nowhere
+     * else at all.
+     */
+    public function testTheBoxNamesWhatTheSiteCouldNotRecognise(): void
+    {
+        $this->functionRepo->create('Animateur Nutons', 'Animateur Nutons', 'identified', false);
+        (new AgeBranchRepository($this->pdo))->create('Nutons', 'Nutons');
+
+        $body = $this->controllerWithMappingGaps()->index(
+            new Request('GET', '/config/functions', [], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString('valeurs que le site ne connaît pas', $body);
+        $this->assertStringContainsString('Animateur Nutons', $body);
+        $this->assertStringContainsString("elle n'a pas de logo", $body);
+        $this->assertStringContainsString('Choisir un logo', $body);
+    }
+
+    /**
+     * And it leaves by itself. Nothing is marked as read, nothing is
+     * dismissed: the list is derived, so qualifying the function is what
+     * removes it.
+     */
+    public function testTheBoxDisappearsOnceEverythingIsResolved(): void
+    {
+        $id = $this->functionRepo->create('Animateur Nutons', 'Animateur Nutons', 'identified', false);
+
+        $controller = $this->controllerWithMappingGaps();
+        $request = new Request('GET', '/config/functions', [], [], [], []);
+        $this->assertStringContainsString(
+            'valeur que le site ne connaît pas',
+            $controller->index($request, [])->getBody()
+        );
+
+        $this->functionRepo->updateRole($id, 'chief', true);
+
+        $this->assertStringNotContainsString(
+            'que le site ne connaît pas',
+            $controller->index($request, [])->getBody()
+        );
+    }
+
+    /**
+     * A branch this code recognises is not a gap, so the box does not
+     * appear for a perfectly ordinary import.
+     */
+    public function testAnOrdinaryImportShowsNoBoxAtAll(): void
+    {
+        $this->functionRepo->create('Animateur', 'Animateur', 'chief', true);
+        (new AgeBranchRepository($this->pdo))->create('Baladins', 'Baladins');
+
+        $body = $this->controllerWithMappingGaps()->index(
+            new Request('GET', '/config/functions', [], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringNotContainsString('que le site ne connaît pas', $body);
+    }
+
+    private function controllerWithMappingGaps(): FunctionsController
+    {
+        return new FunctionsController(
+            $this->twig,
+            $this->functionRepo,
+            new JournalService($this->journalRepo),
+            $this->sectionService,
+            $this->unitStaffSectionService,
+            $this->scoutYearResolver,
+            $this->badgeService,
+            new AgeBranchRepository($this->pdo),
+            null,
+            new DeskMappingGapService($this->pdo, new ConfigScoutYearService($this->pdo))
+        );
     }
 }

@@ -15,6 +15,7 @@ Everything beyond the core site is a module (`modules/<id>/`, ARCHITECTURE.md §
 | `calendar` | Calendrier | §27 |
 | `camps` | Camps | §26 |
 | `covoiturage` | Covoiturage | §45 |
+| `documents` | Documents | §46 |
 | `fees` | Cotisations | §31 |
 | `finance` | Finances | §28, §30 |
 | `gallery` | Photos et vidéos | §33 |
@@ -154,6 +155,7 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 | Calendrier (module) | Public activity calendar (month/week view); read-only ICS subscription feeds. Accepts `?section={id}` to preselect that section's calendar (used by the member page's own link, §4.2). |
 | Actualités (module) | Public news article list/detail, each with an optional registration form (fields, capacity, payment) |
 | Inscriptions (module) | Public form to request a spot for a child (open/closed by the admin, optionally on a schedule), with an optional availability display by birth year; a tracking link/page for the family (minimal view by token, full view once identified and linked); see §17 for the staff side |
+| Documents (module documents) | The documents the unit shares — rules, equipment list, forms — in the order the Staff d'U set, each with its type, size and date and a download button. Filtered by the reader: a visitor sees the public ones, a member what is meant for them, and the page tells a signed-in reader how many it keeps back — an anonymous one is invited to sign in instead. See §46 |
 
 ### 4.2 Espace membres
 
@@ -205,6 +207,7 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 | Cotisations (module fees) | admin | Checking what the federation bills against the unit's own roster: the season's snapshot, tariff accuracy per household, and the report of an imported invoice. See §31 |
 | Listes de diffusion (module mass_mail) | admin | Qui l'unité écrit : les listes par défaut (une par section, « Membres actifs », « Animateurs uniquement » et « Anciens »), en lecture seule, et les listes personnalisées croisant trois critères — fonctions, sections et badges — en ET entre les axes et en OU à l'intérieur de chacun, un axe laissé vide ne restreignant rien et les trois vides ne contenant personne. Une phrase sous les sélecteurs énonce la combinaison et un compteur en direct dit combien de membres elle atteint pour l'année scoute effective. Création, modification, activation, suppression. Chaque liste porte en outre **ses propres adresses** — la commune, le curé, le propriétaire d'un terrain de camp, un ancien — et la liste vaut alors pour la réunion de ses critères et de ses adresses, dédoublonnée sur l'adresse. **Tout le contenu d'une liste se décide dans la fenêtre qui la modifie**, ses adresses comprises ; la page ne fait que résumer chaque liste en deux phrases — ce que ses critères désignent, nommés, et combien d'adresses propres elle porte — sans aucune commande sur l'une ni sur l'autre. Une adresse s'ajoute et se retire (corbeille, sans étape de confirmation d'écran), jamais ne se corrige en place : une ligne ne porte qu'un nom et une adresse, donc une faute de frappe se répare en la retirant et en la retapant. Une désinscription vaut pour toutes les listes à la fois, la ligne restant visible, grisée et définitivement exclue des envois. Nom et adresse sont chiffrés au repos, et un plafond réglable (2000 par défaut) borne l'ensemble. Le travail en masse passe par un **aller-retour Excel** : export en flux de trois colonnes (`Nom`, `Adresse`, `Désinscrit` en lecture seule), et import qui **remplace** la liste — colonnes reconnues par leur en-tête, dépôt qui ne fait qu'analyser et afficher les compteurs, confirmation explicite avant toute écriture, fichier supprimé dès l'analyse, adresses désinscrites conservées et jamais réabonnées. La liste « Anciens » est **calculée à la volée** — ni table, ni jonction, ni tâche planifiée : est un ancien celui qui a été actif lors d'une année scoute passée, ne l'est plus cette année, apparaît dans au moins `former_members_min_scout_years` années scoutes distinctes (2 par défaut, le seuil étant en années parce que `member_years` est un instantané annuel) et est parti depuis moins de `former_members_max_years_since_departure` années scoutes (10 par défaut, `0` levant la borne). Elle est la seule à exiger `unit_mail_consent`, chaque ancien y étant joint à l'adresse de **sa** dernière année active — d'où l'absence de choix d'année à l'envoi — et sa description nomme la plus ancienne année importée, avant laquelle le site ne connaît personne. Une liste déjà utilisée par un e-mail se désactive, jamais ne se supprime. C'est un chef d'unité qui décide à qui l'unité écrit, d'où le plancher `admin` ; la page vivait dans Configuration au plancher `superadmin`. La cadence d'envoi n'est pas ici : elle appartient au fournisseur qui l'impose, et s'édite dans la section « Avancé » de sa fiche, sous Configuration > Courrier sortant. Voir §24 |
 | Courrier reçu (module inbound_mail) | admin | L'archive des messages relevés dans les boîtes de l'unité, **y compris ceux qu'aucun module n'a reconnus** — c'est ici qu'on les oriente à la main, et ce qui reste sans rattachement disparaît à la rétention. Un seul rôle répond de cette archive, d'où l'absence de toute seconde route à un plancher plus bas. Les filtres ne portent que sur les métadonnées — boîte, message associé ou non, automatique ou non : **rien n'y cherche dans le contenu**, un index en clair de tout ce qu'on écrit à l'unité étant ce qui transforme une archive avec rétention en archive sans. Les boîtes elles-mêmes se déclarent dans Configuration > Courrier entrant. Voir §23 |
+| Documents (module documents) | admin | What the public « Documents » page shows: add a document (title, description, visibility, file), edit it — a new file included — reorder by drag and drop, delete. Each row shows the stable address to share. See §46 |
 | Réinscriptions (module registration) | admin | The campaign that asks the families of this year's animés whether the child comes back (§18.5): its recurring MM-JJ window, the two reminder delays, a manual switch that forces the state either way, the current state with the planned close date, and a manual « relancer les familles sans réponse » button — unavailable on a closed campaign, since reminding somebody to fill in a form they can no longer fill in is worse than not reminding them. The tracking is **counts only** — answers received out of total, départs annoncés, sans réponse — never a list: a list here would be a list of children whose parents have said they are leaving, sitting on a configuration screen. Individual decisions belong to « Départs de l'unité » and « Passages de branche ». |
 
 #### The page of one member (`/admin/members/{id}`)
@@ -1051,9 +1054,9 @@ The renter's acknowledgement email carries a link to their own tracking page. **
 
 **A booking moves through one lifecycle, and every step is on the booking.** Change requests and proposals are the same object seen from two ends — the renter asks for other dates, or the unit offers them — and either side's answer applies or closes it, never silently. Cancellation is available from every live state, confirmed included, and **computes no refund**: what is owed after a cancellation is a conversation, not an arithmetic rule the module could get right.
 
-**The milestone checklist is derived, never stored.** "Deposit paid", "contract sent", "inventory taken" are computed from the booking's own state every time they are shown, so they cannot drift from it and no scheduled task has to keep them in step. Every change a person makes to a booking is kept as the booking's own history, with the value before and after.
+**The milestone checklist is derived, never stored — except what happens away from the site.** "Deposit paid", "contract sent", "inventory taken" are computed from the booking's own state every time they are shown, so they cannot drift from it and no scheduled task has to keep them in step. A step the site cannot see — an inventory taken on paper because the asset keeps none here, or the stay module is off — is ticked by hand (« Marquer comme fait »), and the tick records who and when in the booking's history. A step the site can derive is never ticked by hand: a checkbox beside a fact the site already knows would be a second answer that can contradict the first. Every change a person makes to a booking is kept as the booking's own history, with the value before and after.
 
-**The booking's page leads with one thing to do.** It reads in four movements — the details of the rental, « L'action suivante », the journey in five phases, then « Le dossier » — and only the phase the booking has reached is unfolded. A file whose price, payments, documents, mail, change requests, comments and history are all open at once shows everything and therefore nothing first; each of those is a folded box now, and the figure beside its name (what is still owed, how many requests are waiting) answers the question it would have been opened for. The status is stated once, at the top: a second card repeating it lower down is how a page starts giving two answers to one question. The decision on a request is itself a milestone, because « Demande reçue » ticks when the request arrives and says nothing about whether anybody has answered it.
+**A booking is four pages: « Tableau de bord », « Finances », « Documents », « Courrier ».** A rail under the booking's name moves between them, and the reference, the renter and the dates are stated once, above it, on all four; where the booking stands is said by the dashboard. The dashboard leads with where the booking stands and the one step that moves it on, with the status's other decisions beside it — each decision is offered **once** on the page, because a page offering « Confirmer la réservation » twice is one where pressing either is a guess. Below come the steps of the journey, phase by phase, each saying what kind of step it is: one the site ticks by itself, one to do on one of the booking's pages (its link opens the right box on the right page), one waiting on the renter, or one that happens away from the site. Until the booking is confirmed, a phase it has not reached is shown as ahead and offers nothing; once confirmed, every phase is open. Change requests, comments and history stay on the dashboard; the price and the payments are on « Finances »; the contract, the invoice and the files on « Documents »; the booking's mail on « Courrier » (§22.9). The stay keeps its own page. A page that does not exist for this booking answers « page introuvable », never an empty page. The decision on a request is itself a milestone, because « Demande reçue » ticks when the request arrives and says nothing about whether anybody has answered it.
 
 **A renter's change request is checked when it is made, not when it is answered.** The same rules as the public form — the asset's minimum stay, its allowed arrival days, its capacity, and the periods already taken — and the same French sentences. The rules about the dates are asked of the dates that changed: a request that only extends the departure is not asked whether the stay may *begin* on a day it began on already, and one that only changes the head count is asked about the group and nothing else. A manager's proposal is held to what is physical — the capacity, and the availability at acceptance — and not to the rules that shape what a visitor may ask for. A request that cannot be accepted is not a request a manager should have to read, and refusing it weeks later tells the wrong person at the wrong moment. The check at acceptance stays, because it answers a different question: between a request and an answer the dates can be taken by somebody else, and only the check inside the lock sees that. What the renter no longer does is **choose a type of request**: the form is their own booking, pre-filled, and what they changed is what they are asking for — which is also what finally lets one request move the dates *and* the head count, as the row always could. Cancelling is a button of its own with a confirmation, never one line of the same menu.
 
@@ -1091,9 +1094,13 @@ A cancelled booking is published as cancelled rather than removed, so a subscrib
 
 ### 22.9 Correspondence
 
-With the Courrier entrant module, replies are attached to the right booking automatically: by the reference in the subject, then by the thread headers, then by the sender's address inside a window around the stay. **An ambiguous match attaches nothing** — a manager reading the wrong file has no way to know it is the wrong one. Every attachment says how it was made, and a sender match is labelled as the guess it is.
+With the Courrier entrant module, replies are attached to the right booking automatically: by the signed reply address the site's own mail carried, then by the reference in the subject, then by the thread headers, then by the sender's address inside a window around the stay. **An ambiguous match attaches nothing** — a manager reading the wrong file has no way to know it is the wrong one. Every attachment says how it was made, and a sender match is labelled as the guess it is.
 
-There is no way to attach a message by hand and no surface onto the mailbox at all. Correcting a wrong attachment means detaching it (which deletes it, along with attachments nobody re-classified) or moving it — only to a booking of an asset that manager actually manages.
+**A booking has a « Courrier » page when the unit has a mailbox dedicated to rentals — exactly one.** It is the same screen as the camps' mail, with the same states and the same gestures: messages to sort, attached, all, set aside; read a message; confirm or dismiss a proposition; attach a message to a booking; detach it; set aside a message that is not about rentals and bring it back; re-run the analysis. It shows the mail filed or proposed under the bookings of the assets the manager manages — never another asset's — and attaching is offered only towards those bookings. A message nothing attributes yet may concern any asset, so it is shown only to somebody who manages all of them: the Staff d'U, or a manager named on each. Changing a message's booking is detaching it and attaching it to the right one. Detaching returns the message to the unit's general mail and takes back the attachments nobody re-classified; a document already filed, a signed contract for instance, stays on the booking. Nothing on this page deletes a message.
+
+Two mailboxes dedicated to rentals give no page: the page shows one box, and picking between two would be arbitrary. The list of mailboxes in the incoming-mail configuration says so, and the change that created the case is journaled. A shared mailbox still feeds the automatic filing.
+
+**A renter's « Répondre » reaches that box.** Every e-mail about a booking carries the signed reply address when the operator allows it. With signed addresses off, it carries the dedicated box's own address when there is exactly one, which keeps the answer off the site's general reply address that the page does not read; otherwise the site's ordinary reply address applies. Mass mailings are not affected.
 
 ### 22.10 The paperwork register
 
@@ -3157,3 +3164,42 @@ demandé, avec son statut et le lien — jamais un numéro de téléphone.
 - **Le lieu, la recherche et l'enrichissement dans l'API du calendrier**
   (`EventSummary::$location`, `searchUpcomingEvents()`,
   `EventDescriptionEnricherInterface`) — `ARCHITECTURE.md` §7.6.
+
+## 46. Documents (module documents)
+
+Chantier « Module Documents » (issue #508, `docs/chantiers/module-documents.md`).
+
+L'unité partage des documents — le règlement d'ordre intérieur, la liste
+du matériel de camp, une fiche médicale vierge — sur une page à elle, avec
+une adresse qui ne change pas quand le document est mis à jour. Le module
+est optionnel et désactivé par défaut.
+
+### 46.1 Deux pages
+
+| Page | Menu | Groupe | Rôle |
+|---|---|---|---|
+| Documents (`/documents`) | Notre unité | — | public, contenu filtré selon le lecteur |
+| Documents (`/admin/documents`) | Espace chefs d'U | Communication | Staff d'U (`admin`) |
+
+### 46.2 Cinq visibilités
+
+Les mêmes que celles des actualités, avec les mêmes libellés : **Public**,
+**Membres connectés**, **Animateurs**, **Chefs d'Unité**, **Lien direct**.
+L'intendant voit ce qui est destiné aux membres connectés, jamais ce qui est
+réservé aux animateurs. « Lien direct » n'est pas un rôle : le document
+n'apparaît sur aucune liste, pour personne, et quiconque a son adresse le
+télécharge, même sans compte — mais seulement en passant par cette
+adresse : son fichier ne s'ouvre pas en devinant son numéro. Un document
+créé en « Lien direct » reçoit une adresse portant un segment aléatoire,
+pour ne pas se deviner ; un document listé qu'on passe ensuite en « Lien
+direct » garde son adresse, tirée du titre et donc devinable, et le
+formulaire le dit. La page publique ne compte jamais un document en lien
+direct parmi ceux qu'elle ne montre pas.
+
+### 46.3 L'adresse stable
+
+Chaque document a une adresse, `/documents/{slug}`, figée à sa création :
+changer le titre ne la change pas. Elle redirige vers le fichier courant,
+servi par `/files/{id}` comme tout fichier du site ; seul un document
+public peut être indexé par les moteurs de recherche.
+
