@@ -331,8 +331,27 @@ class DocumentService
      */
     private function archiveOutgoingFile(Document $document, ?int $actorId, string $now): void
     {
-        $this->versions->archive($document->id, $document->versionNumber, $document->fileId, $now);
+        // Closed FIRST: whatever happens to the version row below, the
+        // outgoing file is already out of reach of every old link.
         $this->fileRepository->updateRoleMin($document->fileId, self::PAST_VERSION_ROLE);
+
+        try {
+            $this->versions->archive($document->id, $document->versionNumber, $document->fileId, $now);
+        } catch (\Throwable $e) {
+            // No version row — typically two edits of the same document
+            // racing for one version number. A past file nothing points at
+            // would never be pruned nor deleted with its document: it goes
+            // now, and the journal says a version was lost.
+            $this->fileRemover->removeOrphan($document->fileId);
+            $this->journalService->log(
+                'documents',
+                'document_version_lost',
+                'warning',
+                'Ancienne version d\'un document partagé non conservée',
+                ['document_id' => $document->id, 'version' => $document->versionNumber],
+                $actorId
+            );
+        }
 
         $this->journalService->log(
             'documents',

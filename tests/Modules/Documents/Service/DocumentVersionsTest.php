@@ -11,6 +11,7 @@ use Modules\Documents\File\DirectLinkGrants;
 use Modules\Documents\File\DocumentFileOwnershipChecker;
 use Modules\Documents\Repository\Document;
 use Modules\Documents\Repository\DocumentRepository;
+use Modules\Documents\Repository\DocumentVersionRepository;
 use Modules\Documents\Service\DocumentService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -128,6 +129,31 @@ final class DocumentVersionsTest extends TestCase
         foreach ($paths as $path) {
             $this->assertFileDoesNotExist($path);
         }
+    }
+
+    /**
+     * A version row that cannot be written (two edits racing for one
+     * version number) must not leave the outgoing file open, nor on disk
+     * with nothing pointing at it.
+     */
+    public function testAFailedArchiveNeverLeavesTheOutgoingFileOpen(): void
+    {
+        $document = $this->service->create('ROI', null, 'public', DocumentsTestHelper::upload(), null);
+        $path = $this->storedPath($document->fileId);
+        $failing = new class ($this->pdo) extends DocumentVersionRepository {
+            public function archive(int $documentId, int $versionNumber, int $fileId, string $now): void
+            {
+                throw new \RuntimeException('duplicate version number');
+            }
+        };
+        $service = DocumentsTestHelper::service($this->pdo, $this->storage, null, null, $failing);
+
+        $updated = $service->update($document->id, 'ROI', null, 'public', DocumentsTestHelper::upload('v2.pdf'), null);
+
+        $this->assertNotSame($document->fileId, $updated->fileId);
+        $this->assertNull(DocumentsTestHelper::fileRoleMin($this->pdo, $document->fileId));
+        $this->assertFileDoesNotExist($path);
+        $this->assertSame(1, $this->journalEntries('document_version_lost'));
     }
 
     public function testEditingWithoutAFileMakesNoVersion(): void

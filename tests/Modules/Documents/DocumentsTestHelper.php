@@ -62,12 +62,13 @@ final class DocumentsTestHelper
         \PDO $pdo,
         string $storage,
         ?FileRepository $files = null,
-        ?DocumentRepository $documents = null
+        ?DocumentRepository $documents = null,
+        ?DocumentVersionRepository $versions = null
     ): DocumentService {
         $files ??= new FileRepository($pdo);
         return new DocumentService(
             $documents ?? new DocumentRepository($pdo),
-            new DocumentVersionRepository($pdo),
+            $versions ?? new DocumentVersionRepository($pdo),
             new UploadHandler($files, $storage),
             $files,
             new AttachedFileRemover($files, $storage),
