@@ -133,6 +133,30 @@ class SeatRequestRepository
         return $stmt->rowCount() === 1;
     }
 
+    /**
+     * Pending requests asked before $askedBefore whose driver was not
+     * reminded since $remindedBefore — the reminder's queue, oldest first.
+     *
+     * @return list<SeatRequest>
+     */
+    public function findPendingToRemind(string $askedBefore, string $remindedBefore): array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM carpool_requests
+              WHERE status = 'pending' AND created_at <= ? AND (reminded_at IS NULL OR reminded_at <= ?)
+              ORDER BY created_at, id"
+        );
+        $stmt->execute([$askedBefore, $remindedBefore]);
+
+        return array_map(fn(array $row): SeatRequest => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    public function markReminded(int $id, \DateTimeImmutable $at): void
+    {
+        $this->pdo->prepare('UPDATE carpool_requests SET reminded_at = ? WHERE id = ?')
+            ->execute([$at->format('Y-m-d H:i:s'), $id]);
+    }
+
     public function delete(int $id): void
     {
         $this->pdo->prepare('DELETE FROM carpool_requests WHERE id = ?')->execute([$id]);

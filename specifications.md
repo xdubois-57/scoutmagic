@@ -3135,7 +3135,16 @@ adresse personnelle.
   jusqu'à leur effacement automatique 30 jours (réglable) après leur
   dernière date, avec tout ce qu'ils contiennent.
 
-### 45.4 Ce que le cœur y a gagné
+### 45.4 Notifications et agenda
+
+Huit notifications, chacune à sa seule partie (demande reçue, rappel d'une
+demande en attente, demande retirée, place confirmée, demande refusée,
+place retirée, voiture modifiée, voiture annulée) ; les animateurs n'en
+reçoivent aucune au titre de leur rôle. Dans le calendrier personnel (ICS),
+sous chaque évènement lié, une ligne par trajet que le lecteur conduit ou a
+demandé, avec son statut et le lien — jamais un numéro de téléphone.
+
+### 45.5 Ce que le cœur y a gagné
 
 - **Un sélecteur de recherche** (`partials/search_picker.html.twig`, choix
   simple ou multiple, repli sans JavaScript) et son contrat de réponse
