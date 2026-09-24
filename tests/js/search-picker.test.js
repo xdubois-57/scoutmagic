@@ -206,6 +206,28 @@ describe('search-picker', () => {
             expect(resultButtons()[0].textContent).toContain('Louveteaux');
         });
 
+        it('does not let a search under way reopen a list closed with Escape', async () => {
+            await type('fête');
+            search().value = 'fête l';
+            search().dispatchEvent(new Event('input'));
+            search().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+            await vi.advanceTimersByTimeAsync(300);
+
+            expect(results().classList.contains('d-none')).toBe(true);
+        });
+
+        it('does not let an answer in flight reopen a list closed by a click elsewhere', async () => {
+            let release;
+            window.ScoutMagicApi.getJson = vi.fn()
+                .mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+            await type('fête');
+            document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            release({ ok: true, status: 200, data: { success: true, results: EVENTS } });
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(results().classList.contains('d-none')).toBe(true);
+        });
+
         it('closes the list on Escape', async () => {
             await type('fête');
             search().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));

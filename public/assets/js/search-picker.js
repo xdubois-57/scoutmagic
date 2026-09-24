@@ -179,6 +179,15 @@
         }
 
         /**
+         * The reader closed the list (Escape, a click elsewhere): a search
+         * still under way must not reopen it behind their back.
+         */
+        function dismiss() {
+            settle();
+            hide();
+        }
+
+        /**
          * A required single picker refuses to submit empty — the rule the
          * removed select carried, moved onto the box that replaced it.
          */
@@ -321,7 +330,7 @@
 
         search.addEventListener('keydown', function (event) {
             if (event.key === 'Escape') {
-                hide();
+                dismiss();
             } else if (event.key === 'Enter' && (pending || !results.classList.contains('d-none'))) {
                 // Enter in a search box must not submit the surrounding
                 // form half-filled; it picks the first suggestion instead —
@@ -342,7 +351,7 @@
 
         document.addEventListener('click', function (event) {
             if (!picker.contains(/** @type {Node} */ (event.target))) {
-                hide();
+                dismiss();
             }
         });
     }
