@@ -1239,16 +1239,22 @@ confronté à la constante qui le porte, et pas une ne diverge :
 
 | Spec | Valeur | Constante |
 |---|---|---|
-| §852 message 5 000 / réponse 2 000 caractères | 5000 / 2000 | `PostService::MAX_BODY_LENGTH`, `ReplyService::MAX_BODY_LENGTH` |
-| §852 fenêtre d'édition 15 minutes | 15 | `PostService::EDIT_WINDOW_MINUTES` |
-| §1157 purge des audiences 18 mois / 7 jours | 18 / 7 | `PurgeMergeAudiencesHandler::DEFAULT_RETENTION_MONTHS`, `::ORPHAN_RETENTION_DAYS` |
-| §1116 rétention courrier non rattaché 90 jours | 90 | `PurgeUnlinkedMessagesHandler::DEFAULT_RETENTION_DAYS` |
-| §1801 archive d'album 512 Mo | 512×1024×1024 | `GalleryController::MAX_ZIP_BYTES` |
-| §1888 mot de rétro 120–200, défaut 140 | 120 / 200 / 140 | `BoardService::MIN_`/`MAX_MAX_COMMENT_LENGTH`, `AutoBoardCreationService::DEFAULT_MAX_COMMENT_LENGTH` |
-| §2526 commentaire de présence 500 | 500 | `PresenceRepository::MAX_COMMENT_LENGTH` |
-| §3007 fiche santé 18 mois | 18 | `PurgeHealthSheetsHandler::DEFAULT_RETENTION_MONTHS` |
-| §986 archive 90 jours / 1 an, ticket 2 ans | 90 / 365 / 730 | `SupportTicketRepository::ARCHIVE_RETENTION_DAYS_AFTER_CLOSURE`, `::ARCHIVE_MAX_AGE_DAYS`, `::TICKET_RETENTION_DAYS` |
-| §992 historique 12 mois par défaut | 12 | `SupportHistoryPeriod::DEFAULT_MONTHS` |
+| §20 message 5 000 / réponse 2 000 caractères | 5000 / 2000 | `PostService::MAX_BODY_LENGTH`, `ReplyService::MAX_BODY_LENGTH` |
+| §20 fenêtre d'édition 15 minutes | 15 | `PostService::EDIT_WINDOW_MINUTES` |
+| §24 purge des audiences 18 mois / 7 jours | 18 / 7 | `PurgeMergeAudiencesHandler::DEFAULT_RETENTION_MONTHS`, `::ORPHAN_RETENTION_DAYS` |
+| §23 rétention courrier non rattaché 90 jours | 90 | `PurgeUnlinkedMessagesHandler::DEFAULT_RETENTION_DAYS` |
+| §33 archive d'album 512 Mo | 512×1024×1024 | `GalleryController::MAX_ZIP_BYTES` |
+| §37 mot de rétro 120–200, défaut 140 | 120 / 200 / 140 | `BoardService::MIN_MAX_COMMENT_LENGTH`, `BoardService::MAX_MAX_COMMENT_LENGTH`, `AutoBoardCreationService::DEFAULT_MAX_COMMENT_LENGTH` |
+| §43 commentaire de présence 500 | 500 | `PresenceRepository::MAX_COMMENT_LENGTH` |
+| §44 fiche santé 18 mois | 18 | `PurgeHealthSheetsHandler::DEFAULT_RETENTION_MONTHS` |
+| §21 archive 90 jours / 1 an, ticket 2 ans | 90 / 365 / 730 | `SupportTicketRepository::ARCHIVE_RETENTION_DAYS_AFTER_CLOSURE`, `::ARCHIVE_MAX_AGE_DAYS`, `::TICKET_RETENTION_DAYS` |
+| §21 historique 12 mois par défaut | 12 | `SupportHistoryPeriod::DEFAULT_MONTHS` |
+
+*(la première version de ce tableau citait « §852 », « §1157 », « §2526 »… :
+c'étaient des **numéros de ligne** produits par le `grep -n` qui a servi à
+les trouver, pas des sections — et `specifications.md` n'a que 44 sections.
+Relevé par la revue. Les renvois ci-dessus sont des sections, chacune
+vérifiée en cherchant la valeur citée à l'intérieur de son corps.)*
 
 C'est le résultat de l'itération 4 qui remonte ici : là où une valeur est
 testée, elle est aussi écrite juste.
@@ -1556,6 +1562,25 @@ Il aurait suffi d'y écrire le nouveau libellé. Il lit désormais le manifeste,
 parce que remplacer un littéral périmé par un littéral frais, c'est
 reconduire la panne en la datant d'aujourd'hui.
 
+**Une règle qui n'était pas écrivable au début de l'itération l'est
+devenue.** L'index §1.1 porte une colonne « Name in the interface », et elle
+n'avait pas de règle unique : elle disait « Groupes » là où le manifeste
+déclarait « Groupes de discussion », et « Intelligence artificielle » là où
+`llm_connector` déclarait « Connecteur IA ». Les deux étaient défendables —
+c'étaient les libellés de **menu** — donc la colonne avait deux lectures
+possibles et rien à tester.
+
+`main` a depuis renommé les deux modules, et l'ambiguïté est partie avec
+eux : **les 24 lignes valent maintenant le `name` de leur manifeste**. La
+ligne `groups` est alors devenue simplement périmée, et rien ne l'a vu — il
+a fallu un relecteur. D'où un cinquième test, muté dans les deux
+directions : remettre « Groupes » dans l'index le rend rouge, renommer le
+module dans son manifeste en laissant l'index derrière aussi.
+
+C'est le seul endroit du chantier où **attendre** a produit une règle :
+elle n'était pas écrivable en début d'itération, elle l'est devenue parce
+que le produit a tranché entre les deux lectures.
+
 **Non vérifiable, et pourquoi** (second lot) :
 
 - **« in about a minute »**, que `SECURITY.md` écrit à côté du nombre de
@@ -1586,6 +1611,7 @@ avant et verte après — la troisième condition de §0.1 comprise :
 | `specifications.md` §4.2 à §4.5 — cinq lignes manquantes, dont un déplacement, et quatorze renommages | `ModuleSpecificationCoverageTest::testEveryMenuEntryAModuleAddsHasItsRowInSectionFour` |
 | `README.md` et `SECURITY.md` — sept chiffres, remplacés par l'invariant qu'ils illustraient mal | `AuthorizationMatrixInventoryTest::testTheDocumentationClaimsEveryRouteRatherThanACountOfThem` |
 | `README.md` — la puce `database-mariadb` | `EveryCiJobIsDocumentedTest` (deux directions) |
+| `specifications.md` §1.1 — le nom de `groups`, resté « Groupes » | `ModuleSpecificationCoverageTest::testTheIndexNamesEachModuleAsItsManifestDoes` |
 
 **Une issue du chantier déjà refermée par le produit.** En intégrant `main`
 avant de fusionner cette itération, #453 — les trois emplacements qui
@@ -1623,10 +1649,19 @@ CI définit ses jobs, l'inventaire compte les routes, et le document seul
 - Les 24 modules ont une section, et les 29 renvois portés par les lignes de
   l'index pointent tous vers une section qui existe.
 - Les libellés « Groupes » et « Intelligence artificielle » de l'index §1.1
-  semblaient contredire les manifestes (« Groupes de discussion », « Connecteur
-  IA ») : ce sont leurs **libellés de menu**, exacts tous les deux. Soupçon
-  levé par la vérification, pas par la lecture — il figure ici parce qu'il
-  aurait fait une correction fausse.
+  semblaient contredire les manifestes (« Groupes de discussion »,
+  « Connecteur IA ») : c'étaient leurs **libellés de menu**, exacts tous les
+  deux au moment de la vérification. Soupçon levé par la mesure, pas par la
+  lecture — il figure ici parce qu'il aurait fait une correction fausse.
+
+  **Et il a changé de statut pendant la PR**, ce que la revue a relevé.
+  `main` a depuis renommé les deux modules : `groups` porte maintenant le nom
+  « Discussions » dans son manifeste **et** dans son menu, et
+  `llm_connector` « Intelligence artificielle » dans les deux. L'index §1.1
+  disait toujours « Groupes » : ce n'était plus un libellé de menu, c'était un
+  libellé périmé, et il est corrigé. Le soupçon était faux quand il a été
+  levé, et la correction qu'il aurait fait faire est devenue juste pour une
+  autre raison — ce qui est une raison de plus de dater ce qu'on vérifie.
 
 **Non vérifiable, et pourquoi** :
 

@@ -91,6 +91,60 @@ class ModuleSpecificationCoverageTest extends TestCase
     }
 
     /**
+     * §1.1's middle column is headed « Name in the interface », and it
+     * must be the name the manifest gives — that is the string the module
+     * registry renders, and the one every dependency message quotes.
+     *
+     * This rule could not be written when the rest of this file was: the
+     * index then said « Groupes » where `modules/groups` declared
+     * « Groupes de discussion », and « Intelligence artificielle » where
+     * `llm_connector` declared « Connecteur IA ». Both were defensible —
+     * they were the MENU labels — so the column had two possible
+     * meanings and no rule to state.
+     *
+     * `main` has since renamed both modules, and the ambiguity went with
+     * them: all 24 rows now equal their manifest's `name`. The index kept
+     * saying « Groupes » for a while afterwards, which is no longer a
+     * second reading of the column but simply a stale row — and nothing
+     * caught it until a reviewer did. Hence this.
+     */
+    public function testTheIndexNamesEachModuleAsItsManifestDoes(): void
+    {
+        preg_match_all(
+            '/^\| `([a-z_]+)` \| ([^|]+?) \| [^|]+ \|$/m',
+            $this->read('specifications.md'),
+            $rows,
+            PREG_SET_ORDER
+        );
+
+        $this->assertNotEmpty($rows, 'The §1.1 module index could not be parsed.');
+
+        $wrong = [];
+
+        foreach ($rows as [, $moduleId, $quoted]) {
+            $manifest = dirname(__DIR__, 2) . "/modules/{$moduleId}/module.json";
+            if (!is_file($manifest)) {
+                continue;
+            }
+
+            /** @var array{name?: string} $data */
+            $data = json_decode((string) file_get_contents($manifest), true);
+            $name = (string) ($data['name'] ?? '');
+
+            if ($quoted !== $name) {
+                $wrong[] = "`{$moduleId}`: §1.1 says « {$quoted} », the manifest says « {$name} »";
+            }
+        }
+
+        $this->assertSame(
+            [],
+            $wrong,
+            "specifications.md §1.1 names a module differently from its manifest:\n  "
+            . implode("\n  ", $wrong)
+        );
+    }
+
+    /**
      * §1.1 promises twice over: a section per module, and "the pages a
      * module adds are also listed, per menu, in §4". The three tests
      * above hold the first half. This one holds the second, which had
