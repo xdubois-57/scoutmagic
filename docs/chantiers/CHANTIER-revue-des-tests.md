@@ -1390,8 +1390,8 @@ sur rien d'autre, retiré de cette PR et collé dans l'issue — c'est la
 procédure que §0.2 prévoit pour un test qui tombe sur un défaut qu'on n'a
 pas le droit de corriger.
 
-**Les chiffres de la matrice d'autorisation étaient faux partout.** Quatre
-énoncés, trois documents, rien qui les vérifie :
+**Les chiffres de la matrice d'autorisation étaient faux partout.** Cinq
+énoncés, deux documents, rien qui les vérifie :
 
 | Où | Disait | Tient |
 |---|---|---|
@@ -1685,4 +1685,8 @@ CI définit ses jobs, l'inventaire compte les routes, et le document seul
 - **L'ordre des sous-sections de §18** (18.1, 18.2, 18.3, **18.5**, 18.4)
   est inversé dans le document. Non corrigé : renuméroter toucherait les
   renvois croisés qui citent §18.4 et §18.5 depuis d'autres sections, et une
-  correction d'ordre ne se prouve par aucun test. Constaté, laissé tel quel.
+  correction d'ordre ne se prouve par aucun test — et la corriger demande
+  d'abord de trancher entre renuméroter (quatre renvois croisés à reprendre)
+  et déplacer le bloc (les numéros restent justes, le texte bouge). Déposé
+  en **#488**, la revue ayant relevé qu'un constat différé sans issue est
+  précisément ce qu'`AGENTS.md` interdit.

@@ -99,15 +99,49 @@ final class EveryCiJobIsDocumentedTest extends TestCase
      * Top-level keys of the workflow's `jobs:` mapping — two spaces of
      * indent, which is the only level YAML puts them at here.
      *
+     * **The three spellings GitHub accepts, not just the one in use.**
+     * A job may be written `deploy:`, `"deploy":` or `'deploy':`, and may
+     * carry a trailing comment. `checks.yml` uses only the bare form
+     * today, so a stricter pattern would pass — and would silently stop
+     * seeing a job the day somebody quotes one or annotates it. A job
+     * this method cannot see is a job the README need not document, which
+     * is exactly the hole this class exists to close.
+     *
+     * Matched here rather than parsed: the project has no YAML parser,
+     * and pulling one in for an architecture test would be a dependency
+     * bought for a regular expression.
+     *
+     * **Scoped to the `jobs:` block**, which the first widening was not:
+     * two-space keys also occur under `on:`, so accepting `_` turned
+     * `workflow_call:` into a job the README was asked to document. The
+     * block runs from `jobs:` to the next key at column zero.
+     *
      * @return list<string>
      */
     private function jobs(): array
     {
-        preg_match_all('/^  ([a-z0-9-]+):$/m', $this->read(self::WORKFLOW), $found);
+        $matched = preg_match(
+            '/^jobs:[ \t]*(?:#.*)?$\n(.*?)(?=^\S|\z)/ms',
+            $this->read(self::WORKFLOW),
+            $block
+        );
 
-        $this->assertNotEmpty($found[1], self::WORKFLOW . ' declares no job.');
+        $this->assertSame(1, $matched, self::WORKFLOW . ' has no `jobs:` block.');
 
-        return $found[1];
+        preg_match_all(
+            '/^  (?:"([A-Za-z0-9_-]+)"|\'([A-Za-z0-9_-]+)\'|([A-Za-z0-9_-]+)):[ \t]*(?:#.*)?$/m',
+            $block[1],
+            $found
+        );
+
+        $jobs = array_values(array_filter(
+            array_merge($found[1], $found[2], $found[3]),
+            static fn (string $job): bool => $job !== ''
+        ));
+
+        $this->assertNotEmpty($jobs, self::WORKFLOW . ' declares no job.');
+
+        return $jobs;
     }
 
     private function continuousIntegrationSection(): string

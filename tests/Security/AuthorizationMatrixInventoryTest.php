@@ -254,19 +254,46 @@ class AuthorizationMatrixInventoryTest extends TestCase
      */
     public function testTheDocumentationClaimsEveryRouteRatherThanACountOfThem(): void
     {
+        // Each entry says WHAT it guards, because the five sentences do
+        // not all belong to the same section: four are the authorization
+        // matrix's, the fifth is the router rule's one layer out
+        // (SECURITY.md « The same rule, one layer out: the router »). Both
+        // had a count removed, so both are guarded — but a failure must
+        // name the right paragraph, not blame the matrix for a sentence
+        // the matrix does not own.
         $claims = [
-            ['README.md', "La matrice d'autorisation : **toutes** les routes rejouées sous les six rôles"],
-            ['README.md', "rejoue **toutes** les routes que l'application déclare"],
-            ['README.md', '**toutes** les routes rejouées sous les six rôles, soit un couple (route, rôle) par combinaison'],
-            ['SECURITY.md', 'walks **every** route the application registers'],
-            ['SECURITY.md', 'replays **every route as every role**'],
+            [
+                'README.md',
+                "La matrice d'autorisation : **toutes** les routes rejouées sous les six rôles",
+                'the authorization matrix, in the DAST profile table',
+            ],
+            [
+                'README.md',
+                "rejoue **toutes** les routes que l'application déclare",
+                'the authorization matrix, where the profile is explained',
+            ],
+            [
+                'README.md',
+                '**toutes** les routes rejouées sous les six rôles, soit un couple (route, rôle) par combinaison',
+                "the authorization matrix, in the CI job list",
+            ],
+            [
+                'SECURITY.md',
+                'replays **every route as every role**',
+                'the authorization matrix',
+            ],
+            [
+                'SECURITY.md',
+                'walks **every** route the application registers',
+                'the router identifier rule — a different section, and the other place a count was removed',
+            ],
         ];
 
-        foreach ($claims as [$file, $claim]) {
+        foreach ($claims as [$file, $claim, $guards]) {
             $this->assertStringContainsString(
                 $claim,
                 $this->read($file),
-                "{$file} no longer states that the matrix covers the whole route table."
+                "{$file} no longer claims the whole route table for {$guards}."
             );
         }
 
