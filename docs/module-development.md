@@ -488,6 +488,51 @@ accommodate a component change, the layer's signature has drifted and
 that is the bug.
 
 
+### Search picker (`partials/search_picker.html.twig`)
+
+The third case, outside the rule above: **a list too long to show at all**
+— every upcoming event of every calendar, a unit's whole history of stays.
+The reader types, the page asks the server, the reader clicks a result, in
+single or multiple choice. ARCHITECTURE.md §8.30bis has the reasoning.
+
+```twig
+{% include 'partials/search_picker.html.twig' with {
+    picker_id: 'carpool-events',
+    search_url: '/covoiturage/evenements/recherche',
+    field_name: 'event_ids',
+    label: 'Évènements concernés',
+    mode: 'multiple',
+    options: shortlist,
+    selected: retained,
+    placeholder: 'Chercher un évènement, un calendrier, une section…',
+    empty_label: 'Aucun évènement ne correspond.',
+} only %}
+<script src="{{ asset('/assets/js/search-picker.js') }}"></script>
+```
+
+`mode` is `single` (the default) or `multiple`, which posts
+`field_name[]`; `options` is the `[{value, label}]` list shown without
+JavaScript, `selected` the `[{id, label}]` rows already chosen; `required`
+(single mode) is kept on the search box once the script has taken over.
+
+The endpoint behind `search_url` receives `q` and answers with
+`Core\View\SearchPickerResult::payload($results)` — a list of
+`SearchPickerResult(id, label, subtitle?, badge?, warning?)`. Never an array
+literal of your own: the shape is the contract.
+
+Three things the component does that a copy would forget:
+
+- **Without JavaScript, the form still works.** The partial renders a real
+  list holding `options` plus every `selected` row, under the same name the
+  script posts; the script removes it when it takes over. Give `options` a
+  useful shortlist — it is the whole control for a reader whose script did
+  not load.
+- **A retained row never comes back as a suggestion**, and a search that
+  matches nothing says so with `empty_label`.
+- **`search-picker:change`** is dispatched on the picker after every choice
+  and removal, `detail.selected` holding the retained rows with every field
+  the server sent — listen to it to react to the combination chosen.
+
 ## Contributing menu entries (`Core\Module\MenuEntryProvider`)
 
 A module's own pages get their menu entry from `module.json` automatically — a route with a non-empty `label` becomes one. Use this hook only for entries the manifest cannot express: one per row of your own data, or one that depends on who is looking.
