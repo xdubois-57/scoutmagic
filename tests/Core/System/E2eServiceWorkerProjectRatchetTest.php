@@ -50,11 +50,24 @@ final class E2eServiceWorkerProjectRatchetTest extends TestCase
     public function testTheBlockIsStillTheSuiteDefaultAndTheAllowanceIsSingle(): void
     {
         $config = self::config();
+        $projects = strpos($config, 'projects: [');
+        $this->assertNotFalse($projects);
 
+        // WHERE the block sits, not merely that it appears once. Moved out
+        // of the top-level `use` and into `chromium`'s own, the count
+        // stays at one and the suite-wide default is gone: a project added
+        // later, declaring nothing, would then inherit Playwright's own
+        // default for this option, which is 'allow' — issue #452's failure
+        // mode, handed to the next project.
         $this->assertSame(
             1,
-            substr_count($config, "serviceWorkers: 'block'"),
-            'the suite default must stay a block — every spec but the worker\'s own depends on it'
+            substr_count(substr($config, 0, $projects), "serviceWorkers: 'block'"),
+            'the block must stay in the suite-wide `use`, where a project declaring nothing inherits it'
+        );
+        $this->assertSame(
+            0,
+            substr_count(substr($config, $projects), "serviceWorkers: 'block'"),
+            'a second block inside a project would say the default is not trusted'
         );
 
         $this->assertSame(
@@ -62,6 +75,37 @@ final class E2eServiceWorkerProjectRatchetTest extends TestCase
             substr_count($config, "serviceWorkers: 'allow'"),
             'exactly one project may allow a worker; a second would spread the non-determinism'
         );
+        $this->assertSame(
+            'service-worker',
+            self::projectAllowingWorkers($config),
+            'and it must be the worker project — anywhere else, the allowance is the defect'
+        );
+    }
+
+    /**
+     * Which project declares `serviceWorkers: 'allow'`.
+     *
+     * Counting the allowance without naming its project would pass with
+     * it granted to `chromium`, which is the whole suite.
+     */
+    private static function projectAllowingWorkers(string $config): ?string
+    {
+        $offset = strpos($config, 'projects: [');
+        if ($offset === false) {
+            return null;
+        }
+
+        $current = null;
+        foreach (explode("\n", substr($config, $offset)) as $line) {
+            if (preg_match("/name: '([^']+)',/", $line, $matches) === 1) {
+                $current = $matches[1];
+            }
+            if (str_contains($line, "serviceWorkers: 'allow'")) {
+                return $current;
+            }
+        }
+
+        return null;
     }
 
     public function testTheTwoProjectsPartitionTheSpecs(): void
