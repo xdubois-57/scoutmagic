@@ -12,6 +12,7 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Documents\DocumentsTestHelper;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class DocumentServiceTest extends TestCase
 {
     private \PDO $pdo;

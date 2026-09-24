@@ -138,6 +138,17 @@ one is not a defect: selecting a test that needed no database costs
 milliseconds, while missing one that did is the silent failure. Two classes
 are in that position today and are left alone.
 
+**The marker does not have to be on the class.** What the group has to
+select is every test that needs a database, and a class whose build sits
+inside individual test methods says that by marking those methods.
+`Core\Import\DeskCsvParserTest` is the case: four of its eighteen tests
+build one, each carries the attribute, and `--group=database` selects
+exactly those four. Read as a class-level demand, the guard reported that
+file as an offender — and CI found it, not the guard's own shape tests.
+A build **anywhere else** is not answerable that way: `setUp()` runs before
+every test, and a private helper is reached from whichever tests call it,
+a set the reader cannot see. Both are held to the class-level attribute.
+
 Write it as `#[\PHPUnit\Framework\Attributes\Group('database')]`, the
 majority spelling here and the one needing no import. The imported
 attribute counts too.

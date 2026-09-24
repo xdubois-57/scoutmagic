@@ -21,6 +21,7 @@ use Tests\Modules\Documents\DocumentsTestHelper;
  * its file is `role_min: public`, and /files/{id} ids are sequential, so
  * without the ownership check anybody counting ids would find it.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class DirectLinkAccessTest extends TestCase
 {
     private \PDO $pdo;

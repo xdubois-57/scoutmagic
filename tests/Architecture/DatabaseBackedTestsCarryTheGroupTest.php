@@ -123,16 +123,43 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
             // but never demanded to carry the group: PHPUnit runs no test
             // from them, so the group there would select nothing. What is
             // demanded is the group on each class it actually runs.
-            if (!$class['abstract'] && !$class['carries']) {
-                // A file carrying the inert doc-comment alone deserves its
-                // own words: it LOOKS right to a reader and selects
-                // nothing, which is a worse place to be than carrying no
-                // marker at all.
-                $ungrouped[] = $class['file']
-                    . (preg_match(self::INERT_DOC_COMMENT, (string) file_get_contents($root . '/' . $class['file'])) === 1
-                        ? '  (carries `@group database` only — inert under PHPUnit 13)'
-                        : '');
+            if ($class['abstract'] || $class['carries']) {
+                continue;
             }
+
+            // The marker does not have to be on the CLASS. What the group
+            // has to select is every test that needs a database, and a
+            // class whose build sits inside individual test methods says
+            // that by marking those methods. `Core\Import\DeskCsvParserTest`
+            // is the case: four of its eighteen tests build one, each
+            // carries the attribute itself, and `--group=database` selects
+            // exactly those four. Demanding the class-level marker there
+            // reported a compliant file as an offender.
+            //
+            // Only a class that builds one IN ITS OWN BODY may answer this
+            // way. A class that inherits the build from a parent's setUp()
+            // has it run before every one of its tests, so nothing short
+            // of the class-level marker covers them.
+            if ($class['mounts'] && !$this->inheritsABuild($name, $classes) && $class['uncovered'] === []) {
+                continue;
+            }
+
+            // A file carrying the inert doc-comment and no attribute at
+            // all deserves its own words: it LOOKS right to a reader and
+            // selects nothing, which is a worse place to be than carrying
+            // no marker at all. Said only when the file holds no working
+            // attribute anywhere — otherwise this named the wrong defect,
+            // calling `DeskCsvParserTest` doc-comment-only while it held
+            // four attributes that work.
+            $source = (string) file_get_contents($root . '/' . $class['file']);
+            $inertOnly = preg_match(self::INERT_DOC_COMMENT, $source) === 1
+                && preg_match(self::CARRIES_THE_GROUP[0], $source) !== 1;
+
+            $ungrouped[] = $class['file']
+                . ($inertOnly ? '  (carries `@group database` only — inert under PHPUnit 13)' : '')
+                . ($class['uncovered'] === []
+                    ? ''
+                    : '  (builds one in ' . implode(', ', $class['uncovered']) . ')');
         }
 
         sort($ungrouped);
@@ -209,6 +236,80 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
         $this->assertArrayHasKey('Tests\Fake\ThingTest', $classes, 'the class after the stub must be indexed');
         $this->assertTrue($classes['Tests\Fake\ThingTest']['mounts'], 'and its own body is what is read for the build');
         $this->assertFalse($classes['Tests\Fake\RecordingTransport']['mounts'], 'the stub builds nothing');
+    }
+
+    /**
+     * A class whose build sits in its own test methods, each marked.
+     *
+     * The rule is « every test that needs a database is selected », not
+     * « every such class carries a class-level attribute ». Read as the
+     * latter, this guard reported `Core\Import\DeskCsvParserTest` — four
+     * of eighteen tests build one, each carries the attribute, and
+     * `--group=database` selects exactly those four — as an offender, and
+     * CI is where that was found rather than here.
+     *
+     * The loophole it must not open is the other half: a test method that
+     * builds one WITHOUT the marker is still reported, and so is a build
+     * anywhere that is not a marked test method.
+     */
+    public function testAClassMarkingEachBuildingMethodNeedsNoClassLevelMarker(): void
+    {
+        $eachMarked = $this->classesIn(<<<'PHP'
+            <?php
+            namespace Tests\Fake;
+            class ThingTest extends TestCase
+            {
+                public function testNeedsNothing(): void {}
+
+                #[\PHPUnit\Framework\Attributes\Group('database')]
+                public function testNeedsOne(): void { $pdo = DatabaseTestHelper::createTestDatabase(); }
+            }
+            PHP, 'Fake.php');
+
+        $this->assertSame(
+            [],
+            $eachMarked['Tests\Fake\ThingTest']['uncovered'],
+            'a build inside a test method is covered by the marker on that method'
+        );
+
+        $oneBare = $this->classesIn(<<<'PHP'
+            <?php
+            namespace Tests\Fake;
+            class ThingTest extends TestCase
+            {
+                #[\PHPUnit\Framework\Attributes\Group('database')]
+                public function testNeedsOne(): void { $pdo = DatabaseTestHelper::createTestDatabase(); }
+
+                public function testAlsoNeedsOne(): void { $pdo = DatabaseTestHelper::createTestDatabase(); }
+            }
+            PHP, 'Fake.php');
+
+        $this->assertSame(
+            ['testAlsoNeedsOne()'],
+            $oneBare['Tests\Fake\ThingTest']['uncovered'],
+            'the unmarked builder is named, and its marked neighbour does not answer for it'
+        );
+
+        // A build outside a test method is never answerable per method:
+        // setUp() runs before every test, and a private helper is reached
+        // from whichever tests call it — a set this reader cannot see.
+        $inSetUp = $this->classesIn(<<<'PHP'
+            <?php
+            namespace Tests\Fake;
+            class ThingTest extends TestCase
+            {
+                protected function setUp(): void { $this->pdo = DatabaseTestHelper::createTestDatabase(); }
+
+                #[\PHPUnit\Framework\Attributes\Group('database')]
+                public function testOne(): void {}
+            }
+            PHP, 'Fake.php');
+
+        $this->assertSame(
+            ['setUp()'],
+            $inSetUp['Tests\Fake\ThingTest']['uncovered'],
+            'a build in setUp() reaches every test, so only the class-level marker covers it'
+        );
     }
 
     /**
@@ -327,7 +428,24 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
     }
 
     /**
-     * @param array<string, array{file: string, parent: ?string, abstract: bool, carries: bool, mounts: bool}> $classes
+     * Whether a PARENT builds the database, rather than this class.
+     *
+     * The distinction decides which marker is enough. A build in a
+     * parent's `setUp()` runs before every test the child declares, so
+     * only the class-level marker selects them all; a build the class
+     * performs inside its own test methods is covered by marking those.
+     *
+     * @param array<string, array{file: string, parent: ?string, abstract: bool, carries: bool, mounts: bool, uncovered: list<string>}> $classes
+     */
+    private function inheritsABuild(string $name, array $classes): bool
+    {
+        $parent = $classes[$name]['parent'] ?? null;
+
+        return $parent !== null && $this->buildsADatabase($parent, $classes);
+    }
+
+    /**
+     * @param array<string, array{file: string, parent: ?string, abstract: bool, carries: bool, mounts: bool, uncovered: list<string>}> $classes
      */
     private function buildsADatabase(string $name, array $classes): bool
     {
@@ -369,7 +487,7 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
      * statement is that import, and anything else is the file's own
      * namespace.
      *
-     * @return array<string, array{file: string, parent: ?string, abstract: bool, carries: bool, mounts: bool}>
+     * @return array<string, array{file: string, parent: ?string, abstract: bool, carries: bool, mounts: bool, uncovered: list<string>}>
      */
     private function testClasses(): array
     {
@@ -406,7 +524,7 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
      * instead of being asserted against whichever file happens to have
      * that shape today.
      *
-     * @return array<string, array{file: string, parent: ?string, abstract: bool, carries: bool, mounts: bool}>
+     * @return array<string, array{file: string, parent: ?string, abstract: bool, carries: bool, mounts: bool, uncovered: list<string>}>
      */
     private function classesIn(string $source, string $file): array
     {
@@ -485,6 +603,7 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
             $classes[$namespace === '' ? $name : $namespace . '\\' . $name] = [
                 'file' => $file,
                 'parent' => $parent,
+                'uncovered' => $carries ? [] : $this->buildersWithoutTheGroup($own),
                 // A class PHPUnit runs is a concrete one whose name ends
                 // in `Test`; the helpers, doubles and abstract bases beside
                 // them are support, and the group on support selects nothing.
@@ -495,6 +614,72 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
         }
 
         return $classes;
+    }
+
+    /**
+     * The methods of one class body that build a database without saying so.
+     *
+     * A build inside a `test*` method concerns that test alone, and the
+     * attribute on that method selects it — which is how
+     * `Core\Import\DeskCsvParserTest` is written, and correctly so.
+     *
+     * A build ANYWHERE ELSE in the body is not answerable that way and is
+     * always reported: `setUp()` runs before every test, and a private
+     * helper is reached from whichever tests call it — a set this reader
+     * cannot see and will not guess at. Both are named here under their
+     * own method name, so the demand stays the class-level marker, and
+     * the message says which method put it there.
+     *
+     * @return list<string> the offending method names, empty when covered
+     */
+    private function buildersWithoutTheGroup(string $own): array
+    {
+        $found = preg_match_all(
+            '/^[ \t]*(?:(?:public|protected|private|static|final|abstract)\s+)*function\s+(\w+)\s*\(/m',
+            $own,
+            $methods,
+            PREG_SET_ORDER | PREG_OFFSET_CAPTURE
+        );
+
+        if ($found === 0 || $found === false) {
+            return [];
+        }
+
+        $uncovered = [];
+
+        foreach ($methods as $index => $method) {
+            $offset = (int) $method[0][1];
+            $name = (string) $method[1][0];
+
+            $end = isset($methods[$index + 1])
+                ? $this->headingStart($own, (int) $methods[$index + 1][0][1])
+                : strlen($own);
+            $body = substr($own, $offset, $end - $offset);
+
+            $builds = false;
+            foreach (self::MOUNTS as $pattern) {
+                if (preg_match($pattern, $body) === 1) {
+                    $builds = true;
+
+                    break;
+                }
+            }
+
+            if (!$builds) {
+                continue;
+            }
+
+            $headingStart = $this->headingStart($own, $offset);
+            $heading = substr($own, $headingStart, $offset - $headingStart);
+
+            if (str_starts_with($name, 'test') && preg_match(self::CARRIES_THE_GROUP[0], $heading) === 1) {
+                continue;
+            }
+
+            $uncovered[] = $name . '()';
+        }
+
+        return $uncovered;
     }
 
     /**
