@@ -1,0 +1,291 @@
+{
+  "id": "covoiturage",
+  "name": "Covoiturage",
+  "description": "Les familles proposent les places libres de leur voiture pour une sortie, ou en demandent une.",
+  "version": "1.0.0",
+  "enabled_by_default": false,
+  "routes": [
+    {
+      "path": "/covoiturage",
+      "method": "GET",
+      "controller": "Modules\\Covoiturage\\Controller\\CarpoolController",
+      "action": "index",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Covoiturage",
+        "parents": [
+          "Espace membres"
+        ]
+      }
+    },
+    {
+      "path": "/covoiturage/organiser",
+      "method": "GET",
+      "controller": "Modules\\Covoiturage\\Controller\\CarpoolOrganizerController",
+      "action": "index",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Organiser les covoiturages",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
+    },
+    {
+      "path": "/covoiturage/organiser/nouveau",
+      "method": "GET",
+      "controller": "Modules\\Covoiturage\\Controller\\CarpoolOrganizerController",
+      "action": "create",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Organiser un covoiturage",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Organiser les covoiturages",
+            "path": "/covoiturage/organiser"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/covoiturage/organiser/nouveau",
+      "method": "POST",
+      "controller": "Modules\\Covoiturage\\Controller\\CarpoolOrganizerController",
+      "action": "store",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/covoiturage/organiser/evenements",
+      "method": "GET",
+      "controller": "Modules\\Covoiturage\\Controller\\CarpoolOrganizerController",
+      "action": "searchEvents",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/covoiturage/organiser/lieux",
+      "method": "GET",
+      "controller": "Modules\\Covoiturage\\Controller\\CarpoolOrganizerController",
+      "action": "eventLocations",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/covoiturage/organiser/{id}/modifier",
+      "method": "GET",
+      "controller": "Modules\\Covoiturage\\Controller\\CarpoolOrganizerController",
+      "action": "edit",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Modifier le covoiturage",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Organiser les covoiturages",
+            "path": "/covoiturage/organiser"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/covoiturage/organiser/{id}/modifier",
+      "method": "POST",
+      "controller": "Modules\\Covoiturage\\Controller\\CarpoolOrganizerController",
+      "action": "update",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/covoiturage/organiser/{id}/supprimer",
+      "method": "POST",
+      "controller": "Modules\\Covoiturage\\Controller\\CarpoolOrganizerController",
+      "action": "delete",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/covoiturage/voitures/{id}/modifier",
+      "method": "GET",
+      "controller": "Modules\\Covoiturage\\Controller\\CarpoolController",
+      "action": "editOffer",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Modifier ma voiture",
+        "parents": [
+          "Espace membres"
+        ],
+        "ancestors": [
+          {
+            "label": "Covoiturage",
+            "path": "/covoiturage"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/covoiturage/voitures/{id}/modifier",
+      "method": "POST",
+      "controller": "Modules\\Covoiturage\\Controller\\CarpoolController",
+      "action": "updateOffer",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/covoiturage/voitures/{id}/retirer",
+      "method": "POST",
+      "controller": "Modules\\Covoiturage\\Controller\\CarpoolController",
+      "action": "cancelOffer",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/covoiturage/voitures/{id}/demander",
+      "method": "POST",
+      "controller": "Modules\\Covoiturage\\Controller\\CarpoolController",
+      "action": "requestSeats",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/covoiturage/demandes/{id}/accepter",
+      "method": "POST",
+      "controller": "Modules\\Covoiturage\\Controller\\CarpoolController",
+      "action": "accept",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/covoiturage/demandes/{id}/refuser",
+      "method": "POST",
+      "controller": "Modules\\Covoiturage\\Controller\\CarpoolController",
+      "action": "refuse",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/covoiturage/demandes/{id}/retirer-la-place",
+      "method": "POST",
+      "controller": "Modules\\Covoiturage\\Controller\\CarpoolController",
+      "action": "revoke",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/covoiturage/demandes/{id}/annuler",
+      "method": "POST",
+      "controller": "Modules\\Covoiturage\\Controller\\CarpoolController",
+      "action": "withdraw",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/covoiturage/{id}",
+      "method": "GET",
+      "controller": "Modules\\Covoiturage\\Controller\\CarpoolController",
+      "action": "show",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Un covoiturage",
+        "parents": [
+          "Espace membres"
+        ],
+        "ancestors": [
+          {
+            "label": "Covoiturage",
+            "path": "/covoiturage"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/covoiturage/{id}/proposer",
+      "method": "GET",
+      "controller": "Modules\\Covoiturage\\Controller\\CarpoolController",
+      "action": "offerForm",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Proposer des places",
+        "parents": [
+          "Espace membres"
+        ],
+        "ancestors": [
+          {
+            "label": "Covoiturage",
+            "path": "/covoiturage"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/covoiturage/{id}/proposer",
+      "method": "POST",
+      "controller": "Modules\\Covoiturage\\Controller\\CarpoolController",
+      "action": "storeOffer",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    }
+  ],
+  "settings": [
+    {
+      "key": "covoiturage_retention_days",
+      "default_value": "30",
+      "type": "number",
+      "label": "Durée de conservation (jours)",
+      "description": "Nombre de jours après la dernière date d'un covoiturage au bout desquels il est effacé, avec ses voitures, ses demandes et les numéros de téléphone partagés. Les covoiturages passés restent visibles jusque-là, repliés."
+    },
+    {
+      "key": "covoiturage_geocoding_enabled",
+      "default_value": "1",
+      "type": "boolean",
+      "label": "Retrouver le point depuis l'adresse",
+      "description": "Cherche automatiquement, en tâche de fond, le point sur la carte correspondant à l'adresse d'un covoiturage (service Nominatim d'OpenStreetMap). Sans point, le lien de cartes ouvre simplement l'adresse ; un point placé à la main n'est jamais modifié."
+    }
+  ],
+  "cookies": [],
+  "scheduled_tasks": [
+    {
+      "key": "purge_carpools",
+      "handler": "Modules\\Covoiturage\\Task\\PurgeCarpoolsHandler"
+    },
+    {
+      "key": "geocode_carpools",
+      "handler": "Modules\\Covoiturage\\Task\\GeocodeCarpoolsHandler"
+    }
+  ],
+  "storage": {},
+  "emails": [],
+  "category": "activites"
+}

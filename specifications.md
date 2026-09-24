@@ -14,6 +14,7 @@ Everything beyond the core site is a module (`modules/<id>/`, ARCHITECTURE.md §
 | `banner` | Bannière | §36 |
 | `calendar` | Calendrier | §27 |
 | `camps` | Camps | §26 |
+| `covoiturage` | Covoiturage | §45 |
 | `fees` | Cotisations | §31 |
 | `finance` | Finances | §28, §30 |
 | `gallery` | Photos et vidéos | §33 |
@@ -3074,3 +3075,74 @@ Le site ne corrige pas cet écart — il n'a pas à imposer le calendrier de la 
 parent voit les valeurs à l'écran avant de produire le document. C'est là que se repère une taille qui n'est plus la
 bonne ou un traitement terminé depuis.
 
+## 45. Covoiturage (module covoiturage)
+
+Chantier « Module Covoiturage » (issue #365, `docs/chantiers/covoiturage.md`) ;
+conception technique en `ARCHITECTURE.md` §8.120.
+
+Lors d'une sortie ou d'un camp, les familles qui ont des places libres
+rencontrent celles qui en cherchent — **et rien de plus** : pas
+d'itinéraire, pas de partage de frais, pas de géolocalisation de qui que ce
+soit. Le module est optionnel et désactivé par défaut.
+
+### 45.1 Deux pages, deux menus, deux libellés
+
+| Page | Menu | Libellé | Rôle |
+|---|---|---|---|
+| Proposer et demander (`/covoiturage`) | Espace membres | Covoiturage | membre identifié |
+| Organiser (`/covoiturage/organiser`) | Espace animateurs | Organiser les covoiturages | animateur (`chief`) |
+
+Seul un animateur crée un covoiturage ; tout membre identifié propose des
+places ou en demande. Un animateur qui conduit utilise la page membre comme
+tout le monde : la vue du staff ajoute de la visibilité, elle n'enlève rien.
+
+### 45.2 Trois objets
+
+1. **Un covoiturage**, créé pour une sortie : le lieu (une adresse et,
+   facultativement, un point sur la carte), la date de l'aller, une date de
+   retour facultative, et zéro, un ou plusieurs évènements du calendrier.
+   Une sortie répliquée dans plusieurs calendriers de section est **un seul**
+   covoiturage lié à tous ces évènements ; sans évènement, il porte une
+   section.
+2. **Des offres de places**, une par voiture et par sens : heure de départ,
+   point de rendez-vous, places, nom du conducteur (pré-rempli avec le
+   titulaire du compte, modifiable), téléphone, note.
+3. **Des demandes**, sur une offre, pour des personnes nommées — les
+   membres liés au compte.
+
+**Le lieu appartient au covoiturage, jamais à l'offre** : destination de
+tous les allers, départ de tous les retours ; le conducteur ne choisit que
+le point de rendez-vous, qui est visible de tous et ne doit pas être une
+adresse personnelle.
+
+### 45.3 Règles
+
+- **Création** : un évènement déjà relié à un covoiturage ne peut pas en
+  recevoir un second — la page propose de rejoindre l'existant ; des
+  évènements qui n'indiquent pas le même lieu demandent une confirmation.
+- **Places** : comptées en personnes ; seule l'acceptation les retient ;
+  une demande s'accepte entière ; le nombre de places d'une voiture ne
+  descend jamais sous celui déjà accordé ; retirer une place accordée est
+  une action distincte du refus, confirmée.
+- **Téléphone** : recopié tel que la personne l'a confirmé, montré à l'autre
+  partie d'une demande acceptée et à personne d'autre.
+- **Visibilité** : le conducteur voit les demandes sur ses voitures, le
+  demandeur la sienne, les animateurs d'une section concernée et le Staff
+  d'Unité voient qui monte dans quelle voiture.
+- **Suppression** d'un covoiturage : impossible dès qu'une voiture y est
+  proposée.
+- **Conservation** : les covoiturages passés restent visibles, repliés,
+  jusqu'à leur effacement automatique 30 jours (réglable) après leur
+  dernière date, avec tout ce qu'ils contiennent.
+
+### 45.4 Ce que le cœur y a gagné
+
+- **Un sélecteur de recherche** (`partials/search_picker.html.twig`, choix
+  simple ou multiple, repli sans JavaScript) et son contrat de réponse
+  (`Core\View\SearchPickerResult`) — `ARCHITECTURE.md` §8.30bis.
+- **Le géocodage et la carte** (`Core\Geo`, `public/assets/js/map.js`),
+  sortis du module camps, avec le verrou manuel d'un point placé à la main —
+  `ARCHITECTURE.md` §8.119.
+- **Le lieu, la recherche et l'enrichissement dans l'API du calendrier**
+  (`EventSummary::$location`, `searchUpcomingEvents()`,
+  `EventDescriptionEnricherInterface`) — `ARCHITECTURE.md` §7.6.

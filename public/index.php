@@ -10077,6 +10077,81 @@ if ($isEnabled('camps')) {
     );
 }
 
+// Covoiturage (docs/chantiers/covoiturage.md, ARCHITECTURE.md §8.120): the
+// carpools, the offers of seats and the requests on them. The calendar is
+// an optional capability (§7.5) — without it a carpool links no event and
+// carries a section instead, exactly the case D3 describes.
+if ($isEnabled('covoiturage')) {
+    \Core\Debug\RequestTimeline::mark('module_covoiturage');
+    $covoiturageCarpoolRepo = new \Modules\Covoiturage\Repository\CarpoolRepository($pdo);
+    $covoiturageOfferRepo = new \Modules\Covoiturage\Repository\OfferRepository($pdo, $encryptionService);
+    $covoiturageRequestRepo = new \Modules\Covoiturage\Repository\SeatRequestRepository($pdo, $encryptionService);
+    $covoiturageBoard = new \Modules\Covoiturage\Service\CarpoolBoard(
+        $covoiturageCarpoolRepo,
+        $covoiturageOfferRepo,
+        $covoiturageRequestRepo,
+        $settingService,
+        $memberService,
+        $userAccountRepo
+    );
+    $covoiturageViewers = new \Modules\Covoiturage\Service\CarpoolViewerResolver(
+        $scoutYearResolver,
+        $sectionStaffAuthorizationService
+    );
+
+    $frontController->registerController(
+        \Modules\Covoiturage\Controller\CarpoolController::class,
+        new \Modules\Covoiturage\Controller\CarpoolController(
+            $twig,
+            $covoiturageCarpoolRepo,
+            $covoiturageOfferRepo,
+            $covoiturageRequestRepo,
+            $covoiturageBoard,
+            new \Modules\Covoiturage\Service\OfferService($covoiturageOfferRepo, $covoiturageRequestRepo, $pdo),
+            $covoiturageViewers
+        )
+    );
+    $frontController->registerController(
+        \Modules\Covoiturage\Controller\CarpoolOrganizerController::class,
+        new \Modules\Covoiturage\Controller\CarpoolOrganizerController(
+            $twig,
+            $covoiturageCarpoolRepo,
+            new \Modules\Covoiturage\Service\CarpoolService(
+                $covoiturageCarpoolRepo,
+                $covoiturageOfferRepo,
+                $sectionService,
+                $calendarServiceForOthers
+            ),
+            $covoiturageBoard,
+            $sectionService,
+            $covoiturageViewers
+        )
+    );
+
+    // The retention purge (D9): daily, re-armed by the handler itself;
+    // seed() rather than rearm() for the reason §8.5 gives.
+    $schedulerService->seed(
+        'covoiturage',
+        \Modules\Covoiturage\Task\PurgeCarpoolsHandler::TASK_KEY,
+        \Modules\Covoiturage\Task\PurgeCarpoolsHandler::REFERENCE,
+        'tomorrow 03:40'
+    );
+    // Geocoding is NOT periodic: seeded only while a carpool is waiting,
+    // exactly like camps' (GeocodeSeedWiringTest explains the spin the
+    // unconditional version caused).
+    if ($covoiturageCarpoolRepo->countPendingGeocoding() > 0) {
+        $schedulerService->seed(
+            'covoiturage',
+            \Modules\Covoiturage\Task\GeocodeCarpoolsHandler::TASK_KEY,
+            \Modules\Covoiturage\Task\GeocodeCarpoolsHandler::REFERENCE,
+            '+1 minute'
+        );
+    }
+
+    // The organiser's form draws a map: the CSP has to let the tiles in.
+    $mapTileOrigin = \Core\Geo\MapTiles::ORIGIN;
+}
+
 if ($isEnabled('retro')) {
     \Core\Debug\RequestTimeline::mark('module_retro');
     $retroBoardRepo = new \Modules\Retro\Repository\BoardRepository($pdo, $encryptionService);
