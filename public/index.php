@@ -7315,6 +7315,7 @@ if ($isEnabled('documents')) {
     );
     $documentService = new \Modules\Documents\Service\DocumentService(
         $documentRepository,
+        new \Modules\Documents\Repository\DocumentVersionRepository($pdo),
         $uploadHandler,
         $fileRepository,
         $attachedFileRemover,

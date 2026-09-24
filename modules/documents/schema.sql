@@ -53,3 +53,35 @@ CREATE TABLE IF NOT EXISTS documents (
     CONSTRAINT fk_documents_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL,
     CONSTRAINT fk_documents_updated_by FOREIGN KEY (updated_by) REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- The versions a document USED to have, kept so the Staff d'U can go back
+-- to one (roadmap D7). The current version is not here: it is
+-- documents.file_id. Replacing a document's file moves the outgoing file
+-- in as a row, raises that file's files.role_min to 'admin' — even on a
+-- public document, or whoever kept the old /files/{id} would go on
+-- downloading the version a correction replaced — and, past five rows,
+-- deletes the oldest for good, file included (DocumentService).
+--
+-- version_number counts from 1, the first file a document had; the
+-- current version is one more than the highest number here. uploaded_at
+-- and uploaded_by are when and by whom that file became current, copied
+-- from its files row at archiving time.
+--
+-- No ON DELETE CASCADE from documents: a cascade would drop the rows and
+-- strand their files on disk. DocumentService deletes a document's
+-- versions, files first, before the document itself.
+CREATE TABLE IF NOT EXISTS document_versions (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    document_id INT UNSIGNED NOT NULL,
+    version_number INT UNSIGNED NOT NULL,
+    file_id INT UNSIGNED NOT NULL,
+    size_bytes INT UNSIGNED NOT NULL,
+    uploaded_at DATETIME NOT NULL,
+    uploaded_by INT UNSIGNED NULL,
+    archived_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE INDEX idx_document_versions_number (document_id, version_number),
+    CONSTRAINT fk_document_versions_document FOREIGN KEY (document_id) REFERENCES documents(id),
+    CONSTRAINT fk_document_versions_file FOREIGN KEY (file_id) REFERENCES files(id),
+    CONSTRAINT fk_document_versions_uploaded_by FOREIGN KEY (uploaded_by) REFERENCES user_accounts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

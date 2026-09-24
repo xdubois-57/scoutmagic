@@ -2,7 +2,7 @@
   "id": "documents",
   "name": "Documents",
   "description": "Les documents de l'unité à partager : règlement, charte des parents, liste de matériel…",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "enabled_by_default": false,
   "category": "communication",
   "routes": [
