@@ -28,7 +28,6 @@ use Tests\Modules\Groups\GroupsTestHelper;
  * @group database
  */
 #[TestGroup('database')]
-#[\PHPUnit\Framework\Attributes\Group('database')]
 class PollVoterOptionsTest extends TestCase
 {
     private \PDO $pdo;

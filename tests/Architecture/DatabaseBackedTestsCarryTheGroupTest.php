@@ -62,27 +62,54 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
     ];
 
     /**
-     * What actually puts a class in the group: the ATTRIBUTE.
+     * Where the alias is declared, when the file renames the attribute.
+     *
+     * `use PHPUnit\Framework\Attributes\Group as TestGroup;` is a spelling
+     * PHP resolves at compile time and PHPUnit reads without hesitating —
+     * and the one this guard could not see.
+     */
+    private const ALIASED_IMPORT = '/^use\s+PHPUnit\\\\Framework\\\\Attributes\\\\Group\s+as\s+(\w+)\s*;/m';
+
+    /**
+     * What actually puts a class in the group: the ATTRIBUTE, in whichever
+     * spelling THIS FILE uses.
      *
      * **`@group database` in a doc-comment does nothing here.** This
      * repository pins `phpunit/phpunit: ^13.3`, and PHPUnit 13 reads
      * metadata from attributes only. Measured rather than inferred:
      * `Modules\Gallery\Service\StoredFileCleanerTest` carries the
      * doc-comment alone, holds six tests, and `--group=database` selects
-     * **none** of them.
-     *
-     * Accepting the doc-comment would therefore have this guard certify
-     * as compliant the very classes that are invisible to the command it
+     * **none** of them. Accepting it would have this guard certify as
+     * compliant the very classes that are invisible to the command it
      * exists to make honest — issue #395's failure, reproduced by its own
-     * fix. The doc-comment is left in the files where it explains
-     * something, but it is never what this class reads.
+     * fix. The doc-comment stays where it explains something; it is never
+     * what this class reads.
      *
-     * Both spellings of the attribute count, because the repository
-     * carries both: 491 files write it fully-qualified, 108 import it.
+     * The pattern cannot be a constant, because one spelling is chosen by
+     * the file itself. 491 files write the attribute fully-qualified, 108
+     * import it, and one imports it UNDER ANOTHER NAME:
+     * `Tests\Modules\Groups\Support\PollVoterOptionsTest` writes
+     * `#[TestGroup('database')]`, which PHP resolves at compile time and
+     * which `--group=database` has always selected.
+     *
+     * Reading only the two fixed spellings, this guard called that class
+     * non-compliant — and the first fix for it ADDED a second, redundant
+     * attribute beside the one already working, legal only because `Group`
+     * is repeatable. That is the failure this file documents at length,
+     * committed once more: a detector that narrows, and a change that
+     * answers the detector instead of the rule. The alias is followed here
+     * the same way `resolve()` already follows one for a parent's name.
      */
-    private const CARRIES_THE_GROUP = [
-        '/#\[\\\\?(?:PHPUnit\\\\Framework\\\\Attributes\\\\)?Group\(\s*[\'"]database[\'"]\s*\)\]/',
-    ];
+    private function carriesPattern(string $source): string
+    {
+        $spellings = ['\\\\?(?:PHPUnit\\\\Framework\\\\Attributes\\\\)?Group'];
+
+        if (preg_match(self::ALIASED_IMPORT, $source, $aliased) === 1) {
+            $spellings[] = preg_quote($aliased[1], '/');
+        }
+
+        return '/#\[(?:' . implode('|', $spellings) . ')\(\s*[\'"]database[\'"]\s*\)\]/';
+    }
 
     /**
      * The inert spelling, kept only to be refused.
@@ -153,7 +180,7 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
             // four attributes that work.
             $source = (string) file_get_contents($root . '/' . $class['file']);
             $inertOnly = preg_match(self::INERT_DOC_COMMENT, $source) === 1
-                && preg_match(self::CARRIES_THE_GROUP[0], $source) !== 1;
+                && preg_match($this->carriesPattern($source), $source) !== 1;
 
             $ungrouped[] = $class['file']
                 . ($inertOnly ? '  (carries `@group database` only — inert under PHPUnit 13)' : '')
@@ -252,6 +279,59 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
      * builds one WITHOUT the marker is still reported, and so is a build
      * anywhere that is not a marked test method.
      */
+    /**
+     * The attribute imported under another name.
+     *
+     * `use PHPUnit\Framework\Attributes\Group as TestGroup;` then
+     * `#[TestGroup('database')]` is what `PollVoterOptionsTest` has always
+     * written, and `--group=database` has always selected it: PHP resolves
+     * the alias at compile time, so PHPUnit never sees the other name.
+     *
+     * This guard did. Reading two fixed spellings and no alias, it called
+     * that class non-compliant, and the change that answered it added a
+     * SECOND attribute next to the working one rather than widening the
+     * reader — which is the exact shape of failure the rest of this file
+     * is about. The alias is the third spelling, and the detector's job is
+     * to know every spelling that works.
+     */
+    public function testTheAttributeImportedUnderAnotherNameIsStillTheMarker(): void
+    {
+        $aliased = $this->classesIn(<<<'PHP'
+            <?php
+            namespace Tests\Fake;
+            use PHPUnit\Framework\Attributes\Group as TestGroup;
+
+            #[TestGroup('database')]
+            class ThingTest extends TestCase
+            {
+                protected function setUp(): void { $this->pdo = DatabaseTestHelper::createTestDatabase(); }
+            }
+            PHP, 'Fake.php');
+
+        $this->assertTrue(
+            $aliased['Tests\Fake\ThingTest']['carries'],
+            'an attribute imported under another name is the same attribute'
+        );
+
+        // And the alias is only the marker in the file that declares it:
+        // another file's `TestGroup` is somebody else's class.
+        $borrowed = $this->classesIn(<<<'PHP'
+            <?php
+            namespace Tests\Fake;
+
+            #[TestGroup('database')]
+            class OtherTest extends TestCase
+            {
+                protected function setUp(): void { $this->pdo = DatabaseTestHelper::createTestDatabase(); }
+            }
+            PHP, 'Fake.php');
+
+        $this->assertFalse(
+            $borrowed['Tests\Fake\OtherTest']['carries'],
+            'without the import the name means nothing, and PHPUnit would not read it either'
+        );
+    }
+
     public function testAClassMarkingEachBuildingMethodNeedsNoClassLevelMarker(): void
     {
         $eachMarked = $this->classesIn(<<<'PHP'
@@ -592,18 +672,14 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
             }
 
             $carries = false;
-            foreach (self::CARRIES_THE_GROUP as $pattern) {
-                if (preg_match($pattern, $heading) === 1) {
-                    $carries = true;
-
-                    break;
-                }
+            if (preg_match($this->carriesPattern($source), $heading) === 1) {
+                $carries = true;
             }
 
             $classes[$namespace === '' ? $name : $namespace . '\\' . $name] = [
                 'file' => $file,
                 'parent' => $parent,
-                'uncovered' => $carries ? [] : $this->buildersWithoutTheGroup($own),
+                'uncovered' => $carries ? [] : $this->buildersWithoutTheGroup($own, $this->carriesPattern($source)),
                 // A class PHPUnit runs is a concrete one whose name ends
                 // in `Test`; the helpers, doubles and abstract bases beside
                 // them are support, and the group on support selects nothing.
@@ -632,7 +708,7 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
      *
      * @return list<string> the offending method names, empty when covered
      */
-    private function buildersWithoutTheGroup(string $own): array
+    private function buildersWithoutTheGroup(string $own, string $carriesPattern): array
     {
         $found = preg_match_all(
             '/^[ \t]*(?:(?:public|protected|private|static|final|abstract)\s+)*function\s+(\w+)\s*\(/m',
@@ -672,7 +748,7 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
             $headingStart = $this->headingStart($own, $offset);
             $heading = substr($own, $headingStart, $offset - $headingStart);
 
-            if (str_starts_with($name, 'test') && preg_match(self::CARRIES_THE_GROUP[0], $heading) === 1) {
+            if (str_starts_with($name, 'test') && preg_match($carriesPattern, $heading) === 1) {
                 continue;
             }
 
