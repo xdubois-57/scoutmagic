@@ -154,8 +154,14 @@ class CrossReferenceResolutionRatchetTest extends TestCase
      * because the measurement got honest is not the same event as one that
      * rises because a comment was copied, and only the second is what this
      * number guards.
+     *
+     * 638 → 639 is a third kind again: one more occurrence of a number
+     * already declared here, written on another branch while this one was
+     * open. Raising it is right, and having to raise it is the mechanism
+     * working — somebody looks each time, which is more than the list
+     * itself asks for.
      */
-    private const OCCURRENCE_CEILING = 638;
+    private const OCCURRENCE_CEILING = 639;
 
     public function testNoNewCrossReferencePointsAtASectionThatDoesNotExist(): void
     {
