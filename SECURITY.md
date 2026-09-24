@@ -724,7 +724,7 @@ The other ~230 casts are on **path** parameters — `(int) $params['id']` — an
 
 **The rule is the name, deliberately, so that there is no opt-out flag anyone can forget.** A parameter that is not a row identifier is not named like one: `/aide/{topic}` carries a help topic's slug and says so — it was `/aide/{id}`, and renaming it was the whole cost of making the rule unconditional. An earlier reading of this said a router rule "would be wrong" for that reason; the rule is right, the *name* was.
 
-Checked against the real route table rather than a sample: `Tests\Core\Http\RouterIdentifierParametersTest` walks every route the application registers and fails on an id-named placeholder a non-numeric value can still reach — 265 routes, and it also checks the other direction, so the rule cannot be "tightened" into matching digits everywhere and silently 404 every slug on the site.
+Checked against the real route table rather than a sample: `Tests\Core\Http\RouterIdentifierParametersTest` walks **every** route the application registers and fails on an id-named placeholder a non-numeric value can still reach, and it also checks the other direction, so the rule cannot be "tightened" into matching digits everywhere and silently 404 every slug on the site.
 
 ### A display filter must never take a page down
 
@@ -777,7 +777,7 @@ The driver's own text never reaches the page: MySQL names the table, the column 
 
 ## 36. The authorization matrix
 
-`scripts/dast.sh --profile=standard` replays **every route as every role** and checks the answer against the `role_min` the route declares. 747 routes × 6 roles = 4 482 pairs, in about a minute, with no scanner and no browser.
+`scripts/dast.sh --profile=standard` replays **every route as every role** and checks the answer against the `role_min` the route declares — one (route, role) pair per combination, in about a minute, with no scanner and no browser.
 
 It was meant to be ZAP's "Access Control Testing" add-on, which is not in the `stable` image. Doing it here turned out to be the better home rather than a fallback: the question has one right answer per pair — the application states it in `module.json`, `Core\Security\RbacGuard` enforces it — so this is a comparison, not a heuristic. No payloads, no false positives, and a result that means the same thing on every run.
 

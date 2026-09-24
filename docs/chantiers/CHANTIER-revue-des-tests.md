@@ -1389,11 +1389,36 @@ pas le droit de corriger.
 
 | Où | Disait | Tient |
 |---|---|---|
-| `README.md` (tableau des profils) | 528 routes | **747** |
-| `README.md` (« rejoue les … routes ») | 528 routes | **747** |
-| `README.md` (liste des jobs) | 534 routes, 3 204 couples | **747**, **4 482** |
-| `SECURITY.md` | 528 routes × 6 rôles = 3 168 paires | **747** × 6 = **4 482** |
-| `SECURITY.md` (paramètres nommés comme un identifiant) | 209 routes | **265** |
+| `README.md` (tableau des profils) | 528 routes | **toutes** les routes |
+| `README.md` (« rejoue les … routes ») | 528 routes | **toutes** les routes déclarées |
+| `README.md` (liste des jobs) | 534 routes, 3 204 couples | **toutes**, un couple par combinaison |
+| `SECURITY.md` | 528 routes × 6 rôles = 3 168 paires | **every route as every role** |
+| `SECURITY.md` (paramètres nommés comme un identifiant) | 209 routes | **every** route enregistrée |
+
+**La colonne de droite n'a pas toujours dit cela, et le revirement est le
+constat.** Elle a d'abord porté les chiffres justes — 747 routes,
+4 482 couples, 265 routes à paramètre identifiant — et un test les épinglait
+à `authzRoutes()`, au motif que « le nombre dans la prose fait partie du
+changement qui ajoute la route ». C'était un raisonnement, pas une mesure.
+
+**La mesure le dément.** Sur trente jours, **50 des 94 commits de `main`
+touchent une déclaration de route** — plus d'un sur deux. Un compte épinglé
+dans la prose rend donc rouge la majorité des PR ouvertes, sans faute de
+leur part ; celle-ci a vu le chiffre bouger **deux fois pendant qu'elle
+était ouverte** — 746, puis 747, puis 750 — dont une fois en CI, après avoir
+été vert en local une heure plus tôt. Un fil qui se déclenche sur plus de la
+moitié des fusions n'est pas un garde, c'est un impôt.
+
+La prose ne cite donc plus de taille. Elle énonce l'**invariant** — toutes
+les routes, tous les rôles —, qui est ce dont a besoin le lecteur qui audite
+la couverture, qui reste vrai quelle que soit la taille de la table, et que
+les tests d'inventaire tiennent déjà. Le test garde cette affirmation
+présente **et empêche un « 750 routes » bien intentionné d'être réécrit**.
+
+C'est le seul endroit du chantier où une correction en a remplacé une autre.
+La première n'était pas fausse — les chiffres publiés étaient bien faux et
+il fallait les corriger — mais le dispositif qui devait les maintenir justes
+coûtait plus qu'il ne rapportait, et seule la mesure pouvait le dire.
 
 README se contredisait lui-même — 528 deux fois, 534 une fois — et aucun des
 trois nombres n'était le bon. Ce n'est pas cosmétique, et c'est la panne que
@@ -1458,17 +1483,25 @@ faisaient rien font chacune tomber le test, en le nommant :
 le cas le plus commode, c'est se répondre à soi-même. La cible doit être
 celle qui a le plus de chances de survivre.
 
-Les chiffres, eux, ont été rendus rouges d'un coup : le test les a tous les
-sept dénoncés avant correction, ce qui est la preuve qu'il les lit et ne les
-suppose pas.
+Les chiffres, eux, ont été rendus rouges d'un coup par la première version
+du test — preuve qu'elle les lisait et ne les supposait pas. Ce sont
+aujourd'hui trois mutations sur l'invariant qui tiennent sa remplaçante :
+retirer l'affirmation « every route as every role » la rend rouge, et y
+réécrire un compte la rend rouge par l'autre bout, que la phrase invariante
+survive ou non.
 
-**Ce que ces deux tests coûtent, et pourquoi c'est le bon prix.** Ajouter une
-route rend `testTheFiguresTheDocumentationQuotesAreTheInventorysOwn` rouge ;
-ajouter un job rend `EveryCiJobIsDocumentedTest` rouge. C'est l'intention :
-le nombre dans la prose fait partie du changement qui ajoute la route, et le
-message d'échec nomme la phrase à corriger. La solution de rechange est
-celle qu'on vient de constater — quatre chiffres faux pendant assez
-longtemps pour que personne ne sache lequel était juste.
+**Ce que ces tests coûtent, et où passe la limite.** Ajouter un job de CI rend
+`EveryCiJobIsDocumentedTest` rouge, et c'est le bon prix : `checks.yml` a
+changé trois fois en trente jours, le message d'échec nomme la puce à
+écrire, et une liste de jobs fausse trompe quiconque cherche ce qui juge sa
+PR.
+
+Le même raisonnement appliqué au **compte des routes** était faux, et c'est
+la mesure qui l'a montré : 50 commits sur 94 touchent une déclaration de
+route. La limite passe donc là — un test peut exiger qu'un document suive ce
+qui change **quelques fois par mois**, jamais ce qui change **plus d'une
+fois sur deux**. Au-delà, ce n'est plus le document qu'on maintient, c'est
+la CI qu'on occupe.
 
 **Vérifié et tenu** (second lot) :
 
@@ -1489,12 +1522,14 @@ a été rédigée sur un `main` que cette PR a ensuite dû rattraper de
 cinquante-cinq commits. Au premier contact avec ce `main` déplacé, les deux
 tests écrits ici sont devenus **rouges**, et sur des choses réelles :
 
-- **`AuthorizationMatrixInventoryTest`** : une route a été ajoutée entre
-  temps. Les sept chiffres publiés — 746 routes, 4 476 couples, 264 routes
-  à paramètre identifiant — sont devenus 747, 4 482 et 265, et le test les
-  a tous les sept dénoncés en nommant la phrase à corriger. C'est
-  exactement le comportement annoncé, vérifié par accident plutôt que par
-  dispositif.
+- **`AuthorizationMatrixInventoryTest`** : une route ajoutée entre temps a
+  fait passer les sept chiffres publiés de 746/4 476/264 à 747/4 482/265,
+  et le test les a tous les sept dénoncés en nommant la phrase à corriger.
+  Puis, quelques heures plus tard, **la CI les a dénoncés une seconde
+  fois** — 750/4 500/268 — alors qu'ils venaient d'être corrigés et que le
+  local était vert. C'est cette seconde fois qui a provoqué la mesure, puis
+  le revirement décrit plus haut : le test tenait sa promesse, et sa
+  promesse était le problème.
 - **`ModuleSpecificationCoverageTest`** : **quatorze** entrées de menu
   avaient été renommées depuis (« Groupes » → « Discussions »,
   « Trombinoscope » → « Les animateurs », « Départs » → « Départs de
@@ -1549,7 +1584,7 @@ avant et verte après — la troisième condition de §0.1 comprise :
 | Document | Test qui le tient |
 |---|---|
 | `specifications.md` §4.2 à §4.5 — cinq lignes manquantes, dont un déplacement, et quatorze renommages | `ModuleSpecificationCoverageTest::testEveryMenuEntryAModuleAddsHasItsRowInSectionFour` |
-| `README.md` et `SECURITY.md` — sept chiffres | `AuthorizationMatrixInventoryTest::testTheFiguresTheDocumentationQuotesAreTheInventorysOwn` |
+| `README.md` et `SECURITY.md` — sept chiffres, remplacés par l'invariant qu'ils illustraient mal | `AuthorizationMatrixInventoryTest::testTheDocumentationClaimsEveryRouteRatherThanACountOfThem` |
 | `README.md` — la puce `database-mariadb` | `EveryCiJobIsDocumentedTest` (deux directions) |
 
 **Issues ouvertes** :

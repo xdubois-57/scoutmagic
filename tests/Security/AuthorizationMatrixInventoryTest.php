@@ -228,100 +228,72 @@ class AuthorizationMatrixInventoryTest extends TestCase
     }
 
     /**
-     * The documentation quotes the matrix's size in four places. Nothing
-     * checked those figures, and all four had gone stale — README said
-     * 528 routes twice and 534 once, SECURITY.md said 528 × 6 = 3 168,
-     * while the inventory above held 747.
+     * The documentation must claim the WHOLE route table, never a
+     * snapshot of it.
      *
-     * A stale figure here is not cosmetic, and it is the same failure
-     * this class already exists to catch, one level up. The reader these
-     * sentences are written for is auditing coverage: they compare the
-     * quoted count to the route table and decide whether the matrix is
-     * looking at everything. A count that understates it reads exactly
-     * like a hole in the matrix — and a count that overstates it hides
-     * one.
+     * This started as the opposite test. README and SECURITY.md quoted
+     * « 528 routes × 6 roles = 3 168 pairs » while the inventory held
+     * 747, so the first version of this test pinned the quoted figures to
+     * `authzRoutes()` and made a stale one red. The reasoning was that
+     * the number in the prose is part of the change that adds a route.
      *
-     * The figures are therefore derived here and nowhere else: from
-     * `authzRoutes()`, from `AUTHZ_ROLES`, and — for the identifier rule
-     * SECURITY.md quotes beside them — from the same inventory walked
-     * with `Tests\Core\Http\RouterIdentifierParametersTest`'s own
-     * predicate, since that is the rule the sentence is about.
+     * **Measurement disproved it.** Over thirty days, 50 of the 94
+     * commits on `main` touched a route declaration — more than half. A
+     * count pinned in prose is therefore red on most open pull requests
+     * through no fault of their own, and this very pull request watched
+     * the figure move twice while it was open (746, then 747, then 750).
+     * A tripwire that fires on more than half of all merges is not a
+     * guard, it is a tax.
      *
-     * **Adding a route makes this test red.** That is the intent: the
-     * number in the prose is part of the change that added the route,
-     * and the failure message says which sentence to edit.
+     * So the prose no longer quotes a size at all. What it states is the
+     * invariant — every route, every role — which is what a reader
+     * auditing coverage actually needs, is true whatever the table's
+     * size, and is exactly what the tests above already hold. This test
+     * keeps that claim present, and keeps a well-meaning « 750 routes »
+     * from being helpfully written back in.
      */
-    public function testTheFiguresTheDocumentationQuotesAreTheInventorysOwn(): void
+    public function testTheDocumentationClaimsEveryRouteRatherThanACountOfThem(): void
     {
-        $routes = count(\authzRoutes());
-        $pairs = $routes * count(AUTHZ_ROLES);
-        $identifierRoutes = $this->routesCarryingAnIdentifierPlaceholder();
-
         $claims = [
-            ['README.md', "La matrice d'autorisation : les ", ' routes rejouées', $routes],
-            ['README.md', 'rejoue les ', ' routes, et compare', $routes],
-            ['README.md', '--profile=standard` — les ', ' routes rejouées', $routes],
-            ['README.md', ' rôles — ', ' couples (route, rôle)', $pairs],
-            ['SECURITY.md', 'the route declares. ', ' routes × 6 roles', $routes],
-            ['SECURITY.md', ' × 6 roles = ', ' pairs', $pairs],
-            ['SECURITY.md', 'can still reach — ', ' routes, and it also checks', $identifierRoutes],
+            ['README.md', "La matrice d'autorisation : **toutes** les routes rejouées sous les six rôles"],
+            ['README.md', "rejoue **toutes** les routes que l'application déclare"],
+            ['README.md', '**toutes** les routes rejouées sous les six rôles, soit un couple (route, rôle) par combinaison'],
+            ['SECURITY.md', 'walks **every** route the application registers'],
+            ['SECURITY.md', 'replays **every route as every role**'],
         ];
 
-        $wrong = [];
+        foreach ($claims as [$file, $claim]) {
+            $this->assertStringContainsString(
+                $claim,
+                $this->read($file),
+                "{$file} no longer states that the matrix covers the whole route table."
+            );
+        }
 
-        foreach ($claims as [$file, $before, $after, $expected]) {
-            $matched = preg_match(
-                '/' . preg_quote($before, '/') . '([0-9][0-9 ]*[0-9]|[0-9])' . preg_quote($after, '/') . '/u',
+        // And no size may creep back: a figure here cannot be kept true
+        // (see the docblock), so one that reads as authoritative is worse
+        // than none.
+        $quoted = [];
+
+        foreach (['README.md', 'SECURITY.md'] as $file) {
+            preg_match_all(
+                '/[0-9][0-9 ]*\s+(?:routes|couples|pairs|paires)\b/u',
                 $this->read($file),
                 $found
             );
 
-            $this->assertSame(
-                1,
-                $matched,
-                "{$file} no longer carries the sentence « {$before}… {$after} ». "
-                . 'Either restore it or update this claim.'
-            );
-
-            $quoted = (int) str_replace(' ', '', $found[1]);
-            if ($quoted !== $expected) {
-                $wrong[] = "{$file}: « {$before}{$found[1]}{$after} » — the inventory holds {$expected}";
+            foreach ($found[0] as $figure) {
+                $quoted[] = "{$file}: « " . trim($figure) . ' »';
             }
         }
 
         $this->assertSame(
             [],
-            $wrong,
-            "Figures the documentation quotes that the inventory contradicts:\n  "
-            . implode("\n  ", $wrong)
+            $quoted,
+            "A route or pair count is quoted again. It cannot be kept true — more than half\n"
+            . "of the commits on `main` touch a route declaration — so state the invariant\n"
+            . "instead:\n  " . implode("\n  ", $quoted)
         );
-    }
-
-    /**
-     * How many routes carry a placeholder named like a row identifier —
-     * the figure SECURITY.md quotes for the router rule. The predicate is
-     * Tests\Core\Http\RouterIdentifierParametersTest's, restated rather
-     * than imported because that class keeps it private; it is three
-     * comparisons, and a drift between the two would make this test red
-     * rather than silently agree with nothing.
-     */
-    private function routesCarryingAnIdentifierPlaceholder(): int
-    {
-        $paths = [];
-
-        foreach (\authzRoutes() as $route) {
-            foreach (\authzPlaceholders($route['path']) as $name) {
-                $isIdentifier = $name === 'id'
-                    || str_ends_with($name, '_id')
-                    || (str_ends_with($name, 'Id') && $name !== 'Id');
-
-                if ($isIdentifier) {
-                    $paths[$route['path']] = true;
-                }
-            }
-        }
-
-        return count($paths);
     }
 
     private function read(string $relativePath): string
