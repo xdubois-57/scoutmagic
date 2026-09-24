@@ -74,9 +74,10 @@ CREATE TABLE IF NOT EXISTS rental_assets (
     -- ── Booking constraints (module spec, iteration 3) ───────────────
     -- What a visitor may ASK for, as opposed to whether the asset is free.
     -- The two are kept strictly apart: a day inside the notice window is
-    -- free and merely too late to request, and §6.7 requires it to be shown
-    -- like the past rather than like "occupé" — a visitor told a free day is
-    -- taken concludes the asset is booked and gives up on it.
+    -- free and merely too late to request, and specifications.md §22.2
+    -- requires it to be shown like the past rather than like "occupé" — a
+    -- visitor told a free day is taken concludes the asset is booked and
+    -- gives up on it.
     -- 0 means "no limit" for each of the four numeric rules.
     min_nights INT UNSIGNED NOT NULL DEFAULT 0,
     max_nights INT UNSIGNED NOT NULL DEFAULT 0,

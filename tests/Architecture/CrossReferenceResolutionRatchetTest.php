@@ -73,9 +73,14 @@ use PHPUnit\Framework\TestCase;
  * (« relève de §0.1 »), and a self-reference is exactly the citation a
  * reader has no trouble following.
  *
- * The **suffix is part of the number**. `§8.6bis` and `§8.6` are two
- * sections; dropping the suffix on one side and stopping before it on the
- * other made either satisfy the other.
+ * The **suffix is part of the number**, and it is read as *whatever
+ * letters follow* rather than matched against a list. This document
+ * carries nine — `bis` through `decies` — and a list that stopped at
+ * `quinquies` did two wrong things at once: `### 8.49sexies` was not
+ * registered as a heading at all, and a citation to `§8.71undecies` was
+ * truncated to `§8.71`, which resolves. An unknown suffix has to fail
+ * loudly rather than be quietly dropped, and only an open reading does
+ * that.
  */
 class CrossReferenceResolutionRatchetTest extends TestCase
 {
@@ -143,13 +148,14 @@ class CrossReferenceResolutionRatchetTest extends TestCase
      * reference deleted alongside the code that carried it is not a
      * regression to report.
      *
-     * It moved from 580 to 584 when the scan was widened to the
-     * documentation — those four were always there and were simply not
-     * being looked at. A ceiling that rises because the measurement got
-     * honest is not the same event as one that rises because a comment was
-     * copied, and only the second is what this number guards.
+     * It moved 580 → 584 when the scan was widened to the documentation,
+     * then 584 → 638 when `.sql` joined it — those occurrences were always
+     * there and were simply not being looked at. A ceiling that rises
+     * because the measurement got honest is not the same event as one that
+     * rises because a comment was copied, and only the second is what this
+     * number guards.
      */
-    private const OCCURRENCE_CEILING = 584;
+    private const OCCURRENCE_CEILING = 638;
 
     public function testNoNewCrossReferencePointsAtASectionThatDoesNotExist(): void
     {
@@ -232,7 +238,7 @@ class CrossReferenceResolutionRatchetTest extends TestCase
 
         $headings = [];
         preg_match_all(
-            '/^#{2,6}\\s*([0-9]+(?:\\.[0-9]+)*)(bis|ter|quater|quinquies)?[.)]?\\s/m',
+            '/^#{2,6}\\s*([0-9]+(?:\\.[0-9]+)*)([a-z]+)?[.)]?\\s/m',
             is_file($path) ? (string) file_get_contents($path) : '',
             $found,
             PREG_SET_ORDER
@@ -312,7 +318,7 @@ class CrossReferenceResolutionRatchetTest extends TestCase
 
                 preg_match_all(
                     '/(?:`?([A-Za-z][A-Za-z0-9_\/.-]*\.[a-z]{2,4})`?\s*)?§\s*'
-                    . '([0-9]+\.[0-9]+(?:\.[0-9]+)*)(bis|ter|quater|quinquies)?/',
+                    . '([0-9]+\.[0-9]+(?:\.[0-9]+)*)([a-z]+)?/',
                     $line,
                     $found,
                     PREG_SET_ORDER
@@ -376,7 +382,7 @@ class CrossReferenceResolutionRatchetTest extends TestCase
                 if (!$file->isFile()) {
                     continue;
                 }
-                if (!in_array($file->getExtension(), ['php', 'js', 'twig', 'md'], true)) {
+                if (!in_array($file->getExtension(), ['php', 'js', 'twig', 'md', 'sql'], true)) {
                     continue;
                 }
 
