@@ -168,7 +168,15 @@ class RentalCommunicationService
             $unattributed = $row['links'] === [] && $row['candidates'] === [];
 
             if ($links !== [] || $candidates !== [] || ($unattributed && $sortsUnattributed)) {
-                $kept[] = ['links' => $links, 'candidates' => $candidates] + $row;
+                $kept[] = [
+                    'links' => $links,
+                    'candidates' => $candidates,
+                    // Something on it is another asset's: setting it aside
+                    // would hide it from that asset's managers too, since a
+                    // set-aside is the module's, not one person's.
+                    'shared_with_others' => count($links) < count($row['links'])
+                        || count($candidates) < count($row['candidates']),
+                ] + $row;
             }
         }
 
@@ -185,11 +193,14 @@ class RentalCommunicationService
         array $references,
         bool $sortsUnattributed,
         int $messageId,
-        bool $dismissed = false
+        bool $dismissed = false,
+        bool $wholly = false
     ): bool {
         foreach ($this->triageRows($references, $sortsUnattributed, $dismissed) as $row) {
             if ($row['message']->id === $messageId) {
-                return true;
+                // `$wholly`: a decision taken for the whole module is this
+                // person's only when nothing on the message is another's.
+                return !$wholly || !$row['shared_with_others'];
             }
         }
 
@@ -233,14 +244,16 @@ class RentalCommunicationService
 
     /**
      * « Ce courrier ne concerne pas les locations » — for a message on the
-     * requester's own list only.
+     * requester's own list only, and wholly theirs: a set-aside is the
+     * module's, so one also proposed for another asset's booking would
+     * vanish from that asset's managers' lists without their knowing.
      *
      * @param string[] $references
      */
     public function setAside(array $references, bool $sortsUnattributed, int $messageId, ?int $userAccountId): bool
     {
         return $this->inboundMail !== null
-            && $this->isWithinReach($references, $sortsUnattributed, $messageId)
+            && $this->isWithinReach($references, $sortsUnattributed, $messageId, false, true)
             && $this->inboundMail->dismissMessage(
                 RentalMessageConsumer::CONSUMER_ID,
                 $references,
@@ -250,12 +263,14 @@ class RentalCommunicationService
     }
 
     /**
+     * Put a set-aside message back — wholly theirs too, for the same reason.
+     *
      * @param string[] $references
      */
     public function restore(array $references, bool $sortsUnattributed, int $messageId): bool
     {
         return $this->inboundMail !== null
-            && $this->isWithinReach($references, $sortsUnattributed, $messageId, true)
+            && $this->isWithinReach($references, $sortsUnattributed, $messageId, true, true)
             && $this->inboundMail->restoreMessage(
                 RentalMessageConsumer::CONSUMER_ID,
                 $references,

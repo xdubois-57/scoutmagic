@@ -145,7 +145,7 @@
                         </div>
                     {% endif %}
 
-                    {% if status == 'ecartes' %}
+                    {% if status == 'ecartes' and not row.shared_with_others|default(false) %}
                         {# Nothing to decide about a message that was set aside
                            except whether to take it back. #}
                         <form method="post" class="mt-3" action="{{ ui.urls.restore|replace({'{id}': row.message.id}) }}">
@@ -265,7 +265,10 @@
                            detached. It deletes nothing: the unit's mail still
                            has it, and the retention takes it on exactly the
                            day it would have anyway. #}
-                        {% if row.links is empty %}
+                        {# `shared_with_others`: a consumer whose users are narrower than the
+                           module marks a row that is partly somebody else's; setting it aside
+                           is the module's decision and is not offered there. #}
+                        {% if row.links is empty and not row.shared_with_others|default(false) %}
                             <div class="mt-2">
                                 <form method="post" action="{{ ui.urls.dismiss|replace({'{id}': row.message.id}) }}"
                                       data-confirm="Écarter ce courrier de la liste {{ ui.list_name }} ? Il reste dans le courrier de l'unité et vous pourrez le remettre.">

@@ -703,6 +703,44 @@ class RentalManagementControllerTest extends TestCase
         $this->assertSame(0, $mail->countDismissedMessages('rental', [$mine->reference]));
     }
 
+    /**
+     * A set-aside is the module's, not one manager's: a message proposed
+     * for their booking AND for another asset's is not theirs alone to
+     * write off, or it would vanish from the other managers' lists.
+     */
+    public function testAMessageAlsoProposedForAnotherAssetCannotBeSetAside(): void
+    {
+        [$mail, $mine, $theirs] = $this->mailAcrossTwoAssets();
+        $mail->propose(10, 'rental', $theirs->reference);
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id)->getBody();
+        $this->post('/mes-locations/courrier/ecarter', 'triageSetAside', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $mine->id,
+            'message_id' => '10',
+        ]);
+
+        $this->assertStringContainsString('data-triage-message="10"', $body);
+        $this->assertStringNotContainsString('/mes-locations/courrier/ecarter', $body);
+        $this->assertSame(0, $mail->countDismissedMessages('rental', [$mine->reference]));
+    }
+
+    /**
+     * The service's own guard, beneath the controller's: a target booking
+     * outside the references it is given is refused even for a message
+     * that IS on the requester's list.
+     */
+    public function testTheServiceRefusesATargetOutsideTheReferencesItIsGiven(): void
+    {
+        [$mail, $mine, $theirs] = $this->mailAcrossTwoAssets();
+        $service = (new \ReflectionProperty(RentalManagementController::class, 'communicationService'))
+            ->getValue($this->controller);
+        $this->assertInstanceOf(\Modules\Rental\Service\RentalCommunicationService::class, $service);
+
+        $this->assertFalse($service->attachToBooking($theirs, 9, [$mine->reference], false, null));
+        $this->assertNull($mail->findOneForReference('rental', $theirs->reference, 9));
+    }
+
     public function testWhoeverManagesEveryAssetSortsTheUnattributedMail(): void
     {
         [, $mine] = $this->mailAcrossTwoAssets();
@@ -2624,6 +2662,7 @@ class RentalManagementControllerTest extends TestCase
         $inbound = $this->withCollectingMailbox();
         $booking = $this->createBooking();
 
+        $inbound->expects($this->never())->method('triageRows');
         $inbound->expects($this->never())->method('findForTriage');
         foreach ([BookingPage::DASHBOARD, BookingPage::FINANCES, BookingPage::DOCUMENTS] as $page) {
             $this->assertSame(200, $this->filePage($page, 'local-saint-georges', $booking->id)->getStatusCode());

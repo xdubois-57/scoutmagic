@@ -41,8 +41,9 @@ réservation dans « Rattacher à » — parmi celles des biens que vous
 gérez, et seulement celles-là.
 
 « Écarter ce courrier » retire de la liste un message qui ne concerne
-pas les locations. Rien n'est supprimé : il reste dans le courrier de
-l'unité, et l'onglet « Écartés » permet de le remettre.
+pas les locations. Il n'est pas supprimé : il reste dans le courrier de
+l'unité jusqu'à la fin de sa durée de conservation habituelle, et
+l'onglet « Écartés » permet de le remettre.
 
 ## Détacher
 
