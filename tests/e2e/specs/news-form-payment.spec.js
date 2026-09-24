@@ -62,6 +62,7 @@ import { expect, test } from '@playwright/test';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { waitForMail } from '../support/maildrop.js';
 import { waitOutHumanCheckDelay } from '../support/human-check.js';
+import { openModal } from '../support/modal.js';
 
 // Unique per run, so a re-run against a database that somehow survived
 // still matches its own article rather than an older one by name.
@@ -380,10 +381,8 @@ test('a chief publishes an article with a paying form, a family signs up and is 
     // cross-module handshake the composition root alone assembles), and
     // what it redirects to is a real page rather than a payload.
     // ---------------------------------------------------------------
-    await page.getByRole('button', { name: 'Écrire (2)' }).click();
-
-    const audienceDialog = page.locator('#mail-draft-audience');
-    await expect(audienceDialog).toBeVisible();
+    const audienceDialog = await openModal(page, 'mail-draft-audience', () =>
+        page.getByRole('button', { name: 'Écrire (2)' }).click());
     await expect(audienceDialog.getByText('Tous les répondants (2)')).toBeVisible();
     await expect(audienceDialog.getByText("Seulement ceux qui n'ont pas fini de payer (2)")).toBeVisible();
     // Without this caption somebody sends reminders to people who are

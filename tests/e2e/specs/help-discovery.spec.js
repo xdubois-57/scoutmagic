@@ -29,8 +29,9 @@ import { test, expect } from '@playwright/test';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { answerConfirmation, waitForConfirmReady } from '../support/confirm-dialog.js';
+import { closeModal, openModal } from '../support/modal.js';
 
-const DIALOG = '#help-discovery-modal';
+const DIALOG_ID = 'help-discovery-modal';
 
 /**
  * Turns the tips on (or off) through `POST /config/settings/update`, the
@@ -78,17 +79,16 @@ test('a tip is offered, walked and closed — and then leaves the reader alone',
     // regression surfaces as an unexplained timeout on « Tout accepter ».
     await page.goto('/', { waitUntil: 'load' });
     await expect(
-        page.locator(DIALOG),
+        page.locator('#help-discovery-modal'),
         'no tip may stack on top of the cookie banner',
     ).toHaveCount(0);
 
     await answerCookieBanner(page, { accept: true });
 
     // ---- The dialog opens on an ordinary page -------------------------
-    await page.goto('/', { waitUntil: 'load' });
-
-    const dialog = page.locator(DIALOG);
-    await expect(dialog).toBeVisible();
+    // The tip offers itself on load, so the gesture that opens it is the
+    // visit.
+    const dialog = await openModal(page, DIALOG_ID, () => page.goto('/', { waitUntil: 'load' }));
     await expect(dialog.getByText('Le saviez-vous ?')).toBeVisible();
 
     const position = dialog.locator('[data-discovery-position]');
@@ -122,23 +122,21 @@ test('a tip is offered, walked and closed — and then leaves the reader alone',
     const recorded = page.waitForResponse(
         (response) => response.url().includes('/api/aide/decouverte') && response.request().method() === 'POST',
     );
-    await dialog.getByRole('button', { name: 'Terminé' }).click();
+    await closeModal(page, DIALOG_ID, () => dialog.getByRole('button', { name: 'Terminé' }).click());
     const written = await recorded;
     expect(written.status(), 'the close reached the endpoint').toBe(200);
     expect(JSON.parse(written.request().postData() || '{}').action).toBe('close');
-
-    await expect(dialog).toBeHidden();
 
     // ---- And it stays closed ------------------------------------------
     // The delay is `help_discovery_interval_hours` (24 by default), so the
     // very next page must carry no dialog at all — not a hidden one. That
     // is a server decision: the global is simply not set.
     await page.goto('/notifications', { waitUntil: 'load' });
-    await expect(page.locator(DIALOG)).toHaveCount(0);
+    await expect(page.locator('#help-discovery-modal')).toHaveCount(0);
 
     // ---- Never on the help itself -------------------------------------
     await page.goto('/aide', { waitUntil: 'load' });
-    await expect(page.locator(DIALOG)).toHaveCount(0);
+    await expect(page.locator('#help-discovery-modal')).toHaveCount(0);
 
     // ---- « Revoir les astuces » puts it all back ----------------------
     await page.goto('/account', { waitUntil: 'load' });
@@ -146,17 +144,18 @@ test('a tip is offered, walked and closed — and then leaves the reader alone',
 
     const revoir = page.getByRole('button', { name: 'Revoir les astuces' });
     await expect(revoir, 'offered because this account has now seen some').toBeVisible();
-    await revoir.click();
-    await answerConfirmation(page);
-
+    // The reset clears the delay too: the tip is offered again at once.
+    const offeredAgain = await openModal(page, DIALOG_ID, async () => {
+        await revoir.click();
+        await answerConfirmation(page);
+    });
     await expect(page.getByText('Les astuces vous seront proposées à nouveau.')).toBeVisible();
-    await expect(page.locator(DIALOG), 'the reset clears the delay too').toBeVisible();
 
     // Leave the instance as the fixture provisioned it: every other spec
     // in this run shares it, and a dialog left armed intercepts their
     // clicks exactly as it did before it was switched off.
-    await page.locator(DIALOG).getByRole('button', { name: 'Ne plus me proposer' }).click();
-    await expect(page.locator(DIALOG)).toBeHidden();
+    await closeModal(page, DIALOG_ID, () =>
+        offeredAgain.getByRole('button', { name: 'Ne plus me proposer' }).click());
     await page.goto('/config/settings', { waitUntil: 'domcontentloaded' });
     await setDiscoveryEnabled(page, false);
 });

@@ -54,6 +54,7 @@ import { expect, test } from '@playwright/test';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin } from '../support/admin-login.js';
+import { openCollapse } from '../support/collapse.js';
 import { linkFromMail, waitForMail } from '../support/maildrop.js';
 import { waitOutHumanCheckDelay } from '../support/human-check.js';
 import { waitForServerResponse } from '../support/response.js';
@@ -64,16 +65,23 @@ import { waitForServerResponse } from '../support/response.js';
  * a box that silently starts open would otherwise make every later step
  * pass without anyone noticing the default had changed.
  *
+ * Through openCollapse(), which waits for Bootstrap before the click. This
+ * helper once clicked as soon as the toggle read `aria-expanded="false"` —
+ * true in the markup long before the bundle has run, and in particular
+ * right after saveCapacitiesBox(), whose barrier is that very attribute on
+ * the page the redirect is still parsing. The click was swallowed and the
+ * box never opened (#520).
+ *
  * @param {import('@playwright/test').Page} page
  * @param {string} name accessible name of the box's toggle
  * @param {string} panelId id of the panel it controls
+ * @returns {Promise<import('@playwright/test').Locator>} the panel, open
  */
 async function openConfigBox(page, name, panelId) {
     const toggle = page.getByRole('button', { name, exact: true });
     await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(page.locator(`#${panelId}`)).toBeHidden();
-    await toggle.click();
-    await expect(page.locator(`#${panelId}`)).toBeVisible();
+
+    return openCollapse(page, panelId, () => toggle.click());
 }
 
 /**
@@ -88,17 +96,22 @@ async function openConfigBox(page, name, panelId) {
  * folded again on the page that comes back, so that attribute flipping is
  * a genuine "the new document is here" signal.
  *
+ * That attribute says the new document has ARRIVED, not that it has
+ * finished loading: it is in the markup before Bootstrap's bundle runs.
+ * Whatever follows and needs the library goes through a helper that waits
+ * for it — openConfigBox() does.
+ *
  * The save button is scoped to the panel: the rich-text editor's modal on
  * this page carries an « Enregistrer » of its own.
  *
  * @param {import('@playwright/test').Page} page
+ * @param {import('@playwright/test').Locator} box the open capacity box
  */
-async function saveCapacitiesBox(page) {
+async function saveCapacitiesBox(page, box) {
     await Promise.all([
         waitForServerResponse(page, (response) =>
             response.request().method() === 'POST' && response.url().endsWith('/config/inscriptions')),
-        page.locator('#registration-capacities-box')
-            .getByRole('button', { name: 'Enregistrer', exact: true }).click(),
+        box.getByRole('button', { name: 'Enregistrer', exact: true }).click(),
     ]);
     await expect(page.getByRole('button', { name: 'Capacités par branche', exact: true }))
         .toHaveAttribute('aria-expanded', 'false');
@@ -133,14 +146,11 @@ test('a family registers a child, follows the mailed tracking link, and the admi
     await page.goto('/config/inscriptions', { waitUntil: 'domcontentloaded' });
 
     // The three configuration boxes are folded away on arrival — what this
-    // page serves first is the request list, not its settings.
-    for (const [name, panelId] of [
-        ["Formulaire d'inscription", 'registration-form-box'],
-        ["États d'une demande", 'registration-states-box'],
-        ['Capacités par branche', 'registration-capacities-box'],
-    ]) {
+    // page serves first is the request list, not its settings. Each toggle
+    // says so; the two boxes opened below are checked folded again, panel
+    // and all, by openCollapse() on the way in.
+    for (const name of ["Formulaire d'inscription", "États d'une demande", 'Capacités par branche']) {
         await expect(page.getByRole('button', { name, exact: true })).toHaveAttribute('aria-expanded', 'false');
-        await expect(page.locator(`#${panelId}`)).toBeHidden();
     }
 
     await openConfigBox(page, "Formulaire d'inscription", 'registration-form-box');
@@ -167,32 +177,32 @@ test('a family registers a child, follows the mailed tracking link, and the admi
     // a full one. « Attente importante » is the exact badge that must
     // appear for a 0 and must NOT appear for an empty box.
     // ---------------------------------------------------------------
-    await openConfigBox(page, 'Capacités par branche', 'registration-capacities-box');
+    let capacities = await openConfigBox(page, 'Capacités par branche', 'registration-capacities-box');
 
     await expect(
         page.getByRole('switch', { name: "Gérer les listes d'attente" }),
         'the waitlist switch lives in the capacity box it governs, and is on by default',
     ).toBeChecked();
 
-    const capacityBoxes = page.locator('#registration-capacities-box input[name^="capacity["]');
+    const capacityBoxes = capacities.locator('input[name^="capacity["]');
     await expect(capacityBoxes.first(), 'the default capacity is stored, so the box comes back filled').toHaveValue('15');
     const capacityCount = await capacityBoxes.count();
     expect(capacityCount, 'the fixture branch must give the grid at least one slot').toBeGreaterThan(0);
 
     // 0 — the branch is deliberately closed, and says so.
     await capacityBoxes.first().fill('0');
-    await saveCapacitiesBox(page);
+    await saveCapacitiesBox(page, capacities);
     await expect(
         page.getByText('Attente importante', { exact: true }),
         'a capacity of zero is a branch closed on purpose — it must still read as full',
     ).toBeVisible();
 
     // Empty — no limit at all. Same page, same table, opposite reading.
-    await openConfigBox(page, 'Capacités par branche', 'registration-capacities-box');
+    capacities = await openConfigBox(page, 'Capacités par branche', 'registration-capacities-box');
     for (let i = 0; i < capacityCount; i++) {
-        await page.locator('#registration-capacities-box input[name^="capacity["]').nth(i).fill('');
+        await capacities.locator('input[name^="capacity["]').nth(i).fill('');
     }
-    await saveCapacitiesBox(page);
+    await saveCapacitiesBox(page, capacities);
     await expect(
         page.getByText('Attente importante', { exact: true }),
         'a branch with NO recorded capacity must never be announced full',
