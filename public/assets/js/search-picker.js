@@ -311,6 +311,10 @@
                 announce();
             }
             pending = true;
+            // An answer still in flight is to the query typed before this
+            // keystroke: it must not land during the new pause and clear
+            // `pending` for a list the reader has already typed past.
+            requestNumber++;
             clearTimeout(timeout);
             timeout = setTimeout(run, DEBOUNCE_MS);
         });

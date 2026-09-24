@@ -291,6 +291,30 @@ describe('search-picker', () => {
             expect(event.defaultPrevented).toBe(true);
             expect(posted().getAll('event_id')).toEqual(['']);
         });
+
+        it('drops an answer to an older query that lands during the next pause', async () => {
+            let release;
+            window.ScoutMagicApi.getJson = vi.fn()
+                .mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }))
+                .mockResolvedValueOnce({ ok: true, status: 200, data: { success: true, results: [EVENTS[2]] } });
+            // The request for « fête » is in flight when the reader types on.
+            await type('fête');
+            search().value = 'fête é';
+            search().dispatchEvent(new Event('input'));
+            release({ ok: true, status: 200, data: { success: true, results: EVENTS } });
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(resultButtons()).toHaveLength(0);
+            const event = new KeyboardEvent('keydown', { key: 'Enter', cancelable: true });
+            search().dispatchEvent(event);
+            expect(event.defaultPrevented).toBe(true);
+            expect(posted().getAll('event_id')).toEqual(['']);
+
+            await vi.advanceTimersByTimeAsync(300);
+            search().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', cancelable: true }));
+            expect(posted().getAll('event_id')).toEqual(['13']);
+        });
+
         it('will not let Enter pick while the answer to the current query is still in flight', async () => {
             let release;
             window.ScoutMagicApi.getJson = vi.fn()
