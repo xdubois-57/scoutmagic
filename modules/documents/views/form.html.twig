@@ -67,7 +67,9 @@
             <div class="alert alert-secondary small mt-2 mb-0{{ values.visibility == 'direct_link' ? '' : ' d-none' }}" id="document-direct-link-help">
                 <strong>Non listé, pas protégé.</strong> Le document n'apparaît sur aucune liste, mais quiconque
                 a son adresse peut le télécharger, même sans compte. Il est tenu hors des moteurs de recherche.
-                {% if document and document.visibility.value != 'direct_link' %}
+                {# The slug is frozen: what decides this sentence is whether it
+                   was made random at creation, not the visibility now. #}
+                {% if document and not document.slugIsRandom %}
                     Son adresse actuelle, <span class="font-monospace">{{ document.path() }}</span>, a été
                     créée d'après son titre et ne change pas : quelqu'un qui connaît le titre peut la deviner.
                     Pour une adresse impossible à deviner, ajoutez plutôt un nouveau document en « Lien direct ».

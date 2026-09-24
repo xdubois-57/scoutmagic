@@ -55,6 +55,7 @@ final class DocumentServiceTest extends TestCase
         $second = $this->service->create('PV AG 2026', null, 'direct_link', DocumentsTestHelper::upload(), null);
 
         $this->assertMatchesRegularExpression('/^pv-ag-2026-[0-9a-f]{12}$/', $first->slug);
+        $this->assertTrue($first->slugIsRandom);
         $this->assertNotSame($first->slug, $second->slug);
     }
 

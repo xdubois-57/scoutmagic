@@ -31,6 +31,11 @@
 CREATE TABLE IF NOT EXISTS documents (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     slug VARCHAR(190) NOT NULL,
+    -- Whether the slug carries the random segment, i.e. whether the
+    -- document was CREATED unlisted. The slug is frozen: a listed document
+    -- later switched to « Lien direct » keeps its title-derived, guessable
+    -- address, and the current visibility alone cannot tell the two apart.
+    slug_is_random TINYINT(1) NOT NULL DEFAULT 0,
     title VARCHAR(200) NOT NULL,
     description TEXT NULL,
     visibility ENUM('public', 'identified', 'chief', 'admin', 'direct_link') NOT NULL DEFAULT 'public',

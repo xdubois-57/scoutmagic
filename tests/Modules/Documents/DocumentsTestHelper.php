@@ -25,6 +25,7 @@ final class DocumentsTestHelper
         $pdo->exec("CREATE TABLE documents (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             slug TEXT NOT NULL UNIQUE,
+            slug_is_random INTEGER NOT NULL DEFAULT 0,
             title TEXT NOT NULL,
             description TEXT NULL,
             visibility TEXT NOT NULL DEFAULT 'public',

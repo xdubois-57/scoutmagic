@@ -282,6 +282,25 @@ final class DocumentsControllerTest extends TestCase
         $this->assertStringContainsString('/assets/js/documents-form.js', $body);
     }
 
+    /**
+     * The address is frozen at creation: a document created public and
+     * later switched to « Lien direct » keeps its readable address, and
+     * the form must say so instead of promising a random segment.
+     */
+    public function testTheFormTellsTheTruthAboutASwitchedAddress(): void
+    {
+        $this->service->update($this->documentId, 'Règlement', null, 'direct_link', null, null);
+        $created = H::create($this->service, 'PV AG', DocumentVisibility::DIRECT_LINK);
+        $this->loginAs('admin');
+
+        $switched = $this->handle('GET', '/admin/documents/{id}/modifier', 'editForm', 'admin', '/admin/documents/' . $this->documentId . '/modifier')->getBody();
+        $random = $this->handle('GET', '/admin/documents/{id}/modifier', 'editForm', 'admin', '/admin/documents/' . $created . '/modifier')->getBody();
+
+        $this->assertStringContainsString('quelqu\'un qui connaît le titre peut la deviner', $switched);
+        $this->assertStringNotContainsString('segment aléatoire pour qu\'on ne puisse pas la deviner', $switched);
+        $this->assertStringContainsString('segment aléatoire pour qu\'on ne puisse pas la deviner', $random);
+    }
+
     public function testAnUnknownDocumentCannotBeEdited(): void
     {
         $this->loginAs('admin');

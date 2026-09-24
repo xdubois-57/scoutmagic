@@ -20,7 +20,7 @@ use Modules\Documents\Service\DocumentVisibility;
  */
 class DocumentRepository implements AttachedFileRepository
 {
-    private const SELECT = 'SELECT d.id, d.slug, d.title, d.description, d.visibility, d.file_id, d.sort_order,'
+    private const SELECT = 'SELECT d.id, d.slug, d.slug_is_random, d.title, d.description, d.visibility, d.file_id, d.sort_order,'
         . ' d.updated_at, f.mime_type, f.size_bytes, f.original_name'
         . ' FROM documents d JOIN files f ON f.id = d.file_id';
 
@@ -76,12 +76,15 @@ class DocumentRepository implements AttachedFileRepository
         string $now
     ): int {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO documents (slug, title, description, visibility, file_id, sort_order, created_by,'
-                . ' created_at, updated_by, updated_at)'
-                . ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO documents (slug, slug_is_random, title, description, visibility, file_id, sort_order,'
+                . ' created_by, created_at, updated_by, updated_at)'
+                . ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $slug,
+            // DocumentService::uniqueSlug() adds the random segment exactly
+            // when a document is created unlisted.
+            $visibility === DocumentVisibility::DIRECT_LINK ? 1 : 0,
             $title,
             $description,
             $visibility->value,
@@ -168,7 +171,8 @@ class DocumentRepository implements AttachedFileRepository
             (string) $row['updated_at'],
             (string) $row['mime_type'],
             (int) $row['size_bytes'],
-            (string) $row['original_name']
+            (string) $row['original_name'],
+            (int) $row['slug_is_random'] === 1
         );
     }
 }

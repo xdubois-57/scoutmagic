@@ -107,7 +107,11 @@ La roadmap a été écrite sur le commit `fb9e661` ; elle a été relue contre
   partage, pas à la liste.
 - **Un document listé passé en Lien direct garde son adresse lisible.**
   L'adresse est figée par principe ; le formulaire prévient que le titre
-  la rend devinable et propose de créer un nouveau document à la place.
+  la rend devinable et propose de créer un nouveau document à la place. Ce
+  que le formulaire affiche se décide sur `documents.slug_is_random`,
+  posé à la création, jamais sur la visibilité courante (relevé par la
+  revue : un document passé en Lien direct se voyait promettre un segment
+  aléatoire qu'il n'a pas).
 - **Le bouton de suppression de `list_editor`** garde son libellé
   générique (D10 : pas de fork).
 - **L'adresse d'un Lien direct est la seule clé de son fichier.** Relevé
