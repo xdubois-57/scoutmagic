@@ -13,6 +13,7 @@ use Core\Security\EncryptionService;
 use Modules\OfficialDocuments\Repository\HealthSheetRepository;
 use Modules\OfficialDocuments\Value\HealthSheet;
 use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
 
 /**
  * The one table holding health data about children, and the guarantees that
@@ -84,7 +85,7 @@ final class HealthSheetRepositoryTest extends TestCase
                 [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
             );
         } catch (\PDOException $e) {
-            $this->markTestSkipped('Database connection not available: ' . $e->getMessage());
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database connection not available: ' . $e->getMessage());
         }
     }
 

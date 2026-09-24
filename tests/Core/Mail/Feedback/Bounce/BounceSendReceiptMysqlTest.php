@@ -12,6 +12,7 @@ use Core\Mail\Feedback\Bounce\BounceStateRepository;
 use Core\Security\EncryptionService;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
 
 /**
  * The send receipt against the REAL engine, because this defect cannot
@@ -61,7 +62,7 @@ class BounceSendReceiptMysqlTest extends TestCase
                 ]
             );
         } catch (\PDOException $e) {
-            $this->markTestSkipped('No MySQL server configured (TEST_DB_HOST): ' . $e->getMessage());
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('No MySQL server configured (TEST_DB_HOST): ' . $e->getMessage());
         }
 
         $this->pdo->exec('DROP TABLE IF EXISTS mail_send_receipts');

@@ -25,6 +25,7 @@ use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
 use Minishlink\WebPush\WebPush;
 use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
 
 /**
  * The one thing InstallUpdateHandlerTest cannot show: that the handler
@@ -60,7 +61,7 @@ class InstallUpdateHandlerLockTest extends TestCase
 
         $connection = new Connection($host, $port, $dbName, $user, $password);
         if ($connection->testConnection() !== true) {
-            $this->markTestSkipped('Database connection not available');
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database connection not available');
         }
         $this->connection = $connection;
         $this->dropAllTables($connection->getPdo());

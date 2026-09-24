@@ -93,6 +93,35 @@ Inside a Claude Code remote session the `SessionStart` hook has started
 MariaDB and exported `TEST_DB_*`; in a local checkout that hook exits at its
 first line. Read the skipped count before believing a green run.
 
+**A skip is right on a laptop and wrong on a runner, and until issue #393
+twenty-four classes could not tell the two apart.** `TEST_DB_*` being set —
+or `CI` — is a promise that a server is there, so a refused connection is
+then a broken run, not a test to quietly drop. Measured by pointing those
+variables at nothing:
+
+| | before | after |
+|---|---:|---:|
+| Skipped | 154 | **3** |
+| Errors | 28 | **194** |
+
+The 28 were the three classes that already made the distinction in their
+own words; the other hundred and fifty-one tests stopped being verified in
+silence, in a run that still exited 0. What they cover is exactly what
+SQLite cannot show — declared-schema migration, default-value introspection
+where the two engines disagree, the install and cron locks, backup and
+restore, the portable package — so the `database-mariadb` job, which exists
+*because* production runs MariaDB, degraded into a second SQLite pass that
+looked identical to the one it is built to differ from.
+
+The rule now lives in one place, `Tests\DatabaseTestHelper::
+skipOnlyWhenNoServerWasPromised()`, and
+`Tests\Architecture\DatabaseBackedTestsReallyRunTest` holds it there: a
+database-motivated `markTestSkipped()` written anywhere else fails the
+build, so the twenty-fifth class cannot re-decide it. **Read the skipped
+count still** — the guard answers « could the connection have been made? »,
+which is the same question only while every database skip is a refused
+connection.
+
 ### The engine a test actually runs on, which is not what the group says
 
 `#[Group('database')]` selects tests for the `database-mariadb` job. It

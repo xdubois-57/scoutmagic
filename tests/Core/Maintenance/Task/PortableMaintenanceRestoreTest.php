@@ -28,6 +28,7 @@ use Core\Statistics\InstallationIdentityService;
 use Core\Security\UserAccountRepository;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
 
 /**
  * The other entry point: a portable archive uploaded to a site that is
@@ -380,7 +381,7 @@ final class PortableMaintenanceRestoreTest extends TestCase
     {
         $service = new BackupService($this->connection, $this->originBase . '/storage', $this->originBase);
         if (!$service->supportsZipEncryption()) {
-            $this->markTestSkipped('This PHP build has no AES zip encryption, which this feature refuses without.');
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('This PHP build has no AES zip encryption, which this feature refuses without.');
         }
 
         $result = $service->createPortableBackup(self::PASSPHRASE, '0.0.1', self::ORIGIN_ID);
@@ -466,7 +467,7 @@ final class PortableMaintenanceRestoreTest extends TestCase
         );
         $result = $connection->testConnection();
         if ($result !== true) {
-            $this->markTestSkipped('Database not available: ' . (is_string($result) ? $result : 'unknown error'));
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database not available: ' . (is_string($result) ? $result : 'unknown error'));
         }
 
         (new MigrationRunner(

@@ -25,6 +25,7 @@ use Core\View\TwigFactory;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Twig\Environment;
+use Tests\DatabaseTestHelper;
 
 /**
  * Who may reach the wizard's portable restore, and who may not.
@@ -608,7 +609,7 @@ final class SetupPortableRestoreTest extends TestCase
 
         $service = new BackupService($connection, $originBase . '/storage', $originBase);
         if (!$service->supportsZipEncryption()) {
-            $this->markTestSkipped('This PHP build has no AES zip encryption, which this feature refuses without.');
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('This PHP build has no AES zip encryption, which this feature refuses without.');
         }
 
         $this->seedSetting($connection->getPdo(), InstallationIdentityService::INSTALLATION_ID_SETTING, self::ORIGIN_ID);
@@ -672,7 +673,7 @@ final class SetupPortableRestoreTest extends TestCase
         );
         $result = $connection->testConnection();
         if ($result !== true) {
-            $this->markTestSkipped('Database not available: ' . (is_string($result) ? $result : 'unknown error'));
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database not available: ' . (is_string($result) ? $result : 'unknown error'));
         }
 
         (new MigrationRunner(

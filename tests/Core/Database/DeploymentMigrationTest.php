@@ -8,6 +8,7 @@ use Core\Database\Connection;
 use Core\Database\DeploymentMigration;
 use Core\Database\SchemaFiles;
 use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
 
 /**
  * `public/cron.php` is never executed by any test and never reached by a
@@ -36,7 +37,7 @@ class DeploymentMigrationTest extends TestCase
 
         $result = $connection->testConnection();
         if ($result !== true) {
-            $this->markTestSkipped('Database connection not available: ' . $result);
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database connection not available: ' . $result);
         }
 
         $this->connection = $connection;

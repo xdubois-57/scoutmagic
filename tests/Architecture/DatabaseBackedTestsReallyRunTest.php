@@ -173,6 +173,65 @@ final class DatabaseBackedTestsReallyRunTest extends TestCase
      * The premise of the test above: there are test files to read at all.
      * A glob that stopped matching would make it pass over nothing.
      */
+    /**
+     * And the other half: no class decides this for itself any more.
+     *
+     * The guard above asks « could the connection have been made? », which
+     * is enough while every database-motivated skip is a refused
+     * connection. What it cannot see is a class that reaches the same
+     * decision by its own reasoning and gets it wrong — and twenty-four
+     * did, each writing `markTestSkipped('Database connection not
+     * available: …')` with nothing in front of it.
+     *
+     * They all call `DatabaseTestHelper::skipOnlyWhenNoServerWasPromised()`
+     * now, which is the one place the rule is stated. This keeps it the one
+     * place: a database-motivated `markTestSkipped()` written anywhere else
+     * is refused, so the twenty-fifth class cannot quietly re-decide it.
+     *
+     * The helper itself is the exemption, and it is the only one.
+     */
+    public function testNoTestDecidesADatabaseSkipForItself(): void
+    {
+        $root = dirname(__DIR__, 2);
+        // The helper is where the rule lives, and this file is where the
+        // rule is explained — it quotes the very call it forbids, so
+        // reading itself reports its own prose as an offence.
+        $exempt = [
+            'tests/DatabaseTestHelper.php',
+            'tests/Architecture/DatabaseBackedTestsReallyRunTest.php',
+        ];
+        $offenders = [];
+
+        foreach ($this->testFiles() as $file) {
+            $relative = substr($file, strlen($root) + 1);
+            if (in_array($relative, $exempt, true)) {
+                continue;
+            }
+
+            foreach (file($file) ?: [] as $index => $line) {
+                if (!str_contains($line, self::SKIP_CALL)) {
+                    continue;
+                }
+                if (preg_match(self::DATABASE_WORDS, $line) !== 1) {
+                    continue;
+                }
+
+                $offenders[] = $relative . ':' . ($index + 1) . ' — ' . trim($line);
+            }
+        }
+
+        $this->assertSame(
+            [],
+            $offenders,
+            "A skip because the database is unreachable is decided in ONE place —\n"
+            . "DatabaseTestHelper::skipOnlyWhenNoServerWasPromised() — because the decision is\n"
+            . "not « is there a server? » but « was one promised? », and twenty-four classes\n"
+            . "got it wrong by answering the first (issue #393). Call the helper instead:\n"
+            . "it skips on a laptop and throws anywhere TEST_DB_* or CI is set.\n  "
+            . implode("\n  ", $offenders)
+        );
+    }
+
     public function testTheScanReadsTheSuiteRatherThanAnEmptyList(): void
     {
         $this->assertGreaterThan(1000, count($this->testFiles()));

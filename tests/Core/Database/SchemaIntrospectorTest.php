@@ -6,6 +6,7 @@ namespace Tests\Core\Database;
 
 use Core\Database\SchemaIntrospector;
 use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
 
 /**
  * @group database
@@ -32,7 +33,7 @@ class SchemaIntrospectorTest extends TestCase
             ]);
             $this->introspector = new SchemaIntrospector($this->pdo);
         } catch (\PDOException $e) {
-            $this->markTestSkipped('Database connection not available: ' . $e->getMessage());
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database connection not available: ' . $e->getMessage());
         }
     }
 

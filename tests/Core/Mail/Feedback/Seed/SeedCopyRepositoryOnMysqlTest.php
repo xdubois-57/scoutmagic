@@ -12,6 +12,7 @@ use Core\Mail\Feedback\Seed\SeedCopyRepository;
 use Core\Security\EncryptionService;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
 
 /**
  * The statements of this repository that only the REAL engine can judge,
@@ -80,7 +81,7 @@ class SeedCopyRepositoryOnMysqlTest extends TestCase
                 [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
             );
         } catch (\PDOException $e) {
-            $this->markTestSkipped('Database connection not available: ' . $e->getMessage());
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database connection not available: ' . $e->getMessage());
         }
     }
 

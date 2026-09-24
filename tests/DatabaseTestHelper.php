@@ -4,8 +4,54 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use PHPUnit\Framework\TestCase;
+
 class DatabaseTestHelper
 {
+    /**
+     * A refused database connection: skip it on a laptop, REPORT it
+     * anywhere a server was promised.
+     *
+     * `TEST_DB_*` being set is that promise. A developer's machine with
+     * nothing on 3306 has nothing to prove and skipping is right; a runner
+     * whose credentials are wrong, whose service container died, or whose
+     * variables were dropped from the workflow has a broken run, and a
+     * skip there is a green result that proves nothing — the failure mode
+     * `docs/quality-pipeline.md` keeps a list of.
+     *
+     * **Measured, not feared.** Pointing `TEST_DB_*` at nothing on
+     * `e70bac2` moved the suite from `Skipped: 3` to `Skipped: 154` while
+     * still exiting 0: a hundred and fifty-one tests stopped being checked
+     * and only the twenty-eight belonging to the three classes that
+     * already made this distinction said so (issue #393). What those
+     * classes cover is exactly what SQLite cannot show — declared-schema
+     * migration, default-value introspection where the two engines
+     * disagree, the install and cron locks, backup and restore, the
+     * portable package.
+     *
+     * `CI` counts as a promise too: a continuous-integration run that
+     * cannot reach a database is a broken runner whether or not anybody
+     * remembered to export `TEST_DB_HOST`. The `database-mariadb` job
+     * exists *because* production runs MariaDB, and a job that quietly
+     * degrades to a second SQLite pass is the one result that looks
+     * exactly like the one it was built to differ from.
+     *
+     * Throws rather than returning a verdict so a caller cannot forget the
+     * other half: every call site is one line, and the line either skips
+     * or ends the test.
+     */
+    public static function skipOnlyWhenNoServerWasPromised(string $reason): never
+    {
+        if (getenv('TEST_DB_HOST') === false && getenv('CI') === false) {
+            TestCase::markTestSkipped($reason);
+        }
+
+        throw new \RuntimeException(
+            'A database was promised (TEST_DB_* or CI is set) and could not be reached, so this '
+            . 'class proved nothing and says so rather than skipping: ' . $reason
+        );
+    }
+
     /**
      * The `(label, start_date, end_date)` of a scout year, relative to the
      * one the application considers current RIGHT NOW.

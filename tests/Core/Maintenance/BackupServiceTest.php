@@ -13,6 +13,7 @@ use Core\Maintenance\BackupException;
 use Core\Maintenance\BackupService;
 use Core\Storage\Location\DeclaredStorageDirectories;
 use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
 
 class BackupServiceTest extends TestCase
 {
@@ -760,7 +761,7 @@ class BackupServiceTest extends TestCase
         $connection = new Connection($host, $port, $dbName, $user, $password);
         $result = $connection->testConnection();
         if ($result !== true) {
-            $this->markTestSkipped('Database not available: ' . (is_string($result) ? $result : 'unknown error'));
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database not available: ' . (is_string($result) ? $result : 'unknown error'));
         }
 
         $introspector = new SchemaIntrospector($connection->getPdo());
