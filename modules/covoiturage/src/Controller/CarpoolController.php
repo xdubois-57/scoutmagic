@@ -152,7 +152,7 @@ class CarpoolController extends AbstractController
         }
 
         try {
-            $this->offerService->update($offer, $request->getBodyAll(), $this->viewer());
+            $this->offerService->update($offer, $request->getBodyAll(), $this->viewer(), $carpool);
         } catch (CarpoolException $e) {
             return $this->renderOfferForm($carpool, $offer, $request->getBodyAll(), [$e->getMessage()]);
         }
@@ -176,7 +176,7 @@ class CarpoolController extends AbstractController
             $request,
             $carpool,
             $offer,
-            fn() => $this->offerService->cancel($offer, $this->viewer()),
+            fn() => $this->offerService->cancel($offer, $this->viewer(), $carpool),
             'Votre voiture est retirée.'
         );
     }
@@ -254,10 +254,10 @@ class CarpoolController extends AbstractController
         $viewer = $this->viewer();
 
         return $this->act($request, $carpool, $offer, fn() => match ($action) {
-            'accept' => $this->offerService->accept($seatRequest, $offer, $viewer),
-            'refuse' => $this->offerService->refuse($seatRequest, $offer, $viewer),
-            'revoke' => $this->offerService->revoke($seatRequest, $offer, $viewer),
-            default => $this->offerService->withdraw($seatRequest, $viewer),
+            'accept' => $this->offerService->accept($seatRequest, $offer, $viewer, $carpool),
+            'refuse' => $this->offerService->refuse($seatRequest, $offer, $viewer, $carpool),
+            'revoke' => $this->offerService->revoke($seatRequest, $offer, $viewer, $carpool),
+            default => $this->offerService->withdraw($seatRequest, $viewer, $carpool, $offer),
         }, $success);
     }
 

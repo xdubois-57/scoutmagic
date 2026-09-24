@@ -69,6 +69,7 @@ final class CovoiturageTestHelper
             phone_encrypted BLOB NOT NULL,
             status TEXT NOT NULL DEFAULT \'pending\',
             decided_at TEXT NULL,
+            reminded_at TEXT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
