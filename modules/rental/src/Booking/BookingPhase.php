@@ -93,23 +93,4 @@ enum BookingPhase: string
             default => null,
         };
     }
-
-    /**
-     * Which status transitions are decisions of this phase.
-     *
-     * The « État » card is gone (its status is in the details at the top of
-     * the page and its buttons are decisions, not a state): each button now
-     * sits in the stretch it belongs to.
-     *
-     * Only closing belongs anywhere but « La demande ». Confirming looks
-     * like it should live in « L'accord », but `BookingTransition` only
-     * ever offers it from a status where nobody has decided yet — so on the
-     * screen it is one of the answers to the request, standing beside
-     * refusing and proposing, and shelving it a stretch away would separate
-     * a decision from its alternatives.
-     */
-    public static function ofTransition(BookingStatus $to): self
-    {
-        return $to === BookingStatus::CLOSED ? self::AFTER_STAY : self::REQUEST;
-    }
 }

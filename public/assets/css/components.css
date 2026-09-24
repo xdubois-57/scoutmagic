@@ -1198,6 +1198,10 @@
    règle et la partage ici plutôt que d'en écrire une deuxième copie : ce
    sont deux noms pour une seule mise en page, et deux copies dériveraient
    à la première retouche.
+
+   The generic search picker (partials/search_picker.html.twig) also
+   reuses it: its list hangs below the search field, inside a relative
+   container that wraps only that field.
    --------------------------------------------------------------------- */
 .receivable-picker,
 .stay-picker {
@@ -1205,7 +1209,8 @@
 }
 
 .receivable-picker__results,
-.stay-picker__results {
+.stay-picker__results,
+.search-picker__results {
     position: absolute;
     top: 100%;
     left: 0;
@@ -1253,4 +1258,13 @@
     max-width: 100%;
     max-height: 85vh;
     object-fit: contain;
+}
+
+/* ---------------------------------------------------------------------
+   The carpool organiser's point picker (public/assets/js/
+   covoiturage-organize.js). A height is the one thing Leaflet cannot do
+   without: a map in a zero-height box renders nothing at all.
+   --------------------------------------------------------------------- */
+.carpool-point-map {
+    height: 14rem;
 }

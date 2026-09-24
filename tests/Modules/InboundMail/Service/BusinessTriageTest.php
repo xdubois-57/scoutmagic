@@ -132,6 +132,31 @@ class BusinessTriageTest extends TestCase
         $this->assertSame([$unattached], $this->ids($this->service->findForTriage('camps', [])));
     }
 
+    /**
+     * A consumer whose users are narrower than the module asks for its own
+     * references only, and the narrowing happens in the query, BEFORE the
+     * limit: a box's most recent messages are not a sample of anybody's.
+     */
+    public function testOwnReferencesOnlyLeavesTheBoxReadInFullOutBeforeTheLimit(): void
+    {
+        $this->scopes->saveDedicated($this->dedicatedBox, 'rental');
+        $mine = $this->store('mine@x', $this->dedicatedBox);
+        $this->messages->addLink($mine, 'rental', 'LOC-1', LinkOrigin::REFERENCE);
+        for ($i = 0; $i < 3; $i++) {
+            $this->store('newer' . $i . '@x', $this->dedicatedBox);
+        }
+
+        $this->assertNotContains($mine, $this->ids($this->service->findForTriage('rental', ['LOC-1'], 3)));
+        $this->assertSame([$mine], $this->ids($this->service->findForTriage('rental', ['LOC-1'], 3, false, true)));
+        $this->assertSame(
+            [$mine],
+            array_map(
+                static fn(array $row): int => $row['message']->id,
+                $this->service->triageRows('rental', ['LOC-1'], 3, false, true)
+            )
+        );
+    }
+
     public function testASharedBoxContributesNothingOnItsOwn(): void
     {
         // Even to a module that analyses it: « analyser » is not « lire ».

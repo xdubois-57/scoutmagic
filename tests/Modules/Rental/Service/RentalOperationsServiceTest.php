@@ -426,7 +426,7 @@ class RentalOperationsServiceTest extends TestCase
         $this->service->confirm($this->createBooking(), $this->asset(), 1, $this->now());
     }
 
-    // ── Manager's option (§6.14) ────────────────────────────────────────
+    // ── Manager's option (specifications.md §22.5) ────────────────────────────────────────
 
     public function testAnOptionIsStoredAsAManagerHold(): void
     {

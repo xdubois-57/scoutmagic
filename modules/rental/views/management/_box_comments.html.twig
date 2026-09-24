@@ -1,0 +1,22 @@
+{#
+  The « Commentaires internes » box (Booking\BookingBox::COMMENTS), folded
+  on the dashboard; its body is `_comments.html.twig`.
+#}
+<div class="card mb-3" id="{{ boxes.comments.anchor }}">
+    {% embed '@rental/management/_dossier_header.html.twig' with {
+        box: boxes.comments, target_id: boxes.comments.bodyAnchor, comments: comments,
+    } only %}
+        {% block figure %}
+            <span class="text-body-secondary small" data-booking-panel="comments-figure">
+                {{ comments is empty
+                    ? 'Aucun commentaire'
+                    : comments|length ~ ' commentaire' ~ (comments|length > 1 ? 's' : '') }}
+            </span>
+        {% endblock %}
+    {% endembed %}
+    <div class="collapse" id="{{ boxes.comments.bodyAnchor }}">
+        <div data-booking-panel="comments">
+            {% include '@rental/management/_comments.html.twig' %}
+        </div>
+    </div>
+</div>

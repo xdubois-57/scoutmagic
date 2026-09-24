@@ -649,7 +649,7 @@ class RentalBookingServiceTest extends TestCase
         $this->assertNull($booking->estimatedTotalCents);
     }
 
-    // ── The automatic hold (§6.14) ──────────────────────────────────────
+    // ── The automatic hold (specifications.md §22.5) ──────────────────────────────────────
 
     public function testSubmissionPlacesAnAutomaticHold(): void
     {
@@ -675,7 +675,7 @@ class RentalBookingServiceTest extends TestCase
     public function testALapsedAutomaticHoldReleasesTheDatesWithoutEndingTheBooking(): void
     {
         // Nobody promised anything, so the request simply goes back to
-        // waiting (§6.14).
+        // waiting (specifications.md §22.5).
         $booking = $this->submit()['booking'];
 
         $result = $this->service->expireLapsedHolds($this->now('2027-06-04 10:00:00'));
@@ -952,7 +952,7 @@ class RentalBookingServiceTest extends TestCase
     {
         // The mapping deliberately discards identity: a booking, a hold and
         // a manual block become the same shape, which is what makes them
-        // indistinguishable to every public surface (§6.7/§6.14).
+        // indistinguishable to every public surface (specifications.md §22.2).
         $this->submit();
 
         $occupancy = $this->service->findOccupancies(

@@ -74,9 +74,10 @@ CREATE TABLE IF NOT EXISTS rental_assets (
     -- ── Booking constraints (module spec, iteration 3) ───────────────
     -- What a visitor may ASK for, as opposed to whether the asset is free.
     -- The two are kept strictly apart: a day inside the notice window is
-    -- free and merely too late to request, and §6.7 requires it to be shown
-    -- like the past rather than like "occupé" — a visitor told a free day is
-    -- taken concludes the asset is booked and gives up on it.
+    -- free and merely too late to request, and specifications.md §22.2
+    -- requires it to be shown like the past rather than like "occupé" — a
+    -- visitor told a free day is taken concludes the asset is booked and
+    -- gives up on it.
     -- 0 means "no limit" for each of the four numeric rules.
     min_nights INT UNSIGNED NOT NULL DEFAULT 0,
     max_nights INT UNSIGNED NOT NULL DEFAULT 0,
@@ -661,6 +662,24 @@ CREATE TABLE IF NOT EXISTS rental_booking_comments (
 
     KEY idx_rental_booking_comments_booking (booking_id, created_at),
     CONSTRAINT fk_rental_booking_comments_booking
+        FOREIGN KEY (booking_id) REFERENCES rental_bookings (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- The steps of a booking a manager ticked by hand (issue #462, D5): the
+-- walk-throughs, on an asset whose inventory the site does not keep. Only
+-- those — a step the site can derive is never stored, so a hand tick can
+-- never sit beside the real answer. Who and when, because a tick nobody
+-- can attribute is a claim nobody can check; the history carries the same
+-- fact through Core\Audit.
+CREATE TABLE IF NOT EXISTS rental_booking_milestone_marks (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    booking_id INT UNSIGNED NOT NULL,
+    milestone_key VARCHAR(40) NOT NULL,
+    marked_by_member_id INT UNSIGNED NULL,
+    marked_at DATETIME NOT NULL,
+
+    UNIQUE KEY idx_rental_milestone_marks_unique (booking_id, milestone_key),
+    CONSTRAINT fk_rental_milestone_marks_booking
         FOREIGN KEY (booking_id) REFERENCES rental_bookings (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

@@ -265,6 +265,11 @@ class SosAdminControllerTest extends TestCase
                     eventTitlesByDay: [$this->day => ['Fête des Baladins']]
                 )];
             }
+
+            public function searchUpcomingEvents(string $query, \Core\Security\Role $viewerRole, int $limit = 20): array
+            {
+                return [];
+            }
         };
         $property = new \ReflectionProperty(SosAdminController::class, 'calendarEvents');
         $property->setValue($this->controller, $lookup);

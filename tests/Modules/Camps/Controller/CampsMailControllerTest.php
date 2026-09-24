@@ -247,8 +247,8 @@ class CampsMailControllerTest extends TestCase
         // page — it is what the dialog borrows — but it is no longer a
         // three-line paragraph in the middle of a list of decisions.
         $this->assertStringContainsString('La citerne a été remplacée cet hiver', $html);
-        $this->assertStringContainsString('data-camps-message-open="camps-message-body-42"', $html);
-        $this->assertStringContainsString('id="camps-message-body-42"', $html);
+        $this->assertStringContainsString('data-mail-message-open="mail-message-body-42"', $html);
+        $this->assertStringContainsString('id="mail-message-body-42"', $html);
     }
 
     public function testTheBodyIsHiddenUntilTheDialogBorrowsIt(): void
@@ -259,7 +259,7 @@ class CampsMailControllerTest extends TestCase
         $html = $this->screen();
 
         $this->assertStringContainsString('text-truncate', $html);
-        $this->assertStringContainsString('class="d-none camps-message-body"', $html);
+        $this->assertStringContainsString('class="d-none mail-message-body"', $html);
         // The body itself is never behind a fold of its own: the dialog is
         // the one place it opens.
         $this->assertStringNotContainsString('<details class="inbound-message"', $html);
@@ -271,7 +271,7 @@ class CampsMailControllerTest extends TestCase
         // markup on a screen that shows their subjects.
         $html = $this->screen();
 
-        $this->assertSame(1, substr_count($html, 'id="camps-message-modal"'));
+        $this->assertSame(1, substr_count($html, 'id="mail-message-modal"'));
     }
 
     public function testAMessageOffersToBecomeACamp(): void
@@ -759,6 +759,25 @@ class CampsMailControllerTest extends TestCase
         $this->assertSame($this->campId, $body['stays'][0]['id']);
     }
 
+    /**
+     * `@inbound_mail` is a namespace only while that module is enabled
+     * (`public/index.php` registers module views for enabled modules), and
+     * this screen lives on without it: it must render without naming it.
+     */
+    public function testTheScreenRendersWhenInboundMailIsDisabled(): void
+    {
+        $root = dirname(__DIR__, 4);
+        $bare = new CampsMailController(
+            TwigFactory::create($root . '/core/View/templates', false, ['camps' => $root . '/modules/camps/views']),
+            $this->camps
+        );
+
+        $response = $bare->unsorted(new Request('GET', '/chefs/camps/courrier', [], [], [], []), []);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('est pas activé : rien', $response->getBody());
+    }
+
     public function testTheSearchEndpointAnswersNothingRatherThanFailingWithoutTheService(): void
     {
         $root = dirname(__DIR__, 4);
@@ -924,7 +943,8 @@ class RecordingInboundMail implements InboundMailInterface
         string $consumerId,
         array $ownReferences,
         int $limit = 50,
-        bool $dismissed = false
+        bool $dismissed = false,
+        bool $ownReferencesOnly = false
     ): array {
         return $dismissed ? $this->setAsideMessages : $this->messages;
     }

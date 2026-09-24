@@ -98,6 +98,14 @@ interface InboundMailInterface
      * concerne pas les camps », which hides a row from this module's list
      * and from nothing else (#174).
      *
+     * `$ownReferencesOnly` leaves the boxes this consumer reads in full out
+     * of the scope, so the list holds only what is filed or proposed under
+     * `$ownReferences` — for a consumer whose users are narrower than the
+     * module (a rental manager is one asset's, the module reads the whole
+     * rentals box). Narrowed in the query, before `$limit`: filtering a
+     * bounded list afterwards would leave a user whatever the whole box's
+     * most recent messages happened to include of theirs.
+     *
      * @param string[] $ownReferences references the requester may manage
      * @param bool $dismissed false: the list to work through; true: what
      *                        was set aside, so a screen can offer it back
@@ -107,7 +115,32 @@ interface InboundMailInterface
         string $consumerId,
         array $ownReferences,
         int $limit = 50,
-        bool $dismissed = false
+        bool $dismissed = false,
+        bool $ownReferencesOnly = false
+    ): array;
+
+    /**
+     * The rows of a triage screen (`TriageScreen`, issue #462): the
+     * messages `findForTriage()` returns, each with this consumer's own
+     * links and standing propositions and what a row needs to render — a
+     * one-line excerpt, whether it was cut, whether there is a body at all,
+     * how many attachments.
+     *
+     * Only THIS consumer's links and propositions: another module's
+     * business on the same message is not this screen's, and showing it
+     * would leak one module's guesses into another's audience. Scoped
+     * exactly as `findForTriage()` is, which it reads through.
+     *
+     * @param string[] $ownReferences references the requester may manage
+     * @return list<array{message: InboundMessage, excerpt: string, truncated: bool, has_body: bool,
+     *     attachment_count: int, links: MessageLink[], candidates: MessageCandidate[]}>
+     */
+    public function triageRows(
+        string $consumerId,
+        array $ownReferences,
+        int $limit = 50,
+        bool $dismissed = false,
+        bool $ownReferencesOnly = false
     ): array;
 
     /**

@@ -227,7 +227,7 @@ test.describe('Rentals', () => {
         const reference = (await heading.textContent()).match(/LOC-\d{4}-\d+/)[0];
 
         // The dates are held while the unit answers, and the page says
-        // until when rather than leaving the visitor guessing (§6.14).
+        // until when rather than leaving the visitor guessing (specifications.md §22.5).
         await expect(renter.getByText(/Dates bloquées/)).toBeVisible();
 
         // The link IS the authorisation (§6.26): no account, no session,
@@ -346,8 +346,10 @@ test.describe('Rentals', () => {
         await page.goto(`/mes-locations/${ASSET_SLUG}/reservations`);
         await page.getByRole('link', { name: new RegExp(reference) }).first().click();
 
+        // The page's subtitle: the renter and the dates, the asset being
+        // the breadcrumb's business.
         await expect(
-            page.getByText(`${ASSET_NAME} · du ${frenchDate(PROPOSED_ARRIVAL)} au ${frenchDate(PROPOSED_DEPARTURE)}`),
+            page.getByText(`Jeanne Martin · du ${frenchDate(PROPOSED_ARRIVAL)} au ${frenchDate(PROPOSED_DEPARTURE)}`),
         ).toBeVisible();
         // And the booking's own history recorded it, through Core\Audit
         // like every other per-entity timeline on the site (§8.66). It is

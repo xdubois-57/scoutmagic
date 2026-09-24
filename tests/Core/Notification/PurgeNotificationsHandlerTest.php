@@ -52,7 +52,7 @@ class PurgeNotificationsHandlerTest extends TestCase
     public function testTheJournalNamesNoRecipientAndNoTitle(): void
     {
         // A count and a retention, and nothing of what the notification
-        // said or who it was for (§7.9).
+        // said or who it was for (§8.6).
         $this->readNotificationOlderThanTheRetention('Votre enfant a été inscrit');
 
         (new PurgeNotificationsHandler())->handle([], $this->taskContext());

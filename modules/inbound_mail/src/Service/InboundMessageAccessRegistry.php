@@ -106,7 +106,7 @@ class InboundMessageAccessRegistry implements FileOwnershipCheckerInterface
         } catch (\Throwable) {
             // A consumer that cannot answer has not said yes. Nothing
             // about the failure is logged: anything identifying enough to
-            // be useful would be personal data in the journal (§7.9), and
+            // be useful would be personal data in the journal (§8.6), and
             // the refusal itself is already recorded as file_access_denied
             // with the file id alone.
             return false;

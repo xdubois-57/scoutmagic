@@ -262,6 +262,37 @@ class RentalAuthorizationServiceTest extends TestCase
         $this->assertFalse($service->managesAnyAsset('chief@example.org', self::YEAR));
     }
 
+    /**
+     * Mail that names no booking may be about any asset (issue #462), so
+     * only somebody who manages every one of them may read it to sort it:
+     * the Staff d'U by function, or a manager named on each — archived
+     * assets included, since their history is still theirs to settle.
+     */
+    public function testManagesEveryAssetAsksAboutEveryOneOfThem(): void
+    {
+        $hall = $this->createAsset('Local', 'local');
+        $tent = $this->createAsset('Tente', 'tente', archived: true);
+        $this->managerRepository->grant($hall, 1, false);
+        $this->managerRepository->grant($hall, 2, false);
+        $this->managerRepository->grant($tent, 2, false);
+        $service = $this->service(
+            ['one@example.org' => [1], 'both@example.org' => [2], 'chief@example.org' => [5]],
+            ['chief@example.org']
+        );
+
+        $this->assertFalse($service->managesEveryAsset('one@example.org', self::YEAR));
+        $this->assertTrue($service->managesEveryAsset('both@example.org', self::YEAR));
+        $this->assertTrue($service->managesEveryAsset('chief@example.org', self::YEAR));
+        $this->assertFalse($service->managesEveryAsset(null, self::YEAR));
+    }
+
+    public function testNobodyManagesEveryAssetOfAnEmptyInstallation(): void
+    {
+        $service = $this->service(['manager@example.org' => [1]]);
+
+        $this->assertFalse($service->managesEveryAsset('manager@example.org', self::YEAR));
+    }
+
     public function testAnUnknownEmailResolvesToNoMembersAndIsRefused(): void
     {
         $hall = $this->createAsset('Local', 'local');

@@ -641,8 +641,10 @@ adapter ces sections à cette configuration RÉELLE :
 carte et géocodage" (OpenStreetMap Foundation) et introduit une catégorie de personnes concernées que ce site n'a
 nulle part ailleurs : des **tiers extérieurs à l'unité** (propriétaires et gestionnaires de terrains de camp), qui
 n'ont aucun lien avec l'unité et aucun compte sur le site.
-    - Si le module camps n'est PAS dans la liste des modules actifs : retire entièrement le paragraphe "Fond de carte
-    et géocodage" de la section 4.2, ainsi que toute mention des lieux de camp, de leurs contacts et de leur carte.
+    - Si NI le module camps NI le module covoiturage ne sont dans la liste des modules actifs : retire entièrement le
+    paragraphe "Fond de carte et géocodage" de la section 4.2. Si le module camps n'est PAS actif, retire aussi toute
+    mention des lieux de camp, de leurs contacts et de leur carte (en gardant, si covoiturage est actif, la phrase sur
+    le lieu d'une sortie et en adaptant l'intitulé du paragraphe au seul module actif).
     - Si le module camps EST actif : conserve ce paragraphe ET le paragraphe "Résumé automatique des lieux de camp",
     et assure-toi que les sections sur les données collectées et sur les durées de conservation disent explicitement
     que (a) les coordonnées d'un contact de camp (nom, e-mail, téléphone, précisions libres) sont chiffrées en base,
@@ -1080,6 +1082,20 @@ visible à l'écran tant qu'elle dure ; (f) que le journal ne porte ni valeur sa
 noté, qu'il vienne du bouton ou de la conservation, avec le seul identifiant du membre. Ce
 module n'introduit **aucun sous-traitant** et ne fait **aucun appel à une IA** : ne l'ajoute ni en section 4 ni en
 section 5.2.
+
+33ter. **Module Covoiturage (module covoiturage)** : Si "covoiturage" ne figure PAS dans la liste des modules actifs
+({$modulesText}), retire entièrement la sous-section "Module Covoiturage" de la section 2.4 et l'entrée "Covoiturages"
+des durées de conservation. S'il est actif, conserve-les intégralement et sans les édulcorer, en particulier : (a) que
+les noms (conducteur, famille, enfants), les numéros de téléphone et la note d'un conducteur sont **chiffrés en base** ;
+(b) que le numéro est **recopié** au moment où la personne le confirme, pré-rempli depuis sa fiche mais modifiable, et
+n'est jamais relu depuis la fiche ensuite ; (c) qu'un numéro n'est montré **qu'à l'autre partie d'une demande
+acceptée**, jamais aux animateurs, et que les animateurs d'une section concernée, le Staff d'Unité et les
+administrateurs voient qui monte dans quelle voiture ; (d) que le point de rendez-vous d'un conducteur est visible de
+tous les membres et ne doit pas être une adresse personnelle ; (e) qu'un covoiturage est **effacé automatiquement**
+après sa dernière date, au bout d'un délai réglable (30 jours par défaut, sauf réglage contraire), avec tout ce qu'il
+contient. Le géocodage du lieu d'une sortie relève du paragraphe "Fond de carte et géocodage" (règle 22bis) : ce n'est
+jamais une donnée personnelle qui part. Ce module ne fait **aucun appel à une IA** et n'introduit aucun autre
+sous-traitant.
 
 34. **Assistant d'aide (fonctionnalité du cœur du site, section 2.8)** : Cette section ne dépend d'aucun module — elle
 dépend uniquement de la présence d'un connecteur IA actif. Si "llm_connector" ne figure PAS dans la liste des modules

@@ -1,0 +1,27 @@
+{#
+  The « Historique » box (Booking\BookingBox::HISTORY), folded on the
+  dashboard: the shared Core\Audit timeline (§8.66).
+#}
+<div class="card mb-3" id="{{ boxes.history.anchor }}">
+    {% embed '@rental/management/_dossier_header.html.twig' with {
+        box: boxes.history, target_id: boxes.history.bodyAnchor, audit_page: audit_page,
+    } only %}
+        {% block figure %}
+            <span class="text-body-secondary small" data-booking-panel="history-figure">
+                {{ audit_page.total }} modification{{ audit_page.total > 1 ? 's' : '' }}
+            </span>
+        {% endblock %}
+    {% endembed %}
+    <div class="collapse" id="{{ boxes.history.bodyAnchor }}">
+        <div data-booking-panel="history">
+            <div class="card-body pt-0">
+                {% include 'partials/audit_timeline.html.twig' with {
+                    entity_type: 'rental_booking',
+                    entity_id: booking.id,
+                    audit_page: audit_page,
+                    labels: audit_labels,
+                } only %}
+            </div>
+        </div>
+    </div>
+</div>

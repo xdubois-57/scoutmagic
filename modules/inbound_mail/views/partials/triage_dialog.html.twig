@@ -1,0 +1,17 @@
+{#
+  The one dialog of a triage screen (`triage.html.twig`), filled on opening
+  by MOVING the body a row already rendered (mail-message-dialog.js). One
+  for the whole page: a dialog per message would keep a hundred message
+  bodies in the DOM of a screen that shows their titles.
+
+  Include it once per page, outside any region the page re-renders in place.
+#}
+{% embed 'partials/modal.html.twig' with { id: 'mail-message-modal', title: 'Message', scrollable: true, size: 'lg' } only %}
+    {% block body %}
+        <p id="mail-message-modal-meta" class="small text-body-secondary"></p>
+        <div id="mail-message-modal-body"></div>
+    {% endblock %}
+    {% block footer %}
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fermer</button>
+    {% endblock %}
+{% endembed %}

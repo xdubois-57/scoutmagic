@@ -479,7 +479,7 @@ signalement, une demande d'inscription arrivée à la mauvaise adresse serait
 conservée quatre-vingt-dix jours puis jetée sans avoir été lue — c'est
 l'ancien défaut avec une horloge plus lente. Le point d'attention ne
 contient qu'un compte et un lien : la page est exportée et
-photographiée, et §7.9 ne fait pas d'exception pour un résumé.
+photographiée, et §8.6 ne fait pas d'exception pour un résumé.
 
 ## IT-07 — la fin du pseudo-dossier « non classé »
 

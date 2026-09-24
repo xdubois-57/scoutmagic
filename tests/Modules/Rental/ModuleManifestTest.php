@@ -66,10 +66,19 @@ class ModuleManifestTest extends TestCase
      *
      * 1.22.0 adds a route too: the renter fills in their own billing
      * coordinates from their tracking page (§22.6).
+     *
+     * 1.24.0 adds three: a booking's file is spread over four pages, each
+     * with its own chip (issue #462, IT-01).
+     *
+     * 1.25.0 is a schema change again: the steps a manager ticks by hand
+     * are stored (`rental_booking_milestone_marks`, issue #462, IT-02).
+     *
+     * 1.26.0 replaces the booking's mail box with the triage screen shared
+     * with the camps, and its routes (issue #462, IT-03).
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.23.2', $this->manifest->version);
+        $this->assertSame('1.26.0', $this->manifest->version);
     }
 
     /**

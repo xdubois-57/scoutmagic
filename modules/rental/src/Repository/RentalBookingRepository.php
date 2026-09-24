@@ -400,7 +400,7 @@ class RentalBookingRepository
     /**
      * Clears the temporary hold without touching the status — what an
      * `automatic` hold lapsing means: the request simply goes back to
-     * waiting, because nobody ever promised anything (§6.14).
+     * waiting, because nobody ever promised anything (specifications.md §22.5).
      */
     public function clearHold(int $id): void
     {

@@ -164,15 +164,34 @@ class InboundMailService implements InboundMailInterface
         string $consumerId,
         array $ownReferences,
         int $limit = 50,
-        bool $dismissed = false
+        bool $dismissed = false,
+        bool $ownReferencesOnly = false
     ): array {
         return $this->messageRepository->findForTriage(
             $consumerId,
             array_values(array_unique($ownReferences)),
-            $this->mailboxRepository->mailboxIdsReadableInFull($consumerId),
+            $ownReferencesOnly ? [] : $this->mailboxRepository->mailboxIdsReadableInFull($consumerId),
             $limit,
             $dismissed
         );
+    }
+
+    /**
+     * The rows of a triage screen — see `Api\InboundMailInterface`.
+     *
+     * @param string[] $ownReferences
+     * @return list<array{message: InboundMessage, excerpt: string, truncated: bool, has_body: bool,
+     *     attachment_count: int, links: \Modules\InboundMail\Api\MessageLink[],
+     *     candidates: \Modules\InboundMail\Api\MessageCandidate[]}>
+     */
+    public function triageRows(
+        string $consumerId,
+        array $ownReferences,
+        int $limit = 50,
+        bool $dismissed = false,
+        bool $ownReferencesOnly = false
+    ): array {
+        return TriageRowBuilder::build($this, $consumerId, $ownReferences, $limit, $dismissed, $ownReferencesOnly);
     }
 
     /**
@@ -440,7 +459,7 @@ class InboundMailService implements InboundMailInterface
      * already removed, and one module's bookkeeping throwing must not turn
      * a filing correction into an error the user cannot act on. Nothing is
      * logged, since anything identifying enough to be useful would be
-     * personal data in the journal (§7.9).
+     * personal data in the journal (§8.6).
      */
     private function notifyUnlinked(InboundMessage $message, string $consumerId, string $businessReference): void
     {
@@ -811,7 +830,7 @@ class InboundMailService implements InboundMailInterface
             references: [],
             toEmails: $message->toEmails,
             sentAt: $message->sentAt,
-            // Already sanitised on the way in (§7.9) — what is stored is
+            // Already sanitised on the way in (§8.58) — what is stored is
             // what a consumer was always given.
             bodyText: $message->bodyText,
             bodyHtml: $message->bodyHtml,

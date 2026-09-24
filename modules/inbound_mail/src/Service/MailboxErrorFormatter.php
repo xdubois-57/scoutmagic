@@ -14,7 +14,7 @@ namespace Modules\InboundMail\Service;
  * **A library's own exception text is never shown.** It routinely contains
  * the account name and, on several common servers, the verbatim rejection
  * of the credential that was just tried — neither of which belongs in a
- * database column that a page renders and a backup keeps (§7.9).
+ * database column that a page renders and a backup keeps (§8.6).
  *
  * What is shown instead is what an operator can act on: which kind of
  * failure it was, and what to check. A TLS failure in particular is stated

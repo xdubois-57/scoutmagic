@@ -1,0 +1,75 @@
+{% extends 'base.html.twig' %}
+{% block title %}Covoiturage — {{ param('site_name') }}{% endblock %}
+{#
+  « Covoiturage » (Espace membres): the carpools to come, then the past
+  ones folded away — and only as far back as the retention, since anything
+  older has already been deleted (D9). Built by Service\CarpoolBoard for
+  this reader: a passenger name the reader may not see is never in the
+  context at all.
+#}
+{% block content %}
+<div class="page-medium">
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Covoiturage',
+        subtitle: 'Un covoiturage par sortie. À l\'intérieur, chaque famille propose les places libres de sa voiture, et le conducteur accepte ou refuse chaque demande.',
+    } only %}
+
+    <p class="small text-body-secondary bg-body-tertiary rounded px-3 py-2">
+        Les covoiturages sont organisés par les animateurs. Vous y proposez les places libres de votre voiture, ou vous en demandez une.
+    </p>
+
+    {% if upcoming is empty %}
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucun covoiturage à venir.',
+            icon: 'bi-car-front',
+        } only %}
+    {% else %}
+        <div class="d-flex flex-column gap-3 mb-4">
+            {% for carpool in upcoming %}
+                <a href="/covoiturage/{{ carpool.id }}" class="card text-decoration-none text-body">
+                    <div class="card-body">
+                        <div class="fw-semibold">{{ carpool.title }}</div>
+                        <div class="small text-body-secondary">{{ carpool.address }}</div>
+                        <div class="small text-body-secondary">
+                            {{ carpool.dates }} ·
+                            {{ carpool.cars }} voiture{{ carpool.cars > 1 ? 's' : '' }} ·
+                            <span class="{{ carpool.free == 0 ? 'text-danger-emphasis' : '' }}">{{ carpool.free_text }}</span>
+                        </div>
+                    </div>
+                </a>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <div class="card">
+        <div class="card-header d-flex align-items-center gap-2">
+            <button class="btn btn-link p-0 text-decoration-none flex-grow-1 text-start collapsed" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#carpools-past" aria-expanded="false" aria-controls="carpools-past">
+                Covoiturages passés
+            </button>
+            <span class="small text-body-secondary">{{ retention_days }} derniers jours</span>
+        </div>
+        <div class="collapse" id="carpools-past">
+            <div class="card-body">
+                {% if past is empty %}
+                    <p class="small text-body-secondary mb-2">Aucun covoiturage passé.</p>
+                {% endif %}
+                {% for carpool in past %}
+                    <div class="border-bottom pb-2 mb-2">
+                        <div class="text-body-secondary">{{ carpool.title }} · {{ carpool.day }}</div>
+                        {% for offer in carpool.offers %}
+                            <div class="small text-body-secondary">
+                                {{ offer.direction }} {{ offer.time }} · {{ offer.driver }}
+                                {%- if offer.riders is not null %} · {{ offer.riders is empty ? 'personne' : offer.riders|join(', ') }}{% endif %}
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% endfor %}
+                <p class="small text-body-secondary mb-0">
+                    Un covoiturage et ses demandes sont effacés {{ retention_days }} jours après sa dernière date. Les numéros de téléphone partent avec : cette liste ne doit pas devenir un registre des déplacements des familles.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

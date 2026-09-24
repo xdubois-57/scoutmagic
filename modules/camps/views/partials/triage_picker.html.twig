@@ -1,0 +1,14 @@
+{#
+  The camps' « Rattacher à » inside the shared triage screen: which stay,
+  answered by typing a place or a month (`stay_picker.html.twig`). Posts
+  `camp_id`, which CampsMailController::attach() reads.
+
+  Requires `row` (an InboundMailInterface::triageRows() row with this module's picker options) and
+  `triage_ui`.
+#}
+{% include '@camps/partials/stay_picker.html.twig' with {
+    message_id: row.message.id,
+    options: row.camp_options,
+    preferred_ids: row.preferred_stay_ids,
+    searchable: triage_ui.can_search_stays,
+} only %}

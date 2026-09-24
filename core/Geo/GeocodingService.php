@@ -6,13 +6,17 @@
 
 declare(strict_types=1);
 
-namespace Modules\Camps\Service;
-
-use Modules\Camps\Support;
+namespace Core\Geo;
 
 /**
- * Turns a place's address into a point, using Nominatim
- * (OpenStreetMap) — free, no key, no account.
+ * Turns an address into a point, using Nominatim (OpenStreetMap) — free,
+ * no key, no account.
+ *
+ * Born in the camps module for its places, moved to the core when the
+ * carpool module needed the same thing (docs/chantiers/covoiturage.md,
+ * IT-02): an optional module cannot be a hard dependency of another, and
+ * with two consumers the house rule is extraction. Every consumer shares
+ * this one client and therefore the one User-Agent Nominatim sees.
  *
  * Same outbound-HTTP approach as Core\Maintenance\GitHubReleaseClient:
  * file_get_contents() over a stream context, no new Composer dependency
@@ -20,12 +24,12 @@ use Modules\Camps\Support;
  *
  * Nominatim's usage policy requires an identifying User-Agent and at most
  * ONE request per second. Core\Scheduler has no rate limiting, so the
- * rate limit is expressed as a shape instead: Task\GeocodePlacesHandler
- * geocodes exactly one place per run and re-schedules itself when more
- * are pending, the same way Core\Maintenance\Task\AutoBackupHandler
- * paces itself. On a site without a real cron this is slow; that is
- * acceptable, because coordinates are a convenience and typing them by
- * hand always works.
+ * rate limit is expressed as a shape instead: a consumer's task geocodes
+ * exactly one row per run and re-schedules itself when more are pending
+ * (the camps module's place geocoding task is the reference shape), the
+ * same way Core\Maintenance\Task\AutoBackupHandler paces itself. On a
+ * site without a real cron this is slow; that is acceptable, because
+ * coordinates are a convenience and typing them by hand always works.
  *
  * NEVER called from a web request. An outbound HTTP call on a page load
  * makes the page as slow as the slowest third party, and this one is a
@@ -42,7 +46,7 @@ class GeocodingService
      * URL is the honest identifier — a generic string would name this
      * software, not the installation actually making the requests.
      */
-    private const USER_AGENT_PREFIX = 'ScoutMagic-Camps/1.0';
+    private const USER_AGENT_PREFIX = 'ScoutMagic/1.0';
 
     public function __construct(private string $contactUrl = '')
     {
@@ -61,6 +65,14 @@ class GeocodingService
             return null;
         }
 
+        return $this->lookup($query);
+    }
+
+    /**
+     * @return array{latitude: float, longitude: float}|null
+     */
+    private function lookup(string $query): ?array
+    {
         $url = self::ENDPOINT . '?' . http_build_query([
             'q' => $query,
             'format' => 'jsonv2',
@@ -87,6 +99,28 @@ class GeocodingService
     }
 
     /**
+     * The same lookup for an address typed as one line — how the carpool
+     * module stores an outing's place (« Gîte de Han-sur-Lesse, rue des
+     * Grottes 12 »), where there is no separate city to require.
+     *
+     * The bar is lower than geocode()'s, and it can be: the point it
+     * produces is shown to the chief on a map with its origin marked (« trouvé
+     * depuis l'adresse »), where a wrong one is one drag away from right.
+     * A line too short to mean a place is still never sent.
+     *
+     * @return array{latitude: float, longitude: float}|null
+     */
+    public function geocodeLine(?string $line): ?array
+    {
+        $line = self::clean($line);
+        if ($line === null || mb_strlen($line) < 4) {
+            return null;
+        }
+
+        return $this->lookup($line);
+    }
+
+    /**
      * A place with only a name has nothing to geocode: sending "Le pré de
      * Jules" to a gazetteer returns whatever it feels like, and a
      * confidently wrong pin is worse than no pin. At least a city or a
@@ -94,20 +128,27 @@ class GeocodingService
      */
     private function buildQuery(?string $address, ?string $postalCode, ?string $city, ?string $country): ?string
     {
-        $city = Support::clean($city);
-        $postalCode = Support::clean($postalCode);
+        $city = self::clean($city);
+        $postalCode = self::clean($postalCode);
         if ($city === null && $postalCode === null) {
             return null;
         }
 
         $parts = array_values(array_filter([
-            Support::clean($address),
+            self::clean($address),
             $postalCode,
             $city,
-            Support::clean($country),
+            self::clean($country),
         ], static fn(?string $p): bool => $p !== null));
 
         return implode(', ', $parts);
+    }
+
+    private static function clean(?string $value): ?string
+    {
+        $value = $value !== null ? trim($value) : null;
+
+        return $value !== null && $value !== '' ? $value : null;
     }
 
     private function fetch(string $url): ?string

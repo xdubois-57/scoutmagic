@@ -109,7 +109,7 @@ class ExistingStayMatcher
     /**
      * What the period said, for the chief who wonders why.
      *
-     * No personal data (§7.9): a message id, a number of stays and the two
+     * No personal data (§8.6): a message id, a number of stays and the two
      * dates the module read, which are facts about a booking and not about
      * a person.
      *

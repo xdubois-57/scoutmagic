@@ -19,7 +19,7 @@ namespace Modules\InboundMail\Api;
  * to that object alone, and a consumer must not read them as one.
  *
  * `$bodyHtml` is already sanitised and stripped of remote images by the
- * time it gets here (§7.9): a consumer never has to remember to do it, and
+ * time it gets here (§8.58): a consumer never has to remember to do it, and
  * the raw HTML is not kept anywhere it could be reached by forgetting.
  */
 class InboundMessage
@@ -65,7 +65,13 @@ class InboundMessage
          * Truncated on write with the cut declared inside the value, so a
          * reader can tell a short chain from a shortened one.
          */
-        public readonly ?string $rawHeaders = null
+        public readonly ?string $rawHeaders = null,
+        /**
+         * Sent to a list rather than written to this unit — a newsletter,
+         * a notification (`Mime\BulkMailDetector`). A triage screen folds
+         * these away behind their count (`Api\TriageScreen::of()`).
+         */
+        public readonly bool $isBulk = false
     ) {
     }
 

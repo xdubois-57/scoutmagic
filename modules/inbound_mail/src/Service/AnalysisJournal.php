@@ -26,7 +26,7 @@ use Modules\InboundMail\Api\AnalysisResult;
  *
  * **What it may say, and what it may never say.** Journal entries are read
  * by a superadmin and travel in a support archive, so nothing here names a
- * sender, a subject, a recipient or a file (§7.9). What is left is enough:
+ * sender, a subject, a recipient or a file (§8.6). What is left is enough:
  * an internal message id, a mailbox id and its name (organisational, and
  * already in the journal for every mailbox event), the consumer ids asked,
  * and what each one answered. A message id is the handle a superadmin can

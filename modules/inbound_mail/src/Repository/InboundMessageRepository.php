@@ -1591,7 +1591,7 @@ class InboundMessageRepository
      * figure the attention page shows.
      *
      * A count, never a listing: an attention point says how many and where
-     * to go, never who wrote or what about (§7.9).
+     * to go, never who wrote or what about (§8.6).
      */
     public function countUnassociated(bool $includeBulk = false): int
     {
@@ -2062,7 +2062,8 @@ class InboundMessageRepository
             omittedAttachments: $omittedAttachments,
             rawHeaders: ($row['raw_headers_encrypted'] ?? null) !== null
                 ? $this->encryption->decrypt((string) $row['raw_headers_encrypted'], 'inbound_messages.raw_headers')
-                : null
+                : null,
+            isBulk: (bool) ($row['is_bulk'] ?? false)
         );
     }
 

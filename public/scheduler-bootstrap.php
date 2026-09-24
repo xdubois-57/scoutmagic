@@ -615,7 +615,7 @@ function scoutmagicBootstrapScheduler(
                         //
                         // And it says so when it still cannot read: an id
                         // and nothing else, a filename being personal data
-                        // (§7.9). THIS is the path that matters — the
+                        // (§8.6). THIS is the path that matters — the
                         // relève runs from the scheduler.
                         static function (int $fileId) use ($financeStoredFileReader, $journalService): ?string {
                             $content = $financeStoredFileReader->read($fileId);
@@ -676,7 +676,7 @@ function scoutmagicBootstrapScheduler(
                         // description: that column is a VARCHAR(500) and a
                         // throwable's message is not bounded. An id and a
                         // mime type, never the filename — personal data
-                        // (§7.9).
+                        // (§8.6).
                         static function (
                             \Throwable $e,
                             string $mimeType,
@@ -829,7 +829,7 @@ function scoutmagicBootstrapScheduler(
                         // Only a superadmin can raise the quota or buy
                         // space, so only a superadmin is told. Nothing
                         // about any message is named — a count and a
-                        // number of megabytes (§7.9).
+                        // number of megabytes (§8.6).
                         $accounts = new \Core\Security\UserAccountRepository($pdo, $encryptionService);
                         foreach ($accounts->findSuperAdmins() as $entry) {
                             $notificationService->notify(

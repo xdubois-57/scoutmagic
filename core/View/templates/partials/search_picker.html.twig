@@ -1,0 +1,130 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  Choose one or several rows out of a list too long to show — type, wait a
+  beat, ask the server, click a result (ARCHITECTURE.md §8.30bis).
+
+  Four copies of that gesture existed before this partial: the camps « quel
+  séjour ? » and the finance « quelle créance ? » and « quel mouvement ? »
+  pickers, and the rental managers' search. Each one's comments said it was
+  the shape of another. This is the shape, written once, in single AND
+  multiple choice — the copies cover the first, the carpool event picker
+  needs the second.
+
+  **The select element stays in the page, and that is the part not to
+  lose.** It is what the form submits when JavaScript does not run: a real
+  list, holding the caller's shortlist and whatever is already retained,
+  named exactly like the values the script will post. The script REMOVES it
+  when it takes over, so the two controls can never both post the field —
+  in single mode the one the browser sent first is not the one the reader
+  chose, and in multiple mode a removed row would come back through the
+  other control.
+
+  (The tag is spelled out in words in this comment on purpose: to anything
+  that lexes this file as HTML, angle brackets here are a real, label-less
+  form control — SonarQube once failed the reliability gate on exactly
+  that, see modules/camps/views/partials/stay_picker.html.twig.)
+
+  The server side of the contract is Core\View\SearchPickerResult: the
+  endpoint at `search_url` receives `q` and answers
+  `{success: true, results: [{id, label, subtitle?, badge?, warning?}]}`.
+
+  Usage:
+  {% include 'partials/search_picker.html.twig' with {
+      picker_id: 'carpool-events',       -- unique, prefixes every id inside
+      search_url: '/covoiturage/…',      -- receives ?q= (or &q=)
+      field_name: 'event_ids',           -- multiple mode posts event_ids[]
+      label: 'Évènements concernés',
+      mode: 'multiple',                  -- single (default) | multiple
+      options: [ {value: 3, label: '…'} ], -- the list shown without JavaScript
+      selected: [ {id: 3, label: '…'} ], -- already retained; optional
+      placeholder: 'Chercher…',          -- optional
+      empty_label: 'Aucun résultat.',    -- optional, said when nothing matches
+      none_label: 'Aucun',               -- optional, single mode's empty choice
+      help: '…',                         -- optional help text, ARIA-wired
+      required: false,                   -- optional, single mode only; the
+                                         -- script keeps it on the search box
+  } only %}
+
+  The caller loads the script itself, once per page:
+      <script src="{{ asset('/assets/js/search-picker.js') }}"></script>
+
+  The script dispatches `search-picker:change` on the picker element, with
+  `detail.selected` the retained rows ({id, label, …}), after every choice
+  and every removal — for a page that reacts to what was chosen.
+#}
+{% set _mode = mode|default('single') == 'multiple' ? 'multiple' : 'single' %}
+{% set _multiple = _mode == 'multiple' %}
+{# Rebuilt as a list: an id-keyed or filtered array would otherwise encode
+   as a JSON object, which the script discards. #}
+{% set _selected = [] %}
+{% for row in selected|default([]) %}{% set _selected = _selected|merge([row]) %}{% endfor %}
+{% set _selected_ids = _selected|map(row => row.id ~ '') %}
+{% set _submitted_name = _multiple ? field_name ~ '[]' : field_name %}
+{% set _help_id = help|default('') ? picker_id ~ '-help' : '' %}
+
+{# The fallback list: the caller's options, plus any retained row the
+   options do not carry — without it, a retained value would silently drop
+   out of the form the first time it is saved without JavaScript. #}
+{% set _option_ids = options|default([])|map(o => o.value ~ '') %}
+{% set _fallback = options|default([]) %}
+{% for row in _selected %}
+    {% if (row.id ~ '') not in _option_ids %}
+        {% set _fallback = _fallback|merge([{value: row.id, label: row.label}]) %}
+    {% endif %}
+{% endfor %}
+
+<div class="search-picker mb-3" id="{{ picker_id }}" data-search-picker
+     data-mode="{{ _mode }}"
+     data-search-url="{{ search_url }}"
+     data-field-name="{{ _submitted_name }}"
+     data-empty-label="{{ empty_label|default('Aucun résultat ne correspond.') }}"
+     data-required="{{ required|default(false) and not _multiple ? '1' : '0' }}"
+     data-selected="{{ _selected|json_encode }}">
+    <div data-search-picker-fallback>
+        <label class="form-label" for="{{ picker_id }}-select">{{ label }}</label>
+        <select class="form-select" id="{{ picker_id }}-select" name="{{ _submitted_name }}"
+                {%- if _multiple %} multiple size="{{ min(max(_fallback|length, 3), 8) }}"{% endif %}
+                {%- if required|default(false) and not _multiple %} required{% endif %}
+                {%- if _help_id %} aria-describedby="{{ _help_id }}-fallback"{% endif %}>
+            {% if not _multiple %}
+                <option value="">{{ none_label|default('Aucun') }}</option>
+            {% endif %}
+            {% for option in _fallback %}
+                <option value="{{ option.value }}"
+                        {{- (option.value ~ '') in _selected_ids ? ' selected' : '' }}>{{ option.label }}</option>
+            {% endfor %}
+        </select>
+        {% if _help_id %}
+            <div class="form-text" id="{{ _help_id }}-fallback">{{ help }}</div>
+        {% endif %}
+    </div>
+
+    {# Hidden until the script takes over: a search box that cannot search
+       is worse than a list. #}
+    <div class="d-none" data-search-picker-search>
+        <label class="form-label" for="{{ picker_id }}-search">{{ label }}</label>
+        {% if _multiple %}
+            {# The retained rows, drawn by the script from data-selected so
+               the markup and the posted values come from one place. #}
+            <div class="d-flex flex-wrap gap-1 mb-2" data-search-picker-chosen></div>
+        {% endif %}
+        <div class="position-relative">
+            <input type="text" class="form-control" id="{{ picker_id }}-search"
+                   autocomplete="off"
+                   {%- if placeholder|default('') %} placeholder="{{ placeholder }}"{% endif %}
+                   {%- if _help_id %} aria-describedby="{{ _help_id }}"{% endif %}
+                   aria-controls="{{ picker_id }}-results">
+            <div class="search-picker__results list-group d-none" id="{{ picker_id }}-results"
+                 data-search-picker-results aria-live="polite"></div>
+        </div>
+        {# What the form actually posts. Empty in the markup: the script
+           writes one hidden input per retained row. #}
+        <div data-search-picker-values></div>
+        {% if _help_id %}
+            <div class="form-text" id="{{ _help_id }}">{{ help }}</div>
+        {% endif %}
+    </div>
+</div>

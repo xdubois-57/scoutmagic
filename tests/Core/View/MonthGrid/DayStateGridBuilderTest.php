@@ -138,7 +138,7 @@ class DayStateGridBuilderTest extends TestCase
 
     public function testUnselectableIsDistinctFromOccupied(): void
     {
-        // §6.7: a day inside the minimum-notice window is NOT "occupied".
+        // specifications.md §22.2: a day inside the minimum-notice window is NOT "occupied".
         // Telling a visitor a free day is taken makes them give up on it.
         $weeks = $this->builder->build(2026, 3, [
             '2026-03-02' => new DayState(DayState::STATE_UNSELECTABLE, 'Trop tôt pour réserver'),
@@ -159,7 +159,7 @@ class DayStateGridBuilderTest extends TestCase
         // Every private reason — booked, held, manually blocked — maps onto
         // the same state and the same label, so a public visitor cannot tell
         // them apart. This indistinguishability is the confidentiality
-        // guarantee of §6.7/§6.14, not an approximation of one.
+        // guarantee of specifications.md §22.2, not an approximation of one.
         $sameLabel = 'Occupé';
         $weeks = $this->builder->build(2026, 3, [
             '2026-03-05' => new DayState(DayState::STATE_OCCUPIED, $sameLabel),

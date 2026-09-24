@@ -1076,7 +1076,25 @@ CREATE TABLE scheduled_actions (
     requested_by_user_account_id INT UNSIGNED,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     executed_at DATETIME,
+    -- When claimOverdue() flipped this row to 'processing'. Written on
+    -- the claim, cleared on every way out of it (release, done, failed).
+    --
+    -- It exists so a row can be told "running" from "abandoned". Nothing
+    -- ever re-claims a 'processing' row, so a handler killed outright —
+    -- OOM, a shared host's max_execution_time, a power cut — used to
+    -- leave its row processing forever; SchedulerService::seed() then
+    -- read that row as a live chain and never re-armed, and the chain was
+    -- dead in silence. SchedulerRepository::reclaimAbandoned() is what
+    -- brings such a row back, and this column is how it knows the row has
+    -- been sitting there rather than working (run_at answers "when was it
+    -- due", which is not the same question and can be days earlier).
+    --
+    -- NULL on a 'processing' row means it was claimed before this column
+    -- existed: the reaper falls back to run_at for those, which is the
+    -- only thing it can read on an installation that has just migrated.
+    claimed_at DATETIME,
     INDEX idx_status_run (status, run_at),
+    INDEX idx_status_claimed (status, claimed_at),
     INDEX idx_module_task (module_id, task_key),
     INDEX idx_module_ref (module_id, task_key, reference),
     CONSTRAINT fk_sa_requested_by FOREIGN KEY (requested_by_user_account_id) REFERENCES user_accounts(id) ON DELETE SET NULL
