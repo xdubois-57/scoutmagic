@@ -1,20 +1,20 @@
 ---
 id: locations-reservation
 title: La fiche d'une réservation
-summary: Les quatre pages de la réservation et ce que montre son tableau de bord.
+summary: Les pages d'une réservation et ce que montre son tableau de bord.
 category: Espace membres
 role_min: identified
-question: Où trouver le prix et les paiements d'une réservation ?
+question: Que montre le tableau de bord d'une réservation ?
 question: Comment bloquer les dates d'une réservation jusqu'à une échéance ?
 question: Comment revenir au bien depuis une réservation ?
-paths: /mes-locations/*/reservations/*, /mes-locations/*/reservations/*/finances
-related: locations-parcours, gerer-les-locations, locations-documents, locations-courrier, locations-suivi, locations-conformite
+paths: /mes-locations/*/reservations/*
+related: locations-parcours, locations-finances, gerer-les-locations, locations-documents, locations-courrier, locations-suivi, locations-conformite
 ---
 
 Une réservation tient en quatre pages, reliées par les pastilles sous
 son titre : **Tableau de bord**, **Finances**, **Documents** et
-**Courrier**. La pastille « Courrier » n'apparaît que si le site relève
-une boîte e-mail.
+**Courrier**. La pastille « Courrier » n'apparaît que si une boîte
+e-mail est dédiée aux locations, et une seule.
 
 Pour revenir au bien ou à la liste de ses réservations, utilisez le fil
 d'Ariane en haut de la page : chacune de ses étapes est un lien.
@@ -53,14 +53,9 @@ encore en attente, de commentaires, de modifications — et s'ouvre d'un
 clic. Une boîte ouverte le reste pendant que vous y travaillez. Le
 séjour a sa propre page, et sa ligne y conduit.
 
-## Finances
+## Les autres pages
 
-Le **prix** de la réservation, tel qu'il se négocie avec le locataire,
-et les **paiements** : ce qui est attendu, ce qui est reçu, ce qui
-reste dû, et la caution.
-
-## Documents et Courrier
-
-Les documents de la réservation — contrat, facture, copies signées —
-ont leur page, comme le courrier qui la concerne. Voir les sujets
-consacrés à chacun.
+Le prix et les paiements sont sur « Finances », le contrat, la facture
+et les fichiers sur « Documents », les e-mails sur « Courrier » ;
+chacune a son sujet d'aide. Une étape du parcours qui se règle sur
+l'une d'elles y conduit directement, la bonne boîte ouverte.

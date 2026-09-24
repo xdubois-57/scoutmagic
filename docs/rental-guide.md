@@ -135,7 +135,17 @@ la fiche protégée.
 
 ## 6. Suivre une réservation
 
-Tout se passe sur la fiche de la réservation :
+Une réservation tient en quatre pages, reliées par les pastilles sous
+son titre : **Tableau de bord**, **Finances** (le prix et les paiements),
+**Documents** (contrat, facture, fichiers, coordonnées de facturation) et
+**Courrier** (§11). Le tableau de bord dit où en est la réservation et
+propose l'étape qui la fait avancer ; dessous, le parcours, étape par
+étape, dit pour chacune si le site la coche tout seul, si elle se fait
+sur l'une des pages, si elle attend le locataire ou si elle se passe hors
+du site — celles-là seules se cochent à la main (« Marquer comme fait »), et la coche
+est tracée dans l'historique.
+
+On y trouve aussi :
 
 - **États** : reçue, en cours d'examen, information demandée, proposée,
   confirmée, refusée, annulée, expirée, clôturée.
@@ -268,9 +278,14 @@ expire toute seule à quatre heures du matin.
 ## 11. Les emails du locataire
 
 Avec le module Courrier entrant, les réponses du locataire remontent
-automatiquement sur sa réservation, dans l'onglet Communications.
+automatiquement sur sa réservation. Quand une boîte e-mail — une seule —
+est dédiée aux locations, chaque réservation a une page « Courrier », et
+les e-mails envoyés au locataire portent cette boîte en adresse de
+réponse. Avec deux boîtes dédiées, la page n'existe pas : la liste des
+boîtes du courrier entrant le signale.
 
-Le rattachement se fait d'abord par la **référence** dans le sujet, puis
+Le rattachement se fait d'abord par l'**adresse de réponse signée** que
+portait l'e-mail du site, puis par la **référence** dans le sujet, puis
 par la **conversation**, puis, à défaut, par l'**adresse de l'expéditeur**
 si le message tombe dans une fenêtre autour du séjour. **En cas
 d'ambiguïté, rien n'est rattaché** — mieux vaut un email qui reste dans la
@@ -283,10 +298,19 @@ Une pièce jointe devient un document de la réservation, en « Non classé »
 et en visibilité interne — jamais présumée être le contrat signé. Vous la
 reclassez en un clic.
 
-Vous pouvez **détacher** un message (il est alors supprimé, avec ses pièces
-jointes non reclassées) ou le **déplacer** vers une autre réservation —
-uniquement parmi les biens que vous gérez. Vous ne pouvez pas rattacher un
-email vous-même : il n'y a aucun accès à la boîte depuis ici.
+La page « Courrier » est le même écran que le courrier des camps : les
+messages à trier, rattachés, tous, écartés ; les propositions à confirmer
+ou écarter ; le rattachement à la main, uniquement vers une réservation
+d'un bien que vous gérez. Vous y voyez le courrier des réservations de vos
+biens ; un message que rien ne rattache encore n'y apparaît que si vous
+gérez tous les biens de l'unité. **Détacher** un message le renvoie dans le
+courrier de l'unité, avec ses pièces jointes non reclassées ; pour
+changer de réservation, détachez puis rattachez. « Écarter ce courrier »
+retire de la liste un message qui ne concerne pas les locations sans le
+supprimer : il reste dans le courrier de l'unité jusqu'à la fin de sa
+durée de conservation habituelle. Un message qui concerne aussi le bien
+d'un autre gestionnaire ne s'écarte pas : l'écarter le retirerait aussi
+de sa liste à lui.
 
 ## 12. Le registre de conformité
 

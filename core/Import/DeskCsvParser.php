@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Import;
 
+use Core\Journal\JournalService;
+
 /**
  * Desk CSV export parser.
  *
@@ -28,6 +30,51 @@ namespace Core\Import;
  */
 class DeskCsvParser
 {
+    /**
+     * How many column names one journal entry may quote, and how long
+     * each may be. A refused header line is a diagnostic, not a place to
+     * mirror an arbitrary file: the names come from a document this site
+     * did not write, and a malformed one can carry hundreds.
+     */
+    private const MAX_JOURNALLED_HEADERS = 20;
+    private const MAX_JOURNALLED_HEADER_LENGTH = 100;
+
+    /**
+     * How many expected headers a line must carry before its OTHER cells
+     * may be written down — SECURITY.md §13, « Journal stores only
+     * metadata — never raw CSV content », and its kept-file rule 5, « No
+     * line of CSV in a journal entry, an error message or a trace,
+     * including when the parse fails ».
+     *
+     * `parse()` treats line 0 as the header line unconditionally, because
+     * it has nothing else to go on. So when a file arrives with its header
+     * row stripped, or the delimiter is misdetected, line 0 is a MEMBER:
+     * `Dupont`, `Marie`, a birth date, a phone number, an address. Writing
+     * those cells into `event_log.context` would put personal data in a
+     * journal that `Core\Support\Collector\EventJournalCollector` copies
+     * verbatim into a support package — an archive that leaves the
+     * installation.
+     *
+     * Two thirds is the line between the two cases, and it is not a close
+     * call: the case this journal entry exists for — the federation
+     * renames `Email Tiers` to `Courriel` — still carries 34 of the 35
+     * expected names, while a row of member data carries none of them. A
+     * column name from a line PROVEN to be the schema row is metadata
+     * about the file, which is what §13 allows; anything from a line that
+     * is not is content, which it forbids.
+     */
+    private const HEADER_LINE_MIN_EXPECTED_RATIO = 2 / 3;
+
+    public function __construct(
+        /**
+         * Where a refused header line is written down (issue #356). Null
+         * parses exactly as before — every existing call site, tests
+         * included, keeps working.
+         */
+        private ?JournalService $journal = null
+    ) {
+    }
+
     /** @var string[] */
     private const EXPECTED_HEADERS = [
         'Nom', 'Prenom', 'Genre', 'Date de naissance', 'Tél', 'GSM',
@@ -200,10 +247,86 @@ class DeskCsvParser
         }
 
         if (count($missing) > 0) {
+            // What the file actually carried where an expected column
+            // should have been. The exception can only name what is
+            // absent, and « Email Tiers manquant » is the symptom of
+            // « Courriel est arrivé à sa place » — a rename nobody can
+            // act on without seeing the new spelling, and the reason
+            // EXPECTED_HEADERS warns that two of its entries are not
+            // typos (issue #356).
+            $this->journalRefusedHeaders($headers, $missing);
+
             throw new ImportException(
                 'En-têtes CSV manquants : ' . implode(', ', $missing)
             );
         }
+    }
+
+    /**
+     * @param string[] $headers the header line exactly as read
+     * @param string[] $missing the expected names it does not carry
+     */
+    private function journalRefusedHeaders(array $headers, array $missing): void
+    {
+        if ($this->journal === null) {
+            return;
+        }
+
+        $unexpected = array_values(array_diff($headers, self::EXPECTED_HEADERS));
+        $present = count(self::EXPECTED_HEADERS) - count($missing);
+
+        // TWO conditions, and the second closes a hole the first leaves
+        // wide open. Counting the expected names that are present says
+        // nothing about how many cells the line has: a file whose header
+        // row and first data row ended up on one physical line — no line
+        // break at all, which `splitLines()` cannot see — carries seventy
+        // cells, of which thirty-four are still expected header names. The
+        // ratio alone would open the gate and hand `$unexpected` a real
+        // member's name, birth date, phone and address.
+        //
+        // A genuine header line cannot be longer than the expected one
+        // plus one replacement per missing name: renaming a column does
+        // not add a cell, and a genuinely added column only reaches here
+        // when something else is missing, since nothing is journalled
+        // when the line validates.
+        $isAHeaderLine = $present >= (int) ceil(count(self::EXPECTED_HEADERS) * self::HEADER_LINE_MIN_EXPECTED_RATIO)
+            && count($headers) <= count(self::EXPECTED_HEADERS) + count($missing);
+
+        $context = [
+            // Counts, always: they say what happened and can describe no
+            // one. `missing` names are this class's own constants, never
+            // anything the file supplied.
+            'unexpected_count' => count($unexpected),
+            'missing' => self::boundedNames($missing),
+            'code_table' => DeskMappingGapKind::CSV_HEADER->codeTable(),
+        ];
+
+        if ($isAHeaderLine) {
+            $context['unexpected'] = self::boundedNames($unexpected);
+        }
+
+        $this->journal->log(
+            'core',
+            DeskMappingGapKind::CSV_HEADER->journalType(),
+            'info',
+            $isAHeaderLine
+                ? 'Import Desk refusé : ' . count($missing) . ' en-tête(s) attendu(s) absent(s), '
+                    . count($unexpected) . ' inattendu(s)'
+                : "Import Desk refusé : le fichier ne commence pas par une ligne d'en-têtes",
+            $context
+        );
+    }
+
+    /**
+     * @param string[] $names
+     * @return string[]
+     */
+    private static function boundedNames(array $names): array
+    {
+        return array_map(
+            static fn(string $name): string => mb_substr($name, 0, self::MAX_JOURNALLED_HEADER_LENGTH),
+            array_slice($names, 0, self::MAX_JOURNALLED_HEADERS)
+        );
     }
 
     private function stripBom(string $content): string

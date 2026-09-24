@@ -1,7 +1,7 @@
 ---
 id: locations-documents
 title: Le contrat et la facture d'une réservation
-summary: Rédiger le texte, générer le PDF, l'envoyer — et ce que l'envoi verrouille.
+summary: La page Documents d'une réservation — rédiger le contrat et la facture, générer le PDF, l'envoyer, et ce que l'envoi verrouille.
 category: Espace membres
 role_min: identified
 question: Comment modifier le contrat d'une location déjà envoyé ?
@@ -10,6 +10,11 @@ question: Comment envoyer le contrat de location au locataire ?
 paths: /mes-locations/*/reservations/*/document/*, /mes-locations/*/reservations/*/documents
 related: gerer-les-locations, locations-reglages, locations-courrier
 ---
+
+La page « Documents » d'une réservation réunit ses documents — contrat,
+facture, copies signées, pièces reçues par e-mail — et les « Coordonnées
+de facturation » du locataire, que la facture reprend. Un document reçu
+par e-mail et rangé « Non classé » se reclasse depuis sa ligne.
 
 Un contrat et une facture se construisent en trois temps : le **gabarit du
 bien**, la **copie de cette réservation**, puis le **PDF**.

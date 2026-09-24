@@ -2451,8 +2451,23 @@ $superAdminService = new SuperAdminService(
         (string) $settingService->get('base_url')
     )
 );
-$mappingResolver = new MappingResolver($functionRepo, $ageBranchRepo, $importSectionRepo, $feeCategoryRepo);
-$csvParser = new DeskCsvParser();
+// The import resolver and the CSV parser now say what they could not
+// recognise, in the journal (issue #356). Nothing else about them moves:
+// the journal service is the only dependency they gained, and it exists
+// long before this line.
+$mappingResolver = new MappingResolver(
+    $functionRepo,
+    $ageBranchRepo,
+    $importSectionRepo,
+    $feeCategoryRepo,
+    $journalService
+);
+$csvParser = new DeskCsvParser($journalService);
+
+// What this installation currently fails to recognise in its Desk data —
+// read by Correspondances Desk, by the support package, and by nothing
+// that writes (issue #356).
+$deskMappingGapService = new \Core\Import\DeskMappingGapService($pdo, $scoutYearService);
 $unitStaffSectionService = new UnitStaffSectionService($pdo);
 $sectionMembershipRepository = new \Core\Member\SectionMembershipRepository($pdo);
 $sectionMembershipService = new \Core\Member\SectionMembershipService($sectionMembershipRepository, $scoutYearService);
@@ -6629,7 +6644,8 @@ $frontController->registerController(
         $scoutYearResolver,
         $badgeService,
         $ageBranchRepo,
-        $moduleHooks
+        $moduleHooks,
+        $deskMappingGapService
     )
 );
 $frontController->registerController(PlaceholderController::class, new PlaceholderController($twig));
@@ -7279,6 +7295,45 @@ if ($isEnabled('banner')) {
         $twig->addGlobal('active_menu_id', $activeMenuId);
         $twig->addGlobal('active_page_url', $activePageUrl);
     }
+}
+
+// Shared documents (module « documents »): the unit's rules, charter,
+// kit list… on a public page filtered by the reader, and a management
+// screen for the chef d'unité. The module never serves bytes: every
+// download goes through /files/{id} and FileAccessGuard (SECURITY.md §6).
+if ($isEnabled('documents')) {
+    \Core\Debug\RequestTimeline::mark('module_documents');
+    $documentRepository = new \Modules\Documents\Repository\DocumentRepository($pdo);
+    $documentDirectLinkGrants = new \Modules\Documents\File\DirectLinkGrants();
+    // A document's file (owner_type 'document') is served past its
+    // role_min only by this checker: an unlisted one only to a session
+    // that came through its address. With the module off, no checker
+    // answers and the guard refuses — fail-closed.
+    $fileOwnershipCheckers[] = new \Modules\Documents\File\DocumentFileOwnershipChecker(
+        $documentRepository,
+        $documentDirectLinkGrants
+    );
+    $documentService = new \Modules\Documents\Service\DocumentService(
+        $documentRepository,
+        $uploadHandler,
+        $fileRepository,
+        $attachedFileRemover,
+        $journalService,
+        $storagePath,
+        new \Core\Pdf\PdfCompressor($storagePath . '/temp')
+    );
+    $frontController->registerController(
+        \Modules\Documents\Controller\DocumentsPublicController::class,
+        new \Modules\Documents\Controller\DocumentsPublicController($twig, $documentService, $documentDirectLinkGrants)
+    );
+    $frontController->registerController(
+        \Modules\Documents\Controller\DocumentsAdminController::class,
+        new \Modules\Documents\Controller\DocumentsAdminController(
+            $twig,
+            $documentService,
+            (string) ($settingService->get('base_url') ?? '')
+        )
+    );
 }
 
 // Inbound mail (§7). The message-consumer registry — the ARCHITECTURE.md

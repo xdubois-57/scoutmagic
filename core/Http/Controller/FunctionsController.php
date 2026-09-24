@@ -13,6 +13,8 @@ use Core\Exception\UserFacingMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Import\AgeBranchRepository;
+use Core\Import\DeskMappingGap;
+use Core\Import\DeskMappingGapService;
 use Core\Import\FunctionRepository;
 use Core\Journal\JournalService;
 use Core\Member\SectionException;
@@ -47,7 +49,13 @@ class FunctionsController extends AbstractController
         private ScoutYearResolver $scoutYearResolver,
         private BadgeService $badgeService,
         private AgeBranchRepository $ageBranchRepository,
-        private ?HookRegistry $hooks = null
+        private ?HookRegistry $hooks = null,
+        /**
+         * What the last import could not match to anything this site
+         * knows (issue #356). Trailing and defaulted so no existing call
+         * site changes; null simply renders the page without the box.
+         */
+        private ?DeskMappingGapService $mappingGaps = null
     ) {
     }
 
@@ -121,6 +129,7 @@ class FunctionsController extends AbstractController
         }, $this->ageBranchRepository->findAllOrdered());
 
         return $this->render('config/functions.html.twig', [
+            'mapping_gaps' => $this->mappingGapsForView(),
             'unconfirmed' => $unconfirmed,
             'confirmed_by_role' => $confirmedByRole,
             'roles' => self::ROLE_DEFINITIONS,
@@ -128,6 +137,43 @@ class FunctionsController extends AbstractController
             'section_groups' => array_values($sectionGroups),
             'branches' => $branches,
         ]);
+    }
+
+    /**
+     * The box at the top of the page: what the site did not recognise, what
+     * it did instead, and how much of the unit it touches.
+     *
+     * Each kind carries its own action, because « corriger » means a
+     * different thing for each: a function needs a role, a branch needs a
+     * logo.
+     *
+     * @return array<int, array{kind: string, value: string, affected: int,
+     *     action_label: ?string, action_url: ?string}>
+     */
+    private function mappingGapsForView(): array
+    {
+        if ($this->mappingGaps === null) {
+            return [];
+        }
+
+        return array_map(
+            static function (DeskMappingGap $gap): array {
+                $action = match ($gap->kind) {
+                    \Core\Import\DeskMappingGapKind::FUNCTION => ['Donner un rôle', '#fonctions'],
+                    \Core\Import\DeskMappingGapKind::BRANCH => ['Choisir un logo', '#branches'],
+                    \Core\Import\DeskMappingGapKind::CSV_HEADER => [null, null],
+                };
+
+                return [
+                    'kind' => $gap->kind->value,
+                    'value' => $gap->rawValue,
+                    'affected' => $gap->affectedCount,
+                    'action_label' => $action[0],
+                    'action_url' => $action[1],
+                ];
+            },
+            $this->mappingGaps->gaps()
+        );
     }
 
     /**
