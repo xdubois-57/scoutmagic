@@ -156,7 +156,11 @@ class DocumentService
             throw new DocumentException('Choisissez le fichier à partager.');
         }
 
-        $fileId = $this->storeUpload($uploadedFile, $visibility, $actorId);
+        // Stored closed (admin, no owner yet): until the document row exists
+        // and owns the file, nothing — not even the ownership checker — can
+        // stand between an unlisted document's file and a counted /files/{id}.
+        // It opens to its real role only once owned, below.
+        $fileId = $this->storeUpload($uploadedFile, DocumentVisibility::ADMIN, $actorId);
 
         try {
             $id = $this->repository->create(
@@ -173,8 +177,10 @@ class DocumentService
             $this->fileRemover->removeOrphan($fileId);
             throw $e;
         }
-        // Only now does the document have the id its file is owned by.
+        // Only now does the document have the id its file is owned by;
+        // owned first, opened second.
         $this->fileRepository->updateOwner($fileId, DocumentFileOwnershipChecker::OWNER_TYPE, $id);
+        $this->fileRepository->updateRoleMin($fileId, $visibility->fileRoleMin());
 
         $this->journalService->log(
             'documents',

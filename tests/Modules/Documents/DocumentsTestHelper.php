@@ -46,9 +46,9 @@ final class DocumentsTestHelper
         return $path;
     }
 
-    public static function service(\PDO $pdo, string $storage): DocumentService
+    public static function service(\PDO $pdo, string $storage, ?FileRepository $files = null): DocumentService
     {
-        $files = new FileRepository($pdo);
+        $files ??= new FileRepository($pdo);
         return new DocumentService(
             new DocumentRepository($pdo),
             new UploadHandler($files, $storage),

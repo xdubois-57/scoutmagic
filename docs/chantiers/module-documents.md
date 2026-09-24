@@ -134,7 +134,10 @@ La roadmap a été écrite sur le commit `fb9e661` ; elle a été relue contre
   n'importe qui sans repasser par le garde. Un fichier n'est désormais en
   cache partagé que si le `role_min` est `public` **et** qu'il n'a aucun
   propriétaire (`isSharedCacheable()`), pour le téléchargement, la
-  vignette et les variantes.
+  vignette et les variantes. Et à la création, le fichier est enregistré
+  fermé (`admin`, sans propriétaire) puis ouvert à son rôle seulement une
+  fois possédé par le document : sinon, le temps de la compression PDF,
+  le fichier d'un lien direct était un fichier public ordinaire.
 - **Un envoi de nouveau fichier qui échoue en cours de modification**
   retire le fichier qu'il venait d'enregistrer, comme l'ajout le faisait
   déjà (relevé par la même revue).

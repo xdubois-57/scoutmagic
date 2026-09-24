@@ -56,6 +56,36 @@ final class DirectLinkAccessTest extends TestCase
         $this->assertSame($document->id, $file->ownerId);
     }
 
+    /**
+     * A new document's file is stored closed and opened only once owned:
+     * between the upload (and its PDF compression) and the ownership,
+     * an unlisted document's file must not be a plain public file.
+     */
+    public function testANewFileIsStoredClosedUntilOwned(): void
+    {
+        $roles = [];
+        $spy = new class ($this->pdo, $roles) extends FileRepository {
+            /** @param list<array{string, ?string}> $seen */
+            public function __construct(\PDO $pdo, private array &$seen)
+            {
+                parent::__construct($pdo);
+            }
+
+            public function updateOwner(int $id, string $ownerType, int $ownerId): void
+            {
+                $file = $this->findById($id);
+                $this->seen[] = [(string) $file?->roleMin, $file?->ownerType];
+                parent::updateOwner($id, $ownerType, $ownerId);
+            }
+        };
+        $service = DocumentsTestHelper::service($this->pdo, $this->storage, $spy);
+
+        $document = $service->create('PV AG', null, 'direct_link', DocumentsTestHelper::upload(), null);
+
+        $this->assertSame([['admin', null]], $roles, 'The file was reachable before it had an owner.');
+        $this->assertSame('public', DocumentsTestHelper::fileRoleMin($this->pdo, $document->fileId));
+    }
+
     public function testAReplacementFileIsOwnedByItsDocumentToo(): void
     {
         $document = $this->service->create('ROI', null, 'direct_link', DocumentsTestHelper::upload(), null);
