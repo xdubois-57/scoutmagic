@@ -2147,6 +2147,35 @@ class RentalManagementControllerTest extends TestCase
     }
 
     /**
+     * **Every status decision is offered once, on the whole page** — in the
+     * heading, never again in a step. The case that broke it: a confirmed
+     * booking whose next step is a link (« Préparer le contrat »), so the
+     * heading puts forward a link and offers closing and cancelling among
+     * the others, while the « Location clôturée » step further down offered
+     * them a second time.
+     */
+    public function testEveryStatusDecisionIsOfferedOnceOnThePage(): void
+    {
+        $this->loginAsManager();
+        $undecided = $this->createBooking();
+        $confirmed = $this->createBooking(null, 'LOC-2027-0002');
+        $this->confirm($confirmed);
+
+        foreach ([$undecided, $confirmed] as $booking) {
+            $booking = $this->bookingRepository->findById($booking->id);
+            $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+
+            foreach (\Modules\Rental\Booking\BookingTransition::allowedFrom($booking->status) as $to) {
+                $this->assertSame(
+                    1,
+                    substr_count($body, 'name="status" value="' . $to->value . '"'),
+                    "{$booking->status->value}: « {$to->value} » is not offered exactly once"
+                );
+            }
+        }
+    }
+
+    /**
      * The form is never the boundary: a hand-made POST for a derived step,
      * for a walk-through the stay page keeps, or for a stretch not reached
      * yet stores nothing.

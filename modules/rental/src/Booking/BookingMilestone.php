@@ -17,16 +17,14 @@ namespace Modules\Rental\Booking;
  * checklist nobody can finish is one nobody reads.
  *
  * **How the line gets ticked is part of the line** (issue #462, D6): its
- * nature, the sentence saying what it asks, the one action that moves it on
- * and the other decisions beside that one. Without them the page could say
+ * nature, the sentence saying what it asks, and the one action that moves
+ * it on. The other decisions still open are the booking's, not a line's:
+ * `BookingJourney::otherDecisions()` offers them once, in the heading. Without them the page could say
  * that a line was unticked, but not whether that was the manager's to do,
  * the renter's, or nobody's but the site's.
  */
 final class BookingMilestone
 {
-    /**
-     * @param list<MilestoneAction> $alternatives
-     */
     public function __construct(
         public readonly string $key,
         public readonly string $label,
@@ -42,9 +40,7 @@ final class BookingMilestone
          * nor a cancellation. Null when there is nothing to press: the
          * line derives itself, waits on the renter, or is ticked by hand.
          */
-        public readonly ?MilestoneAction $action = null,
-        /** The other decisions this line can be answered with. */
-        public readonly array $alternatives = []
+        public readonly ?MilestoneAction $action = null
     ) {
     }
 }

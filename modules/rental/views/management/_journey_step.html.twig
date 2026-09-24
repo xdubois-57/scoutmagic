@@ -59,27 +59,21 @@
         {% endif %}
 
         {#
-          The step that heads the journey has its action up there already:
-          offering the same button twice is a page where pressing either is
-          a guess about which one counts.
+          A step offers only the WAY to where it is done — a page, a box.
+          Every status decision lives in the journey's heading, the proposed
+          one and the others behind it, and nowhere else: one page offering
+          « Clôturer la location » twice is a page where pressing either is
+          a guess about which one counts. The step heading the journey has
+          its way up there already.
         #}
-        {% if state == 'todo' and not future and milestone.kind.value == 'here' and not is_next %}
-            {% if milestone.action or milestone.alternatives is not empty %}
-                <div class="d-flex flex-wrap gap-2 mt-2">
-                    {% if milestone.action %}
-                        {% include '@rental/management/_milestone_action.html.twig' with {
-                            action: milestone.action, primary: true, small: true,
-                            asset: asset, booking: booking, booking_url: booking_url, renter_decisions: renter_decisions,
-                        } only %}
-                    {% endif %}
-                    {% for alternative in milestone.alternatives %}
-                        {% include '@rental/management/_milestone_action.html.twig' with {
-                            action: alternative, small: true,
-                            asset: asset, booking: booking, booking_url: booking_url, renter_decisions: renter_decisions,
-                        } only %}
-                    {% endfor %}
-                </div>
-            {% endif %}
+        {% if state == 'todo' and not future and milestone.kind.value == 'here' and not is_next
+            and milestone.action and milestone.action.box %}
+            <div class="mt-2">
+                {% include '@rental/management/_milestone_action.html.twig' with {
+                    action: milestone.action, small: true,
+                    asset: asset, booking: booking, booking_url: booking_url, renter_decisions: renter_decisions,
+                } only %}
+            </div>
         {% endif %}
 
         {% if milestone.kind.isMarkable and state != 'na' %}

@@ -172,7 +172,6 @@ final class BookingMilestones
         $kind = MilestoneKind::DERIVED;
         $explanation = null;
         $action = null;
-        $alternatives = [];
 
         switch ($m->key) {
             case 'hold':
@@ -184,7 +183,7 @@ final class BookingMilestones
                 $kind = MilestoneKind::HERE;
                 $explanation = 'Répondez au locataire : confirmez la réservation, faites-lui une proposition, '
                     . 'demandez-lui une précision, ou refusez.';
-                [$action, $alternatives] = self::decisions($status, BookingStatus::CONFIRMED);
+                $action = self::forward($status, BookingStatus::CONFIRMED);
                 break;
             case self::CONTRACT_SENT:
                 $kind = MilestoneKind::HERE;
@@ -235,7 +234,7 @@ final class BookingMilestones
             case 'closed':
                 $kind = MilestoneKind::HERE;
                 $explanation = 'Clôturez la location quand tout est réglé.';
-                [$action, $alternatives] = self::decisions($status, BookingStatus::CLOSED);
+                $action = self::forward($status, BookingStatus::CLOSED);
                 break;
         }
 
@@ -247,37 +246,22 @@ final class BookingMilestones
             $m->detail,
             $kind,
             $explanation,
-            $action,
-            $alternatives
+            $action
         );
     }
 
     /**
-     * The transition that answers a line and moves the booking on, and the
-     * other transitions still open beside it (D7).
-     *
-     * The proposed one is only ever `$forward`, and only while the table
-     * allows it: when it does not, there is nothing to propose rather than
-     * a refusal promoted to the front. Everything else the table offers is
-     * an alternative — refusing and cancelling included, since they are
-     * real answers, just never the one put forward.
-     *
-     * @return array{0: ?MilestoneAction, 1: list<MilestoneAction>}
+     * The transition that answers a line and moves the booking on (D7):
+     * only ever `$forward`, and only while the table allows it — when it
+     * does not, there is nothing to propose rather than a refusal promoted
+     * to the front. Refusing and cancelling stay real answers, offered
+     * among the booking's other decisions (`BookingJourney`).
      */
-    private static function decisions(BookingStatus $status, BookingStatus $forward): array
+    private static function forward(BookingStatus $status, BookingStatus $forward): ?MilestoneAction
     {
-        $action = null;
-        $alternatives = [];
-
-        foreach (BookingTransition::allowedFrom($status) as $to) {
-            if ($to === $forward) {
-                $action = MilestoneAction::transition($to, $status);
-                continue;
-            }
-            $alternatives[] = MilestoneAction::transition($to, $status);
-        }
-
-        return [$action, $alternatives];
+        return BookingTransition::isAllowed($status, $forward)
+            ? MilestoneAction::transition($forward, $status)
+            : null;
     }
 
     /**

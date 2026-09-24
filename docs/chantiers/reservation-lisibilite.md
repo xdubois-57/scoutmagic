@@ -250,11 +250,17 @@ des reports.
    signé était encore à la poste doit pouvoir voir son état des lieux
    coché. Le premier jet verrouillait tout ce qui suivait la phase en
    cours, et les tests l'ont attrapé sur ce cas exact.
-3. **L'action de l'étape en tête n'est pas répétée dans la frise.** La
-   maquette montre le bouton deux fois (en-tête et étape) ; deux boutons
-   « Confirmer la réservation » sur une page sont une page où appuyer sur
-   l'un ou l'autre est un pari sur celui qui compte. L'étape garde sa
-   phrase ; l'en-tête porte le bouton.
+3. **Chaque décision de statut n'apparaît qu'une fois, dans l'en-tête.**
+   La maquette montre le bouton deux fois (en-tête et étape) ; deux
+   boutons « Confirmer la réservation » sur une page sont une page où
+   appuyer sur l'un ou l'autre est un pari sur celui qui compte. Les
+   transitions vivent donc toutes dans l'en-tête — l'action proposée et
+   les « Autres décisions » —, et une étape de la frise n'offre que le
+   chemin vers la page où elle se règle. La relecture de #477 a trouvé le
+   cas qui la violait : une réservation confirmée dont l'action proposée
+   est un lien offrait « Clôturer la location » et « Annuler la
+   réservation » deux fois ; un test compte désormais chaque bouton de
+   transition sur la page rendue.
 4. **Pour une étape dérivée ou en attente du locataire, l'en-tête mène à la
    page où la réponse apparaîtra** (« Voir les paiements », « Voir les
    documents ») : l'étape elle-même reste sans contrôle (D6).
