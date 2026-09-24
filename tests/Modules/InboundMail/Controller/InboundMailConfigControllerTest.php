@@ -368,6 +368,34 @@ class InboundMailConfigControllerTest extends TestCase
         );
     }
 
+    /**
+     * A box is the same box under another name: renaming one of the two
+     * from its edit form leaves the conflict as it was, and it is not
+     * written again.
+     */
+    public function testRenamingABoxOfAnExistingConflictDoesNotJournalItAgain(): void
+    {
+        $this->post(['purpose' => MailboxPurpose::DEDICATED->value, 'dedicated_to' => 'rental']);
+        $chalet = $this->disabledBoxDedicatedTo('rental', 'Boîte du chalet');
+        $this->toggle($chalet, true);
+        $this->assertSame(1, $this->conflictEntries());
+
+        $this->controller->save(new Request('POST', '/config/courrier-entrant/boites', [], [
+            '_csrf_token' => $this->token(),
+            'id' => (string) $chalet,
+            'name' => 'Chalet du bois',
+            'host' => 'imap.test',
+            'port' => '993',
+            'encryption' => 'ssl',
+            'username' => 'chalet@unite.be',
+            'folders' => 'INBOX',
+            'is_enabled' => '1',
+        ], [], []), []);
+
+        $this->assertSame('Chalet du bois', $this->mailboxes->findById($chalet)?->name);
+        $this->assertSame(1, $this->conflictEntries());
+    }
+
     public function testOneDedicatedBoxPerModuleIsNoConflict(): void
     {
         $this->post(['purpose' => MailboxPurpose::DEDICATED->value, 'dedicated_to' => 'rental']);

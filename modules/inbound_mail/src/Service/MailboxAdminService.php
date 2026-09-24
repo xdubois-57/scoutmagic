@@ -82,7 +82,9 @@ class MailboxAdminService
 
     /**
      * The modules several enabled boxes are dedicated to at once, keyed by
-     * consumer id, each with the names of those boxes (issue #462).
+     * consumer id, each with those boxes as id => name (issue #462). The
+     * ids are what a comparison holds on to — a box renamed is the same
+     * box — and the names what a person reads.
      *
      * A module has a box of its own only when exactly one is dedicated to
      * it; with two it has none, and the screens that exist for that box —
@@ -90,14 +92,14 @@ class MailboxAdminService
      * rule rather than an arbitrary pick between the two, and the list of
      * boxes is where the operator learns why.
      *
-     * @return array<string, list<string>>
+     * @return array<string, array<int, string>>
      */
     public function dedicationConflicts(): array
     {
         $byConsumer = [];
         foreach ($this->repository->findAll() as $mailbox) {
             if ($mailbox->isEnabled && $mailbox->isDedicated()) {
-                $byConsumer[(string) $mailbox->dedicatedTo][] = $mailbox->name;
+                $byConsumer[(string) $mailbox->dedicatedTo][$mailbox->id] = $mailbox->name;
             }
         }
 

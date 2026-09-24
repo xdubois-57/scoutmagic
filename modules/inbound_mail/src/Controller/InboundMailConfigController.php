@@ -249,7 +249,7 @@ class InboundMailConfigController extends AbstractController
      * The conflicts as the screen and the journal say them: the module by
      * its name, the boxes by theirs.
      *
-     * @param array<string, list<string>> $conflicts
+     * @param array<string, array<int, string>> $conflicts
      * @return list<array{module: string, boxes: list<string>}>
      */
     private function namedConflicts(array $conflicts): array
@@ -258,7 +258,7 @@ class InboundMailConfigController extends AbstractController
         foreach ($conflicts as $consumerId => $boxes) {
             $named[] = [
                 'module' => $this->consumerRegistry?->find($consumerId)?->displayName() ?? $consumerId,
-                'boxes' => $boxes,
+                'boxes' => array_values($boxes),
             ];
         }
 
@@ -266,20 +266,22 @@ class InboundMailConfigController extends AbstractController
     }
 
     /**
-     * Journals the conflicts a change CREATED — a module that had one box
-     * of its own, or a different set of boxes, before it: that is the
-     * configuration a support request will need explained from a distance
-     * (« la page Courrier a disparu »), and the journal is where that
-     * answer is read. A conflict the change left as it was is not written
-     * again: one entry per change that made it, not one per later save.
+     * Journals the conflicts a change CREATED — a box that joined one, by
+     * being dedicated or enabled: that is the configuration a support
+     * request will need explained from a distance (« la page Courrier a
+     * disparu »), and the journal is where that answer is read. Compared by
+     * box id, so a conflict the change left as it was — a box renamed, one
+     * of three boxes taken out — is not written again: one entry per change
+     * that made it, not one per later save.
      *
-     * @param array<string, list<string>> $before the conflicts before the change
+     * @param array<string, array<int, string>> $before the conflicts before the change
      */
     private function journalNewDedicationConflicts(array $before): void
     {
         $created = array_filter(
             $this->adminService->dedicationConflicts(),
-            static fn(array $boxes, string $consumerId): bool => ($before[$consumerId] ?? []) !== $boxes,
+            static fn(array $boxes, string $consumerId): bool
+                => array_diff_key($boxes, $before[$consumerId] ?? []) !== [],
             ARRAY_FILTER_USE_BOTH
         );
 

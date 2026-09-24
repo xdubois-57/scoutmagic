@@ -87,7 +87,7 @@ class MailboxAdminServiceTest extends TestCase
 
         $this->repository->setPurpose($chalet, \Modules\InboundMail\Api\MailboxPurpose::DEDICATED, 'rental');
 
-        $this->assertSame(['rental' => ['Chalet', 'Locations']], $this->service->dedicationConflicts());
+        $this->assertSame(['rental' => [$chalet => 'Chalet', $locations => 'Locations']], $this->service->dedicationConflicts());
     }
 
     // ── Several boxes at once (§7.4) ────────────────────────────────────
