@@ -277,4 +277,90 @@ class ModuleSpecificationCoverageTest extends TestCase
     {
         return (string) file_get_contents(dirname(__DIR__, 2) . '/' . $relativePath);
     }
+
+    /**
+     * The document's numbering is a promise about its order.
+     *
+     * §18.5 sat before §18.4 (#488). Nothing broke, and that is the point:
+     * a reader descending §18 for §18.4 walks past §18.5 and concludes
+     * they have gone too far. A reference document that numbers its
+     * sections has promised they follow, and the only cost of breaking
+     * that promise is paid by whoever is looking something up.
+     *
+     * Written for the WHOLE document rather than for §18, because the one
+     * out-of-order pair was found by eye during an unrelated review — and
+     * an eye that found one is not a method that finds the next.
+     *
+     * A `bis` suffix sorts immediately after the number it extends — a
+     * `3bis` follows a `3` and precedes a `4`, which is what the suffix
+     * means here.
+     *
+     * No example here carries the section sign, and that is deliberate:
+     * `Tests\Architecture\CrossReferenceResolutionRatchetTest` reads this
+     * file and takes any sign-plus-number in a comment for a real
+     * reference, then looks for the section it names. It rejected this
+     * docblock's first draft — and then the sentence written to explain
+     * the rejection, which quoted the offending example to warn about it.
+     */
+    public function testEverySectionAndSubsectionIsWrittenInNumericalOrder(): void
+    {
+        $specs = $this->read('specifications.md');
+        $outOfOrder = [];
+        $seen = 0;
+
+        // Major sections: `## 18. …`
+        preg_match_all('/^## (\d+)\./m', $specs, $majors);
+        $previous = null;
+        foreach ($majors[1] as $number) {
+            $seen++;
+            $current = (int) $number;
+            if ($previous !== null && $current < $previous) {
+                $outOfOrder[] = sprintf('§%d is written after §%d', $current, $previous);
+            }
+            $previous = $current;
+        }
+
+        // Subsections, compared only against their own parent: `### 18.4 …`
+        preg_match_all('/^### (\d+)\.(\d+)(bis|ter)?/m', $specs, $minors, PREG_SET_ORDER);
+        $previousBySection = [];
+        foreach ($minors as $heading) {
+            $seen++;
+            $section = (int) $heading[1];
+            $rank = [(int) $heading[2], $heading[3] ?? ''];
+            $before = $previousBySection[$section] ?? null;
+
+            if ($before !== null && ($rank[0] < $before[0] || ($rank[0] === $before[0] && $rank[1] < $before[1]))) {
+                $outOfOrder[] = sprintf(
+                    '§%d.%s%s is written after §%d.%s%s',
+                    $section,
+                    $rank[0],
+                    $rank[1],
+                    $section,
+                    $before[0],
+                    $before[1]
+                );
+            }
+
+            $previousBySection[$section] = $rank;
+        }
+
+        $this->assertSame(
+            [],
+            $outOfOrder,
+            "specifications.md numbers its sections, which promises they follow one another.\n"
+                . "Move the block rather than renumbering it: the numbers are cited from the\n"
+                . "document itself and from the code, so a swap makes every one of those\n"
+                . "references wrong at once (#488).\n\n"
+                . implode("\n", $outOfOrder)
+        );
+
+        // A floor under the scan: the assertion above is `assertSame([], …)`,
+        // which an expression that stopped matching would satisfy for ever.
+        $this->assertGreaterThanOrEqual(
+            250,
+            $seen,
+            'the heading scan reads far less of specifications.md than the document holds, '
+                . 'so the order above was checked against almost nothing'
+        );
+    }
 }
