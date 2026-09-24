@@ -16,6 +16,23 @@ class SchedulerRepository
      */
     private const LIKE_ESCAPE = '!';
 
+    /**
+     * How long a row may sit in 'processing' before reclaimAbandoned()
+     * treats it as stranded rather than working.
+     *
+     * Six hours, and the number is chosen from the other end: the longest
+     * task this repository ships — a full backup of an installation with
+     * its gallery, or an update install — is measured in minutes on a slow
+     * shared host, not in hours. The gap between the two is the margin,
+     * and it is wide on purpose. Reclaiming a task that is genuinely still
+     * running starts a SECOND copy of it beside the first, and for
+     * `InstallUpdateHandler` that is two processes copying an extracted
+     * archive over the live install at once — the interleaved partial
+     * write claimOverdue()'s own docblock exists to describe. Six hours of
+     * a frozen chain is a delay; two concurrent installs is a broken site.
+     */
+    private const RECLAIM_AFTER_HOURS = 6;
+
     public function __construct(private \PDO $pdo)
     {
     }
@@ -337,12 +354,17 @@ class SchedulerRepository
             return [];
         }
 
+        // `claimed_at` is stamped by the claim itself, in the same
+        // statement: a row that is 'processing' without knowing since when
+        // cannot be told apart from one that is abandoned, which is the
+        // whole of what reclaimAbandoned() below has to decide.
         $claimStmt = $this->pdo->prepare(
-            "UPDATE scheduled_actions SET status = 'processing' WHERE id = ? AND status = 'pending'"
+            "UPDATE scheduled_actions SET status = 'processing', claimed_at = ?"
+            . " WHERE id = ? AND status = 'pending'"
         );
         $claimedIds = [];
         foreach ($candidateIds as $id) {
-            $claimStmt->execute([(int) $id]);
+            $claimStmt->execute([$now, (int) $id]);
             if ($claimStmt->rowCount() === 1) {
                 $claimedIds[] = (int) $id;
             }
@@ -374,9 +396,77 @@ class SchedulerRepository
     public function release(int $id): void
     {
         $stmt = $this->pdo->prepare(
-            "UPDATE scheduled_actions SET status = 'pending' WHERE id = ? AND status = 'processing'"
+            "UPDATE scheduled_actions SET status = 'pending', claimed_at = NULL"
+            . " WHERE id = ? AND status = 'processing'"
         );
         $stmt->execute([$id]);
+    }
+
+    /**
+     * Hand back the rows that were claimed and never finished.
+     *
+     * A claim has exactly three ways out — done, failed, released — and a
+     * handler killed outright takes none of them. The process is gone, so
+     * the `finally` that re-arms the chain does not run either: the row
+     * stays 'processing', `hasLive()` counts it as a live chain, and
+     * `SchedulerService::seed()` therefore never re-seeds. Nothing is
+     * logged, nothing fails, and the task simply stops happening — which
+     * for a retention purge means data kept past its retention with
+     * nothing anywhere saying so.
+     *
+     * **The threshold is deliberately generous.** A long task is a
+     * legitimate reason for a row to sit in 'processing' across several
+     * passes — a full backup, an update install — and a reaper that
+     * reclaimed one of those would start a second copy of it beside the
+     * first, which is worse than the silence it is fixing.
+     * `RECLAIM_AFTER_HOURS` is set well beyond the longest task this
+     * repository ships rather than close to it.
+     *
+     * `COALESCE(claimed_at, run_at)`: a row claimed before that column
+     * existed carries NULL, and `run_at` is the only timestamp such a row
+     * has. It is the wrong question — "when was this due" rather than
+     * "since when has it been held" — and it errs on the side of
+     * reclaiming, which is the right direction for rows that have by
+     * definition been stranded since before the migration.
+     *
+     * Reclaimed one row at a time under the same `AND status =
+     * 'processing'` guard `claimOverdue()` uses, so a pass that reclaims
+     * while another finishes the very same task cannot resurrect a row
+     * that has just been marked done.
+     *
+     * @return array<int, array<string, mixed>> the rows actually reclaimed
+     */
+    public function reclaimAbandoned(): array
+    {
+        $threshold = (new \DateTimeImmutable())
+            ->sub(new \DateInterval('PT' . self::RECLAIM_AFTER_HOURS . 'H'))
+            ->format('Y-m-d H:i:s');
+
+        $candidateStmt = $this->pdo->prepare(
+            "SELECT id, module_id, task_key FROM scheduled_actions"
+            . " WHERE status = 'processing' AND COALESCE(claimed_at, run_at) <= ?"
+        );
+        $candidateStmt->execute([$threshold]);
+        $candidates = $candidateStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+        if ($candidates === []) {
+            return [];
+        }
+
+        $reclaimStmt = $this->pdo->prepare(
+            "UPDATE scheduled_actions SET status = 'pending', claimed_at = NULL"
+            . " WHERE id = ? AND status = 'processing'"
+        );
+
+        $reclaimed = [];
+        foreach ($candidates as $candidate) {
+            $reclaimStmt->execute([(int) $candidate['id']]);
+            if ($reclaimStmt->rowCount() === 1) {
+                $reclaimed[] = $candidate;
+            }
+        }
+
+        return $reclaimed;
     }
 
     /**
@@ -401,7 +491,7 @@ class SchedulerRepository
     {
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
-            "UPDATE scheduled_actions SET status = 'done', executed_at = ? WHERE id = ?"
+            "UPDATE scheduled_actions SET status = 'done', executed_at = ?, claimed_at = NULL WHERE id = ?"
         );
         $stmt->execute([$now, $id]);
     }
@@ -409,7 +499,8 @@ class SchedulerRepository
     public function markFailed(int $id, string $error): void
     {
         $stmt = $this->pdo->prepare(
-            "UPDATE scheduled_actions SET status = 'failed', last_error = ?, attempts = attempts + 1 WHERE id = ?"
+            "UPDATE scheduled_actions SET status = 'failed', last_error = ?, attempts = attempts + 1,"
+            . " claimed_at = NULL WHERE id = ?"
         );
         $stmt->execute([$error, $id]);
     }

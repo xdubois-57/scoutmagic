@@ -567,7 +567,8 @@ class DatabaseTestHelper
             last_error TEXT,
             requested_by_user_account_id INTEGER,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            executed_at TEXT
+            executed_at TEXT,
+            claimed_at TEXT
         )');
 
         $pdo->exec('CREATE TABLE push_subscriptions (

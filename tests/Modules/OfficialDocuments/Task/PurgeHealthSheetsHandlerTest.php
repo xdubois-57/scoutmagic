@@ -401,13 +401,20 @@ final class PurgeHealthSheetsHandlerTest extends TestCase
      * Core's own `scheduled_actions`, with the foreign key stripped —
      * `user_accounts` is not migrated into this shared database, and the
      * column is never set by a self-rescheduling task anyway.
+     *
+     * The `--` lines go first, and that is not tidiness: the statement was
+     * sliced at the first `;` after `CREATE TABLE`, and core's schema
+     * explains its columns in prose. The day one of those sentences ended
+     * with a semicolon, the slice stopped mid-column and every test in
+     * this file died on a syntax error pointing at a line that reads
+     * perfectly well. A comment is not a statement terminator.
      */
     private static function scheduledActionsTable(): string
     {
         $sql = (string) file_get_contents(dirname(__DIR__, 4) . '/schema/core.sql');
-        $start = strpos($sql, 'CREATE TABLE scheduled_actions (');
-        $end = strpos($sql, ';', (int) $start);
-        $statement = substr($sql, (int) $start, (int) $end - (int) $start);
+        $body = substr($sql, (int) strpos($sql, 'CREATE TABLE scheduled_actions ('));
+        $body = (string) preg_replace('/^[ \t]*--[^\n]*\n/m', '', $body);
+        $statement = substr($body, 0, (int) strpos($body, ';'));
 
         return (string) preg_replace('/,\s*\n\s*CONSTRAINT fk_sa_requested_by[^\n]*\n/', "\n", $statement);
     }
