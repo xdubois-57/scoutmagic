@@ -253,7 +253,28 @@ class RentalDocumentRepository implements AttachedFileRepository
         return $body === false ? null : (string) $body;
     }
 
-    public function saveText(int $bookingId, DocumentType $type, string $bodyHtml): void
+    /**
+     * Write a document's source text, unless it has already gone out.
+     *
+     * The lock is carried BY THE WRITE, and that is the whole point. The
+     * service checks `textIsLocked()` first — for the banner, and for a
+     * refusal in French rather than a silent no-op — but a check standing
+     * apart from its write is a TOCTOU: between the two, a second manager
+     * pressing « Envoyer » writes `sent_at`, and both succeed. The tenant
+     * then holds a PDF whose source says something else, with nothing on
+     * screen to say so (#405).
+     *
+     * `NOT EXISTS` inside the UPDATE closes that window without storing
+     * anything: InnoDB evaluates it as a locking read at write time, and
+     * SQLite serialises writers outright. The lock therefore stays
+     * DERIVED from the sent documents, which is what this module does
+     * everywhere else (ARCHITECTURE.md §8.53) — issue #405 proposed a
+     * `locked_at` column and regretted both of its costs, a schema change
+     * and that lost derivation. Neither is needed.
+     *
+     * @return bool false when the text was already sent and nothing was written
+     */
+    public function saveText(int $bookingId, DocumentType $type, string $bodyHtml): bool
     {
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
 
@@ -261,6 +282,9 @@ class RentalDocumentRepository implements AttachedFileRepository
         // identically on MySQL and on the SQLite test database, whose
         // conflict syntaxes differ.
         if ($this->findText($bookingId, $type) === null) {
+            // A text that does not exist yet cannot have been sent: a
+            // document is generated FROM this row, so there is no window
+            // to close here.
             $stmt = $this->pdo->prepare(
                 'INSERT INTO rental_booking_document_texts
                     (booking_id, document_type, body_html, created_at, updated_at)
@@ -268,14 +292,22 @@ class RentalDocumentRepository implements AttachedFileRepository
             );
             $stmt->execute([$bookingId, $type->value, $bodyHtml, $now, $now]);
 
-            return;
+            return true;
         }
 
         $stmt = $this->pdo->prepare(
             'UPDATE rental_booking_document_texts SET body_html = ?, updated_at = ?
-             WHERE booking_id = ? AND document_type = ?'
+             WHERE booking_id = ? AND document_type = ?
+               AND NOT EXISTS (
+                   SELECT 1 FROM rental_documents d
+                   WHERE d.booking_id = rental_booking_document_texts.booking_id
+                     AND d.document_type = rental_booking_document_texts.document_type
+                     AND d.sent_at IS NOT NULL
+               )'
         );
         $stmt->execute([$bodyHtml, $now, $bookingId, $type->value]);
+
+        return $stmt->rowCount() > 0;
     }
 
     private function selectWithFile(): string

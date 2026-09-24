@@ -452,6 +452,68 @@ class RentalDocumentServiceTest extends TestCase
     }
 
     /**
+     * The window between the check and the write, closed.
+     *
+     * Two managers on one booking: A opens the editor and saves, B presses
+     * « Envoyer ». If A's `textIsLocked()` runs before B writes `sent_at`,
+     * both used to succeed — the tenant holding a PDF whose source had
+     * since moved on, with nothing on screen saying so (#405).
+     *
+     * The interleaving is reproduced by going STRAIGHT TO THE WRITE, which
+     * is what A's request does once its check has passed: the send lands
+     * in between, and the write must refuse by itself. Calling
+     * `saveBookingText()` here would prove the check, not the lock, and
+     * the check was never the broken half.
+     */
+    public function testAWriteThatWonTheRaceAgainstTheSendIsStillRefused(): void
+    {
+        $booking = $this->createBooking();
+        $this->setTemplate('<p>x</p>');
+        $document = $this->service->generate($booking, $this->asset(), DocumentType::CONTRACT, $this->settings());
+
+        // A's check has passed: nothing is sent yet.
+        $this->assertFalse($this->service->textIsLocked($booking, DocumentType::CONTRACT));
+
+        // B's send lands in the window.
+        $this->service->markSent($document->id, new \DateTimeImmutable());
+
+        // A's write, arriving after it, refuses itself.
+        $this->assertFalse(
+            $this->documentRepository->saveText($booking->id, DocumentType::CONTRACT, '<p>Écrit trop tard.</p>'),
+            'a write reaching the database after the send must refuse itself, whatever was checked before'
+        );
+
+        $kept = $this->documentRepository->findText($booking->id, DocumentType::CONTRACT);
+        $this->assertNotNull($kept);
+        $this->assertStringNotContainsString(
+            'Écrit trop tard',
+            $kept,
+            'and the source the tenant\'s PDF was made from is untouched'
+        );
+    }
+
+    /**
+     * The same write, before the send, still lands.
+     *
+     * Without this the fix above could be « refuse everything », which no
+     * failing test would notice.
+     */
+    public function testAWriteThatArrivedBeforeTheSendStillLands(): void
+    {
+        $booking = $this->createBooking();
+        $this->setTemplate('<p>x</p>');
+        $this->service->generate($booking, $this->asset(), DocumentType::CONTRACT, $this->settings());
+
+        $this->assertTrue(
+            $this->documentRepository->saveText($booking->id, DocumentType::CONTRACT, '<p>Écrit à temps.</p>')
+        );
+
+        $kept = $this->documentRepository->findText($booking->id, DocumentType::CONTRACT);
+        $this->assertNotNull($kept);
+        $this->assertStringContainsString('Écrit à temps', $kept);
+    }
+
+    /**
      * The hole under the lock: `textIsLocked()` asks whether a document of
      * this type carries a `sent_at`, so deleting the only sent contract
      * unlocked its source text again — while the renter still held the PDF
