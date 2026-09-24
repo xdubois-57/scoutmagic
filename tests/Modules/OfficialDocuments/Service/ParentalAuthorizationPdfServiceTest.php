@@ -115,6 +115,12 @@ final class ParentalAuthorizationPdfServiceTest extends TestCase
      * Nothing is written to disk — the chantier's rule, and the one that
      * matters on shared hosting where a temporary file is a file somebody
      * else's process can read.
+     *
+     * What is asserted is that no entry APPEARED. The temporary directory
+     * is shared with every other process on the machine, and comparing it
+     * whole failed the CI whenever the runner removed one of its own files
+     * (`runc-process…`) while this test ran: a file somebody else deleted
+     * says nothing about what the renderer wrote.
      */
     public function testNothingIsWrittenToDisk(): void
     {
@@ -128,7 +134,7 @@ final class ParentalAuthorizationPdfServiceTest extends TestCase
             new \DateTimeImmutable('2026-09-20')
         );
 
-        $this->assertSame($before, self::temporaryFiles());
+        $this->assertSame([], array_values(array_diff(self::temporaryFiles(), $before)));
     }
 
     /**
