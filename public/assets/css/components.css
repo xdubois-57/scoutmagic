@@ -1198,6 +1198,10 @@
    règle et la partage ici plutôt que d'en écrire une deuxième copie : ce
    sont deux noms pour une seule mise en page, et deux copies dériveraient
    à la première retouche.
+
+   Le sélecteur de recherche générique (partials/search_picker.html.twig)
+   la reprend aussi : sa liste pend sous le champ de recherche, dans un
+   conteneur relatif qui n'entoure que ce champ.
    --------------------------------------------------------------------- */
 .receivable-picker,
 .stay-picker {
@@ -1205,7 +1209,8 @@
 }
 
 .receivable-picker__results,
-.stay-picker__results {
+.stay-picker__results,
+.search-picker__results {
     position: absolute;
     top: 100%;
     left: 0;
