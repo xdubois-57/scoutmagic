@@ -238,7 +238,7 @@ class RentalMenuHookServiceTest extends TestCase
         $this->assertContains('/mes-locations', $urls);
     }
 
-    public function testMesLocationsIsGatedOnIdentifiedAndSitsInEspaceAnimes(): void
+    public function testGererMesLocationsIsGatedOnIdentifiedAndSitsInLUnite(): void
     {
         $asset = $this->createAsset('Local', 'local', false);
         $this->managerRepository->grant($asset, 1, false);
@@ -246,8 +246,11 @@ class RentalMenuHookServiceTest extends TestCase
         $entries = $this->hook(['manager@example.org' => [1]])->getMenuEntries('manager@example.org');
 
         $this->assertCount(1, $entries, 'A non-public asset contributes no public entry.');
-        $this->assertSame('Mes locations', $entries[0]->label);
+        $this->assertSame('Gérer mes locations', $entries[0]->label);
         $this->assertSame(MenuBuilder::MENU_ESPACE_ANIMES, $entries[0]->menuId);
+        // Managing an asset of the unit is a responsibility held FOR the
+        // unit (docs/chantiers/covoiturage.md, IT-06).
+        $this->assertSame('unite', $entries[0]->menuGroup);
         $this->assertSame('identified', $entries[0]->roleMin);
     }
 

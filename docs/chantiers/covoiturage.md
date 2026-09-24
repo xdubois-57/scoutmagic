@@ -355,3 +355,54 @@ dans l'ICS**).
 4. **Aucun nom propre accordé au genre** dans les messages (« Famille Leroy
    a retiré sa demande » plutôt que « s'est désistée ») : le nom du
    demandeur n'est pas toujours « Famille … ».
+
+---
+
+## IT-06 — Les menus, et deux corrections qu'ils entraînent
+
+**Livré.** `MenuBuilder::MENU_GROUPS` déclare `activites` pour l'Espace
+membres, entre `mes_membres` et `unite`. Les deux entrées du module (D2) :
+« Covoiturage » (Espace membres › Activités, `menu_order` 25) et « Organiser
+les covoiturages » (Espace animateurs › Activités, 80) ; version 1.2.0.
+« Photos » passe de `unite` à `activites` (gallery 1.13.0). « Mes
+locations » devient « Gérer mes locations » et passe dans « L'unité », avec
+le commentaire de `RentalMenuHookService` réécrit ; `/admin/locations`
+devient « Biens à louer » (titre, en-tête, fil d'Ariane) ; rental 1.27.0 (1.25.0 et 1.26.0 ont été pris entre-temps par #477 et #480).
+Les sujets d'aide des locations suivent (« Gérer mes locations », « Biens à
+louer »), et ceux du covoiturage portent les libellés de leurs entrées.
+`specifications.md` §45 (les deux pages, le modèle à trois objets, les deux
+extractions vers le cœur), `ARCHITECTURE.md` et `design.md` mis à jour. Les
+deux entrées ont leur ligne dans les tableaux de menus de
+`specifications.md` (§4.2 et §4.3), et « Biens à louer » remplace
+« Gérer les locations » en §4.4 : `ModuleSpecificationCoverageTest`, arrivé
+sur `main` avec #476 pendant le chantier, exige une ligne pour toute entrée
+de menu qu'un module ajoute.
+
+L'Espace membres rend désormais : **Mes membres** (entrées dynamiques,
+Notifications) · **Activités** (Photos, Covoiturage) · **L'unité** (Les
+animateurs, Discussions, Gérer mes locations).
+
+**Tests.** `EspaceMembresGroupsTest` (les trois colonnes et leur contenu,
+les deux entrées du covoiturage sous deux libellés dans deux menus, « Biens à
+louer » à la place de « Gérer les locations », une colonne sans entrée
+visible pour le rôle ne rend pas son titre) ; le RBAC des deux pages est
+celui de `CovoiturageRbacTest` (IT-04) ; `MenuMockupTest`,
+`RentalMenuHookServiceTest`, le test de version de `rental` et celui du
+fil d'Ariane d'une réservation (arrivé avec #475, qui attendait encore
+« Mes locations ») suivent.
+
+**Décisions autonomes.**
+
+1. **La maquette des menus est mise à jour** (`maquette-menus.jsx`, état
+   « après ») : `MenuMockupTest` la lit comme valeur attendue, et c'est ce
+   document de chantier qui décide la nouvelle structure. Elle dessine
+   maintenant vingt colonnes. « Gérer mes locations » reste hors dessin,
+   comme « Mes locations » avant lui : l'entrée n'apparaît qu'à un
+   gestionnaire.
+2. **Les ordres de menu** : l'ordre du menu mobile suit `menu_order` sur
+   toute la liste, colonnes enchaînées. « Photos » passe de 40 à 20 et
+   « Covoiturage » prend 25 pour précéder « Les animateurs » (30) ; « Gérer
+   mes locations » prend 60, après « Discussions » (50).
+3. **Les titres de sujets d'aide des locations** reprennent les libellés
+   de menu : « Gérer les locations d'un bien » devient « Gérer mes
+   locations », « Créer les biens à louer » devient « Biens à louer ».

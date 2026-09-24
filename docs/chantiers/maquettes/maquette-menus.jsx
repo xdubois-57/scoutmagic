@@ -55,10 +55,13 @@ const AFTER = [
     note: "« Protection des données » reste accessible en pied de page, où elle figure déjà." },
   { label: "Espace membres", icon: "👥", role: 1, groups: [
     { label: "Mes membres", items: [["Lutin (Baladins)", 1], ["Hibou (Louveteaux)", 1], ["Notifications", 1]] },
-    { label: "L'unité", items: [["Les animateurs", 1], ["Photos", 1], ["Discussions", 1]] }] },
+    // Carpool chantier (IT-06): "Activités" joins the Espace membres, and
+    // "Photos" moves into it, next to "Covoiturage".
+    { label: "Activités", items: [["Photos", 1], ["Covoiturage", 1]] },
+    { label: "L'unité", items: [["Les animateurs", 1], ["Discussions", 1]] }] },
   { label: "Espace animateurs", icon: "⭐", role: 2, groups: [
     { label: "Ma section", items: [["Présences", 3], ["Animés de la section", 2], ["Staffs et badges", 2]] },
-    { label: "Activités", items: [["Calendrier", 3], ["Camps", 3], ["Gérer les photos", 3], ["Rétrospectives", 2]] },
+    { label: "Activités", items: [["Calendrier", 3], ["Camps", 3], ["Gérer les photos", 3], ["Rétrospectives", 2], ["Organiser les covoiturages", 3]] },
     { label: "Communication", items: [["Rédiger les actualités", 3], ["Envoi de mails", 3]] },
     { label: "Effectifs", items: [["Statistiques", 3], ["Prévisions d'effectifs", 3], ["Départs de l'unité", 3]] },
     { label: "Argent", items: [["Finances", 2]] }] },
@@ -67,7 +70,7 @@ const AFTER = [
     { label: "Membres et année", items: [["Import Desk", 4], ["Membres", 4], ["Année scoute", 4], ["Encadrement", 4], ["Attestations", 4]] },
     { label: "Communication", items: [["Édition du site", 4], ["Listes de diffusion", 4], ["Courrier reçu", 4]] },
     { label: "Effectifs", items: [["Réinscriptions", 4], ["Passages de branche", 4], ["Formulaire d'inscription", 4], ["Cotisations", 4]] },
-    { label: "Services de l'unité", items: [["Gérer les locations", 4], ["Gérer le téléphone d'urgence", 4]] }] },
+    { label: "Services de l'unité", items: [["Biens à louer", 4], ["Gérer le téléphone d'urgence", 4]] }] },
   { label: "Configuration", icon: "🎛️", role: 5, groups: [
     { label: "L'unité", items: [["Correspondances Desk", 5], ["Badges", 5], ["RGPD", 5], ["Synchronisation des contacts", 5]] },
     { label: "Le site", items: [["Installation & serveur", 5], ["Modules", 5], ["Pages de texte", 5], ["Paramètres", 5], ["Comptes superadmin", 5]] },

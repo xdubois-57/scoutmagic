@@ -14,7 +14,7 @@ attend. Il répond aux questions qu'on se pose avant de commencer.
   l'unité. Une page par bien, un calendrier de disponibilité, une
   estimation de prix, un formulaire de demande. Personne n'a besoin d'un
   compte.
-- **L'espace de gestion** (`Espace membres > Mes locations`) : les
+- **L'espace de gestion** (`Espace membres > L'unité > Gérer mes locations`) : les
   réservations, l'argent, les documents, le séjour — et les réglages du
   bien lui-même : règles de réservation, tarif, acompte et caution.
   Réservé aux gestionnaires du bien.
@@ -99,7 +99,7 @@ Modifier votre tarif ne change **aucune** réservation existante.
 **Aucune TVA n'est calculée.** Les prix sont ce que le locataire paie. Une
 mention d'exonération configurable par bien apparaît sur la facture.
 
-Tout cela se règle depuis le bien lui-même : `Mes locations > le bien >
+Tout cela se règle depuis le bien lui-même : `Gérer mes locations > le bien >
 Réglages`. Le simulateur qui s'y trouve passe par exactement le même moteur
 que la page publique et que le contrat : ce que vous y voyez est ce que le
 visiteur verra.

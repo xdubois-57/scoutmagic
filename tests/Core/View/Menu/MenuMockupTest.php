@@ -37,7 +37,7 @@ final class MenuMockupTest extends TestCase
      */
     private const NOT_DRAWN = [
         'Locations' => 'provider (rental) — public index, shown once an asset is public',
-        'Mes locations' => 'provider (rental) — only for someone who manages an asset',
+        'Gérer mes locations' => 'provider (rental) — only for someone who manages an asset',
         'Scanner un billet' => 'provider (news) — only for a unit that ticketed an event',
         'Bannière' => 'provider (banner) — unit-chief hook',
         'Rétrospective' => 'provider (retro) — unit-chief hook',
@@ -51,14 +51,16 @@ final class MenuMockupTest extends TestCase
      * would then pass on nothing at all — the failure mode this whole
      * test exists to avoid.
      */
-    public function testTheMockupStillReadsAsFiveMenusAndNineteenColumns(): void
+    public function testTheMockupStillReadsAsFiveMenusAndTwentyColumns(): void
     {
         $proposed = MenuMockup::proposed();
 
         $this->assertCount(5, $proposed);
 
         $columns = array_sum(array_map('count', $proposed));
-        $this->assertSame(19, $columns, 'The mockup no longer draws nineteen columns.');
+        // Twenty since the carpool chantier gave the Espace membres its
+        // « Activités » column (docs/chantiers/covoiturage.md, IT-06).
+        $this->assertSame(20, $columns, 'The mockup no longer draws twenty columns.');
 
         $entries = 0;
         foreach ($proposed as $menu) {

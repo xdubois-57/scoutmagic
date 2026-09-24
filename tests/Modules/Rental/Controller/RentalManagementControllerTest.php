@@ -2627,7 +2627,7 @@ class RentalManagementControllerTest extends TestCase
         $this->assertSame(1, preg_match('#<nav class="breadcrumb-bar.*?</nav>#s', $body, $bar), 'no breadcrumb');
 
         foreach ([
-            '/mes-locations' => 'Mes locations',
+            '/mes-locations' => 'Gérer mes locations',
             '/mes-locations/local-saint-georges' => 'Local Saint-Georges',
             '/mes-locations/local-saint-georges/reservations' => 'Réservations',
         ] as $url => $label) {

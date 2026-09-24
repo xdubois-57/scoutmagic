@@ -1,5 +1,5 @@
 {% extends 'base.html.twig' %}
-{% block title %}Mes locations — {{ site_name }}{% endblock %}
+{% block title %}Gérer mes locations — {{ site_name }}{% endblock %}
 {#
   Rendered with a 403 status when a logged-in visitor who manages no asset
   reaches /mes-locations. The refusal itself is unchanged — the menu never
@@ -11,7 +11,7 @@
 #}
 {% block content %}
     <div class="page-medium">
-        {% include 'partials/page_header.html.twig' with { title: 'Mes locations' } only %}
+        {% include 'partials/page_header.html.twig' with { title: 'Gérer mes locations' } only %}
 
         <div class="card">
             <div class="card-body">

@@ -14,7 +14,7 @@ namespace Modules\Rental\Booking;
  * **The single definition of "à traiter" for the whole module.** It used to
  * be `$booking->status->needsAttention()`, written out at four call sites:
  * the asset overview's list, the same page's « À traiter » figure, the
- * bookings list's own filter, and the per-asset badge on « Mes locations ».
+ * bookings list's own filter, and the per-asset badge on « Gérer mes locations ».
  * Four copies of one rule is four chances for the tile and the list under it
  * to disagree — and widening one of them without the others would have
  * guaranteed it.

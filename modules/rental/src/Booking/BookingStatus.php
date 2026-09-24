@@ -116,7 +116,7 @@ enum BookingStatus: string
 
     /**
      * Whether a manager still has something to do about it — what "demandes
-     * à traiter" counts on the "Mes locations" page.
+     * à traiter" counts on the "Gérer mes locations" page.
      */
     public function needsAttention(): bool
     {
