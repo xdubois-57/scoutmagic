@@ -36,6 +36,23 @@ import { scaled } from './support/timeouts.js';
 
 const baseURL = process.env.E2E_BASE_URL;
 
+// The one directory where a real service worker is allowed to register.
+//
+// Blocking workers, as `use` below does, is right for every other spec,
+// for the reason stated there — a worker fetching and caching in the
+// background makes a request log non-deterministic. But blocking it
+// everywhere meant
+// public/sw.js was never once RUN as a service worker in this repository:
+// tests/js/sw.test.js exercises its logic under jsdom, which has no worker
+// runtime and says so, and this config blocked the only layer that has
+// one. Each half documented itself; neither could name the other, so
+// nothing was red (issue #452).
+//
+// The two projects below partition the suite on this glob — matched by
+// one, ignored by the other — so exactly the specs that need a worker get
+// one, and the determinism the rest depends on is untouched.
+const SERVICE_WORKER_SPECS = '**/service-worker/**/*.spec.js';
+
 if (!baseURL) {
     throw new Error(
         'E2E_BASE_URL is not set. Run the end-to-end tests via `npm run e2e` '
@@ -106,9 +123,13 @@ export default defineConfig({
         // The service worker (public/sw.js) would keep fetching and
         // caching pages in the background for the whole run, making both
         // the request log this test asserts on and the server's load
-        // non-deterministic. Registering it is its own feature with its
-        // own future scenario; it is not part of "does the application
-        // boot and render".
+        // non-deterministic. It is not part of "does the application boot
+        // and render".
+        //
+        // The default, therefore, and not the only setting: the
+        // `service-worker` project below turns it back on for the specs
+        // under specs/service-worker/, which are about the worker itself
+        // (SERVICE_WORKER_SPECS above, issue #452).
         serviceWorkers: 'block',
         // Bootstrap's overlay races, closed at the source rather than
         // waited around one dialog at a time.
@@ -160,6 +181,10 @@ export default defineConfig({
     projects: [
         {
             name: 'chromium',
+            // Everything but the worker's own specs. Paired with the
+            // `testMatch` below: a spec belongs to exactly one project,
+            // never both and never neither.
+            testIgnore: SERVICE_WORKER_SPECS,
             use: {
                 ...devices['Desktop Chrome'],
                 // Escape hatch for environments where Playwright's own
@@ -185,6 +210,26 @@ export default defineConfig({
                 // assert-sitemap exists to catch that, but the argument
                 // is what prevents it.
                 ...launchArguments(),
+            },
+        },
+        {
+            // The worker's own lifecycle: install, activate, a shell
+            // served out of a real Cache Storage, a navigation made with
+            // the network down. None of that can be observed with workers
+            // blocked, and none of it can be observed under jsdom either
+            // — this project is the only place in the repository where
+            // public/sw.js runs as what it is (issue #452).
+            //
+            // It stays a project rather than a per-test override because
+            // `serviceWorkers` is a context option: Playwright reads it
+            // when the browser context is created, so a test cannot turn
+            // it on for itself.
+            name: 'service-worker',
+            testMatch: SERVICE_WORKER_SPECS,
+            use: {
+                ...devices['Desktop Chrome'],
+                ...launchArguments(),
+                serviceWorkers: 'allow',
             },
         },
     ],

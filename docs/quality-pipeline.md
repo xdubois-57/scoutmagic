@@ -1705,9 +1705,23 @@ nothing**:
   neither can say is that the other exists. The logic inside `sw.js` is
   genuinely tested; its **lifecycle** — install, activate, a fetch served
   from a real Cache Storage, a navigation made offline, the installed
-  app's wake — is tested by nothing, and no red anywhere would announce
-  it. The one browser scenario that touches the offline manifest,
-  `pwa-prefetch-once.spec.js`, runs with the worker blocked like the rest.
+  app's wake — was tested by nothing, and no red anywhere would have
+  announced it. The one browser scenario that touches the offline
+  manifest, `pwa-prefetch-once.spec.js`, runs with the worker blocked like
+  the rest.
+
+  *Closed by issue #452.* `playwright.config.js` now declares a second
+  project, `service-worker`, the only one with `serviceWorkers: 'allow'`,
+  matching `specs/service-worker/**` — which the default project ignores,
+  so the determinism every other spec depends on is untouched.
+  `specs/service-worker/lifecycle.spec.js` runs the worker: install and
+  activate both completed, the app shell read back out of a real Cache
+  Storage, a navigation made with the network down answered by the
+  application's own page rather than the browser's interstitial, and a
+  precached stylesheet still served offline. Each of the three was shown
+  failing under a mutation of `public/sw.js`. What the entry above says
+  remains the lesson: the two layers were each right about themselves, and
+  the gap lived in what neither could name.
 
 The habit that catches these is cheap: ask what a green result would look
 like if the thing had not run at all. When the answer is "the same", the
