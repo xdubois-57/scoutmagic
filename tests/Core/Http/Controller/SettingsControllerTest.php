@@ -228,6 +228,73 @@ class SettingsControllerTest extends TestCase
         $this->assertStringContainsString('Ordinaire', $body);
     }
 
+    /**
+     * A setting the application maintains for itself is not on this page.
+     *
+     * `editable = false` already means an administrator can do nothing
+     * with it — `SettingService::set()` refuses to write one. The page
+     * rendered it anyway, greyed out with a padlock, label and
+     * description intact: a row that looks like a control among the rows
+     * that are controls. `finance` alone declares five (#510).
+     *
+     * The module group matters here, and is why the sibling tests above
+     * did not catch this: `EXCLUDED_FROM_GENERIC_PAGE` only ever covered
+     * `core`, so a module's own bookkeeping flag went straight through.
+     */
+    public function testIndexShowsNoSettingTheApplicationMaintainsForItself(): void
+    {
+        $this->settingService->register('an_ordinary_setting', 'val', 'text', 'Ordinaire', 'D');
+        $this->settingService->register(
+            'bulk_categorization_running',
+            '0',
+            'boolean',
+            'Catégorisation en masse en cours',
+            'Drapeau interne posé pendant un traitement.',
+            'finance',
+            null,
+            null,
+            false
+        );
+        $this->settingService->clearCache();
+
+        $request = new Request('GET', '/config/settings', [], [], [], []);
+        $body = $this->controller->index($request, [])->getBody();
+
+        $this->assertStringNotContainsString('Catégorisation en masse en cours', $body);
+        $this->assertStringNotContainsString('Drapeau interne posé pendant un traitement.', $body);
+        $this->assertStringContainsString('Ordinaire', $body);
+    }
+
+    /**
+     * A section whose every setting was dropped is not rendered empty.
+     *
+     * An accordion announcing « 0 » is a promise of something to
+     * configure, with nothing behind it — worse than absent, because a
+     * reader opens it to find out.
+     */
+    public function testAGroupLeftWithNothingToShowIsNotRenderedAtAll(): void
+    {
+        $this->settingService->register('an_ordinary_setting', 'val', 'text', 'Ordinaire', 'D');
+        $this->settingService->register(
+            'formation_step_migration',
+            '1',
+            'boolean',
+            'Migration des étapes de formation',
+            'Marqueur interne.',
+            'leadership',
+            null,
+            null,
+            false
+        );
+        $this->settingService->clearCache();
+
+        $request = new Request('GET', '/config/settings', [], [], [], []);
+        $body = $this->controller->index($request, [])->getBody();
+
+        $this->assertStringNotContainsString('settings-group-leadership', $body);
+        $this->assertStringContainsString('Ordinaire', $body);
+    }
+
     public function testUpdateWithInvalidCsrf(): void
     {
         $this->settingService->register('editable', 'old', 'text', 'L', 'D');

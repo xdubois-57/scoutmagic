@@ -298,6 +298,68 @@ final class RemoteBackupControllerTest extends TestCase
         $this->assertSame($first, $this->passphrase->stored(), 'a request with no token still burned the phrase');
     }
 
+    // ————— « Je l'ai recopiée hors du serveur » (#496) —————
+
+    /**
+     * The statement is recorded, and stamped with the generation it was
+     * made for.
+     */
+    public function testConfirmingRecordsTheGenerationAndIsJournaled(): void
+    {
+        $this->connectSite();
+        $this->passphrase->current();
+
+        $response = $this->controller()->confirmPassphraseNoted($this->postRequest([]), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertTrue($this->passphrase->isNoted());
+        $this->assertStringContainsString('"generation":1', $this->journal->textOf('remote_backup_passphrase_noted'));
+    }
+
+    /**
+     * **Revealing the phrase is not copying it**, so the reveal route
+     * must not clear the warning. An administrator who opened the screen
+     * to read a generation number has seen thirty characters and written
+     * none of them down — and clearing it there would silence the alert
+     * for exactly the reader it is addressed to.
+     */
+    public function testRevealingThePhraseDoesNotCountAsNotingIt(): void
+    {
+        $this->connectSite();
+        $this->passphrase->current();
+
+        $this->controller()->revealPassphrase($this->postRequest([]), []);
+
+        $this->assertFalse($this->passphrase->isNoted(), 'opening the screen counted as copying the phrase');
+    }
+
+    /** Without the token, nothing is recorded. */
+    public function testConfirmingNeedsTheCsrfToken(): void
+    {
+        $this->connectSite();
+        $this->passphrase->current();
+        unset($_POST['_csrf_token']);
+
+        $request = new Request('POST', '/config/maintenance/remote/passphrase/confirm', [], [], [], []);
+        $this->controller()->confirmPassphraseNoted($request, []);
+
+        $this->assertFalse($this->passphrase->isNoted());
+    }
+
+    /**
+     * A site with no phrase yet is told so rather than left with a
+     * confirmation that would satisfy the first real phrase silently.
+     */
+    public function testConfirmingBeforeAnyPhraseExistsRecordsNothing(): void
+    {
+        $this->connectSite();
+
+        $this->controller()->confirmPassphraseNoted($this->postRequest([]), []);
+
+        $this->assertSame(0, $this->passphrase->confirmedGeneration());
+        $this->assertFalse($this->passphrase->isNoted());
+    }
+
     private function connectSite(): void
     {
         $this->destination->choose($this->declareDrive());

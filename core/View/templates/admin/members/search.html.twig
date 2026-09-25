@@ -6,6 +6,18 @@
         subtitle: "Recherche parmi les membres de l'année " ~ year_label ~ '.',
     } only %}
 
+    {# Somebody looking at this list often wants these contacts in their
+       phone rather than on screen, and had no way of learning the page
+       exists (#483). No role condition: /admin/members and
+       /account/devices both require `admin`, the same role the CardDAV
+       server itself demands (DeviceAuthenticator::REQUIRED_ROLE). #}
+    <p class="small mb-4">
+        <a href="/account/devices" class="text-decoration-none">
+            <i class="bi bi-phone" aria-hidden="true"></i>
+            Retrouver ces contacts dans votre téléphone
+        </a>
+    </p>
+
     {% set scope_labels = { 'active': 'Actifs', 'inactive': 'Inactifs', 'all': 'Tous' } %}
 
     <form method="get" action="/admin/members" class="mb-4">

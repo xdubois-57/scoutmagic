@@ -40,6 +40,15 @@ class StatisticsIntakeService
     public const RATE_LIMIT_MAX_REQUESTS = 10;
     public const RATE_LIMIT_WINDOW_MINUTES = 60;
 
+    /**
+     * Every version this receiver understands, oldest first — a list that
+     * GROWS and never moves, so an installation that has not updated is
+     * never silenced. It has not had to grow yet: an ADDED field needs no
+     * new version, because the tolerance below already covers it (a field
+     * this receiver does not know is kept verbatim in `payload` and warned
+     * about, never refused). The Desk branches and the `desk_unresolved`
+     * block of issue #356 arrived that way.
+     */
     private const SUPPORTED_SCHEMA_VERSIONS = [1];
 
     /** The largest value an `INT UNSIGNED` column will accept. */
@@ -67,7 +76,7 @@ class StatisticsIntakeService
      */
     private const KNOWN_TOP_LEVEL_FIELDS = [
         'statistics_schema_version', 'installation_id', 'restored_from', 'instance_url', 'generated_at',
-        'scoutmagic', 'scout_year', 'usage', 'modules', 'module_usage', 'desk_vocabulary',
+        'scoutmagic', 'scout_year', 'usage', 'modules', 'module_usage', 'desk_vocabulary', 'desk_unresolved',
         'installation', 'runtime', 'database', 'host', 'security', 'email', 'scheduler', 'updates',
         'lifecycle', 'storage',
     ];

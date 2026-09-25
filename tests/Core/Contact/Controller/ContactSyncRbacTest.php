@@ -18,7 +18,7 @@ use Twig\Loader\FilesystemLoader;
 /**
  * The two role boundaries contact synchronisation adds.
  *
- * « Appareils synchronisés » sits under Mon compte, which every signed-in
+ * « Synchroniser mes contacts » sits under Mon compte, which every signed-in
  * member reaches — but its own routes are `admin`, because the address
  * book those credentials open is the staff's and
  * `Core\Contact\Device\DeviceAuthenticator` refuses anything below that

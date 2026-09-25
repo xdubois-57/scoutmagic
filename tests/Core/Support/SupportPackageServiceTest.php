@@ -314,7 +314,10 @@ class SupportPackageServiceTest extends TestCase
         $entries = $this->readArchive($fileId);
         $payload = json_decode($entries['statistics.json'], true);
         $this->assertIsArray($payload);
-        $this->assertSame(1, $payload['statistics_schema_version']);
+        $this->assertSame(
+            \Core\Statistics\StatisticsPayloadBuilder::STATISTICS_SCHEMA_VERSION,
+            $payload['statistics_schema_version']
+        );
         $this->assertSame('https://unite-exemple.be', $payload['instance_url']);
     }
 

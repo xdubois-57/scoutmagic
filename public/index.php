@@ -3961,7 +3961,7 @@ $router->addRoute(
 $router->addRoute('POST', '/account/passkey/register', AccountController::class, 'passkeyRegister', 'identified');
 $router->addRoute('POST', '/account/passkey/delete', AccountController::class, 'passkeyDelete', 'identified');
 $router->addRoute('POST', '/account/photo/delete', AccountController::class, 'deletePhoto', 'identified');
-// « Appareils synchronisés » (Core\Contact\Device, ARCHITECTURE.md
+// « Synchroniser mes contacts » (Core\Contact\Device, ARCHITECTURE.md
 // §8.117). `role_min: admin` and not `identified` like the rest of Mon
 // compte: the address book these credentials open is the staff's, and
 // DeviceAuthenticator refuses anything below that floor on every single
@@ -3973,7 +3973,7 @@ $router->addRoute(
     \Core\Contact\Controller\DeviceCredentialController::class,
     'index',
     'admin',
-    ['label' => 'Appareils synchronisés', 'parents' => [],
+    ['label' => 'Synchroniser mes contacts', 'parents' => [],
         'ancestors' => [['label' => 'Mon compte', 'path' => '/account']]]
 );
 // JSON, because the answer carries the one cleartext copy of the secret
@@ -5162,6 +5162,19 @@ $router->addRoute(
     'revealPassphrase',
     'admin',
 );
+// « Je l'ai recopiée hors du serveur » — a statement nothing can verify,
+// and the only answer there is to the question the phrase raises
+// (Core\Alert\Check\RemotePassphraseNotedCheck). Separate from the
+// reveal route on purpose: opening the screen is not copying the phrase,
+// and a reveal that cleared the warning would clear it for the reader who
+// most needs it.
+$router->addRoute(
+    'POST',
+    '/config/maintenance/remote/passphrase/confirm',
+    RemoteBackupController::class,
+    'confirmPassphraseNoted',
+    'admin',
+);
 $router->addRoute(
     'POST',
     '/config/maintenance/remote/passphrase/regenerate',
@@ -5965,7 +5978,9 @@ $statisticsPayloadBuilder = new \Core\Statistics\StatisticsPayloadBuilder(
     dirname(__DIR__),
     $moduleManager,
     $mailService,
-    $usageStatsModuleUsageForOthers
+    $usageStatsModuleUsageForOthers,
+    // What this installation does not recognise in its Desk data (#356).
+    $deskMappingGapService
 );
 
 // The same sender the daily task builds from its TaskContext (Core\Statistics\

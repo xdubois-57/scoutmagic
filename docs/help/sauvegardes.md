@@ -60,8 +60,8 @@ jour et chaque action de réinitialisation, sans que vous ayez rien à
 faire.
 
 Cette fréquence ne décide que de ce qui reste sur le serveur : les
-envois hors site ont la leur, et « Ce que le site envoie sur Drive, et
-la phrase qui l'ouvre » l'explique.
+envois hors site ont la leur, et « Ce que le site envoie sur Drive »
+l'explique.
 
 Ce qui devient de ces copies — combien le site en garde, comment les
 télécharger et les supprimer — est le sujet « Conserver et supprimer

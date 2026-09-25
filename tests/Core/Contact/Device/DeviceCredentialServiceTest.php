@@ -170,7 +170,7 @@ class DeviceCredentialServiceTest extends TestCase
     public function testALabelIsTrimmedBoundedAndNeverEmpty(): void
     {
         $blank = $this->service->create($this->accountId, "   \n ", $this->accountId);
-        $this->assertSame('Appareil sans nom', $blank->credential->label);
+        $this->assertSame('Accès sans nom', $blank->credential->label);
 
         $long = $this->service->create($this->accountId, str_repeat('é', 250), $this->accountId);
         $this->assertSame(DeviceCredentialService::MAX_LABEL_LENGTH, mb_strlen($long->credential->label));
