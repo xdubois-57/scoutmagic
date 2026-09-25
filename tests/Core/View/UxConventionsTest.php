@@ -1009,11 +1009,32 @@ final class UxConventionsTest extends TestCase
             preg_match(self::UNDOES_SOMETHING, self::actionOf($notUndo) ?? ''),
             'refusing is not undoing, so the destructive rule keeps it'
         );
-        $this->assertSame(
-            0,
-            preg_match(self::UNDOES_SOMETHING, '/config/reinscription/relances-envoyees'),
-            'the verb has to be its own segment here too'
-        );
+        // The verb has to be its own segment here too — and the fixture
+        // has to be one where that MATTERS.
+        //
+        // The first version of this assertion used
+        // `/config/reinscription/relances-envoyees`, copied from the
+        // `SENDS_AN_EMAIL` fixture two methods up, where it earns its
+        // place because that address really does contain « relance ». It
+        // contains none of the eleven undo verbs, so it scored 0 whether
+        // the segment anchors were there or not: an assertion that could
+        // not fail, in the file that hunts them.
+        //
+        // These three do contain a verb, and are rejected only BY the
+        // anchors — which the second assertion of each pair proves, rather
+        // than leaving the reader to trust the first.
+        foreach (['/admin/members/reverted', '/admin/prereverted', '/admin/journal/restored-items'] as $url) {
+            $this->assertSame(
+                0,
+                preg_match(self::UNDOES_SOMETHING, $url),
+                "« {$url} » carries an undo verb that is not its own segment, so it is not an undo"
+            );
+            $this->assertSame(
+                1,
+                preg_match('/(revert|restore)/i', $url),
+                "and the verb IS in « {$url} » — without that, the assertion above would pass for nothing"
+            );
+        }
     }
 
     public function testEveryDestructivePostFormAsksFirst(): void
