@@ -237,7 +237,7 @@ final class DirectLinkAccessTest extends TestCase
         $this->assertFalse($checker->isAllowed(999, Role::CHIEF, []));
     }
 
-    // --- Le fichier lui-même dit « noindex » (#516) ---
+    // --- The file itself says `noindex` (#516) ---
 
     /**
      * **Only a public document's file may be kept by a search engine.**
