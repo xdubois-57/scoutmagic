@@ -180,6 +180,25 @@ final class UxConventionsTest extends TestCase
      * withdraw — plus « ignorer », where the reading a chief refuses is
      * deleted and never offered again.
      */
+    /**
+     * The OTHER half of design.md §7.5, and the half nothing held until a
+     * reviewer noticed the gap.
+     *
+     * An action that UNDOES another must NOT ask: nothing is lost, and a
+     * dialog on it teaches the reader to dismiss dialogs — which is what
+     * makes the dialogs that matter worthless. `testEveryDestructivePostFormAsksFirst()`
+     * cannot see this drift in either direction: it reports only MISSING
+     * confirmations, and an undo verb never matches `DESTRUCTIVE_ACTION`
+     * anyway.
+     *
+     * It was not a hypothetical. #485 opened on the asymmetry that
+     * « Refuser » asked nothing while « Remettre en attente », on the same
+     * row, asked — and the first version of this pull request fixed one
+     * half, wrote the rule for the other, then left `/revert` carrying its
+     * dialog against the rule it had just written.
+     */
+    private const UNDOES_SOMETHING = '/(^|[\/_-])(revert|restore|restaurer|unarchive|desarchiver|reactivate|reactiver|reinstate|reprendre|unblock|debloquer)([\/_-]|$)/i';
+
     private const DESTRUCTIVE_ACTION = '/(^|[\/_-])(delete|supprimer|remove|retirer|refuse|refuser|revoke|revoquer|archive|archiver|withdraw|ignorer)([\/_-]|$)/i';
 
     /**
@@ -256,7 +275,7 @@ final class UxConventionsTest extends TestCase
         $this->assertMatchesRegularExpression(
             self::SENDS_AN_EMAIL,
             '/finance/campaigns/12/notify',
-            'notifying the families of a campaign mails every one of them'
+            'notifying the families of a campaign reaches them and cannot be recalled'
         );
         // The plainest French verbs of all, and the first version of this
         // pattern — written to BE bilingual — did not carry them. Two live
@@ -876,6 +895,127 @@ final class UxConventionsTest extends TestCase
      * being delegated from a `<form>`; those ask with
      * `window.ScoutMagicConfirm.ask()`, and `tests/js/` covers them.
      */
+    /**
+     * Undo-looking addresses that ask ANYWAY, and must.
+     *
+     * Found by the reader above on its first run, which is the argument for
+     * having written it: « reprendre » carries two opposite meanings in
+     * this repository. On `/admin/fees/tarifs/reprendre` it undoes an
+     * « ignorer » and loses nothing. On an attestation batch it RETRACTS
+     * the batch — the published documents are deleted, and the message the
+     * dialog shows says so in as many words. The address is the same verb;
+     * the action is its opposite.
+     *
+     * The same blindness `ASKS_NOTHING` carries, in the other direction,
+     * and named for the same reason: an exception is a decision taken out
+     * loud, not a verb quietly dropped from a pattern — dropping
+     * « reprendre » would have left the harmless one unguarded too.
+     */
+    private const UNDO_THAT_STILL_ASKS = [
+        '/admin/attestations/{{ batch.id }}/reprendre' =>
+            'takes a batch back, DELETING the published documents; « reprendre » is retract here, not undo',
+    ];
+
+    public function testNoUndoAsksForConfirmation(): void
+    {
+        $asking = [];
+        $seen = 0;
+
+        foreach (self::templates() as $rel) {
+            preg_match_all('/<form\b[^>]*>/i', self::templateSource($rel), $forms);
+            foreach ($forms[0] as $tag) {
+                if (!self::isAPostForm($tag)) {
+                    continue;
+                }
+                $url = self::actionOf($tag);
+                if ($url === null || preg_match(self::UNDOES_SOMETHING, $url) !== 1) {
+                    continue;
+                }
+                // An address can carry both halves — « unarchive » holds
+                // « archive ». The destructive rule wins there, because
+                // what such a form does is not decided by this reader.
+                if (preg_match(self::DESTRUCTIVE_ACTION, $url) === 1
+                    || preg_match(self::SENDS_AN_EMAIL, $url) === 1
+                ) {
+                    continue;
+                }
+
+                $seen++;
+                if (self::asksFirst($tag) && !array_key_exists($url, self::UNDO_THAT_STILL_ASKS)) {
+                    $asking[] = $rel . ' — ' . $url;
+                }
+            }
+        }
+
+        sort($asking);
+        $this->assertSame(
+            [],
+            $asking,
+            "An action that UNDOES another does not ask (design.md §7.5): nothing is lost, and a\n"
+                . "dialog on it teaches the reader to dismiss the ones that matter.\n"
+                . "Remove the `data-confirm`, or say in design.md why this one is different.\n\n"
+                . implode("\n", $asking)
+        );
+
+        // The floor, for the same reason as its sibling's: an empty list
+        // satisfies `assertSame([], …)` perfectly, and a reader that has
+        // stopped recognising undo forms produces one.
+        $this->assertGreaterThanOrEqual(
+            4,
+            $seen,
+            'the scan finds almost no undo form, so the rule above was checked against nothing'
+        );
+
+        // And every exception must still BE one: an entry whose form has
+        // since DROPPED its dialog is stale, and would then answer for a
+        // rule that is being followed by accident.
+        $stale = [];
+        foreach (array_keys(self::UNDO_THAT_STILL_ASKS) as $url) {
+            $found = false;
+            foreach (self::templates() as $rel) {
+                preg_match_all('/<form\\b[^>]*>/i', self::templateSource($rel), $forms);
+                foreach ($forms[0] as $tag) {
+                    if (self::actionOf($tag) === $url && self::asksFirst($tag)) {
+                        $found = true;
+                    }
+                }
+            }
+            if (!$found) {
+                $stale[] = $url;
+            }
+        }
+        $this->assertSame(
+            [],
+            $stale,
+            'these exceptions no longer name a form that asks, so they cover nothing: ' . implode(', ', $stale)
+        );
+    }
+
+    /**
+     * Both readers, on literal tags — because a sweep that reports an empty
+     * list proves nothing about what it can recognise.
+     */
+    public function testTheUndoReaderRecognisesBothDirections(): void
+    {
+        $undo = '<form method="post" action="/config/inscriptions/demandes/7/revert">';
+        $undoAsking = '<form method="post" action="/config/inscriptions/demandes/7/revert" data-confirm="Sûr ?">';
+        $notUndo = '<form method="post" action="/config/inscriptions/demandes/7/refuse" data-confirm="Sûr ?">';
+
+        $this->assertSame(1, preg_match(self::UNDOES_SOMETHING, self::actionOf($undo) ?? ''));
+        $this->assertFalse(self::asksFirst($undo), 'the reader must see that this one asks nothing');
+        $this->assertTrue(self::asksFirst($undoAsking), 'and that this one asks');
+        $this->assertSame(
+            0,
+            preg_match(self::UNDOES_SOMETHING, self::actionOf($notUndo) ?? ''),
+            'refusing is not undoing, so the destructive rule keeps it'
+        );
+        $this->assertSame(
+            0,
+            preg_match(self::UNDOES_SOMETHING, '/config/reinscription/relances-envoyees'),
+            'the verb has to be its own segment here too'
+        );
+    }
+
     public function testEveryDestructivePostFormAsksFirst(): void
     {
         $missing = [];

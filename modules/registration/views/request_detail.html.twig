@@ -40,9 +40,9 @@
                               data-confirm="Refuser une demande déjà acceptée ? {{ r.childFirstName }} {{ r.childLastName }} perd sa place, et la famille a peut-être déjà reçu l'e-mail d'acceptation.">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-danger">Refuser</button></form>
                         <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/withdraw"
                               data-confirm="Retirer une demande déjà acceptée ? {{ r.childFirstName }} {{ r.childLastName }} perd sa place, et la famille a peut-être déjà reçu l'e-mail d'acceptation.">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-secondary">Retirer</button></form>
-                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/revert" data-confirm="Remettre cette demande en attente ?">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-secondary">Revenir en attente</button></form>
+                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/revert">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-secondary">Revenir en attente</button></form>
                     {% elseif r.status == 'refused' or r.status == 'withdrawn' %}
-                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/revert" data-confirm="Remettre cette demande en attente ?">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-secondary">Revenir en attente</button></form>
+                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/revert">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-secondary">Revenir en attente</button></form>
                     {% endif %}
                 </div>
             </div>

@@ -538,10 +538,16 @@ helpers; a page-level primary action that happens to call an AI
   - An action driven from JavaScript cannot use the attribute — the
     handler delegates from a `<form>` — so it asks with
     `window.ScoutMagicConfirm.ask()` instead. Same rule, same wording.
-  - Held by `UxConventionsTest::testEveryDestructivePostFormAsksFirst()`,
-    whose allowlist is the exceptions above, one line of reason each. It
-    reads the URL of a form's action, so an action whose address does not
-    say what it does escapes it; the list is to be re-read whenever one is
+  - Held by `UxConventionsTest::testEveryDestructivePostFormAsksFirst()`
+    for the first list and `testNoUndoAsksForConfirmation()` for the
+    second. Its allowlist is NOT the exceptions above — those never match
+    the destructive pattern in the first place, so they need no entry. It
+    holds addresses the pattern reports WRONGLY: « archive » used as a
+    noun, « ignorer » already behind a panel and a typed reason, and one
+    genuine exception that does match. Reading the absence of an entry as
+    evidence a rule is followed is therefore a mistake. Both readers read
+    the URL of a form's action, so an action whose address does not say
+    what it does escapes them; the list is to be re-read whenever one is
     added.
   - **It reads French AND English verbs, and the first version did not**:
     the destructive half was bilingual while the « sends an e-mail » half
