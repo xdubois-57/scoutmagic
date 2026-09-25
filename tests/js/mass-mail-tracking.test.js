@@ -162,14 +162,23 @@ describe('mass-mail-tracking.js', () => {
         // one. `data-confirm` cannot serve here — the delegated handler
         // reads it off a <form> — so the same dialog is opened by hand
         // (#485).
-        it('asks before sending, naming the recipient', async () => {
+        //
+        // Both claims are pinned, and the second one is why: the resend is
+        // QUEUED, not sent — `resendToRecipient()` puts the row back to
+        // `pending` and schedules a batch — so a message promising an
+        // immediate departure would contradict the « En attente » the page
+        // reloads onto. Asserting « rappel » alone would have let that
+        // wording back in.
+        it('asks before sending, naming the recipient and what actually happens', async () => {
             await boot();
             document.querySelector('.mmt-resend-btn[data-id="2"]').click();
 
             await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled());
             const [options] = window.ScoutMagicConfirm.ask.mock.calls[0];
             expect(options.message).toContain('destinataire-2@example.org');
-            expect(options.message).toContain('ne peut pas être rappelé');
+            expect(options.message).toContain('rappel');
+            expect(options.message).toContain('en attente');
+            expect(options.message).not.toContain('immédiatement');
         });
 
         it('sends nothing when the question is answered no', async () => {

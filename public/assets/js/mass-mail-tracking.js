@@ -56,14 +56,22 @@
 
     resendBtns.forEach(function (btn) {
         btn.addEventListener('click', async function () {
-            // An e-mail to somebody else leaves immediately and cannot be
-            // recalled, so it asks first (design.md §7.5). This gesture is
-            // driven from JavaScript, so `data-confirm` — which confirm.js
-            // delegates from a <form> — does not apply; the same dialog is
-            // opened by hand, as the other modules do (#485).
+            // An e-mail to somebody else cannot be recalled, so it asks
+            // first (design.md §7.5). This gesture is driven from
+            // JavaScript, so `data-confirm` — which confirm.js delegates
+            // from a <form> — does not apply; the same dialog is opened by
+            // hand, as the other modules do (#485).
+            //
+            // The message says « repasse en attente », not « part
+            // immédiatement »: `MassMailService::resendToRecipient()` puts
+            // the recipient back to `pending` and calls
+            // `ensureBatchTaskScheduled()`, which queues a batch task — and
+            // returns early when one is already queued, so the resend rides
+            // that one. The page reloads onto the row reading « En
+            // attente », which the first wording contradicted.
             var confirmed = await window.ScoutMagicConfirm.ask({
                 message: 'Renvoyer ce message à ' + (btn.dataset.recipient || 'ce destinataire')
-                    + ' ? Il part immédiatement et ne peut pas être rappelé.',
+                    + ' ? Il repasse en attente et part d\'ici quelques minutes, sans pouvoir être rappelé.',
                 confirmLabel: 'Renvoyer'
             });
             if (!confirmed) return;
