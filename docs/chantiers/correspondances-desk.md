@@ -32,7 +32,7 @@ rencontre jamais.
 Ce qui décide réellement est `FeeCategoryClassifier::NEEDLES`, une heuristique
 sur le libellé replié — et c'est en regardant *cette* table que l'écart se
 révèle bien plus profond que le mauvais nom. **Un tarif hors des trois n'est
-pas un défaut.** `ARCHITECTURE.md` §8.74 l'écrit :
+pas un défaut.** `ARCHITECTURE.md` §8.75 l'écrit :
 
 > **A tariff outside the three is not judged.** […] Reporting them would be a
 > false positive on every unit, on the first screen a treasurer opens.
@@ -133,6 +133,11 @@ Les branches et les tarifs, eux, n'en ont aucun : une branche à 99 est
 exactement le cas que D1 décrit comme échouant **sans aucun signal**, et c'est
 vrai. L'encadré ne réécrit pas ce que le point d'attention dit déjà ; il couvre
 ce qui n'est dit nulle part.
+
+*(Au présent de l'état vérifié ici, celui du commit 08d830b. IT-01 a livré la
+journalisation et l'encadré, donc une branche à 99 est signalée depuis — voir le
+second tour de revue d'IT-04, où cette formule avait survécu à cinq endroits qui
+la donnaient encore pour actuelle.)*
 
 ### Écart 7 — Il n'existe aucune table de fonctions connues
 
@@ -409,8 +414,9 @@ de relever le plafond. La part garde les listes honnêtes entre elles — une
 bourse unique en ordre de lecture laissait `functions` tout manger et
 `branches` repartir **vide** avec `total` à cent cinquante, ce qui est le pire
 des résultats disponibles : `branches` est dans cette charge parce qu'un rang
-à 99 est la correspondance la plus coûteuse à manquer et la seule muette côté
-unité. Pas de report du solde non dépensé d'une liste à la suivante : cela
+à 99 est la correspondance la plus coûteuse à manquer et celle dont personne ne
+se plaint — un logo absent n'est signalé par personne, là où une fonction non
+qualifiée l'est par celui qui a perdu ses accès. Pas de report du solde non dépensé d'une liste à la suivante : cela
 ferait dépendre le contenu d'une liste de sa position dans `build()`.
 
 Pire cas après correction : **32 775 octets**, la moitié de la limite, les
@@ -571,5 +577,178 @@ lien.
 Rien. La documentation et les sujets d'aide sont l'itération suivante. La
 vérification RGPD que D9 demande n'y est plus : la revue d'IT-02 a refusé ce
 report, et elle est faite là-bas.
+
+---
+
+## IT-04 — Documentation et aide
+
+**Livré.**
+
+- **`ARCHITECTURE.md` §8.51ter** — les trois natures et l'endroit du code qui
+  décide de chacune, **pourquoi un tarif n'en est pas une** (écart 1),
+  **pourquoi une fonction n'a pas de table** (écart 7), le bloc de charge, et
+  **pourquoi rien n'est catalogué côté central** (D5) : l'instance réceptrice
+  fait tourner le même logiciel, donc elle compare à ses propres tables, et un
+  catalogue de « valeurs connues » devrait être tenu à jour à la main pour
+  toujours — et serait faux exactement quand ça compte.
+- **`specifications.md`** — la troisième sous-page de Supervision et son écran
+  décrits, l'encadré de Correspondances Desk ajouté à sa ligne de §4.5, et la
+  phrase « les deux écrans » corrigée en trois.
+- **Deux sujets d'aide** : celui de Correspondances Desk pointe vers un nouveau
+  sujet qui explique l'encadré, et la page centrale a le sien.
+
+**La vérification RGPD que D9 demande ne fait pas partie de cette itération.**
+Elle y était prévue, et c'était une erreur que la revue d'IT-02 a refusée à
+juste titre : `AGENTS.md` exige la mise à jour de `RgpdContentService` dans le
+**même changement** que le nouveau flux sortant, et IT-02 est le changement qui
+commence à envoyer. La reporter ici aurait laissé une phrase fausse devant un
+lecteur pendant deux itérations, sur la page dont c'est précisément le rôle de
+dire ce qui quitte l'installation. Faite en IT-02, donc, avec son test de
+couverture sur les deux surfaces.
+
+### Trois phrases étaient déjà périmées en arrivant
+
+Cette itération a été écrite avant la revue d'IT-03, et cette revue a changé le
+comportement qu'elle décrit. Trois textes annonçaient donc **« une notification,
+à l'insertion »**, ce qui n'est plus vrai : l'annonce suit l'arriéré des lignes
+jamais notifiées, donc une valeur vue alors que personne n'était abonné est
+annoncée par un rapport **ultérieur**. Corrigés dans les trois : `ARCHITECTURE.md`
+§8.51ter, `specifications.md` §4.5, et le sujet d'aide de la page centrale.
+
+C'est exactement la panne que cette itération existe pour empêcher, arrivée à
+l'itération qui l'empêche — et elle vaut d'être notée : une documentation écrite
+en même temps que le code qu'elle décrit reste juste, une documentation écrite
+*avant* la dernière revue de ce code ne l'est que par chance.
+
+### La charte de l'aide a tranché à ma place
+
+L'ajout de l'encadré au sujet `config-desk` l'a porté à 515 mots, et
+`HelpInvariantsTest` l'a refusé : au-delà de ~400 mots, `design.md` §7.11 veut
+deux sujets. C'est le bon arbitrage — le sujet traitait déjà des rôles, des
+sections et des branches — donc les valeurs non reconnues ont le leur,
+`config-desk-valeurs-inconnues`, et l'ancien y renvoie.
+
+Deux autres règles de l'aide ont corrigé le tir : un texte entre guillemets doit
+être un libellé réel de l'interface (« je ne vois plus rien » n'en est pas un,
+reformulé), et `discovery: 0` réclame la première place de « Le saviez-vous ? » —
+la page centrale, qui n'existe que chez le mainteneur, est en `discovery: off`.
+
+**Suite complète verte**, PHPStan sans erreur.
+
+### Ce que la revue a trouvé, et que rien ne tenait
+
+Quatre retours sur une itération purement documentaire, et tous portaient sur
+le fond. C'est la démonstration de ce à quoi sert cette itération : rien dans
+la suite de tests ne vérifie qu'une phrase est **vraie**.
+
+**Une citation de section fausse, répétée cinq fois.** J'attribuais la règle
+sur les tarifs à §8.74, qui est « the fees module and the roster snapshot » ;
+la phrase citée vit en **§8.75**, « Justesse des tarifs ». La revue en a vu
+deux, celles du diff. Les trois autres étaient déjà fusionnées — dans
+`DeskMappingGapKind`, dans `DeskMappingGapServiceTest` et dans ce journal
+même, où la citation servait à justifier le retrait de la nature « Tarif ».
+Les cinq sont corrigées : laisser les trois anciennes fausses parce qu'elles
+sont hors diff, c'est laisser un lecteur chercher la règle au mauvais endroit.
+
+**Le sujet d'aide envoyait le chef d'unité faire un geste sans effet.** Il
+donnait « choisir un logo pour la branche » comme la correction, puis disait
+que la ligne s'en va « dès qu'une branche est reconnue ». Or `setLogo()` écrit
+`logo_file_id` et rien d'autre : le rang de 99 vient de
+`canonicalSortOrder()`, une table du logiciel, jamais d'un geste dans
+l'interface. Quelqu'un aurait donc téléversé un logo et vu la ligne rester,
+sans explication. Réécrit : le logo corrige la page des animés, la ligne
+attend une version.
+
+**Et il promettait un correctif qui ne peut pas venir.** Les libellés étaient
+signalés au mainteneur « pour qu'il ajoute les correspondances manquantes dans
+une version suivante » — vrai pour une branche, faux pour une fonction
+(écart 7), et le sujet frère de la même PR le disait déjà explicitement.
+Quelqu'un lisant celui-ci aurait attendu une mise à jour au lieu d'attribuer
+le rôle qui, seul, résout la ligne. La promesse est restreinte aux branches.
+
+Le sujet est passé à 452 mots en gagnant ces nuances, puis resserré à 434 —
+au-dessus des ~400 de la limite souple, sous les 500 de la limite dure, ce que
+`HelpInvariantsTest` accepte. Un sujet né d'une scission pour dépassement
+méritait qu'on y regarde deux fois.
+
+### Second tour de revue : sept autres phrases fausses
+
+Onze retours en tout sur cette itération documentaire, et aucun sur le code.
+La leçon tient en une ligne : **aucun test ne vérifie qu'une phrase est vraie**,
+et une itération qui ne fait qu'écrire des phrases n'a donc que la relecture
+pour filet.
+
+**Le garde anti-fuite était documenté à moitié.** §8.51ter créditait la
+journalisation des en-têtes CSV au seul ratio des deux tiers, « preuve que la
+ligne est celle du schéma ». Or `DeskCsvParser` en exige **deux** : le ratio
+*et* une borne sur le nombre de cellules. Le commentaire du code dit pourquoi —
+un fichier dont la ligne d'en-têtes et la première ligne de données ont fusionné
+faute de saut de ligne porte soixante-dix cellules dont trente-quatre sont
+encore des noms attendus, passe le ratio, et livrerait au journal le nom, la
+date de naissance, le téléphone et l'adresse d'un membre réel. C'est le second
+trou que la revue d'IT-01 m'avait fait boucher, et ma documentation n'en gardait
+que la première moitié. Le danger est précis : quelqu'un lisant cette section
+retire la borne de largeur comme redondante et rouvre le trou. Les deux
+conditions sont désormais énoncées ensemble, avec la raison de la seconde.
+
+**Le tableau des natures se contredisait onze lignes plus loin.** Il disait
+qu'une branche à 99 échoue « **and no signal at all** », alors que la même
+section explique que toute valeur non résolue est journalisée et remonte dans
+l'encadré. La phrase datait de l'énoncé du problème de #356 et IT-01 l'avait
+rendue fausse. Quelqu'un s'y fiant aurait réimplémenté un signalement qui
+existe. L'énoncé juste n'est pas « aucun signal » mais **« des conséquences dont
+personne ne se plaint »** : un logo absent n'est signalé par personne, là où une
+fonction non qualifiée l'est par celui qui a perdu ses accès. Corrigé dans le
+tableau, et dans les **quatre** autres endroits où j'avais réemployé la formule
+périmée : deux fois dans `StatisticsPayloadBuilder` — `deskBranches()` et le
+docblock de `MAX_VOCABULARY_LIST_BYTES`, écrit lors de la correction du budget —
+une fois dans son test, et une fois dans l'entrée IT-02 de ce journal.
+
+*La première version de ce paragraphe disait « trois » et nommait l'entrée
+IT-03.* Les deux étaient faux, et c'est la revue qui l'a relevé : j'avais corrigé
+une occurrence et laissé sa jumelle à quarante lignes d'écart dans le même
+fichier, pendant que le journal certifiait le contraire. Un compte rendu qui
+affirme une exhaustivité qu'il n'a pas est pire qu'un compte rendu muet — il
+dispense le lecteur suivant de vérifier.
+
+**Le sujet d'aide affirmait qu'un import ne s'arrête jamais.** Faux pour une
+colonne : un en-tête attendu absent lève `ImportException`. Restreint aux
+fonctions et aux branches, avec la différence nommée — une colonne arrête
+l'import et le dit tout de suite, il n'y a rien à découvrir plus tard.
+
+**Et qu'« une ligne indique combien de fiches sont concernées ».** Le gabarit ne
+l'affiche que si `affected > 0` ; sinon il dit « personne ne porte cette
+fonction cette année ». Reformulé pour couvrir les deux cas.
+
+**« Donnez-lui un rôle plus bas dans la page » se lisait comme un comparatif.**
+Trois lignes plus haut, le même texte dit que la fonction est créée « au rôle le
+plus bas » — donc « un rôle plus bas » se comprend d'abord comme *un rôle
+inférieur*, conseil impossible puisqu'elle est déjà au plus bas. Une virgule
+suffit : « donnez-lui un rôle, plus bas dans la page ».
+
+**« En cochant "Montrer les valeurs écartées" »** nomme un geste que la page
+n'offre pas : c'est un lien, et le gabarit ne contient aucune case à cocher.
+Corrigé en « par le lien ».
+
+**Et l'encadré n'est pas un compte rendu du dernier import.** `specifications.md`
+disait « what the last import could not match » ; la liste est l'état **courant**,
+donc une fonction créée il y a des mois et jamais qualifiée y figure encore. Un
+administrateur aurait attribué un manque ancien au dernier import.
+
+Le sujet d'aide a gonflé de **434** — son état à la fin du tour précédent — à 487
+mots en absorbant ces nuances, treize sous la limite dure, ce qui ne laissait
+aucune marge. Resserré à **455** à contenu constant, en fusionnant deux sections
+qui disaient la même chose de deux façons — puis **458** après la précision que
+le tour suivant a demandée sur le cas « aucune fiche ».
+
+*La première version de ce paragraphe partait de 373, qui est le compte d'avant
+le premier tour et non d'après.* Elle effaçait donc les soixante et un mots que
+le tour précédent déclare lui-même quatre paragraphes plus haut — le genre
+d'affirmation invérifiable et fausse contre laquelle la section suivante met en
+garde. Relevé par la revue, deux paragraphes après l'avertissement.
+
+### Reporté
+
+Rien. Le chantier est clos.
 
 ---

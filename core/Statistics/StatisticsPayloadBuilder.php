@@ -137,9 +137,9 @@ class StatisticsPayloadBuilder
      * of it — leave nothing for `branches`, whose `listed` came back
      * empty while `total` said a hundred and fifty. An empty list is the
      * worst of the outcomes available: `branches` is in this payload
-     * because a rank of 99 is the costliest mapping failure and the only
-     * one silent on the unit's side, and a receiver cannot read what it
-     * was not sent.
+     * because a rank of 99 is the costliest mapping failure and the one
+     * whose consequences nobody complains about, and a receiver cannot
+     * read what it was not sent.
      *
      * Deliberately no rolling-over of what a list does not spend. A unit
      * with three cotisation types would hand its unspent share to
@@ -701,8 +701,11 @@ class StatisticsPayloadBuilder
      * worth adding to a vocabulary block that had done without them: 99
      * means none of the seven needles matched, which costs the branch its
      * logo on every member page and its place in every picker — the
-     * costliest mapping to get wrong, and the only one that fails with no
-     * signal of any kind on the unit's side.
+     * costliest mapping to get wrong, and the one whose consequences
+     * nobody complains about. A function nobody qualified is reported by
+     * the person who lost access to it; a branch sorted last is reported
+     * by no one, which is why it went unseen until issue #356's own
+     * journalling.
      *
      * Unclassified, like the fee categories and for the same reason: the
      * receiver reads the words. The rank is not a verdict, it is what this
