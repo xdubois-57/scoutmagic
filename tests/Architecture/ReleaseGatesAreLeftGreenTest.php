@@ -20,23 +20,30 @@ use PHPUnit\Framework\TestCase;
  * ship. The gate does its job and refuses; the work it names is an hour
  * that nobody budgeted, at the one moment it cannot be postponed.
  *
- * So the instruction now covers them, on 2026-09-19's wording: « toutes
+ * So there is an instruction for them, on 2026-09-19's wording: « toutes
  * les dépendances à jour, toutes les issues SonarCloud fixées, et en
  * général toutes les gates nécessaires pour faire une release vertes.
  * Sans pour cela lancer une release. »
  *
- * That last sentence is half the rule and the half a test can actually
- * defend: green gates are not an invitation to ship. Releasing is its own
- * instruction, given separately, and an agent that cuts one because the
- * gates happened to go green has published to a production site on its
+ * It lived inside § "Fix the backlog" until 2026-09-25 and was moved out,
+ * which is why this class no longer carries « Backlog » in its name. Two
+ * jobs under one instruction meant a dependency bump landing in a pull
+ * request a reviewer was holding for a ticket, and it also meant this
+ * knowledge disappeared the day the backlog instruction was simplified.
+ * The maintainer now gives it in their own words, when they want it.
+ *
+ * That last sentence of theirs is half the rule and the half a test can
+ * actually defend: green gates are not an invitation to ship. Releasing is
+ * its own instruction, given separately, and an agent that cuts one because
+ * the gates happened to go green has published to a production site on its
  * own initiative.
  *
- * Like Tests\Architecture\BacklogIsCutIntoBlocksTest and
+ * Like Tests\Architecture\BacklogIsOneTicketAtATimeTest and
  * Tests\Architecture\AutoMergeRuleIsWrittenDownTest, this proves only that
  * the rule is still written down where the next agent reads it. No test
  * can check that anybody obeyed it.
  */
-final class BacklogLeavesTheReleaseGatesGreenTest extends TestCase
+final class ReleaseGatesAreLeftGreenTest extends TestCase
 {
     private static function agentRules(): string
     {
@@ -56,9 +63,9 @@ final class BacklogLeavesTheReleaseGatesGreenTest extends TestCase
     public function testTheReleaseGatesArePartOfWhatFixingTheBacklogMeans(): void
     {
         $this->assertStringContainsString(
-            '**Leave every release gate green — and do not cut a release.**',
+            '## Leaving the release gates green',
             self::agentRules(),
-            'AGENTS.md § "Fix the backlog" no longer asks for the release gates to be left green, so '
+            'AGENTS.md no longer has its own section asking for the release gates to be left green, so '
             . 'dependency freshness and SonarQube Cloud are once again nobody\'s job until the moment '
             . 'somebody wants to ship and a gate refuses.',
         );
@@ -76,13 +83,13 @@ final class BacklogLeavesTheReleaseGatesGreenTest extends TestCase
         $this->assertStringContainsString(
             '**Dependencies up to date.**',
             $rules,
-            'AGENTS.md no longer names dependency freshness as part of fixing the backlog.',
+            'AGENTS.md no longer names dependency freshness as one of the gates to leave green.',
         );
 
         $this->assertStringContainsString(
             '**SonarQube Cloud at zero.**',
             $rules,
-            'AGENTS.md no longer names SonarQube Cloud as part of fixing the backlog.',
+            'AGENTS.md no longer names SonarQube Cloud as one of the gates to leave green.',
         );
     }
 
@@ -111,8 +118,7 @@ final class BacklogLeavesTheReleaseGatesGreenTest extends TestCase
     public function testThisWorkIsItsOwnBlockRatherThanAnAdditionToAnother(): void
     {
         $this->assertStringContainsString(
-            '**dependency work and
-    SonarQube Cloud work are each their own block**',
+            '**Dependency work and SonarQube Cloud work are each their own pull',
             self::agentRules(),
             'AGENTS.md no longer says that the dependency and SonarCloud work are blocks of their own, '
             . 'so the next agent may fold a lockfile bump into a pull request opened to fix an issue.',
@@ -128,7 +134,7 @@ final class BacklogLeavesTheReleaseGatesGreenTest extends TestCase
     public function testAGateThatCannotBeMadeGreenGoesBackToTheMaintainer(): void
     {
         $this->assertStringContainsString(
-            'A gate you cannot make green is what this step sends back',
+            'A gate you cannot make green is what this sends back',
             self::agentRules(),
             'AGENTS.md no longer says what to do with a gate that cannot be made green, which leaves '
             . 'silently skipping it and blocking on it equally defensible.',
