@@ -28,6 +28,7 @@ use Tests\Modules\Covoiturage\CovoiturageTestHelper as H;
  * | staff of a linked section  | every offer and passenger of the carpool |
  * | Staff d'U and super-admin  | everything                               |
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class CarpoolVisibilityTest extends TestCase
 {
     private const DRIVER = 1;

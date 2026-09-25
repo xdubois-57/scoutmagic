@@ -31,6 +31,7 @@ use Tests\Modules\Registration\RegistrationTestHelper;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class ReenrollmentDepartureServiceTest extends TestCase
 {
     private \PDO $pdo;

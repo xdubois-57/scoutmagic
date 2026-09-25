@@ -26,6 +26,7 @@ use Tests\Modules\Covoiturage\FakeCalendar;
  * Organising a carpool: who may, the two guards at creation, the place and
  * its point, and why a carpool with cars cannot be deleted.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class CarpoolServiceTest extends TestCase
 {
     private \PDO $pdo;

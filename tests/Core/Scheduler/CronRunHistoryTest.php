@@ -17,6 +17,7 @@ use Tests\DatabaseTestHelper;
  * exactly like one firing every minute through a single stamp. Only the
  * intervals tell them apart, and an interval needs two timestamps.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class CronRunHistoryTest extends TestCase
 {
     private \PDO $pdo;

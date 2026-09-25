@@ -84,6 +84,7 @@ final class NetworkCollector implements SupportCollectorInterface
     }
 }
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class SupportPackageServiceTest extends TestCase
 {
     private \PDO $pdo;

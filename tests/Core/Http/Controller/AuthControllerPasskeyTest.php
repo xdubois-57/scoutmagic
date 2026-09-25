@@ -15,6 +15,7 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class AuthControllerPasskeyTest extends TestCase
 {
     private AuthController $controller;

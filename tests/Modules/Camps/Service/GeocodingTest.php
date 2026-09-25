@@ -16,6 +16,7 @@ use Tests\Modules\Camps\CampsTestHelper;
  * picked, which never do, and what happens after a lookup that found
  * nothing.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class GeocodingTest extends TestCase
 {
     private \PDO $pdo;

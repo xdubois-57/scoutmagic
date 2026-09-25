@@ -32,6 +32,7 @@ use Tests\DatabaseTestHelper;
  * IT-11: monthly contributions, finalisation, immutability, and the
  * history section's independence from the current-state filters.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class MonthlyHistoryTest extends TestCase
 {
     private \PDO $pdo;

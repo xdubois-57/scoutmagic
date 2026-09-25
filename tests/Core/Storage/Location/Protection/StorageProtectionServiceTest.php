@@ -28,6 +28,7 @@ use Tests\DatabaseTestHelper;
  * Choosing a location's safety copy: what is refused, what is merely
  * warned about, and why the line falls where it does.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class StorageProtectionServiceTest extends TestCase
 {
     private \PDO $pdo;

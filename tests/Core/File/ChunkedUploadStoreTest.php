@@ -13,6 +13,7 @@ use PHPUnit\Framework\TestCase;
  * is what the store REFUSES: out-of-order chunks, ids from another
  * session, growth past the caller's ceiling, malformed ids.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class ChunkedUploadStoreTest extends TestCase
 {
     private string $storagePath;

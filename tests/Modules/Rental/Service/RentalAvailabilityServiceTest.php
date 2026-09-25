@@ -22,6 +22,7 @@ use Tests\Modules\Rental\RentalTestHelper;
  * 4's bookings and iteration 5's manual blocks register a provider and
  * nothing else changes.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class RentalAvailabilityServiceTest extends TestCase
 {
     private \PDO $pdo;

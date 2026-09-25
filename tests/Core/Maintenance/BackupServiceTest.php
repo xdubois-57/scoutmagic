@@ -15,6 +15,7 @@ use Core\Storage\Location\DeclaredStorageDirectories;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class BackupServiceTest extends TestCase
 {
     private string $basePath;

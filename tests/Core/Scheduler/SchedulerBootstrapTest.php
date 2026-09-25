@@ -42,6 +42,7 @@ use Tests\DatabaseTestHelper;
  * the sync factory builds a handler whose registry holds the consumers in
  * the order the mailbox rules require.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class SchedulerBootstrapTest extends TestCase
 {
     private static function publicSource(string $file): string

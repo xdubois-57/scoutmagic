@@ -38,6 +38,10 @@ use Twig\Environment;
  * from the site's, and the tracking link present exactly when the renter
  * can still act and absent when they cannot.
  */
+// Through `EmailTemplateRendererFactory::shippedOnlyForModule()`, which
+// reaches an in-memory database by way of its own `emptyStore()`: this
+// class builds none itself and inherits none.
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class RentalBookingMailServiceTest extends TestCase
 {
     /** @var list<array{to: string, subject: string, html: string, text: string}> */

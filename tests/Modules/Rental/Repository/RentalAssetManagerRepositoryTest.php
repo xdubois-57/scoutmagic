@@ -9,6 +9,7 @@ use Modules\Rental\Repository\RentalAssetManagerRepository;
 use PHPUnit\Framework\TestCase;
 use Tests\Modules\Rental\RentalTestHelper;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class RentalAssetManagerRepositoryTest extends TestCase
 {
     private \PDO $pdo;

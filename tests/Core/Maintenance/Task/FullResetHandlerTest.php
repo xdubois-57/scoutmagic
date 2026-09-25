@@ -27,6 +27,7 @@ use Tests\DatabaseTestHelper;
  * truncate/wipe/preserve logic for real, against a real (SQLite) database
  * and a real synthetic storage/ tree — without needing a live MySQL server.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class FullResetHandlerTest extends TestCase
 {
     private \PDO $pdo;

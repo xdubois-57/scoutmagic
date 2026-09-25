@@ -11,6 +11,7 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\UsageStats\UsageStatsTestHelper;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class PageViewRecorderTest extends TestCase
 {
     private const BROWSER = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) '

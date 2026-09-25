@@ -24,6 +24,7 @@ use Tests\DatabaseTestHelper;
  * **brought up to date** by the same arrival, since it is the only place
  * « what are they running now » lives. One body does both.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class TicketStatisticsSnapshotTest extends TestCase
 {
     private \PDO $pdo;

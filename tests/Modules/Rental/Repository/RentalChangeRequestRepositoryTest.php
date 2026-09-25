@@ -24,6 +24,7 @@ use Tests\Modules\Rental\RentalTestHelper;
  * would otherwise ask thirty times — on a page that already reads every
  * booking it shows in a single statement.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class RentalChangeRequestRepositoryTest extends TestCase
 {
     private \PDO $pdo;

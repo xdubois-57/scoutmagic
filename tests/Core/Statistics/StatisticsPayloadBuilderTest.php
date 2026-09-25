@@ -26,6 +26,7 @@ use Core\View\MenuBuilder;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class StatisticsPayloadBuilderTest extends TestCase
 {
     private \PDO $pdo;
@@ -796,8 +797,10 @@ class StatisticsPayloadBuilderTest extends TestCase
 
     /**
      * Issue #356. The branch is the costliest mapping to get wrong and the
-     * only one that fails with no signal at all on the unit's side, so the
-     * report says what this installation's own code answered for each.
+     * one whose consequences nobody complains about — a missing logo is
+     * reported by no one, where a function nobody qualified is reported by
+     * whoever lost access to it — so the report says what this
+     * installation's own code answered for each.
      */
     public function testTheVocabularyCarriesEachBranchWithTheRankTheCodeGaveIt(): void
     {

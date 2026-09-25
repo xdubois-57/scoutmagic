@@ -30,6 +30,7 @@ use Twig\Environment;
  * never rendered as 0/Non, and no view state survives a request that
  * carries no query string.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class SupportDashboardControllerTest extends TestCase
 {
     private \PDO $pdo;

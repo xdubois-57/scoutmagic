@@ -22,6 +22,7 @@ use Tests\Modules\Calendar\CalendarTestHelper;
  * covoiturage.md, IT-03): an event's place and section in EventSummary, and
  * a search over upcoming events the reader may see.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class CalendarEventSearchTest extends TestCase
 {
     private \PDO $pdo;

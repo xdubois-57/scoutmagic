@@ -14,6 +14,7 @@ use PHPUnit\Framework\TestCase;
 use Twig\Environment;
 use Twig\Loader\ArrayLoader;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class EditableContentControllerTest extends TestCase
 {
     private \PDO $pdo;

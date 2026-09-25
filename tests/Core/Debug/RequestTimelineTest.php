@@ -18,6 +18,7 @@ use PHPUnit\Framework\TestCase;
  * with this environment's own PHP CLI startup warnings being (correctly)
  * treated as unexpected output by PHPUnit's process isolation.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class RequestTimelineTest extends TestCase
 {
     protected function setUp(): void

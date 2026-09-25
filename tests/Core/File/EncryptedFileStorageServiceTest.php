@@ -9,6 +9,7 @@ use Core\File\FileRepository;
 use Core\Security\EncryptionService;
 use PHPUnit\Framework\TestCase;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class EncryptedFileStorageServiceTest extends TestCase
 {
     private \PDO $pdo;
