@@ -185,6 +185,8 @@ class E2eOverlayGestureRatchetTest extends TestCase
             <div class="collapse" id="{{ card }}-body"></div>
             {% embed 'partials/modal.html.twig' with { title: 'Ajouter', id: 'id-second' } only %}{% endembed %}
             {% embed 'partials/modal.html.twig' with { modal_id: 'not-the-id' } only %}{% endembed %}
+            {# {% embed 'partials/modal.html.twig' with { id: 'in-a-twig-comment' } only %} #}
+            <!-- <div class="modal" id="in-an-html-comment"></div> -->
             {% embed 'partials/modal.html.twig' with {
                 id: 'contact-' ~ contact.id ~ '-modal',
                 title: 'Contact',
@@ -389,6 +391,10 @@ class E2eOverlayGestureRatchetTest extends TestCase
      */
     private static function overlayIdsIn(string $source): array
     {
+        // Comments are not markup: partials/modal.html.twig documents its
+        // own use with an example embed inside `{# … #}`, and that example
+        // declares no modal.
+        $source = (string) preg_replace('/\{#.*?#\}|<!--.*?-->/s', '', $source);
         $ids = [];
 
         // The whole embed tag, then its `id:` key wherever it sits in the
