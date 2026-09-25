@@ -294,6 +294,79 @@ class MigrateAlbumStorageHandlerTest extends TestCase
     }
 
     /**
+     * **A cleanup that fails no longer fails in silence** (#484).
+     *
+     * This is the most destructive `deletePrefix()` in the application —
+     * the location it prunes still holds OTHER albums — and it was the one
+     * call whose outcome nothing recorded: the `catch` swallowed the
+     * throwable without a word. The migration itself stays successful,
+     * which is right; what changes is that « why is the old location still
+     * full » has an answer.
+     *
+     * The source backend is the one decorated here, not the destination:
+     * everything up to the cleanup must succeed for the swallow to be
+     * reached at all.
+     */
+    public function testACleanupThatFailsIsJournaledAndDoesNotFailTheMigration(): void
+    {
+        $mediaId = $this->createMediaWithFiles();
+        $this->startMigration();
+
+        $factory = $this->factorySourceRefusingToPrune();
+        (new MigrateAlbumStorageHandler($factory))->handle(['album_id' => $this->albumId], $this->buildContext());
+
+        // The migration succeeded: the album points at the destination and
+        // the files are there.
+        $album = $this->albumRepository->findById($this->albumId);
+        $this->assertSame($this->targetId, $album->locationId);
+        $this->assertSame(Album::MIGRATION_NONE, $album->migrationStatus);
+        $this->assertNull($album->migrationError);
+        $targetBackend = new LocalStorageBackend($this->storagePath . '/target');
+        $this->assertSame("medium-bytes-{$mediaId}", $targetBackend->get("{$this->albumId}/med_{$mediaId}.jpg"));
+
+        // And the failed tidying left a trace.
+        $entry = $this->pdo
+            ->query("SELECT * FROM event_log WHERE event_type = 'album_storage_cleanup_failed'")
+            ->fetch();
+        $this->assertNotFalse($entry, 'a cleanup failure on a shared location was swallowed without a word');
+        $this->assertSame('gallery', $entry['category']);
+        $this->assertSame('warning', $entry['level']);
+        $this->assertStringContainsString((string) $this->albumId, (string) $entry['description']);
+        $this->assertStringContainsString('"album_id":' . $this->albumId, (string) $entry['context']);
+        $this->assertStringContainsString('"from_location_id":' . $this->sourceId, (string) $entry['context']);
+
+        // The successful migration is still recorded, and it comes first:
+        // the tidying is an epilogue, not a condition.
+        $migrated = $this->pdo
+            ->query("SELECT * FROM event_log WHERE event_type = 'album_storage_migrated'")
+            ->fetch();
+        $this->assertNotFalse($migrated);
+        $this->assertLessThan((int) $entry['id'], (int) $migrated['id']);
+    }
+
+    /**
+     * The source backend refuses to prune, everything else being real.
+     */
+    private function factorySourceRefusingToPrune(): StorageBackendFactory
+    {
+        $sourceId = $this->sourceId;
+        $storagePath = $this->storagePath;
+
+        $factory = $this->createMock(StorageBackendFactory::class);
+        $factory->method('create')->willReturnCallback(
+            function (StorageLocation $location) use ($sourceId, $storagePath): StorageBackendInterface {
+                if ($location->id === $sourceId) {
+                    return new RefusingToPruneBackend(new LocalStorageBackend($storagePath . '/source'));
+                }
+
+                return new LocalStorageBackend($storagePath . '/target');
+            }
+        );
+
+        return $factory;
+    }
+
+    /**
      * A real LocalStorageBackend can't be made to fail on demand for one
      * specific file, so the destination backend is swapped for a decorator
      * that throws once a given number of successful puts have happened —
@@ -472,6 +545,18 @@ final class FailingPutBackend extends DecoratedLocalBackend
  * test for the wrong reason — no mismatch detected because the double
  * stopped simulating one.
  */
+/**
+ * Deletes one key happily and refuses to prune a folder — the one failure
+ * the migration's epilogue has to survive, and now to report (#484).
+ */
+final class RefusingToPruneBackend extends DecoratedLocalBackend
+{
+    public function deletePrefix(string $prefix): void
+    {
+        throw new \RuntimeException('Simulated cleanup failure on the source location');
+    }
+}
+
 final class CorruptingReadBackend extends DecoratedLocalBackend
 {
     public function get(string $key): string
