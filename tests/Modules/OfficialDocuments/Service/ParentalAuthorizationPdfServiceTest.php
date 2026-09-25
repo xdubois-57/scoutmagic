@@ -125,6 +125,11 @@ final class ParentalAuthorizationPdfServiceTest extends TestCase
      * one fixed — and the half it had learnt was not enough, which a
      * second red job proved by naming a `runc-process…` file that
      * APPEARED.
+     *
+     * #541 carried that second half here as an inline filter, because
+     * waiting for this branch to land was waiting. This merge replaces it
+     * with the shared reader it was a copy of — which is what its own
+     * commit message said would happen, and the whole point of #535.
      */
     public function testNothingIsWrittenToDisk(): void
     {

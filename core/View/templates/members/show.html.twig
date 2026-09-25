@@ -386,7 +386,8 @@
                                 <div class="d-flex flex-wrap gap-2">
                                     {% if row.status == 'pending' %}
                                         {% set cooldown = member_email_resend_cooldown_minutes[row.id] ?? 0 %}
-                                        <form method="post" action="/members/{{ member.memberYearId }}/emails/{{ row.id }}/resend">
+                                        <form method="post" action="/members/{{ member.memberYearId }}/emails/{{ row.id }}/resend"
+                                              data-confirm="Renvoyer l'e-mail de confirmation à {{ row.email }} ? Il part immédiatement et ne peut pas être rappelé.">
                                             {{ csrf_field()|raw }}
                                             <button type="submit" class="btn btn-sm btn-outline-secondary" {% if cooldown > 0 %}disabled title="Veuillez patienter avant de renvoyer"{% endif %}>
                                                 Renvoyer{% if cooldown > 0 %} (dans {{ cooldown }} min){% endif %}

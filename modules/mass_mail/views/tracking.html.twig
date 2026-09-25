@@ -93,7 +93,8 @@
                         </td>
                         <td class="text-end">
                             {% if r.status in ['error', 'sent'] %}
-                                <button type="button" class="btn btn-sm btn-outline-secondary mmt-resend-btn" data-id="{{ r.id }}">Renvoyer</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary mmt-resend-btn"
+                                        data-id="{{ r.id }}" data-recipient="{{ r.emailAddress ?? '' }}">Renvoyer</button>
                             {% endif %}
                         </td>
                     </tr>

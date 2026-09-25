@@ -521,9 +521,71 @@ helpers; a page-level primary action that happens to call an AI
 - Destructive POSTs carry `data-confirm` **on the `<form>` element** — the
   global handler in `base.html.twig` listens on `submit` and looks at
   `e.target.closest('form[data-confirm]')`; the attribute on a button is
-  silently inert. Rule of thumb: every POST that deletes, removes, refuses
-  or revokes carries one; nothing else does. Messages state the
-  consequence: « {Verbe} {objet} ? {Conséquence concrète}. »
+  silently inert. Messages state the consequence: « {Verbe} {objet} ?
+  {Conséquence concrète}. »
+  - **What carries one**: every POST that **deletes, removes, refuses,
+    revokes, archives**, or **sends an e-mail to somebody else**. The last
+    two joined the rule with #485: archiving takes a thing out of every
+    list, and a message that has left cannot be recalled — neither is
+    undone by clicking again.
+  - **What does not**, and these are exceptions worth naming rather than
+    leaving to taste: an action that UNDOES another (restore, unarchive,
+    reactivate, put back in service, unblock a bounce, put a request back
+    in the pending list), leaving a preview or a mode, removing one's own
+    temporary access, and a **test send to oneself**. Nothing there is
+    lost, and a dialog on each of them teaches the reader to dismiss
+    dialogs.
+  - An action driven from JavaScript cannot use the attribute — the
+    handler delegates from a `<form>` — so it asks with
+    `window.ScoutMagicConfirm.ask()` instead. Same rule, same wording.
+  - Held by `UxConventionsTest::testEveryDestructivePostFormAsksFirst()`
+    for the first list and `testNoUndoAsksForConfirmation()` for the
+    second. Its allowlist is NOT the exceptions above — those never match
+    the destructive pattern in the first place, so they need no entry. It
+    holds addresses the pattern reports WRONGLY: « archive » used as a
+    noun, « ignorer » already behind a panel and a typed reason, and one
+    genuine exception that does match. Reading the absence of an entry as
+    evidence a rule is followed is therefore a mistake. Both readers read
+    the URL of a form's action, so an action whose address does not say
+    what it does escapes them; the list is to be re-read whenever one is
+    added.
+  - **It reads French AND English verbs, and the first version did not**:
+    the destructive half was bilingual while the « sends an e-mail » half
+    knew only `send…email` and `resend`. Two routes escaped it —
+    `/config/reinscription/relance`, which mails every family that has not
+    answered, and `/finance/campaigns/{id}/notify`, which notifies every
+    account with a balance left to pay. Both ask now. The lesson is worth
+    keeping: route addresses here are French, so a pattern written in
+    English is a pattern that reads the minority of them.
+
+    **And the family is « reaches somebody else, irrevocably », of which
+    an e-mail is only the commonest case.** The first draft of this bullet
+    said `/finance/campaigns/{id}/notify` « mails every family of a
+    campaign », and the confirmation it wrote said so too. Both were wrong
+    twice: that route dispatches through `NotificationService`, and
+    `finance.payment_due` declares `email: default_off`, so by default
+    nothing is e-mailed at all — and it reaches the accounts that still owe
+    something, not every family. Which is precisely the trap the next
+    bullet names, walked into while writing it.
+
+    **Widened once more, on the same reviewer's second pass**, and this
+    time for the plainest verbs there are: `envoyer` and `renvoyer`. Two
+    live routes use exactly them — `/mes-locations/document-envoyer` and
+    `/admin/members/{id}/documents/{id}/renvoyer` — so a pattern claiming to
+    be bilingual was missing the words a French speaker would try first.
+  - **An attribute inside a `{% if %}` is not an attribute.** The guard
+    reads template SOURCE, not rendered markup, so a `data-confirm` printed
+    on one branch only looked exactly like one printed always.
+    `modules/rental/views/management/_documents.html.twig` asked on a first
+    send of a generated document and on nothing else — so **re-sending**
+    mailed the renter with no question, the very case this rule adds. It
+    asks on every send now; the sentence about the text being locked (§22.6)
+    stays conditional, because that consequence really is. A conditional
+    sentence inside the MESSAGE is fine; a conditional attribute is not.
+  - And a verb in an address is **not proof** of what the action does:
+    `/finance/campaigns/{id}/reminder` says « rappel » and only prepares a
+    draft — « il n'a pas été envoyé ». That is why the exceptions are a
+    named list and not a longer pattern.
 - Never `on*=` attributes in templates — the CSP (`script-src 'self'
   'nonce-…'`) makes inline handlers dead code, silently.
 - **Behaviour lives in `public/assets/js/`, never in a template's own
