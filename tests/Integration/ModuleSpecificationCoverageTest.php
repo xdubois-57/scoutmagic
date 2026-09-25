@@ -277,4 +277,136 @@ class ModuleSpecificationCoverageTest extends TestCase
     {
         return (string) file_get_contents(dirname(__DIR__, 2) . '/' . $relativePath);
     }
+
+    /**
+     * The document's numbering is a promise about its order.
+     *
+     * §18.5 sat before §18.4 (#488). Nothing broke, and that is the point:
+     * a reader descending §18 for §18.4 walks past §18.5 and concludes
+     * they have gone too far. A reference document that numbers its
+     * sections has promised they follow, and the only cost of breaking
+     * that promise is paid by whoever is looking something up.
+     *
+     * Written for the WHOLE document rather than for §18, because the one
+     * out-of-order pair was found by eye during an unrelated review — and
+     * an eye that found one is not a method that finds the next.
+     *
+     * A `bis` suffix sorts immediately after the number it extends — a
+     * `3bis` follows a `3` and precedes a `4`, which is what the suffix
+     * means here. Those suffixed headings are written at level FOUR, so a
+     * scan anchored to exactly three hashes would not see the very
+     * headings this paragraph is about.
+     *
+     * **One pass in document order, and the first draft was two.** That
+     * draft scanned major headings and subsection headings separately and
+     * bucketed each subsection by the number written in its own text, so
+     * nothing ever compared a subsection to the section it physically sits
+     * in. A block relocated under the NEXT major section would have passed
+     * it: its own bucket stayed ascending, and the major sequence never
+     * looked at subsection lines at all. That is this defect one section
+     * over — a reader descending a section who has in fact wandered into
+     * the following one — and the test written to catch it would have said
+     * nothing. Reading the headings once, in the order the file holds
+     * them, is what makes the physical position the thing under test.
+     *
+     * No example here carries the section sign, and that is deliberate:
+     * `Tests\Architecture\CrossReferenceResolutionRatchetTest` reads this
+     * file and takes any sign-plus-number in a comment for a real
+     * reference, then looks for the section it names. It rejected this
+     * docblock's first draft — and then the sentence written to explain
+     * the rejection, which quoted the offending example to warn about it.
+     */
+    public function testEverySectionAndSubsectionIsWrittenInNumericalOrder(): void
+    {
+        $specs = $this->read('specifications.md');
+        $outOfOrder = [];
+        $seen = 0;
+
+        // Every numbered heading, at any of the three levels the document
+        // uses, in the order the file holds them: `## 18.`, `### 18.4`,
+        // `#### 18.1bis`.
+        preg_match_all(
+            '/^(#{2,4}) (\d+)(?:\.(\d+))?(bis|ter)?(?=[\s.])/m',
+            $specs,
+            $headings,
+            PREG_SET_ORDER
+        );
+
+        $section = null;
+        $previousSection = null;
+        $previousMinor = null;
+
+        foreach ($headings as $heading) {
+            $seen++;
+            $major = (int) $heading[2];
+            $minor = ($heading[3] ?? '') !== '' ? (int) $heading[3] : null;
+            $suffix = $heading[4] ?? '';
+
+            if ($minor === null) {
+                // A major section opens, and closes whatever came before:
+                // the subsection cursor starts again at nothing, so §19.1
+                // is never compared with §18.5.
+                if ($previousSection !== null && $major < $previousSection) {
+                    $outOfOrder[] = sprintf('§%d is written after §%d', $major, $previousSection);
+                }
+                $section = $major;
+                $previousSection = $major;
+                $previousMinor = null;
+                continue;
+            }
+
+            // **The check the first draft did not have.** A subsection is
+            // compared with the section it is WRITTEN IN, not with the
+            // number it gives itself — otherwise a block moved under the
+            // next major heading keeps its own bucket ascending and passes.
+            if ($section !== $major) {
+                $outOfOrder[] = sprintf(
+                    '§%d.%d%s is written inside %s',
+                    $major,
+                    $minor,
+                    $suffix,
+                    $section === null ? 'no section at all' : sprintf('§%d', $section)
+                );
+                continue;
+            }
+
+            $rank = [$minor, $suffix];
+            if (
+                $previousMinor !== null
+                && ($rank[0] < $previousMinor[0]
+                    || ($rank[0] === $previousMinor[0] && $rank[1] < $previousMinor[1]))
+            ) {
+                $outOfOrder[] = sprintf(
+                    '§%d.%d%s is written after §%d.%d%s',
+                    $major,
+                    $rank[0],
+                    $rank[1],
+                    $major,
+                    $previousMinor[0],
+                    $previousMinor[1]
+                );
+            }
+
+            $previousMinor = $rank;
+        }
+
+        $this->assertSame(
+            [],
+            $outOfOrder,
+            "specifications.md numbers its sections, which promises they follow one another.\n"
+                . "Move the block rather than renumbering it: the numbers are cited from the\n"
+                . "document itself and from the code, so a swap makes every one of those\n"
+                . "references wrong at once (#488).\n\n"
+                . implode("\n", $outOfOrder)
+        );
+
+        // A floor under the scan: the assertion above is `assertSame([], …)`,
+        // which an expression that stopped matching would satisfy for ever.
+        $this->assertGreaterThanOrEqual(
+            250,
+            $seen,
+            'the heading scan reads far less of specifications.md than the document holds, '
+                . 'so the order above was checked against almost nothing'
+        );
+    }
 }
