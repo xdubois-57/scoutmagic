@@ -267,11 +267,24 @@ final class UxConventionsTest extends TestCase
             '/config/reinscription/relance',
             'a French « relance » route is a message to somebody else, whatever the English half says'
         );
-        $this->assertDoesNotMatchRegularExpression(
-            self::SENDS_AN_EMAIL,
-            '/config/reinscription/relances-envoyees',
-            'the verb has to be its own segment, or every address containing it becomes a send'
-        );
+        // The verb has to be its own segment, or every address containing
+        // it becomes a send — and each of these carries its own proof that
+        // the anchors are what rejects it, rather than the verb being
+        // absent. A fixture that contains no verb at all scores 0 whether
+        // the anchors are there or not, which is how a vacuous assertion
+        // gets into a file like this one (a reviewer found two).
+        foreach (['/config/reinscription/relances-envoyees', '/admin/notifyall'] as $url) {
+            $this->assertDoesNotMatchRegularExpression(
+                self::SENDS_AN_EMAIL,
+                $url,
+                "« {$url} » carries the verb inside a longer word, so it is not a send"
+            );
+            $this->assertMatchesRegularExpression(
+                '/(relance|notify)/i',
+                $url,
+                "and the verb IS in « {$url} » — without that, the assertion above would pass for nothing"
+            );
+        }
         $this->assertMatchesRegularExpression(
             self::SENDS_AN_EMAIL,
             '/finance/campaigns/12/notify',
@@ -290,10 +303,15 @@ final class UxConventionsTest extends TestCase
             '/admin/members/12/documents/3/renvoyer',
             're-sending a member document mails it again'
         );
+        // A page LISTING what was sent sends nothing. Kept for the shape it
+        // documents, and labelled for what it actually proves: « envoyes »
+        // is not « envoyer », so this one never reaches the anchors — it
+        // says the pattern does not match a past participle, not that the
+        // anchoring works. The two fixtures above are what prove that.
         $this->assertDoesNotMatchRegularExpression(
             self::SENDS_AN_EMAIL,
             '/locations/documents-envoyes',
-            'a page LISTING what was sent sends nothing — the verb has to be its own segment'
+            'a page listing what was sent sends nothing: the pattern wants the infinitive'
         );
 
         // Either quote style, for the method and for the action.
