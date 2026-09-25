@@ -115,6 +115,7 @@ class OutboundMailController extends AbstractController
 
     public const RETURN_CHECK_URL = '/config/courrier-sortant/authentification/verification';
     public const DNS_CHECK_URL = '/config/courrier-sortant/authentification/dns';
+    public const DKIM_REGENERATE_URL = '/config/courrier-sortant/authentification/cle-dkim';
 
     public function __construct(
         protected Environment $twig,
@@ -1719,6 +1720,60 @@ class OutboundMailController extends AbstractController
     }
 
     /**
+     * Mints a fresh DKIM key pair, and forgets what the DNS last said.
+     *
+     * **Here rather than on « Installation & serveur »** (issue #336). That
+     * page carried a checkbox to do it, and it is the wrong page for the
+     * one reason that matters: it cannot tell the operator whether the DNS
+     * record has caught up, so a key rotated from there left the site
+     * failing DKIM with nothing on screen to say why. This page shows the
+     * public key, proposes the record, and checks it live — so it is the
+     * page where rotating is a decision rather than a leap.
+     *
+     * Two screens for one action was the other half of the problem, so the
+     * checkbox went in the same change: there is now exactly one place.
+     *
+     * Forgetting the remembered reading is not optional and not cosmetic:
+     * a stored reading holds the key it was taken against, and nothing in
+     * it can name the key in use NOW — so a rotation leaves a reading that
+     * looks current and describes a key that is gone. See
+     * `Tests\Architecture\DkimKeyChangeForgetsDnsTest`, which holds every
+     * place that touches the key to doing this.
+     *
+     * @param array<string, string> $params
+     */
+    public function regenerateDkimKey(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, self::AUTHENTICATION_URL)) !== null) {
+            return $guard;
+        }
+
+        $this->dkim->deleteKey();
+        $this->dkim->generateKey();
+        DnsCheckMemory::forget($this->settings);
+
+        $this->journal->log(
+            'core',
+            'dkim_key_regenerated',
+            'security',
+            'Clé DKIM régénérée',
+            // No key material, no fingerprint: the public half is on the
+            // page and the private half is never written anywhere a reader
+            // of the journal can reach.
+            ['selector' => $this->dkimSelector()],
+            AuthSession::getUserAccountId()
+        );
+
+        FlashMessage::set(
+            'success',
+            'Nouvelle clé DKIM générée. Publiez l’enregistrement DNS ci-dessous : tant qu’il porte l’ancienne '
+                . 'valeur, les messages du site échouent à DKIM.'
+        );
+
+        return $this->redirect(self::AUTHENTICATION_URL);
+    }
+
+    /**
      * POST /config/courrier-sortant/authentification/dns — take the
      * lookup, keep what it found, come back.
      *
@@ -2286,6 +2341,7 @@ class OutboundMailController extends AbstractController
             'dkim_public_key' => $this->dkim->hasKey() ? $this->dkim->getPublicKey() : '',
             'dns' => $this->rememberedDns(),
             'dns_check_url' => self::DNS_CHECK_URL,
+            'dkim_regenerate_url' => self::DKIM_REGENERATE_URL,
             'authentication_url' => self::AUTHENTICATION_URL,
         ]);
     }

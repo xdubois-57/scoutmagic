@@ -250,6 +250,21 @@
                 <button type="button" class="btn btn-outline-secondary btn-copy-value"
                         data-copy-target="dkim-pubkey-display">Copier</button>
             </div>
+
+            {# Regenerating lives HERE and nowhere else (issue #336): this is
+               the page that shows the key, proposes its DNS record and
+               checks it live, so rotating is a decision rather than a leap.
+               « Installation & serveur » carried a checkbox for it and
+               could say nothing about the record having to follow. #}
+            <form method="post" action="{{ dkim_regenerate_url }}" class="mb-2"
+                  data-confirm="Régénérer la clé DKIM ? Tant que l'enregistrement DNS n'est pas mis à jour, les messages du site échoueront à DKIM.">
+                {{ csrf_field()|raw }}
+                <button type="submit" class="btn btn-outline-danger btn-sm">Régénérer la clé DKIM</button>
+            </form>
+            <div class="form-text mb-2">
+                Une nouvelle paire de clés remplace l'actuelle. L'enregistrement DNS proposé ci-dessous change
+                avec elle, et la dernière vérification est oubliée : elle décrivait une clé qui n'existe plus.
+            </div>
         {% else %}
             <p class="text-body-secondary small">
                 Aucune clé DKIM n'a encore été générée — elle l'est à la fin de l'installation. Sans elle,

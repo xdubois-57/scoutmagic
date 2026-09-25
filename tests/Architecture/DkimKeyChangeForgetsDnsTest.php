@@ -41,32 +41,64 @@ use PHPUnit\Framework\TestCase;
  */
 class DkimKeyChangeForgetsDnsTest extends TestCase
 {
-    private const CONTROLLER = 'core/Http/Controller/SetupController.php';
+    /**
+     * Every file allowed to change the key pair.
+     *
+     * `OutboundMailController` joined the list when the regeneration moved
+     * there (issue #336), and **this test is how that move was sequenced**:
+     * taking the checkbox off « Installation & serveur » dropped the count
+     * from four sites to three, and the floor below said, in as many words,
+     * « Move the test, do not delete it ». It was right.
+     *
+     * A list rather than a scan of `core/`: these two controllers are where
+     * the key is allowed to change at all, and a third file appearing
+     * should be a decision somebody writes down here — not something a
+     * wildcard absorbs in silence.
+     */
+    private const CONTROLLERS = [
+        'core/Http/Controller/SetupController.php',
+        'core/Http/Controller/OutboundMailController.php',
+    ];
 
     /** Mutations of the key pair. `hasKey()` and `getPublicKey()` read. */
     private const MUTATORS = ['generateKey', 'deleteKey'];
 
+    /**
+     * The two spellings of « forget the reading », both of which really do.
+     *
+     * `SetupController` wraps it in a private method that swallows its own
+     * failure, because two of its call sites run while the installation is
+     * being built or torn down. `OutboundMailController` calls
+     * `DnsCheckMemory::forget()` straight, exactly as its own `checkDns()`
+     * does one method below. Accepting only the first spelling would have
+     * made this guard demand a wrapper for its own sake.
+     */
+    private const FORGETS = ['$this->forgetDnsReading()', 'DnsCheckMemory::forget('];
+
     public function testEveryPlaceThatChangesTheDkimKeyAlsoForgetsTheDnsReading(): void
     {
-        $lines = $this->controllerLines();
         $found = 0;
 
-        foreach ($lines as $number => $line) {
-            if (!$this->isAMutation($line)) {
-                continue;
-            }
+        foreach (self::CONTROLLERS as $controller) {
+            $lines = $this->controllerLines($controller);
 
-            $found++;
-            $this->assertTrue(
-                $this->forgetsWithin($lines, $number),
-                sprintf(
-                    '%s:%d changes the DKIM key pair without calling $this->forgetDnsReading() just after. '
-                        . 'The remembered DNS reading then keeps reporting the previous key as published, '
-                        . 'and the dashboard shows a green tick over mail that every receiver rejects.',
-                    self::CONTROLLER,
-                    $number + 1
-                )
-            );
+            foreach ($lines as $number => $line) {
+                if (!$this->isAMutation($line)) {
+                    continue;
+                }
+
+                $found++;
+                $this->assertTrue(
+                    $this->forgetsWithin($lines, $number),
+                    sprintf(
+                        '%s:%d changes the DKIM key pair without forgetting the remembered DNS reading '
+                            . 'just after. That reading then keeps reporting the PREVIOUS key as published, '
+                            . 'and the dashboard shows a green tick over mail that every receiver rejects.',
+                        $controller,
+                        $number + 1
+                    )
+                );
+            }
         }
 
         // A guard that guards nothing passes for the wrong reason: if the
@@ -91,7 +123,14 @@ class DkimKeyChangeForgetsDnsTest extends TestCase
         }
 
         foreach (self::MUTATORS as $mutator) {
-            if (str_contains($line, '$this->dkimManager->' . $mutator . '(')) {
+            // Two property names for one dependency: `dkimManager` in
+            // SetupController, `dkim` in OutboundMailController. Matching
+            // the METHOD and requiring a `->` before it keeps this from
+            // reading `DkimManager::generateKey` in a docblock.
+            if (
+                str_contains($line, '$this->dkimManager->' . $mutator . '(')
+                || str_contains($line, '$this->dkim->' . $mutator . '(')
+            ) {
                 return true;
             }
         }
@@ -112,8 +151,10 @@ class DkimKeyChangeForgetsDnsTest extends TestCase
             if (!isset($lines[$i])) {
                 return false;
             }
-            if (str_contains($lines[$i], '$this->forgetDnsReading()')) {
-                return true;
+            foreach (self::FORGETS as $forgets) {
+                if (str_contains($lines[$i], $forgets)) {
+                    return true;
+                }
             }
         }
 
@@ -121,11 +162,11 @@ class DkimKeyChangeForgetsDnsTest extends TestCase
     }
 
     /** @return array<int, string> */
-    private function controllerLines(): array
+    private function controllerLines(string $controller): array
     {
-        $path = dirname(__DIR__, 2) . '/' . self::CONTROLLER;
+        $path = dirname(__DIR__, 2) . '/' . $controller;
         $contents = file_get_contents($path);
-        $this->assertIsString($contents, self::CONTROLLER . ' could not be read.');
+        $this->assertIsString($contents, $controller . ' could not be read.');
 
         return explode("\n", $contents);
     }

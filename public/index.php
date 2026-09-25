@@ -4222,6 +4222,13 @@ $router->addRoute(
 );
 $router->addRoute(
     'POST',
+    '/config/courrier-sortant/authentification/cle-dkim',
+    \Core\Http\Controller\OutboundMailController::class,
+    'regenerateDkimKey',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
     '/config/courrier-sortant/authentification/verification',
     \Core\Http\Controller\OutboundMailController::class,
     'verifyReturns',
