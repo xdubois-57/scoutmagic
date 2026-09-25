@@ -30,6 +30,7 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Camps\CampsTestHelper;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class PlaceSummaryServiceTest extends TestCase
 {
     private \PDO $pdo;

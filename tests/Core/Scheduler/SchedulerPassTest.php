@@ -39,6 +39,7 @@ use Tests\DatabaseTestHelper;
  *   that has just replaced every file on disk
  *   (`Tests\Architecture\SelfUpdateMigrationBoundaryTest`).
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class SchedulerPassTest extends TestCase
 {
     private \PDO $pdo;

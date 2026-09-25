@@ -9,7 +9,7 @@ question: Comment dire quel rôle donne une fonction de Desk ?
 question: Comment renommer une section ou changer sa couleur ?
 question: Comment masquer une section aux visiteurs ?
 paths: /config/functions
-related: import-desk, staffs
+related: import-desk, staffs, config-desk-valeurs-inconnues
 ---
 
 La page « Correspondances Desk » relie ce que la fédération connaît —

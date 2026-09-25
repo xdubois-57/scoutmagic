@@ -9,6 +9,7 @@ use Core\File\UploadException;
 use Core\File\UploadHandler;
 use PHPUnit\Framework\TestCase;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class UploadHandlerTest extends TestCase
 {
     private string $tmpDir;

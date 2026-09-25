@@ -10,6 +10,7 @@ use Core\Statistics\InstallationDateService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class InstallationDateServiceTest extends TestCase
 {
     private \PDO $pdo;

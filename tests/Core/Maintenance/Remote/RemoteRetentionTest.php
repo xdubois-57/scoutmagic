@@ -23,6 +23,9 @@ use Tests\Core\Storage\Location\Backend\RefusingBackend;
  * no network in the way, and every case below drives the decision
  * directly.
  */
+// Through `InMemorySettingService`, whose constructor opens an in-memory
+// database: this class builds none itself and inherits none.
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class RemoteRetentionTest extends TestCase
 {
     private InMemorySettingService $settings;

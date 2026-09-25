@@ -44,6 +44,7 @@ final class RecordingTransport implements StatisticsTransportInterface
     }
 }
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class StatisticsSenderTest extends TestCase
 {
     private \PDO $pdo;

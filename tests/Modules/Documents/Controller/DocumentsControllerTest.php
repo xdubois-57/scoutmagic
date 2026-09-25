@@ -28,6 +28,7 @@ use Twig\Environment;
  * the role_min module.json declares — allowed at that floor, refused one
  * level below — then what the two pages and the stable address say.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class DocumentsControllerTest extends TestCase
 {
     private \PDO $pdo;

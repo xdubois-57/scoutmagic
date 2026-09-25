@@ -36,6 +36,7 @@ use Tests\DatabaseTestHelper;
  * asking of it are therefore not about OAuth at all: which location, what
  * happens when it is gone, and who is told before somebody deletes it.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class RemoteBackupDestinationTest extends TestCase
 {
     private InMemorySettingService $settings;

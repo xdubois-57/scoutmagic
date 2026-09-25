@@ -8,6 +8,7 @@ use Modules\Banner\Repository\BannerRepository;
 use PHPUnit\Framework\TestCase;
 use Tests\Modules\Banner\BannerTestHelper;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class BannerRepositoryTest extends TestCase
 {
     private \PDO $pdo;

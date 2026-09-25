@@ -38,6 +38,7 @@ use Tests\DatabaseTestHelper;
  * nothing about money under a real crontab and everything about it on the
  * web path.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class SendRentalRemindersSelfBuildTest extends TestCase
 {
     private function contextWith(bool $financeAndInboundMail): TaskContext

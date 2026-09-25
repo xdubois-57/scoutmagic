@@ -23,6 +23,7 @@ use Tests\DatabaseTestHelper;
  * claimable once and only while it is valid; and « jamais reçue » is a
  * recorded state rather than a silence.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class MailProbeServiceTest extends TestCase
 {
     private \PDO $pdo;

@@ -11,6 +11,7 @@ use Core\Security\WebAuthnService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class WebAuthnServiceTest extends TestCase
 {
     private WebAuthnService $service;

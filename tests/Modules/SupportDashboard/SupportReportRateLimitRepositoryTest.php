@@ -17,6 +17,7 @@ use Tests\DatabaseTestHelper;
  * RateLimitReservationLockTest, because SQLite has no advisory lock to
  * prove it on.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class SupportReportRateLimitRepositoryTest extends TestCase
 {
     private \PDO $pdo;

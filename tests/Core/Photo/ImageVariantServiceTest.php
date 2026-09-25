@@ -9,6 +9,7 @@ use Core\Photo\ImageVariantProcessor;
 use Core\Photo\ImageVariantService;
 use PHPUnit\Framework\TestCase;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class ImageVariantServiceTest extends TestCase
 {
     private \PDO $pdo;

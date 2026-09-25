@@ -17,6 +17,7 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Camps\CampsTestHelper;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class ReviewServiceTest extends TestCase
 {
     private const TODAY = '2026-08-24';

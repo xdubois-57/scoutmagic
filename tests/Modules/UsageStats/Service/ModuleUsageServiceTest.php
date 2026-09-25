@@ -16,6 +16,7 @@ use Tests\Modules\UsageStats\UsageStatsTestHelper;
  * report carries. Everything this class refuses to answer is as much the
  * specification as what it answers.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class ModuleUsageServiceTest extends TestCase
 {
     private const NOW = '2026-08-14 10:00:00';

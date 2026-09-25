@@ -28,6 +28,7 @@ use Tests\DatabaseTestHelper;
  * grows forever on the one installation that receives every other
  * installation's traffic (ARCHITECTURE.md §8.49).
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class PurgeRateLimitsHandlerTest extends TestCase
 {
     private \PDO $pdo;

@@ -11,6 +11,7 @@ use Core\Security\EncryptionService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class AuditServiceTest extends TestCase
 {
     private \PDO $pdo;

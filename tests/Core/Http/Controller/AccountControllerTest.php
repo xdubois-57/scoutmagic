@@ -16,6 +16,7 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class AccountControllerTest extends TestCase
 {
     private AccountController $controller;
