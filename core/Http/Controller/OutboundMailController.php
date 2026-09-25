@@ -1775,12 +1775,13 @@ class OutboundMailController extends AbstractController
                 AuthSession::getUserAccountId()
             );
 
-            FlashMessage::set('error', UserFacingMessage::from(
+            $message = UserFacingMessage::from(
                 $e,
                 'La nouvelle clé DKIM n’a pas pu être générée, et l’ancienne est déjà retirée : les messages '
                     . 'du site ne sont plus signés. Vérifiez que l’extension OpenSSL est active et que le '
                     . 'dossier storage/ est accessible en écriture, puis relancez la génération.'
-            ));
+            );
+            FlashMessage::set('error', $message);
 
             return $this->redirect(self::AUTHENTICATION_URL);
         }
