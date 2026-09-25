@@ -211,6 +211,14 @@ final class BacklogIsCutIntoBlocksTest extends TestCase
         );
 
         $this->assertStringContainsString(
+            'One full suite at a time, and do not touch the working tree while it',
+            $rules,
+            'AGENTS.md no longer says to run one suite at a time on an untouched tree. Two runs share '
+            . 'the one test database, and a run whose tree changes under it reads what is no longer '
+            . 'there — both wrong silently, and both happened here.',
+        );
+
+        $this->assertStringContainsString(
             'put the flake fixes at the FRONT of the queue',
             $rules,
             'AGENTS.md no longer says that an unstable test is fixed before the rest of the queue. It '

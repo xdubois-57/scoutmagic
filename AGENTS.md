@@ -546,6 +546,16 @@ backlog » — and it is a standing instruction, not a one-off. It means:
      restores from `HEAD`, so it deletes the uncommitted work the mutation
      was testing, and every assertion after that fails for the wrong
      reason. Undo a mutation by replacing the string back.
+   - **One full suite at a time, and do not touch the working tree while it
+     runs.** Both halves were learnt the same afternoon. A second
+     `vendor/bin/phpunit` shares the one `test_db` this container has, so
+     the two runs write over each other's fixtures and either verdict can
+     be wrong in either direction. And a run whose tree changes under it —
+     a branch switched, a file edited — is reading something that no longer
+     exists: three failures were reported that way in one session, and one
+     green was reported that had no right to be. Both are silent. If a
+     suite is running and something else needs doing, the something else
+     waits, or the suite is killed and started again afterwards.
 
    **And put the flake fixes at the FRONT of the queue.** A test that fails
    for a reason that is not the defect it watches costs a round to every
