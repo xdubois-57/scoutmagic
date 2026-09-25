@@ -52,6 +52,7 @@
 // across every target year).
 import { expect, test } from '@playwright/test';
 
+import { answerConfirmation } from '../support/confirm-dialog.js';
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { openCollapse } from '../support/collapse.js';
@@ -343,7 +344,17 @@ test('a family registers a child, follows the mailed tracking link, and the admi
         // final state is what keeps the scout-year transition unvetoed
         // for the spec that runs it later.
         // ---------------------------------------------------------------
+        // **The withdrawal asks first** (#485), and the wording is the one
+        // written for a request that has ALREADY been accepted — which is
+        // this scenario's state, and the case the issue singled out: the
+        // family may already hold the acceptance e-mail, so the manager is
+        // told that before the place is taken back. Answered explicitly
+        // rather than through autoConfirm(), because being asked at all is
+        // part of what this step is for.
         await page.getByRole('button', { name: 'Retirer' }).click();
+        const asked = await answerConfirmation(page);
+        expect(asked).toContain('déjà acceptée');
+        expect(asked).toContain('perd sa place');
         await page.waitForURL(/\/config\/inscriptions\/demandes\/\d+$/, { waitUntil: 'domcontentloaded' });
 
         await familyPage.goto(trackingUrl, { waitUntil: 'domcontentloaded' });
