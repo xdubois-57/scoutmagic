@@ -77,16 +77,15 @@ class PageControllerTest extends TestCase
         $twig->addFunction(new \Twig\TwigFunction('file_url', function (): string {
             return '';
         }));
-        // Core\View\TwigFactory registers this in production; this test
-        // builds a bare Environment, so the homepage's payment band needs
-        // it declared here too.
-        $twig->addFilter(new \Twig\TwigFilter('money_cents', function ($cents): string {
-            if ($cents === null || $cents === '') {
-                return '';
-            }
-
-            return number_format(((int) $cents) / 100, 2, ',', ' ') . ' €';
-        }));
+        // Core\View\TwigFactory registers these in production; this test
+        // builds a bare Environment, so the pages under test — the
+        // homepage's payment band, sections.html.twig's names, the groups
+        // activity card's relative dates — need them declared here too.
+        // The shipped extensions, so this file renders what a visitor sees
+        // (issue #465).
+        $twig->addExtension(new \Core\View\DateFilterExtension());
+        $twig->addExtension(new \Core\View\MemberNameFilterExtension());
+        $twig->addExtension(new \Core\View\FormatFilterExtension());
         $twig->addFunction(new \Twig\TwigFunction('param', function (string $key): string {
             $params = ['contact_email' => 'test@example.com', 'site_name' => 'Test'];
             return $params[$key] ?? '';
@@ -118,36 +117,6 @@ class PageControllerTest extends TestCase
             return '';
         }, ['is_safe' => ['html']]));
         $twig->addExtension(new \Core\View\TextNormalizerExtension());
-        $twig->addExtension(new \Core\View\DateFilterExtension());
-        $twig->addFilter(new \Twig\TwigFilter('display_name', function ($member) {
-            return $member instanceof MemberProfile ? $member->getDisplayName() : (string) $member;
-        }));
-        // Minimal stand-in for TwigFactory::create()'s own
-        // display_name_full — "Totem (Prénom Nom)", or the name alone
-        // when there is no totem. Same posture as display_name above: the
-        // real filter is covered end to end by Tests\Core\View\
-        // TwigFactoryTest, and what this file is proving is which filter
-        // pages/sections.html.twig reaches for.
-        $twig->addFilter(new \Twig\TwigFilter('display_name_full', function ($member) {
-            if (!$member instanceof MemberProfile) {
-                return (string) $member;
-            }
-            $full = trim(
-                \Core\Service\TextNormalizerService::normalizeName($member->firstName)
-                . ' ' . \Core\Service\TextNormalizerService::normalizeName($member->lastName)
-            );
-
-            return $member->totem
-                ? \Core\Service\TextNormalizerService::normalizeTotem($member->totem) . ' (' . $full . ')'
-                : $full;
-        }));
-        // Minimal stand-in for TwigFactory::create()'s own relative_date —
-        // the real French/UTC formatting is covered in full by
-        // Tests\Core\View\TwigFactoryTest; here it only needs to exist so
-        // pages/home.html.twig's groups activity card can render.
-        $twig->addFilter(new \Twig\TwigFilter('relative_date', function ($date) {
-            return (string) $date;
-        }));
 
         $sectionRepo = new SectionRepository($this->pdo);
 

@@ -41,7 +41,6 @@ use Tests\DatabaseTestHelper;
 use Tests\Modules\Leadership\LeadershipTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
-use Twig\TwigFilter;
 use Twig\TwigFunction;
 
 /**
@@ -633,24 +632,14 @@ class LeadershipRbacTest extends TestCase
         // asset() is what base.html.twig references every static file through
         // (Core\View\TwigFactory); the bare path is enough for a test render.
         $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
-        // Same allowlist as Core\View\TwigFactory's own filter, which
-        // partials/rich_text_field.html.twig renders its value through.
-        $twig->addFilter(new TwigFilter(
-            'sanitized_html',
-            static fn (?string $html): string => (new \Core\Security\HtmlSanitizer())->sanitize((string) $html),
-            ['is_safe' => ['html']]
-        ));
+        // |sanitized_html, which partials/rich_text_field.html.twig renders
+        // its value through, and the date filters these views print. The
+        // shipped ones, not a rendering that resembles them (issue #465).
+        $twig->addExtension(new \Core\View\DateFilterExtension());
+        $twig->addExtension(new \Core\View\RichTextFilterExtension());
 
-        // The shared French format filters (core/View/TwigFactory.php) the
-        // templates under test use — same rendering as the shipped ones.
-        $twig->addFilter(new TwigFilter(
-            'date_fr',
-            fn ($d) => $d === null || $d === '' ? '' : ($d instanceof \DateTimeInterface ? $d : new \DateTimeImmutable((string) $d))->format('d/m/Y')
-        ));
-        $twig->addFilter(new TwigFilter(
-            'datetime_fr',
-            fn ($d) => $d === null || $d === '' ? '' : ($d instanceof \DateTimeInterface ? $d : new \DateTimeImmutable((string) $d))->format('d/m/Y à H:i')
-        ));
+        // The shipped filters themselves, not a rendering that resembles
+        // them (Core\View, issue #465).
 
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', true);

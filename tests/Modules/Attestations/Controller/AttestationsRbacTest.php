@@ -39,7 +39,6 @@ use Tests\DatabaseTestHelper;
 use Tests\Modules\Attestations\AttestationsTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
-use Twig\TwigFilter;
 use Twig\TwigFunction;
 
 /**
@@ -465,18 +464,7 @@ class AttestationsRbacTest extends TestCase
 
         $twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
         $twig->addFunction(new TwigFunction('asset', static fn(string $path): string => $path));
-        $twig->addFilter(new TwigFilter(
-            'date_fr',
-            static fn($d) => $d === null || $d === ''
-                ? ''
-                : ($d instanceof \DateTimeInterface ? $d : new \DateTimeImmutable((string) $d))->format('d/m/Y')
-        ));
-        $twig->addFilter(new TwigFilter(
-            'datetime_fr',
-            static fn($d) => $d === null || $d === ''
-                ? ''
-                : ($d instanceof \DateTimeInterface ? $d : new \DateTimeImmutable((string) $d))->format('d/m/Y à H:i')
-        ));
+        $twig->addExtension(new \Core\View\DateFilterExtension());
 
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', true);

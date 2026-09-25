@@ -24,7 +24,6 @@ use Modules\Trombinoscope\Service\TrombinoscopeService;
 use PHPUnit\Framework\TestCase;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
-use Twig\TwigFilter;
 use Twig\TwigFunction;
 
 /**
@@ -73,9 +72,7 @@ class TrombinoscopeControllerTest extends TestCase
         $this->twig->addFunction(new TwigFunction('file_url', fn() => ''));
         $this->twig->addFunction(new TwigFunction('member_photo', fn() => '<div class="member-photo-placeholder"><span class="member-photo-initials">XX</span></div>', ['is_safe' => ['html']]));
         $this->twig->addExtension(new TextNormalizerExtension());
-        $this->twig->addFilter(new TwigFilter('display_name', function ($member) {
-            return $member instanceof MemberProfile ? $member->getDisplayName() : (string) $member;
-        }));
+        $this->twig->addExtension(new \Core\View\MemberNameFilterExtension());
 
         $configFile = sys_get_temp_dir() . '/test_trombinoscope_config_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");

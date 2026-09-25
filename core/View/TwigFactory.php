@@ -11,11 +11,8 @@ namespace Core\View;
 use Core\Http\FlashMessage;
 use Core\Maintenance\VersionFile;
 use Core\Security\CsrfGuard;
-use Core\Security\HtmlSanitizer;
-use Core\Service\DateInput;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
-use Twig\TwigFilter;
 use Twig\TwigFunction;
 
 class TwigFactory
@@ -436,195 +433,32 @@ class TwigFactory
         // than stubbing the one it noticed (Core\View\DateFilterExtension).
         $environment->addExtension(new DateFilterExtension());
 
-        // Register display_name filter
-        $environment->addFilter(new TwigFilter('display_name', function ($member) {
-            if ($member instanceof \Core\Member\MemberProfile) {
-                return $member->getDisplayName();
-            }
-            // Also handle arrays (from menu builder)
-            if (is_array($member)) {
-                return $member['totem'] ?? $member['first_name'] ?? '?';
-            }
-            return (string) $member;
-        }));
+        // How a person is named — the totem, the legal identity, or both
+        // (Core\View\MemberNameFilterExtension).
+        $environment->addExtension(new MemberNameFilterExtension());
+        // Money and file sizes, in the forms a Belgian reader expects
+        // (Core\View\FormatFilterExtension).
+        $environment->addExtension(new FormatFilterExtension());
+        // The three filters that hand Twig HTML it must not escape, and
+        // therefore owe the escaping themselves
+        // (Core\View\RichTextFilterExtension).
+        $environment->addExtension(new RichTextFilterExtension());
 
-        // Shared by full_name and display_name_full below — first name +
-        // surname, normalized, never the totem.
-        $buildFullName = function ($member): string {
-            if ($member instanceof \Core\Member\MemberProfile) {
-                return trim(
-                    \Core\Service\TextNormalizerService::normalizeName($member->firstName)
-                    . ' ' . \Core\Service\TextNormalizerService::normalizeName($member->lastName)
-                );
-            }
-            if (is_array($member)) {
-                $first = (string) ($member['first_name'] ?? '');
-                $last = (string) ($member['last_name'] ?? '');
-                return trim(
-                    \Core\Service\TextNormalizerService::normalizeName($first)
-                    . ' ' . \Core\Service\TextNormalizerService::normalizeName($last)
-                );
-            }
-            return (string) $member;
-        };
-
-        // Register full_name filter — first name + surname, NEVER totem.
-        // Used where the site must show a person's legal identity alone
-        // (e.g. a postal address needs the name it's actually addressed
-        // to) — do not use this for ordinary member display.
-        $environment->addFilter(new TwigFilter('full_name', $buildFullName));
-
-        // Register display_name_full filter — "Totem (Prénom Nom)" when a
-        // totem is set, else just "Prénom Nom". Used wherever a totem
-        // would otherwise be shown on its own (member page: badge/
-        // référent holder lists, section responsable) so a reader who
-        // doesn't know the totem can still identify the person.
-        $environment->addFilter(new TwigFilter('display_name_full', function ($member) use ($buildFullName) {
-            // The rule lives on the model, so a page that assembles its
-            // labels in PHP says the same thing as one that assembles
-            // them in a template — which is how the re-registration form
-            // came to show a bare totem.
-            if ($member instanceof \Core\Member\MemberProfile) {
-                return $member->getDisplayNameFull();
-            }
-
-            $full = $buildFullName($member);
-            $totem = is_array($member) ? ($member['totem'] ?? null) : null;
-
-            if ($totem) {
-                return \Core\Service\TextNormalizerService::normalizeTotem($totem) . ' (' . $full . ')';
-            }
-
-            return $full;
-        }));
-
-        // Every date filter below reads its argument through this, and
-        // that is a deliberate choice about what a DISPLAY filter should
-        // do with a value it cannot read.
+        // Six extensions, and NO addFilter() call anywhere in this
+        // method — that is the point of the three above, not a tidying.
+        // Every filter a template may use now comes from an extension, so
+        // a test that renders a production template gets the real list in
+        // six lines instead of re-implementing the one filter it noticed
+        // it was missing. `Tests\Core\View\
+        // TestEnvironmentsUseTheRealFiltersTest` holds it that way, in
+        // both directions (issue #465).
         //
-        // `new DateTimeImmutable($v)` throws on a malformed string — so
-        // one unreadable timestamp anywhere on a page used to take the
-        // WHOLE page down with a 500, not just blank out the field. It
-        // also answers *now* for an empty string, which is how a missing
-        // value renders as today's date and is believed. Both are
-        // Core\Service\DateInput::fromStorage()'s business (SECURITY.md
-        // § 35); here the answer to "not a date" is the same as the one
-        // these filters already give for null: nothing at all.
-
-        // "il y a 2 heures" — a coarse, French relative age for a stored
-        // timestamp. Deliberately coarse: a feed only needs to answer
-        // "recently or a while ago", and a to-the-second rendering would
-        // be a value that is wrong the moment the page is cached. Falls
-        // back to the absolute date past a week, where "il y a 23 jours"
-        // stops being easier to read than the date itself.
-        $environment->addFilter(new TwigFilter('relative_date', function ($date) {
-            if ($date === null || $date === '') {
-                return '';
-            }
-
-            // A naive stored timestamp is on the application clock
-            // (Core\Config\AppClock) — both the PHP writers and the
-            // database's own CURRENT_TIMESTAMP produce it there — so it is
-            // parsed under PHP's default timezone and compared against a
-            // "now" read the same way. Forcing UTC on either end (which
-            // this used to do, back when the whole app ran on UTC) now
-            // shifts every age by the offset, and would have every
-            // just-posted message read "il y a 2 heures".
-            $then = DateFilterExtension::read($date);
-            if ($then === null) {
-                return '';
-            }
-            $seconds = (new \DateTimeImmutable('now'))->getTimestamp() - $then->getTimestamp();
-
-            // A clock skew (or a timestamp a second into the future) reads
-            // as "just now" rather than a negative age.
-            if ($seconds < 60) {
-                return "à l'instant";
-            }
-            if ($seconds < 3600) {
-                $minutes = intdiv($seconds, 60);
-                return 'il y a ' . $minutes . ' minute' . ($minutes > 1 ? 's' : '');
-            }
-            if ($seconds < 86400) {
-                $hours = intdiv($seconds, 3600);
-                return 'il y a ' . $hours . ' heure' . ($hours > 1 ? 's' : '');
-            }
-            if ($seconds < 604800) {
-                $days = intdiv($seconds, 86400);
-                return 'il y a ' . $days . ' jour' . ($days > 1 ? 's' : '');
-            }
-
-            return 'le ' . DateFilterExtension::frenchDate($then);
-        }));
-
-        // Belgian-French money rendering — "1 234,56 €". One filter
-        // instead of ~75 hand-written number_format(2, ',', ' ') ~ ' €'
-        // chains; |money_cents is the same thing for integer cents (the
-        // rental module stores cents and used to divide inline at every
-        // call site). Null renders empty — an absent amount is not 0,00 €.
-        $environment->addFilter(new TwigFilter('money', function ($amount) {
-            if ($amount === null || $amount === '') {
-                return '';
-            }
-
-            return number_format((float) $amount, 2, ',', ' ') . ' €';
-        }));
-        $environment->addFilter(new TwigFilter('money_cents', function ($cents) {
-            if ($cents === null || $cents === '') {
-                return '';
-            }
-
-            return number_format(((int) $cents) / 100, 2, ',', ' ') . ' €';
-        }));
-
-        // A file size as a person reads it — « < 1 Ko », « 12 Ko »,
-        // « 13,9 Mo » — where templates used to print « 13867 Ko » and
-        // « 0 Ko » for a three-hundred-byte PDF.
-        $environment->addFilter(new TwigFilter('filesize', function ($bytes): string {
-            $bytes = max(0, (int) $bytes);
-            if ($bytes < 1024) {
-                return $bytes === 0 ? '0 Ko' : '< 1 Ko';
-            }
-            if ($bytes < 1024 * 1024) {
-                return (string) (int) round($bytes / 1024) . ' Ko';
-            }
-            if ($bytes < 1024 * 1024 * 1024) {
-                return number_format($bytes / (1024 * 1024), 1, ',', ' ') . ' Mo';
-            }
-
-            return number_format($bytes / (1024 * 1024 * 1024), 1, ',', ' ') . ' Go';
-        }));
-
-        // Register markdown filter — renders release/commit notes (see
-        // Core\View\MarkdownRenderer) as safe HTML instead of raw Markdown
-        // syntax.
-        $environment->addFilter(new TwigFilter('markdown', function (?string $text): string {
-            return MarkdownRenderer::toHtml((string) $text);
-        }, ['is_safe' => ['html']]));
-
-        // Free text a member typed, with its URLs as links and its
-        // newlines as <br> (Core\View\TextLinker). Escapes first and
-        // builds the anchors around the escaped text, so it replaces
-        // `|nl2br` on user content rather than being combined with it —
-        // `{{ body|autolink }}`, never `{{ body|autolink|nl2br }}`.
-        $environment->addFilter(new TwigFilter('autolink', function (?string $text): string {
-            return TextLinker::toHtml($text);
-        }, ['is_safe' => ['html']]));
-
-        // Rich text on its way BACK to a form, through the same allowlist
-        // that guards it on its way to the database
-        // (Core\Security\HtmlSanitizer).
-        //
-        // `partials/rich_text_form_field.html.twig` renders its value into
-        // a contenteditable surface with `|raw`, which is right on the
-        // nominal path — the stored value went through the sanitizer
-        // before it was stored. It is wrong on the OTHER path: when a
-        // validation fails, the form is re-rendered from the raw POST
-        // body, which has been through nothing at all. The sanitizing
-        // lived on the success branch only, and `|raw` trusted it on both.
-        $environment->addFilter(new TwigFilter('sanitized_html', function (?string $html): string {
-            return (new HtmlSanitizer())->sanitize((string) $html);
-        }, ['is_safe' => ['html']]));
+        // The FUNCTIONS below are still registered here, and a hundred
+        // test environments still stub them — §B of that issue. They are
+        // a harder case: `editable()`, `person_avatar()`, `member_photo()`
+        // and `section_photo()` read services out of the environment's
+        // globals, so an extension for them is a design decision rather
+        // than a move.
 
         return $environment;
     }

@@ -71,12 +71,11 @@ class ImportControllerTest extends TestCase
         // (Core\View\TwigFactory); the bare path is enough for a test render.
         $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
         $twig->addGlobal('site_name', 'Test');
-        // The shared French format filters (core/View/TwigFactory.php) used by
-        // the templates under test - same rendering as the shipped ones.
-        $twig->addFilter(new \Twig\TwigFilter('date_fr', fn($d) => $d === null || $d === '' ? '' : ($d instanceof \DateTimeInterface ? $d : new \DateTimeImmutable((string) $d))->format('d/m/Y')));
-        $twig->addFilter(new \Twig\TwigFilter('datetime_fr', fn($d) => $d === null || $d === '' ? '' : ($d instanceof \DateTimeInterface ? $d : new \DateTimeImmutable((string) $d))->format('d/m/Y à H:i')));
-        $twig->addFilter(new \Twig\TwigFilter('money', fn($a) => $a === null || $a === '' ? '' : number_format((float) $a, 2, ',', ' ') . ' €'));
-        $twig->addFilter(new \Twig\TwigFilter('money_cents', fn($c) => $c === null || $c === '' ? '' : number_format(((int) $c) / 100, 2, ',', ' ') . ' €'));
+        // The shipped filters themselves, not a rendering that resembles
+        // them (Core\View, issue #465).
+        $twig->addExtension(new \Core\View\DateFilterExtension());
+        $twig->addExtension(new \Core\View\MemberNameFilterExtension());
+        $twig->addExtension(new \Core\View\FormatFilterExtension());
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_email', 'admin@test.com');
         $twig->addGlobal('current_user_role', 'chief');
@@ -111,11 +110,6 @@ class ImportControllerTest extends TestCase
         // The report names people the way every other admin screen does
         // (design.md § Display name convention) — registered here as
         // Core\View\TwigFactory does in production.
-        $twig->addFilter(new \Twig\TwigFilter('display_name_full', function ($member): string {
-            $full = trim(($member['first_name'] ?? '') . ' ' . ($member['last_name'] ?? ''));
-
-            return ($member['totem'] ?? null) ? $member['totem'] . ' (' . $full . ')' : $full;
-        }));
 
         // `storage/` nested inside an installation root of its own: a
         // declared quota is charged for the parent tree, so a `storage/`

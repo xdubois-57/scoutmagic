@@ -71,13 +71,11 @@ class PresencesControllerTest extends TestCase
         $this->twig->addFunction(new TwigFunction('get_flash', static fn () => null));
         $this->twig->addFunction(new TwigFunction('file_url', static fn () => ''));
         // The site registers these through Core\View\TwigFactory, which
-        // needs half the composition root to build. The name filters are
-        // the real extension; the two date filters are stand-ins, and no
-        // assertion below reads a rendered date — Tests\Core\View covers
-        // their formatting where it belongs.
+        // needs half the composition root to build. The extensions are
+        // reachable without it, so the dates this page prints are the ones
+        // a visitor reads rather than a stand-in (issue #465).
         $this->twig->addExtension(new \Core\View\TextNormalizerExtension());
-        $this->twig->addFilter(new \Twig\TwigFilter('date_fr', static fn (string $d): string => $d));
-        $this->twig->addFilter(new \Twig\TwigFilter('french_date', static fn (string $d): string => $d));
+        $this->twig->addExtension(new \Core\View\DateFilterExtension());
         $this->twig->addGlobal('site_name', 'Test');
         $this->twig->addGlobal('is_authenticated', true);
         $this->twig->addGlobal('current_user_email', 'akela@test.be');
