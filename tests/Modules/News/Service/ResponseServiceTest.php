@@ -197,7 +197,12 @@ class ResponseServiceTest extends TestCase
         $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
         $field = $this->fieldRepository->findById($fieldId);
 
-        $this->mailService->expects($this->once())->method('send');
+        // The acknowledgement goes to the address the form carried, and
+        // that is the assertion: a count of one is equally happy with a
+        // copy sent to the article's author, or to the previous responder
+        // (issue #439).
+        $this->mailService->expects($this->once())->method('send')
+            ->with($this->identicalTo('parent@test.com'));
 
         $response = $this->service()->submit($this->article, $this->form(), [$field], null, null, 1, 'parent@test.com', [$fieldId => 'Alice'], null);
 

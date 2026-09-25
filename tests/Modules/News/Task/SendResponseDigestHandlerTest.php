@@ -71,8 +71,12 @@ class SendResponseDigestHandlerTest extends TestCase
     {
         (new FormResponseRepository($this->pdo, $this->encryption))->create($this->formId, null, null, 'parent@test.com', [], null, null);
 
+        // The digest goes to the article's AUTHOR — never to the parent
+        // whose response it summarises, which is the mix-up a bare count
+        // cannot see (issue #439). `parent@test.com` above is the responder.
         $mailService = $this->createMock(MailService::class);
-        $mailService->expects($this->once())->method('send');
+        $mailService->expects($this->once())->method('send')
+            ->with($this->identicalTo('author@test.com'));
 
         $handler = new SendResponseDigestHandler();
         $handler->handle([], $this->buildContext($mailService));

@@ -283,7 +283,12 @@ class RegistrationServiceTest extends TestCase
     {
         $target = $this->service->resolveTargetYear(null);
 
-        $this->mailService->expects($this->once())->method('send');
+        // The one message left is the PARENT's acknowledgement. Without the
+        // address, this test passes just as well if the single send were the
+        // unit alert going out to a stale address — which is precisely the
+        // case it exists to rule out (issue #439).
+        $this->mailService->expects($this->once())->method('send')
+            ->with($this->identicalTo('marie.dupont@example.com'));
 
         $this->service->submit(
             (int) $target['id'],

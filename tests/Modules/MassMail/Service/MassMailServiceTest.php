@@ -726,11 +726,13 @@ class MassMailServiceTest extends TestCase
 
         // Rebuild the service around a capturing MailService mock — same
         // approach as testSendTestEmailUsesSectionSenderIdentity() below.
+        $capturedTo = null;
         $capturedSubject = null;
         $capturedBody = null;
         $mailServiceMock = $this->createMock(MailService::class);
         $mailServiceMock->expects($this->once())->method('send')
-            ->willReturnCallback(function (...$args) use (&$capturedSubject, &$capturedBody): void {
+            ->willReturnCallback(function (...$args) use (&$capturedTo, &$capturedSubject, &$capturedBody): void {
+                $capturedTo = $args[0];
                 $capturedSubject = $args[1];
                 $capturedBody = $args[2];
             });
@@ -738,6 +740,13 @@ class MassMailServiceTest extends TestCase
 
         $service->sendTestEmail($email->id, 'chief@test.be', 1);
 
+        // **The address is the whole point of a test send, and it is not
+        // the row's.** This renders Emma's row — `b@test.be` — and posts it
+        // to the chief who asked for the preview. A regression that sent it
+        // to the audience row's own address instead would mail a stranger's
+        // merged data to that stranger, and every assertion below would
+        // still have passed.
+        $this->assertSame('chief@test.be', $capturedTo);
         $this->assertSame('[TEST] Infos pour Emma', $capturedSubject);
         $this->assertStringContainsString('Cher Emma, montant : 80', $capturedBody);
     }

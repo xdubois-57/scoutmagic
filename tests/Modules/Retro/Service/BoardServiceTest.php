@@ -342,7 +342,11 @@ class BoardServiceTest extends TestCase
         $summaryService->method('generate')->willReturn('- Résumé IA');
         $mailService = $this->createMock(MailService::class);
         $mailService->expects($this->once())->method('send')->with(
-            $this->anything(),
+            // The recipient, named rather than waved through: this used to
+            // be `anything()`, which let a regression routing the closing
+            // mail to the wrong address pass both this test and the guard
+            // that exists to catch exactly that (#439).
+            $this->identicalTo('chief@example.com'),
             $this->anything(),
             $this->stringContains('Résumé IA'),
             $this->stringContains('Résumé IA')
@@ -360,7 +364,7 @@ class BoardServiceTest extends TestCase
     {
         $mailService = $this->createMock(MailService::class);
         $mailService->expects($this->once())->method('send')->with(
-            $this->anything(),
+            $this->identicalTo('chief@example.com'),
             $this->anything(),
             $this->logicalNot($this->stringContains('Synthèse')),
             $this->anything()
