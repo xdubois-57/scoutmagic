@@ -245,6 +245,101 @@ describe('finance-receipts.js: association dialog', () => {
         // The grid refetched itself so the card's status flips.
         expect(fetch.mock.calls[1][0]).toContain('/finance/receipts/search?');
     });
+
+    /**
+     * A fetch whose answer the test releases by hand, so two searches in
+     * flight at once can be made to land in either order.
+     */
+    function heldResponse() {
+        /** @type {(data: unknown) => void} */
+        let release = () => {};
+        const promise = new Promise((resolve) => {
+            release = (data) => resolve({ json: () => Promise.resolve(data) });
+        });
+
+        return { promise, release };
+    }
+
+    /** Types into the dialog's search and lets the 250 ms debounce run. */
+    async function typeInAssociateSearch(value) {
+        vi.useFakeTimers();
+        const search = document.getElementById('associate-search');
+        search.value = value;
+        search.dispatchEvent(new Event('input'));
+        vi.advanceTimersByTime(250);
+        vi.useRealTimers();
+        await settle();
+    }
+
+    const courses = { id: 55, date: '01/07/2026', description: 'Courses camp', amount: -45.9 };
+    const nearDate = { id: 66, date: '30/06/2026', description: 'Location salle', amount: -120 };
+
+    it('never lets the opening search answer over the search the reader typed after it (#520)', async () => {
+        await bootWithCard({ suggested_date: '2026-07-01' });
+        const opening = heldResponse();
+        const typed = heldResponse();
+        fetch.mockReturnValueOnce(opening.promise).mockReturnValueOnce(typed.promise);
+
+        document.querySelector('.associate-btn').click();
+        await typeInAssociateSearch('Courses');
+
+        // The typed query answers first, the opening one last.
+        typed.release({ success: true, movements: [courses] });
+        await settle();
+        opening.release({ success: true, movements: [nearDate] });
+        await settle();
+
+        const results = document.getElementById('associate-results');
+        expect(results.textContent).toContain('Courses camp');
+        expect(results.textContent).not.toContain('Location salle');
+    });
+
+    it('marks the list busy from the keystroke until the latest answer is drawn, whatever lands in between (#520)', async () => {
+        await bootWithCard({ suggested_date: '2026-07-01' });
+        const opening = heldResponse();
+        const typed = heldResponse();
+        fetch.mockReturnValueOnce(opening.promise).mockReturnValueOnce(typed.promise);
+        const results = document.getElementById('associate-results');
+
+        document.querySelector('.associate-btn').click();
+        expect(results.getAttribute('aria-busy')).toBe('true');
+
+        // Busy from the keystroke on — before the debounce has sent anything.
+        // Fake timers throughout: switching back to real ones would drop
+        // the debounce still pending on the fake clock.
+        vi.useFakeTimers();
+        const search = document.getElementById('associate-search');
+        search.value = 'Courses';
+        search.dispatchEvent(new Event('input'));
+        // The opening answer lands DURING the debounce: it is already out
+        // of date, so it neither draws nor declares the list final.
+        opening.release({ success: true, movements: [nearDate] });
+        await vi.advanceTimersByTimeAsync(10);
+        expect(results.getAttribute('aria-busy')).toBe('true');
+        expect(results.textContent).not.toContain('Location salle');
+
+        await vi.advanceTimersByTimeAsync(250);
+        expect(fetch).toHaveBeenLastCalledWith('/finance/movements/search?q=Courses&account_id=7', expect.anything());
+        expect(results.getAttribute('aria-busy')).toBe('true');
+
+        typed.release({ success: true, movements: [courses] });
+        await vi.advanceTimersByTimeAsync(10);
+        vi.useRealTimers();
+        expect(results.hasAttribute('aria-busy')).toBe(false);
+        expect(results.textContent).toContain('Courses camp');
+    });
+
+    it('clears the busy mark on an empty answer too, not only on a list of movements', async () => {
+        await bootWithCard();
+        fetch.mockReturnValueOnce(jsonResponse({ success: true, movements: [] }));
+
+        document.querySelector('.associate-btn').click();
+        await settle();
+
+        const results = document.getElementById('associate-results');
+        expect(results.hasAttribute('aria-busy')).toBe(false);
+        expect(results.textContent).toContain('Aucun résultat.');
+    });
 });
 
 describe('finance-receipts.js: delete', () => {

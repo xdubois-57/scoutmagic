@@ -288,7 +288,7 @@ final class ParentalAuthorizationServiceTest extends TestCase
         ))->responsableFor(self::member(), $this->scoutYearId);
 
         $this->assertNotNull($responsable);
-        $this->assertNotSame([], $responsable->addresses, 'l\'adresse doit avoir été rechargée');
+        $this->assertNotSame([], $responsable->addresses, 'the address must have been reloaded');
     }
 
     /**

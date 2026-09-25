@@ -117,15 +117,40 @@ final class GoogleDriveBackendTest extends TestCase
         $this->assertSame(['album/1.jpg'], $this->sortedKeys($listing->objects));
     }
 
+    /**
+     * **In the form the callers pass**, which is an album id with no
+     * trailing slash.
+     *
+     * This test used to write `deletePrefix('album/')` — with the slash —
+     * and passed while deleting album 5 destroyed albums 50 and 51
+     * (#484). The form a test is written in cannot be the form under
+     * test. `DeletePrefixIsAFolderTest` holds all four backends to the
+     * caller's own shape at once; this keeps the Drive case here, where
+     * the flat folder that made it possible is documented.
+     */
     public function testDeletingAPrefixLeavesEverythingElseAlone(): void
     {
         $this->drive->put('album/1.jpg', 'a');
         $this->drive->put('album/2.jpg', 'b');
+        $this->drive->put('albumbis/3.jpg', 'd');
         $this->drive->put('autre.txt', 'c');
 
-        $this->backend()->deletePrefix('album/');
+        $this->backend()->deletePrefix('album');
 
-        $this->assertSame(['autre.txt'], $this->drive->names());
+        $this->assertSame(['albumbis/3.jpg', 'autre.txt'], $this->drive->names());
+    }
+
+    /**
+     * A prefix that trims to nothing is no more « everything » than an
+     * empty one: `'/'` must not become the folder every key is under.
+     */
+    public function testDeletingASlashRemovesNothing(): void
+    {
+        $this->drive->put('album/1.jpg', 'a');
+
+        $this->backend()->deletePrefix('/');
+
+        $this->assertSame(['album/1.jpg'], $this->drive->names());
     }
 
     /**

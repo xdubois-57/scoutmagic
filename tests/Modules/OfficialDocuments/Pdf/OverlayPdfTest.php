@@ -66,7 +66,7 @@ final class OverlayPdfTest extends TestCase
 
         $result = (new OverlayPdf())->wrapInto($text, self::twoLines());
 
-        $this->assertNotSame('', $result['lines'][1], 'Rien n\'a débordé sur la deuxième ligne.');
+        $this->assertNotSame('', $result['lines'][1], 'nothing spilled onto the second line');
         $this->assertFalse($result['overflow']);
         // Word for word, nothing lost and nothing invented between the two.
         $this->assertSame($text, trim($result['lines'][0] . ' ' . $result['lines'][1]));
@@ -188,12 +188,12 @@ final class OverlayPdfTest extends TestCase
             $fits = $pdf->writeText($note, $field);
         });
 
-        $this->assertFalse($fits, 'Le débordement doit être signalé, jamais avalé.');
-        $this->assertStringContainsString('Joignable', $text, 'Ce qui tient doit être écrit.');
+        $this->assertFalse($fits, 'an overflow must be reported, never swallowed');
+        $this->assertStringContainsString('Joignable', $text, 'what fits must be written');
         $this->assertStringNotContainsString(
             'habite a cote',
             $text,
-            'La fin de la remarque est imprimée au-delà de sa ligne, dans la cellule du contact 2.'
+            'the end of the remark is printed past its line, in the cell of contact 2'
         );
     }
 

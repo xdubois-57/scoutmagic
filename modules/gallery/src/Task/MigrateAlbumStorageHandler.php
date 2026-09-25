@@ -159,9 +159,29 @@ class MigrateAlbumStorageHandler implements TaskHandlerInterface
         // orphaned data at the old location, never re-surfaced as a
         // migration error (module spec: the migration itself already
         // succeeded, this is just tidying up after it).
+        //
+        // **Swallowed, but no longer silent** (#484). This is the most
+        // destructive `deletePrefix()` call in the application — it
+        // removes an album from a location that still holds OTHER albums
+        // — and it was the one call whose outcome nothing recorded. The
+        // migration stays successful either way; what changes is that an
+        // operator asking « why is the old location still full » has an
+        // entry to find.
         try {
             $sourceBackend->deletePrefix((string) $albumId);
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            $context->journal->log(
+                'gallery',
+                'album_storage_cleanup_failed',
+                'warning',
+                "Album #{$albumId} migré, mais son ancienne copie n'a pas pu être supprimée de "
+                . "« {$sourceLocation->label} »",
+                [
+                    'album_id' => $albumId,
+                    'from_location_id' => $sourceLocation->id,
+                    'error' => $e->getMessage(),
+                ]
+            );
         }
     }
 

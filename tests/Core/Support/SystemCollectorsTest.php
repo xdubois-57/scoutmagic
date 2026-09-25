@@ -312,7 +312,7 @@ class SystemCollectorsTest extends TestCase
 
         $this->assertNotSame([], $list);
         foreach ($list as $extension => $usedBy) {
-            $this->assertNotSame('', trim($usedBy), "l'extension {$extension} doit dire ce qui en dépend");
+            $this->assertNotSame('', trim($usedBy), "the {$extension} extension must say what depends on it");
         }
         $this->assertSame('extensions', $collector->name());
     }

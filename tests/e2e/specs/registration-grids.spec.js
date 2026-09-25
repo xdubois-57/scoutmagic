@@ -41,6 +41,7 @@ import { answerCookieBanner } from '../support/cookie-banner.js';
 import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { chooseInSelectBar } from '../support/select-bar.js';
+import { openCollapse } from '../support/collapse.js';
 import { waitForServerResponse } from '../support/response.js';
 
 const MEMBER_NAME = 'Kaa Serpent';
@@ -52,21 +53,24 @@ const DEPARTURE_COMMENT = 'Déménage à Namur cet été.';
  * switch, the thresholds, the grid — is genuinely unreachable until this
  * runs.
  *
+ * Through openCollapse(), which waits for Bootstrap before the click: the
+ * toggle is a data-bs-toggle="collapse" button, so it does nothing at all
+ * until Bootstrap's delegated handler exists. base.html.twig loads
+ * bootstrap.bundle.min.js well after the toggle's own markup, and that
+ * markup already carries aria-expanded="false" — so every barrier written
+ * against the static HTML can be satisfied mid-parse, before the bundle
+ * has run. A click that lands then is silently swallowed: the box stays
+ * `.collapse` and no retry follows, because the click itself succeeded.
+ * This file learned that first; registration-flow.spec.js, opening the
+ * same box, did not have the lesson and lost the race in CI (#520) — which
+ * is why it now lives in the shared helper.
+ *
  * @param {import('@playwright/test').Page} page
+ * @returns {Promise<import('@playwright/test').Locator>} the box, open
  */
 async function openCapacitiesBox(page) {
-    // The toggle is a data-bs-toggle="collapse" button, so it does nothing
-    // at all until Bootstrap's delegated handler exists. base.html.twig
-    // loads bootstrap.bundle.min.js well after the toggle's own markup, and
-    // that markup already carries aria-expanded="false" — so every barrier
-    // written against the static HTML can be satisfied mid-parse, before the
-    // bundle has run. A click that lands then is silently swallowed: the box
-    // stays `.collapse` and no retry follows, because the click itself
-    // succeeded. Waiting for the global is the one barrier the parser cannot
-    // fake.
-    await page.waitForFunction(() => typeof window.bootstrap !== 'undefined');
-    await page.getByRole('button', { name: 'Capacités par branche', exact: true }).click();
-    await expect(page.locator('#registration-capacities-box')).toBeVisible();
+    return openCollapse(page, 'registration-capacities-box', () =>
+        page.getByRole('button', { name: 'Capacités par branche', exact: true }).click());
 }
 
 /**
@@ -82,13 +86,13 @@ async function openCapacitiesBox(page) {
  * page carries an « Enregistrer » of its own.
  *
  * @param {import('@playwright/test').Page} page
+ * @param {import('@playwright/test').Locator} box the open capacity box
  */
-async function saveCapacitiesBox(page) {
+async function saveCapacitiesBox(page, box) {
     await Promise.all([
         waitForServerResponse(page, (response) =>
             response.request().method() === 'POST' && response.url().endsWith('/config/inscriptions')),
-        page.locator('#registration-capacities-box')
-            .getByRole('button', { name: 'Enregistrer', exact: true }).click(),
+        box.getByRole('button', { name: 'Enregistrer', exact: true }).click(),
     ]);
     await expect(page.getByRole('button', { name: 'Capacités par branche', exact: true }))
         .toHaveAttribute('aria-expanded', 'false');
@@ -245,7 +249,7 @@ test('the departures and passage grids save on change, with no save button anywh
         page.getByRole('button', { name: 'Capacités par branche', exact: true }),
         'the capacity box opens on demand',
     ).toHaveAttribute('aria-expanded', 'false');
-    await openCapacitiesBox(page);
+    let box = await openCapacitiesBox(page);
 
     const availableThreshold = page.getByLabel('Seuil « places disponibles »');
     await expect(availableThreshold).toBeVisible();
@@ -254,9 +258,9 @@ test('the departures and passage grids save on change, with no save button anywh
     await expect(page.getByRole('columnheader', { name: 'Niveau public' })).toBeVisible();
 
     await page.getByRole('switch', { name: "Gérer les listes d'attente" }).uncheck();
-    await saveCapacitiesBox(page);
+    await saveCapacitiesBox(page, box);
 
-    await openCapacitiesBox(page);
+    box = await openCapacitiesBox(page);
     await expect(
         page.getByLabel('Seuil « places disponibles »'),
         'a threshold that no longer means anything must not be on screen',
@@ -265,7 +269,7 @@ test('the departures and passage grids save on change, with no save button anywh
     await expect(page.getByRole('columnheader', { name: 'Restant' })).toHaveCount(0);
 
     await page.getByRole('switch', { name: "Gérer les listes d'attente" }).check();
-    await saveCapacitiesBox(page);
+    await saveCapacitiesBox(page, box);
 
     await openCapacitiesBox(page);
     await expect(

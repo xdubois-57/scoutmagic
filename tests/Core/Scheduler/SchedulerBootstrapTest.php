@@ -97,7 +97,7 @@ class SchedulerBootstrapTest extends TestCase
         $this->assertDoesNotMatchRegularExpression(
             '/::bootstrap\(\s*\$schedulerService/',
             $source,
-            $file . " amorce une tâche récurrente lui-même : elle appartient à scheduler-bootstrap.php."
+            $file . ' seeds a recurring task itself; that belongs in scheduler-bootstrap.php.'
         );
     }
 

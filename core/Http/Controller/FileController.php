@@ -147,9 +147,9 @@ class FileController extends AbstractController
             $ifNoneMatch = str_replace('-gzip"', '"', $ifNoneMatch);
         }
         if (is_string($ifNoneMatch) && $ifNoneMatch === $etag) {
-            return (new Response('', 304))
+            return $this->withIndexingRule((new Response('', 304))
                 ->setHeader('ETag', $etag)
-                ->setHeader('Cache-Control', $cacheControl);
+                ->setHeader('Cache-Control', $cacheControl), $file);
         }
 
         if ($file->encrypted) {
@@ -170,12 +170,12 @@ class FileController extends AbstractController
                 return (new Response('Not Found', 404));
             }
 
-            return (new Response($content))
+            return $this->withIndexingRule((new Response($content))
                 ->setHeader('Content-Type', $file->mimeType)
                 ->setHeader('Content-Disposition', $disposition)
                 ->setHeader('Cache-Control', $cacheControl)
                 ->setHeader('ETag', $etag)
-                ->setHeader('Content-Length', (string) strlen($content));
+                ->setHeader('Content-Length', (string) strlen($content)), $file);
         }
 
         // Non-encrypted: stream straight off disk (readfile at send() time)
@@ -185,13 +185,13 @@ class FileController extends AbstractController
             return (new Response('Not Found', 404));
         }
 
-        return (new Response())
+        return $this->withIndexingRule((new Response())
             ->setBodyFile($filePath)
             ->setHeader('Content-Type', $file->mimeType)
             ->setHeader('Content-Disposition', $disposition)
             ->setHeader('Cache-Control', $cacheControl)
             ->setHeader('ETag', $etag)
-            ->setHeader('Content-Length', (string) filesize($filePath));
+            ->setHeader('Content-Length', (string) filesize($filePath)), $file);
     }
 
     /**
@@ -280,7 +280,10 @@ class FileController extends AbstractController
         if (!$file->encrypted && is_file($cachePath)) {
             $cached = file_get_contents($cachePath);
             if ($cached !== false && $cached !== '') {
-                return $this->jpegThumbnailResponse($cached, $this->isSharedCacheable($file));
+                return $this->withIndexingRule(
+                    $this->jpegThumbnailResponse($cached, $this->isSharedCacheable($file)),
+                    $file
+                );
             }
         }
 
@@ -307,7 +310,10 @@ class FileController extends AbstractController
             $this->writeThumbnailCache($cachePath, $thumbnail);
         }
 
-        return $this->jpegThumbnailResponse($thumbnail, $this->isSharedCacheable($file));
+        return $this->withIndexingRule(
+            $this->jpegThumbnailResponse($thumbnail, $this->isSharedCacheable($file)),
+            $file
+        );
     }
 
     /**
@@ -324,6 +330,32 @@ class FileController extends AbstractController
         return $file->roleMin === 'public'
             && $file->ownerType === null
             && $file->ownerMemberId === null;
+    }
+
+    /**
+     * `X-Robots-Tag: noindex` when the file's owner type says so (#516).
+     *
+     * **The response the crawler ends on is the one that has to say it.**
+     * A « Lien direct » document is reached through `/documents/{slug}`,
+     * which redirects here carrying the header — and a search engine
+     * applies the indexing rule to the final response, not to the
+     * redirect. Before this, a crawler that knew the address and kept the
+     * session cookie across the hop met a file that said nothing.
+     *
+     * Applied to every response that carries content, the 304 included: a
+     * revalidation is what a crawler that already holds the bytes sends,
+     * and an answer without the header would let it keep them.
+     *
+     * The core still reads no module table — {@see FileAccessGuard}'s
+     * registry is asked, and only a checker with an opinion answers.
+     */
+    private function withIndexingRule(Response $response, FileRecord $file): Response
+    {
+        if (!$this->fileAccessGuard->isIndexable($file)) {
+            $response->setHeader('X-Robots-Tag', 'noindex');
+        }
+
+        return $response;
     }
 
     private function jpegThumbnailResponse(string $bytes, bool $sharedCacheable): Response
@@ -410,9 +442,9 @@ class FileController extends AbstractController
             ? 'public, max-age=31536000, immutable'
             : 'private, max-age=31536000, immutable';
 
-        return (new Response($content))
+        return $this->withIndexingRule((new Response($content))
             ->setHeader('Content-Type', 'image/webp')
             ->setHeader('Cache-Control', $cacheControl)
-            ->setHeader('Content-Length', (string) strlen($content));
+            ->setHeader('Content-Length', (string) strlen($content)), $file);
     }
 }

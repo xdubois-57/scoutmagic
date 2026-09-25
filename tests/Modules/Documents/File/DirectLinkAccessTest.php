@@ -237,6 +237,59 @@ final class DirectLinkAccessTest extends TestCase
         $this->assertFalse($checker->isAllowed(999, Role::CHIEF, []));
     }
 
+    // --- The file itself says `noindex` (#516) ---
+
+    /**
+     * **Only a public document's file may be kept by a search engine.**
+     *
+     * `/documents/{slug}` redirects here carrying `X-Robots-Tag:
+     * noindex`, and a crawler applies the rule to the response it ends
+     * on. So the answer has to come from the file, and only this checker
+     * can give it — the core reads no module table.
+     *
+     * The rule itself is read from `DocumentVisibility::isIndexable()`,
+     * the same place `DocumentsPublicController` reads it, so the two
+     * cannot come to disagree.
+     */
+    public function testOnlyAPublicDocumentsFileMayBeIndexed(): void
+    {
+        $checker = new DocumentFileOwnershipChecker(new DocumentRepository($this->pdo), $this->grants);
+
+        $listed = $this->service->create('ROI', null, 'public', DocumentsTestHelper::upload(), null);
+        $unlisted = $this->service->create('Brouillon', null, 'direct_link', DocumentsTestHelper::upload(), null);
+        $members = $this->service->create('Note', null, 'identified', DocumentsTestHelper::upload(), null);
+
+        $this->assertTrue($checker->isIndexable($listed->id));
+        $this->assertFalse(
+            $checker->isIndexable($unlisted->id),
+            'a document nobody ever listed could be kept by a search engine'
+        );
+        $this->assertFalse($checker->isIndexable($members->id));
+    }
+
+    /** And a document that is gone answers no, like every other question here. */
+    public function testAFileWhoseDocumentIsGoneIsNotIndexable(): void
+    {
+        $checker = new DocumentFileOwnershipChecker(new DocumentRepository($this->pdo), $this->grants);
+
+        $this->assertFalse($checker->isIndexable(999));
+    }
+
+    /**
+     * Changing the visibility changes the answer — the same edit that
+     * takes a document out of every list takes it out of every index.
+     */
+    public function testMakingADocumentUnlistedWithdrawsItFromSearchEngines(): void
+    {
+        $checker = new DocumentFileOwnershipChecker(new DocumentRepository($this->pdo), $this->grants);
+        $document = $this->service->create('ROI', null, 'public', DocumentsTestHelper::upload(), null);
+        $this->assertTrue($checker->isIndexable($document->id));
+
+        $this->service->update($document->id, 'ROI', null, DocumentVisibility::DIRECT_LINK->value, null, null);
+
+        $this->assertFalse($checker->isIndexable($document->id));
+    }
+
     private function guard(Role $role): FileAccessGuard
     {
         return new FileAccessGuard(

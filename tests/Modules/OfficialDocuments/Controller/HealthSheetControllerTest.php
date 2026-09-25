@@ -453,7 +453,7 @@ final class HealthSheetControllerTest extends TestCase
         $this->assertSame(
             [HealthSheet::LABELS['contact1_note']],
             $context['overflowing'],
-            'La page doit nommer la case à raccourcir avec les mots que le parent a sous les yeux.'
+            'the page must name the box to shorten in the words the parent has in front of them'
         );
     }
 

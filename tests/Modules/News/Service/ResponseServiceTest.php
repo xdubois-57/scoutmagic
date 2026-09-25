@@ -181,7 +181,7 @@ class ResponseServiceTest extends TestCase
         $this->responseRepository->create($this->formId, null, null, 'a@test.com', [$fieldId => '4'], null, null);
         $this->responseRepository->create($this->formId, null, null, 'b@test.com', [$fieldId => '6'], null, null);
 
-        $this->assertSame(0.0, $this->fieldRepository->usedCapacity($fieldId), 'les réponses ont été écrites sous le service');
+        $this->assertSame(0.0, $this->fieldRepository->usedCapacity($fieldId), 'the responses were written under the service');
         $this->fieldRepository->recomputeUsedCapacities($this->responseRepository);
 
         $this->assertSame(10.0, $this->fieldRepository->usedCapacity($fieldId));

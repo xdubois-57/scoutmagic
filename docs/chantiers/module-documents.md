@@ -223,6 +223,9 @@ La roadmap a été écrite sur le commit `fb9e661` ; elle a été relue contre
   session entre la redirection et le fichier (voir la décision ci-dessus).
   Un en-tête `noindex` servi par `FileController` lui-même resterait
   une défense de plus, à placer dans le cœur, hors de ce chantier.
+  **Fait depuis, par #516** : `Core\File\FileIndexingPolicyInterface`,
+  que `DocumentFileOwnershipChecker` implémente, et `FileController`
+  porte l'en-tête sur la réponse elle-même.
 
 **Reporté.** Les versions (IT-02) ; la documentation d'architecture et les
 spécifications (IT-03).

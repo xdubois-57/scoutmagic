@@ -49,7 +49,7 @@ final class HealthSheetLabelsTest extends TestCase
         $this->assertSame(
             $expected,
             array_keys(HealthSheet::LABELS),
-            'Une réponse sans libellé sortirait telle quelle sur la page, en anglais.'
+            'an answer with no label would come out on the page as is, in English'
         );
     }
 
@@ -70,8 +70,8 @@ final class HealthSheetLabelsTest extends TestCase
             $this->assertArrayNotHasKey(
                 $field,
                 HealthSheet::LABELS,
-                $field . ' est une ligne du site : le parent ne peut pas la raccourcir, '
-                . 'et l\'écran ne doit pas la lui nommer.'
+                $field . ' is a line the site supplies: the parent cannot shorten it, '
+                . 'and the screen must not name it to them.'
             );
 
             return;
@@ -80,7 +80,7 @@ final class HealthSheetLabelsTest extends TestCase
         $this->assertArrayHasKey(
             HealthSheetLayout::answerFor($field),
             HealthSheet::LABELS,
-            $field . ' peut déborder et n\'a aucun libellé français : la page afficherait son nom interne.'
+            $field . ' can overflow and has no French label, so the page would show its internal name.'
         );
     }
 
@@ -110,11 +110,11 @@ final class HealthSheetLabelsTest extends TestCase
     public function testALabelIsProseAndNotAnIdentifier(string $answer, string $label): void
     {
         $this->assertNotSame('', trim($label), $answer);
-        $this->assertStringNotContainsString('_', $label, $answer . ' : son libellé est un nom de champ.');
+        $this->assertStringNotContainsString('_', $label, $answer . ' — its label is a field name.');
         $this->assertMatchesRegularExpression(
             '/^\p{Lu}/u',
             $label,
-            $answer . ' : un libellé affiché à un parent commence par une majuscule.'
+            $answer . ' — a label shown to a parent starts with a capital letter.'
         );
     }
 

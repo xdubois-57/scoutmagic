@@ -81,11 +81,11 @@ class ChainSeedingInvariantTest extends TestCase
         $this->assertSame(
             [],
             $offences,
-            "Un point d'entrée amorce une chaîne : il n'est jamais le gestionnaire en train de se replanifier, "
-                . "donc il doit passer par seed()/seedAfter(). La garde de rearm() ne voit que les lignes "
-                . "`pending`, donc pendant toute une passe du planificateur — où la ligne de la chaîne est "
-                . "`processing` — chaque requête web en empile une de plus. Voir ARCHITECTURE.md §8.5 et "
-                . "Core\\Scheduler\\SchedulerService::seed(). Points d'appel fautifs :\n  "
+            "An entry point seeding a chain is never the handler rescheduling itself, so it has to go "
+                . "through seed()/seedAfter(). The guard in rearm() sees `pending` rows only, so for a "
+                . "whole scheduler pass — where the chain's row is `processing` — every web request piles "
+                . "on one more. See ARCHITECTURE.md §8.5 and Core\\Scheduler\\SchedulerService::seed(). "
+                . "Offending call sites:\n  "
                 . implode("\n  ", $offences)
         );
     }
@@ -95,16 +95,21 @@ class ChainSeedingInvariantTest extends TestCase
     {
         $offences = [];
         foreach (self::armingCalls('<?php ' . $body, self::REARMING_METHODS) as $call) {
-            $offences[] = $call['method'] . '() ligne ' . $call['line'];
+            // `line`, not `ligne`: this string is interpolated into an
+            // English assertion message, and the sibling guard's own
+            // builder is already language-neutral. A word built into the
+            // list beforehand never appears as a literal argument to an
+            // assertion, so nothing scans for it.
+            $offences[] = $call['method'] . '() line ' . $call['line'];
         }
 
         $this->assertSame(
             [],
             $offences,
-            "Un amorceur appelé depuis une racine de composition doit passer par seed()/seedAfter() : "
-                . "la garde de rearm() ne voit que les lignes `pending`, donc pendant toute une passe du "
-                . "planificateur — où la ligne de la chaîne est `processing` — chaque requête web en "
-                . "empile une de plus. Voir Core\\Scheduler\\SchedulerService::seed(). Trouvé : "
+            "A seeder called from a composition root has to go through seed()/seedAfter(): the guard in "
+                . "rearm() sees `pending` rows only, so for a whole scheduler pass — where the chain's "
+                . "row is `processing` — every web request piles on one more. "
+                . "See Core\\Scheduler\\SchedulerService::seed(). Found: "
                 . implode(', ', $offences)
         );
     }
@@ -124,7 +129,7 @@ class ChainSeedingInvariantTest extends TestCase
             }
         }
 
-        self::assertNotSame([], $cases, 'aucun amorceur trouvé — le test ne teste plus rien');
+        self::assertNotSame([], $cases, 'no seeding call found — the test no longer tests anything');
 
         return $cases;
     }
@@ -147,9 +152,9 @@ class ChainSeedingInvariantTest extends TestCase
         $this->assertGreaterThan(
             20,
             count($seeds),
-            "Le balayage des points d'entrée ne trouve presque plus d'amorçage : soit le fichier a été "
-                . "déplacé, soit le lecteur de jetons ne reconnaît plus ces appels. Dans les deux cas il ne "
-                . "juge plus rien, et un rearm() réintroduit passerait au vert."
+            "The entry-point scan barely finds any seeding left: either the file moved, or the token "
+                . "reader no longer recognises these calls. Either way it judges nothing any more, and a "
+                . "reintroduced rearm() would pass green."
         );
     }
 
@@ -158,8 +163,8 @@ class ChainSeedingInvariantTest extends TestCase
         $this->assertContains(
             'public/index.php',
             array_map([self::class, 'relative'], self::entryPointFiles()),
-            "public/index.php est LE point d'entrée web et la racine de composition où les vingt-deux "
-                . "amorçages de l'issue #435 s'étaient accumulés. S'il sort du balayage, le test perd son sujet."
+            "public/index.php is THE web entry point and the composition root where the twenty-two "
+                . "seeding calls of issue #435 had accumulated. If it leaves the scan, the test loses its subject."
         );
     }
 

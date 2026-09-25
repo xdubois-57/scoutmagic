@@ -27,6 +27,7 @@ import { expect, test } from '@playwright/test';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
+import { openModal } from '../support/modal.js';
 import { pngBuffer } from '../support/png.js';
 
 const ARTICLE_TITLE = `Souper spaghetti ${Date.now()}`;
@@ -178,9 +179,8 @@ test('an article is re-edited without losing its form, a member edits their resp
     // only way this verb exists.
     // ---------------------------------------------------------------
     await page.goto(`${articleUrl}/gerer`, { waitUntil: 'load' });
-    await page.getByRole('button', { name: 'Supprimer', exact: true }).first().click();
-    const deleteModal = page.locator('#news-delete-modal');
-    await expect(deleteModal).toBeVisible();
+    const deleteModal = await openModal(page, 'news-delete-modal', () =>
+        page.getByRole('button', { name: 'Supprimer', exact: true }).first().click());
     await deleteModal.locator('#news-delete-confirm-btn').click();
 
     await page.waitForURL('**/news/manage', { waitUntil: 'domcontentloaded' });

@@ -28,6 +28,7 @@ import { expect, test } from '@playwright/test';
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
 import { closeDetailDialog, openComposer, openCreateGroupForm, waitForGroupsJsReady } from '../support/groups.js';
+import { openModal } from '../support/modal.js';
 import { pngBuffer } from '../support/png.js';
 import { runScheduler } from '../support/scheduler.js';
 import { scaled } from '../support/timeouts.js';
@@ -109,10 +110,8 @@ test('a mention travels to a notification, a pin asks its duration, "Vu par" nam
     // dialog; "1 semaine" goes into the hidden field and the form posts.
     // ---------------------------------------------------------------
     await page.getByLabel('Actions sur ce message').first().click();
-    await page.getByRole('button', { name: 'Épingler' }).click();
-
-    const durationDialog = page.locator('#groups-detail-modal');
-    await expect(durationDialog).toBeVisible();
+    const durationDialog = await openModal(page, 'groups-detail-modal', () =>
+        page.getByRole('button', { name: 'Épingler' }).click());
     await expect(durationDialog.getByText('Pendant combien de temps ?')).toBeVisible();
     await durationDialog.getByRole('button', { name: '1 semaine' }).click();
 
@@ -167,9 +166,10 @@ test('a mention travels to a notification, a pin asks its duration, "Vu par" nam
 
         const seenBy = page.locator('.groups-seen-by').first();
         await expect(seenBy).toHaveText(/Vu par 1 membre/);
-        await seenBy.click();
-        await expect(durationDialog).toBeVisible();
-        await expect(durationDialog.getByText('Kaa', { exact: false })).toBeVisible();
+        // The same shared dialog, opened again on the new page with the
+        // readers' list in it.
+        const seenByDialog = await openModal(page, 'groups-detail-modal', () => seenBy.click());
+        await expect(seenByDialog.getByText('Kaa', { exact: false })).toBeVisible();
         await closeDetailDialog(page);
 
         // ---------------------------------------------------------------

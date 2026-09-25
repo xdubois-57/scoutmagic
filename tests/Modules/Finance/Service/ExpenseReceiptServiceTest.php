@@ -292,7 +292,7 @@ class ExpenseReceiptServiceTest extends TestCase
 
         $this->assertNotNull(
             $this->extractionScheduler->find('finance', 'extract_receipt_data', 'attachment-' . ($attachmentId + 1)),
-            "l'extraction n'a pas été mise en file"
+            "the extraction was not queued"
         );
     }
 
