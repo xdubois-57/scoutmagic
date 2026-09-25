@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Statistics;
 
+use Core\Import\DeskMappingGapService;
 use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
 use Core\Mail\MailService;
@@ -41,6 +42,29 @@ use Modules\UsageStats\Api\ModuleUsageInterface;
  */
 class StatisticsPayloadBuilder
 {
+    /**
+     * **Unchanged when a field is added, and the Desk branches and the
+     * `desk_unresolved` block (issue #356) are added fields.**
+     *
+     * The version travels from sender to receiver, and the supported list
+     * lives on the RECEIVER. So a bump does not protect an old sender from
+     * a new receiver — it breaks a NEW sender against a receiver that has
+     * not upgraded yet: every unit that installs this release before
+     * `scoutmagic.be` does would have its report refused outright, and the
+     * very data this feature collects lost until the receiver catches up.
+     *
+     * An added field needs no bump because the receiver already tolerates
+     * one: an unrecognised top-level field is kept verbatim in the stored
+     * payload and warned about, never rejected. ARCHITECTURE.md §8.49
+     * states the rule for the `desk_vocabulary` addition in as many words —
+     * « the schema version is unchanged, since an added field is what that
+     * list's tolerance exists for and a bump would make every receiver
+     * still on the previous release reject the report outright ».
+     *
+     * What a bump is for is a change that would make an old receiver read
+     * the document WRONGLY: a field whose meaning or type changed, a
+     * removal something depends on. Nothing here does that.
+     */
     public const STATISTICS_SCHEMA_VERSION = 1;
 
     /**
@@ -50,10 +74,17 @@ class StatisticsPayloadBuilder
     private const REAL_CRON_MAX_AGE_SECONDS = 172800;
 
     /**
-     * How many Desk vocabulary entries of each kind travel. A unit has a
-     * couple of dozen functions and three cotisation types; a hundred is
-     * room for every plausible one plus the years of federation renamings
-     * that accumulate under them.
+     * How many Desk vocabulary entries of each kind travel at the very
+     * most. A unit has a couple of dozen functions and three cotisation
+     * types; a hundred is room for every plausible one plus the years of
+     * federation renamings that accumulate under them.
+     *
+     * This is the OUTER guard, not the operative bound: it is the `LIMIT`
+     * that keeps a runaway table from being fetched at all, while
+     * {@see self::MAX_VOCABULARY_LIST_BYTES} is what a list actually runs
+     * into — even for labels as short as `TARIF_000`, once the budget is
+     * counted in the encoding the receiver measures. Bytes are the bound
+     * that can lose a report; a row count never was one.
      */
     private const MAX_VOCABULARY_ENTRIES = 100;
 
@@ -72,11 +103,81 @@ class StatisticsPayloadBuilder
      * vocabulary is unusually verbose would silently stop reporting
      * anything at all.
      *
-     * 8 KB per list leaves the two of them under 16 KB, against a payload
-     * that is otherwise a couple of KB — room to spare on the one bound
-     * that can drop a report.
+     * ## Why there is a TOTAL as well as a per-list cap
+     *
+     * There was only the per-list one, which bounded a payload with two
+     * lists and stopped bounding one with four: the arithmetic lived in
+     * this comment (« the two of them under 16 KB ») rather than in the
+     * code, so adding `branches` and `desk_unresolved` doubled the total
+     * while every per-list test kept passing. Measured, four lists at
+     * their own cap with labels around twenty characters: a body of
+     * **63 033 bytes**, inside the limit by 2 503 — on an installation
+     * with no modules wired, where `modules` and `module_usage` on the
+     * twenty-five real ones cost about **5 500** more. The report would
+     * have been refused whole, which is the failure this cap exists to
+     * prevent and had stopped preventing.
+     *
+     * So this is the bound on the SUM, held by the code rather than by a
+     * comment: a fifth list added tomorrow spends from the same purse
+     * instead of raising the ceiling, and cannot reopen the hole without
+     * a test going red. {@see self::MAX_VOCABULARY_LIST_BYTES} then keeps
+     * one list from eating the purse the others need.
+     *
+     * 32 KB against the 8 the rest of the payload needs leaves half the
+     * body spare.
      */
-    private const MAX_VOCABULARY_BYTES = 8192;
+    private const MAX_VOCABULARY_BYTES = 32768;
+
+    /**
+     * And what any ONE of those lists may spend of it.
+     *
+     * The total above is what protects the report; this is what keeps the
+     * lists honest with each other. Sharing a single purse in reading
+     * order let `functions` — capped at a hundred entries, so up to 25 KB
+     * of it — leave nothing for `branches`, whose `listed` came back
+     * empty while `total` said a hundred and fifty. An empty list is the
+     * worst of the outcomes available: `branches` is in this payload
+     * because a rank of 99 is the costliest mapping failure and the only
+     * one silent on the unit's side, and a receiver cannot read what it
+     * was not sent.
+     *
+     * Deliberately no rolling-over of what a list does not spend. A unit
+     * with three cotisation types would hand its unspent share to
+     * whichever list happens to be built next, which makes a list's
+     * contents depend on its position in {@see self::build()} — an order
+     * nothing else about this payload depends on.
+     *
+     * Four lists times this is exactly the total, so today the total
+     * never binds. That is the point: it binds the moment a fifth list
+     * arrives, which is the moment it is needed.
+     */
+    private const MAX_VOCABULARY_LIST_BYTES = 8192;
+
+    /**
+     * How deep the lists sit in the transmitted document, in
+     * `JSON_PRETTY_PRINT` levels — `desk_vocabulary` › `functions` ›
+     * `listed` › the entry.
+     *
+     * The budget above is spent in the encoding the RECEIVER measures,
+     * which is the pretty-printed one ({@see self::buildJson()}), and
+     * indentation is most of what that costs: a hundred four-line entries
+     * indented sixteen spaces are 6 400 bytes of spaces alone. Counting
+     * the compact encoding instead — which is what this class did —
+     * understates a full list by about half.
+     *
+     * `desk_unresolved` sits one level shallower and is charged at this
+     * depth anyway: over-charging a list narrows the budget, which is the
+     * safe direction to be wrong in.
+     */
+    private const VOCABULARY_NESTING_DEPTH = 4;
+
+    /**
+     * What is left of the two budgets — the whole document's, and the
+     * list being built. Both reset by {@see self::build()}, so two builds
+     * of one installation produce the same document.
+     */
+    private int $vocabularyBytesLeft = self::MAX_VOCABULARY_BYTES;
+    private int $vocabularyListBytesLeft = self::MAX_VOCABULARY_LIST_BYTES;
 
     public function __construct(
         private SettingService $settingService,
@@ -91,7 +192,15 @@ class StatisticsPayloadBuilder
         // the report, which rule 1 above makes a different fact from an
         // empty list. Trailing and defaulted so no existing call site of
         // this constructor changes.
-        private ?ModuleUsageInterface $moduleUsage = null
+        private ?ModuleUsageInterface $moduleUsage = null,
+        /**
+         * What this installation currently fails to recognise in its Desk
+         * data (issue #356). Trailing and defaulted like every dependency
+         * added to this constructor: null makes `desk_unresolved` a null
+         * FIELD, which rule 1 of this class makes a different fact from an
+         * empty list — « nobody measured » against « nothing to report ».
+         */
+        private ?DeskMappingGapService $mappingGaps = null
     ) {
     }
 
@@ -100,6 +209,12 @@ class StatisticsPayloadBuilder
      */
     public function build(): array
     {
+        // The vocabulary budget belongs to ONE document: without this, a
+        // second build on the same instance would find the purse already
+        // spent and report an empty vocabulary — and the Support page
+        // builds a preview beside the report it sends.
+        $this->vocabularyBytesLeft = self::MAX_VOCABULARY_BYTES;
+
         $publicScoutYearId = $this->collect(fn(): ?int => $this->publicScoutYearId());
 
         return [
@@ -137,7 +252,15 @@ class StatisticsPayloadBuilder
             'desk_vocabulary' => [
                 'functions' => $this->collect(fn(): array => $this->deskFunctions()),
                 'fee_categories' => $this->collect(fn(): array => $this->deskFeeCategories()),
+                'branches' => $this->collect(fn(): array => $this->deskBranches()),
             ],
+            // What this installation KNOWS it could not match (D4 of issue
+            // #356). The vocabulary above lets a receiver guess; this says
+            // it outright, because the sender is the one who can: it holds
+            // `functions.confirmed`, it knows what `canonicalSortOrder()`
+            // answered, and it can ask the cotisations module a question
+            // core has no business answering itself.
+            'desk_unresolved' => $this->collect(fn(): ?array => $this->deskUnresolved()),
             'installation' => [
                 'method' => $this->collect(fn(): ?string => $this->installationMethod()),
             ],
@@ -452,8 +575,8 @@ class StatisticsPayloadBuilder
         $stmt->execute();
         $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
+        $this->openVocabularyList();
         $listed = [];
-        $bytes = 0;
         foreach ($rows as $row) {
             $entry = [
                 'desk_code' => (string) $row['desk_code'],
@@ -464,8 +587,7 @@ class StatisticsPayloadBuilder
                 // where a function the federation just invented shows up.
                 'confirmed' => (bool) $row['confirmed'],
             ];
-            $bytes += self::entryBytes($entry);
-            if ($bytes > self::MAX_VOCABULARY_BYTES) {
+            if (!$this->fitsInVocabularyBudget($entry)) {
                 break;
             }
             $listed[] = $entry;
@@ -482,11 +604,52 @@ class StatisticsPayloadBuilder
      * lengths, since the budget exists to keep the encoded body under the
      * receiver's limit and the encoding is what the receiver measures.
      *
+     * Which means the PRETTY-printed encoding, flags and all, plus the
+     * indentation its lines carry once the entry is nested where it
+     * really goes ({@see self::VOCABULARY_NESTING_DEPTH}) and the two
+     * bytes of `,\n` that separate it from the next one. Measuring the
+     * compact form understated a full list by roughly half.
+     *
      * @param array<string, mixed> $entry
      */
     private static function entryBytes(array $entry): int
     {
-        return strlen((string) json_encode($entry, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
+        $encoded = (string) json_encode(
+            $entry,
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
+        );
+
+        $lines = substr_count($encoded, "\n") + 1;
+
+        return strlen($encoded) + $lines * 4 * self::VOCABULARY_NESTING_DEPTH + 2;
+    }
+
+    /**
+     * Open a vocabulary list: hand it its own share, never more than the
+     * document has left.
+     */
+    private function openVocabularyList(): void
+    {
+        $this->vocabularyListBytesLeft = min(self::MAX_VOCABULARY_LIST_BYTES, $this->vocabularyBytesLeft);
+    }
+
+    /**
+     * Charge one entry to both budgets, and say whether it fitted.
+     *
+     * Charged before the answer, so the entry that overruns is both
+     * refused and paid for: without that, a single oversized entry would
+     * be skipped and the next, smaller one let through — a list whose
+     * contents depended on the order the rows came back in.
+     *
+     * @param array<string, mixed> $entry
+     */
+    private function fitsInVocabularyBudget(array $entry): bool
+    {
+        $cost = self::entryBytes($entry);
+        $this->vocabularyBytesLeft -= $cost;
+        $this->vocabularyListBytesLeft -= $cost;
+
+        return $this->vocabularyBytesLeft >= 0 && $this->vocabularyListBytesLeft >= 0;
     }
 
     /**
@@ -512,15 +675,14 @@ class StatisticsPayloadBuilder
         $stmt->execute();
         $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
+        $this->openVocabularyList();
         $listed = [];
-        $bytes = 0;
         foreach ($rows as $row) {
             $entry = [
                 'desk_code' => (string) $row['desk_code'],
                 'label' => (string) $row['label'],
             ];
-            $bytes += self::entryBytes($entry);
-            if ($bytes > self::MAX_VOCABULARY_BYTES) {
+            if (!$this->fitsInVocabularyBudget($entry)) {
                 break;
             }
             $listed[] = $entry;
@@ -529,6 +691,87 @@ class StatisticsPayloadBuilder
         $count = $this->pdo->query('SELECT COUNT(*) FROM fee_categories');
 
         return ['total' => $count !== false ? (int) $count->fetchColumn() : count($listed), 'listed' => $listed];
+    }
+
+    /**
+     * The age branches this unit's Desk export carries, with the rank
+     * {@see AgeBranchRepository::canonicalSortOrder()} gave each one.
+     *
+     * The rank is the interesting column, and it is why branches were
+     * worth adding to a vocabulary block that had done without them: 99
+     * means none of the seven needles matched, which costs the branch its
+     * logo on every member page and its place in every picker — the
+     * costliest mapping to get wrong, and the only one that fails with no
+     * signal of any kind on the unit's side.
+     *
+     * Unclassified, like the fee categories and for the same reason: the
+     * receiver reads the words. The rank is not a verdict, it is what this
+     * installation's own code answered.
+     *
+     * @return array{total: int, listed: array<int, array{desk_code: string, label: string, sort_order: int}>}
+     */
+    private function deskBranches(): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT desk_code, label, sort_order FROM age_branches ORDER BY desk_code LIMIT ?'
+        );
+        $stmt->bindValue(1, self::MAX_VOCABULARY_ENTRIES, \PDO::PARAM_INT);
+        $stmt->execute();
+
+        $this->openVocabularyList();
+        $listed = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $entry = [
+                'desk_code' => (string) $row['desk_code'],
+                'label' => (string) $row['label'],
+                'sort_order' => (int) $row['sort_order'],
+            ];
+            if (!$this->fitsInVocabularyBudget($entry)) {
+                break;
+            }
+            $listed[] = $entry;
+        }
+
+        $count = $this->pdo->query('SELECT COUNT(*) FROM age_branches');
+
+        return ['total' => $count !== false ? (int) $count->fetchColumn() : count($listed), 'listed' => $listed];
+    }
+
+    /**
+     * The values this installation knows it did not recognise.
+     *
+     * A KIND and a RAW VALUE, and deliberately nothing else. Not how many
+     * members carry it: the receiver's question is « on how many
+     * installations does this appear », which it answers by counting
+     * reports, and a headcount per unit would be data nobody needs for a
+     * table of words to complete (D9).
+     *
+     * Bounded like the vocabulary lists, and for the same reason — these
+     * are the only parts of this payload whose size a unit's own data
+     * decides. `total` declares what was left out, so a truncated list
+     * never reads as a complete one.
+     *
+     * @return array{total: int, listed: array<int, array{kind: string, value: string}>}|null
+     */
+    private function deskUnresolved(): ?array
+    {
+        if ($this->mappingGaps === null) {
+            return null;
+        }
+
+        $gaps = $this->mappingGaps->gaps();
+
+        $this->openVocabularyList();
+        $listed = [];
+        foreach ($gaps as $gap) {
+            $entry = ['kind' => $gap->kind->value, 'value' => $gap->rawValue];
+            if (count($listed) >= self::MAX_VOCABULARY_ENTRIES || !$this->fitsInVocabularyBudget($entry)) {
+                break;
+            }
+            $listed[] = $entry;
+        }
+
+        return ['total' => count($gaps), 'listed' => $listed];
     }
 
     /**

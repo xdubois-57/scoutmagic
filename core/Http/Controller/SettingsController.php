@@ -98,6 +98,24 @@ class SettingsController extends AbstractController
             ));
         }
 
+        // A setting the application maintains for itself is not shown here
+        // at all (#510). `editable = false` already means « nothing an
+        // administrator can do with this »: SettingService::set() refuses
+        // to write one, and only setInternal() — the application's own
+        // door — gets through. Rendering it anyway offered a reader a row
+        // that looks like a control, greyed out, with a full label and
+        // description, in the middle of the rows that ARE controls.
+        //
+        // What that hid: `finance` alone declares five such flags —
+        // seeded, running, legacy-running, last-result, backfilled — and
+        // `leadership` and `support_dashboard` one each. They are
+        // bookkeeping, and the page reads as if the unit had eight
+        // settings it must not touch.
+        //
+        // EXCLUDED_FROM_GENERIC_PAGE stays: it hides EDITABLE settings
+        // that belong on a page of their own, which is a different rule
+        // and only covers `core`.
+        //
         // A setting declared `secret` (AGENTS.md § Database) is never shown
         // here, in any module's group. This page renders a value as plain
         // text next to its key, so displaying one would defeat the very
@@ -108,7 +126,15 @@ class SettingsController extends AbstractController
             $groups[$groupId]['settings'] = array_values(array_filter(
                 $group['settings'],
                 static fn(array $setting): bool => ($setting['setting_type'] ?? 'text') !== 'secret'
+                    && (bool) ($setting['editable'] ?? true)
             ));
+
+            // A group left with nothing is not rendered as an empty
+            // accordion: a section announcing « 0 » is a promise of
+            // something to configure, and there is nothing behind it.
+            if ($groups[$groupId]['settings'] === []) {
+                unset($groups[$groupId]);
+            }
         }
 
         // One section per module, named the way its own menu entry names

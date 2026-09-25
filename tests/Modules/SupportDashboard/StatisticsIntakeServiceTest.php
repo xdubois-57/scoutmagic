@@ -408,4 +408,62 @@ class StatisticsIntakeServiceTest extends TestCase
     {
         $this->assertSame($expected, StatisticsIntakeService::extractBearerToken($header));
     }
+
+    /**
+     * Issue #356 added two things to the payload — the Desk branches and
+     * the `desk_unresolved` block — and deliberately did NOT bump the
+     * schema version for them.
+     *
+     * The version travels from sender to receiver and the supported list
+     * lives here, so a bump would break a new SENDER against a receiver
+     * that has not upgraded: every unit installing the release before
+     * scoutmagic.be does would have its report refused, and the very data
+     * the feature collects lost. An added field needs no bump because of
+     * the tolerance this test pins.
+     */
+    public function testTheAddedBlockNeedsNoNewSchemaVersion(): void
+    {
+        $result = $this->receive($this->payload([
+            'desk_unresolved' => ['total' => 1, 'listed' => [['kind' => 'branch', 'value' => 'Nutons']]],
+        ]));
+
+        $this->assertTrue($result->accepted);
+        $this->assertSame(
+            [],
+            $result->unknownFields,
+            '`desk_unresolved` is a field this receiver knows, so no sender is warned about as being ahead'
+        );
+    }
+
+    /**
+     * And the sender never emits a version this receiver refuses, which is
+     * the mechanical half of the rule above.
+     */
+    public function testTheSenderOnlyEmitsAVersionThisReceiverAccepts(): void
+    {
+        $result = $this->receive($this->payload([
+            'statistics_schema_version' => \Core\Statistics\StatisticsPayloadBuilder::STATISTICS_SCHEMA_VERSION,
+        ]));
+
+        $this->assertTrue($result->accepted);
+    }
+
+    /**
+     * And the whole block survives storage verbatim, because that is what
+     * the central page will read one iteration later — a receiver that
+     * only kept the columns it denormalises would have nothing to show.
+     */
+    public function testTheUnresolvedBlockIsKeptVerbatimInThePayload(): void
+    {
+        $this->receive($this->payload([
+            'desk_unresolved' => ['total' => 1, 'listed' => [['kind' => 'branch', 'value' => 'Nutons']]],
+        ]));
+
+        $stmt = $this->pdo->prepare('SELECT payload FROM support_installations WHERE installation_id = ?');
+        $stmt->execute([self::INSTALLATION_ID]);
+        $stored = json_decode((string) $stmt->fetchColumn(), true);
+
+        $this->assertIsArray($stored);
+        $this->assertSame([['kind' => 'branch', 'value' => 'Nutons']], $stored['desk_unresolved']['listed']);
+    }
 }

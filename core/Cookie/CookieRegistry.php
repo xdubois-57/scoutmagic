@@ -11,9 +11,45 @@ namespace Core\Cookie;
 class CookieRegistry
 {
     /**
+     * Thirteen months, the ePrivacy ceiling — in days, once.
+     *
+     * The number used to live three times: here as the French « 13 mois »
+     * the preferences page shows, and again as a private constant in
+     * `CookieConsentService` and in `Core\Security\LastLoginMethodCookie`,
+     * which are what the browser actually receives. Nothing tied the three
+     * together, so the page could promise one duration while the cookie
+     * carried another and every test stayed green (#444, #515).
+     *
+     * Both writers now read this constant, so the page and the cookies
+     * cannot disagree — and `DECLARED_DURATIONS` below says, for the
+     * reader, which French wording each lifetime is written as.
+     */
+    public const THIRTEEN_MONTHS_DAYS = 395;
+
+    /**
+     * The French wording each machine-readable lifetime is shown as.
+     *
+     * Kept beside the durations rather than inside the entries so a test
+     * can hold both directions: every lifetime has a wording, and every
+     * wording names a lifetime that something actually applies.
+     *
+     * @var array<int, string>
+     */
+    public const DECLARED_DURATIONS = [
+        self::THIRTEEN_MONTHS_DAYS => '13 mois',
+    ];
+
+    /**
      * Returns all cookies declared by the core.
      *
-     * @return array<int, array{name: string, category: string, purpose: string, duration: string}>
+     * `max_age_days` is the lifetime a writer applies, and is absent for
+     * an entry whose duration is not a fixed number of days — a session
+     * cookie, or the Cache Storage entry that is not an HTTP cookie at
+     * all. Where it is present, `duration` is its French wording and the
+     * two are held together by
+     * `Tests\Core\Cookie\CookieDurationsArePromisedAsAppliedTest`.
+     *
+     * @return array<int, array{name: string, category: string, purpose: string, duration: string, max_age_days?: int}>
      */
     public static function getCoreCookies(): array
     {
@@ -35,6 +71,7 @@ class CookieRegistry
                 'category' => 'necessary',
                 'purpose' => 'Mémorisation de vos choix concernant les cookies.',
                 'duration' => '13 mois',
+                'max_age_days' => self::THIRTEEN_MONTHS_DAYS,
             ],
             [
                 'name' => 'last_login_method',
@@ -42,6 +79,7 @@ class CookieRegistry
                 'purpose' => 'Mémorisation de la méthode de connexion utilisée la dernière fois, pour la '
                     . 'présélectionner sur la page de connexion.',
                 'duration' => '13 mois',
+                'max_age_days' => self::THIRTEEN_MONTHS_DAYS,
             ],
             [
                 // Not an HTTP cookie (no Set-Cookie header involved) but a
