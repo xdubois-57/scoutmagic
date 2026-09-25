@@ -54,7 +54,8 @@ use PHPUnit\Framework\TestCase;
 class E2eOverlayGestureRatchetTest extends TestCase
 {
     /**
-     * Sites that name an overlay without a gesture, by file and count.
+     * Sites that name an overlay without a gesture, by file: WHICH overlay
+     * each one reads, with WHICH matcher, and how many times.
      *
      * Each is a state read on arrival — which panels a page serves open,
      * which folded — where there is no opening or closing to wait for.
@@ -65,7 +66,15 @@ class E2eOverlayGestureRatchetTest extends TestCase
      * trades one of its reads for `page.locator('#…').click()` keeps its
      * count and still fails — the click is a gesture, wherever it is.
      *
-     * @var array<string, int>
+     * And each read is declared as what it reads — the overlay and the
+     * matcher (`registration-states-box toBeHidden`), or `via const` for a
+     * constant used only in `expect(…)`. A read of the same count on
+     * ANOTHER overlay, or with another matcher, is not the one declared:
+     * `toggle.click()` then `expect(#other-panel).toBeVisible()` is the very
+     * pattern #520 is about, and it must not pass on the strength of an
+     * arrival read that happened to have the same total.
+     *
+     * @var array<string, array<string, int>>
      */
     private const STATE_READS_ON_ARRIVAL = [
         // Which state the camps map ARRIVES in is the subject: open on a
@@ -73,20 +82,25 @@ class E2eOverlayGestureRatchetTest extends TestCase
         // Its own toggleAndSettle() waits for the settled class, and every
         // toggle follows a navigation to 'domcontentloaded' — after the
         // bundle has run.
-        'tests/e2e/specs/camps-place-and-review.spec.js' => 2,
+        'tests/e2e/specs/camps-place-and-review.spec.js' => ['camps-map-panel via const' => 2],
         // Pages that must serve NO tip at all — behind the cookie banner,
         // once the delay is running, on the help itself: a count of zero,
         // not a dialog that opens or closes.
-        'tests/e2e/specs/help-discovery.spec.js' => 3,
+        'tests/e2e/specs/help-discovery.spec.js' => ['help-discovery-modal toHaveCount' => 3],
         // Configuration > Maintenance serves its first two cards open and
         // the backup and reset cards folded; that default is the subject.
-        'tests/e2e/specs/maintenance-backup.spec.js' => 4,
+        'tests/e2e/specs/maintenance-backup.spec.js' => [
+            'maintenance-backups-body toBeHidden' => 1,
+            'maintenance-health-body toBeVisible' => 1,
+            'maintenance-reset-body toBeHidden' => 1,
+            'maintenance-update-body toBeVisible' => 1,
+        ],
         // The three configuration boxes arrive folded. Two of them are
         // checked again, panel and all, by openCollapse() on the way in;
         // « États d'une demande » is never opened, so its panel is read
         // here — the toggle's aria-expanded alone is in the markup before
         // Bootstrap has run.
-        'tests/e2e/specs/registration-flow.spec.js' => 1,
+        'tests/e2e/specs/registration-flow.spec.js' => ['registration-states-box toBeHidden' => 1],
     ];
 
     /**
@@ -113,10 +127,10 @@ class E2eOverlayGestureRatchetTest extends TestCase
             $sites = self::sitesIn((string) file_get_contents($path), $overlays);
 
             $problems = $sites['gestures'];
-            if ($sites['reads'] > 0) {
+            if ($sites['reads'] !== []) {
                 $reads[$relative] = $sites['reads'];
                 if (!array_key_exists($relative, self::STATE_READS_ON_ARRIVAL)) {
-                    $problems[] = sprintf('undeclared state read ×%d', $sites['reads']);
+                    $problems[] = 'undeclared state reads: ' . implode(', ', array_keys($sites['reads']));
                 }
             }
 
@@ -141,15 +155,17 @@ class E2eOverlayGestureRatchetTest extends TestCase
         );
 
         $allowed = [];
-        foreach (self::STATE_READS_ON_ARRIVAL as $relative => $count) {
-            $allowed[$relative] = $reads[$relative] ?? 0;
+        foreach (array_keys(self::STATE_READS_ON_ARRIVAL) as $relative) {
+            $allowed[$relative] = $reads[$relative] ?? [];
         }
 
         $this->assertSame(
             self::STATE_READS_ON_ARRIVAL,
             $allowed,
-            "The allowance for state reads on arrival is out of date: correct the count of a file\n"
-            . 'that reads a different number of overlays, or strike the one that reads none.'
+            "The allowance for state reads on arrival no longer matches what the file reads. Each\n"
+            . "entry names the overlay and the matcher: a read moved to another overlay, or turned from\n"
+            . "toBeHidden() into toBeVisible(), is a different read — and after a gesture, it is the\n"
+            . 'race this test exists to prevent. Correct the entry only if the new read is on arrival.'
         );
     }
 
@@ -207,13 +223,16 @@ class E2eOverlayGestureRatchetTest extends TestCase
         $overlays = ['x-modal'];
         $reads = static fn (string $js): array => self::sitesIn($js, $overlays);
 
-        $this->assertSame(['reads' => 1, 'gestures' => []], $reads(
+        $this->assertSame(['reads' => ['x-modal toBeHidden' => 1], 'gestures' => []], $reads(
             "await expect(page.locator('#x-modal')).toBeHidden();"
         ));
-        $this->assertSame(['reads' => 1, 'gestures' => []], $reads(
+        $this->assertSame(['reads' => ['x-modal toHaveCount' => 1], 'gestures' => []], $reads(
             "await expect(\n    page.locator('#x-modal'),\n    'none on arrival',\n).toHaveCount(0);"
         ));
-        $this->assertSame(['reads' => 1, 'gestures' => []], $reads(
+        $this->assertSame(['reads' => ['x-modal not.toBeVisible' => 1], 'gestures' => []], $reads(
+            "await expect(page.locator('#x-modal')).not.toBeVisible();"
+        ));
+        $this->assertSame(['reads' => ['x-modal via const' => 1], 'gestures' => []], $reads(
             "const panel = page.locator('#x-modal');\nawait expect(panel).toBeHidden();\n"
             . "await expect(panel, 'the panel is open').toBeVisible();"
         ));
@@ -246,12 +265,12 @@ class E2eOverlayGestureRatchetTest extends TestCase
      * Sorts a spec's overlay sites into state reads and gestures.
      *
      * @param list<string> $overlays
-     * @return array{reads: int, gestures: list<string>}
+     * @return array{reads: array<string, int>, gestures: list<string>}
      */
     private static function sitesIn(string $source, array $overlays): array
     {
         $code = self::withoutComments($source);
-        $reads = 0;
+        $reads = [];
         $gestures = [];
 
         foreach ($overlays as $id) {
@@ -260,8 +279,9 @@ class E2eOverlayGestureRatchetTest extends TestCase
             $hashes = preg_match_all('/#' . $quoted . '(?![\w-])/', $code, $found, PREG_OFFSET_CAPTURE);
             $direct = 0;
             for ($i = 0; $i < $hashes; $i++) {
-                if (self::isStateRead($code, $found[0][$i][1])) {
-                    $reads++;
+                $read = self::stateRead($code, $found[0][$i][1], $id);
+                if ($read !== null) {
+                    $reads[$read] = ($reads[$read] ?? 0) + 1;
                 } else {
                     $direct++;
                 }
@@ -288,28 +308,39 @@ class E2eOverlayGestureRatchetTest extends TestCase
             }
         }
 
+        ksort($reads);
+
         return ['reads' => $reads, 'gestures' => $gestures];
     }
 
     /**
-     * A selector at $offset is a state read when its locator is the whole
-     * subject of an `expect(…)`, or a constant used only as one.
+     * What the selector at $offset reads, when it is a state read: the
+     * overlay and the matcher of the `expect(…)` it is the whole subject of
+     * (`x-modal toBeHidden`, `x-modal not.toBeVisible`), or `x-modal via
+     * const` for a constant used only as one. Null when it is anything else.
      */
-    private static function isStateRead(string $code, int $offset): bool
+    private static function stateRead(string $code, int $offset, string $id): ?string
     {
         $before = substr($code, 0, $offset);
         $after = substr($code, $offset);
 
         if (preg_match('/expect\(\s*\w+\.locator\(\s*[\'"]$/', $before) === 1) {
-            return preg_match('/^[^\'"\n]*[\'"]\s*\)\s*[,)]/', $after) === 1;
+            // The selector's string, the locator's `)`, an optional message
+            // argument, the expect's `)`, then the matcher.
+            $subject = '/^[^\'"\n]*[\'"]\s*\)\s*'
+                . '(?:,\s*(?:\'(?:[^\'\\\\\n]|\\\\.)*\'|"(?:[^"\\\\\n]|\\\\.)*"|`(?:[^`\\\\]|\\\\.)*`)\s*,?\s*)?'
+                . '\)\s*\.((?:not\.)?\w+)\(/';
+
+            return preg_match($subject, $after, $matcher) === 1 ? $id . ' ' . $matcher[1] : null;
         }
 
         if (preg_match('/(?:const|let)\s+(\w+)\s*=\s*\w+\.locator\(\s*[\'"]$/', $before, $declared) === 1
-            && preg_match('/^[^\'"\n]*[\'"]\s*\)\s*;/', $after) === 1) {
-            return self::isOnlyEverExpected($code, $declared[1]);
+            && preg_match('/^[^\'"\n]*[\'"]\s*\)\s*;/', $after) === 1
+            && self::isOnlyEverExpected($code, $declared[1])) {
+            return $id . ' via const';
         }
 
-        return false;
+        return null;
     }
 
     /**
