@@ -76,7 +76,18 @@ class SecondaryEmailServiceTest extends TestCase
 
     public function testAddEmailSendsConfirmationAndCreatesAPendingRow(): void
     {
-        $this->mailService->expects($this->once())->method('send');
+        // **To that address, not merely once.** A count says a message left;
+        // it says nothing about where. The confirmation link is the one
+        // thing that turns an address a parent typed into a confirmed one,
+        // so a recipient mix-up here hands a stranger the means to claim
+        // somebody else's — and an unconstrained `method('send')` accepts
+        // any argument at all (issue #439).
+        //
+        // Lower-cased: the row records `secondary@example.com`, and the
+        // e-mail has to go to the address that was stored rather than the
+        // capitalisation that was typed.
+        $this->mailService->expects($this->once())->method('send')
+            ->with($this->identicalTo('secondary@example.com'));
 
         $row = $this->service->addEmail($this->requestId, 'Secondary@Example.com');
 
@@ -86,7 +97,8 @@ class SecondaryEmailServiceTest extends TestCase
 
     public function testAddingTheSameEmailTwiceReturnsSameRowWithoutDuplicateSend(): void
     {
-        $this->mailService->expects($this->once())->method('send');
+        $this->mailService->expects($this->once())->method('send')
+            ->with($this->identicalTo('secondary@example.com'));
 
         $first = $this->service->addEmail($this->requestId, 'secondary@example.com');
         // Second call within the resend cooldown must not re-send.

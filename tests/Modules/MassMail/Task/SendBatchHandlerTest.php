@@ -137,11 +137,26 @@ class SendBatchHandlerTest extends TestCase
 
     public function testProcessesOnlyBatchSizeRecipientsAndReschedulesWhenPendingRemain(): void
     {
+        // **Which two, not merely two** (issue #439). A batch that sent the
+        // first copy twice, or sent to the third recipient and left the
+        // first pending, satisfies a count of two exactly as well — and a
+        // mailing is the one feature here whose whole subject is who
+        // receives what.
+        $sentTo = [];
         $mailService = $this->createMock(MailService::class);
-        $mailService->expects($this->exactly(2))->method('send');
+        $mailService->expects($this->exactly(2))->method('send')
+            ->willReturnCallback(function (string $to) use (&$sentTo): void {
+                $sentTo[] = $to;
+            });
 
         $handler = new SendBatchHandler();
         $handler->handle([], $this->buildContext($mailService));
+
+        $this->assertSame(
+            ['member0@test.be', 'member1@test.be'],
+            $sentTo,
+            'the batch is the FIRST two pending recipients, in order, each exactly once'
+        );
 
         $counts = $this->recipientRepository->countGroupedByStatus($this->emailId);
         $this->assertSame(2, $counts['sent']);
@@ -189,11 +204,21 @@ class SendBatchHandlerTest extends TestCase
         // which is the write this removes the ground from under.
         $this->pdo->exec('DROP TABLE mail_send_receipts');
 
+        $sentTo = [];
         $mailService = $this->createMock(MailService::class);
-        $mailService->expects($this->exactly(2))->method('send');
+        $mailService->expects($this->exactly(2))->method('send')
+            ->willReturnCallback(function (string $to) use (&$sentTo): void {
+                $sentTo[] = $to;
+            });
 
         $handler = new SendBatchHandler();
         $handler->handle([], $this->buildContext($mailService));
+
+        $this->assertSame(
+            ['member0@test.be', 'member1@test.be'],
+            $sentTo,
+            'the receipt failing must not change WHO the batch wrote to'
+        );
 
         $counts = $this->recipientRepository->countGroupedByStatus($this->emailId);
         $this->assertSame(2, $counts['sent'], 'both copies left, so both are sent whatever the receipt did.');

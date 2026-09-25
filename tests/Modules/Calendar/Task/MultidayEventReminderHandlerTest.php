@@ -229,7 +229,11 @@ class MultidayEventReminderHandlerTest extends TestCase
         $this->createStaffMember('Akela', 'akela@example.test');
         $eventId = $this->createEvent($this->sectionCalendar(), '2026-08-10', '2026-08-13');
 
-        $this->mailService->expects($this->once())->method('send');
+        // The address, not only the count (issue #439): a reminder about a
+        // section's camp names the section's animators, and a count cannot
+        // tell « once, to Akela » from « once, to somebody else ».
+        $this->mailService->expects($this->once())->method('send')
+            ->with($this->identicalTo('akela@example.test'));
 
         $payload = ['event_id' => $eventId, 'calendar_id' => $this->sectionCalendar()];
         (new MultidayEventReminderHandler())->handle($payload, $this->taskContext());
@@ -247,7 +251,9 @@ class MultidayEventReminderHandlerTest extends TestCase
         $calendarId = $this->sectionCalendar();
         $eventId = $this->createEvent($calendarId, '2026-08-10', '2026-08-13');
 
-        $this->mailService->expects($this->exactly(2))->method('send');
+        // Twice, and both times to the same animator.
+        $this->mailService->expects($this->exactly(2))->method('send')
+            ->with($this->identicalTo('akela@example.test'));
 
         $payload = ['event_id' => $eventId, 'calendar_id' => $calendarId];
         (new MultidayEventReminderHandler())->handle($payload, $this->taskContext());

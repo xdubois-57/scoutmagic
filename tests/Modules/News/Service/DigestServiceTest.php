@@ -108,7 +108,11 @@ class DigestServiceTest extends TestCase
         $formId = $this->formRepository->create($this->articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', true, null);
         $this->responseRepository->create($formId, null, null, 'first@test.com', [], null, null);
 
-        $this->mailService->expects($this->once())->method('send');
+        // To the article's author, as the test above already says of the
+        // first run (issue #439): a second run that mailed the digest to
+        // somebody else would satisfy a bare count.
+        $this->mailService->expects($this->once())->method('send')
+            ->with($this->identicalTo('author@test.com'));
         $this->service()->sendPendingDigests();
 
         // Second run, no new responses since — no further email.
