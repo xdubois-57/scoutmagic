@@ -1484,7 +1484,8 @@ to a request the maintainer may well want to build. Such an issue therefore gets
 label, which means a decision about what it would be for; inventing one at
 runtime is exactly what the script below exists to prevent.
 
-The issue triage taxonomy — `triage:*`, `bug:*`, `status:accepted` — is the
+The issue triage taxonomy — `triage:*`, `bug:*`, `status:accepted`,
+`status:in-progress` — is the
 one part of this section that *is* reproducible from the repository:
 `scripts/sync-issue-labels.sh` is its single source, and running it creates
 what is missing and repairs what somebody edited in the UI. It never

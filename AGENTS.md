@@ -485,8 +485,9 @@ server-side where a label or an assignee is not.
 3. **Put `status:in-progress` on the issue if that label exists**, so the
    issue list says what is being worked on. It is a signal for whoever is
    reading, never a lock — step 2 is the lock, and the work proceeds
-   identically without the label. Do not stop, and do not try to create it:
-   the tools an agent has here cannot. Take it off when the pull request
+   identically without the label. Do not stop over a missing one: it is owned
+   by `scripts/sync-issue-labels.sh`, which needs `gh` and so cannot be run
+   from a remote session — say it is missing in your report and carry on. Take it off when the pull request
    merges, or when you give the ticket up.
 
 4. **Fix it**, under the rules in this file: a test alongside the fix,
