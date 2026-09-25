@@ -38,7 +38,7 @@ travail est déjà fait : une valeur corrigée dans le code continue d'être
 remontée par toutes les installations qui n'ont pas installé la version.
 Sans cette colonne, on la reprend en croyant l'avoir oubliée.
 
-La dernière ligne nomme **la table du code à compléter**. Une exception :
+La dernière colonne nomme **la table du code à compléter**. Une exception :
 une **fonction** n'en a pas. Ce logiciel n'a aucune liste de fonctions
 connues — chaque unité qualifie les siennes — donc aucune version ne peut
 la reconnaître. La ligne dit alors qu'un mot circule, pas qu'un correctif

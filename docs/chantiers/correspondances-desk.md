@@ -735,9 +735,17 @@ disait « what the last import could not match » ; la liste est l'état **coura
 donc une fonction créée il y a des mois et jamais qualifiée y figure encore. Un
 administrateur aurait attribué un manque ancien au dernier import.
 
-Le sujet d'aide a gonflé de 373 à 487 mots en absorbant ces nuances — treize sous
-la limite dure, ce qui ne laissait aucune marge. Resserré à **455** à contenu
-constant, en fusionnant deux sections qui disaient la même chose de deux façons.
+Le sujet d'aide a gonflé de **434** — son état à la fin du tour précédent — à 487
+mots en absorbant ces nuances, treize sous la limite dure, ce qui ne laissait
+aucune marge. Resserré à **455** à contenu constant, en fusionnant deux sections
+qui disaient la même chose de deux façons — puis **458** après la précision que
+le tour suivant a demandée sur le cas « aucune fiche ».
+
+*La première version de ce paragraphe partait de 373, qui est le compte d'avant
+le premier tour et non d'après.* Elle effaçait donc les soixante et un mots que
+le tour précédent déclare lui-même quatre paragraphes plus haut — le genre
+d'affirmation invérifiable et fausse contre laquelle la section suivante met en
+garde. Relevé par la revue, deux paragraphes après l'avertissement.
 
 ### Reporté
 
