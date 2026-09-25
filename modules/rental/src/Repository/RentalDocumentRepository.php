@@ -253,7 +253,65 @@ class RentalDocumentRepository implements AttachedFileRepository
         return $body === false ? null : (string) $body;
     }
 
-    public function saveText(int $bookingId, DocumentType $type, string $bodyHtml): void
+    /**
+     * Write a document's source text, unless it has already gone out.
+     *
+     * The lock is carried BY THE WRITE, and that is the whole point. The
+     * service checks `textIsLocked()` first — for the banner, and for a
+     * refusal in French rather than a silent no-op — but a check standing
+     * apart from its write is a TOCTOU: between the two, a second manager
+     * pressing « Envoyer » writes `sent_at`, and both succeed. The tenant
+     * then holds a PDF whose source says something else, with nothing on
+     * screen to say so (#405).
+     *
+     * `NOT EXISTS` inside the UPDATE closes that window without storing
+     * anything: InnoDB evaluates it as a locking read at write time, and
+     * SQLite serialises writers outright. The lock therefore stays
+     * DERIVED from the sent documents, which is what this module does
+     * everywhere else (ARCHITECTURE.md §8.53) — issue #405 proposed a
+     * `locked_at` column and regretted both of its costs, a schema change
+     * and that lost derivation. Neither is needed.
+     *
+     * **Zero changed rows is not zero matched rows**, and that distinction
+     * is what the first version of this got wrong. Without
+     * `PDO::MYSQL_ATTR_FOUND_ROWS`, which this application does not set,
+     * MySQL's `rowCount()` after an UPDATE counts rows it CHANGED. So a
+     * manager double-clicking « Enregistrer » on unedited text — twice
+     * inside the same second, so that even `updated_at` is identical —
+     * matched the row, changed nothing, and was told « ce document a été
+     * envoyé au locataire » about a document nobody had sent, with the
+     * write dropped. The same trap is already written down for
+     * `SettingRepository::replaceIfUnchanged()` and
+     * `BounceStateRepository` (ARCHITECTURE.md §8.29).
+     *
+     * **A second query disambiguates, and the two run as one.** When the
+     * UPDATE reports nothing changed, the row is asked whether it already
+     * holds exactly this text with nothing sent — the no-op — or not,
+     * which is the refusal. Nothing is re-checked on the ordinary path,
+     * so the window the `NOT EXISTS` closes stays closed.
+     *
+     * **They share a transaction, and that is not belt-and-braces.** The
+     * first version left them as two independent statements, reasoning
+     * only about a SEND landing in between (where refusing is truthful:
+     * the text on file is already the text asked for, and it has gone
+     * out). A concurrent SAVE breaks that reasoning — a second manager
+     * writing different text between the UPDATE and the question makes
+     * the question find a row that no longer holds what was asked for,
+     * so it answers « refused » and the first manager is told the
+     * document went to the tenant. Nothing went anywhere. The UPDATE
+     * takes the row's write lock, so holding both inside one transaction
+     * makes that second save wait rather than slip in: a false refusal
+     * introduced by the very disambiguation that removed another one.
+     *
+     * **A unit test cannot catch this**, which is why it survived one:
+     * `DatabaseTestHelper::createTestDatabase()` builds an in-memory
+     * SQLite, whose `changes()` counts matched rows whatever the values
+     * were. The divergence appears only against MySQL — the `test` job of
+     * CI, the `database` group of a remote session, and production.
+     *
+     * @return bool false when the text was already sent and nothing was written
+     */
+    public function saveText(int $bookingId, DocumentType $type, string $bodyHtml): bool
     {
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
 
@@ -261,6 +319,9 @@ class RentalDocumentRepository implements AttachedFileRepository
         // identically on MySQL and on the SQLite test database, whose
         // conflict syntaxes differ.
         if ($this->findText($bookingId, $type) === null) {
+            // A text that does not exist yet cannot have been sent: a
+            // document is generated FROM this row, so there is no window
+            // to close here.
             $stmt = $this->pdo->prepare(
                 'INSERT INTO rental_booking_document_texts
                     (booking_id, document_type, body_html, created_at, updated_at)
@@ -268,14 +329,84 @@ class RentalDocumentRepository implements AttachedFileRepository
             );
             $stmt->execute([$bookingId, $type->value, $bodyHtml, $now, $now]);
 
-            return;
+            return true;
         }
 
+        // Only when nobody above us owns one: this repository is called
+        // from a service that may already have opened its own, and a
+        // second `beginTransaction()` on the same connection throws.
+        $ownsTransaction = !$this->pdo->inTransaction();
+        if ($ownsTransaction) {
+            $this->pdo->beginTransaction();
+        }
+
+        try {
+            $stmt = $this->pdo->prepare(
+                'UPDATE rental_booking_document_texts SET body_html = ?, updated_at = ?
+                 WHERE booking_id = ? AND document_type = ?
+                   AND NOT EXISTS (
+                       SELECT 1 FROM rental_documents d
+                       WHERE d.booking_id = rental_booking_document_texts.booking_id
+                         AND d.document_type = rental_booking_document_texts.document_type
+                         AND d.sent_at IS NOT NULL
+                   )'
+            );
+            $stmt->execute([$bodyHtml, $now, $bookingId, $type->value]);
+
+            $written = $stmt->rowCount() > 0
+                || $this->alreadyHoldsUnsent($bookingId, $type, $bodyHtml);
+
+            if ($ownsTransaction) {
+                $this->pdo->commit();
+            }
+        } catch (\Throwable $e) {
+            if ($ownsTransaction) {
+                try {
+                    $this->pdo->rollBack();
+                } catch (\Throwable) {
+                    // Nothing left to roll back — a commit that threw
+                    // after doing its work leaves no transaction open.
+                    // Swallowed on purpose: the caller is about to
+                    // receive the original failure, which is the one
+                    // sentence they can act on.
+                }
+            }
+
+            throw $e;
+        }
+
+        return $written;
+    }
+
+    /**
+     * Did the UPDATE change nothing because there was nothing to change?
+     *
+     * Asked only when `rowCount()` is zero, where MySQL cannot tell « the
+     * `NOT EXISTS` refused this » from « the row already said exactly
+     * that ». One row, one answer: the text is identical AND no document
+     * of this type has gone out, so the caller's intent is already the
+     * state on disk.
+     *
+     * Runs inside {@see saveText()}'s transaction, after its UPDATE has
+     * taken the row's write lock — which is what stops a concurrent save
+     * from changing the answer between the two. Never called from
+     * anywhere else, for that reason.
+     */
+    private function alreadyHoldsUnsent(int $bookingId, DocumentType $type, string $bodyHtml): bool
+    {
         $stmt = $this->pdo->prepare(
-            'UPDATE rental_booking_document_texts SET body_html = ?, updated_at = ?
-             WHERE booking_id = ? AND document_type = ?'
+            'SELECT 1 FROM rental_booking_document_texts t
+              WHERE t.booking_id = ? AND t.document_type = ? AND t.body_html = ?
+                AND NOT EXISTS (
+                    SELECT 1 FROM rental_documents d
+                    WHERE d.booking_id = t.booking_id
+                      AND d.document_type = t.document_type
+                      AND d.sent_at IS NOT NULL
+                )'
         );
-        $stmt->execute([$bodyHtml, $now, $bookingId, $type->value]);
+        $stmt->execute([$bookingId, $type->value, $bodyHtml]);
+
+        return $stmt->fetchColumn() !== false;
     }
 
     private function selectWithFile(): string
