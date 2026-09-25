@@ -1,0 +1,117 @@
+{% extends 'base.html.twig' %}
+{% block title %}Correspondances Desk — {{ site_name }}{% endblock %}
+
+{% block content %}
+
+{% include 'partials/page_header.html.twig' with { title: 'Correspondances Desk à corriger' } only %}
+
+{% include '@support_dashboard/_nav.html.twig' %}
+
+{#
+  The list is recomputed on every load from the reports already held
+  (issue #356, D5): nothing here is catalogued, so a value a later version
+  of this software learns leaves the page by itself. The only stored facts
+  are the ones no report can carry — when a value first appeared, whether
+  it has been announced, and whether somebody set it aside.
+#}
+<p class="text-body-secondary">
+    Les valeurs que les installations remontent et que ce code ne reconnaît pas. La liste se
+    recalcule à chaque affichage : une valeur corrigée disparaît d'elle-même.
+</p>
+
+<div class="d-flex flex-wrap align-items-center gap-3 mb-3">
+    <span class="text-body-secondary small">
+        {{ rows|length }} {{ rows|length > 1 ? 'valeurs' : 'valeur' }}
+        {{ show_ignored ? 'affichées, écartées comprises' : 'à traiter' }}
+    </span>
+    <a class="small" href="/support-dashboard/correspondances{{ show_ignored ? '' : '?ecartees=1' }}">
+        {{ show_ignored ? 'Masquer les valeurs écartées' : 'Montrer les valeurs écartées' }}
+    </a>
+</div>
+
+{% if rows|length == 0 %}
+    {% include 'partials/empty_state.html.twig' with {
+        message: "Aucune valeur non reconnue. Chaque installation qui rapporte trouve une correspondance pour tout ce qu'elle importe."
+    } only %}
+{% endif %}
+
+{% for row in rows %}
+    <div class="card mb-3{{ row.ignored ? ' opacity-75' : '' }}">
+        <div class="card-body">
+            <div class="d-flex flex-wrap align-items-baseline gap-2">
+                <span class="badge text-bg-light">{{ row.kind_label }}</span>
+                <span class="fw-semibold font-monospace flex-grow-1">{{ row.value }}</span>
+                <span class="small {{ row.installations > 3 ? 'fw-semibold text-danger' : 'text-body-secondary' }}">
+                    {{ row.installations }} {{ row.installations > 1 ? 'unités' : 'unité' }}
+                </span>
+            </div>
+
+            <p class="small mt-2 mb-2">
+                {% if row.kind == 'function' %}
+                    Créée avec le rôle le plus bas : les personnes qui la portent ne voient rien de plus
+                    qu'un membre ordinaire tant que leur unité ne leur donne pas un rôle.
+                {% elseif row.kind == 'branch' %}
+                    Classée en dernier : aucun logo par défaut, et un rang arbitraire dans tous les sélecteurs.
+                {% else %}
+                    Colonne inattendue dans l'export : l'import s'arrête pour cette unité.
+                {% endif %}
+            </p>
+
+            <div class="d-flex flex-wrap gap-3 small text-body-secondary">
+                {% if row.first_seen_at %}<span>Depuis le {{ row.first_seen_at|date_fr }}</span>{% endif %}
+                {% if row.last_seen_at %}<span>Vue le {{ row.last_seen_at|date_fr }}</span>{% endif %}
+                {% if row.oldest_version %}<span>Plus ancienne version : {{ row.oldest_version }}</span>{% endif %}
+            </div>
+
+            {% if row.instances|length > 0 %}
+                <div class="small text-body-secondary mt-1">{{ row.instances|join(', ') }}</div>
+            {% endif %}
+
+            {#
+              Where the decision is made, which for a branch and for a CSV
+              header is a hard-coded table to complete in a later version.
+              A FUNCTION is the exception and deliberately says so: there is
+              no list of known functions anywhere in this code, so no
+              release can recognise one — only the unit qualifying it
+              resolves that line.
+            #}
+            <div class="small text-body-secondary mt-1 font-monospace">{{ row.code_table }}</div>
+            {% if row.kind == 'function' %}
+                <div class="small text-body-secondary fst-italic">
+                    Aucune table à compléter : ce code n'a pas de liste de fonctions connues, et chaque
+                    unité qualifie les siennes. Cette ligne dit qu'un mot circule, pas qu'une version le corrigera.
+                </div>
+            {% endif %}
+
+            {% if row.id %}
+                <form method="post"
+                      action="/support-dashboard/correspondances/{{ row.id }}/{{ row.ignored ? 'reactiver' : 'ecarter' }}"
+                      class="mt-2">
+                    {{ csrf_field()|raw }}
+                    <button type="submit" class="btn btn-sm btn-outline-secondary">
+                        {{ row.ignored ? 'Réactiver' : 'Écarter' }}
+                    </button>
+                </form>
+            {% endif %}
+        </div>
+    </div>
+{% endfor %}
+
+{% if rows|length > 0 %}
+    <div class="card">
+        <div class="card-body small text-body-secondary">
+            <p class="fw-semibold text-body mb-1">« Plus ancienne version » évite de retraiter deux fois.</p>
+            <p class="mb-2">
+                Une valeur corrigée dans le code continue d'être remontée par les installations qui n'ont
+                pas encore installé la version. Sans cette colonne, on la reprend en croyant l'avoir oubliée.
+            </p>
+            <p class="mb-0">
+                Les noms de fonctions et de branches sont du vocabulaire fédéral, pas des données
+                personnelles. Les noms de sections ne sont <b>pas</b> remontés : ils sont choisis par l'unité,
+                n'ont aucune correspondance centrale à corriger, et l'identifient.
+            </p>
+        </div>
+    </div>
+{% endif %}
+
+{% endblock %}
