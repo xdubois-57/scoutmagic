@@ -84,8 +84,27 @@ interface StorageBackendInterface
     public function delete(string $key): void;
 
     /**
-     * Removes every object whose key starts with $prefix. Used for whole
-     * album cleanup; an empty prefix is a no-op, never « everything ».
+     * Removes every object inside the FOLDER $prefix — that is, every key
+     * starting with `rtrim($prefix, '/') . '/'`, and nothing else. Used
+     * for whole album cleanup; an empty prefix is a no-op, never
+     * « everything », and neither is one that trims to nothing.
+     *
+     * **A folder, and deliberately not « keys beginning with this
+     * string ».** Callers pass an album id with no trailing slash, so the
+     * looser reading makes `deletePrefix('5')` delete album 50 as well —
+     * which is what `GoogleDriveBackend` did, destroying the files of
+     * albums nobody had touched (#484). The distinction is invisible
+     * until a site has an album whose id is a prefix of another's, which
+     * is every site with ten albums, and the damage is silent: the rows
+     * remain and the photographs become 404s.
+     *
+     * This says folder where {@see list()} says prefix, and the two
+     * differ on purpose: `list()` is asked for things that are not
+     * folders (`StorageInventoryStore`'s reserved prefix), while nothing
+     * ever wants to delete « every key beginning with these characters ».
+     * `Tests\Core\Storage\Location\Backend\DeletePrefixIsAFolderTest`
+     * holds all four backends to it at once, so a fifth cannot diverge in
+     * silence.
      */
     public function deletePrefix(string $prefix): void;
 
