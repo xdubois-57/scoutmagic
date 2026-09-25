@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Tests\Modules\OfficialDocuments\Service;
 
+use Tests\Modules\OfficialDocuments\TemporaryDirectoryWatch;
 use Core\Member\MemberFunctionInfo;
 use Core\Member\MemberProfile;
 use Modules\OfficialDocuments\Api\OfficialDocumentsException;
@@ -117,28 +118,22 @@ final class ParentalAuthorizationPdfServiceTest extends TestCase
      * else's process can read.
      *
      * What is asserted is that no entry appeared THAT THE RENDERER COULD
-     * HAVE WRITTEN. The temporary directory is shared with every other
-     * process on the machine, and this test had already learnt half of it:
-     * comparing the directory whole fails when the runner REMOVES one of
-     * its own files while the test runs.
+     * HAVE WRITTEN, and the reason lives in `TemporaryDirectoryWatch` now
+     * rather than here: this test had learnt half of it from a red CI job
+     * while its sibling in `Pdf/TemplateGridTest` kept the whole-directory
+     * comparison and failed the same way later (issue #535). Two copies,
+     * one fixed — and the half it had learnt was not enough, which a
+     * second red job proved by naming a `runc-process…` file that
+     * APPEARED.
      *
-     * The other half cost this very pull request a red `Checks / test`,
-     * on a diff that touches neither this module nor this test — the
-     * runner also CREATES files there, and the failure named one,
-     * `runc-process380233456`, appearing inside the render's own window.
-     *
-     * So the two foreign shapes are named and skipped, and anything else
-     * appearing still fails. Naming them is only possible because no PDF
-     * renderer would produce those names; a filter on « anything that
-     * appeared » would have emptied the assertion.
-     *
-     * Ported from the fix for issue #535 (`Tests\Modules\OfficialDocuments\
-     * TemporaryDirectoryWatch`, which also gives this reader to the sibling
-     * that still carries a copy of it). It no-ops once that lands.
+     * #541 carried that second half here as an inline filter, because
+     * waiting for this branch to land was waiting. This merge replaces it
+     * with the shared reader it was a copy of — which is what its own
+     * commit message said would happen, and the whole point of #535.
      */
     public function testNothingIsWrittenToDisk(): void
     {
-        $before = self::temporaryFiles();
+        $watch = TemporaryDirectoryWatch::start();
 
         self::service()->render(
             self::member(),
@@ -148,12 +143,7 @@ final class ParentalAuthorizationPdfServiceTest extends TestCase
             new \DateTimeImmutable('2026-09-20')
         );
 
-        $appeared = array_filter(
-            array_diff(self::temporaryFiles(), $before),
-            static fn (string $entry): bool => preg_match('/^(runc-process|scoutmagic-e2e-cov-)/', $entry) !== 1
-        );
-
-        $this->assertSame([], array_values($appeared), 'the renderer wrote to the temporary directory');
+        $watch->assertNothingAppeared('the renderer wrote to the temporary directory');
     }
 
     /**
@@ -255,15 +245,4 @@ final class ParentalAuthorizationPdfServiceTest extends TestCase
         }
     }
 
-    /**
-     * @return list<string>
-     */
-    private static function temporaryFiles(): array
-    {
-        $entries = scandir(sys_get_temp_dir());
-        $entries = $entries === false ? [] : $entries;
-        sort($entries);
-
-        return array_values($entries);
-    }
 }

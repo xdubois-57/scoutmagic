@@ -15,6 +15,7 @@ use Modules\OfficialDocuments\Service\HealthSheetPdfService;
 use Modules\OfficialDocuments\Value\HealthSheet;
 use PHPUnit\Framework\TestCase;
 use Smalot\PdfParser\Parser;
+use Tests\Modules\OfficialDocuments\TemporaryDirectoryWatch;
 
 /**
  * The assembly: the shipped two-page template really is imported, the
@@ -284,15 +285,22 @@ final class HealthSheetPdfServiceTest extends TestCase
      * Nothing is written to disk — the chantier's rule, and the one that
      * matters on shared hosting where a temporary file is a file somebody
      * else's process can read.
+     *
+     * **This was the third copy of the whole-directory comparison**, and
+     * the one nobody had found: issue #535 named two, both spelling
+     * `scandir(sys_get_temp_dir())` outright, and the guard written for it
+     * read that shape only. This one goes through a variable, so it sat
+     * one rename away from the rule and would have gone red the first time
+     * a foreign process removed a file of its own during the render. A
+     * reviewer found it; the guard now reads the variable form too.
      */
     public function testNothingIsWrittenToDisk(): void
     {
-        $directory = sys_get_temp_dir();
-        $before = scandir($directory);
+        $watch = TemporaryDirectoryWatch::start();
 
         self::service()->render(HealthSheetFillingTest::member(), self::filled());
 
-        $this->assertSame($before, scandir($directory));
+        $watch->assertNothingAppeared('the health sheet renderer wrote to the shared temporary directory');
     }
 
     /**

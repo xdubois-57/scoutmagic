@@ -348,11 +348,36 @@ final class DocumentTextLockOnTheRealEngineTest extends TestCase
         $repository = new RentalDocumentRepository($interleaving);
         $repository->saveText(27, DocumentType::CONTRACT, $text);
 
-        $written = $repository->saveText(27, DocumentType::CONTRACT, $text);
+        // Re-saved until the question is actually ASKED, and the reason is
+        // a clock tick rather than anything about the lock.
+        //
+        // `saveText()` reaches `alreadyHoldsUnsent()` — the query the probe
+        // above watches for — only when the UPDATE changed nothing, since
+        // `||` short-circuits on `rowCount() > 0`. And `updated_at` is part
+        // of that UPDATE, written to the second:
+        //
+        //     same text, SAME second      → rowCount 0, question asked
+        //     same text, next second      → rowCount 1, question skipped
+        //
+        // So a re-save that straddles a second boundary observes nothing,
+        // and the guard below then reports it as if the fix had regressed.
+        // That is what turned `Checks / database-mariadb` red on a pull
+        // request touching none of this code, while the same job had been
+        // green on the commit before it.
+        //
+        // Retrying converges immediately rather than by luck: an attempt
+        // that skipped the question has just written `updated_at` to the
+        // CURRENT second, so the next attempt lands inside it. The
+        // concurrent save still happens ONCE — the probe stops itself the
+        // moment it has fired.
+        $written = false;
+        for ($attempt = 0; $attempt < 5 && $slipped === null; $attempt++) {
+            $written = $repository->saveText(27, DocumentType::CONTRACT, $text);
+        }
 
         $this->assertNotNull(
             $slipped,
-            'the disambiguation query was never reached, so this test observed nothing'
+            'the disambiguation query was never reached in five re-saves, so this test observed nothing'
         );
         $this->assertFalse(
             $slipped,

@@ -608,6 +608,55 @@ backlog » — and it is a standing instruction, not a one-off. It means:
    arming auto-merge still holds without exception, on each: every check
    green on the current head, every review thread answered, the template's
    checklist honestly filled.
+
+   **A review round is expensive, so spend as few as possible.** One round
+   of `Claude review` costs between 5 and 9 USD and takes 8 to 25 minutes,
+   CI takes another 20, and every push cancels a review in flight and
+   starts it again — the cancelled one is paid for and thrown away. On one
+   pull request in this repository that arithmetic came to seven rounds and
+   some 45 USD, and the reason was not the reviewer: **five of its ten
+   findings were in the code pushed to fix the four before them.** Each
+   round opened a new one instead of closing the last.
+
+   So, before pushing a fix for review findings:
+
+   - **Fix everything that round reported, then push ONCE.** Two pushes for
+     one round pays twice for the same reading.
+   - **Never push while a review is in flight**, unless CI is red. The run
+     is cancelled and restarted from zero.
+   - **Run the local reviewer first** — the `code-review` skill over the
+     diff. It costs minutes and no dollars, and it reads the same way the
+     CI reviewer does.
+   - **Run the whole suite, not the suites you think are affected.**
+     `vendor/bin/phpunit` entire takes about eleven minutes here, which is
+     less than one wasted round.
+   - **Prove every new assertion can FAIL**, not merely that it passes.
+     This is the rule that was missing when those five findings landed: the
+     mutation proof was done for the production code and skipped for the
+     guards' own fixtures, and two of them turned out to be assertions that
+     could not fail at all. A fixture copied from a neighbouring assertion
+     has to be re-checked against the pattern it is now applied to — that
+     is exactly how both of them got in.
+   - **Never restore a file with `git checkout` to undo a mutation.** It
+     restores from `HEAD`, so it deletes the uncommitted work the mutation
+     was testing, and every assertion after that fails for the wrong
+     reason. Undo a mutation by replacing the string back.
+   - **One full suite at a time, and do not touch the working tree while it
+     runs.** Both halves were learnt the same afternoon. A second
+     `vendor/bin/phpunit` shares the one `test_db` this container has, so
+     the two runs write over each other's fixtures and either verdict can
+     be wrong in either direction. And a run whose tree changes under it —
+     a branch switched, a file edited — is reading something that no longer
+     exists: three failures were reported that way in one session, and one
+     green was reported that had no right to be. Both are silent. If a
+     suite is running and something else needs doing, the something else
+     waits, or the suite is killed and started again afterwards.
+
+   **And put the flake fixes at the FRONT of the queue.** A test that fails
+   for a reason that is not the defect it watches costs a round to every
+   pull request that follows, not just its own: two of those seven rounds
+   went to instabilities that had nothing to do with the diff. What makes
+   every other block cheaper goes first.
 8. **Name each issue in the pull request body with `Corrige #158`** — that
    word, one line per issue, when the PR is opened rather than afterwards.
    `Corrige` is deliberately **not** one of GitHub's closing keywords

@@ -8,6 +8,7 @@ use Modules\Covoiturage\Repository\OfferRepository;
 use Modules\Covoiturage\Repository\SeatRequestRepository;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\NothingInClear;
 use Tests\Modules\Covoiturage\CovoiturageTestHelper as H;
 
 /**
@@ -35,15 +36,16 @@ final class PersonalDataIsEncryptedTest extends TestCase
             $offerId, 2, 'Famille Leroy', ['Tom Leroy', 'Léa Leroy'], '0495 88 77 66'
         );
 
-        $raw = (string) json_encode([
-            $this->pdo->query('SELECT * FROM carpool_offers')->fetchAll(\PDO::FETCH_ASSOC),
-            $this->pdo->query('SELECT * FROM carpool_requests')->fetchAll(\PDO::FETCH_ASSOC),
-        ], JSON_INVALID_UTF8_SUBSTITUTE);
-        foreach (['Sophie', '0478', 'sac par enfant', 'Leroy', 'Tom', '0495'] as $clear) {
-            $this->assertStringNotContainsString($clear, $raw, "« {$clear} » is stored in clear.");
-        }
-        // The meeting point is not personal (D7) and the count is what seats are counted on.
-        $this->assertStringContainsString('Parking des locaux', $raw);
+        // Column by column through the shared reader, never a
+        // `json_encode()` of the rows — `Tests\NothingInClear` carries the
+        // reason (issue #533) and the demonstration.
+        $stored = NothingInClear::inTables($this->pdo, 'carpool_offers', 'carpool_requests');
+        $stored->assertAbsent('Sophie', '0478', 'sac par enfant', 'Leroy', 'Tom', '0495');
+
+        // The meeting point is not personal (D7) — the schema calls it
+        // `endpoint` and says why it stays in clear: it is shown to every
+        // member, and it is a meeting point rather than a home address.
+        $stored->assertReadableIn('carpool_offers.endpoint', 'Parking des locaux');
 
         $offer = (new OfferRepository($this->pdo, H::encryption()))->findById($offerId);
         $request = (new SeatRequestRepository($this->pdo, H::encryption()))->findById($requestId);

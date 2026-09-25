@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Tests\Modules\OfficialDocuments\Pdf;
 
+use Tests\Modules\OfficialDocuments\TemporaryDirectoryWatch;
 use Modules\OfficialDocuments\Pdf\TemplateGrid;
 use Modules\OfficialDocuments\Pdf\TemplateLibrary;
 use PHPUnit\Framework\TestCase;
@@ -49,13 +50,26 @@ final class TemplateGridTest extends TestCase
         $this->assertGreaterThan(100_000, strlen($bytes));
     }
 
+    /**
+     * The grid is built in memory and never touches the disk.
+     *
+     * Asked through the shared watch (issue #535): this test used to compare
+     * `scandir(sys_get_temp_dir())` WHOLE, before and after, and that
+     * directory belongs to every process on the machine. It failed CI on a
+     * documentation-only pull request when the runner removed one of its own
+     * `runc-process…` files mid-test — entries DISAPPEARED and none was
+     * added. A file somebody else deleted says nothing about what this code
+     * wrote. Its sibling in `Service/ParentalAuthorizationPdfServiceTest`
+     * had already learnt that; the reader is shared now so there is no
+     * second copy left to forget.
+     */
     public function testNothingIsWrittenToDisk(): void
     {
-        $before = scandir(sys_get_temp_dir());
+        $watch = TemporaryDirectoryWatch::start();
 
         TemplateGrid::over(TemplateLibrary::shipped()->path(TemplateLibrary::PARENTAL_AUTHORIZATION));
 
-        $this->assertSame($before, scandir(sys_get_temp_dir()));
+        $watch->assertNothingAppeared('TemplateGrid::over() wrote to the temporary directory');
     }
 
     /**
