@@ -30,6 +30,7 @@ use Tests\DatabaseTestHelper;
  *    different things — a second collector would diverge at the first
  *    change.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class StatisticsCollectorTest extends TestCase
 {
     private \PDO $pdo;

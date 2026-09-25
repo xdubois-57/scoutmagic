@@ -23,6 +23,7 @@ use Tests\Modules\Rental\RentalTestHelper;
  * visitor is shown come out of the same code, so a tariff that looks right
  * in the simulator cannot be wrong on the public page.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class RentalPricingServiceTest extends TestCase
 {
     private \PDO $pdo;

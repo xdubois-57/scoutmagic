@@ -10,6 +10,7 @@ use Modules\Rental\Service\RentalSlugGenerator;
 use PHPUnit\Framework\TestCase;
 use Tests\Modules\Rental\RentalTestHelper;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class RentalSlugGeneratorTest extends TestCase
 {
     private RentalAssetRepository $assetRepository;

@@ -9,6 +9,7 @@ use Core\Database\InstrumentedStatement;
 use Core\Database\QueryCounter;
 use PHPUnit\Framework\TestCase;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class InstrumentedPdoTest extends TestCase
 {
     protected function setUp(): void

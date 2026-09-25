@@ -22,6 +22,7 @@ use Tests\Modules\Camps\CampsTestHelper;
  * day of the year, for one shape of camp. This test is the reason that
  * cannot happen quietly: every interesting case is asserted against BOTH.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class UpcomingDefinitionTest extends TestCase
 {
     private \PDO $pdo;

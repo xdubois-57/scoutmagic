@@ -33,6 +33,7 @@ use Twig\TwigFunction;
  * of every other page of the Configuration menu; the screens carry an
  * installation's own measurements, not a unit's.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class UsageStatsControllerTest extends TestCase
 {
     private const PATHS = ['/config/usage', '/config/usage/modules', '/config/usage/pages'];

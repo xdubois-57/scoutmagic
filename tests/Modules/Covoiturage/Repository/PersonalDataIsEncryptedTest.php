@@ -14,6 +14,7 @@ use Tests\Modules\Covoiturage\CovoiturageTestHelper as H;
  * Names, phones and the driver's note are BLOBs encrypted at rest, and come
  * back readable through the repositories — nowhere else.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class PersonalDataIsEncryptedTest extends TestCase
 {
     private \PDO $pdo;

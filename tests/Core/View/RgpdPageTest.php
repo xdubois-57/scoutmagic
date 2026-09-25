@@ -19,6 +19,7 @@ use PHPUnit\Framework\TestCase;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class RgpdPageTest extends TestCase
 {
     private Environment $twig;

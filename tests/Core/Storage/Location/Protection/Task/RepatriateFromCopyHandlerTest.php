@@ -39,6 +39,7 @@ use Tests\DatabaseTestHelper;
  * is not decoration: it is the only account of what an operation nobody
  * can watch actually did.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class RepatriateFromCopyHandlerTest extends TestCase
 {
     private \PDO $pdo;

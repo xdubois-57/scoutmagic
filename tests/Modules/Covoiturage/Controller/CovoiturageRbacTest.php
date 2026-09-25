@@ -40,6 +40,7 @@ use Twig\Environment;
  * one level below. The GET pages are rendered for real at the floor, so a
  * template that breaks fails here too.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class CovoiturageRbacTest extends TestCase
 {
     private \PDO $pdo;

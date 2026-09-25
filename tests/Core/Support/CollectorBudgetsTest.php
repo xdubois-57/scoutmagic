@@ -27,6 +27,7 @@ use Tests\DatabaseTestHelper;
  * an archive that silently answers half the question is worse than one that
  * says which half it answered.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class CollectorBudgetsTest extends TestCase
 {
     private \PDO $pdo;

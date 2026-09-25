@@ -12,6 +12,7 @@ use Modules\Banner\Service\BannerService;
 use PHPUnit\Framework\TestCase;
 use Tests\Modules\Banner\BannerTestHelper;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class BannerServiceTest extends TestCase
 {
     private \PDO $pdo;

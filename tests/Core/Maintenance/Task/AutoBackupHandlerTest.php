@@ -26,6 +26,7 @@ use Tests\DatabaseTestHelper;
  * perform-backup/purge/self-reschedule orchestration without needing a
  * live MySQL server.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class AutoBackupHandlerTest extends TestCase
 {
     private \PDO $pdo;

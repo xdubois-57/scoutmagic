@@ -20,6 +20,7 @@ use Tests\DatabaseTestHelper;
 use Twig\Environment;
 use Twig\Loader\ArrayLoader;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class StatisticsIntakeControllerTest extends TestCase
 {
     private \PDO $pdo;

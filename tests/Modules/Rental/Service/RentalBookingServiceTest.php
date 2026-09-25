@@ -27,6 +27,7 @@ use Tests\Modules\Rental\RentalTestHelper;
  * capability token, the price snapshot, the versioned acceptances, and the
  * single hold mechanism with its two origins (§6.13, §6.14, §6.15).
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class RentalBookingServiceTest extends TestCase
 {
     private \PDO $pdo;

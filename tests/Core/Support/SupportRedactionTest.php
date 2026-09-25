@@ -22,6 +22,7 @@ use Tests\DatabaseTestHelper;
  * survive Core\Support\SupportCollectorContext::redact()
  * (ARCHITECTURE.md §8.48, SECURITY.md §12).
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class SupportRedactionTest extends TestCase
 {
     private \PDO $pdo;

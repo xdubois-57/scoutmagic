@@ -11,6 +11,7 @@ use Core\Photo\UnitLogoService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class UnitLogoServiceTest extends TestCase
 {
     private UnitLogoService $service;

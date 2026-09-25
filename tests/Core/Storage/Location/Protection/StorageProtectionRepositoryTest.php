@@ -25,6 +25,7 @@ use Tests\DatabaseTestHelper;
  * copies to any more, a start moment one time budget away from the one
  * the inventory entries carry.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class StorageProtectionRepositoryTest extends TestCase
 {
     private \PDO $pdo;

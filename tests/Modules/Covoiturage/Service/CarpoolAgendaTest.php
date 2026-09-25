@@ -23,6 +23,7 @@ use Tests\Modules\Covoiturage\CovoiturageTestHelper as H;
  * The agenda line (IT-05): direction, time, place, status and link, on
  * every linked event — and never a phone number in the ICS (D12).
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class CarpoolAgendaTest extends TestCase
 {
     private \PDO $pdo;

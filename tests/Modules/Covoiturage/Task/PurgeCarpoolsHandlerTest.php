@@ -22,6 +22,7 @@ use Tests\Modules\Covoiturage\CovoiturageTestHelper as H;
  * D9: display and retention are one thing. A carpool goes 30 days after its
  * LAST date (a setting), with its cars, requests, names and phones.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class PurgeCarpoolsHandlerTest extends TestCase
 {
     private \PDO $pdo;

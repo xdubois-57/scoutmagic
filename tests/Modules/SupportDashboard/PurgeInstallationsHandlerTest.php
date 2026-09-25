@@ -26,6 +26,7 @@ use Tests\DatabaseTestHelper;
  * The retention task: what it deletes, what it must never touch, and the
  * fact that it always reschedules itself.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class PurgeInstallationsHandlerTest extends TestCase
 {
     private \PDO $pdo;
