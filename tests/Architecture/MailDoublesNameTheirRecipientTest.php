@@ -105,28 +105,25 @@ final class MailDoublesNameTheirRecipientTest extends TestCase
     private const MINIMUM_CONSTRAINED_EXPECTATIONS = 12;
 
     /**
-     * This file is the one exemption, and it is not a courtesy.
+     * **There is no exemption, and there used to be one.**
      *
-     * It quotes the very call it forbids — in its docblocks, to explain the
-     * rule, and in the literal fixtures the shape tests below are fed — so
-     * reading itself reports its own prose as an offence. The same
-     * exemption, for the same reason, as
-     * `DatabaseBackedTestsReallyRunTest`. And it is pinned rather than
-     * trusted: the test below asserts this file still offends, so an
-     * exemption that stopped being needed cannot quietly go on hiding a
-     * file that does.
+     * This file quotes the very call it forbids — in its docblocks, to
+     * explain the rule, and in the literal fixtures the shape tests below
+     * are fed — so for two rounds it had to exempt itself from its own
+     * scan, pinned by a test asserting the exemption was still earned.
+     *
+     * `codeOnly()` retired it. Prose is comment and a fixture is a string
+     * literal; neither is an expectation anybody runs, and the scan no
+     * longer sees either. The pinning test then failed, saying the
+     * exemption had become dead weight — which is precisely the job it was
+     * written to do, and the reason it was written rather than trusted.
+     * The rule now applies to this file like any other.
      */
-    private const EXEMPT = 'tests/Architecture/MailDoublesNameTheirRecipientTest.php';
-
     public function testEverySendThatIsExpectedNamesItsRecipient(): void
     {
         $unnamed = [];
 
         foreach ($this->filesDoublingMailService() as $relative => $source) {
-            if ($relative === self::EXEMPT) {
-                continue;
-            }
-
             foreach ($this->sendExpectations($source) as ['line' => $line, 'constrained' => $constrained]) {
                 if (!$constrained) {
                     $unnamed[] = $relative . ':' . $line;
@@ -163,7 +160,7 @@ final class MailDoublesNameTheirRecipientTest extends TestCase
      * constrained — the offender list is empty and this count goes UP, so
      * both floors are satisfied. What fails then is
      * testABareCountIsReportedAndAConstrainedOneIsNot(), on literal source,
-     * and testTheOneExemptionIsStillNeeded(). A floor guards against a
+     * A floor guards against a
      * reader that finds nothing; only a fixture with a known answer guards
      * against one that approves everything.
      */
@@ -192,36 +189,6 @@ final class MailDoublesNameTheirRecipientTest extends TestCase
         );
     }
 
-    /**
-     * The exemption above earns its place on every run.
-     *
-     * An exemption nobody re-checks is how a rule quietly stops applying to
-     * a file: this one exists because this file quotes the forbidden call
-     * in prose and in fixtures, and the day it no longer does, the line
-     * must go rather than stay as a blanket over whatever is written here
-     * next.
-     */
-    public function testTheOneExemptionIsStillNeeded(): void
-    {
-        $files = $this->filesDoublingMailService();
-
-        $this->assertArrayHasKey(
-            self::EXEMPT,
-            $files,
-            'the exempted file is no longer found by the scan, so the exemption names nothing'
-        );
-
-        $own = array_filter(
-            $this->sendExpectations($files[self::EXEMPT]),
-            static fn(array $expectation): bool => !$expectation['constrained']
-        );
-
-        $this->assertNotEmpty(
-            $own,
-            'this file no longer quotes the call it forbids, so the exemption is dead weight — remove it'
-        );
-    }
-
     // ————— The shape of the reader, on literal source —————
 
     /**
@@ -246,6 +213,61 @@ final class MailDoublesNameTheirRecipientTest extends TestCase
 
         $this->assertCount(1, $named);
         $this->assertTrue($named[0]['constrained'], 'a named recipient must not be reported');
+    }
+
+    /**
+     * **A comment cannot make an unpinned recipient look pinned**, and this
+     * is the shape that proved it could.
+     *
+     * The comma in « The recipient, named rather than… » is where the old
+     * reader stopped: it returned that comment fragment as the « first
+     * argument » and never reached the argument two lines below. In the
+     * commit that introduced the idiom it answered correctly by accident,
+     * the fragment happening not to spell `anything()`. Here the same
+     * comment sits above a recipient nobody pinned, which is the direction
+     * that matters — and the direction the reviewer named.
+     */
+    public function testACommentAboveTheRecipientIsNotReadAsTheRecipient(): void
+    {
+        $waved = $this->sendExpectations(<<<'PHP'
+            $mail->expects($this->once())->method('send')->with(
+                // The recipient, waved through: a comma in this line is
+                // where a byte scanner stops reading.
+                $this->anything(),
+                $this->stringContains('Résumé')
+            );
+            PHP);
+
+        $this->assertCount(1, $waved);
+        $this->assertFalse(
+            $waved[0]['constrained'],
+            'a comment carrying a comma hid an unpinned recipient behind itself'
+        );
+    }
+
+    /**
+     * And a `;` in a comment does not end the statement early.
+     *
+     * The mirror of the case above, one step sooner: the statement is cut
+     * at the first `;`, so prose carrying one used to truncate the
+     * expectation before its own `->with(` was ever reached — leaving a
+     * pinned recipient reported as bare. Which is the harmless direction,
+     * and the reason it is worth pinning: a guard that cries wolf on
+     * correct code is how a guard gets switched off.
+     */
+    public function testASemicolonInACommentDoesNotEndTheStatement(): void
+    {
+        $named = $this->sendExpectations(<<<'PHP'
+            $mail->expects($this->once())->method('send')
+                // Sent once; to the chief; and nowhere else.
+                ->with($this->identicalTo('akela@example.test'));
+            PHP);
+
+        $this->assertCount(1, $named);
+        $this->assertTrue(
+            $named[0]['constrained'],
+            'a semicolon in a comment cut the statement before its own constraint'
+        );
     }
 
     /**
@@ -389,6 +411,8 @@ final class MailDoublesNameTheirRecipientTest extends TestCase
      */
     private function sendExpectations(string $source): array
     {
+        $source = self::codeOnly($source);
+
         preg_match_all(self::EXPECTS_A_SEND, $source, $matches, PREG_OFFSET_CAPTURE);
 
         $found = [];
@@ -437,6 +461,91 @@ final class MailDoublesNameTheirRecipientTest extends TestCase
         $boundary = strpos($window, ';');
 
         return $boundary === false ? $window : substr($window, 0, $boundary);
+    }
+
+    /**
+     * The source with its prose and its text neutralised, so that only real
+     * code punctuation is left for a byte scanner to read.
+     *
+     * **Applied once to the whole source, before anything is searched in
+     * it** — not per window. A `;` inside a comment ends a statement just
+     * as wrongly as a `,` inside one starts the next argument, so the
+     * stripping has to happen before the statement is cut, not only before
+     * its arguments are read. Doing it per window would also mean
+     * tokenising a fragment cut at a byte count, whose first token can be a
+     * truncated one; a whole file never has that problem.
+     *
+     * A reviewer found this, and the offending shape was introduced BY the
+     * commit that added `firstArgumentOf()`: a four-line comment sitting
+     * immediately after `->with(`, whose first line reads « The recipient,
+     * named rather than waved through ». That comma is where the old reader
+     * stopped, so the « first argument » it returned was the comment
+     * fragment and never the `identicalTo()` two lines below. It answered
+     * « constrained » for the right reason by accident — the fragment
+     * happens not to spell `anything()` — and the same comment above a
+     * genuine `anything()` would have answered the same thing for a
+     * recipient nobody pinned. A guard whose verdict depends on the prose
+     * above the code is not a guard.
+     *
+     * Two deliberate asymmetries:
+     *
+     * - **A comment becomes its own newlines**, not a space. Line numbers
+     *   are what this test reports to whoever has to fix the file, and they
+     *   have to keep pointing at the right line.
+     * - **Text keeps its characters; only `;,()` inside it become `x`.**
+     *   Emptying string bodies outright would have emptied `'send'` too,
+     *   and the scan would then have found no expectation anywhere — a
+     *   guard that reports nothing passes beautifully. Neutralising just
+     *   the four characters a byte scanner reacts to leaves `'send'`,
+     *   `'chief@example.test'` and every other string the regex needs
+     *   intact, and cannot create or destroy an `anything()`.
+     *
+     * That second rule is also what retired this class's one exemption,
+     * and the effect is worth spelling out because it looks like a side
+     * effect and is the point: the fixtures below are PHP source held in
+     * HEREDOCS, so the whole fixture is one run of text, and
+     * `->method('send')` inside it becomes `->methodx'send'x` — no longer
+     * an expectation to anybody reading. Docblock prose goes by the first
+     * rule. Neither was ever an expectation somebody runs, which is why
+     * this file no longer needs exempting from its own rule. Remove either
+     * rule and the file reports itself again.
+     *
+     * `token_get_all()` needs an opening tag before it tokenises anything —
+     * a fragment without one comes back as a single T_INLINE_HTML, comments
+     * and all — so the source is prefixed and the prefix dropped.
+     */
+    private static function codeOnly(string $source): string
+    {
+        $code = '';
+
+        foreach (token_get_all('<?php ' . $source) as $index => $token) {
+            if ($index === 0) {
+                // The `<?php ` this method added, never the caller's text.
+                continue;
+            }
+
+            if (!is_array($token)) {
+                $code .= $token;
+                continue;
+            }
+
+            if ($token[0] === T_COMMENT || $token[0] === T_DOC_COMMENT) {
+                $code .= str_repeat("\n", substr_count($token[1], "\n"));
+                continue;
+            }
+
+            // A plain string is one token; an interpolated one is a run of
+            // them between two bare quotes, and its literal part carries
+            // punctuation just the same.
+            if ($token[0] === T_CONSTANT_ENCAPSED_STRING || $token[0] === T_ENCAPSED_AND_WHITESPACE) {
+                $code .= str_replace([';', ',', '(', ')'], 'x', $token[1]);
+                continue;
+            }
+
+            $code .= $token[1];
+        }
+
+        return $code;
     }
 
     /**
