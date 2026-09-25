@@ -25,7 +25,12 @@ use PHPUnit\Framework\TestCase;
  * **A whole-directory comparison of `sys_get_temp_dir()`** (issue #535).
  * That directory is shared with every other process, so a comparison of
  * its contents before and after fails whenever somebody ELSE deletes one
- * of theirs. What may be asserted is that no entry APPEARED, which is
+ * of theirs — and asserting only on what APPEARED, which is where the
+ * issue and the first fix both stopped, is not enough: a foreign process
+ * CREATES files there too. A red `Checks / test` proved it by naming one,
+ * `runc-process380233456`, on a pull request that touched neither the
+ * module nor the test. What may be asserted is that no entry appeared
+ * that the code under test could have written, which is
  * {@see \Tests\Modules\OfficialDocuments\TemporaryDirectoryWatch}'s only
  * job — and the reason it is shared rather than copied is that it WAS
  * copied twice, and only one copy was ever fixed.

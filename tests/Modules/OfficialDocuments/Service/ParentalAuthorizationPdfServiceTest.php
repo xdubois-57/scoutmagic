@@ -117,11 +117,14 @@ final class ParentalAuthorizationPdfServiceTest extends TestCase
      * matters on shared hosting where a temporary file is a file somebody
      * else's process can read.
      *
-     * What is asserted is that no entry APPEARED, and the reason lives in
-     * `TemporaryDirectoryWatch` now rather than here: this test had learnt
-     * it from a red CI job while its sibling in `Pdf/TemplateGridTest` kept
-     * the whole-directory comparison and failed the same way later
-     * (issue #535). Two copies, one fixed.
+     * What is asserted is that no entry appeared THAT THE RENDERER COULD
+     * HAVE WRITTEN, and the reason lives in `TemporaryDirectoryWatch` now
+     * rather than here: this test had learnt half of it from a red CI job
+     * while its sibling in `Pdf/TemplateGridTest` kept the whole-directory
+     * comparison and failed the same way later (issue #535). Two copies,
+     * one fixed — and the half it had learnt was not enough, which a
+     * second red job proved by naming a `runc-process…` file that
+     * APPEARED.
      */
     public function testNothingIsWrittenToDisk(): void
     {
