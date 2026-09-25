@@ -87,15 +87,7 @@ class MemberControllerTest extends TestCase
         $twig->addFunction(new \Twig\TwigFunction('file_url', function (): string {
             return '';
         }));
-        $twig->addFilter(new \Twig\TwigFilter('display_name', function ($member) {
-            if ($member instanceof MemberProfile) {
-                return $member->getDisplayName();
-            }
-            if (is_array($member)) {
-                return $member['totem'] ?? $member['first_name'] ?? '?';
-            }
-            return (string) $member;
-        }));
+        $twig->addExtension(new \Core\View\MemberNameFilterExtension());
 
         $memberService = $this->createMock(MemberService::class);
         $this->controller = $this->newController($twig, $memberService);

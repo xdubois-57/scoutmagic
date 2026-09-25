@@ -29,6 +29,14 @@ use Twig\TwigFilter;
  * answers `''` for what it refuses — the same thing they have always
  * answered for null. An empty field is one somebody can see is empty.
  *
+ * **`relative_date` belongs here too**, and did not: it renders a stored
+ * date, reads it through this class's own `read()`, and falls back to
+ * this class's own `frenchDate()` — yet it was registered as a closure
+ * inside `TwigFactory` while the sentence above said « every way ». That
+ * is how `Tests\Core\Http\Controller\StorageConfigControllerTest`
+ * came to stub it as `(string) $date`, printing a raw timestamp where
+ * the storage page says « il y a 2 heures » (issue #465).
+ *
  * **An extension rather than closures inside `TwigFactory`.** These
  * filters used to be registered inline there, which is fine for
  * production and is exactly what left 137 hand-built test environments
@@ -75,6 +83,14 @@ class DateFilterExtension extends AbstractExtension
             // nothing.
             new TwigFilter('iso_date', [self::class, 'isoDate']),
             new TwigFilter('iso_datetime_local', [self::class, 'isoDatetimeLocal']),
+            // "il y a 2 heures" — a coarse, French relative age for a
+            // stored timestamp. Deliberately coarse: a feed only needs to
+            // answer "recently or a while ago", and a to-the-second
+            // rendering would be a value that is wrong the moment the page
+            // is cached. Falls back to the absolute date past a week, where
+            // "il y a 23 jours" stops being easier to read than the date
+            // itself.
+            new TwigFilter('relative_date', [self::class, 'relativeDate']),
         ];
     }
 
@@ -113,6 +129,47 @@ class DateFilterExtension extends AbstractExtension
     public static function isoDatetimeLocal(mixed $date): string
     {
         return self::read($date)?->format('Y-m-d\TH:i') ?? '';
+    }
+
+    public static function relativeDate(mixed $date): string
+    {
+        if ($date === null || $date === '') {
+            return '';
+        }
+
+        // A naive stored timestamp is on the application clock
+        // (Core\Config\AppClock) — both the PHP writers and the
+        // database's own CURRENT_TIMESTAMP produce it there — so it is
+        // parsed under PHP's default timezone and compared against a
+        // "now" read the same way. Forcing UTC on either end (which this
+        // used to do, back when the whole app ran on UTC) now shifts every
+        // age by the offset, and would have every just-posted message read
+        // "il y a 2 heures".
+        $then = self::read($date);
+        if ($then === null) {
+            return '';
+        }
+        $seconds = (new \DateTimeImmutable('now'))->getTimestamp() - $then->getTimestamp();
+
+        // A clock skew (or a timestamp a second into the future) reads as
+        // "just now" rather than a negative age.
+        if ($seconds < 60) {
+            return "à l'instant";
+        }
+        if ($seconds < 3600) {
+            $minutes = intdiv($seconds, 60);
+            return 'il y a ' . $minutes . ' minute' . ($minutes > 1 ? 's' : '');
+        }
+        if ($seconds < 86400) {
+            $hours = intdiv($seconds, 3600);
+            return 'il y a ' . $hours . ' heure' . ($hours > 1 ? 's' : '');
+        }
+        if ($seconds < 604800) {
+            $days = intdiv($seconds, 86400);
+            return 'il y a ' . $days . ' jour' . ($days > 1 ? 's' : '');
+        }
+
+        return 'le ' . self::frenchDate($then);
     }
 
     /**

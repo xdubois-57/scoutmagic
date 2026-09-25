@@ -27,7 +27,6 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
-use Twig\TwigFilter;
 use Twig\TwigFunction;
 
 /**
@@ -124,12 +123,7 @@ class StaffsControllerTest extends TestCase
             return $fileId !== null ? '<img src="/files/' . $fileId . '" alt="' . htmlspecialchars($alt) . '">' : '';
         }, ['is_safe' => ['html']]));
         $twig->addExtension(new TextNormalizerExtension());
-        $twig->addFilter(new TwigFilter('display_name', function ($member) {
-            if ($member instanceof \Core\Member\MemberProfile) {
-                return $member->getDisplayName();
-            }
-            return '';
-        }));
+        $twig->addExtension(new \Core\View\MemberNameFilterExtension());
 
         $this->controller = new StaffsController(
             $twig,

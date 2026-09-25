@@ -509,14 +509,7 @@ class InboundMailConfigControllerTest extends TestCase
         $twig->addFunction(new TwigFunction('csrf_token', static fn(): string => 'test'));
         $twig->addFunction(new TwigFunction('get_flash', static fn() => null));
         $twig->addFunction(new TwigFunction('file_url', static fn(): string => ''));
-        $twig->addFilter(new \Twig\TwigFilter('datetime_fr', static function (mixed $value): string {
-            if ($value === null || $value === '') {
-                return '';
-            }
-            $date = $value instanceof \DateTimeInterface ? $value : new \DateTimeImmutable((string) $value);
-
-            return $date->format('d/m/Y à H:i');
-        }));
+        $twig->addExtension(new \Core\View\DateFilterExtension());
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_role', 'superadmin');

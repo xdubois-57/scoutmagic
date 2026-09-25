@@ -149,7 +149,7 @@ class GalleryControllerTest extends TestCase
         $this->twig->addFunction(new TwigFunction('get_flash', fn() => null));
         $this->twig->addFunction(new TwigFunction('csrf_token', fn() => 'test'));
         $this->twig->addFunction(new TwigFunction('file_url', fn() => ''));
-        $this->twig->addFilter(new \Twig\TwigFilter('french_date', fn($d) => (string) $d));
+        $this->twig->addExtension(new \Core\View\DateFilterExtension());
 
         $this->controller = new GalleryController(
             $this->twig, $this->albumService, $this->mediaService, $this->mediaRepository, $this->memberService,

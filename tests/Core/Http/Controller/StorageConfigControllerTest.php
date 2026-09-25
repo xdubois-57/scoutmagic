@@ -1956,7 +1956,6 @@ class StorageConfigControllerTest extends TestCase
         $twig->addFunction(new TwigFunction('file_url', static fn (): string => ''));
         // Registered by Core\View\TwigFactory in production; the page prints
         // « Vérifié il y a deux minutes » through it.
-        $twig->addFilter(new \Twig\TwigFilter('relative_date', static fn ($date): string => (string) $date));
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_role', 'superadmin');

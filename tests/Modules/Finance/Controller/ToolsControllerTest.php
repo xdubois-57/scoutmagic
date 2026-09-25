@@ -43,7 +43,6 @@ use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
-use Twig\TwigFilter;
 use Twig\TwigFunction;
 
 /**
@@ -412,10 +411,8 @@ class ToolsControllerTest extends TestCase
         // (Core\View\TwigFactory); the bare path is enough for a test render.
         $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
 
-        $twig->addFilter(new TwigFilter('money_cents', fn($c) => $c === null || $c === '' ? '' : number_format(((int) $c) / 100, 2, ',', ' ') . ' €'));
-        $twig->addFilter(new TwigFilter('money', fn($a) => $a === null || $a === '' ? '' : number_format((float) $a, 2, ',', ' ') . ' €'));
-        $twig->addFilter(new TwigFilter('date_fr', fn($d) => $d === null || $d === '' ? '' : (new \DateTimeImmutable((string) $d))->format('d/m/Y')));
-        $twig->addFilter(new TwigFilter('datetime_fr', fn($d) => $d === null || $d === '' ? '' : (new \DateTimeImmutable((string) $d))->format('d/m/Y à H:i')));
+        $twig->addExtension(new \Core\View\DateFilterExtension());
+        $twig->addExtension(new \Core\View\FormatFilterExtension());
         $twig->addFunction(new TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
         $twig->addFunction(new TwigFunction('csrf_token', fn() => 'test'));
         $twig->addFunction(new TwigFunction('get_flash', fn() => null));

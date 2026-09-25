@@ -27,7 +27,6 @@ use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
-use Twig\TwigFilter;
 
 /**
  * The four things about a sheet of payment labels that must be provably
@@ -462,10 +461,7 @@ class PaymentLabelServiceTest extends TestCase
         $loader = new FilesystemLoader(dirname(__DIR__, 4) . '/core/View/templates');
         $loader->addPath(dirname(__DIR__, 4) . '/modules/finance/views', 'finance');
         $twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
-        $twig->addFilter(new TwigFilter(
-            'money_cents',
-            static fn($cents): string => $cents === null || $cents === '' ? '' : number_format(((int) $cents) / 100, 2, ',', ' ') . ' €'
-        ));
+        $twig->addExtension(new \Core\View\FormatFilterExtension());
 
         return $twig;
     }

@@ -19,16 +19,7 @@ class DisplayNameFilterTest extends TestCase
         // asset() is what base.html.twig references every static file through
         // (Core\View\TwigFactory); the bare path is enough for a test render.
         $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
-        $this->twig->addFilter(new \Twig\TwigFilter('display_name', function ($member) {
-            if ($member instanceof \Core\Member\MemberProfile) {
-                return $member->getDisplayName();
-            }
-            // Also handle arrays (from menu builder)
-            if (is_array($member)) {
-                return $member['totem'] ?? $member['first_name'] ?? '?';
-            }
-            return (string) $member;
-        }));
+        $this->twig->addExtension(new \Core\View\MemberNameFilterExtension());
     }
 
     public function testFilterWithMemberProfileThatHasTotemReturnsTotem(): void
