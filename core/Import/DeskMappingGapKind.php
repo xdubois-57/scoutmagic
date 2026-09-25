@@ -26,7 +26,7 @@ namespace Core\Import;
  *
  * **And none for a fee category, which this chantier started out with.**
  * A Desk tariff outside the three household ones is an ordinary, expected
- * state rather than a defect: ARCHITECTURE.md §8.74 says reporting one
+ * state rather than a defect: ARCHITECTURE.md §8.75 says reporting one
  * « would be a false positive on every unit », and
  * `Modules\Fees\Service\FeeCategoryClassifierTest` pins « Cotisation
  * invités », « Cotisation de solidarité » and « COT_iAM_LOCAL » as
