@@ -257,6 +257,26 @@ final class MailDoublesNameTheirRecipientTest extends TestCase
                     $sent[] = $subject;
                 });
             PHP;
+        // **The name collides on purpose.** `$to` is a substring of
+        // `$toCount`, so a reader counting occurrences rather than words
+        // finds three and calls the address read. The fixtures above pass
+        // without a word boundary too — by naming luck, since `$sent` and
+        // `$subject` simply do not contain `$to`.
+        $namedAndShadowedByAPrefix = <<<'PHP'
+            $mail->expects($this->once())->method('send')
+                ->willReturnCallback(function (string $to) use (&$toCount): void {
+                    $toCount++;
+                });
+            PHP;
+        // And the mirror, so the boundary cannot be « fixed » by rejecting
+        // everything: the same collision WITH the address actually read.
+        $namedAndReadBesideAPrefix = <<<'PHP'
+            $mail->expects($this->once())->method('send')
+                ->willReturnCallback(function (string $to) use (&$toCount, &$sentTo): void {
+                    $toCount++;
+                    $sentTo[] = $to;
+                });
+            PHP;
 
         $this->assertTrue($this->constrained($variadicReadsIt));
         $this->assertFalse(
@@ -267,6 +287,30 @@ final class MailDoublesNameTheirRecipientTest extends TestCase
         $this->assertFalse(
             $this->constrained($namedAndDropped),
             'a first parameter nobody reads is not a constraint'
+        );
+        $this->assertFalse(
+            $this->constrained($namedAndShadowedByAPrefix),
+            '$to was counted inside $toCount, so an unread address passed for a read one'
+        );
+        $this->assertTrue(
+            $this->constrained($namedAndReadBesideAPrefix),
+            'the word boundary rejected an address that IS read, beside a name that contains it'
+        );
+
+        // **The capture is not the first line**, which is where the
+        // statement used to be cut. The five expectations this pull request
+        // fixed all happen to read the address first; this one does not, and
+        // it must still be recognised.
+        $capturedSecond = <<<'PHP'
+            $mail->expects($this->once())->method('send')
+                ->willReturnCallback(function (...$args) use (&$body, &$sentTo): void {
+                    $body = $args[2];
+                    $sentTo = $args[0];
+                });
+            PHP;
+        $this->assertTrue(
+            $this->constrained($capturedSecond),
+            'the statement was cut at the first semicolon inside the closure, hiding the capture below it'
         );
     }
 
@@ -510,9 +554,9 @@ final class MailDoublesNameTheirRecipientTest extends TestCase
     private static function currentStatementBefore(string $source, int $offset): string
     {
         $window = substr($source, max(0, $offset - self::LOOK_BACK), min($offset, self::LOOK_BACK));
-        $boundary = strrpos($window, ';');
+        $boundary = self::statementBoundary($window, backwards: true);
 
-        return $boundary === false ? $window : substr($window, $boundary + 1);
+        return $boundary === null ? $window : substr($window, $boundary + 1);
     }
 
     /**
@@ -522,9 +566,51 @@ final class MailDoublesNameTheirRecipientTest extends TestCase
     private static function currentStatementAfter(string $source, int $offset): string
     {
         $window = substr($source, $offset, self::LOOK_FORWARD);
-        $boundary = strpos($window, ';');
+        $boundary = self::statementBoundary($window, backwards: false);
 
-        return $boundary === false ? $window : substr($window, 0, $boundary);
+        return $boundary === null ? $window : substr($window, 0, $boundary);
+    }
+
+    /**
+     * The nearest `;` that ends the statement — **not one nested inside
+     * it**.
+     *
+     * A plain `strpos($window, ';')` was wrong for the shape this guard
+     * reads most: a `willReturnCallback` whose closure body holds several
+     * statements is cut at the first one, so everything after it is
+     * invisible. The five expectations this pull request fixed passed only
+     * because the address capture happens to be their FIRST line; moving it
+     * second would have reported them, and a fixture written to prove the
+     * opposite direction is what surfaced it.
+     *
+     * Depth counts braces and brackets as well as parentheses, since the
+     * closure's body is where the nesting actually is. The window is read
+     * after `codeOnly()`, so no `;` here can come from a comment or from
+     * text.
+     */
+    private static function statementBoundary(string $window, bool $backwards): ?int
+    {
+        $length = strlen($window);
+        $depth = 0;
+
+        for ($step = 0; $step < $length; $step++) {
+            $at = $backwards ? $length - 1 - $step : $step;
+            $character = $window[$at];
+
+            if (str_contains($backwards ? ')}]' : '({[', $character)) {
+                $depth++;
+                continue;
+            }
+            if (str_contains($backwards ? '({[' : ')}]', $character)) {
+                $depth--;
+                continue;
+            }
+            if ($character === ';' && $depth <= 0) {
+                return $at;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -694,18 +780,41 @@ final class MailDoublesNameTheirRecipientTest extends TestCase
             ) === 1;
         }
 
-        // A named first parameter: read when it is used past its own
-        // declaration.
+        // A named first parameter: read when the name appears again PAST
+        // its own declaration, and as a whole word.
+        //
+        // Both halves of that sentence were missing, and a reviewer caught
+        // it on the round that added this method. `$afterSignature` was
+        // computed and then thrown away, so nothing was scanned « past the
+        // declaration » at all; and `substr_count()` has no notion of a
+        // word, so `$to` counted itself inside `$toCount`. Together:
+        //
+        //     function (string $to) use (&$toCount): void { $toCount++; }
+        //
+        // counted three occurrences of `$to` — the signature, the capture
+        // and the increment — and answered « the address is read », while
+        // `$to` itself is never mentioned again. The exact defect class
+        // this method was written to close, reintroduced by the method.
+        //
+        // `\b` saves it because a `C` is a word character and therefore no
+        // boundary, the same reason `billing_country` does not match
+        // `billing_country_encrypted` one pull request over. The negative
+        // fixtures below used to pass by naming luck — `$sent`, `$subject`
+        // simply happen not to contain `$to` — which is why one of them now
+        // collides on purpose.
         if (preg_match('/(?:function|fn)\s*\(\s*(?:[\w\\\\|?]+\s+)?(\$\w+)/', $body, $named) !== 1) {
             return false;
         }
 
-        $afterSignature = strpos($body, $named[1]);
-        if ($afterSignature === false) {
+        $declaredAt = strpos($body, $named[1]);
+        if ($declaredAt === false) {
             return false;
         }
 
-        return substr_count($body, $named[1]) > 1;
+        return preg_match(
+            '/' . preg_quote($named[1], '/') . '\b/',
+            substr($body, $declaredAt + strlen($named[1]))
+        ) === 1;
     }
 
     /**
