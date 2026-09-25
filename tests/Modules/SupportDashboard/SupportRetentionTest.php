@@ -139,7 +139,9 @@ class SupportRetentionTest extends TestCase
         // which is how « no $2y$ anywhere » used to pass while saying
         // nothing, since the only hash in the table was the deleted one's.
         $survivor = $this->seed('zzzz', '-1 day');
-        $hash = (string) $this->pdo->query('SELECT secret_hash FROM support_installations WHERE id = ' . $id)->fetchColumn();
+        $statement = $this->pdo->prepare('SELECT secret_hash FROM support_installations WHERE id = ?');
+        $statement->execute([$id]);
+        $hash = (string) $statement->fetchColumn();
         $this->assertStringStartsWith('$2y$', $hash, 'the record really does carry a credential hash to lose');
 
         $this->assertTrue($this->installations->delete($id));

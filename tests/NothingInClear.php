@@ -35,7 +35,20 @@ use PHPUnit\Framework\Assert;
  */
 final class NothingInClear
 {
-    /** @param array<string, string> $values path => value */
+    /**
+     * **A list of pairs, not a path => value map**, and the difference is a
+     * false pass this class used to give.
+     *
+     * Two different leaves can produce the same path — `['a.b' => 'safe']`
+     * beside `['a' => ['b' => 'secret']]` both flatten to `a.b` — and a map
+     * keeps one of them. A reviewer found it: `assertAbsent('secret')`
+     * passed because the leaf carrying the secret had been dropped on the
+     * way in. In a class whose whole job is to say « this is not stored in
+     * clear anywhere », losing a value silently is the one failure that
+     * must not be possible.
+     *
+     * @param list<array{path: string, value: string}> $values
+     */
     private function __construct(private readonly array $values)
     {
     }
@@ -47,11 +60,29 @@ final class NothingInClear
     {
         $values = [];
         foreach ($tables as $table) {
+            // A table is an identifier, and PDO binds values, never
+            // identifiers — so the name goes into the statement as text or
+            // not at all. What CAN be done is refuse anything that is not
+            // an identifier, which is what this does: every caller passes a
+            // literal from test source, and the day one passes something
+            // built at runtime, it stops here rather than in the database.
+            if (preg_match('/^[a-z_][a-z0-9_]*$/', $table) !== 1) {
+                throw new \InvalidArgumentException("« {$table} » is not a table name.");
+            }
+
+            $statement = $pdo->query('SELECT * FROM ' . $table);
+            if ($statement === false) {
+                throw new \RuntimeException("« {$table} » could not be read.");
+            }
+
             /** @var list<array<string, mixed>> $rows */
-            $rows = $pdo->query('SELECT * FROM ' . $table)->fetchAll(\PDO::FETCH_ASSOC);
+            $rows = $statement->fetchAll(\PDO::FETCH_ASSOC);
             foreach ($rows as $index => $row) {
                 foreach ($row as $column => $value) {
-                    $values[$table . '.' . $column . '[' . $index . ']'] = (string) $value;
+                    $values[] = [
+                        'path' => $table . '.' . $column . '[' . $index . ']',
+                        'value' => (string) $value,
+                    ];
                 }
             }
         }
@@ -70,7 +101,7 @@ final class NothingInClear
     }
 
     /**
-     * @return array<string, string>
+     * @return list<array{path: string, value: string}>
      */
     private static function flatten($structure, string $prefix): array
     {
@@ -78,13 +109,20 @@ final class NothingInClear
             $structure = get_object_vars($structure);
         }
         if (!is_array($structure)) {
-            return is_scalar($structure) ? [($prefix === '' ? 'value' : $prefix) => (string) $structure] : [];
+            return is_scalar($structure)
+                ? [['path' => $prefix === '' ? 'value' : $prefix, 'value' => (string) $structure]]
+                : [];
         }
 
         $flat = [];
         foreach ($structure as $key => $value) {
             $path = $prefix === '' ? (string) $key : $prefix . '.' . $key;
-            $flat += self::flatten($value, $path);
+            // Appended, never merged on the path: two leaves can spell the
+            // same one, and a merge keeps only one of them — see the
+            // constructor.
+            foreach (self::flatten($value, $path) as $leaf) {
+                $flat[] = $leaf;
+            }
         }
 
         return $flat;
@@ -101,7 +139,7 @@ final class NothingInClear
         Assert::assertNotSame([], $this->values, 'nothing was read back, so no absence below is tested');
 
         foreach ($needles as $needle) {
-            foreach ($this->values as $path => $value) {
+            foreach ($this->values as ['path' => $path, 'value' => $value]) {
                 Assert::assertStringNotContainsString($needle, $value, "« {$needle} » is stored in clear in {$path}.");
             }
         }
@@ -133,13 +171,16 @@ final class NothingInClear
      */
     public function assertReadableIn(string $path, string $needle): void
     {
-        $matching = array_filter(
-            $this->values,
-            static fn (string $key): bool => $key === $path || str_starts_with($key, $path . '['),
-            ARRAY_FILTER_USE_KEY
-        );
+        $matching = array_values(array_map(
+            static fn (array $pair): string => $pair['value'],
+            array_filter(
+                $this->values,
+                static fn (array $pair): bool => $pair['path'] === $path
+                    || str_starts_with($pair['path'], $path . '[')
+            )
+        ));
 
         Assert::assertNotSame([], $matching, "nothing sits at {$path}, so « {$needle} » cannot be read from it");
-        Assert::assertContains($needle, array_values($matching), "« {$needle} » is no longer readable at {$path}.");
+        Assert::assertContains($needle, $matching, "« {$needle} » is no longer readable at {$path}.");
     }
 }

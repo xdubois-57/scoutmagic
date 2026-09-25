@@ -40,28 +40,43 @@ final class TemporaryDirectoryWatch
     /** @var list<string> */
     private array $before;
 
-    private function __construct()
+    private function __construct(private readonly string $directory)
     {
-        $this->before = self::entries();
+        $this->before = self::entries($this->directory);
     }
 
-    /** Start watching. Call {@see assertNothingAppeared()} afterwards. */
-    public static function start(): self
+    /**
+     * Start watching. Call {@see assertNothingAppeared()} afterwards.
+     *
+     * `$directory` exists **only so that a failed scan is observable**, the
+     * same way a clock is injected elsewhere in this suite. Production
+     * callers pass nothing; one test points it at a path that is not there,
+     * because that is the only way to reach the branch below and the
+     * alternative is a guard nobody has ever seen work.
+     */
+    public static function start(?string $directory = null): self
     {
-        return new self();
+        return new self($directory ?? sys_get_temp_dir());
     }
 
     public function assertNothingAppeared(string $message = ''): void
     {
         $appeared = array_values(array_filter(
-            array_diff(self::entries(), $this->before),
+            array_diff(self::entries($this->directory), $this->before),
             static fn (string $entry): bool => preg_match(self::FOREIGN, $entry) !== 1
         ));
 
+        // The entries are NAMED in the message, not left to the array
+        // diff. A CI failure here is read once, by somebody who does not
+        // have the directory in front of them, and « two arrays are not
+        // identical » sends them looking for a file the log never told
+        // them about — which is how the first version of this watch cost a
+        // re-run instead of a reading.
         Assert::assertSame(
             [],
-            array_values($appeared),
-            $message !== '' ? $message : 'something was written to the shared temporary directory'
+            $appeared,
+            ($message !== '' ? $message : 'something was written to the shared temporary directory')
+                . ($appeared === [] ? '' : ' — ' . implode(', ', $appeared))
         );
     }
 
@@ -79,11 +94,27 @@ final class TemporaryDirectoryWatch
      */
     private const FOREIGN = '/^(runc-process|scoutmagic-e2e-cov-)/';
 
-    /** @return list<string> */
-    private static function entries(): array
+    /**
+     * @return list<string>
+     *
+     * **A failed scan FAILS, it does not read as an empty directory.**
+     * `scandir()` documents `false` among its answers, and the old code
+     * turned it into `[]` — which, on the closing scan, makes the
+     * difference empty and `assertNothingAppeared()` pass without ever
+     * having looked for the file it exists to find. A reviewer named it,
+     * and it is precisely the defect this whole pull request is about: a
+     * test that goes green for a reason that has nothing to do with what
+     * it guards.
+     */
+    private static function entries(string $directory): array
     {
-        $entries = scandir(sys_get_temp_dir());
-        $entries = $entries === false ? [] : $entries;
+        $entries = scandir($directory);
+
+        Assert::assertNotFalse(
+            $entries,
+            "the temporary directory {$directory} could not be read, so nothing below was actually checked"
+        );
+
         sort($entries);
 
         return array_values($entries);

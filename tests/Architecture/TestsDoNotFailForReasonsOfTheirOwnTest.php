@@ -55,6 +55,14 @@ final class TestsDoNotFailForReasonsOfTheirOwnTest extends TestCase
      * fixtures and would otherwise report itself. Asserted to BE this file
      * by {@see testTheExemptionNamesThisFileAndNothingElse()}, so it cannot
      * quietly become an exemption for somebody else's offender.
+     *
+     * **Both readers need it**, which is a smell worth naming rather than
+     * hiding: what actually earns an exemption here is that a fixture is
+     * TEXT, and a reader that knew text from code would need none. The mail
+     * guard reached exactly that conclusion on the same day, from the same
+     * class of review finding, and dropped its own exemption for it. These
+     * two readers should become one; that is a change of its own, not a
+     * rider on this one.
      */
     private const THE_FILE_THAT_CARRIES_THE_FIXTURES = 'tests/Architecture/TestsDoNotFailForReasonsOfTheirOwnTest.php';
 
@@ -66,7 +74,7 @@ final class TestsDoNotFailForReasonsOfTheirOwnTest extends TestCase
             if ($path === self::THE_FILE_THAT_CARRIES_THE_FIXTURES) {
                 continue;
             }
-            foreach (self::absencesSearchedInJson($source) as $line => $needle) {
+            foreach (self::absencesSearchedInJson($source) as ['line' => $line, 'needle' => $needle]) {
                 ++$read;
                 if (self::anEscapeCanSpell($needle)) {
                     $offenders[] = $path . ':' . $line . ' searches « ' . $needle . ' »';
@@ -95,10 +103,17 @@ final class TestsDoNotFailForReasonsOfTheirOwnTest extends TestCase
             if ($path === self::THE_SHARED_WATCH) {
                 continue;
             }
+            // The same exemption the other reader already needs, for the
+            // same reason and now for a second time: the fixtures that
+            // prove this reader recognises the forbidden form are written
+            // in the forbidden form.
+            if ($path === self::THE_FILE_THAT_CARRIES_THE_FIXTURES) {
+                continue;
+            }
             // Stripped first, for the same reason as the other reader: the
             // fixed test EXPLAINS the whole-directory comparison it no
             // longer does.
-            if (preg_match('/scandir\s*\(\s*sys_get_temp_dir\s*\(\s*\)\s*\)/', self::withoutComments($source)) === 1) {
+            if (self::comparesTheTemporaryDirectory(self::withoutComments($source))) {
                 $offenders[] = $path;
             }
         }
@@ -148,11 +163,21 @@ final class TestsDoNotFailForReasonsOfTheirOwnTest extends TestCase
     }
 
     /**
-     * Every literal needle whose haystack is a JSON rendering, keyed by
-     * the line it sits on. Comments are stripped first: the fix for #533
+     * Every literal needle whose haystack is a JSON rendering, with the
+     * line it sits on. Comments are stripped first: the fix for #533
      * EXPLAINS the trap, and says `json_encode` three times while doing so.
      *
-     * @return array<int, string>
+     * **A list, not a map keyed by line.** Keyed by line, two byte-identical
+     * assertions in one file collapsed into a single entry — `strpos()`
+     * always answers with the FIRST occurrence, so both resolved to the
+     * same key. `tests/Core/Net/WhoisRegistrationTest.php` has two such
+     * pairs today: the floor of assertions read was undercounted by them,
+     * and had either been an offender, one of the two places would never
+     * have been reported. No risky needle can be lost that way — identical
+     * text carries an identical needle — but a guard whose own count and
+     * locations are unreliable is unreliable exactly when it fires.
+     *
+     * @return list<array{line: int, needle: string}>
      */
     private static function absencesSearchedInJson(string $source): array
     {
@@ -163,25 +188,95 @@ final class TestsDoNotFailForReasonsOfTheirOwnTest extends TestCase
             $encoded = array_unique($assignments[1]);
         }
 
+        // A copy of a rendering is a rendering. Chased to a fixed point
+        // rather than one hop: `$b = $a; $c = $b;` is the same claim made
+        // twice, and a reader that answers for one and not the other
+        // teaches the shape that gets past it. The loop terminates because
+        // a pass either adds a name or stops.
+        preg_match_all('/(\$\w+)\s*=\s*(\$\w+)\s*;/', $code, $copies, PREG_SET_ORDER);
+        do {
+            $before = count($encoded);
+            foreach ($copies as [, $target, $origin]) {
+                if (in_array($origin, $encoded, true) && !in_array($target, $encoded, true)) {
+                    $encoded[] = $target;
+                }
+            }
+        } while (count($encoded) > $before);
+
+        $encoded = array_values($encoded);
+
         $needles = [];
-        if (preg_match_all('/assertStringNotContainsString\(\s*(.+?)\s*,\s*(.+?)\s*\)\s*;/s', $code, $calls, PREG_SET_ORDER) === 0) {
+        if (preg_match_all(
+            '/assertStringNotContainsString\(\s*(.+?)\s*,\s*(.+?)\s*\)\s*;/s',
+            $code,
+            $calls,
+            PREG_SET_ORDER | PREG_OFFSET_CAPTURE
+        ) === 0) {
             return $needles;
         }
 
         foreach ($calls as $call) {
-            [$whole, $needle, $haystack] = $call;
+            // The offset comes from the match itself rather than from a
+            // search for its text: two identical calls are two calls.
+            [$whole, $offset] = $call[0];
+            $needle = $call[1][0];
+            $haystack = $call[2][0];
+
             if (!self::isAJsonRendering($haystack, $encoded)) {
                 continue;
             }
             if (preg_match("/^'([^'\\\\]*)'$/", $needle, $literal) === 1
                 || preg_match('/^"([^"$\\\\]*)"$/', $needle, $literal) === 1
             ) {
-                $offset = strpos($code, $whole);
-                $needles[$offset === false ? 0 : substr_count($code, "\n", 0, $offset) + 1] = $literal[1];
+                $needles[] = [
+                    'line' => substr_count($code, "\n", 0, $offset) + 1,
+                    'needle' => $literal[1],
+                ];
             }
         }
 
+        unset($whole);
+
         return $needles;
+    }
+
+    /**
+     * Whether this source scans the shared temporary directory, **however
+     * it spells the path**.
+     *
+     * The first version read `scandir(sys_get_temp_dir())` and nothing
+     * else, which left the form a reviewer found live in
+     * `HealthSheetPdfServiceTest`: the directory put in a variable first,
+     * then scanned twice around the render. That is the same
+     * whole-directory comparison issue #535 is about, one rename away from
+     * a rule that was supposed to have retired it — and it would have gone
+     * red the first time a foreign process removed a file of its own.
+     *
+     * A name assigned the directory EXACTLY is tracked, not one built from
+     * it: `sys_get_temp_dir() . '/official-documents-' . …` is a directory
+     * of the test's own, and scanning that is not this rule's business.
+     */
+    private static function comparesTheTemporaryDirectory(string $code): bool
+    {
+        if (preg_match('/scandir\s*\(\s*sys_get_temp_dir\s*\(\s*\)\s*\)/', $code) === 1) {
+            return true;
+        }
+
+        if (preg_match_all(
+            '/(\$\w+)\s*=\s*sys_get_temp_dir\s*\(\s*\)\s*;/',
+            $code,
+            $assignments
+        ) === 0) {
+            return false;
+        }
+
+        foreach (array_unique($assignments[1]) as $variable) {
+            if (preg_match('/scandir\s*\(\s*' . preg_quote($variable, '/') . '\s*\)/', $code) === 1) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @param list<string> $encoded */
@@ -209,6 +304,13 @@ final class TestsDoNotFailForReasonsOfTheirOwnTest extends TestCase
         $kept = '';
         foreach (token_get_all($fragment ? '<?php ' . $source : $source) as $token) {
             if (is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                // Its newlines stay. A comment removed outright shortens
+                // the source, and every line number computed afterwards is
+                // then a line number in a file nobody has — which is what
+                // this reader reports to whoever has to go and fix the
+                // offender. Almost every test file here opens with a
+                // docblock, so the offset was wrong essentially always.
+                $kept .= str_repeat("\n", substr_count($token[1], "\n"));
                 continue;
             }
             $kept .= is_array($token) ? $token[1] : $token;
@@ -295,9 +397,127 @@ final class TestsDoNotFailForReasonsOfTheirOwnTest extends TestCase
             $this->assertStringNotContainsString('0478', $row['phone']);
             PHP;
 
-        $this->assertSame(['0478'], array_values(self::absencesSearchedInJson($direct)));
-        $this->assertSame(['aaaa'], array_values(self::absencesSearchedInJson($viaVariable)));
+        $this->assertSame(['0478'], self::needlesIn($direct));
+        $this->assertSame(['aaaa'], self::needlesIn($viaVariable));
         $this->assertSame([], self::absencesSearchedInJson($notJson), 'a raw column is not a JSON rendering');
         $this->assertSame([], self::absencesSearchedInJson($onlyInAComment), 'a comment is not code');
+    }
+
+    /**
+     * **A copy of a JSON rendering is one too**, and a reviewer was right
+     * that the reader stopped at the first assignment.
+     *
+     * Chased to a fixed point rather than one hop: `$b = $a; $c = $b;` is
+     * the same claim made twice, and a reader that answers correctly for
+     * one hop and not for two teaches people the shape that gets past it.
+     */
+    public function testACopyOfAJsonRenderingIsStillOne(): void
+    {
+        $aliased = <<<'PHP'
+            $dump = (string) json_encode($rows);
+            $snapshot = $dump;
+            $this->assertStringNotContainsString('0478', $snapshot);
+            PHP;
+        $twice = <<<'PHP'
+            $dump = (string) json_encode($rows);
+            $copy = $dump;
+            $again = $copy;
+            $this->assertStringNotContainsString('aaaa', $again);
+            PHP;
+
+        $this->assertSame(['0478'], self::needlesIn($aliased));
+        $this->assertSame(['aaaa'], self::needlesIn($twice));
+    }
+
+    /**
+     * Two identical assertions are two assertions.
+     *
+     * Keyed by line, they used to collapse into one — which undercounted
+     * the floor above and, had they offended, would have reported one of
+     * the two places and lost the other.
+     */
+    public function testTwoIdenticalAssertionsAreBothReported(): void
+    {
+        $twice = <<<'PHP'
+            $dump = (string) json_encode($rows);
+            $this->assertStringNotContainsString('0478', $dump);
+            $this->assertStringNotContainsString('0478', $dump);
+            PHP;
+
+        $found = self::absencesSearchedInJson($twice);
+
+        $this->assertCount(2, $found, 'two byte-identical assertions collapsed into one');
+        $this->assertSame([2, 3], array_column($found, 'line'), 'they were not reported at their own lines');
+    }
+
+    /**
+     * And the line reported is the line in the file, not the line in the
+     * comment-stripped copy the reader works on.
+     */
+    public function testTheLineReportedIsTheLineInTheFile(): void
+    {
+        $afterADocblock = <<<'PHP'
+            /**
+             * Three lines of prose,
+             * then the code.
+             */
+            $dump = (string) json_encode($rows);
+            $this->assertStringNotContainsString('0478', $dump);
+            PHP;
+
+        $this->assertSame(
+            [6],
+            array_column(self::absencesSearchedInJson($afterADocblock), 'line'),
+            'the docblock above the code was not counted, so the reported line points nowhere'
+        );
+    }
+
+    /**
+     * The directory reader on literal source, in both directions.
+     *
+     * The floor above it is `assertSame([], $offenders)`, which a reader
+     * that recognises nothing satisfies perfectly — so the shapes it must
+     * catch, and the ones it must not, are spelled out here with known
+     * answers.
+     */
+    public function testTheDirectoryReaderKnowsTheFormsItMustCatch(): void
+    {
+        $direct = <<<'PHP'
+            $before = scandir(sys_get_temp_dir());
+            PHP;
+        $viaVariable = <<<'PHP'
+            $directory = sys_get_temp_dir();
+            $before = scandir($directory);
+            PHP;
+        $ownDirectory = <<<'PHP'
+            $directory = sys_get_temp_dir() . '/official-documents-' . bin2hex(random_bytes(6));
+            $written = scandir($directory);
+            PHP;
+        $anotherVariable = <<<'PHP'
+            $directory = sys_get_temp_dir();
+            $written = scandir($somewhereElse);
+            PHP;
+
+        $this->assertTrue(self::comparesTheTemporaryDirectory($direct));
+        $this->assertTrue(
+            self::comparesTheTemporaryDirectory($viaVariable),
+            'the form a reviewer found live went unread'
+        );
+        $this->assertFalse(
+            self::comparesTheTemporaryDirectory($ownDirectory),
+            'a directory the test makes for itself is not the shared one'
+        );
+        $this->assertFalse(
+            self::comparesTheTemporaryDirectory($anotherVariable),
+            'scanning some other path is not this rule'
+        );
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function needlesIn(string $source): array
+    {
+        return array_column(self::absencesSearchedInJson($source), 'needle');
     }
 }
