@@ -200,6 +200,40 @@ final class BacklogIsCutIntoBlocksTest extends TestCase
      * and the failure is silent: the merge succeeds, the tests pass, and
      * the diff looks smaller than it should in a way nobody reads.
      */
+    /**
+     * A decision, distinguished from an omission.
+     *
+     * Serialised CI rounds look like something nobody got round to
+     * improving, so the obvious « idea » is to push several branches at
+     * once. It was put to the maintainer with its arithmetic — the wall
+     * clock divides by the number in flight, the review spend multiplies by
+     * it — and kept. Written down because otherwise the next agent
+     * rediscovers the idea, re-runs the whole deliberation, and may well
+     * decide the other way without the numbers.
+     *
+     * The load-bearing half is the REASON, not the verdict: spend fewer
+     * rounds rather than buy several at once. A file that kept « one at a
+     * time » and lost why would read as an arbitrary limit.
+     */
+    public function testTheSerialisationOfCiRoundsIsRecordedAsADecision(): void
+    {
+        $rules = self::agentRules();
+
+        $this->assertStringContainsString(
+            'put to the maintainer with its cost, and kept',
+            $rules,
+            'AGENTS.md no longer records that serialised CI rounds were weighed and chosen, so the '
+            . 'next agent will read the limit as an oversight and re-open it.',
+        );
+
+        $this->assertStringContainsString(
+            'the way to go faster is to spend FEWER rounds, not to buy',
+            $rules,
+            'AGENTS.md no longer says WHY the rounds stay serialised. Without the reason the rule is '
+            . 'an arbitrary number, and the first agent in a hurry will trade it away.',
+        );
+    }
+
     public function testTheStaleLocalBranchTrapIsWrittenDown(): void
     {
         $rules = self::agentRules();

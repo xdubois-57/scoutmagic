@@ -531,6 +531,17 @@ backlog » — and it is a standing instruction, not a one-off. It means:
    merge and check every open branch, push the head of the queue, and let
    the others take their turn.
 
+   **That serialisation was put to the maintainer with its cost, and kept.**
+   It is a decision, not an oversight, so do not re-open it as a fresh idea.
+   Asked how to go faster, the arithmetic was laid out — pushing two or more
+   branches at once divides the queue's wall-clock roughly by the number in
+   flight, and multiplies the review spend over that window by the same —
+   and the answer was to keep one round at a time. The reasoning that
+   decided it: **the way to go faster is to spend FEWER rounds, not to buy
+   several at once.** Parallelising hides a wasted round behind a
+   simultaneous one; the discipline in step 7 removes it. Measure there
+   first, and bring numbers if you ever want this revisited.
+
    **Do not run those local checks in a `git worktree`.** `vendor/` there
    is a symlink, so Composer's autoloader resolves `$baseDir` to the main
    checkout and loads `Core\` and `Tests\` from the OTHER working tree:
