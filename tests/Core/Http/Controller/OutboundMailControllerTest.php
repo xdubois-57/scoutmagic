@@ -2740,6 +2740,65 @@ class OutboundMailControllerTest extends TestCase
         return $id;
     }
 
+    // ————— Régénérer la clé DKIM (#336) —————
+
+    /**
+     * **The regeneration lives here now**, and this is the page that can
+     * say what it costs.
+     *
+     * « Installation & serveur » carried a checkbox for it and could tell
+     * the operator nothing about the DNS record having to follow, so a key
+     * rotated there left the site failing DKIM with nothing on screen. This
+     * page shows the public key, proposes the record and checks it live.
+     */
+    public function testRegeneratingTheDkimKeyMintsANewOne(): void
+    {
+        $this->dkim->generateKey();
+        $before = $this->dkim->getPublicKey();
+        $this->assertNotSame('', $before, 'the fixture needs a key for the rotation to be observable');
+
+        $this->controller->regenerateDkimKey($this->formRequest([]), []);
+
+        $after = $this->dkim->getPublicKey();
+        $this->assertNotSame('', $after, 'the rotation left the site with no key at all');
+        $this->assertNotSame($before, $after, 'the key was not rotated');
+    }
+
+    /**
+     * And it forgets what the DNS last said — the one invalidation that
+     * cannot be derived.
+     *
+     * A stored reading holds the key it was taken against, and nothing in
+     * it can name the key in use NOW. Left behind, it goes on reporting the
+     * previous key as published: a green tick over mail every receiver
+     * rejects. `Tests\Architecture\DkimKeyChangeForgetsDnsTest` holds every
+     * place that touches the key to doing this; this test is the behaviour
+     * behind that rule.
+     */
+    public function testRegeneratingTheDkimKeyForgetsTheRememberedDnsReading(): void
+    {
+        $this->settings->set('mail_from_address', 'info@unite.be');
+        $this->settings->set('dkim_selector', 's2026');
+        $this->dkim->generateKey();
+        $this->controller->checkDns($this->formRequest([]), []);
+
+        $before = (string) $this->controller->authentication($this->getRequest(), [])->getBody();
+        $this->assertStringContainsString(
+            'Relevé du',
+            $before,
+            'the fixture needs a remembered reading for its loss to be observable'
+        );
+
+        $this->controller->regenerateDkimKey($this->formRequest([]), []);
+
+        $after = (string) $this->controller->authentication($this->getRequest(), [])->getBody();
+        $this->assertStringNotContainsString(
+            'Relevé du',
+            $after,
+            'the reading survived the rotation, so the page reports the previous key as published'
+        );
+    }
+
     /**
      * A form POST, with the CSRF token the guard will look for.
      *

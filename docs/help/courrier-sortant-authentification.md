@@ -44,6 +44,12 @@ La valeur proposée **intègre celle déjà publiée** plutôt que de la
 remplacer : un domaine ne peut porter qu'un seul SPF et qu'un seul
 `_dmarc`, et en ajouter un second les invalide tous les deux.
 
+« Régénérer la clé DKIM » remplace la paire de clés, et se fait **ici et
+nulle part ailleurs** : c'est la page qui montre la nouvelle valeur à
+publier et qui la vérifie. Tant que votre zone porte l'ancienne, tous les
+messages échouent à DKIM. La dernière vérification est oubliée du même
+coup — elle décrivait une clé qui n'existe plus.
+
 Si vous avez plusieurs relais dans vos chaînes, **le SPF doit tous les
 autoriser**. Le jour où le premier tombe, le message part par le suivant ;
 un SPF qui ne le nomme pas fait échouer exactement les messages que le

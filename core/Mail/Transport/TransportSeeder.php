@@ -37,19 +37,27 @@ use Core\Config\SettingService;
  * absent `mail_mode` reads as `local`, which is what
  * {@see \Core\Mail\MailServiceFactory} already defaults it to.
  *
- * **Two flags, because they record two different decisions.** Laying the
- * lanes down happens once. Importing the relay happens once *there is
- * one*: an installation seeded while local-only must still pick up the
- * relay somebody configures through the wizard a month later, or its mail
- * would go on leaving locally for ever while « Installation & serveur »
- * showed a relay — the drift this class exists to prevent, and a silent
- * one, since the wizard's own test button calls
- * {@see \Core\Mail\MailServiceFactory::create()} and never touches the
- * chain. One flag could not say both: cleared, it would resurrect a relay
- * the administrator had deleted from the Fournisseurs page, whose secrets
- * {@see ProviderConnections::forget()} deliberately keeps.
+ * **One flag, since issue #336.** There used to be a second —
+ * `mail_transport_relay_imported` — and it existed for one path: an
+ * installation seeded while local-only had to pick up the relay somebody
+ * configured **through the wizard** a month later, or its mail would go on
+ * leaving locally for ever while « Installation & serveur » showed a
+ * relay.
  *
- * The seeding is idempotent and cheap: two settings reads on every boot,
+ * That page no longer configures a relay after initialisation: the relay
+ * belongs to « Courrier sortant › Fournisseurs », which writes a provider
+ * row directly rather than a secret this class would have to notice. The
+ * path is gone, so the flag that served it is gone with it, and the
+ * remaining question is the simple one — have the lanes been laid?
+ *
+ * What that must NOT become, and what the tests hold: an already-seeded
+ * site re-importing on its next boot, and in particular resurrecting a
+ * relay the administrator DELETED from the Fournisseurs page — whose
+ * secrets {@see ProviderConnections::forget()} deliberately keeps. With one
+ * flag the answer is structural rather than careful: a seeded site returns
+ * before reading anything else at all.
+ *
+ * The seeding is idempotent and cheap: one settings read on every boot,
  * and the rest only on a boot that has something to do — an installation
  * with no relay to import reads `mail_mode` out of the secrets the
  * composition root had already decrypted, which costs nothing. It
@@ -62,12 +70,6 @@ use Core\Config\SettingService;
 final class TransportSeeder
 {
     public const SETTING_SEEDED = 'mail_transport_seeded';
-
-    /**
-     * Set the day the wizard's relay becomes a provider row — never
-     * merely because a boot found nothing to import.
-     */
-    public const SETTING_RELAY_IMPORTED = 'mail_transport_relay_imported';
 
     /** What a relay starts at when nobody has said otherwise. */
     public const DEFAULT_RELAY_BATCH_SIZE = 50;
@@ -87,19 +89,17 @@ final class TransportSeeder
      */
     public function seed(array $secrets): void
     {
-        $lanesLaid = (string) $this->settings->get(self::SETTING_SEEDED, null, '') === '1';
-        $relayImported = (string) $this->settings->get(self::SETTING_RELAY_IMPORTED, null, '') === '1';
-
-        // Nothing left to decide: the lanes exist, and either the relay
-        // has been imported or this installation has none to import.
-        // `$this->relayHost()` reads the decrypted array, not the
-        // database, so the common boot costs the two reads above.
-        if ($lanesLaid && ($relayImported || $this->relayHost($secrets) === '')) {
+        // Nothing left to decide, and nothing else read: the lanes exist,
+        // so this installation has been through here. A second condition
+        // used to sit beside this one and is what made the common boot able
+        // to re-import (issue #336) — see the class docblock for the path
+        // it served and why that path is gone.
+        if ((string) $this->settings->get(self::SETTING_SEEDED, null, '') === '1') {
             return;
         }
 
         try {
-            $relayImported = $this->layDownChains($secrets);
+            $this->layDownChains($secrets);
         } catch (\Throwable) {
             // A database that cannot answer yet — a first install whose
             // schema has not been created, a migration mid-flight — is
@@ -112,9 +112,6 @@ final class TransportSeeder
         }
 
         $this->mark(self::SETTING_SEEDED);
-        if ($relayImported) {
-            $this->mark(self::SETTING_RELAY_IMPORTED);
-        }
     }
 
     /**

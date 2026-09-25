@@ -1213,12 +1213,14 @@ deux règles opposées au même fichier, et cela mérite un arbitrage.
 
 - L'alignement DMARC d'un envoi « au nom de » (ci-dessus), à l'itération
   qui touchera le publipostage. **Suivi en #418.**
-- La régénération de la clé DKIM depuis la sous-page. Elle reste dans
-  l'assistant : tant qu'un seul endroit peut le faire, la règle « pas de
-  champ éditable aux deux endroits » tient, et rien dans ce document ne
-  demande de la déplacer. **L'arbitrage appartient à #336**, qui traite
-  précisément du partage des réglages entre l'assistant et les pages de
-  configuration ; il y est commenté.
+- ~~La régénération de la clé DKIM depuis la sous-page.~~ **Traitée dans
+  #336**, qui a tranché comme ce paragraphe l'annonçait : elle est
+  maintenant sur « Authentification » et **retirée de l'assistant dans le
+  même changement**, si bien que la règle « pas de champ éditable aux deux
+  endroits » tient toujours — par déplacement plutôt que par abstention.
+  L'arbitrage était le bon endroit : c'est la sous-page qui montre la clé,
+  propose son enregistrement DNS et le vérifie, donc la seule qui peut dire
+  ce qu'une rotation coûte tant que la zone n'a pas suivi.
 
 ## IT-04 — La sonde manuelle
 
