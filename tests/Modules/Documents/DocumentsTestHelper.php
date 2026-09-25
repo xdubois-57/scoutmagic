@@ -10,6 +10,7 @@ use Core\File\UploadHandler;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Modules\Documents\Repository\DocumentRepository;
+use Modules\Documents\Repository\DocumentVersionRepository;
 use Modules\Documents\Service\DocumentService;
 use Modules\Documents\Service\DocumentVisibility;
 
@@ -36,6 +37,18 @@ final class DocumentsTestHelper
             updated_by INTEGER NULL,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )");
+        $pdo->exec("CREATE TABLE document_versions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            document_id INTEGER NOT NULL,
+            version_number INTEGER NOT NULL,
+            file_id INTEGER NOT NULL,
+            size_bytes INTEGER NOT NULL,
+            uploaded_at TEXT NOT NULL,
+            uploaded_by INTEGER NULL,
+            archived_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (document_id, version_number),
+            UNIQUE (file_id)
+        )");
     }
 
     /** A fresh storage root under the system temp directory. */
@@ -50,11 +63,13 @@ final class DocumentsTestHelper
         \PDO $pdo,
         string $storage,
         ?FileRepository $files = null,
-        ?DocumentRepository $documents = null
+        ?DocumentRepository $documents = null,
+        ?DocumentVersionRepository $versions = null
     ): DocumentService {
         $files ??= new FileRepository($pdo);
         return new DocumentService(
             $documents ?? new DocumentRepository($pdo),
+            $versions ?? new DocumentVersionRepository($pdo),
             new UploadHandler($files, $storage),
             $files,
             new AttachedFileRemover($files, $storage),

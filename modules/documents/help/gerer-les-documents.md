@@ -7,6 +7,7 @@ role_min: admin
 question: Comment mettre le règlement de l'unité en ligne pour les parents ?
 question: Comment remplacer un document sans casser les liens déjà envoyés ?
 question: Comment partager un document sans qu'il apparaisse sur le site ?
+question: Pourquoi l'ancien lien d'un document remplacé ne fonctionne-t-il plus ?
 paths: /admin/documents, /admin/documents/nouveau, /admin/documents/*/modifier
 related: documents-de-l-unite
 ---
@@ -52,8 +53,20 @@ Le crayon ouvre un seul écran pour le titre, la description, la
 visibilité et, si vous en choisissez un, un nouveau fichier. L'adresse
 ne change pas : les liens déjà distribués mènent au nouveau fichier.
 
+## Les versions précédentes
+
+Remplacer le fichier ne l'efface pas : l'ancien devient une **version
+précédente**, que la liste affiche sous le document, repliée, avec un
+bouton pour la télécharger. Les cinq dernières versions sont gardées ; à
+la sixième, la plus ancienne est supprimée pour de bon.
+
+Une version précédente n'est plus accessible qu'au Staff d'Unité, même
+sur un document public et même par son ancien lien. C'est voulu : quand
+on remplace un règlement pour corriger une erreur, personne ne doit
+pouvoir continuer à télécharger la version fausse.
+
 ## Ordonner et supprimer
 
 Glissez une ligne pour changer l'ordre ; sur téléphone, utilisez les
-flèches. La corbeille supprime le document et son fichier, après
-confirmation.
+flèches. La corbeille supprime le document, son fichier et toutes ses
+versions précédentes, après confirmation.
