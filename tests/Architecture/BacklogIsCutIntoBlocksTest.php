@@ -155,6 +155,69 @@ final class BacklogIsCutIntoBlocksTest extends TestCase
      * reads like a second checkpoint, which is the thing the whole section
      * exists to prevent.
      */
+    /**
+     * The economy of a review round, which is the half nobody notices
+     * dropping because each individual push feels free.
+     *
+     * It is not: one `Claude review` run costs 5 to 9 USD and 8 to 25
+     * minutes, and every push cancels the one in flight and pays for it
+     * anyway. The rule was written after a pull request spent seven rounds
+     * and some 45 USD, where **five of the ten findings were in the code
+     * pushed to fix the four before them** — so the cost was not the
+     * reviewer's speed but the quality of each fix batch.
+     *
+     * Each of the five instructions below answers one thing that actually
+     * happened, which is why they are pinned one at a time rather than as
+     * a block: a reflow that drops any single one drops a specific, paid-for
+     * lesson.
+     */
+    public function testTheCostOfAReviewRoundIsWrittenDownWithItsDiscipline(): void
+    {
+        $rules = self::agentRules();
+
+        $this->assertStringContainsString(
+            'Fix everything that round reported, then push ONCE',
+            $rules,
+            'AGENTS.md no longer says to batch a round\'s findings into one push, which is the rule '
+            . 'that stops the same reading being paid for twice.',
+        );
+
+        $this->assertStringContainsString(
+            'Never push while a review is in flight',
+            $rules,
+            'AGENTS.md no longer warns that a push cancels a review in flight. The run is paid for '
+            . 'and thrown away, and nothing in the CI output says so.',
+        );
+
+        $this->assertStringContainsString(
+            'Run the local reviewer first',
+            $rules,
+            'AGENTS.md no longer says to read the diff locally before spending a CI review on it.',
+        );
+
+        $this->assertStringContainsString(
+            'Prove every new assertion can FAIL',
+            $rules,
+            'AGENTS.md no longer requires a new assertion to be shown red before it is pushed. This '
+            . 'is the rule whose absence let two assertions that could not fail reach a reviewer, in '
+            . 'the very file that hunts them.',
+        );
+
+        $this->assertStringContainsString(
+            'Never restore a file with `git checkout` to undo a mutation',
+            $rules,
+            'AGENTS.md no longer warns that `git checkout` undoes the uncommitted work rather than '
+            . 'the mutation. It cost three separate proofs in one session, twice silently.',
+        );
+
+        $this->assertStringContainsString(
+            'put the flake fixes at the FRONT of the queue',
+            $rules,
+            'AGENTS.md no longer says that an unstable test is fixed before the rest of the queue. It '
+            . 'costs a round to every pull request that follows, not only to its own.',
+        );
+    }
+
     public function testAnnouncingTheBlocksIsNotAnotherPlaceToStopAndWait(): void
     {
         $rules = self::agentRules();
