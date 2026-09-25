@@ -47,7 +47,7 @@ viendra.
 ## Écarter, et revenir en arrière
 
 « Écarter » retire une valeur de la vue par défaut sans la supprimer :
-elle reste consultable en cochant « Montrer les valeurs écartées », et
+elle reste consultable par le lien « Montrer les valeurs écartées », et
 peut être réactivée. Ce n'est jamais une suppression — le prochain
 rapport recréerait la ligne, et l'arbitrage serait à refaire chaque matin.
 

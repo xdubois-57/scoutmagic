@@ -409,8 +409,9 @@ de relever le plafond. La part garde les listes honnêtes entre elles — une
 bourse unique en ordre de lecture laissait `functions` tout manger et
 `branches` repartir **vide** avec `total` à cent cinquante, ce qui est le pire
 des résultats disponibles : `branches` est dans cette charge parce qu'un rang
-à 99 est la correspondance la plus coûteuse à manquer et la seule muette côté
-unité. Pas de report du solde non dépensé d'une liste à la suivante : cela
+à 99 est la correspondance la plus coûteuse à manquer et celle dont personne ne
+se plaint — un logo absent n'est signalé par personne, là où une fonction non
+qualifiée l'est par celui qui a perdu ses accès. Pas de report du solde non dépensé d'une liste à la suivante : cela
 ferait dépendre le contenu d'une liste de sa position dans `build()`.
 
 Pire cas après correction : **32 775 octets**, la moitié de la limite, les
@@ -664,6 +665,65 @@ Le sujet est passé à 452 mots en gagnant ces nuances, puis resserré à 434 �
 au-dessus des ~400 de la limite souple, sous les 500 de la limite dure, ce que
 `HelpInvariantsTest` accepte. Un sujet né d'une scission pour dépassement
 méritait qu'on y regarde deux fois.
+
+### Second tour de revue : sept autres phrases fausses
+
+Onze retours en tout sur cette itération documentaire, et aucun sur le code.
+La leçon tient en une ligne : **aucun test ne vérifie qu'une phrase est vraie**,
+et une itération qui ne fait qu'écrire des phrases n'a donc que la relecture
+pour filet.
+
+**Le garde anti-fuite était documenté à moitié.** §8.51ter créditait la
+journalisation des en-têtes CSV au seul ratio des deux tiers, « preuve que la
+ligne est celle du schéma ». Or `DeskCsvParser` en exige **deux** : le ratio
+*et* une borne sur le nombre de cellules. Le commentaire du code dit pourquoi —
+un fichier dont la ligne d'en-têtes et la première ligne de données ont fusionné
+faute de saut de ligne porte soixante-dix cellules dont trente-quatre sont
+encore des noms attendus, passe le ratio, et livrerait au journal le nom, la
+date de naissance, le téléphone et l'adresse d'un membre réel. C'est le second
+trou que la revue d'IT-01 m'avait fait boucher, et ma documentation n'en gardait
+que la première moitié. Le danger est précis : quelqu'un lisant cette section
+retire la borne de largeur comme redondante et rouvre le trou. Les deux
+conditions sont désormais énoncées ensemble, avec la raison de la seconde.
+
+**Le tableau des natures se contredisait onze lignes plus loin.** Il disait
+qu'une branche à 99 échoue « **and no signal at all** », alors que la même
+section explique que toute valeur non résolue est journalisée et remonte dans
+l'encadré. La phrase datait de l'énoncé du problème de #356 et IT-01 l'avait
+rendue fausse. Quelqu'un s'y fiant aurait réimplémenté un signalement qui
+existe. L'énoncé juste n'est pas « aucun signal » mais **« des conséquences dont
+personne ne se plaint »** : un logo absent n'est signalé par personne, là où une
+fonction non qualifiée l'est par celui qui a perdu ses accès. Corrigé dans le
+tableau, et dans les trois autres endroits où j'avais réemployé la formule
+périmée — `StatisticsPayloadBuilder`, son test, et l'entrée IT-03 de ce journal.
+
+**Le sujet d'aide affirmait qu'un import ne s'arrête jamais.** Faux pour une
+colonne : un en-tête attendu absent lève `ImportException`. Restreint aux
+fonctions et aux branches, avec la différence nommée — une colonne arrête
+l'import et le dit tout de suite, il n'y a rien à découvrir plus tard.
+
+**Et qu'« une ligne indique combien de fiches sont concernées ».** Le gabarit ne
+l'affiche que si `affected > 0` ; sinon il dit « personne ne porte cette
+fonction cette année ». Reformulé pour couvrir les deux cas.
+
+**« Donnez-lui un rôle plus bas dans la page » se lisait comme un comparatif.**
+Trois lignes plus haut, le même texte dit que la fonction est créée « au rôle le
+plus bas » — donc « un rôle plus bas » se comprend d'abord comme *un rôle
+inférieur*, conseil impossible puisqu'elle est déjà au plus bas. Une virgule
+suffit : « donnez-lui un rôle, plus bas dans la page ».
+
+**« En cochant "Montrer les valeurs écartées" »** nomme un geste que la page
+n'offre pas : c'est un lien, et le gabarit ne contient aucune case à cocher.
+Corrigé en « par le lien ».
+
+**Et l'encadré n'est pas un compte rendu du dernier import.** `specifications.md`
+disait « what the last import could not match » ; la liste est l'état **courant**,
+donc une fonction créée il y a des mois et jamais qualifiée y figure encore. Un
+administrateur aurait attribué un manque ancien au dernier import.
+
+Le sujet d'aide a gonflé de 373 à 487 mots en absorbant ces nuances — treize sous
+la limite dure, ce qui ne laissait aucune marge. Resserré à **455** à contenu
+constant, en fusionnant deux sections qui disaient la même chose de deux façons.
 
 ### Reporté
 

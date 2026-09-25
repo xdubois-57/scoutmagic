@@ -12,11 +12,14 @@ paths: /config/functions
 related: config-desk, import-desk
 ---
 
-Un import Desk ne s'arrête jamais sur un mot qu'il ne reconnaît pas : il
-crée l'entrée avec le réglage le plus prudent et continue. C'est
-volontaire — un import qui refuserait tout un listing pour une fonction
+Sur une fonction ou une branche qu'il ne reconnaît pas, un import Desk ne
+s'arrête pas : il crée l'entrée avec le réglage le plus prudent et
+continue. C'est volontaire — refuser tout un listing pour une fonction
 inédite serait pire — mais encore faut-il que quelqu'un l'apprenne.
 C'est ce que fait l'encadré en tête de « Correspondances Desk ».
+
+Une **colonne** manquante ou renommée, elle, arrête l'import et le dit
+tout de suite : il n'y a rien à découvrir plus tard.
 
 ## Ce que chaque ligne veut dire
 
@@ -28,28 +31,28 @@ ne voit plus rien après un import.
 **Une branche** n'est pas reconnue : elle n'a pas de logo sur la page
 des animés, et elle se range en dernier dans toutes les listes.
 
-Chaque ligne indique combien de fiches sont concernées. Pour une
-fonction, elle mène là où on la corrige : donnez-lui un rôle plus bas
-dans la page.
+La ligne dit combien de fiches sont concernées quand il y en a — des
+membres pour une fonction, des sections pour une branche — et le dit
+aussi quand il n'y en a aucune.
 
-Pour une branche, rien à corriger de votre côté : un logo rendra la page
-des animés correcte, mais le rang qui la range en dernier vient d'une
-table du logiciel, donc la ligne restera jusqu'à une version qui connaît
-cette branche.
+## Ce qu'il y a à faire, et ce qu'il n'y a pas à faire
 
-## L'encadré disparaît tout seul
+**Pour une fonction, à vous :** la ligne mène là où on la corrige,
+donnez-lui un rôle, plus bas dans la page.
 
-Il n'y a rien à marquer comme lu : la liste est recalculée à chaque
-affichage. Dès qu'une fonction reçoit un rôle, sa ligne s'en va. Celle
-d'une branche s'en va à la mise à jour qui l'ajoute.
+**Pour une branche, rien.** Un logo rendra la page des animés correcte,
+mais le rang qui la range en dernier vient d'une table du logiciel.
+
+Rien à marquer comme lu : la liste est recalculée à chaque affichage. La
+ligne d'une fonction s'en va dès qu'elle reçoit un rôle ; celle d'une
+branche, à la version qui l'ajoute.
 
 ## Ce qui est transmis, et ce qui ne l'est pas
 
 Si l'envoi quotidien des statistiques est activé (Configuration >
-Diagnostic), ces libellés sont aussi signalés au mainteneur — c'est la
-seule façon qu'il a de l'apprendre. Il peut ajouter une branche dans une
-version suivante ; une fonction, non, faute de liste de fonctions
-connues : **c'est le rôle que vous attribuez qui résout la ligne**.
+Diagnostic), ces libellés sont signalés au mainteneur — sa seule façon de
+l'apprendre. Il peut ajouter une branche dans une version ; une fonction,
+non, faute de liste de fonctions connues.
 
 > **Seul le libellé est transmis** : jamais un nom de membre, et jamais
 > un nom de section. Un nom de section est choisi par votre unité et

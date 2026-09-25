@@ -701,8 +701,11 @@ class StatisticsPayloadBuilder
      * worth adding to a vocabulary block that had done without them: 99
      * means none of the seven needles matched, which costs the branch its
      * logo on every member page and its place in every picker — the
-     * costliest mapping to get wrong, and the only one that fails with no
-     * signal of any kind on the unit's side.
+     * costliest mapping to get wrong, and the one whose consequences
+     * nobody complains about. A function nobody qualified is reported by
+     * the person who lost access to it; a branch sorted last is reported
+     * by no one, which is why it went unseen until issue #356's own
+     * journalling.
      *
      * Unclassified, like the fee categories and for the same reason: the
      * receiver reads the words. The rank is not a verdict, it is what this
