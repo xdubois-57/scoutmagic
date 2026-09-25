@@ -29,7 +29,8 @@ final class Document
         public readonly int $sizeBytes,
         public readonly string $originalName,
         /** The slug carries the random segment (created unlisted). */
-        public readonly bool $slugIsRandom = false
+        public readonly bool $slugIsRandom = false,
+        public readonly int $versionNumber = 1
     ) {
     }
 

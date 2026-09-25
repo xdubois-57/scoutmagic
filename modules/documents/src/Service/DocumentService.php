@@ -20,6 +20,8 @@ use Core\Security\Role;
 use Modules\Documents\File\DocumentFileOwnershipChecker;
 use Modules\Documents\Repository\Document;
 use Modules\Documents\Repository\DocumentRepository;
+use Modules\Documents\Repository\DocumentVersion;
+use Modules\Documents\Repository\DocumentVersionRepository;
 
 /**
  * The unit's shared documents: what a reader may see, and what the chef
@@ -78,8 +80,24 @@ class DocumentService
     /** `documents.slug` is VARCHAR(190); the suffixes need room under it. */
     private const SLUG_MAX_LENGTH = 150;
 
+    /**
+     * Past versions kept per document, the current one not counted
+     * (roadmap D7): the sixth replacement deletes the first version.
+     * A count rather than a duration — see the chantier journal for why
+     * five versions do not mean the same thing for every document.
+     */
+    public const KEPT_VERSIONS = 5;
+
+    /**
+     * The role a past version's file is raised to, whatever the document's
+     * visibility: a correction only corrects if the version it replaces
+     * stops being downloadable from the links that already went out.
+     */
+    private const PAST_VERSION_ROLE = 'admin';
+
     public function __construct(
         private DocumentRepository $repository,
+        private DocumentVersionRepository $versions,
         private UploadHandler $uploadHandler,
         private FileRepository $fileRepository,
         private AttachedFileRemover $fileRemover,
@@ -254,15 +272,7 @@ class DocumentService
         if ($newFileId !== null) {
             // The document now says what the file is for: open it.
             $this->fileRepository->updateRoleMin($newFileId, $visibility->fileRoleMin());
-            $this->fileRemover->removeOrphan($document->fileId);
-            $this->journalService->log(
-                'documents',
-                'document_file_replaced',
-                'info',
-                'Fichier d\'un document partagé remplacé',
-                ['document_id' => $id],
-                $actorId
-            );
+            $this->archiveOutgoingFile($document, $actorId, $now);
         } elseif ($visibilityChanges) {
             $this->fileRepository->updateRoleMin($document->fileId, $visibility->fileRoleMin());
         }
@@ -287,6 +297,11 @@ class DocumentService
     public function delete(int $id, ?int $actorId): void
     {
         $document = $this->requireDocument($id);
+        // The versions first: their rows point at the document, and their
+        // files would otherwise outlive it on disk.
+        foreach ($this->versions->findByDocument($id) as $version) {
+            $this->removeVersion($version);
+        }
         $this->fileRemover->remove($this->repository, $id, $document->fileId, true);
 
         $this->journalService->log(
@@ -297,6 +312,88 @@ class DocumentService
             ['document_id' => $id],
             $actorId
         );
+    }
+
+    /**
+     * Every kept version, by document id, newest first.
+     *
+     * @return array<int, list<DocumentVersion>>
+     */
+    public function versionsByDocument(): array
+    {
+        return $this->versions->findAllByDocument();
+    }
+
+    /**
+     * Once the new file is current (update()), the outgoing one becomes
+     * the newest past version, readable by the Staff d'U only (D7); past
+     * KEPT_VERSIONS, the oldest goes for good, row and file.
+     */
+    private function archiveOutgoingFile(Document $document, ?int $actorId, string $now): void
+    {
+        // Closed FIRST: whatever happens to the version row below, the
+        // outgoing file is already out of reach of every old link.
+        $this->fileRepository->updateRoleMin($document->fileId, self::PAST_VERSION_ROLE);
+
+        $archived = $this->archiveOnce($document->id, $document->fileId, $now)
+            ?? $this->archiveOnce($document->id, $document->fileId, $now);
+
+        if ($archived === null) {
+            // Twice refused — nothing left to race with, so something else
+            // is wrong. The file stays closed and on disk: deleting bytes a
+            // row might yet point at is worse than keeping bytes nobody
+            // lists. The journal says so, for the Staff d'U to look at.
+            $this->journalService->log(
+                'documents',
+                'document_version_lost',
+                'warning',
+                'Ancienne version d\'un document partagé non enregistrée',
+                ['document_id' => $document->id, 'file_id' => $document->fileId],
+                $actorId
+            );
+        } else {
+            $this->journalService->log(
+                'documents',
+                'document_file_replaced',
+                'info',
+                'Nouvelle version d\'un document partagé',
+                ['document_id' => $document->id, 'archived_version' => $archived],
+                $actorId
+            );
+        }
+
+        $kept = $this->versions->findByDocument($document->id);
+        foreach (array_slice($kept, self::KEPT_VERSIONS) as $version) {
+            $this->removeVersion($version);
+            $this->journalService->log(
+                'documents',
+                'document_version_deleted',
+                'info',
+                'Ancienne version d\'un document partagé supprimée',
+                ['document_id' => $document->id, 'version' => $version->versionNumber],
+                $actorId
+            );
+        }
+    }
+
+    /**
+     * One attempt at filing the outgoing file as a version: its number, or
+     * null when a concurrent edit took that number first — the caller
+     * tries once more, and the repository then computes the next one.
+     */
+    private function archiveOnce(int $documentId, int $fileId, string $now): ?int
+    {
+        try {
+            return $this->versions->archive($documentId, $fileId, $now);
+        } catch (\PDOException) {
+            return $this->versions->versionNumberOf($fileId);
+        }
+    }
+
+    private function removeVersion(DocumentVersion $version): void
+    {
+        $this->versions->delete($version->id);
+        $this->fileRemover->removeOrphan($version->fileId);
     }
 
     /**
