@@ -134,6 +134,43 @@ exactement le cas que D1 décrit comme échouant **sans aucun signal**, et c'est
 vrai. L'encadré ne réécrit pas ce que le point d'attention dit déjà ; il couvre
 ce qui n'est dit nulle part.
 
+### Écart 7 — Il n'existe aucune table de fonctions connues
+
+*Trouvé en écrivant IT-03.* D1 pose que « une ligne de la page centrale est
+une table à compléter dans une version ». C'est vrai pour trois natures sur
+quatre. Pour les **fonctions**, non : `MappingResolver::resolveFunction()`
+crée toute fonction inédite au rôle `identified` sans consulter la moindre
+liste, et il n'existe nulle part dans le dépôt de table de fonctions
+reconnues — vérifié en cherchant les listes d'aiguilles, les `match (true)`
+et toute constante candidate dans `core/`.
+
+**Conséquence** : aucune version ne peut « apprendre » une fonction. Seule
+l'unité la qualifie. La ligne reste utile — « sept unités portent une fonction
+que personne n'a qualifiée » est un signal fédéral que rien d'autre ne donne —
+mais ce n'est pas une table à compléter, et la page le dit en ces termes
+plutôt que de promettre un correctif qui n'existe pas. C'est aussi pourquoi la
+dérivation ne filtre jamais cette nature : il n'y a rien à comparer.
+
+### Écart 8 — `parents` et `ancestors` ne sont pas interchangeables
+
+*Trouvé en écrivant IT-03, par un test qui est tombé.* IT-03 demande
+« le fil d'Ariane porte tous les niveaux » et ajoute que
+`/support-dashboard` étant statique, « un `ancestors` classique suffit ».
+La seconde phrase est exacte ; la première a été appliquée d'abord avec
+`parents`, et `Tests\Core\View\UxConventionsTest` l'a refusée :
+
+> Breadcrumb parent "Supervision" matches no menu label — it will render as
+> inert grey text.
+
+Un `parents` nomme un **menu** et l'ouvre ; il n'accepte donc que les cinq
+libellés de menu. Un `ancestors` nomme une **page** par son chemin de route
+et rend un lien — `Router::ancestorTrailFor()` lit au passage son `role_min`
+pour ne jamais afficher une étape que le lecteur ne peut pas atteindre. Les
+trois sous-pages déclarent donc `parents: ["Configuration"]` **et**
+`ancestors: [{Supervision, /support-dashboard}]`. Un test tient la
+distinction, parce que la confusion est invisible à la lecture : les deux
+formes sont du JSON valide et l'une des deux ne rend rien de cliquable.
+
 ### Ce qui est vérifié conforme
 
 `visible_when: ['statistics_receiver']`, la notification `ticket_received`, le
@@ -413,5 +450,83 @@ laissé. Rien d'autre qu'une nature et un libellé ne voyage.
 Rien. La vérification de `RgpdContentService` que D9 demande a d'abord été
 renvoyée à IT-04 ; la revue a eu raison de refuser ce report, et elle est
 faite ici.
+
+---
+
+## IT-03 — La page centrale et sa notification
+
+**Livré.** `/support-dashboard/correspondances`, troisième écran de
+Supervision, et la notification qui fait qu'on n'a pas besoin d'y aller pour
+apprendre quelque chose.
+
+- Une troisième pastille au `page_picker` partagé, et les fils d'Ariane des
+  trois écrans corrigés (écart 8).
+- `support_desk_mapping_gaps`, unique sur `(kind, value_normalized)`, qui ne
+  garde que les trois faits non recalculables (D6) : première apparition,
+  notification déjà envoyée, valeur écartée.
+- `DeskMappingGapReport` — la liste, **dérivée** des charges conservées :
+  regroupement par valeur repliée (D7), comptage des installations, dernière
+  apparition, et la plus ancienne version qui la remonte encore.
+- `DeskMappingGapRecorder`, appelé sur le chemin d'acceptation d'un rapport :
+  il retient une valeur jamais vue et l'annonce **une fois** (D8).
+- `DeskMappingGapController` — la page, et « écarter » / « réactiver ».
+- La notification `support_dashboard.desk_mapping_unknown`, déclarée dans le
+  manifeste du module, donc présente uniquement là où
+  `visible_when: ['statistics_receiver']` s'applique.
+- Version du module montée en `1.15.0`.
+
+### Les décisions prises en autonomie
+
+**La notification se décide à la réception, pas à l'affichage.** La liste est
+dérivée, donc rien n'« arrive » quand on ouvre la page — et une page que
+personne n'ouvre n'annonce rien, ce qui est exactement le problème du
+chantier pris par l'autre bout. L'enregistrement se fait donc sur le chemin
+d'acceptation du rapport, après que le rapport est stocké et journalisé, et
+il n'est **jamais fatal** : un receveur qui refuserait des rapports parce
+qu'une notification a échoué échangerait ce qui compte contre ce qui ne
+compte pas.
+
+**Sans destinataire, rien n'est marqué comme notifié.** Si personne n'a
+activé le type, la notification n'a pas eu lieu : les lignes gardent
+`notified_at` à NULL et le prochain rapport les annoncera. Marquer quand même
+ferait taire à jamais une valeur que personne n'a vue passer.
+
+**L'enregistreur filtre avec la même question que la page.** Une valeur que
+le code du receveur reconnaît déjà est une valeur qu'une version a corrigée :
+l'annoncer reviendrait à envoyer une notification par installation en retard
+de mise à jour. La reconnaissance est donc écrite **une fois**, en statique, et
+appelée des deux côtés. Elle ne concerne que les branches : une fonction ne se
+reconnaît par aucune table (écart 7), et un tarif n'est pas une nature
+(écart 1).
+
+**La liste des instances est triée alphabétiquement.** `findAll()` ordonne par
+date du dernier rapport, ce qui rebattait les noms sous la page à chaque
+envoi. Une liste qui change d'ordre entre deux affichages est du bruit.
+
+**La page n'affiche pas de compte de personnes**, seulement un nombre
+d'unités : c'est ce que la charge transmet (IT-02), et c'est la question du
+mainteneur.
+
+### Ce que les tests tiennent
+
+Une valeur que ce code reconnaît n'apparaît jamais — la branche par
+`canonicalSortOrder()`, sur les deux chemins, celui de la page et celui de
+l'enregistrement. Deux orthographes voisines font une seule ligne, et une seule
+notification. Une valeur notifiée ne renotifie pas le lendemain. Écarter la
+retire de la vue par défaut, la laisse consultable derrière le filtre, et
+**garde sa ligne** — jamais une suppression. La plus ancienne version affichée
+est bien la plus ancienne. Une entrée malformée dans la charge d'un autre
+site ne coûte qu'elle-même. Le superadmin lit la page, l'admin est refusé par
+le garde, un POST sans jeton CSRF ne change rien. Et les fils d'Ariane des
+trois écrans nomment la page dont ils dépendent, par un mécanisme qui rend un
+lien.
+
+**Suite complète verte**, PHPStan sans erreur.
+
+### Reporté
+
+Rien. La documentation et les sujets d'aide sont l'itération suivante. La
+vérification RGPD que D9 demande n'y est plus : la revue d'IT-02 a refusé ce
+report, et elle est faite là-bas.
 
 ---
