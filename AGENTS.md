@@ -503,9 +503,9 @@ backlog » — and it is a standing instruction, not a one-off. It means:
    One merge at a time, carried to completion, before the next begins.
 
    **Hold the open pull requests as a queue, and cap it at four.**
-   Measured on this repository rather than chosen: every merge obliges a
-   re-merge of `main` into what is still open, and a push there costs a
-   full CI round — `Checks / test` alone runs about 19 minutes, and the
+   Measured on this repository rather than chosen: a merge whose files
+   overlap what is still open obliges a re-merge of `main` there, and a push
+   costs a full CI round — `Checks / test` alone runs about 19 minutes, and the
    `Claude review` beside it prices itself at roughly 10 USD in its own
    status comment. Below four, the reviewers idle between merges and the
    queue starves; above it, the re-merges cost more than the work they
@@ -524,23 +524,35 @@ backlog » — and it is a standing instruction, not a one-off. It means:
    repository (docs/quality-pipeline.md § Branch ruleset), so nothing does
    this for you.
 
-   **Locally on all of them; pushed only on the next one to merge.** The
-   local run is what catches the semantic conflict and it costs seconds;
-   the push is what spends the CI round, and the merge that follows it
-   invalidates any round started on a branch further down the queue. So
-   merge and check every open branch, push the head of the queue, and let
-   the others take their turn.
+   **Locally on all of them; then push the next two or three side by side.**
+   The local run is what catches the semantic conflict and it costs seconds;
+   the push is what spends the CI round. Pushing several DIFFERENT pull
+   requests at once costs no more than pushing them one after another —
+   each needs one review on its final head either way — so the total is
+   unchanged and only the waiting divides. Push them, let their rounds run
+   beside each other, then merge in order **without re-merging `main` in
+   between where their files are disjoint**, which a dry-run merge and one
+   local run of the combined state establish. Re-merge `main` only where
+   the files overlap, or where that combined run shows a conflict.
 
-   **That serialisation was put to the maintainer with its cost, and kept.**
-   It is a decision, not an oversight, so do not re-open it as a fresh idea.
-   Asked how to go faster, the arithmetic was laid out — pushing two or more
-   branches at once divides the queue's wall-clock roughly by the number in
-   flight, and multiplies the review spend over that window by the same —
-   and the answer was to keep one round at a time. The reasoning that
-   decided it: **the way to go faster is to spend FEWER rounds, not to buy
-   several at once.** Parallelising hides a wasted round behind a
-   simultaneous one; the discipline in step 7 removes it. Measure there
-   first, and bring numbers if you ever want this revisited.
+   **The first version of this rule serialised the pushes too, and its
+   arithmetic was wrong.** It claimed that pushing several branches at once
+   multiplies the review spend by the number in flight. It does not: each
+   pull request needs one review on its final head whichever way the rounds
+   are ordered, so **the total is the same and only the rate changes** — the
+   same money, sooner, for a third of the waiting. The maintainer asked
+   whether two at a time would save time, the numbers were redone, and the
+   rule was relaxed to what stands above.
+
+   Two things it did NOT relax, because they were the real dangers all
+   along. **Two merges at the same instant** stays forbidden, for the reason
+   the paragraph above gives. And the window this opens — a combination
+   tested on `main` after it lands rather than before — is not something
+   this rule gets to decide: `docs/quality-pipeline.md` § Branch ruleset
+   already accepts it, names the maintainer as the one who answers for it on
+   the red-`main` notification, and says the fix goes forward rather than by
+   revert. Relaxing the pushes changes how often that window opens, not who
+   owns it.
 
    **Do not run those local checks in a `git worktree`.** `vendor/` there
    is a symlink, so Composer's autoloader resolves `$baseDir` to the main

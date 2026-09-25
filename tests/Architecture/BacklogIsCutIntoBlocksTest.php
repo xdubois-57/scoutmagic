@@ -176,11 +176,12 @@ final class BacklogIsCutIntoBlocksTest extends TestCase
         );
 
         $this->assertStringContainsString(
-            'pushed only on the next one to merge',
+            'then push the next two or three side by side',
             $rules,
             'AGENTS.md no longer distinguishes the local re-check on every open branch (seconds, and '
-            . 'what actually catches a semantic conflict) from the push that spends a CI round the '
-            . 'next merge will invalidate.',
+            . 'what actually catches a semantic conflict) from the push that spends a CI round. '
+            . 'Without it the queue serialises the rounds again, which costs wall-clock and saves '
+            . 'nothing: the review total is the same either way.',
         );
     }
 
@@ -200,40 +201,6 @@ final class BacklogIsCutIntoBlocksTest extends TestCase
      * and the failure is silent: the merge succeeds, the tests pass, and
      * the diff looks smaller than it should in a way nobody reads.
      */
-    /**
-     * A decision, distinguished from an omission.
-     *
-     * Serialised CI rounds look like something nobody got round to
-     * improving, so the obvious « idea » is to push several branches at
-     * once. It was put to the maintainer with its arithmetic — the wall
-     * clock divides by the number in flight, the review spend multiplies by
-     * it — and kept. Written down because otherwise the next agent
-     * rediscovers the idea, re-runs the whole deliberation, and may well
-     * decide the other way without the numbers.
-     *
-     * The load-bearing half is the REASON, not the verdict: spend fewer
-     * rounds rather than buy several at once. A file that kept « one at a
-     * time » and lost why would read as an arbitrary limit.
-     */
-    public function testTheSerialisationOfCiRoundsIsRecordedAsADecision(): void
-    {
-        $rules = self::agentRules();
-
-        $this->assertStringContainsString(
-            'put to the maintainer with its cost, and kept',
-            $rules,
-            'AGENTS.md no longer records that serialised CI rounds were weighed and chosen, so the '
-            . 'next agent will read the limit as an oversight and re-open it.',
-        );
-
-        $this->assertStringContainsString(
-            'the way to go faster is to spend FEWER rounds, not to buy',
-            $rules,
-            'AGENTS.md no longer says WHY the rounds stay serialised. Without the reason the rule is '
-            . 'an arbitrary number, and the first agent in a hurry will trade it away.',
-        );
-    }
-
     public function testTheStaleLocalBranchTrapIsWrittenDown(): void
     {
         $rules = self::agentRules();
@@ -270,6 +237,51 @@ final class BacklogIsCutIntoBlocksTest extends TestCase
             self::agentRules(),
             'AGENTS.md no longer warns that a worktree run tests the main checkout\'s code. Nothing '
             . 'else does: the run is green, the output says nothing, and the branch was never read.',
+        );
+    }
+
+    /**
+     * A correction, kept visible on purpose.
+     *
+     * The rule above serialised the PUSHES as well as the merges, and the
+     * arithmetic behind that was wrong: it counted the review spend as
+     * multiplied by the number of branches in flight, when each pull
+     * request needs one review on its final head whichever way the rounds
+     * are ordered. The total never changed; only the rate did.
+     *
+     * Written down rather than silently corrected, because the wrong
+     * version was itself recorded here as a deliberate decision — and an
+     * agent reading a decision does not re-derive it. What makes it safe to
+     * relax is named too: the untested-combination window belongs to
+     * `docs/quality-pipeline.md`, which accepted it long before this rule
+     * existed.
+     */
+    public function testTheRelaxedPushRuleKeepsWhatWasActuallyDangerous(): void
+    {
+        $rules = self::agentRules();
+
+        $this->assertStringContainsString(
+            'arithmetic was wrong',
+            $rules,
+            'AGENTS.md no longer records that the serialised-push rule rested on a miscount. It had '
+            . 'been written here as a decision taken with its numbers, and an agent reading a '
+            . 'decision does not redo the sums — so the correction has to be as visible as the '
+            . 'claim it replaces.',
+        );
+
+        $this->assertStringContainsString(
+            'the total is the same and only the rate changes',
+            $rules,
+            'AGENTS.md no longer says WHY pushing several at once is free: the review total does not '
+            . 'move, only when it is spent. Without that sentence the relaxation looks like a '
+            . 'budget being traded for speed, and the next agent will reverse it.',
+        );
+
+        $this->assertStringContainsString(
+            'Two merges at the same instant** stays forbidden',
+            $rules,
+            'AGENTS.md no longer says that relaxing the pushes left simultaneous MERGES forbidden. '
+            . 'That is the one that merges a branch against a base its green checks never saw.',
         );
     }
 
