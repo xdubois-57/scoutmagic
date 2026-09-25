@@ -138,23 +138,6 @@ final class DocumentServiceTest extends TestCase
         $this->assertSame('admin', DocumentsTestHelper::fileRoleMin($this->pdo, $document->fileId));
     }
 
-    public function testReplacingTheFileKeepsTheAddressAndRemovesTheOldFile(): void
-    {
-        $document = $this->service->create('ROI', null, 'public', DocumentsTestHelper::upload(), null);
-        $oldPath = $this->storedPath($document->fileId);
-        $this->assertFileExists($oldPath);
-
-        $updated = $this->service->update($document->id, 'ROI', null, 'identified', DocumentsTestHelper::upload('roi-v2.pdf'), null);
-
-        $this->assertSame($document->slug, $updated->slug);
-        $this->assertNotSame($document->fileId, $updated->fileId);
-        $this->assertSame('roi-v2.pdf', $updated->originalName);
-        $this->assertSame('identified', DocumentsTestHelper::fileRoleMin($this->pdo, $updated->fileId));
-        $this->assertNull(DocumentsTestHelper::fileRoleMin($this->pdo, $document->fileId));
-        $this->assertFileDoesNotExist($oldPath);
-        $this->assertSame(1, (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'document_file_replaced'")->fetchColumn());
-    }
-
     public function testDeleteRemovesTheRowAndTheFile(): void
     {
         $document = $this->service->create('À jeter', null, 'public', DocumentsTestHelper::upload(), null);

@@ -13,7 +13,51 @@ La maquette de référence est `docs/chantiers/maquettes/maquette-documents.jsx`
 
 ## Récapitulatif final
 
-À compléter à la clôture du chantier (IT-03).
+**Ce qui a été livré.** Les trois itérations, dans l'ordre, une PR
+chacune, fusionnées sur `main` une fois la CI verte :
+
+| # | Livré |
+|---|---|
+| IT-01 (#512) | Le module `documents` : la page publique filtrée par lecteur, l'écran de gestion, les cinq visibilités des actualités, l'adresse stable `/documents/{slug}` qui redirige vers `/files/{id}`, deux sujets d'aide, la matrice complète des tests |
+| IT-02 (#524) | Les versions : l'ancien fichier devient une version précédente réservée au Staff d'U, cinq gardées, historique replié dans l'écran de gestion, journalisation |
+| IT-03 | `ARCHITECTURE.md` §8.121 (dont la dette du cinquième mécanisme de documents), `specifications.md` §46 complété, le sujet d'aide public affiné |
+
+**Corrections de revue.** Sur la PR de l'IT-01, la revue automatique a
+relevé deux vrais défauts, corrigés avant la fusion : l'écran de gestion
+ne chargeait pas `sortable.js` ni `list-editor.js` (glisser-déposer,
+flèches et corbeille inertes — le partial ne les charge pas lui-même),
+et le refus d'`UploadHandler` était réemballé dans une
+`DocumentException` avec son message, construction qu'AGENTS.md
+interdit ; il remonte désormais tel quel jusqu'au contrôleur. SonarCloud a
+ensuite relevé l'avertissement de remplacement, un `div` à
+`role="status"` : il est devenu un `<output>`, comme les autres messages
+d'état du site. CodeRabbit, enfin, a relevé le défaut le plus sérieux :
+le fichier d'un lien direct, en `role_min: public`, se trouvait en
+comptant les identifiants de `/files/{id}`. L'adresse du document en est
+devenue la seule clé (voir IT-01, « L'adresse d'un Lien direct est la
+seule clé de son fichier ») ; la même revue a fait retirer le fichier
+orphelin d'une modification ratée, exiger un 403 exact dans le test RBAC
+et préparer les requêtes des tests.
+
+Sur la PR de l'IT-02, la revue a relevé deux défauts dans l'archivage
+des versions, corrigés avant la fusion : l'ancien fichier était fermé
+après l'écriture de sa ligne de version (un échec le laissait ouvert), et
+le premier correctif supprimait ce fichier alors qu'une modification
+concurrente venait de l'archiver. L'archivage calcule désormais son
+numéro dans l'`INSERT` et n'archive jamais deux fois le même fichier.
+
+**Restent ouverts, hors chantier.**
+- `/files/{id}` ne porte aucun en-tête robots : le `noindex` d'un
+  document non public est porté par la redirection. Un robot n'atteint
+  plus le fichier d'un lien direct sans passer par son adresse ; un
+  en-tête servi par `FileController` resterait une défense de plus, à
+  placer dans le cœur : #516.
+- `ARCHITECTURE.md` §8.28 décrit encore les documents de section comme
+  téléversés par `UploadHandler` en `role_min: identified` ; le code
+  passe par `EncryptedFileStorageService`. Constaté pendant la
+  vérification préalable, non corrigé ici : ce n'est pas le module de
+  ce chantier. Suivi : #532.
+- Cinq versions ou une durée : voir IT-02.
 
 ---
 
@@ -189,3 +233,121 @@ d'inventaire corrigés puis leurs suites relancées vertes ; le groupe `database
 suites `tests/Core/Database` et `tests/Integration` vert sur MariaDB ;
 `tests/Modules/Documents` : 56 tests ; `tests/js/documents-form.test.js`
 vert ; `npm run typecheck` sans erreur.
+
+---
+
+## IT-02 — Les versions
+
+**Livré.**
+- Table `document_versions` : le document, le numéro, le fichier, sa
+  taille, quand et par qui il était devenu courant, quand il a été
+  remplacé. Version du module montée à 1.1.0.
+- À chaque remplacement de fichier, l'ancien devient la version
+  précédente la plus récente et son `files.role_min` passe à `admin`, quelle
+  que soit la visibilité du document (D7) ; au-delà de cinq versions
+  précédentes, la plus ancienne est supprimée, ligne **et** fichier.
+  Supprimer un document supprime ses versions et leurs fichiers.
+- Dans l'écran de gestion, sous chaque document remplacé au moins une
+  fois, un historique replié : chaque version conservée, sa taille, sa
+  date et un bouton pour la télécharger, suivi de la phrase qui explique
+  pourquoi une ancienne version devient inaccessible. L'avertissement du
+  formulaire annonce la même chose au moment de choisir un fichier.
+- Journal : `document_file_replaced` (avec le numéro de la nouvelle
+  version) et `document_version_deleted`, niveau `info`, identifiants
+  seulement.
+- Sujet d'aide « Gérer les documents » : une section sur les versions
+  précédentes et une question de plus.
+- Tests : le sixième remplacement supprime la première version et son
+  fichier ; une ancienne version n'est plus lisible en dessous d'`admin`
+  (`FileAccessGuard`, rôle par rôle), même sur un document public ou en
+  lien direct ; l'adresse stable suit la version courante ; supprimer un
+  document supprime ses versions et leurs fichiers ; modifier sans fichier
+  ne crée pas de version ; l'historique s'affiche dans l'écran de gestion.
+
+**Décisions autonomes.**
+- **Cinq versions *précédentes*, la courante en plus.** C'est la lecture
+  qui rend vrai le test demandé par la roadmap (« le sixième remplacement
+  supprime la première version ») : après cinq remplacements, les
+  versions 1 à 5 sont gardées et la 6 est courante.
+- **La version courante n'est pas une ligne de `document_versions`** :
+  elle reste `documents.file_id`, ce qui laisse intacts la redirection et
+  tout le code de l'IT-01. Son numéro se calcule (le plus haut numéro
+  gardé, plus un).
+- **La date et l'auteur d'une version** sont recopiés de sa ligne `files`
+  au moment où elle est remplacée : c'est le seul endroit qui savait
+  quand ce fichier était devenu courant, `documents.updated_at` bougeant
+  aussi pour une simple correction de titre.
+- **Pas de `ON DELETE CASCADE` de `documents` vers `document_versions`** :
+  la cascade effacerait les lignes en laissant leurs fichiers sur le
+  disque. Le service supprime les versions, fichiers compris, avant le
+  document.
+- **L'ancien fichier est fermé avant que sa version soit écrite**, et
+  l'archivage résiste à deux modifications simultanées (relevé en deux
+  temps par la revue de la PR). Le numéro de version est calculé par
+  l'`INSERT` lui-même, pas repris d'une ligne lue plus tôt ; un fichier ne
+  peut être archivé qu'une fois (index unique sur `file_id`), si bien que
+  la requête qui arrive seconde ne fait rien au lieu d'échouer. Si
+  l'écriture échoue encore après une seconde tentative, le fichier reste
+  fermé et sur le disque — jamais supprimé sous une ligne qui pourrait le
+  désigner — et le journal le signale (`document_version_lost`, niveau
+  `warning`) sans annoncer de numéro que personne n'a reçu.
+- **Pas de restauration d'une ancienne version en un clic.** La roadmap
+  demande de consulter et de télécharger ; restaurer, c'est téléverser à
+  nouveau la version téléchargée.
+
+**À trancher pendant le chantier — cinq versions ou une durée.** Un
+plafond en nombre ne dit pas la même chose selon le document : pour un
+règlement mis à jour une fois l'an, cinq versions remontent à cinq ans ;
+pour une liste de matériel modifiée trois fois par camp, elles couvrent
+un été. Le plafond en nombre est gardé, conformément à D7 : il est simple
+à expliquer (« les cinq dernières ») et borne le stockage sans tâche
+planifiée. Une durée paraîtrait plus juste pour les documents très
+souvent remplacés ; si l'usage le confirme, la constante
+`DocumentService::KEPT_VERSIONS` est le seul endroit à changer, et le
+passage à une durée demanderait une tâche de purge. Rien n'est changé
+en silence.
+
+**Divergences avec le document de chantier.** Aucune.
+
+**Reporté.** Rien.
+
+**Vérification finale.** `vendor/bin/phpstan analyse` sans erreur ; suite
+PHPUnit complète verte (SQLite, 20 620 tests) ; groupe `database` de
+`tests/Core/Database` et `tests/Integration` vert sur MariaDB ;
+`tests/Modules/Documents` : 63 tests.
+
+---
+
+## IT-03 — Documentation et aide
+
+**Livré.**
+- `ARCHITECTURE.md` §8.121 : les deux pages, la visibilité qui n'est pas
+  un rôle, l'adresse stable et sa redirection (302 et pourquoi pas 301,
+  `noindex` et sa limite), la règle du `role_min` des anciennes versions,
+  et **la dette assumée du cinquième mécanisme de documents**, avec les
+  quatre autres nommés (`section_documents`, `camp_documents`,
+  `rental_documents`, `member_documents`), ce qui les sépare et ce qui
+  déclenchera l'extraction.
+- `specifications.md` §46 complété : les versions (46.4) et l'écran de
+  gestion (46.5), et la ligne de §4.4 qui mentionne l'historique.
+- Sujet d'aide public : le message exact qu'affiche un lien réservé ou
+  l'ancien lien d'une version remplacée. Le sujet de gestion avait reçu
+  sa section sur les versions avec l'IT-02.
+
+**Décisions autonomes.**
+- **Le message cité dans l'aide est celui de `FileController`** (« Ce
+  fichier n'est pas accessible avec votre compte. ») : un lien réservé
+  ne redirige pas vers la connexion, il refuse. L'aide dit ce que la
+  personne voit réellement.
+
+**Divergences avec le document de chantier.** La roadmap place la
+section de `specifications.md` et les deux sujets d'aide à l'IT-03 ; les
+tests d'inventaire les exigeaient dès l'IT-01 (voir cette section).
+L'IT-03 les complète au lieu de les créer.
+
+**Reporté.** Rien.
+
+
+**Vérification finale.** `tests/Architecture` (dont la résolution des
+renvois), `tests/Core/Help`, `ModuleSpecificationCoverageTest` et
+`tests/Modules/Documents` verts.
