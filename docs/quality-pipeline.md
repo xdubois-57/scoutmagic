@@ -142,6 +142,19 @@ Inheritance counts — the four `Modules\Groups\Controller` classes build
 nothing themselves and are held to the rule anyway, because
 `GroupsControllerTestCase` builds it for them.
 
+**And so does composition, which `extends` never shows.** A class that
+builds a support class whose constructor opens a connection, or calls a
+helper method that does, reaches a database as surely as one writing the
+idiom itself. Four did while this guard called them green
+(`RemotePassphraseTest`, `RemoteRetentionTest`, `RentalBookingMailServiceTest`,
+`RedirectServiceTest`) — the detector had already classified those helpers
+as building one, and that answer was never asked for. **The method named is
+the method read**: calling `AttestationsTestHelper::writeTemporaryPdf()`
+is not calling its `createTables()`, and a first version that ignored the
+difference reported six compliant classes as offenders. One hop inside a
+helper is followed (`shippedOnlyForModule()` → `self::emptyStore()`); a hop
+across two classes is not, and nothing in this suite needs it.
+
 The rule runs **one way only**. A class carrying the group without building
 one is not a defect: selecting a test that needed no database costs
 milliseconds, while missing one that did is the silent failure. Two classes
@@ -184,8 +197,8 @@ selected **9 619** tests where it should have selected **12 354**, out of a
 suite of 20 751: someone following that advice to check "the database part"
 of a change got a bit over three quarters of it, and nothing in the output
 said so. The base is named because the pair only means something as a pair:
-every later merge moves both numbers — the branch selects 12 407 of 20 842
-once `main`'s own new classes are in — and a ratio quoted without the tree
+every later merge moves both numbers — the branch selects 12 471 of 20 845
+once `main`'s own new classes and the four composition misses are in — and a ratio quoted without the tree
 it was taken on is the kind of figure this section had three copies of. A hundred and
 seventy-four classes built a database and said nothing, `covoiturage` and
 `documents` among them without a single grouped file between them.

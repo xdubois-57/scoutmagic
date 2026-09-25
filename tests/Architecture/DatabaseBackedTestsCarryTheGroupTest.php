@@ -280,9 +280,18 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
     public function testAClassInheritingItsFixtureIsStillAskedForTheGroup(): void
     {
         $classes = [
-            'Tests\\Fake\\Base' => ['file' => 'Base.php', 'parent' => null, 'abstract' => true, 'carries' => false, 'mounts' => true],
-            'Tests\\Fake\\Child' => ['file' => 'Child.php', 'parent' => 'Tests\\Fake\\Base', 'abstract' => false, 'carries' => false, 'mounts' => false],
-            'Tests\\Other\\Orphan' => ['file' => 'Orphan.php', 'parent' => null, 'abstract' => false, 'carries' => false, 'mounts' => false],
+            'Tests\\Fake\\Base' => [
+                'file' => 'Base.php', 'parent' => null, 'abstract' => true,
+                'carries' => false, 'mounts' => true, 'names' => [], 'builders' => [],
+            ],
+            'Tests\\Fake\\Child' => [
+                'file' => 'Child.php', 'parent' => 'Tests\\Fake\\Base', 'abstract' => false,
+                'carries' => false, 'mounts' => false, 'names' => [], 'builders' => [],
+            ],
+            'Tests\\Other\\Orphan' => [
+                'file' => 'Orphan.php', 'parent' => null, 'abstract' => false,
+                'carries' => false, 'mounts' => false, 'names' => [], 'builders' => [],
+            ],
         ];
 
         $this->assertTrue(
@@ -739,11 +748,21 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
             'a marker on one method selects that method, not the class'
         );
 
+        // **It spells the ATTRIBUTE, and it imports `Group`** — both on
+        // purpose, and a reviewer had to say why. The first version of this
+        // fixture wrote « No `@group database`, on purpose », which carries
+        // no `#[` at all: since carriesPattern() needs a literal `#[`, that
+        // assertion was false whatever withoutComments() did, so it never
+        // exercised the stripping it claimed to. Its failure message even
+        // said « even one spelling the attribute exactly » about a fixture
+        // that did not. The same defect as its sibling above, and found the
+        // same way.
         $denyingIt = $this->classesIn(<<<'PHP'
             <?php
             namespace Tests\Fake;
+            use PHPUnit\Framework\Attributes\Group;
             /**
-             * **No `@group database`, on purpose.** Nothing here needs a server.
+             * **No `#[Group('database')]`, on purpose.** Nothing here needs a server.
              */
             class OtherTest extends TestCase
             {
@@ -767,6 +786,121 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
             'prose in the heading is prose: comments are taken out before the marker is looked '
                 . 'for, so a sentence naming the group — even one spelling the attribute exactly, '
                 . 'even one refusing it — cannot pass for a marker'
+        );
+    }
+
+    /**
+     * **Composition reaches a database too, and `extends` never sees it.**
+     *
+     * Eight rounds into this guard, a reviewer pointed out that
+     * `inheritsABuild()` walks the parent chain and nothing else. Three
+     * classes in this suite touched an in-memory database on every run by
+     * BUILDING a support class that opens one, carried no marker, and were
+     * called green — the guard's own failure mode, once more. A fourth,
+     * `Core\Maintenance\Remote\RemotePassphraseTest`, came out of the fix
+     * and was in nobody's list: it names `RefusingSettingService`, whose
+     * PARENT's constructor opens the connection.
+     *
+     * The verdict already existed — the detector classified those helpers
+     * as building one — and went nowhere. That is the shape worth
+     * remembering: not a detector that failed to see, one whose answer was
+     * never asked for.
+     */
+    public function testAClassThatBuildsAHelperWhichOpensADatabaseIsHeldToTheRule(): void
+    {
+        $classes = $this->classesIn(<<<'PHP'
+            <?php
+            namespace Tests\Fake;
+            class Store
+            {
+                public function __construct() { $this->pdo = new \PDO('sqlite::memory:'); }
+            }
+            class ThingTest extends TestCase
+            {
+                protected function setUp(): void { $this->store = new Store(); }
+            }
+            PHP, 'Fake.php');
+
+        $this->assertFalse(
+            $classes['Tests\Fake\ThingTest']['mounts'],
+            'it builds nothing in its own body — which is exactly why extends and mounts both miss it'
+        );
+        $this->assertTrue(
+            $this->buildsADatabase('Tests\Fake\ThingTest', $classes),
+            'the class hands the work to one that opens a database, so it reaches one'
+        );
+    }
+
+    /**
+     * **And the method named is the method read**, which is what keeps this
+     * from being noise.
+     *
+     * A first version asked only « does this class open one anywhere? » and
+     * reported nine classes where four were the point: every test calling
+     * `AttestationsTestHelper::writeTemporaryPdf()` — which touches no
+     * database — was named an offender because that helper's
+     * `createTables()` does. Six false positives, on a guard whose own
+     * history says a false positive reads as an order rather than as a
+     * defect.
+     */
+    public function testCallingAnotherMethodOfTheSameHelperIsNotBuildingOne(): void
+    {
+        $classes = $this->classesIn(<<<'PHP'
+            <?php
+            namespace Tests\Fake;
+            class Helper
+            {
+                public static function tables(): void { $pdo = new \PDO('sqlite::memory:'); }
+                public static function aTemporaryFile(): string { return '/tmp/x'; }
+            }
+            class ThingTest extends TestCase
+            {
+                public function testSomething(): void { $path = Helper::aTemporaryFile(); }
+            }
+            class OtherTest extends TestCase
+            {
+                protected function setUp(): void { Helper::tables(); }
+            }
+            PHP, 'Fake.php');
+
+        $this->assertFalse(
+            $this->buildsADatabase('Tests\Fake\ThingTest', $classes),
+            'the method it calls opens nothing, so naming the helper is not enough'
+        );
+        $this->assertTrue(
+            $this->buildsADatabase('Tests\Fake\OtherTest', $classes),
+            'and the one that calls the method which does opens one'
+        );
+    }
+
+    /**
+     * A method handing it to a SIBLING method counts, within one class.
+     *
+     * `Core\Mail\Template\EmailTemplateRendererFactory::shippedOnlyForModule()`
+     * is the real case: it opens nothing, it calls `self::emptyStore()`,
+     * and two test classes reach a database through that call alone.
+     * Without this pass the fix above found four of the six and missed
+     * those two.
+     */
+    public function testAMethodThatDelegatesToASiblingWhichOpensOneCountsToo(): void
+    {
+        $classes = $this->classesIn(<<<'PHP'
+            <?php
+            namespace Tests\Fake;
+            class Factory
+            {
+                public static function forModule(): object { return self::emptyStore(); }
+                private static function emptyStore(): \PDO { return new \PDO('sqlite::memory:'); }
+            }
+            class ThingTest extends TestCase
+            {
+                protected function setUp(): void { $this->renderer = Factory::forModule(); }
+            }
+            PHP, 'Fake.php');
+
+        $this->assertTrue(
+            $this->buildsADatabase('Tests\Fake\ThingTest', $classes),
+            'the method it calls opens one by way of its own sibling'
         );
     }
 
@@ -844,7 +978,7 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
      * only the class-level marker selects them all; a build the class
      * performs inside its own test methods is covered by marking those.
      *
-     * @param array<string, array{file: string, parent: ?string, abstract: bool, carries: bool, mounts: bool, uncovered: list<string>}> $classes
+     * @param array<string, array{file: string, parent: ?string, abstract: bool, carries: bool, mounts: bool, names: list<string>, uncovered: list<string>}> $classes
      */
     private function inheritsABuild(string $name, array $classes): bool
     {
@@ -854,28 +988,251 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
     }
 
     /**
-     * @param array<string, array{file: string, parent: ?string, abstract: bool, carries: bool, mounts: bool, uncovered: list<string>}> $classes
+     * @param array<string, array{file: string, parent: ?string, abstract: bool, carries: bool, mounts: bool, names: list<string>, uncovered: list<string>}> $classes
      */
-    private function buildsADatabase(string $name, array $classes): bool
+    private function buildsADatabase(string $name, array $classes, array $seen = []): bool
     {
-        // Depth-bounded rather than visited-set: a parent chain in this
-        // suite is three deep at most, and a bound cannot loop for ever on
-        // a cycle that a `class A extends B` typo would create.
+        // A visited set now, not a depth bound: composition has no shape to
+        // bound — a support class may name another, which may name a third
+        // — and two classes naming each other would loop for ever.
+        if (isset($seen[$name])) {
+            return false;
+        }
+        $seen[$name] = true;
+
+        $class = $classes[$name] ?? null;
+        if ($class === null) {
+            return false;
+        }
+        if ($class['mounts']) {
+            return true;
+        }
+        if ($class['parent'] !== null && $this->buildsADatabase($class['parent'], $classes, $seen)) {
+            return true;
+        }
+
+        return $this->namesABuilder($class, $classes, $seen);
+    }
+
+    /**
+     * Does this class hand the work to something that builds a database?
+     *
+     * **`extends` is not the only way to reach one**, and a reviewer had to
+     * point that out after eight rounds on this guard. Three classes in this
+     * suite touch an in-memory database on every run while writing none of
+     * the three idioms and inheriting nothing:
+     *
+     * - `Core\Maintenance\Remote\RemoteRetentionTest` builds an
+     *   `InMemorySettingService`, whose constructor opens one;
+     * - `Modules\SosStaff\Service\RedirectServiceTest` and
+     *   `Modules\Rental\Service\RentalBookingMailServiceTest` both call
+     *   `EmailTemplateRendererFactory::shippedOnlyForModule()`, which opens
+     *   one.
+     *
+     * The guard's own detector already classified both support classes as
+     * building a database. What it never did was carry that answer to the
+     * classes composing them — so the verdict existed and went nowhere,
+     * which is this guard's failure mode committed once more.
+     *
+     * **Only classes declared under `tests/` count**, which is the line
+     * that keeps this from becoming a scan of the whole product: a
+     * repository or a service under `core/` opens the connection the
+     * application gives it, and following those would report every
+     * controller test in the suite.
+     *
+     * @param array{names: list<string>} $class
+     * @param array<string, array{file: string, parent: ?string, abstract: bool, carries: bool, mounts: bool, names: list<string>, uncovered: list<string>}> $classes
+     * @param array<string, true> $seen
+     */
+    private function namesABuilder(array $class, array $classes, array $seen): bool
+    {
+        foreach ($class['names'] as $call) {
+            $split = strrpos($call, '::');
+            if ($split === false) {
+                continue;
+            }
+
+            $named = substr($call, 0, $split);
+            $method = substr($call, $split + 2);
+
+            if ($this->methodBuildsADatabase($named, $method, $classes, $seen)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Does `$named::$method` reach a database?
+     *
+     * **The method matters, and getting that wrong was measured rather than
+     * imagined.** A first version asked only « does this class build one
+     * anywhere? », and reported nine classes where three were the point:
+     * `AttestationsTestHelper` mounts in `createTables()`, so every test
+     * calling its `writeTemporaryPdf()` — which touches no database at all
+     * — was named an offender. Six false positives against three real
+     * misses, on a guard whose own PR documents that a false positive reads
+     * as an order rather than as a defect.
+     *
+     * Inherited methods count, so a helper extending one that mounts is not
+     * a way through. What is NOT followed is a second hop: a method that
+     * merely calls another class's mounting method is invisible here.
+     * Nothing in this suite is shaped that way today, and going further
+     * means resolving calls rather than matching them.
+     *
+     * @param array<string, array{parent: ?string, builders: list<string>, ...}> $classes
+     * @param array<string, true> $seen
+     */
+    private function methodBuildsADatabase(
+        string $named,
+        string $method,
+        array $classes,
+        array $seen
+    ): bool {
         for ($depth = 0; $depth < 10; $depth++) {
-            $class = $classes[$name] ?? null;
+            $class = $classes[$named] ?? null;
             if ($class === null) {
                 return false;
             }
-            if ($class['mounts']) {
+            if (in_array($method, $class['builders'], true)) {
                 return true;
             }
             if ($class['parent'] === null) {
                 return false;
             }
-            $name = $class['parent'];
+            $named = $class['parent'];
         }
 
         return false;
+    }
+
+    /**
+     * The classes a body BUILDS or CALLS, resolved as PHP resolves them.
+     *
+     * `new X(` and `X::` only — the two ways a body reaches another class's
+     * code. A type in a property declaration or a parameter is not one: it
+     * says what may be handed in, not what is constructed, and counting it
+     * would make every test naming a repository type look like a builder.
+     *
+     * Fed the COMMENT-STRIPPED body, for the reason this file has had to
+     * learn twice: a docblock naming a class is prose.
+     *
+     * @return list<string>
+     */
+    private function namedCalls(string $body, string $namespace, string $source): array
+    {
+        // `new X(` runs X's constructor; `X::m(` runs X::m. Nothing else is
+        // resolvable from text: `$service->save()` names no class, and a
+        // type in a property or a parameter says what MAY be handed in
+        // rather than what is built.
+        preg_match_all(
+            '/new\s+(\\\\?[A-Z]\w*(?:\\\\\w+)*)\s*\(/',
+            $body,
+            $built
+        );
+        preg_match_all(
+            '/(\\\\?[A-Z]\w*(?:\\\\\w+)*)::(\w+)\s*\(/',
+            $body,
+            $called,
+            PREG_SET_ORDER
+        );
+
+        $calls = [];
+
+        foreach ($built[1] as $written) {
+            $calls[$this->resolve($written, $namespace, $source) . '::__construct'] = true;
+        }
+
+        foreach ($called as $call) {
+            $calls[$this->resolve($call[1], $namespace, $source) . '::' . $call[2]] = true;
+        }
+
+        return array_keys($calls);
+    }
+
+    /**
+     * The methods of one class body that build a database, by name.
+     *
+     * The same split as buildersWithoutTheGroup(), asked a different
+     * question: not « is this method marked? » but « does this method reach
+     * a database? ». It is what makes the composition step above precise
+     * enough to be worth having — see namesABuilder().
+     *
+     * @return list<string>
+     */
+    private function mountingMethods(string $own): array
+    {
+        $found = preg_match_all(
+            '/^[ \t]*(?:(?:public|protected|private|static|final|abstract)\s+)*function\s+(\w+)\s*\(/m',
+            $own,
+            $methods,
+            PREG_SET_ORDER | PREG_OFFSET_CAPTURE
+        );
+
+        if ($found === 0 || $found === false) {
+            return [];
+        }
+
+        $bodies = [];
+
+        foreach ($methods as $index => $method) {
+            $offset = (int) $method[0][1];
+            $end = isset($methods[$index + 1])
+                ? $this->headingStart($own, (int) $methods[$index + 1][0][1])
+                : strlen($own);
+            $bodies[(string) $method[1][0]] = substr($own, $offset, $end - $offset);
+        }
+
+        $mounting = [];
+
+        foreach ($bodies as $name => $body) {
+            foreach (self::MOUNTS as $pattern) {
+                if (preg_match($pattern, $body) === 1) {
+                    $mounting[$name] = true;
+
+                    break;
+                }
+            }
+        }
+
+        // **And a method that hands it to a sibling.** Measured, not
+        // imagined: `EmailTemplateRendererFactory::shippedOnlyForModule()`
+        // builds nothing itself, it calls `self::emptyStore()` — and two
+        // test classes reach a database through exactly that call. Without
+        // this pass the composition step above found the four that name a
+        // mounting method directly and missed those two, which is half the
+        // finding it exists to answer.
+        //
+        // Within one class only, and until the set stops growing. A hop
+        // ACROSS classes is deliberately not followed: see
+        // methodBuildsADatabase() for what that costs and why it is not
+        // paid here.
+        for ($pass = 0; $pass < 10; $pass++) {
+            $grew = false;
+
+            foreach ($bodies as $name => $body) {
+                if (isset($mounting[$name])) {
+                    continue;
+                }
+
+                foreach (array_keys($mounting) as $builder) {
+                    $calls = '/(?:self::|static::|\$this->)' . preg_quote((string) $builder, '/') . '\s*\(/';
+                    if (preg_match($calls, $body) === 1) {
+                        $mounting[$name] = true;
+                        $grew = true;
+
+                        break;
+                    }
+                }
+            }
+
+            if (!$grew) {
+                break;
+            }
+        }
+
+        return array_keys($mounting);
     }
 
     /**
@@ -1002,6 +1359,15 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
                 }
             }
 
+            // **And what this class HANDS THE WORK TO.** A class can reach
+            // a database without writing one of the three idioms itself,
+            // by building a support class that does — which is composition,
+            // and `extends` never sees it. Three classes were in exactly
+            // that position while this guard called them green; see
+            // namesABuilder().
+            $names = $this->namedCalls(self::withoutComments($own), $namespace, $source);
+            $builders = $this->mountingMethods($own);
+
             $carries = false;
             if (preg_match($this->carriesPattern($source), $heading) === 1) {
                 $carries = true;
@@ -1010,6 +1376,8 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
             $classes[$namespace === '' ? $name : $namespace . '\\' . $name] = [
                 'file' => $file,
                 'parent' => $parent,
+                'names' => $names,
+                'builders' => $builders,
                 'uncovered' => $carries ? [] : $this->buildersWithoutTheGroup($own, $this->carriesPattern($source)),
                 // A class PHPUnit runs is a concrete one whose name ends
                 // in `Test`; the helpers, doubles and abstract bases beside
