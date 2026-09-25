@@ -209,6 +209,19 @@
         <div class="card-body">
             <h2 class="card-title h5 mb-3">Envoi d'email</h2>
 
+            {# The send mode and the relay are asked HERE only on the very
+               first run — a site has to be able to send before anybody can
+               open a configuration page. Afterwards they belong to
+               « Courrier sortant › Fournisseurs », which holds a whole
+               chain of providers rather than the single host this section
+               knows about, and a test message belongs to the Sonde, which
+               sends on the real chain (issue #336).
+
+               SetupController refuses these keys after initialisation
+               rather than trusting this gate: hiding a field does not stop
+               a POST carrying it, and writing them from here ERASED the
+               relay, since an absent smtp_host reads as an empty one. #}
+            {% if not is_initialized %}
             <div class="mb-3">
                 <label for="mail_mode" class="form-label">Mode d'envoi</label>
                 <select class="form-select{% if errors.mail_mode is defined %} is-invalid{% endif %}" id="mail_mode" name="mail_mode" required>
@@ -249,6 +262,26 @@
                     {% if errors.smtp_password is defined %}<div class="invalid-feedback">{{ errors.smtp_password }}</div>{% endif %}
                 </div>
             </div>
+            {% else %}
+            <div class="card bg-body-tertiary mb-3">
+                <div class="card-body">
+                    <h3 class="h6 mb-2">Relais d'envoi et message de test</h3>
+                    <p class="small text-body-secondary mb-2">
+                        Le relais d'envoi se règle dans « Courrier sortant › Fournisseurs », qui gère
+                        plusieurs fournisseurs et leur ordre de secours — ce que cette page, qui n'a
+                        jamais connu qu'un seul hôte, ne peut pas montrer. Un message de test s'envoie
+                        depuis la « Sonde », qui passe par la vraie chaîne plutôt que par les valeurs
+                        saisies ici.
+                    </p>
+                    <a href="/config/courrier-sortant/fournisseurs" class="btn btn-outline-secondary btn-sm">
+                        Ouvrir Fournisseurs
+                    </a>
+                    <a href="/config/courrier-sortant/sonde" class="btn btn-outline-secondary btn-sm">
+                        Ouvrir la Sonde
+                    </a>
+                </div>
+            </div>
+            {% endif %}
 
             {# The mail identity is asked HERE only once, on the very
                first run: a site has to be able to send before anybody can
@@ -308,7 +341,14 @@
 
             {# DKIM key — generation can happen ahead of the rest of setup
                via the button below, so the public key is available for
-               DNS configuration without waiting for the final save. #}
+               DNS configuration without waiting for the final save.
+
+               First run only since issue #336: afterwards the key, its DNS
+               record and its REGENERATION all live on « Courrier sortant ›
+               Authentification », which is the page that can also tell the
+               operator whether the record has caught up. The pointer above
+               already names it. #}
+            {% if not is_initialized %}
             <div class="mb-3">
                 <h3 class="h6 mb-2">Clé DKIM</h3>
                 <div id="dkim-key-section">
@@ -321,13 +361,6 @@
                                 <button type="button" class="btn btn-outline-secondary btn-copy-value" data-copy-target="dkim-pubkey-display">Copier</button>
                             </div>
                         </div>
-                        {% if is_initialized %}
-                        <div class="form-check mt-2">
-                            <input class="form-check-input" type="checkbox" id="regenerate_dkim" name="regenerate_dkim" value="1">
-                            <label class="form-check-label" for="regenerate_dkim">Régénérer la clé DKIM</label>
-                            <div class="form-text text-warning">Attention : si vous régénérez la clé, vous devrez mettre à jour l'enregistrement DNS correspondant.</div>
-                        </div>
-                        {% endif %}
                     {% else %}
                         <p class="text-body-secondary small">Aucune clé DKIM pour le moment — une clé sera générée automatiquement lors de l'enregistrement final, mais la propagation DNS peut prendre du temps : générez-la dès maintenant si vous voulez configurer l'enregistrement DNS DKIM sans attendre la fin de l'installation.</p>
                         <div class="mb-2">
@@ -341,7 +374,10 @@
                 </div>
             </div>
 
-            {# SMTP test #}
+            {# SMTP test — first run only, and for the sharper of the two
+               reasons: it tests « les paramètres saisis ci-dessus », which
+               after initialisation are fields nobody can see. The Sonde
+               sends on the real chain instead. #}
             <div class="mt-3 mb-3">
                 <label for="test_email_recipient" class="form-label">Tester l'envoi d'email</label>
                 <div class="input-group">
@@ -354,6 +390,7 @@
                 <div class="form-text">Teste les paramètres SMTP actuellement saisis ci-dessus (pas encore besoin d'enregistrer).</div>
                 <span id="email-test-result" class="small"></span>
             </div>
+            {% endif %}
 
             {# DNS records panel — first run only, for the same reason as
                the addresses above: afterwards the live check lives on
@@ -424,19 +461,23 @@
         </div>
     </div>
 
-    {# Section 4: Admin account #}
+    {# Section 4: the initial administrator — FIRST RUN ONLY (issue #336).
+
+       Afterwards « Comptes superadmin » (/config/superadmins) is where
+       accounts live. What this page loses, deliberately: a superadmin could
+       set the password of ANY address from here and make it a superadmin in
+       one move. That is a large power to leave on a page whose subject is
+       the server, and SetupController no longer reads these fields after
+       initialisation even when they are posted by hand. #}
+    {% if not is_initialized %}
     <div class="card mb-4">
         <div class="card-body">
-            <h2 class="card-title h5 mb-3">{% if not is_initialized %}Administrateur initial{% else %}Compte administrateur{% endif %}</h2>
+            <h2 class="card-title h5 mb-3">Administrateur initial</h2>
 
             <div class="mb-3">
                 <label for="admin_email" class="form-label">Email administrateur</label>
-                <input type="email" class="form-control{% if errors.admin_email is defined %} is-invalid{% endif %}" id="admin_email" name="admin_email" value="{{ values.admin_email ?? '' }}" {% if not is_initialized %}required{% endif %}>
-                {% if not is_initialized %}
+                <input type="email" class="form-control{% if errors.admin_email is defined %} is-invalid{% endif %}" id="admin_email" name="admin_email" value="{{ values.admin_email ?? '' }}" required>
                 <div class="form-text">Adresse email de la première personne administratrice. Un compte sera créé avec le rôle administrateur.</div>
-                {% else %}
-                <div class="form-text">Remplissez pour créer ou mettre à jour le compte administrateur. Laissez vide pour ne rien changer.</div>
-                {% endif %}
                 {% if errors.admin_email is defined %}<div class="invalid-feedback">{{ errors.admin_email }}</div>{% endif %}
             </div>
 
@@ -453,16 +494,29 @@
                 field_name: 'admin_password',
                 label: 'Mot de passe administrateur',
                 confirm_name: 'admin_password_confirm',
-                required: not is_initialized,
-                help: is_initialized
-                    ? 'Laissez vide pour conserver le mot de passe actuel.'
-                    : 'Ce mot de passe permet de se connecter sans attendre un import Desk.',
+                required: true,
+                help: 'Ce mot de passe permet de se connecter sans attendre un import Desk.',
             } %}
             {% if errors.admin_password is defined %}
                 <div class="text-danger small mb-3">{{ errors.admin_password }}</div>
             {% endif %}
         </div>
     </div>
+    {% else %}
+    <div class="card mb-4">
+        <div class="card-body">
+            <h2 class="card-title h5 mb-3">Comptes</h2>
+            <p class="small text-body-secondary mb-2">
+                Les comptes superadmin se gèrent depuis « Comptes superadmin » : en accorder un, le
+                retirer, et voir qui en a un. Un mot de passe se change depuis la page du compte
+                concerné, ou se réinitialise par le lien envoyé par e-mail.
+            </p>
+            <a href="/config/superadmins" class="btn btn-outline-secondary btn-sm">
+                Ouvrir Comptes superadmin
+            </a>
+        </div>
+    </div>
+    {% endif %}
 
     {# Usage statistics — Core\Statistics, ARCHITECTURE.md §8.47. Only on a
        first install: afterwards the switch lives on Configuration > Diagnostic,

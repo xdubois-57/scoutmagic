@@ -39,9 +39,17 @@ class TransportSeederTest extends TestCase
         $this->providers = new MailProviderRepository($this->pdo);
         $this->chains = new LaneChainRepository($this->pdo);
         $this->settings = new SettingService(new SettingRepository($this->pdo));
-        foreach ([TransportSeeder::SETTING_SEEDED, TransportSeeder::SETTING_RELAY_IMPORTED] as $flag) {
-            $this->settings->register($flag, '0', 'boolean', 'Semé', 'Test', null, null, null, false);
-        }
+        $this->settings->register(
+            TransportSeeder::SETTING_SEEDED,
+            '0',
+            'boolean',
+            'Semé',
+            'Test',
+            null,
+            null,
+            null,
+            false
+        );
     }
 
     public function testAnInstallationWithARelayKeepsItAtTheHeadOfEveryLane(): void
@@ -196,41 +204,53 @@ class TransportSeederTest extends TestCase
     }
 
     /**
-     * The second finding, and the reason one flag could not carry both
-     * decisions: an installation seeded while local-only must still pick
-     * up the relay somebody configures through the wizard a month later.
+     * **A seeded installation does not seed again** — which is what the
+     * second flag's removal had to leave true (issue #336).
      *
-     * Gated on a single permanent flag, it never would have — every
-     * message would have gone on leaving locally for ever while
-     * « Installation & serveur » showed a relay, and the wizard's own
-     * test button calls `MailServiceFactory::create()` directly, so it
-     * would have reported success the whole time.
+     * That flag existed for one path: a site seeded while local-only picking
+     * up a relay configured THROUGH THE WIZARD later. « Installation &
+     * serveur » no longer configures one after initialisation, so the path
+     * is gone — and this test is the other half of the bargain, because
+     * without the flag the common boot must stop on the first read rather
+     * than re-read the secrets and decide again.
+     *
+     * A relay appearing in `secrets.enc` afterwards is therefore NOT
+     * imported. That is the intended loss, and it costs nothing real: the
+     * only writer left is « Courrier sortant › Fournisseurs », which
+     * creates the provider row itself.
      */
-    public function testARelayConfiguredAfterTheFirstBootIsStillPickedUp(): void
+    public function testASeededInstallationDoesNotImportARelayThatAppearsLater(): void
     {
         $this->seed(['mail_mode' => 'local']);
         $this->assertSame([], $this->providers->findAll());
         $this->assertSame('1', (string) $this->settings->get(TransportSeeder::SETTING_SEEDED));
-        $this->assertSame('0', (string) $this->settings->get(TransportSeeder::SETTING_RELAY_IMPORTED));
 
-        // The administrator configures the relay through the wizard.
+        // A relay written into the secrets after the seeding — which is what
+        // the wizard used to be able to do.
         $this->seed(['mail_mode' => 'smtp', 'smtp_host' => 'ssl0.ovh.net']);
 
-        $providers = $this->providers->findAll();
-        $this->assertCount(1, $providers, 'The relay became a provider on the boot that followed.');
-        $this->assertSame('Ovh', $providers[0]['name']);
+        $this->assertSame(
+            [],
+            $this->providers->findAll(),
+            'a seeded installation read the secrets again and imported a relay on a later boot'
+        );
         foreach (MailLane::ordered() as $lane) {
             $ids = array_map(static fn(LaneEntry $e): int => $e->providerId, $this->chains->forLane($lane));
-            $this->assertSame([(int) $providers[0]['id'], MailProvider::LOCAL_ID], $ids);
+            $this->assertSame([MailProvider::LOCAL_ID], $ids, 'the lanes were rewritten on a later boot');
         }
     }
 
     /**
-     * The other side of that door, and why the import has a flag of its
-     * own: once the relay HAS been imported, deleting it from the
-     * Fournisseurs page is a decision. `ProviderConnections::forget()`
-     * deliberately keeps the four legacy keys, so a seeder that merely
-     * re-read the secrets would put the row back on the next request.
+     * And the case that mattered most, which the single flag now answers
+     * structurally rather than carefully: once the relay is imported,
+     * deleting it from the Fournisseurs page is a DECISION.
+     *
+     * `ProviderConnections::forget()` deliberately keeps the four legacy
+     * keys in `secrets.enc`, so a seeder that re-read them would put the row
+     * back on the next request — and the administrator would find the relay
+     * they had just removed sitting at the head of every lane again. This
+     * is why removing the second flag had to make the common boot return
+     * EARLIER rather than later (issue #336).
      */
     public function testARelayDeletedFromTheScreenIsNotResurrected(): void
     {

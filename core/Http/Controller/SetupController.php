@@ -1486,13 +1486,20 @@ class SetupController extends AbstractController
             if ($data['db_password'] !== '') {
                 $currentSecrets['db_password'] = $data['db_password'];
             }
-            $currentSecrets['mail_mode'] = $data['mail_mode'];
-            $currentSecrets['smtp_host'] = $data['smtp_host'];
-            $currentSecrets['smtp_port'] = (int) $data['smtp_port'];
-            $currentSecrets['smtp_user'] = $data['smtp_user'];
-            if ($data['smtp_password'] !== '') {
-                $currentSecrets['smtp_password'] = $data['smtp_password'];
-            }
+            // **The relay is deliberately absent** (issue #336). This path
+            // only ever runs on an installed site, where the send mode and
+            // the SMTP credentials belong to « Courrier sortant ›
+            // Fournisseurs » — which holds the whole provider chain, of
+            // which these four keys are the FIRST ENTRY rather than a copy
+            // (`Core\Mail\Transport\TransportSeeder`: « the same storage,
+            // not a copy of it »).
+            //
+            // Writing them from here did real damage rather than merely
+            // duplicating a field: with the fields gone from the form,
+            // `$data['smtp_host']` is '' and `mail_mode` falls back to
+            // 'smtp', so every save of this page ERASED the relay. Refusing
+            // them here rather than trusting the form is also what stops a
+            // crafted POST doing it on purpose.
             $this->secretManager->writeSecrets($currentSecrets);
 
             // Write non-secret settings to settings table
@@ -1517,12 +1524,12 @@ class SetupController extends AbstractController
                 $this->settingService->clearCache();
             }
 
-            // Regenerate DKIM key if requested
-            if ($request->getBody('regenerate_dkim') === '1') {
-                $this->dkimManager->deleteKey();
-                $this->dkimManager->generateKey();
-                $this->forgetDnsReading();
-            }
+            // Regenerating the DKIM key moved to « Courrier sortant ›
+            // Authentification », which already shows the key and checks
+            // the DNS record it depends on (issue #336). Not read here at
+            // all any more: two screens for one action is how an operator
+            // ends up regenerating a key from the page that does not tell
+            // them the DNS record has to follow.
 
             // Run migration
             $connection = new Connection(
@@ -1545,10 +1552,14 @@ class SetupController extends AbstractController
                 $runner->migrate($this->schemaFileSet());
             }
 
-            // Create or update admin account if provided
-            if ($data['admin_email'] !== '' && $data['admin_password'] !== '') {
-                $this->upsertAdminAccount($connection, $currentSecrets, $data['admin_email'], $data['admin_password']);
-            }
+            // No account is created or changed from here (issue #336).
+            // « Comptes superadmin » (/config/superadmins) is where they
+            // live, and this path deliberately loses something along the
+            // way: a superadmin could set the password of ANY address from
+            // this form and make it a superadmin in one move. That is a
+            // powerful thing to leave on a page whose subject is the
+            // server, and it is not read here any more even when posted by
+            // hand.
 
             $this->journalService?->log(
                 'core',
@@ -1653,22 +1664,34 @@ class SetupController extends AbstractController
             $errors['base_url'] = 'L\'URL de base n\'est pas valide.';
         }
 
-        // Email settings
-        if (!in_array($data['mail_mode'], ['smtp', 'local'], true)) {
-            $errors['mail_mode'] = 'Le mode d\'envoi doit être SMTP ou Local.';
-        }
-        if ($data['mail_mode'] === 'smtp') {
-            if ($data['smtp_host'] === '') {
-                $errors['smtp_host'] = 'L\'hôte SMTP est requis en mode SMTP.';
+        // Email settings — ASKED ONCE, on the first run, for the same
+        // reason as the mail identity below: a site has to be able to send
+        // before anybody can open a configuration page. Afterwards the
+        // relay belongs to « Courrier sortant › Fournisseurs », which
+        // holds a whole chain rather than one host (issue #336).
+        //
+        // **Gating the validation is not a nicety, it is what makes the
+        // page savable at all.** With the fields gone from the form,
+        // `mail_mode` falls back to 'smtp' and `smtp_host` to '', so this
+        // block refused EVERY save of an installed site's configuration
+        // page — on a relay the operator had not touched and could not see.
+        if ($isFirstTime) {
+            if (!in_array($data['mail_mode'], ['smtp', 'local'], true)) {
+                $errors['mail_mode'] = 'Le mode d\'envoi doit être SMTP ou Local.';
             }
-            if ($data['smtp_port'] === '' || (int) $data['smtp_port'] < 1 || (int) $data['smtp_port'] > 65535) {
-                $errors['smtp_port'] = 'Le port SMTP doit être compris entre 1 et 65535.';
-            }
-            if ($data['smtp_user'] === '') {
-                $errors['smtp_user'] = 'L\'utilisateur SMTP est requis en mode SMTP.';
-            }
-            if ($isFirstTime && $data['smtp_password'] === '') {
-                $errors['smtp_password'] = 'Le mot de passe SMTP est requis en mode SMTP.';
+            if ($data['mail_mode'] === 'smtp') {
+                if ($data['smtp_host'] === '') {
+                    $errors['smtp_host'] = 'L\'hôte SMTP est requis en mode SMTP.';
+                }
+                if ($data['smtp_port'] === '' || (int) $data['smtp_port'] < 1 || (int) $data['smtp_port'] > 65535) {
+                    $errors['smtp_port'] = 'Le port SMTP doit être compris entre 1 et 65535.';
+                }
+                if ($data['smtp_user'] === '') {
+                    $errors['smtp_user'] = 'L\'utilisateur SMTP est requis en mode SMTP.';
+                }
+                if ($data['smtp_password'] === '') {
+                    $errors['smtp_password'] = 'Le mot de passe SMTP est requis en mode SMTP.';
+                }
             }
         }
         // The mail identity — expédition, nom, sélecteur DKIM, rapports
@@ -1800,47 +1823,6 @@ class SetupController extends AbstractController
                 . '?, ?, TRUE)'
         );
         $stmt->execute([$emailEncrypted, $emailBlindIndex, $passwordHash]);
-    }
-
-    /**
-     * Create or update the admin account during config update.
-     *
-     * @param array<string, mixed> $secrets
-     */
-    private function upsertAdminAccount(Connection $connection, array $secrets, string $email, string $password): void
-    {
-        $encryptionService = EncryptionService::fromEncodedKeys(
-            (string) $secrets['encryption_key'],
-            (string) $secrets['blind_index_key']
-        );
-        $normalizedEmail = strtolower(trim($email));
-        $blindIndex = $encryptionService->blindIndex($normalizedEmail, 'email');
-        $passwordHash = password_hash($password, PASSWORD_DEFAULT);
-
-        $pdo = $connection->getPdo();
-
-        // Check if account already exists
-        $stmt = $pdo->prepare('SELECT id FROM user_accounts WHERE email_blind_index = ?');
-        $stmt->execute([$blindIndex]);
-        $existing = $stmt->fetch(\PDO::FETCH_ASSOC);
-
-        if ($existing !== false) {
-            // Update password and ensure super admin
-            $stmt = $pdo->prepare('UPDATE user_accounts SET password_hash = ?, is_super_admin = TRUE WHERE id = ?');
-            $stmt->execute([$passwordHash, $existing['id']]);
-        } else {
-            // Create new admin account
-            $emailEncrypted = $encryptionService->encrypt($normalizedEmail, 'user_accounts.email');
-            $stmt = $pdo->prepare(
-                'INSERT INTO user_accounts (email_encrypted, email_blind_index, password_hash, is_super_admin) VALUES '
-                    . '(?, ?, ?, TRUE)'
-            );
-            $stmt->execute([$emailEncrypted, $blindIndex, $passwordHash]);
-        }
-
-        // Store admin email in secrets
-        $secrets['admin_email'] = $normalizedEmail;
-        $this->secretManager->writeSecrets($secrets);
     }
 
     private function cleanupFailedSetup(bool $masterKeyCreatedThisRun): void

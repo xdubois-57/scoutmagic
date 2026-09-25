@@ -1874,24 +1874,6 @@ $settingService->register(
     false,
     303
 );
-// Its sibling, and a separate decision: this one says the relay written
-// by « Installation & serveur » has become a provider row. An
-// installation seeded while local-only has no relay to import, so the
-// flag above is set and this one is not — which is what lets a relay
-// configured through the wizard a month later still be picked up
-// (Core\Mail\Transport\TransportSeeder).
-$settingService->register(
-    \Core\Mail\Transport\TransportSeeder::SETTING_RELAY_IMPORTED,
-    '0',
-    'boolean',
-    'Relais d\'installation repris',
-    'Indique si le relais SMTP de l\'assistant d\'installation est devenu un fournisseur.',
-    null,
-    null,
-    null,
-    false,
-    304
-);
 // The deferral queue's two numbers, and unlike the quota and the cadence
 // these ARE ordinary settings: scalars that need no context to be read,
 // so they belong on Configuration > Réglages with everything else and are
@@ -2102,6 +2084,45 @@ if ($settingService->get('scheduler_chain_settings_pruned') !== '1') {
 // secret and the refresh token lived in `secrets.enc` and now live in the
 // location's own encrypted column (D7) — so there is nothing to lose by
 // dropping them outright.
+// ————— The retired second seeding flag (issue #336) —————
+//
+// `mail_transport_relay_imported` recorded that « Installation & serveur »'s
+// relay had become a provider row, so that a site seeded while local-only
+// could pick up a relay configured THROUGH THAT PAGE later. The page no
+// longer configures one after initialisation — Fournisseurs writes a
+// provider row directly — so the flag has no path left to serve and
+// `Core\Mail\Transport\TransportSeeder` stopped registering it.
+//
+// Pruned rather than left behind, for the reason the two blocks below give:
+// a `module_id IS NULL` row outlives its `register()` call and would sit on
+// Configuration > Réglages for ever. `Tests\Architecture\
+// PrunedSettingsAreNoLongerDeclaredTest` holds the two halves together.
+if ($settingService->get('mail_transport_relay_flag_pruned') !== '1') {
+    $settingService->register(
+        'mail_transport_relay_flag_pruned',
+        '0',
+        'boolean',
+        'Nettoyage du second drapeau d\'amorçage effectué',
+        'Indique si le réglage retiré « Relais d\'installation repris » a été supprimé.',
+        null,
+        null,
+        null,
+        false,
+        999
+    );
+    $settingRepo->deleteCoreSettings(['mail_transport_relay_imported']);
+    // Through the repository, like the eleven other boot markers in this
+    // file, and NOT through `SettingService::set()`: that method asserts
+    // the setting is `editable`, and every one of these flags is
+    // registered with `false` precisely because nobody types into them.
+    // Written the other way, this line threw `SettingException` on EVERY
+    // request — a 500 on the whole site, invisible to 20 833 green tests
+    // because none of them boots this file, and reported by the browser
+    // jobs only (`Tests\Architecture\PrunedSettingsAreNoLongerDeclaredTest`
+    // holds it now).
+    $settingRepo->updateValue(null, 'mail_transport_relay_flag_pruned', '1');
+}
+
 if ($settingService->get('remote_backup_settings_pruned') !== '1') {
     $settingService->register(
         'remote_backup_settings_pruned',
@@ -4218,6 +4239,13 @@ $router->addRoute(
     '/config/courrier-sortant/authentification/dns',
     \Core\Http\Controller\OutboundMailController::class,
     'checkDns',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/courrier-sortant/authentification/cle-dkim',
+    \Core\Http\Controller\OutboundMailController::class,
+    'regenerateDkimKey',
     'superadmin',
 );
 $router->addRoute(

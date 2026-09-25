@@ -14,8 +14,11 @@ related: reglages, sauvegardes, config-notifications
 
 La page « Installation & serveur » regroupe les fondations du site.
 C'est elle qui sert d'assistant à la toute première installation, puis
-reste la page où l'on revient pour l'identité du site, la base de
-données et l'envoi d'e-mails.
+reste la page de l'identité du site, de la base de données et de la
+tâche cron.
+
+Une fois le site installé, elle ne garde que ce qui relève du serveur :
+l'envoi d'e-mails et les comptes ont chacun leur page.
 
 ## L'identité du site
 
@@ -37,18 +40,19 @@ tant qu'un test n'a pas réussi.
 > en arrière depuis l'interface. De même, changer l'adresse du site
 > casse les liens contenus dans les e-mails déjà envoyés.
 
-## L'envoi d'e-mails
+## L'envoi d'e-mails, pendant l'installation seulement
 
-Choisissez le mode d'envoi (un serveur SMTP est recommandé),
-renseignez ses accès, puis testez avec « Envoyer un test » — sans
-même devoir enregistrer d'abord. Le panneau « Configuration DNS
-requise » vérifie en direct les trois enregistrements à créer chez
-votre hébergeur de domaine (l'autorisation d'expéditeur, la signature
-des e-mails, la politique de réception) : chacun affiche « OK » ou
-« Manquant », avec la valeur exacte à copier. Sans ces
-enregistrements, les e-mails de l'unité risquent la boîte à courrier
-indésirable. Régénérer la clé de signature impose de mettre à jour
-l'enregistrement correspondant.
+L'assistant demande le mode d'envoi et ses accès, parce qu'un site
+doit pouvoir écrire avant qu'on puisse ouvrir une page de
+configuration. « Envoyer un test » les essaie sans enregistrer, et
+« Configuration DNS requise » donne les enregistrements à créer chez
+votre hébergeur de domaine.
+
+**Ensuite, ces réglages ne sont plus ici.** Le relais se règle dans
+« Courrier sortant › Fournisseurs » ; un test s'envoie depuis la
+« Sonde », qui passe par la vraie chaîne ; les adresses, la clé de
+signature, sa régénération et la vérification DNS vivent dans
+« Courrier sortant › Authentification ».
 
 ## La tâche cron
 
@@ -69,7 +73,8 @@ Lors de la toute première installation, le bouton « Installer » reste
 bloqué tant qu'il n'est pas passé au vert. Sur un site déjà
 configuré, l'indicateur avertit mais n'empêche jamais d'enregistrer.
 
-## Le compte administrateur
+## Le compte administrateur, pendant l'installation seulement
 
-Les champs du bas créent ou remettent à jour le compte administrateur
-du site : laissez-les vides pour ne rien changer.
+L'assistant crée le premier compte, pour se connecter sans attendre un
+import Desk. Ensuite, les comptes se gèrent depuis « Comptes
+superadmin ».

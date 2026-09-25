@@ -321,9 +321,202 @@ class SetupControllerTest extends TestCase
         $body = $response->getBody();
         $this->assertStringContainsString('Configuration du site', $body);
         $this->assertStringContainsString('Mon Unité', $body);
-        // Admin section should appear with update wording
-        $this->assertStringContainsString('admin_email', $body);
-        $this->assertStringContainsString('Compte administrateur', $body);
+
+        // **What an initialised site's page no longer offers** (issue #336).
+        // Each of these had a home of its own by the time this ran, and the
+        // same field on two screens is the thing that ends up with two
+        // values — the one that loses being whichever page the operator did
+        // not open.
+        //
+        // This test asserted the opposite until #336: « Admin section should
+        // appear with update wording ». It was right about the page as it
+        // was, which is why it is rewritten rather than deleted.
+        foreach (['mail_mode', 'smtp_host', 'smtp_user', 'admin_email', 'admin_password', 'regenerate_dkim'] as $gone) {
+            $this->assertStringNotContainsString(
+                'name="' . $gone . '"',
+                $body,
+                $gone . ' is still offered by the page of an initialised site'
+            );
+        }
+        $this->assertStringNotContainsString('Tester l\'envoi d\'email', $body);
+        $this->assertStringNotContainsString('Clé publique (pour l\'enregistrement DNS)', $body);
+
+        // And each one says where it went instead, which is the half that
+        // makes hiding it defensible.
+        $this->assertStringContainsString('/config/courrier-sortant/fournisseurs', $body);
+        $this->assertStringContainsString('/config/courrier-sortant/sonde', $body);
+        $this->assertStringContainsString('/config/courrier-sortant/authentification', $body);
+        $this->assertStringContainsString('/config/superadmins', $body);
+    }
+
+    /**
+     * **Hiding a field does not stop a POST carrying it**, and here that
+     * was the whole danger rather than a theoretical one.
+     *
+     * With the relay fields gone from the form, `mail_mode` fell back to
+     * 'smtp' and `smtp_host` to '': the validation then refused EVERY save
+     * of this page (« L'hôte SMTP est requis en mode SMTP. ») and, had it
+     * passed, the write would have erased the relay — those four keys are
+     * the first entry of the provider chain, not a copy of it.
+     */
+    public function testAnInitialisedSiteSavesWithoutTheFieldsItNoLongerShows(): void
+    {
+        $this->secretManager->generateMasterKey();
+        $this->secretManager->writeSecrets([
+            'db_host' => '127.0.0.1',
+            'db_port' => 3306,
+            'db_name' => 'test',
+            'db_user' => 'root',
+            'db_password' => 'pass',
+            'site_name' => 'Mon Unité',
+            'short_name' => '25SV',
+            'base_url' => 'https://example.com',
+            'mail_mode' => 'smtp',
+            'smtp_host' => 'relais.example.be',
+            'smtp_port' => 2525,
+            'smtp_user' => 'envoi@example.be',
+            'smtp_password' => 'le-mot-de-passe-du-relais',
+        ]);
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+
+        // Exactly what the page now posts: no mail_mode, no smtp_*, no
+        // admin_*, no regenerate_dkim.
+        //
+        // The token matters here beyond ceremony: without it `save()`
+        // returns the CSRF guard's 302 before reaching any of this, which
+        // an « is it not a 422? » assertion accepts happily. That is how
+        // the first version of this test passed while proving nothing.
+        $this->issueCsrfToken();
+        $response = $controller->save(new Request('POST', '/setup/save', [], [
+            'db_host' => '127.0.0.1',
+            'db_port' => '3306',
+            'db_name' => 'test',
+            'db_user' => 'un-autre-utilisateur',
+            'db_password' => '',
+            'site_name' => 'Mon Unité renommée',
+            'short_name' => '25SV',
+            'base_url' => 'https://example.com',
+        ], [], []), []);
+
+        $this->assertNotSame(
+            422,
+            $response->getStatusCode(),
+            'the page of an initialised site refused its own submission'
+        );
+
+        $after = $this->secretManager->readSecrets();
+
+        // **The premise, asserted before anything else.** Without it the
+        // test passes when the save never reached the write at all — every
+        // « was erased » assertion below then holds trivially, and the
+        // mutation that puts the relay write back stays green. Measured:
+        // that is exactly what the first version of this test did.
+        //
+        // `db_user` and not `site_name`: the site's name goes to the
+        // settings TABLE on this path, and only the database credentials
+        // reach `secrets.enc` — so asserting the name proved nothing about
+        // whether the file had been rewritten, which is the question here.
+        $this->assertSame(
+            'un-autre-utilisateur',
+            $after['db_user'] ?? null,
+            'the save did not reach the secrets write, so this test proves nothing about the relay'
+        );
+        $this->assertSame('relais.example.be', $after['smtp_host'] ?? null, 'the relay host was erased');
+        $this->assertSame(2525, $after['smtp_port'] ?? null, 'the relay port was erased');
+        $this->assertSame('envoi@example.be', $after['smtp_user'] ?? null, 'the relay user was erased');
+        $this->assertSame(
+            'le-mot-de-passe-du-relais',
+            $after['smtp_password'] ?? null,
+            'the relay password was erased'
+        );
+        $this->assertSame('smtp', $after['mail_mode'] ?? null, 'the send mode was rewritten');
+    }
+
+    /**
+     * **And posted by hand, they are still ignored** — which is the half
+     * that a hidden field cannot provide.
+     *
+     * `regenerate_dkim` would rotate the signing key from a page that says
+     * nothing about the DNS record having to follow, and `admin_email` plus
+     * `admin_password` would set the password of ANY address and make it a
+     * superadmin, from the page whose subject is the server. Both are
+     * refused at the controller rather than merely absent from the form.
+     */
+    public function testAHandPostedRegenerationOrAdminAccountIsIgnoredOnAnInitialisedSite(): void
+    {
+        $this->secretManager->generateMasterKey();
+        $this->secretManager->writeSecrets([
+            'db_host' => '127.0.0.1',
+            'db_port' => 3306,
+            'db_name' => 'test',
+            'db_user' => 'root',
+            'db_password' => 'pass',
+            'site_name' => 'Mon Unité',
+            'short_name' => '25SV',
+            'base_url' => 'https://example.com',
+            'encryption_key' => base64_encode(str_repeat('k', 32)),
+            'blind_index_key' => base64_encode(str_repeat('b', 32)),
+        ]);
+        $this->dkimManager->generateKey();
+        $before = $this->dkimManager->getPublicKey();
+        $this->assertNotSame('', (string) $before, 'the fixture needs a key for its rotation to be observable');
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+
+        $this->issueCsrfToken();
+        $controller->save(new Request('POST', '/setup/save', [], [
+            'db_host' => '127.0.0.1',
+            'db_port' => '3306',
+            'db_name' => 'test',
+            // DIFFERENT from the stored fixture, and that is the premise
+            // assertion rather than a detail: posting 'root' again, as this
+            // test first did, proves nothing at all — the value reads back
+            // the same whether the save ran or returned on the first
+            // validation error, so every assertion below would have passed
+            // over a save that never happened.
+            'db_user' => 'un-autre-utilisateur',
+            'db_password' => '',
+            'site_name' => 'Mon Unité',
+            'short_name' => '25SV',
+            'base_url' => 'https://example.com',
+            // Neither of these is on the page any more.
+            'regenerate_dkim' => '1',
+            'admin_email' => 'quelquun-dautre@example.be',
+            'admin_password' => 'Un-mot-de-passe-long-1!',
+            'admin_password_confirm' => 'Un-mot-de-passe-long-1!',
+        ], [], []), []);
+
+        $this->assertSame(
+            'un-autre-utilisateur',
+            $this->secretManager->readSecrets()['db_user'] ?? null,
+            'the save did not reach handleConfigUpdate(), so nothing below is tested'
+        );
+
+        $this->assertSame(
+            $before,
+            $this->dkimManager->getPublicKey(),
+            'a hand-posted regenerate_dkim rotated the signing key from a page that no longer offers it'
+        );
+
+        $after = $this->secretManager->readSecrets();
+        $this->assertArrayNotHasKey(
+            'admin_email',
+            $after,
+            'a hand-posted admin_email was recorded by a page that no longer offers it'
+        );
+
+        // And the assertion above cannot carry the administrator half on its
+        // own, which a reviewer had to point out: the write it watches for
+        // sat AFTER the database connection and the migration, so this
+        // fixture's failure to connect returns through the error path before
+        // reaching it — the key would read as absent with the old call
+        // restored. What cannot be short-circuited by an early return is
+        // that the method is GONE.
+        $this->assertFalse(
+            method_exists(SetupController::class, 'upsertAdminAccount'),
+            'the page that no longer offers an administrator field has a method to write one again'
+        );
     }
 
     /**

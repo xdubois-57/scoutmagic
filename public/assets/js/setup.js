@@ -127,12 +127,26 @@
         }
     });
 
-    // Toggle SMTP fields visibility
+    // Toggle SMTP fields visibility.
+    //
+    // **Guarded, because these two only exist during first-run** (#336): the
+    // mode and the SMTP block moved to « Courrier sortant › Fournisseurs »
+    // once the site is installed, so `mail_mode` is null on that page. This
+    // whole file is one top-level IIFE with no try/catch, so the TypeError
+    // an unguarded listener throws aborts EVERY statement below it —
+    // including updateSaveState(), the only thing that ever clears
+    // `disabled` on #btn-save. The page was left unable to save anything at
+    // all, with the database test, the cron chip and the backup handlers
+    // dead beside it, from one null lookup. The same hazard is why
+    // fieldValue() and appendIfPresent() above exist; these two had not been
+    // converted with them.
     function toggleSmtp() {
         smtpFields.style.display = mailMode.value === 'smtp' ? 'block' : 'none';
     }
-    mailMode.addEventListener('change', toggleSmtp);
-    toggleSmtp();
+    if (mailMode && smtpFields) {
+        mailMode.addEventListener('change', toggleSmtp);
+        toggleSmtp();
+    }
 
     // --- Cron status chip + save gate -------------------------------------
     //
