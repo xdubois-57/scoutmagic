@@ -253,18 +253,25 @@ final class ReferenceDatasetBuildTest extends TestCase
      */
     public function testEverySeededDomainWroteSomething(): void
     {
+        // English, like the sentence they are interpolated into. They read
+        // as part of an assertion message, so they are code — and a
+        // French noun inside an English sentence is the mix this whole
+        // change exists to remove, in the one shape
+        // `Tests\Architecture\AssertionMessagesAreEnglishTest` cannot
+        // see: it scores an interpolation hole as blank, never the value
+        // that lands in it.
         foreach ([
-            'calendar_events' => 'le calendrier',
-            'news_articles' => 'les actualités',
-            'registration_requests' => 'les inscriptions',
-            'banners' => 'les bannières',
-            'gallery_albums' => 'la galerie',
-            'rental_assets' => 'le bien en location',
-            'rental_bookings' => 'les réservations',
-            'member_badges' => 'les badges',
-            'member_photos' => 'les photos de membres',
-            'finance_campaign_rows' => 'la campagne de paiement',
-            'finance_expected_receivables' => 'les créances',
+            'calendar_events' => 'the calendar',
+            'news_articles' => 'the news articles',
+            'registration_requests' => 'the registrations',
+            'banners' => 'the banners',
+            'gallery_albums' => 'the gallery',
+            'rental_assets' => 'the rented asset',
+            'rental_bookings' => 'the bookings',
+            'member_badges' => 'the badges',
+            'member_photos' => 'the member photographs',
+            'finance_campaign_rows' => 'the payment campaign',
+            'finance_expected_receivables' => 'the receivables',
         ] as $table => $domain) {
             self::assertGreaterThan(0, $this->rowCount($table), "Nothing was seeded for {$domain}.");
         }
@@ -394,14 +401,16 @@ final class ReferenceDatasetBuildTest extends TestCase
             $counts[(string) $row['event_type']] = (int) $row['total'];
         }
 
+        // English, for the reason given above the domain map of
+        // testEverySeededDomainWroteSomething().
         foreach ([
-            'article_created' => 'les articles',
-            'form_response_submitted' => 'les réponses de formulaire',
-            'registration_request_received' => 'les demandes d\'inscription',
-            'badge_assigned' => 'les badges',
-            'member_scout_year_offset_changed' => 'les décalages d\'année',
-            'event_created' => 'les évènements du calendrier',
-            'banner_created' => 'les bannières',
+            'article_created' => 'the news articles',
+            'form_response_submitted' => 'the form responses',
+            'registration_request_received' => 'the registration requests',
+            'badge_assigned' => 'the badges',
+            'member_scout_year_offset_changed' => 'the scout-year offsets',
+            'event_created' => 'the calendar events',
+            'banner_created' => 'the banners',
         ] as $eventType => $domain) {
             self::assertGreaterThan(
                 0,

@@ -95,7 +95,12 @@ class ChainSeedingInvariantTest extends TestCase
     {
         $offences = [];
         foreach (self::armingCalls('<?php ' . $body, self::REARMING_METHODS) as $call) {
-            $offences[] = $call['method'] . '() ligne ' . $call['line'];
+            // `line`, not `ligne`: this string is interpolated into an
+            // English assertion message, and the sibling guard's own
+            // builder is already language-neutral. A word built into the
+            // list beforehand never appears as a literal argument to an
+            // assertion, so nothing scans for it.
+            $offences[] = $call['method'] . '() line ' . $call['line'];
         }
 
         $this->assertSame(

@@ -48,6 +48,20 @@ use PHPUnit\Framework\TestCase;
  * interface text under test. A message shorter than four words carries too
  * little signal for any detector and is left alone. Read the rule, do not
  * test against the detector.
+ *
+ * **And it cannot see what fills a hole.** An interpolation is scored as
+ * blank space, never as the value that lands in it at run time, so
+ * `"Nothing was seeded for {$domain}."` reads as English however French
+ * `$domain` turns out to be. The same for a fragment built into a list
+ * before the assertion is reached: a `'() ligne '` concatenated into
+ * `$offences` never appears as a literal argument to any assertion, so
+ * nothing here looks at it. Three such mixes were found in review, all in
+ * this change's own files — an English sentence with a French noun in the
+ * middle of it — and the population is small enough to have been swept by
+ * hand: the only other French map values under `tests/` are fixture DATA,
+ * which is French on purpose. Closing this properly would mean following
+ * a variable to where it was assigned, which is a different class of
+ * reader from the one below.
  */
 final class AssertionMessagesAreEnglishTest extends TestCase
 {
