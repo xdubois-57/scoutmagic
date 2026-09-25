@@ -37,10 +37,19 @@ use PHPUnit\Framework\TestCase;
  * A smaller pull request would have been reviewed, would have merged
  * before `main` moved, and would have shown each of these on its own
  * rather than three at once at the end. So the instruction now cuts the
- * work into blocks, and this file pins the three sentences that make that
- * real: the ceiling, the parallel-vs-serialised rule, and the merge
- * authorization covering every pull request in the set rather than the
- * first one.
+ * work into blocks, and this file pins the sentences that make that real:
+ * the ceiling, the parallel-vs-serialised rule, the merge authorization
+ * covering every pull request in the set rather than the first one — and
+ * the queue discipline the maintainer asked for in so many words once it
+ * had been run for a day: parallel development, serialised merges, a cap
+ * on how many pull requests are open at once, and the `git worktree` trap
+ * that silently tests the wrong working tree.
+ *
+ * **These assertions pin line wrapping as well as wording**, because
+ * `assertStringContainsString()` does. Reflowing a paragraph of § Fix the
+ * backlog can break one of them without changing a word of the rule —
+ * that happened while this very section was being rewritten. Re-wrap so
+ * the pinned phrase stays on one line; do not delete the assertion.
  *
  * Like Tests\Architecture\AutoMergeRuleIsWrittenDownTest, this proves only
  * that the rule is still there to obey. No test can check that anybody
@@ -127,6 +136,71 @@ final class BacklogIsCutIntoBlocksTest extends TestCase
             'AGENTS.md no longer says to merge `main` back into the branches still open after each '
             . 'block lands. Nothing else does it: « require branches up to date » is deliberately off '
             . 'on this repository, so a branch can be green against a base that no longer exists.',
+        );
+    }
+
+    /**
+     * The queue, and why it is not the same rule as the one above.
+     *
+     * Step 5 used to say that disjoint blocks are « each merged as it goes
+     * green, no waiting on a sibling ». Read literally that authorises two
+     * merges at once, which is the failure the serialisation rule exists
+     * to stop arriving by a different door: `main` moves under the second
+     * one, « require branches up to date » is off on this repository, and
+     * GitHub merges it against a base that no longer exists with checks
+     * that were computed against something else.
+     *
+     * The cap is the part no reasoning recovers if it is deleted, because
+     * it is a measurement of THIS repository — a re-merge costs a CI round
+     * of about nineteen minutes plus a review that prices itself near ten
+     * dollars — and a number nobody wrote down becomes a taste.
+     */
+    public function testMergesAreSerialisedAndTheOpenQueueHasACeiling(): void
+    {
+        $rules = self::agentRules();
+
+        $this->assertStringContainsString(
+            '**Development is parallel; merging never is.**',
+            $rules,
+            'AGENTS.md no longer says that only development runs in parallel. Without it, the '
+            . 'parallel-blocks rule above reads as permission to merge two pull requests at once, '
+            . 'which is how a branch merges against a base its green checks never saw.',
+        );
+
+        $this->assertStringContainsString(
+            'Hold the open pull requests as a queue, and cap it at four',
+            $rules,
+            'AGENTS.md no longer caps how many pull requests may be open at once. The number is a '
+            . 'measurement of this repository, not a preference: below it the queue starves, above '
+            . 'it the re-merges each merge forces cost more than the work they carry.',
+        );
+
+        $this->assertStringContainsString(
+            'pushed only on the next one to merge',
+            $rules,
+            'AGENTS.md no longer distinguishes the local re-check on every open branch (seconds, and '
+            . 'what actually catches a semantic conflict) from the push that spends a CI round the '
+            . 'next merge will invalidate.',
+        );
+    }
+
+    /**
+     * The trap that makes a green run mean nothing.
+     *
+     * Running several branches\' checks at once invites a `git worktree`,
+     * where `vendor/` is a symlink — so Composer resolves `$baseDir` to the
+     * main checkout and loads `Core\` and `Tests\` from the other working
+     * tree. The branch under test is never read. A mutation proof taken
+     * that way is green for the wrong reason, which is the one shape of
+     * wrong this repository cares about most.
+     */
+    public function testTheWorktreeTrapIsWrittenDownWhereTheChecksAreAskedFor(): void
+    {
+        $this->assertStringContainsString(
+            'Do not run those local checks in a `git worktree`',
+            self::agentRules(),
+            'AGENTS.md no longer warns that a worktree run tests the main checkout\'s code. Nothing '
+            . 'else does: the run is green, the output says nothing, and the branch was never read.',
         );
     }
 

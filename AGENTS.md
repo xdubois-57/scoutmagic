@@ -483,13 +483,38 @@ backlog » — and it is a standing instruction, not a one-off. It means:
    25 files, reviewed end to end in 10 min 47 s, sixteen agents, five real
    findings.
 
-5. **Run the blocks, in parallel where they do not touch each other.**
-   Blocks whose files are disjoint may be in flight at once — each on its
-   own branch off `main`, each merged as it goes green, no waiting on a
-   sibling. Blocks that touch the same files are **serialised**: the later
-   one branches from `main` *after* the earlier has merged. Overlapping
+5. **Run the blocks in parallel where they do not touch each other — and
+   merge them one at a time, always.** Blocks whose files are disjoint may
+   be *in flight* at once, each on its own branch off `main`.
+   Blocks that touch the same files are **serialised**: the later one
+   branches from `main` *after* the earlier has merged. Overlapping
    branches are exactly how the same file gets fixed twice, differently,
    and merged without a conflict marker.
+
+   **Development is parallel; merging never is.** The maintainer asks for
+   both halves in one breath — « Travaille en parallèle, mais fusionne les
+   PR une par une, jamais en même temps », and again « Parallélise ce que
+   tu peux, mais sérialise les merge de PR pour éviter de perdre du
+   temps ». Two merges at once is not faster, it is the failure this whole
+   step exists to stop, arriving by a different door: `main` moves under
+   the second one, and « require branches up to date » is off here, so
+   GitHub merges it happily against a base that no longer exists — the
+   required checks that went green were computed against something else.
+   One merge at a time, carried to completion, before the next begins.
+
+   **Hold the open pull requests as a queue, and cap it at four.**
+   Measured on this repository rather than chosen: every merge obliges a
+   re-merge of `main` into what is still open, and a push there costs a
+   full CI round — `Checks / test` alone runs about 19 minutes, and the
+   `Claude review` beside it prices itself at roughly 10 USD in its own
+   status comment. Below four, the reviewers idle between merges and the
+   queue starves; above it, the re-merges cost more than the work they
+   carry, and a merge invalidates every round started further down. So a
+   finished block whose pull request would be the fifth **waits on its
+   branch — pushed, green, with its body already written** — and is opened
+   the moment one merges. Keep starting new blocks while the queue drains:
+   a queue that empties with nothing entering it is an agent watching CI
+   with its hands in its pockets.
 
    Land the block others build on first, and after **each** merge bring
    `main` into every branch still open, then re-run the checks locally on
@@ -498,6 +523,28 @@ backlog » — and it is a standing instruction, not a one-off. It means:
    together. « Require branches up to date » is deliberately off on this
    repository (docs/quality-pipeline.md § Branch ruleset), so nothing does
    this for you.
+
+   **Locally on all of them; pushed only on the next one to merge.** The
+   local run is what catches the semantic conflict and it costs seconds;
+   the push is what spends the CI round, and the merge that follows it
+   invalidates any round started on a branch further down the queue. So
+   merge and check every open branch, push the head of the queue, and let
+   the others take their turn.
+
+   **Do not run those local checks in a `git worktree`.** `vendor/` there
+   is a symlink, so Composer's autoloader resolves `$baseDir` to the main
+   checkout and loads `Core\` and `Tests\` from the OTHER working tree:
+   the branch you believe you are testing is never read. A mutation proof
+   taken that way is worth nothing and looks green — this was found by
+   `Tests\Core\View\TwigCacheVersioningTest` failing with the main
+   checkout's path in it, not by suspecting the setup. Use one checkout and
+   switch branches in it; keep worktrees for pure git plumbing, where no
+   autoloader runs.
+
+   **Keep a self check-in armed until the queue is empty**, re-armed after
+   each merge. Webhook events for CI success and for a merge conflict
+   arrive late or not at all, and a queue whose head went green an hour ago
+   while nobody looked is precisely the time this step is meant to save.
 
 6. **Fix them** — every one of them, under the rules in this file: a test
    alongside each fix, `vendor/bin/phpstan analyse` before committing PHP,
