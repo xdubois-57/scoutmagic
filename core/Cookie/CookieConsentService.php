@@ -13,7 +13,12 @@ use Core\Http\RequestScheme;
 class CookieConsentService
 {
     private const CONSENT_COOKIE_NAME = 'cookie_consent';
-    private const CONSENT_DURATION_DAYS = 395; // 13 months per ePrivacy directive
+    /**
+     * Thirteen months, read from the one place that says so — the same
+     * constant the preferences page renders and that
+     * Core\Security\LastLoginMethodCookie applies (#444, #515).
+     */
+    private const CONSENT_DURATION_DAYS = CookieRegistry::THIRTEEN_MONTHS_DAYS;
 
     /** @var array<string, array{label: string, description: string}> */
     private const CATEGORY_META = [

@@ -215,7 +215,7 @@ class DeviceCredentialService
         $label = trim(preg_replace('/\s+/u', ' ', $label) ?? $label);
 
         return $label === ''
-            ? 'Appareil sans nom'
+            ? 'Accès sans nom'
             : mb_substr($label, 0, self::MAX_LABEL_LENGTH);
     }
 }

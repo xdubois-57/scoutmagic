@@ -11,6 +11,7 @@ namespace Core\Security;
 use Core\Cookie\CookieConsentException;
 use Core\Cookie\CookieConsentService;
 use Core\Cookie\CookieHelper;
+use Core\Cookie\CookieRegistry;
 use Core\Http\RequestScheme;
 
 /**
@@ -23,7 +24,15 @@ use Core\Http\RequestScheme;
 class LastLoginMethodCookie
 {
     public const NAME = 'last_login_method';
-    private const EXPIRY_DAYS = 395;
+    /**
+     * Thirteen months, read from the one place that says so.
+     *
+     * It used to be a `395` of its own, with the preferences page
+     * announcing « 13 mois » from a third copy and nothing holding the
+     * two together — so the page could promise a duration this cookie did
+     * not carry, and every test stayed green (#515).
+     */
+    private const EXPIRY_DAYS = CookieRegistry::THIRTEEN_MONTHS_DAYS;
 
     /** @var string[] */
     private const VALID_METHODS = ['magic-link', 'password', 'passkey'];

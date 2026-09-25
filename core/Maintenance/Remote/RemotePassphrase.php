@@ -52,6 +52,18 @@ final class RemotePassphrase
     public const CREATED_AT_SETTING = 'remote_backup_passphrase_created_at';
 
     /**
+     * The generation somebody stated they had copied off the server.
+     *
+     * **A number and not a flag, because the phrase changes.** A boolean
+     * « noted » would stay true across a regeneration, and the phrase it
+     * was set for would no longer open anything. Holding the generation
+     * makes a stale confirmation fail the comparison on its own, with
+     * nothing to remember to reset.
+     */
+    public const CONFIRMED_GENERATION_SETTING = 'remote_backup_passphrase_confirmed_generation';
+    public const CONFIRMED_AT_SETTING = 'remote_backup_passphrase_confirmed_at';
+
+    /**
      * The alphabet, and the omissions are the point.
      *
      * No `I`, `L`, `O`, `0` or `1`. This phrase exists to be copied onto
@@ -97,6 +109,72 @@ final class RemotePassphrase
         $settings->register(self::CREATED_AT_SETTING, '', 'text',
             'Phrase de passe distante créée le', 'Date de génération de la phrase de passe hors site.',
             null, null, null, false, 311);
+        $settings->register(self::CONFIRMED_GENERATION_SETTING, '0', 'text',
+            'Génération de la phrase de passe distante notée',
+            'La génération qu\'un administrateur a déclaré avoir recopiée hors du serveur.',
+            null, null, null, false, 312);
+        $settings->register(self::CONFIRMED_AT_SETTING, '', 'text',
+            'Phrase de passe distante notée le', 'Date de cette déclaration.',
+            null, null, null, false, 313);
+    }
+
+    /**
+     * Has the phrase in force been copied off this server?
+     *
+     * **Reading it is not copying it**, which is why this is not derived
+     * from the reveal journal. Somebody who opened the screen to check
+     * something has seen the phrase; the archives are only survivable
+     * once it exists somewhere this server does not. Nothing here can
+     * verify that it does — only a person can state it, and this records
+     * the statement.
+     *
+     * `>=` and not `===`: a generation ahead of the one in force can only
+     * come from a hand-edited row, and a site that has somehow recorded
+     * one is better served by a claim that reads as satisfied than by a
+     * warning it can never clear.
+     */
+    public function isNoted(): bool
+    {
+        $generation = $this->generation();
+
+        return $generation > 0 && $this->confirmedGeneration() >= $generation;
+    }
+
+    /** Which generation was declared copied, 0 when none ever was. */
+    public function confirmedGeneration(): int
+    {
+        return max(0, (int) ($this->settings->get(self::CONFIRMED_GENERATION_SETTING) ?: '0'));
+    }
+
+    public function confirmedAt(): string
+    {
+        return (string) ($this->settings->get(self::CONFIRMED_AT_SETTING) ?: '');
+    }
+
+    /**
+     * Records that the phrase in force has been copied off the server.
+     *
+     * Refuses when there is no phrase yet: a site that has never sent
+     * anything has nothing to note, and a confirmation recorded against
+     * generation 0 would silently satisfy the first real phrase the day
+     * it is generated.
+     *
+     * @return bool false when there was no phrase to confirm
+     */
+    public function markNoted(): bool
+    {
+        $generation = $this->generation();
+        if ($generation === 0) {
+            return false;
+        }
+
+        $this->settings->setInternal(self::CONFIRMED_GENERATION_SETTING, (string) $generation);
+        $this->settings->setInternal(
+            self::CONFIRMED_AT_SETTING,
+            (new \DateTimeImmutable())->format('Y-m-d H:i:s')
+        );
+
+        return true;
     }
 
     /**

@@ -11,7 +11,7 @@ paths: /account/devices
 related: appareils-synchronises, mon-compte
 ---
 
-Une fois l'appareil enregistré (« Appareils synchronisés »), il reste à
+Une fois l'accès créé (« Synchroniser mes contacts »), il reste à
 le dire à l'application qui tient votre carnet d'adresses. Le site parle
 **CardDAV**, la norme que comprennent iOS, Android, Thunderbird et la
 plupart des gestionnaires de contacts.
@@ -20,15 +20,22 @@ plupart des gestionnaires de contacts.
 
 Ajoutez un compte de type **CardDAV** et renseignez :
 
-- **Serveur** : l'adresse du site, telle que la page « Appareils
-  synchronisés » l'affiche. Le domaine suffit — l'application trouve le
-  reste toute seule.
+- **Serveur** : l'**adresse complète** que la page « Synchroniser mes
+  contacts » affiche, terminée par `/carddav/staff/`. Copiez-la telle
+  quelle.
 - **Nom d'utilisateur** : votre adresse e-mail.
 - **Mot de passe** : celui qui ne vous a été montré qu'une seule fois, à
-  l'enregistrement de l'appareil.
+  la création de l'accès.
 
-Si votre application réclame une adresse complète plutôt qu'un domaine,
-la même page en affiche une, à copier telle quelle.
+Sur iPhone : **Réglages → Contacts → Comptes → Ajouter un compte →
+Autre → Ajouter un compte CardDAV**.
+
+Certaines applications acceptent le domaine seul et cherchent alors
+`/.well-known/carddav` pour trouver le reste. **Plusieurs hébergements
+répondent eux-mêmes à cette adresse**, avant que le site ne soit
+consulté, et la connexion n'aboutit jamais : sur iPhone, elle reste
+indéfiniment sur « Vérification », avec pourtant un mot de passe
+correct. L'adresse complète évite ce détour.
 
 ## Les fiches descendent, rien ne remonte
 
@@ -42,7 +49,7 @@ toute seule.
 
 Avant de soupçonner le mot de passe, utilisez le bouton **« Vérifier que
 cet hébergement laisse passer la synchronisation »**, sur la page
-« Appareils synchronisés ».
+« Synchroniser mes contacts ».
 
 Certains hébergements mutualisés refusent les requêtes particulières
 qu'utilise un carnet d'adresses, avant même qu'elles n'atteignent le
@@ -55,6 +62,6 @@ d'autoriser les méthodes **`PROPFIND`** et **`REPORT`** — en ces termes,
 qui sont ceux qu'il comprendra.
 
 > Si la synchronisation a été coupée pour tout le site par un
-> superadministrateur, la page « Appareils synchronisés » vous le dit en
+> superadministrateur, la page « Synchroniser mes contacts » vous le dit en
 > haut, et aucun appareil ne se synchronisera tant qu'elle ne sera pas
 > réactivée.

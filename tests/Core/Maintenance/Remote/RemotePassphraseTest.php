@@ -221,4 +221,72 @@ final class RemotePassphraseTest extends TestCase
         }
     }
 
+    // ————— « Je l'ai recopiée hors du serveur » (#496) —————
+
+    /**
+     * Nothing to note before there is a phrase.
+     *
+     * A confirmation recorded against generation 0 would silently satisfy
+     * the first real phrase the day the first send generates it — the
+     * warning would never appear on exactly the site that needs it.
+     */
+    public function testThereIsNothingToConfirmBeforeThereIsAPhrase(): void
+    {
+        $this->assertFalse($this->passphrase->isNoted());
+        $this->assertFalse($this->passphrase->markNoted(), 'a phrase that does not exist was declared noted');
+        $this->assertSame(0, $this->passphrase->confirmedGeneration());
+        $this->assertFalse($this->passphrase->isNoted());
+    }
+
+    /** The statement is recorded against the generation it was made for. */
+    public function testConfirmingRecordsTheGenerationInForceAndTheDay(): void
+    {
+        $this->passphrase->current();
+
+        $this->assertFalse($this->passphrase->isNoted(), 'a phrase nobody has copied was already noted');
+        $this->assertTrue($this->passphrase->markNoted());
+
+        $this->assertTrue($this->passphrase->isNoted());
+        $this->assertSame(1, $this->passphrase->confirmedGeneration());
+        $this->assertNotSame('', $this->passphrase->confirmedAt());
+    }
+
+    /**
+     * **Regenerating asks again, and nothing had to remember to reset.**
+     *
+     * The new phrase is a new thing to write down, and the note somebody
+     * made now opens only the archives already sent. Holding the
+     * generation rather than a flag is what makes a stale confirmation
+     * fail the comparison on its own.
+     */
+    public function testANewPhraseIsUnnotedEvenThoughTheOldOneWasNoted(): void
+    {
+        $this->passphrase->current();
+        $this->passphrase->markNoted();
+
+        $this->passphrase->regenerate();
+
+        $this->assertSame(2, $this->passphrase->generation());
+        $this->assertSame(1, $this->passphrase->confirmedGeneration(), 'the earlier statement was rewritten');
+        $this->assertFalse(
+            $this->passphrase->isNoted(),
+            'a note taken for the first phrase counted for a second one it cannot open'
+        );
+    }
+
+    /**
+     * A confirmation of a generation that is no longer in force does not
+     * count — which is the same fact as above, read from the row rather
+     * than through a regeneration.
+     */
+    public function testAConfirmationLeftBehindByTheGenerationDoesNotCount(): void
+    {
+        $this->passphrase->current();
+        $this->passphrase->regenerate();
+        $this->passphrase->regenerate();
+        $this->settings->values[RemotePassphrase::CONFIRMED_GENERATION_SETTING] = '2';
+
+        $this->assertSame(3, $this->passphrase->generation());
+        $this->assertFalse($this->passphrase->isNoted());
+    }
 }

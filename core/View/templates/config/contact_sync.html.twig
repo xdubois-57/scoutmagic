@@ -51,7 +51,7 @@
                     {{ live_count }} appareil{{ live_count > 1 ? 's sont' : ' est' }} enregistré{{ live_count > 1 ? 's' : '' }},
                     mais <strong>aucun ne peut se synchroniser</strong> : le coupe-circuit ci-dessus est fermé.
                 {% endif %}
-                Un appareil enregistré et jamais synchronisé reste un identifiant valide.
+                Un accès créé et jamais synchronisé reste un identifiant valide.
             </p>
 
             {% for credential in credentials %}
@@ -86,7 +86,7 @@
                 </div>
             {% else %}
                 {% include 'partials/empty_state.html.twig' with {
-                    message: 'Aucun appareil enregistré sur ce site.',
+                    message: 'Aucun accès créé sur ce site.',
                     compact: true,
                 } only %}
             {% endfor %}

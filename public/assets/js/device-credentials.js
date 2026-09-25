@@ -3,7 +3,7 @@
  * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
  */
 
-// « Appareils synchronisés » (core/View/templates/account/devices.html.twig).
+// « Synchroniser mes contacts » (core/View/templates/account/devices.html.twig).
 //
 // One job, and it is the reason this is a script at all rather than a form
 // post: the secret a new credential carries exists in exactly one place —

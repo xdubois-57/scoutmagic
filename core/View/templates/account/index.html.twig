@@ -223,7 +223,7 @@
     </div>
     {% endif %}
 
-    {# « Appareils synchronisés » (ARCHITECTURE.md §8.117). Offered only
+    {# « Synchroniser mes contacts » (ARCHITECTURE.md §8.117). Offered only
        to the two roles whose devices could synchronise anything at all:
        the address book behind those credentials is staff-only, and a
        card inviting everyone else to register a device that would be
@@ -233,13 +233,13 @@
     {% if current_user_role in ['admin', 'superadmin'] %}
     <div class="card mb-3">
         <div class="card-body">
-            <h2 class="h5 mb-3">Appareils synchronisés</h2>
+            <h2 class="h5 mb-3">Contacts dans mon téléphone</h2>
             <p class="text-body-secondary small mb-3">
                 Enregistrez un téléphone ou un ordinateur pour qu'il recopie le carnet d'adresses
                 des animateurs et du Staff d'U. La copie descendue vous appartient et reste sur
                 l'appareil, même après révocation.
             </p>
-            <a href="/account/devices" class="btn btn-outline-secondary">Gérer mes appareils</a>
+            <a href="/account/devices" class="btn btn-outline-secondary">Synchroniser mes contacts</a>
         </div>
     </div>
     {% endif %}

@@ -4,7 +4,7 @@
  */
 
 // « Vérifier que cet hébergement laisse passer la synchronisation », on
-// « Appareils synchronisés » (core/View/templates/account/devices.html.twig).
+// « Synchroniser mes contacts » (core/View/templates/account/devices.html.twig).
 //
 // The question it answers cannot be answered from the other end. A fair
 // number of Apache configurations on shared hosting refuse PROPFIND and

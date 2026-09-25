@@ -14,7 +14,7 @@ namespace Core\Alert;
  * This exists because {@see OperationalAttentionProvider} reads *rows*,
  * not checks: it renders whatever the last pass left in
  * `operational_alerts`, and a row carries a key and a reading but no
- * words. Constructing all twelve checks just to ask each one its label would
+ * words. Constructing all thirteen checks just to ask each one its label would
  * mean building a `DiskBudget` and a `CronHealth` on every render of a
  * page that only wants to print « Espace disque ».
  *
@@ -38,6 +38,7 @@ final class AlertSurfaces
             Check\BackupIntegrityCheck::KEY => 'Intégrité des sauvegardes',
             Check\PortableBackupLingerCheck::KEY => 'Sauvegarde portable',
             Check\RemoteBackupAgeCheck::KEY => 'Sauvegarde hors site',
+            Check\RemotePassphraseNotedCheck::KEY => 'Phrase de passe hors site',
             Check\RemoteQuotaCheck::KEY => 'Espace hors site',
             Check\AuthenticationLaneCheck::KEY => 'Voie d\'authentification',
             Check\DeferredMailBacklogCheck::KEY => 'Messages différés',
@@ -48,7 +49,7 @@ final class AlertSurfaces
      * The alerts whose attention point must NOT send the reader to the
      * maintenance page, and where it sends them instead.
      *
-     * **Only the exceptions are listed.** For eleven of the twelve checks
+     * **Only the exceptions are listed.** For twelve of the thirteen checks
      * the maintenance page is the right destination — it is where the
      * disk figure, the backup age and the cron stamp all live, so a
      * reader arrives at the thing the alert is about. The twelfth is the

@@ -30,7 +30,7 @@ la rattraper.
 ## Les appareils autorisés
 
 Tous comptes confondus, avec leur propriétaire et leur dernière
-synchronisation. Un appareil enregistré et jamais synchronisé est
+synchronisation. Un accès créé et jamais synchronisé est
 signalé comme tel : c'est un identifiant valide qui traîne, pas une
 ligne morte.
 

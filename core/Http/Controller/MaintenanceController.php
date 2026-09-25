@@ -292,6 +292,11 @@ class MaintenanceController extends AbstractController
             'remote_backup_interval_hours' => SendRemoteBackupHandler::INTERVAL_HOURS,
             'remote_backup_passphrase_generation' => $remotePassphrase->generation(),
             'remote_backup_passphrase_created_at' => $remotePassphrase->createdAt(),
+            // Whether anybody has stated the phrase exists off this
+            // server — the statement, not a measurement: nothing here can
+            // see a password manager (#496).
+            'remote_backup_passphrase_noted' => $remotePassphrase->isNoted(),
+            'remote_backup_passphrase_noted_at' => $remotePassphrase->confirmedAt(),
             // The masked shape the screen shows before anything is
             // revealed — six groups of five, drawn from the phrase's own
             // constants so the placeholder cannot outlive a change to

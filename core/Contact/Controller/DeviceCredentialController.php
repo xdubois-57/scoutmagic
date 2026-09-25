@@ -19,7 +19,7 @@ use Core\Security\CsrfGuard;
 use Twig\Environment;
 
 /**
- * « Appareils synchronisés », reached from Mon compte —
+ * « Synchroniser mes contacts », reached from Mon compte —
  * `role_min: admin`, because the address book those credentials open is a
  * staff address book and nobody below that floor may read it anyway
  * ({@see \Core\Contact\Device\DeviceAuthenticator}).
@@ -71,7 +71,7 @@ class DeviceCredentialController extends AbstractController
             // other value.
             'site_url' => $this->siteUrl($request),
             'carddav_collection_path' => AddressBookService::COLLECTION_PATH,
-            'breadcrumb_current' => 'Appareils synchronisés',
+            'breadcrumb_current' => 'Synchroniser mes contacts',
         ]);
     }
 
