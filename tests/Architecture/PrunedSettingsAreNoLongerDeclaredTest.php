@@ -49,6 +49,62 @@ final class PrunedSettingsAreNoLongerDeclaredTest extends TestCase
     }
 
     /**
+     * And the marker each cleanup writes goes through the REPOSITORY.
+     *
+     * `SettingService::set()` asserts the setting is `editable` first, and
+     * every one of these markers is registered with `editable = false`
+     * precisely because nobody types into them — so writing one that way
+     * throws `SettingException` and takes the whole request with it. Not
+     * the cleanup, not the page: **every request**, since this runs at boot
+     * before anything is routed.
+     *
+     * It happened on #336, and how it was found is the reason this is a
+     * guard rather than a comment. The PHP suite was green — 20 833 tests —
+     * because nothing under `tests/` boots `public/index.php`; `phpstan`
+     * was green too, the call being perfectly well typed. What reported it
+     * was `Checks / Authorization matrix` and `Checks / Dynamic scan
+     * (passive)`, the two jobs that drive a real browser at a real server,
+     * each failing inside two minutes with `GET /api/version [500]` and the
+     * same exception once per request. That is the blind spot AGENTS.md
+     * § Static analysis was written for, arriving through another door.
+     *
+     * Zero is the honest floor: the eleven other markers in that file all
+     * use `$settingRepo->updateValue(null, …)`, so this was one line out of
+     * step rather than a convention being introduced.
+     */
+    public function testTheMarkerAOneTimeCleanupWritesDoesNotGoThroughTheEditableGuard(): void
+    {
+        $bootstrap = $this->frontController();
+
+        $this->assertSame(
+            0,
+            preg_match_all('/\$settingService->set\(/', $bootstrap),
+            'public/index.php writes a setting through SettingService::set(), which refuses any '
+                . 'setting registered as non-editable — and every marker this file maintains is. '
+                . 'Use $settingRepo->updateValue(null, key, value) as the eleven others do, or '
+                . 'setInternal() when the cache must be dropped in the same request. Written the '
+                . 'other way it is a 500 on every request, and no PHP test boots this file.'
+        );
+
+        // The floor. `assertSame(0, …)` is perfectly satisfied by a reader
+        // pointed at an empty string, so the writes it is meant to have
+        // walked past have to be counted too.
+        $this->assertGreaterThanOrEqual(
+            10,
+            preg_match_all('/\$settingRepo->updateValue\(/', $bootstrap),
+            'far fewer repository writes than this file holds — the reader is broken, not the file clean'
+        );
+    }
+
+    private function frontController(): string
+    {
+        $source = file_get_contents(self::ROOT . '/public/index.php');
+        self::assertIsString($source, 'public/index.php is unreadable');
+
+        return $source;
+    }
+
+    /**
      * Every key named inside a `deleteCoreSettings([...])` literal in the
      * front controller.
      *

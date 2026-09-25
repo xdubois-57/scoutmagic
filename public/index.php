@@ -2111,8 +2111,16 @@ if ($settingService->get('mail_transport_relay_flag_pruned') !== '1') {
         999
     );
     $settingRepo->deleteCoreSettings(['mail_transport_relay_imported']);
-    $settingService->set('mail_transport_relay_flag_pruned', '1');
-    $settingService->clearCache();
+    // Through the repository, like the eleven other boot markers in this
+    // file, and NOT through `SettingService::set()`: that method asserts
+    // the setting is `editable`, and every one of these flags is
+    // registered with `false` precisely because nobody types into them.
+    // Written the other way, this line threw `SettingException` on EVERY
+    // request — a 500 on the whole site, invisible to 20 833 green tests
+    // because none of them boots this file, and reported by the browser
+    // jobs only (`Tests\Architecture\PrunedSettingsAreNoLongerDeclaredTest`
+    // holds it now).
+    $settingRepo->updateValue(null, 'mail_transport_relay_flag_pruned', '1');
 }
 
 if ($settingService->get('remote_backup_settings_pruned') !== '1') {
