@@ -293,7 +293,21 @@ class ModuleSpecificationCoverageTest extends TestCase
      *
      * A `bis` suffix sorts immediately after the number it extends — a
      * `3bis` follows a `3` and precedes a `4`, which is what the suffix
-     * means here.
+     * means here. Those suffixed headings are written at level FOUR, so a
+     * scan anchored to exactly three hashes would not see the very
+     * headings this paragraph is about.
+     *
+     * **One pass in document order, and the first draft was two.** That
+     * draft scanned major headings and subsection headings separately and
+     * bucketed each subsection by the number written in its own text, so
+     * nothing ever compared a subsection to the section it physically sits
+     * in. A block relocated under the NEXT major section would have passed
+     * it: its own bucket stayed ascending, and the major sequence never
+     * looked at subsection lines at all. That is this defect one section
+     * over — a reader descending a section who has in fact wandered into
+     * the following one — and the test written to catch it would have said
+     * nothing. Reading the headings once, in the order the file holds
+     * them, is what makes the physical position the thing under test.
      *
      * No example here carries the section sign, and that is deliberate:
      * `Tests\Architecture\CrossReferenceResolutionRatchetTest` reads this
@@ -308,40 +322,72 @@ class ModuleSpecificationCoverageTest extends TestCase
         $outOfOrder = [];
         $seen = 0;
 
-        // Major sections: `## 18. …`
-        preg_match_all('/^## (\d+)\./m', $specs, $majors);
-        $previous = null;
-        foreach ($majors[1] as $number) {
+        // Every numbered heading, at any of the three levels the document
+        // uses, in the order the file holds them: `## 18.`, `### 18.4`,
+        // `#### 18.1bis`.
+        preg_match_all(
+            '/^(#{2,4}) (\d+)(?:\.(\d+))?(bis|ter)?(?=[\s.])/m',
+            $specs,
+            $headings,
+            PREG_SET_ORDER
+        );
+
+        $section = null;
+        $previousSection = null;
+        $previousMinor = null;
+
+        foreach ($headings as $heading) {
             $seen++;
-            $current = (int) $number;
-            if ($previous !== null && $current < $previous) {
-                $outOfOrder[] = sprintf('§%d is written after §%d', $current, $previous);
+            $major = (int) $heading[2];
+            $minor = ($heading[3] ?? '') !== '' ? (int) $heading[3] : null;
+            $suffix = $heading[4] ?? '';
+
+            if ($minor === null) {
+                // A major section opens, and closes whatever came before:
+                // the subsection cursor starts again at nothing, so §19.1
+                // is never compared with §18.5.
+                if ($previousSection !== null && $major < $previousSection) {
+                    $outOfOrder[] = sprintf('§%d is written after §%d', $major, $previousSection);
+                }
+                $section = $major;
+                $previousSection = $major;
+                $previousMinor = null;
+                continue;
             }
-            $previous = $current;
-        }
 
-        // Subsections, compared only against their own parent: `### 18.4 …`
-        preg_match_all('/^### (\d+)\.(\d+)(bis|ter)?/m', $specs, $minors, PREG_SET_ORDER);
-        $previousBySection = [];
-        foreach ($minors as $heading) {
-            $seen++;
-            $section = (int) $heading[1];
-            $rank = [(int) $heading[2], $heading[3] ?? ''];
-            $before = $previousBySection[$section] ?? null;
-
-            if ($before !== null && ($rank[0] < $before[0] || ($rank[0] === $before[0] && $rank[1] < $before[1]))) {
+            // **The check the first draft did not have.** A subsection is
+            // compared with the section it is WRITTEN IN, not with the
+            // number it gives itself — otherwise a block moved under the
+            // next major heading keeps its own bucket ascending and passes.
+            if ($section !== $major) {
                 $outOfOrder[] = sprintf(
-                    '§%d.%s%s is written after §%d.%s%s',
-                    $section,
+                    '§%d.%d%s is written inside %s',
+                    $major,
+                    $minor,
+                    $suffix,
+                    $section === null ? 'no section at all' : sprintf('§%d', $section)
+                );
+                continue;
+            }
+
+            $rank = [$minor, $suffix];
+            if (
+                $previousMinor !== null
+                && ($rank[0] < $previousMinor[0]
+                    || ($rank[0] === $previousMinor[0] && $rank[1] < $previousMinor[1]))
+            ) {
+                $outOfOrder[] = sprintf(
+                    '§%d.%d%s is written after §%d.%d%s',
+                    $major,
                     $rank[0],
                     $rank[1],
-                    $section,
-                    $before[0],
-                    $before[1]
+                    $major,
+                    $previousMinor[0],
+                    $previousMinor[1]
                 );
             }
 
-            $previousBySection[$section] = $rank;
+            $previousMinor = $rank;
         }
 
         $this->assertSame(
