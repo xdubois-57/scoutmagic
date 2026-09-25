@@ -122,6 +122,15 @@ count still** — the guard answers « could the connection have been made? »,
 which is the same question only while every database skip is a refused
 connection.
 
+**And the guard recognises a database reason by its words, which is a
+weakness with a name.** `DocumentTextLockOnTheRealEngineTest` creates a
+MySQL schema of its own and skipped on « A schema of its own could not be
+created » — a database reason carrying none of `Database`, `MySQL`,
+`MariaDB` or `TEST_DB_`, so the guard read it as unrelated and a runner
+whose user cannot `CREATE DATABASE` would have dropped that whole class in
+silence. `schema` and `PDO` are in the list now. When writing a skip, do not
+rely on the list catching you: call the helper.
+
 ### The engine a test actually runs on, which is not what the group says
 
 `#[Group('database')]` selects tests for the `database-mariadb` job. It

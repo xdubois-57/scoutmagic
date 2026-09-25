@@ -97,7 +97,17 @@ final class DocumentTextLockOnTheRealEngineTest extends TestCase
         } catch (\Throwable $e) {
             // Without the right to create one, this class would have to
             // borrow the shared schema, which is what it exists not to do.
-            self::markTestSkipped('A schema of its own could not be created: ' . $e->getMessage());
+            //
+            // Through the helper, not a bare markTestSkipped(): the
+            // question is not « is there a server? » but « was one
+            // promised? ». On CI, or anywhere TEST_DB_* is exported, a
+            // refused CREATE DATABASE now FAILS — because this class is
+            // the only real-engine check of the lock, and a silent skip
+            // would leave the build green over the one thing it proves.
+            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised(
+                'The MySQL database this class creates for itself could not be created: '
+                . $e->getMessage()
+            );
         }
 
         $this->pdo = $this->server;
