@@ -17,6 +17,7 @@ use Modules\Covoiturage\Service\CarpoolViewer;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Covoiturage\CovoiturageTestHelper as H;
+use Tests\NothingInClear;
 
 /**
  * D8, one test per line of its table, through what the pages are actually
@@ -195,11 +196,12 @@ final class CarpoolVisibilityTest extends TestCase
         $this->assertSame('0495 88 77 66', $driverView['requests'][0]['phone']);
         $this->assertNull($driverView['requests'][1]['phone']);
 
-        // The staff sees who rides, never a number.
+        // The staff sees who rides, never a number — value by value
+        // through the shared reader rather than in a `json_encode()` of
+        // the view, for the reason `Tests\NothingInClear` gives: an escape
+        // spells « 0478 » out of bytes that do not contain it (#533).
         foreach ([H::viewer(50, Role::CHIEF, [self::LOUVETEAUX]), H::viewer(60, Role::SUPERADMIN)] as $staff) {
-            $offer = $this->offerSeenBy($staff);
-            $this->assertStringNotContainsString('0495', (string) json_encode($offer));
-            $this->assertStringNotContainsString('0478', (string) json_encode($offer));
+            NothingInClear::inValuesOf($this->offerSeenBy($staff))->assertAbsent('0495', '0478');
         }
     }
 

@@ -21,6 +21,7 @@ use Modules\SupportDashboard\Service\StatisticsIntakeService;
 use Modules\SupportDashboard\Task\PurgeInstallationsHandler;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\NothingInClear;
 
 /**
  * The retention task: what it deletes, what it must never touch, and the
@@ -115,11 +116,13 @@ class PurgeInstallationsHandlerTest extends TestCase
 
         (new PurgeInstallationsHandler())->handle([], $this->context);
 
-        $entries = (string) json_encode($this->pdo->query('SELECT * FROM event_log')->fetchAll(\PDO::FETCH_ASSOC));
+        // Column by column through the shared reader, never a
+        // `json_encode()` of the rows: an escape spells « aaaa » out of
+        // bytes that do not contain it (`Tests\NothingInClear`, #533).
+        $journal = NothingInClear::inTables($this->pdo, 'event_log');
 
-        $this->assertStringContainsString('support_installations_purged', $entries);
-        $this->assertStringNotContainsString('aaaa', $entries);
-        $this->assertStringNotContainsString('example.be', $entries);
+        $journal->assertReadableIn('event_log.event_type', 'support_installations_purged');
+        $journal->assertAbsent('aaaa', 'example.be');
     }
 
     public function testAPurgeThatDeletesNothingSaysNothing(): void

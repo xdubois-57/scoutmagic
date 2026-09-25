@@ -27,6 +27,7 @@ use Modules\SupportDashboard\Task\FinalizeMonthlyAggregateHandler;
 use Modules\SupportDashboard\Task\PurgeInstallationsHandler;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\NothingInClear;
 
 /**
  * IT-11: monthly contributions, finalisation, immutability, and the
@@ -156,15 +157,14 @@ class MonthlyHistoryTest extends TestCase
 
         // The hard requirement: a finalised aggregate holds no individual
         // identifier — not in the aggregate, and not left behind next to it.
+        // Value by value through the shared reader, never a
+        // `json_encode()`: an escape spells « aaaa » out of bytes that do
+        // not contain it (`Tests\NothingInClear`, #533).
         $this->assertSame(0, $this->aggregates->countContributions($month));
-        $remaining = (string) json_encode(
-            $this->pdo->query('SELECT * FROM support_monthly_contributions')->fetchAll(\PDO::FETCH_ASSOC)
-        );
-        $this->assertStringNotContainsString('aaaa', $remaining);
+        NothingInClear::inTables($this->pdo, 'support_monthly_contributions')
+            ->assertEverythingIsGone('a finalised month leaves no contribution row behind');
 
-        $aggregate = (string) json_encode($this->aggregates->find($month));
-        $this->assertStringNotContainsString('aaaa', $aggregate);
-        $this->assertStringNotContainsString('example.be', $aggregate);
+        NothingInClear::inValuesOf($this->aggregates->find($month))->assertAbsent('aaaa', 'example.be');
     }
 
     public function testASecondFinalizationOfTheSameMonthHasNoEffect(): void

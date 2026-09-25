@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Tests\Modules\OfficialDocuments\Service;
 
+use Tests\Modules\OfficialDocuments\TemporaryDirectoryWatch;
 use Core\Member\MemberFunctionInfo;
 use Core\Member\MemberProfile;
 use Modules\OfficialDocuments\Api\OfficialDocumentsException;
@@ -116,15 +117,15 @@ final class ParentalAuthorizationPdfServiceTest extends TestCase
      * matters on shared hosting where a temporary file is a file somebody
      * else's process can read.
      *
-     * What is asserted is that no entry APPEARED. The temporary directory
-     * is shared with every other process on the machine, and comparing it
-     * whole failed the CI whenever the runner removed one of its own files
-     * (`runc-process…`) while this test ran: a file somebody else deleted
-     * says nothing about what the renderer wrote.
+     * What is asserted is that no entry APPEARED, and the reason lives in
+     * `TemporaryDirectoryWatch` now rather than here: this test had learnt
+     * it from a red CI job while its sibling in `Pdf/TemplateGridTest` kept
+     * the whole-directory comparison and failed the same way later
+     * (issue #535). Two copies, one fixed.
      */
     public function testNothingIsWrittenToDisk(): void
     {
-        $before = self::temporaryFiles();
+        $watch = TemporaryDirectoryWatch::start();
 
         self::service()->render(
             self::member(),
@@ -134,7 +135,7 @@ final class ParentalAuthorizationPdfServiceTest extends TestCase
             new \DateTimeImmutable('2026-09-20')
         );
 
-        $this->assertSame([], array_values(array_diff(self::temporaryFiles(), $before)));
+        $watch->assertNothingAppeared('the renderer wrote to the temporary directory');
     }
 
     /**
@@ -236,15 +237,4 @@ final class ParentalAuthorizationPdfServiceTest extends TestCase
         }
     }
 
-    /**
-     * @return list<string>
-     */
-    private static function temporaryFiles(): array
-    {
-        $entries = scandir(sys_get_temp_dir());
-        $entries = $entries === false ? [] : $entries;
-        sort($entries);
-
-        return array_values($entries);
-    }
 }

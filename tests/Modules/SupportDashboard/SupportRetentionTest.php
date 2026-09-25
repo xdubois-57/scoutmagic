@@ -13,6 +13,7 @@ use Modules\SupportDashboard\Service\SupportDashboardService;
 use Modules\SupportDashboard\Service\SupportInstallationExporter;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\NothingInClear;
 
 /**
  * IT-10: the activity threshold, the retention window, manual deletion, and
@@ -133,16 +134,25 @@ class SupportRetentionTest extends TestCase
     public function testDeletionRemovesTheWholeRecordCredentialHashIncluded(): void
     {
         $id = $this->seed('aaaa', '-7 months');
+        // A second record that STAYS: without it the table is empty after
+        // the delete, and every absence below would be true for free —
+        // which is how « no $2y$ anywhere » used to pass while saying
+        // nothing, since the only hash in the table was the deleted one's.
+        $survivor = $this->seed('zzzz', '-1 day');
+        $hash = (string) $this->pdo->query('SELECT secret_hash FROM support_installations WHERE id = ' . $id)->fetchColumn();
+        $this->assertStringStartsWith('$2y$', $hash, 'the record really does carry a credential hash to lose');
 
         $this->assertTrue($this->installations->delete($id));
         $this->assertNull($this->installations->findById($id));
+        $this->assertNotNull($this->installations->findById($survivor), 'the neighbour is untouched');
 
         // Nothing of the record survives anywhere in the table — most
         // importantly not the credential hash, which is what would let a
         // long-gone installation's identity be re-asserted.
-        $remaining = (string) json_encode($this->installations->findAll());
-        $this->assertStringNotContainsString('aaaa', $remaining);
-        $this->assertStringNotContainsString('$2y$', $remaining);
+        // Value by value through the shared reader, never a
+        // `json_encode()`: an escape spells « aaaa » out of bytes that do
+        // not contain it (`Tests\NothingInClear`, #533).
+        NothingInClear::inValuesOf($this->installations->findAll())->assertAbsent('aaaa', $hash);
     }
 
     public function testDeletingTheSameRecordTwiceReportsTheSecondAttemptAsANoop(): void
