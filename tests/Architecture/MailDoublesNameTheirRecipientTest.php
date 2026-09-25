@@ -59,15 +59,38 @@ final class MailDoublesNameTheirRecipientTest extends TestCase
      * callback counts because capturing the recipient and asserting it
      * afterwards is the only way to pin a send to SEVERAL addresses —
      * `with()` applies one constraint to every matching call.
+     *
+     * **Presence is not enough, and a reviewer found the live proof.**
+     * `MailService::send()` takes the address FIRST, so a
+     * `->with($this->anything(), …)` reads an argument and pins nothing
+     * that matters. Two expectations in `Retro\Service\BoardServiceTest`
+     * were exactly that, and this scanner called them constrained — a
+     * regression routing the closing mail to the wrong address would have
+     * passed both that test and this gate, which is the one bug class
+     * #439 exists for. So `firstArgumentOf()` below reads the first
+     * argument, and `anything()` there is not a constraint.
      */
     private const READS_AN_ARGUMENT = '/->with\(|->withConsecutive\(|willReturnCallback/';
 
     /**
      * How far back from `->method('send')` the `expects(...)` that owns it
-     * can sit, and how far forward its constraint can. Both are generous
-     * enough for the idiom as this suite writes it — the chain broken over
-     * three or four lines — and neither can reach the next statement,
-     * which is what would make the scan answer for the wrong call.
+     * can sit, and how far forward its constraint can. Generous enough for
+     * the idiom as this suite writes it — the chain broken over three or
+     * four lines.
+     *
+     * **They used to be byte counts and nothing else, and this docblock
+     * claimed neither could reach the next statement. It was not true**, a
+     * reviewer had to say so, and the consequence was a false NEGATIVE in
+     * a gate whose whole job is to have none: a `->with(` belonging to an
+     * unrelated expectation on the following line fell inside the forward
+     * window, so a bare `send` expectation was silently counted as
+     * constrained. The mirror case — an unrelated `expects(` inside the
+     * look-back — could invent an owner for a plain stub.
+     *
+     * Both windows are now clipped at the nearest `;`, so what is read is
+     * the current statement and never its neighbour. The byte counts stay
+     * as an upper bound, because a statement that runs longer than this is
+     * not the idiom and should be looked at by a human.
      */
     private const LOOK_BACK = 200;
     private const LOOK_FORWARD = 300;
@@ -226,6 +249,89 @@ final class MailDoublesNameTheirRecipientTest extends TestCase
     }
 
     /**
+     * **`anything()` in first position constrains nothing**, and the
+     * scanner used to call it constrained because `->with(` was merely
+     * there.
+     *
+     * A reviewer found this live, in two expectations of
+     * `Retro\Service\BoardServiceTest`: the closing mail's recipient was
+     * `anything()`, its bodies were pinned, and a regression sending it to
+     * the wrong address would have passed both that test and this gate.
+     * `send()` takes the address FIRST, which is what makes the first
+     * argument the one to read.
+     */
+    public function testAnythingInFirstPositionIsNotAConstrainedRecipient(): void
+    {
+        $waved = $this->sendExpectations(<<<'PHP'
+            $mail->expects($this->once())->method('send')->with(
+                $this->anything(),
+                $this->anything(),
+                $this->stringContains('Résumé'),
+                $this->stringContains('Résumé')
+            );
+            PHP);
+
+        $this->assertCount(1, $waved);
+        $this->assertFalse(
+            $waved[0]['constrained'],
+            'a recipient left to anything() must be reported, whatever the other arguments pin'
+        );
+
+        // And the same shape with the address named is not reported — the
+        // other `anything()`s are the test's business, not this scan's.
+        $named = $this->sendExpectations(<<<'PHP'
+            $mail->expects($this->once())->method('send')->with(
+                $this->identicalTo('akela@example.test'),
+                $this->anything(),
+                $this->anything(),
+                $this->anything()
+            );
+            PHP);
+
+        $this->assertTrue($named[0]['constrained']);
+    }
+
+    /**
+     * **A neighbour's constraint cannot be borrowed**, which the byte
+     * windows allowed until they were clipped at the statement's `;`.
+     *
+     * The `->with(` below belongs to `$repo`, not to the send, and sits
+     * well inside the 300-byte forward window. Reading it as the send's
+     * turned a bare expectation into a constrained one — a false negative
+     * in a gate that exists to have none.
+     */
+    public function testAConstraintBelongingToTheNextStatementIsNotRead(): void
+    {
+        $borrowed = $this->sendExpectations(<<<'PHP'
+            $mail->expects($this->once())->method('send');
+            $repo->expects($this->once())->method('save')->with($this->identicalTo($member));
+            PHP);
+
+        $this->assertCount(1, $borrowed);
+        $this->assertFalse(
+            $borrowed[0]['constrained'],
+            "the send expectation is bare; the constraint two lines down is another mock's"
+        );
+    }
+
+    /**
+     * And the mirror: an `expects(` from the PREVIOUS statement must not
+     * invent an owner for a plain stub, which is what made the look-back
+     * worth clipping too.
+     */
+    public function testAnExpectsBelongingToThePreviousStatementIsNotItsOwner(): void
+    {
+        $this->assertSame(
+            [],
+            $this->sendExpectations(<<<'PHP'
+                $repo->expects($this->once())->method('save');
+                $mail->method('send');
+                PHP),
+            'a stub with no expectation of its own is not an expectation'
+        );
+    }
+
+    /**
      * The exclusion that reading the files taught, and the reason this
      * scan reports six files rather than twelve.
      */
@@ -288,7 +394,7 @@ final class MailDoublesNameTheirRecipientTest extends TestCase
         $found = [];
 
         foreach ($matches[0] as [, $offset]) {
-            $before = substr($source, max(0, $offset - self::LOOK_BACK), min($offset, self::LOOK_BACK));
+            $before = self::currentStatementBefore($source, $offset);
             $owner = strrpos($before, 'expects(');
             if ($owner === false) {
                 continue;
@@ -301,14 +407,92 @@ final class MailDoublesNameTheirRecipientTest extends TestCase
 
             $found[] = [
                 'line' => substr_count(substr($source, 0, $offset), "\n") + 1,
-                'constrained' => preg_match(
-                    self::READS_AN_ARGUMENT,
-                    substr($source, $offset, self::LOOK_FORWARD)
-                ) === 1,
+                'constrained' => self::pinsTheRecipient(self::currentStatementAfter($source, $offset)),
             ];
         }
 
         return $found;
+    }
+
+    /**
+     * The text before this `->method('send')`, clipped at the previous
+     * statement's `;` so an unrelated `expects(` cannot be read as its
+     * owner.
+     */
+    private static function currentStatementBefore(string $source, int $offset): string
+    {
+        $window = substr($source, max(0, $offset - self::LOOK_BACK), min($offset, self::LOOK_BACK));
+        $boundary = strrpos($window, ';');
+
+        return $boundary === false ? $window : substr($window, $boundary + 1);
+    }
+
+    /**
+     * The text after it, clipped at this statement's own `;` so a
+     * neighbour's constraint cannot be borrowed.
+     */
+    private static function currentStatementAfter(string $source, int $offset): string
+    {
+        $window = substr($source, $offset, self::LOOK_FORWARD);
+        $boundary = strpos($window, ';');
+
+        return $boundary === false ? $window : substr($window, 0, $boundary);
+    }
+
+    /**
+     * Does this expectation constrain the ADDRESS, which `send()` takes
+     * first?
+     *
+     * A callback or `withConsecutive()` is taken at its word: both read
+     * every argument, and what they then assert is the test's business.
+     * A plain `with()` is read, because `anything()` in first position is
+     * a constraint on nothing.
+     */
+    private static function pinsTheRecipient(string $statement): bool
+    {
+        if (preg_match(self::READS_AN_ARGUMENT, $statement) !== 1) {
+            return false;
+        }
+
+        if (str_contains($statement, 'withConsecutive(') || str_contains($statement, 'willReturnCallback')) {
+            return true;
+        }
+
+        $with = strpos($statement, '->with(');
+        if ($with === false) {
+            return false;
+        }
+
+        return preg_match('/anything\(\s*\)/', self::firstArgumentOf(substr($statement, $with + 7))) !== 1;
+    }
+
+    /**
+     * Everything up to the first comma that is not inside parentheses —
+     * `$this->identicalTo('a@b.c')` carries its own, so splitting on every
+     * comma would cut it in half.
+     */
+    private static function firstArgumentOf(string $arguments): string
+    {
+        $depth = 0;
+        $first = '';
+
+        foreach (str_split($arguments) as $character) {
+            if ($character === '(') {
+                $depth++;
+            }
+            if ($character === ')') {
+                if ($depth === 0) {
+                    break;
+                }
+                $depth--;
+            }
+            if ($character === ',' && $depth === 0) {
+                break;
+            }
+            $first .= $character;
+        }
+
+        return $first;
     }
 
     /**
