@@ -60,11 +60,22 @@ use Tests\DatabaseTestHelper;
  * it IS production, since a run's only memory of the last one is that
  * row.
  *
- * **No `@group database`, on purpose.** Nothing here builds an archive —
- * every test is fed one a previous run would have left — so nothing here
- * needs `mysqldump` or a server. What does need one is the naming, and
- * that lives in {@see SendRemoteBackupArchiveTest} next door, which
- * builds a real portable archive against MariaDB.
+ * **It carries the group, and the sentence that used to deny it was
+ * wrong about what the group means.** That sentence read « no
+ * `@group database`, on purpose », on the grounds that nothing here
+ * builds an ARCHIVE — every test is fed one a previous run would have
+ * left, so nothing here needs `mysqldump`. True, and beside the point:
+ * the group means « this class builds a database at all », and `setUp()`
+ * calls `DatabaseTestHelper::createTestDatabase()`. Sitting next to the
+ * attribute it denied, that sentence was an invitation to delete it.
+ *
+ * It was also the cautionary example in
+ * {@see \Tests\Architecture\DatabaseBackedTestsCarryTheGroupTest}, whose
+ * detector once read the denial itself as a marker.
+ *
+ * What genuinely needs a server is the NAMING of the archive, and that
+ * lives in {@see SendRemoteBackupArchiveTest} next door, which builds a
+ * real portable one against MariaDB.
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
 final class SendRemoteBackupHandlerTest extends TestCase

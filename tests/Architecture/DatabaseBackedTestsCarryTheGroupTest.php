@@ -141,7 +141,21 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
             $spellings[] = preg_quote($aliased[1], '/');
         }
 
-        return '/#\[(?:' . implode('|', $spellings) . ')\(\s*[\'"]database[\'"]\s*\)\]/';
+        // **One bracket group may hold several attributes**, and the
+        // marker need not be the last of them: `#[CoversClass(Foo::class),
+        // Group('database')]` is legal PHP, PHPUnit honours it whatever
+        // its position, and a pattern demanding `]` right after
+        // `'database')` would call such a class an offender — the FALSE
+        // POSITIVE direction, which this file has less practice at. So
+        // other attributes may precede, and a comma may follow.
+        //
+        // `[^\]]*` keeps that prefix inside one bracket group. An
+        // attribute whose own arguments contain `]` — `#[Foo([1, 2]),
+        // Group('database')]` — is therefore still missed; no file under
+        // `tests/` writes one, and widening further would mean parsing
+        // rather than matching.
+        return '/#\[(?:[^\]]*,\s*)?(?:' . implode('|', $spellings)
+            . ')\(\s*[\'"]database[\'"]\s*\)\s*(?:,|\])/';
     }
 
     /**
@@ -503,6 +517,56 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
             PHP, 'Fake.php');
 
         $this->assertSame([], $bothAtOnce['Tests\Fake\OtherTest']['uncovered']);
+    }
+
+    /**
+     * The marker need not be alone in its bracket group, nor last in it.
+     *
+     * `#[CoversClass(Foo::class), Group('database')]` is legal PHP and
+     * PHPUnit honours it whatever the position; a pattern demanding `]`
+     * right after `'database')` would report such a class as an offender.
+     * That is the FALSE POSITIVE direction — the guard accusing a file
+     * that the command does select — which this file has less practice at
+     * than the other, and which a contributor would answer by adding a
+     * second attribute rather than by doubting the guard. It has happened
+     * once already, in this PR's own history, over the aliased import.
+     */
+    public function testTheMarkerIsFoundBesideOtherAttributes(): void
+    {
+        foreach ([
+            'alone' => "#[\\PHPUnit\\Framework\\Attributes\\Group('database')]",
+            'first of two' => "#[\\PHPUnit\\Framework\\Attributes\\Group('database'), \\PHPUnit\\Framework\\Attributes\\Small]",
+            'last of two' => "#[\\PHPUnit\\Framework\\Attributes\\Small, \\PHPUnit\\Framework\\Attributes\\Group('database')]",
+            'on its own line beside another group' => "#[\\PHPUnit\\Framework\\Attributes\\Small]\n            #[\\PHPUnit\\Framework\\Attributes\\Group('database')]",
+        ] as $shape => $attributes) {
+            $classes = $this->classesIn(<<<PHP
+                <?php
+                namespace Tests\\Fake;
+                {$attributes}
+                class ThingTest extends TestCase
+                {
+                    protected function setUp(): void { \$this->pdo = DatabaseTestHelper::createTestDatabase(); }
+                }
+                PHP, 'Fake.php');
+
+            $this->assertTrue(
+                $classes['Tests\\Fake\\ThingTest']['carries'],
+                'the marker written ' . $shape . ' is the same marker'
+            );
+        }
+
+        // And a group of attributes holding no marker still carries none.
+        $without = $this->classesIn(<<<'PHP'
+            <?php
+            namespace Tests\Fake;
+            #[\PHPUnit\Framework\Attributes\Small, \PHPUnit\Framework\Attributes\Group('slow')]
+            class OtherTest extends TestCase
+            {
+                protected function setUp(): void { $this->pdo = DatabaseTestHelper::createTestDatabase(); }
+            }
+            PHP, 'Fake.php');
+
+        $this->assertFalse($without['Tests\Fake\OtherTest']['carries']);
     }
 
     /**
@@ -898,8 +962,10 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
             // `--group=database` selected 1 of its 28 tests while this
             // guard called it green. Worse, prose DENYING the group
             // matched too — Core\Maintenance\Task\SendRemoteBackupHandlerTest
-            // says « No `@group database`, on purpose » and passed on the
-            // strength of the words refusing it.
+            // said « No `@group database`, on purpose » and passed on the
+            // strength of the words refusing it. That sentence is gone
+            // from that file now: it was wrong about what the group means,
+            // and it sat beside the attribute this change gave the class.
             $headingStart = $this->headingStart($source, $offset);
             $heading = self::withoutComments(substr($source, $headingStart, $offset - $headingStart));
 
