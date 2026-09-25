@@ -82,6 +82,11 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
     private const ALIASED_IMPORT = '/^use\s+PHPUnit\\\\Framework\\\\Attributes\\\\Group\s+as\s+(\w+)\s*;/m';
 
     /**
+     * The plain import, without which the bare name means something else.
+     */
+    private const BARE_IMPORT = '/^use\s+PHPUnit\\\\Framework\\\\Attributes\\\\Group\s*;/m';
+
+    /**
      * What actually puts a class in the group: the ATTRIBUTE, in whichever
      * spelling THIS FILE uses.
      *
@@ -113,7 +118,24 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
      */
     private function carriesPattern(string $source): string
     {
-        $spellings = ['\\\\?(?:PHPUnit\\\\Framework\\\\Attributes\\\\)?Group'];
+        // Fully qualified, which needs no import — and the LEADING
+        // BACKSLASH is not decoration: without it, `PHPUnit\Framework\…`
+        // resolves inside this file's own namespace, where nothing of
+        // that name lives, so PHPUnit reads no group. Accepting the
+        // relative spelling would certify a class the command does not
+        // select, which is this guard's own failure mode.
+        $spellings = ['\\\\PHPUnit\\\\Framework\\\\Attributes\\\\Group'];
+
+        // The bare name, and only when the file imports it. The same
+        // reasoning that gates the alias below gates this: an unimported
+        // `Group` is somebody else's class, and `--group=database` would
+        // not select the test either. Not live today — all 118 files that
+        // write the bare spelling do import it — but a detector that
+        // certifies more than the command selects is the defect this
+        // class exists for.
+        if (preg_match(self::BARE_IMPORT, $source) === 1) {
+            $spellings[] = 'Group';
+        }
 
         if (preg_match(self::ALIASED_IMPORT, $source, $aliased) === 1) {
             $spellings[] = preg_quote($aliased[1], '/');
@@ -425,6 +447,121 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
         $this->assertTrue(
             $bothAtOnce['Tests\Fake\OtherTest']['carries'],
             'and stripping the prose must not take the attribute with it'
+        );
+    }
+
+    /**
+     * The same rule at method level, which had been left out.
+     *
+     * The class heading was comment-stripped one review round earlier;
+     * the method heading was not, so a docblock above a `test*` method
+     * quoting the attribute in prose exempted that method from being
+     * reported — a build hidden behind a sentence.
+     *
+     * The prose quotes the FULLY-QUALIFIED spelling deliberately. A first
+     * draft quoted the bare one, and passed against the unstripped
+     * heading too: the bare name is only in the pattern when the file
+     * imports it, and this fixture does not — so the sentence proved
+     * nothing about comments. A test that cannot fail is the failure this
+     * whole file is about, met once more in the test written for it.
+     */
+    public function testProseAboveAMethodIsNotTheMarkerEither(): void
+    {
+        $quotingIt = $this->classesIn(<<<'PHP'
+            <?php
+            namespace Tests\Fake;
+            class ThingTest extends TestCase
+            {
+                /**
+                 * No `#[\PHPUnit\Framework\Attributes\Group('database')]`
+                 * here: this builds nothing that needs MySQL.
+                 */
+                public function testBuildsOneAnyway(): void { $pdo = DatabaseTestHelper::createTestDatabase(); }
+            }
+            PHP, 'Fake.php');
+
+        $this->assertSame(
+            ['testBuildsOneAnyway()'],
+            $quotingIt['Tests\Fake\ThingTest']['uncovered'],
+            'a sentence above a method is not a marker on it, however exactly it spells one'
+        );
+
+        // And the real attribute, written under the same sentence, still
+        // covers the method — stripping the prose must not take it too.
+        $bothAtOnce = $this->classesIn(<<<'PHP'
+            <?php
+            namespace Tests\Fake;
+            class OtherTest extends TestCase
+            {
+                /**
+                 * No `#[\PHPUnit\Framework\Attributes\Group('database')]`
+                 * here — says the sentence.
+                 */
+                #[\PHPUnit\Framework\Attributes\Group('database')]
+                public function testBuildsOne(): void { $pdo = DatabaseTestHelper::createTestDatabase(); }
+            }
+            PHP, 'Fake.php');
+
+        $this->assertSame([], $bothAtOnce['Tests\Fake\OtherTest']['uncovered']);
+    }
+
+    /**
+     * A name nobody imported is somebody else's class.
+     *
+     * `#[Group('database')]` selects nothing unless the file imports
+     * `PHPUnit\Framework\Attributes\Group`, and a fully-qualified
+     * spelling without its leading backslash resolves inside the file's
+     * own namespace, where no such class lives. Certifying either would
+     * be this guard declaring compliant a class the command does not
+     * select — the shape of the very defect it exists for. The alias was
+     * already gated on its import; these two were not.
+     */
+    public function testTheBareNameIsTheMarkerOnlyWhenTheFileImportsIt(): void
+    {
+        $imported = $this->classesIn(<<<'PHP'
+            <?php
+            namespace Tests\Fake;
+            use PHPUnit\Framework\Attributes\Group;
+            #[Group('database')]
+            class ThingTest extends TestCase
+            {
+                protected function setUp(): void { $this->pdo = DatabaseTestHelper::createTestDatabase(); }
+            }
+            PHP, 'Fake.php');
+
+        $this->assertTrue(
+            $imported['Tests\Fake\ThingTest']['carries'],
+            'the bare name, imported, is how 118 files in this repository spell the marker'
+        );
+
+        $notImported = $this->classesIn(<<<'PHP'
+            <?php
+            namespace Tests\Fake;
+            #[Group('database')]
+            class OtherTest extends TestCase
+            {
+                protected function setUp(): void { $this->pdo = DatabaseTestHelper::createTestDatabase(); }
+            }
+            PHP, 'Fake.php');
+
+        $this->assertFalse(
+            $notImported['Tests\Fake\OtherTest']['carries'],
+            'an unimported Group is another class, and --group=database would select nothing'
+        );
+
+        $relative = $this->classesIn(<<<'PHP'
+            <?php
+            namespace Tests\Fake;
+            #[PHPUnit\Framework\Attributes\Group('database')]
+            class ThirdTest extends TestCase
+            {
+                protected function setUp(): void { $this->pdo = DatabaseTestHelper::createTestDatabase(); }
+            }
+            PHP, 'Fake.php');
+
+        $this->assertFalse(
+            $relative['Tests\Fake\ThirdTest']['carries'],
+            'without its leading backslash that name resolves inside Tests\Fake, where it does not exist'
         );
     }
 
@@ -849,8 +986,15 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
                 continue;
             }
 
+            // Comment-stripped, exactly as the class-level check is, and
+            // for the same reason: a docblock ABOVE A METHOD that merely
+            // quotes the attribute — or denies it — would otherwise exempt
+            // a database-building method from being reported. The class
+            // level learned this one review round earlier
+            // (testProseQuotingTheAttributeInADocblockIsNotTheAttribute);
+            // this window had been left raw.
             $headingStart = $this->headingStart($own, $offset);
-            $heading = substr($own, $headingStart, $offset - $headingStart);
+            $heading = self::withoutComments(substr($own, $headingStart, $offset - $headingStart));
 
             if (str_starts_with($name, 'test') && preg_match($carriesPattern, $heading) === 1) {
                 continue;
