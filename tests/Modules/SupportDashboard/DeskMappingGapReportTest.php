@@ -146,7 +146,7 @@ class DeskMappingGapReportTest extends TestCase
             'aaaabbbbccccdddd',
             password_hash('x', PASSWORD_DEFAULT),
             (string) json_encode([
-                'statistics_schema_version' => 2,
+                'statistics_schema_version' => 1,
                 'installation_id' => 'aaaabbbbccccdddd',
                 'instance_url' => 'https://a.be',
                 'desk_unresolved' => ['listed' => [
@@ -164,6 +164,51 @@ class DeskMappingGapReportTest extends TestCase
         $this->assertSame('Animateur Nutons', $rows[0]->valueRaw);
     }
 
+    /**
+     * « N unités » must mean units, not payload entries.
+     *
+     * One installation can carry two entries that fold to the same line:
+     * `functions` is unique on `desk_code`, not on `label`, so two
+     * unconfirmed functions can share a label — and two spellings folding
+     * together is D7 working as designed. Counting entries turned a single
+     * installation into « 2 unités », and the page highlights a value in
+     * red past three, so a handful of variants on ONE unit could read as a
+     * federation-wide problem. That is the opposite of what this page is
+     * for.
+     */
+    public function testOneInstallationCountsOnceHoweverManyOfItsEntriesFoldTogether(): void
+    {
+        $this->reportFrom('aaaa', 'https://une-unite.be', '1.2.3', [
+            ['function', 'Animateur Nutons'],
+            ['function', 'ANIMATEUR NUTONS'],
+            ['function', 'animateur nutons'],
+        ]);
+
+        $rows = $this->report()->rows();
+
+        $this->assertCount(1, $rows);
+        $this->assertSame(1, $rows[0]->installations, 'three entries, one unit');
+        $this->assertSame(['une-unite.be'], $rows[0]->instances);
+    }
+
+    /**
+     * And the count still follows the units when there really are several,
+     * so the fix above cannot have been a stuck 1.
+     */
+    public function testTheCountFollowsTheUnitsWhenSeveralReportTheSameValue(): void
+    {
+        $this->reportFrom('aaaa', 'https://premiere.be', '1.2.3', [
+            ['function', 'Animateur Nutons'],
+            ['function', 'ANIMATEUR NUTONS'],
+        ]);
+        $this->reportFrom('bbbb', 'https://seconde.be', '1.2.3', [['function', 'Animateur Nutons']]);
+
+        $rows = $this->report()->rows();
+
+        $this->assertSame(2, $rows[0]->installations);
+        $this->assertSame(['premiere.be', 'seconde.be'], $rows[0]->instances);
+    }
+
     private function report(): DeskMappingGapReport
     {
         return new DeskMappingGapReport($this->installations, $this->gaps);
@@ -175,7 +220,7 @@ class DeskMappingGapReportTest extends TestCase
     private function reportFrom(string $installationId, string $url, string $version, array $unresolved): void
     {
         $payload = [
-            'statistics_schema_version' => 2,
+            'statistics_schema_version' => 1,
             'installation_id' => $installationId,
             'instance_url' => $url,
             'scoutmagic' => ['version' => $version, 'is_dev_build' => false],

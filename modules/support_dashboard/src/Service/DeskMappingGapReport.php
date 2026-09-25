@@ -69,6 +69,14 @@ class DeskMappingGapReport
                 continue;
             }
 
+            // One installation counts ONCE per value, however many entries
+            // of its payload fold to it. Two unconfirmed functions can
+            // share a label (`functions` is unique on `desk_code`, not on
+            // `label`), and two spellings fold together by design (D7) —
+            // counting entries turned one installation into « 2 unités »,
+            // enough on its own to trip the page's red threshold.
+            $countedHere = [];
+
             foreach (self::unresolvedIn($payload) as [$kind, $value]) {
                 if ($this->thisVersionRecognises($kind, $value)) {
                     continue;
@@ -89,7 +97,11 @@ class DeskMappingGapReport
                     $aggregated[$key]['instances'][] = $host;
                 }
 
-                $aggregated[$key]['count']++;
+                if (!isset($countedHere[$key])) {
+                    $aggregated[$key]['count']++;
+                    $countedHere[$key] = true;
+                }
+
                 $aggregated[$key]['last_seen'] = self::later(
                     $aggregated[$key]['last_seen'],
                     isset($installation['last_received_at']) ? (string) $installation['last_received_at'] : null

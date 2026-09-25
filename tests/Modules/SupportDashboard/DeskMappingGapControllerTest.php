@@ -200,4 +200,91 @@ class DeskMappingGapControllerTest extends TestCase
 
         return $frontController;
     }
+
+    /**
+     * The RBAC boundary on the two POST routes, which only the GET route
+     * had (`AGENTS.md` § Controllers: allowed at `role_min`, denied one
+     * level below). Both carry `role_min: superadmin`, and both change
+     * stored state, so a guard that let an admin through would matter more
+     * here than on the page that merely reads.
+     */
+    public function testAnAdminCannotSetAValueAside(): void
+    {
+        AuthSession::login(2, 'admin@test.com', 'admin');
+        $id = $this->gaps->findAllKeyed()['branch|nutons']['id'];
+
+        $response = $this->frontController('/support-dashboard/correspondances/{id}/ecarter', 'ignore', 'POST')
+            ->handle(new Request(
+                'POST',
+                '/support-dashboard/correspondances/' . $id . '/ecarter',
+                [],
+                ['_csrf_token' => CsrfGuard::generateToken()],
+                [],
+                []
+            ));
+
+        $this->assertNotSame(302, $response->getStatusCode());
+        $this->assertNull(
+            $this->gaps->findById($id)['ignored_at'],
+            'the row must be untouched: a refused request that still wrote would be the worse failure'
+        );
+    }
+
+    public function testAnAdminCannotBringAValueBack(): void
+    {
+        $id = $this->gaps->findAllKeyed()['branch|nutons']['id'];
+        $this->gaps->setIgnored($id, true);
+
+        AuthSession::login(2, 'admin@test.com', 'admin');
+
+        $response = $this->frontController('/support-dashboard/correspondances/{id}/reactiver', 'restore', 'POST')
+            ->handle(new Request(
+                'POST',
+                '/support-dashboard/correspondances/' . $id . '/reactiver',
+                [],
+                ['_csrf_token' => CsrfGuard::generateToken()],
+                [],
+                []
+            ));
+
+        $this->assertNotSame(302, $response->getStatusCode());
+        $this->assertNotNull(
+            $this->gaps->findById($id)['ignored_at'],
+            'the value must still be set aside'
+        );
+    }
+
+    /**
+     * And the route itself, which no test reached: « réactiver » was only
+     * ever exercised by calling the repository directly, so the router,
+     * the guard and the controller method were all untested on the one
+     * path a reader uses.
+     */
+    public function testTheSuperadminBringsAValueBackThroughTheRoute(): void
+    {
+        $id = $this->gaps->findAllKeyed()['branch|nutons']['id'];
+        $this->gaps->setIgnored($id, true);
+
+        AuthSession::login(1, 'superadmin@test.com', 'superadmin');
+
+        $response = $this->frontController('/support-dashboard/correspondances/{id}/reactiver', 'restore', 'POST')
+            ->handle(new Request(
+                'POST',
+                '/support-dashboard/correspondances/' . $id . '/reactiver',
+                [],
+                ['_csrf_token' => CsrfGuard::generateToken()],
+                [],
+                []
+            ));
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertNull($this->gaps->findById($id)['ignored_at']);
+
+        // Back in the default view, which is the point of bringing it back.
+        $shown = $this->controller->index(
+            new Request('GET', '/support-dashboard/correspondances', [], [], [], []),
+            []
+        )->getBody();
+        $this->assertStringContainsString('Nutons', $shown);
+    }
 }

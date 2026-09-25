@@ -116,8 +116,15 @@ class DeskMappingGapRepository
      */
     public function idsAwaitingNotification(): array
     {
+        // Set aside counts as answered. A value can sit here un-notified
+        // for a while — nobody subscribed, or the push keys broken — and
+        // be judged on the page in the meantime; announcing it afterwards
+        // would be telling somebody about a value they have already
+        // dismissed.
         $stmt = $this->pdo->query(
-            'SELECT id FROM support_desk_mapping_gaps WHERE notified_at IS NULL ORDER BY id'
+            'SELECT id FROM support_desk_mapping_gaps
+             WHERE notified_at IS NULL AND ignored_at IS NULL
+             ORDER BY id'
         );
         if ($stmt === false) {
             return [];

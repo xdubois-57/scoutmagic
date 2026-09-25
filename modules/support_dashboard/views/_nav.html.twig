@@ -1,18 +1,19 @@
 {#
-  Sous-navigation de « Supervision » — trois écrans, une seule entrée de
-  menu : le menu nomme la fonction, ces onglets nomment les écrans
-  qu'elle contient.
+  Sub-navigation for « Supervision » — three screens, one menu entry: the
+  menu names the function, these tabs name the screens it contains.
 
-  Le composant est le `partials/page_picker.html.twig` partagé, comme
-  finance, fees, rental et groups : c'est la couche pages[] → nav rail
-  écrite une fois (design.md §7.6). Ce module a d'abord embarqué sa
-  propre rangée en `nav-pills`, ce qui redonnait à la sous-navigation du
-  site un troisième style visuel — exactement ce que le page_picker
-  existe pour empêcher.
+  The component is the shared `partials/page_picker.html.twig`, as in
+  finance, fees, rental and groups: the pages[] → nav rail layer, written
+  once (design.md §7.6). This module first shipped its own `nav-pills`
+  row, which gave the site's sub-navigation a third visual style —
+  exactly what the page_picker exists to prevent.
 
-  `match_prefix` : une page de détail appartient à l'onglet d'où on
-  l'ouvre. /support-dashboard/tickets/12 sélectionne « Tickets », et le
-  plus long préfixe gagne, donc jamais aussi « Tableau de bord ».
+  `match_prefix`: a detail page belongs to the tab it is opened from.
+  /support-dashboard/tickets/12 selects « Tickets », and the longest
+  prefix wins, so never « Tableau de bord » as well.
+
+  (Translated from French on the change that added the third screen —
+  AGENTS.md § Language: a Twig comment is a comment, so it is English.)
 #}
 {% include 'partials/page_picker.html.twig' with {
     picker_id: 'support-dashboard-page-picker',

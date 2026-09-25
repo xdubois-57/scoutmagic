@@ -60,55 +60,75 @@ class DeskMappingGapRecorder
             }
         }
 
-        if ($newIds === []) {
-            return;
+        if ($newIds !== []) {
+            $this->journal->log(
+                'support_dashboard',
+                'desk_mapping_unknown',
+                'info',
+                count($newIds) . ' correspondance(s) Desk inconnue(s) signalée(s) pour la première fois',
+                ['values' => $newIds]
+            );
         }
 
-        $this->journal->log(
-            'support_dashboard',
-            'desk_mapping_unknown',
-            'info',
-            count($newIds) . ' correspondance(s) Desk inconnue(s) signalée(s) pour la première fois',
-            ['values' => $newIds]
-        );
-
-        $this->announce(count($newIds));
+        // Deliberately NOT conditional on this report having brought
+        // something new. A value first seen while nobody was subscribed —
+        // or while the push keys were broken — is a value nobody has been
+        // told about, and the backlog is what says so. Announcing only
+        // `$newIds` meant that value was never announced by any later
+        // report, however many carried it, while the first unrelated new
+        // value to come along marked it notified without mentioning it.
+        $this->announce();
     }
 
     /**
+     * Announce whatever is still waiting to be announced.
+     *
      * Generic, and pointing at the page rather than at the dashboard (D8):
-     * the message says how many values are new and nothing about which, so
-     * that a push notification on somebody's phone never carries a
-     * federation's vocabulary around.
+     * the message says how many values are waiting and nothing about
+     * which, so that a push notification on somebody's phone never carries
+     * a federation's vocabulary around.
+     *
+     * The count and the rows marked afterwards come from ONE snapshot of
+     * the backlog. Re-reading it after dispatching would mark rows the
+     * message never counted, which is the hole this replaced: a row can
+     * only be flagged as announced by the message that actually counted
+     * it.
      */
-    private function announce(int $newCount): void
+    private function announce(): void
     {
         if ($this->notifications === null) {
             return;
         }
 
         try {
+            $waiting = $this->gaps->idsAwaitingNotification();
+            if ($waiting === []) {
+                return;
+            }
+
             $recipients = $this->notifications->recipientsForType(self::NOTIFICATION_DESK_MAPPING_UNKNOWN);
             if ($recipients === []) {
                 // Nobody to tell — so nothing has been announced, and the
                 // rows must stay un-notified rather than be marked as
-                // though they had been.
+                // though they had been. The next report picks them up.
                 return;
             }
+
+            $count = count($waiting);
 
             $this->notifications->dispatch(
                 self::NOTIFICATION_DESK_MAPPING_UNKNOWN,
                 $recipients,
                 [
                     'title' => 'Correspondances Desk inconnues',
-                    'body' => $newCount > 1
-                        ? $newCount . ' nouvelles valeurs que ce code ne reconnaît pas'
+                    'body' => $count > 1
+                        ? $count . ' nouvelles valeurs que ce code ne reconnaît pas'
                         : 'Une nouvelle valeur que ce code ne reconnaît pas',
                     'url' => '/support-dashboard/correspondances',
                 ]
             );
 
-            $this->gaps->markNotified($this->gaps->idsAwaitingNotification());
+            $this->gaps->markNotified($waiting);
         } catch (\Throwable $e) {
             // Same posture as the ticket notification: a receiver whose
             // push keys are misconfigured must not start refusing reports

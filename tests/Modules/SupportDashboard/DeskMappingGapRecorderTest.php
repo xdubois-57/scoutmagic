@@ -109,16 +109,52 @@ class DeskMappingGapRecorderTest extends TestCase
         $this->assertNotSame([], $this->gaps->idsAwaitingNotification());
     }
 
-    private function recorder(): DeskMappingGapRecorder
+    private function recorder(?NotificationService $notifications = null): DeskMappingGapRecorder
     {
-        // No NotificationService: this receiver has no subscriber, which is
-        // the ordinary state of a fresh test database and, on a real one,
-        // of a maintainer who has not switched the type on.
+        // No NotificationService by default: this receiver has no
+        // subscriber, which is the ordinary state of a fresh test database
+        // and, on a real one, of a maintainer who has not switched the
+        // type on.
         return new DeskMappingGapRecorder(
             $this->gaps,
             new JournalService(new JournalRepository($this->pdo)),
-            null
+            $notifications
         );
+    }
+
+    /**
+     * A notification service that records what it was asked to send, and
+     * whose subscriber list the test decides.
+     *
+     * Subclassed rather than mocked because what matters here is the
+     * BODY — the count it claims — against the rows marked afterwards, and
+     * the two came apart in a way no assertion on « dispatch was called »
+     * would have caught.
+     */
+    private function notifier(bool $withRecipient): NotificationService
+    {
+        return new class ($withRecipient) extends NotificationService {
+            /** @var list<array<string, mixed>> */
+            public array $sent = [];
+
+            public function __construct(private bool $withRecipient)
+            {
+            }
+
+            public function recipientsForType(string $typeId): array
+            {
+                return $this->withRecipient ? [1] : [];
+            }
+
+            public function dispatch(
+                string $typeId,
+                array $recipients,
+                array $payload,
+                ?int $actorUserAccountId = null
+            ): void {
+                $this->sent[] = $payload;
+            }
+        };
     }
 
     /**
@@ -128,7 +164,7 @@ class DeskMappingGapRecorderTest extends TestCase
     private function payload(array $unresolved): array
     {
         return [
-            'statistics_schema_version' => 2,
+            'statistics_schema_version' => 1,
             'installation_id' => 'aaaabbbbccccdddd',
             'desk_unresolved' => [
                 'total' => count($unresolved),
@@ -146,5 +182,90 @@ class DeskMappingGapRecorderTest extends TestCase
         $stmt->execute([$eventType]);
 
         return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * The hole that « le prochain rapport les annoncera » claimed was not
+     * there, and was.
+     *
+     * A value first seen while nobody was subscribed stayed un-notified,
+     * correctly — but the announcement only ever ran on the values THIS
+     * report brought in. So the second report, carrying the same value,
+     * found nothing new, returned before announcing anything, and the
+     * value was never announced by any later report however many carried
+     * it. Driving the announcement off the backlog instead of off this
+     * call's new values is what fixes it.
+     */
+    public function testAValueSeenWhileNobodyWasSubscribedIsAnnouncedToWhoeverSubscribesLater(): void
+    {
+        $this->recorder($this->notifier(false))->record($this->payload([['function', 'Animateur Nutons']]));
+        $this->assertNotSame([], $this->gaps->idsAwaitingNotification(), 'nothing was announced, so it still waits');
+
+        // The next morning, same value, and by now somebody has switched
+        // the notification on.
+        $notifier = $this->notifier(true);
+        $this->recorder($notifier)->record($this->payload([['function', 'Animateur Nutons']]));
+
+        $this->assertCount(1, $notifier->sent, 'the waiting value must be announced even though nothing is new');
+        $this->assertSame([], $this->gaps->idsAwaitingNotification());
+        $this->assertNotNull($this->gaps->findAllKeyed()['function|animateur nutons']['notified_at']);
+    }
+
+    /**
+     * And the second half of the same hole: the message counted only the
+     * new values while marking EVERY waiting row as notified. A value that
+     * had been waiting was then flagged as announced by a message that
+     * never mentioned it — silently, and for good.
+     */
+    public function testTheMessageCountsExactlyTheRowsItMarks(): void
+    {
+        $this->recorder($this->notifier(false))->record($this->payload([['function', 'Animateur Nutons']]));
+
+        $notifier = $this->notifier(true);
+        $this->recorder($notifier)->record($this->payload([
+            ['function', 'Animateur Nutons'],
+            ['branch', 'Nutons'],
+        ]));
+
+        $this->assertCount(1, $notifier->sent);
+        $this->assertStringContainsString(
+            '2 nouvelles valeurs',
+            (string) $notifier->sent[0]['body'],
+            'the body must count the waiting value as well as the new one, since it marks both as announced'
+        );
+        $this->assertSame([], $this->gaps->idsAwaitingNotification());
+    }
+
+    /**
+     * Set aside counts as answered. A value can wait un-notified for a
+     * while and be judged on the page in the meantime; announcing it
+     * afterwards would be telling somebody about a value they have already
+     * dismissed.
+     */
+    public function testAValueSetAsideWhileWaitingIsNeverAnnounced(): void
+    {
+        $this->recorder($this->notifier(false))->record($this->payload([['function', 'Animateur Nutons']]));
+        $this->gaps->setIgnored($this->gaps->findAllKeyed()['function|animateur nutons']['id'], true);
+
+        $notifier = $this->notifier(true);
+        $this->recorder($notifier)->record($this->payload([['function', 'Animateur Nutons']]));
+
+        $this->assertSame([], $notifier->sent);
+    }
+
+    /**
+     * One value, one notification, still — the rule the backlog change had
+     * every opportunity to break.
+     */
+    public function testAValueAlreadyAnnouncedIsNotAnnouncedAgainTomorrow(): void
+    {
+        $notifier = $this->notifier(true);
+        $recorder = $this->recorder($notifier);
+
+        $recorder->record($this->payload([['function', 'Animateur Nutons']]));
+        $recorder->record($this->payload([['function', 'Animateur Nutons']]));
+        $recorder->record($this->payload([['function', 'ANIMATEUR NUTONS']]));
+
+        $this->assertCount(1, $notifier->sent);
     }
 }

@@ -507,6 +507,49 @@ envoi. Une liste qui change d'ordre entre deux affichages est du bruit.
 d'unités : c'est ce que la charge transmet (IT-02), et c'est la question du
 mainteneur.
 
+### Ce que la revue a trouvé, et que les tests ne tenaient pas
+
+Quatre retours, quatre défauts réels. Les deux premiers sont des bugs que ma
+propre documentation contredisait.
+
+**Une valeur vue sans abonné n'était jamais annoncée.** Le commentaire disait
+« le prochain rapport les annoncera » ; c'était faux. `record()` sortait
+avant d'annoncer quand le rapport n'apportait rien de neuf, donc une valeur
+restée en attente — personne d'abonné, ou des clés push cassées — ne pouvait
+plus jamais être annoncée, quel que soit le nombre de rapports la portant. Et
+l'autre moitié du même trou : quand une valeur *neuve* arrivait enfin, le
+message ne comptait qu'elle mais `markNotified()` marquait **tout** l'arriéré,
+donc la valeur en attente était silencieusement classée « annoncée » sans avoir
+jamais été mentionnée. L'annonce part désormais de l'arriéré et non des
+nouveautés de l'appel, sur **un seul instantané** : une ligne ne peut être
+marquée que par le message qui l'a comptée.
+
+*Corollaire trouvé en corrigeant* : une valeur écartée sur la page alors
+qu'elle attendait encore serait annoncée ensuite. `idsAwaitingNotification()`
+exclut donc les lignes écartées — écarter vaut réponse.
+
+**« N unités » comptait des entrées de charge, pas des unités.** `instances`
+dédoublonnait par hôte, `count` non. Or une même installation peut porter deux
+entrées qui se replient sur la même ligne : `functions` est unique sur
+`desk_code` et non sur `label`, et deux orthographes se replient **par
+construction** (D7). Une seule unité pouvait donc afficher « 2 unités » — et la
+page surligne en rouge au-delà de trois, donc quelques variantes sur une unité
+pouvaient se lire comme un problème fédéral. Exactement l'inverse de ce à quoi
+cette page sert. Le comptage se fait maintenant une fois par installation.
+
+**Deux routes POST n'avaient pas leur frontière RBAC.** `AGENTS.md` demande,
+pour chaque route, l'accès permis au `role_min` et refusé un cran en dessous.
+Seul le GET l'avait : « écarter » n'était testé qu'en superadmin, et
+« réactiver » n'était **jamais** atteint par la route — les tests appelaient le
+dépôt directement, donc le routeur, le garde et la méthode n'étaient pas
+couverts. Trois tests ajoutés, et vérifiés en abaissant `role_min` dans le
+manifeste : ils tombent.
+
+**Un commentaire Twig français que ce changement modifiait.** `AGENTS.md` le
+dit : un commentaire Twig est un commentaire, donc en anglais, et on traduit
+ceux d'un fichier où un changement nous emmène de toute façon. Celui-ci passait
+« deux écrans » à « trois » — le cas exact que la règle vise. Traduit.
+
 ### Ce que les tests tiennent
 
 Une valeur que ce code reconnaît n'apparaît jamais — la branche par
