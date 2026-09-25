@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Http\Controller;
 
 use Core\Config\SettingService;
+use Core\Exception\UserFacingMessage;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Journal\JournalService;
@@ -1749,8 +1750,40 @@ class OutboundMailController extends AbstractController
         }
 
         $this->dkim->deleteKey();
-        $this->dkim->generateKey();
+        // Forgotten HERE rather than after the generation, and the order is
+        // the whole of it: the old key is gone from this line on, whatever
+        // happens next, so a reading taken against it describes nothing.
+        // Left for after a generation that throws, it would survive as a
+        // green tick over a key that no longer exists.
         DnsCheckMemory::forget($this->settings);
+
+        try {
+            $this->dkim->generateKey();
+        } catch (\Throwable $e) {
+            // The site now has NO key and signs nothing, which is worse
+            // than the failed rotation and has to be said in the message
+            // rather than left for the operator to discover from a bounce.
+            // Whatever OpenSSL says here is English and technical, so it
+            // goes through UserFacingMessage::from() like its sibling in
+            // SetupController::generateDkimKey().
+            $this->journal->log(
+                'core',
+                'dkim_key_regeneration_failed',
+                'security',
+                'Échec de la régénération de la clé DKIM',
+                ['selector' => $this->dkimSelector(), 'error' => $e->getMessage()],
+                AuthSession::getUserAccountId()
+            );
+
+            FlashMessage::set('error', UserFacingMessage::from(
+                $e,
+                'La nouvelle clé DKIM n’a pas pu être générée, et l’ancienne est déjà retirée : les messages '
+                    . 'du site ne sont plus signés. Vérifiez que l’extension OpenSSL est active et que le '
+                    . 'dossier storage/ est accessible en écriture, puis relancez la génération.'
+            ));
+
+            return $this->redirect(self::AUTHENTICATION_URL);
+        }
 
         $this->journal->log(
             'core',

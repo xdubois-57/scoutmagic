@@ -468,7 +468,13 @@ class SetupControllerTest extends TestCase
             'db_host' => '127.0.0.1',
             'db_port' => '3306',
             'db_name' => 'test',
-            'db_user' => 'root',
+            // DIFFERENT from the stored fixture, and that is the premise
+            // assertion rather than a detail: posting 'root' again, as this
+            // test first did, proves nothing at all — the value reads back
+            // the same whether the save ran or returned on the first
+            // validation error, so every assertion below would have passed
+            // over a save that never happened.
+            'db_user' => 'un-autre-utilisateur',
             'db_password' => '',
             'site_name' => 'Mon Unité',
             'short_name' => '25SV',
@@ -481,6 +487,12 @@ class SetupControllerTest extends TestCase
         ], [], []), []);
 
         $this->assertSame(
+            'un-autre-utilisateur',
+            $this->secretManager->readSecrets()['db_user'] ?? null,
+            'the save did not reach handleConfigUpdate(), so nothing below is tested'
+        );
+
+        $this->assertSame(
             $before,
             $this->dkimManager->getPublicKey(),
             'a hand-posted regenerate_dkim rotated the signing key from a page that no longer offers it'
@@ -491,6 +503,18 @@ class SetupControllerTest extends TestCase
             'admin_email',
             $after,
             'a hand-posted admin_email was recorded by a page that no longer offers it'
+        );
+
+        // And the assertion above cannot carry the administrator half on its
+        // own, which a reviewer had to point out: the write it watches for
+        // sat AFTER the database connection and the migration, so this
+        // fixture's failure to connect returns through the error path before
+        // reaching it — the key would read as absent with the old call
+        // restored. What cannot be short-circuited by an early return is
+        // that the method is GONE.
+        $this->assertFalse(
+            method_exists(SetupController::class, 'upsertAdminAccount'),
+            'the page that no longer offers an administrator field has a method to write one again'
         );
     }
 

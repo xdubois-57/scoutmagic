@@ -91,9 +91,10 @@ class DkimKeyChangeForgetsDnsTest extends TestCase
                 $this->assertTrue(
                     $this->forgetsWithin($lines, $number),
                     sprintf(
-                        '%s:%d changes the DKIM key pair without forgetting the remembered DNS reading '
-                            . 'just after. That reading then keeps reporting the PREVIOUS key as published, '
-                            . 'and the dashboard shows a green tick over mail that every receiver rejects.',
+                        '%s:%d changes the DKIM key pair and nothing in that method forgets the remembered '
+                            . 'DNS reading — before the change or after it. That reading then keeps reporting '
+                            . 'the PREVIOUS key as published, and the dashboard shows a green tick over mail '
+                            . 'that every receiver rejects.',
                         $controller,
                         $number + 1
                     )
@@ -139,18 +140,28 @@ class DkimKeyChangeForgetsDnsTest extends TestCase
     }
 
     /**
-     * Within the same block: a `deleteKey()` immediately followed by a
-     * `generateKey()` is one change, and one `forgetDnsReading()` after
-     * the pair answers for both.
+     * Anywhere in the SAME METHOD, before the mutation or after it.
+     *
+     * This began as a three-line lookahead, which reads « just after » —
+     * and a reviewer moved the forget deliberately to BEFORE the
+     * generation, so that a generation which throws still drops a reading
+     * describing the key `deleteKey()` had already removed. That ordering
+     * serves this rule better than the one the window enforced, and the
+     * window failed it. A rule its own guard punishes you for obeying
+     * properly is a guard measuring the wrong thing.
+     *
+     * The method is the right unit: it is the block that owns the change,
+     * it survives reformatting, and it still fails the file that changes
+     * the key in one method and forgets in another — which is the mistake
+     * this test exists for.
      *
      * @param array<int, string> $lines
      */
     private function forgetsWithin(array $lines, int $from): bool
     {
-        for ($i = $from + 1; $i <= $from + 3; $i++) {
-            if (!isset($lines[$i])) {
-                return false;
-            }
+        [$start, $end] = $this->methodAround($lines, $from);
+
+        for ($i = $start; $i <= $end; $i++) {
             foreach (self::FORGETS as $forgets) {
                 if (str_contains($lines[$i], $forgets)) {
                     return true;
@@ -159,6 +170,114 @@ class DkimKeyChangeForgetsDnsTest extends TestCase
         }
 
         return false;
+    }
+
+    /**
+     * The bounds of the method holding a line: from its own declaration to
+     * the line before the next one, or to the end of the file.
+     *
+     * @param array<int, string> $lines
+     * @return array{int, int}
+     */
+    private function methodAround(array $lines, int $at): array
+    {
+        $declaration = '/^\s{4}(?:final\s+|abstract\s+|static\s+)*(?:public|protected|private)\s'
+            . '(?:[\w\s]*\s)?function\s/';
+
+        $start = 0;
+        for ($i = $at; $i >= 0; $i--) {
+            if (preg_match($declaration, $lines[$i]) === 1) {
+                $start = $i;
+                break;
+            }
+        }
+
+        $end = count($lines) - 1;
+        for ($i = $at + 1; $i < count($lines); $i++) {
+            if (preg_match($declaration, $lines[$i]) === 1) {
+                $end = $i - 1;
+                break;
+            }
+        }
+
+        return [$start, $end];
+    }
+
+    /**
+     * The reader, on literal source — because the sweep cannot hold it.
+     *
+     * Every key-changing site in this repository forgets the reading, so a
+     * reader that answered `true` to everything would pass the sweep above
+     * without a murmur. Only a fixture whose answer is known in advance
+     * says whether this one still refuses.
+     */
+    public function testTheReaderRefusesAMethodThatForgetsNothing(): void
+    {
+        $forgetsAfter = <<<'FIXTURE'
+            class X
+            {
+                public function rotate(): void
+                {
+                    $this->dkim->deleteKey();
+                    $this->dkim->generateKey();
+                    DnsCheckMemory::forget($this->settings);
+                }
+            }
+            FIXTURE;
+        $forgetsBefore = <<<'FIXTURE'
+            class X
+            {
+                public function rotate(): void
+                {
+                    $this->dkim->deleteKey();
+                    DnsCheckMemory::forget($this->settings);
+
+                    try {
+                        $this->dkim->generateKey();
+                    } catch (\Throwable $e) {
+                        return;
+                    }
+                }
+            }
+            FIXTURE;
+        $forgetsInAnotherMethod = <<<'FIXTURE'
+            class X
+            {
+                public function rotate(): void
+                {
+                    $this->dkim->deleteKey();
+                    $this->dkim->generateKey();
+                }
+
+                public function somethingElse(): void
+                {
+                    DnsCheckMemory::forget($this->settings);
+                }
+            }
+            FIXTURE;
+
+        $this->assertTrue($this->firstMutationForgets($forgetsAfter), 'the original shape still passes');
+        $this->assertTrue(
+            $this->firstMutationForgets($forgetsBefore),
+            'forgetting BEFORE a generation that may throw is the better order, not a violation'
+        );
+        $this->assertFalse(
+            $this->firstMutationForgets($forgetsInAnotherMethod),
+            'a forget in a neighbouring method answers for nothing — that is the mistake this test exists for'
+        );
+    }
+
+    /** Runs the real readers over a literal snippet. */
+    private function firstMutationForgets(string $source): bool
+    {
+        $lines = explode("\n", $source);
+        foreach ($lines as $number => $line) {
+            if ($this->isAMutation($line)) {
+                return $this->forgetsWithin($lines, $number);
+            }
+        }
+
+        $this->fail('the fixture holds no key mutation at all');
     }
 
     /** @return array<int, string> */

@@ -2806,6 +2806,74 @@ class OutboundMailControllerTest extends TestCase
     }
 
     /**
+     * And when the generation FAILS, the site is told it now signs nothing.
+     *
+     * `deleteKey()` has already run by then — `DkimManager` has no API to
+     * mint into a temporary path and swap — so the failure leaves an
+     * installation with no key at all, which is worse than the rotation it
+     * refused and is invisible until a receiver bounces a message. The
+     * branch therefore owes three things, and this test holds all three:
+     * the remembered reading goes anyway (it described the key that is now
+     * gone), the journal records the failure, and the operator reads French
+     * rather than whatever OpenSSL says.
+     *
+     * Written because a reviewer read the branch, not because it fired:
+     * `docs` issue #449 counts 328 `catch` blocks this suite has never
+     * executed, and a branch nobody runs is a message nobody has read.
+     */
+    public function testAFailedRegenerationSaysTheSiteNoLongerSignsAndForgetsTheReading(): void
+    {
+        $this->settings->set('mail_from_address', 'info@unite.be');
+        $this->settings->set('dkim_selector', 's2026');
+        $this->dkim->generateKey();
+        $this->controller->checkDns($this->formRequest([]), []);
+        $this->assertStringContainsString(
+            'Relevé du',
+            (string) $this->controller->authentication($this->getRequest(), [])->getBody(),
+            'the fixture needs a remembered reading for its loss to be observable'
+        );
+
+        $refuses = new class ($this->secretsDirectory) extends \Core\Mail\DkimManager {
+            public function generateKey(): string
+            {
+                throw new \RuntimeException('Failed to generate DKIM key pair: openssl_pkey_new(): unavailable');
+            }
+        };
+        $controller = new OutboundMailController(...array_replace(
+            $this->controllerArguments,
+            [10 => $refuses]
+        ));
+
+        $response = $controller->regenerateDkimKey($this->formRequest([]), []);
+
+        $this->assertSame(302, $response->getStatusCode(), 'the operator is sent back to the page, not to a 500');
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString(
+            'ne sont plus signés',
+            (string) ($flash['message'] ?? ''),
+            'the message has to say what the failure LEFT, not only that it failed'
+        );
+        $this->assertStringNotContainsString(
+            'openssl_pkey_new',
+            (string) ($flash['message'] ?? ''),
+            'whatever OpenSSL says is English and technical, and it reached a visitor'
+        );
+
+        $this->assertStringNotContainsString(
+            'Relevé du',
+            (string) $this->controller->authentication($this->getRequest(), [])->getBody(),
+            'the reading survived a rotation that removed the key it was taken against'
+        );
+
+        $entries = $this->pdo->query(
+            "SELECT event_type FROM event_log WHERE event_type = 'dkim_key_regeneration_failed'"
+        )->fetchAll();
+        $this->assertCount(1, $entries, 'nothing recorded that this site stopped signing');
+    }
+
+    /**
      * A form POST, with the CSRF token the guard will look for.
      *
      * @param array<string, mixed> $body
