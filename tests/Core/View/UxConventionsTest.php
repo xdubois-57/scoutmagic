@@ -174,6 +174,272 @@ final class UxConventionsTest extends TestCase
     private const DATA_CONFIRM_ALLOWLIST = [];
 
     /**
+     * The verbs that make a POST destructive, read from its OWN address.
+     *
+     * design.md §7.5 names them: delete, remove, refuse, revoke, archive,
+     * withdraw — plus « ignorer », where the reading a chief refuses is
+     * deleted and never offered again.
+     */
+    /**
+     * The OTHER half of design.md §7.5, and the half nothing held until a
+     * reviewer noticed the gap.
+     *
+     * An action that UNDOES another must NOT ask: nothing is lost, and a
+     * dialog on it teaches the reader to dismiss dialogs — which is what
+     * makes the dialogs that matter worthless. `testEveryDestructivePostFormAsksFirst()`
+     * cannot see this drift in either direction: it reports only MISSING
+     * confirmations, and an undo verb never matches `DESTRUCTIVE_ACTION`
+     * anyway.
+     *
+     * It was not a hypothetical. #485 opened on the asymmetry that
+     * « Refuser » asked nothing while « Remettre en attente », on the same
+     * row, asked — and the first version of this pull request fixed one
+     * half, wrote the rule for the other, then left `/revert` carrying its
+     * dialog against the rule it had just written.
+     */
+    private const UNDOES_SOMETHING = '/(^|[\/_-])(revert|restore|restaurer|unarchive|desarchiver|reactivate|reactiver|reinstate|reprendre|unblock|debloquer)([\/_-]|$)/i';
+
+    private const DESTRUCTIVE_ACTION = '/(^|[\/_-])(delete|supprimer|remove|retirer|refuse|refuser|revoke|revoquer|archive|archiver|withdraw|ignorer)([\/_-]|$)/i';
+
+    /**
+     * Sending a message to somebody else, which #485 added to the rule: it
+     * leaves immediately and clicking again does not recall it.
+     *
+     * **Bilingual, like its sibling above, and it was not.** A reviewer
+     * found the consequence rather than the omission:
+     * `/config/reinscription/relance` mails EVERY family that has not
+     * answered a re-enrolment campaign, and this guard said nothing —
+     * `relance` is not `send…email`. The rule this change writes into
+     * design.md §7.5 claims the allowlist is the complete set of
+     * exceptions, so a verb the reader cannot see made that claim false.
+     *
+     * Route addresses in this repository are French (`AGENTS.md`
+     * § Language), so the English half is the one that needs the excuse:
+     * `send…email`, `resend` and `notify` appear because a few older routes
+     * use them. The reviewer's second guess was right too —
+     * `/finance/campaigns/{id}/notify` reaches every account that still owes
+     * something, and its own code comment says a failed round « must still
+     * leave the campaign marked rather than invite a second round of
+     * messages to the families who did get one ». That is the definition of
+     * not recallable.
+     *
+     * **What that route does NOT do is send an e-mail**, and the first draft
+     * of this docblock said it did — twice over, since it also said « every
+     * family ». It dispatches through `NotificationService`, and
+     * `finance.payment_due` declares `email: default_off`: in-app and push
+     * unless a recipient opted the channel in, and only for the accounts
+     * that still owe. So the name of this constant is narrower than what it
+     * has to catch. The property that matters is « reaches somebody else and
+     * cannot be recalled »; an e-mail is its commonest shape, not its
+     * definition — and a confirmation message must state the former, never
+     * assume the latter.
+     *
+     * **A verb in an address is not proof of a send**, which is why the
+     * exception list exists rather than a longer pattern:
+     * `/finance/campaigns/{id}/reminder` says « rappel » and only prepares a
+     * DRAFT — « Le brouillon est prêt — relisez-le, il n'a pas été
+     * envoyé. » It is English here and so escapes by accident; a French
+     * sibling would need a line in ASKS_NOTHING.
+     */
+    private const SENDS_AN_EMAIL = '/(send[\w-]*email|resend|(^|[\/_-])(envoyer|renvoyer|relance|relancer|rappeler|notify|notifier)([\/_-]|$))/i';
+
+    /**
+     * **The three readers, on literal tags** — because the sweep above
+     * cannot hold them.
+     *
+     * Measured rather than assumed, and the measurement is the reason this
+     * test exists: reverting the French half of `SENDS_AN_EMAIL` leaves the
+     * sweep GREEN, because the form it was missing now carries a dialog, so
+     * a narrower pattern simply stops reporting it. Same for the exact
+     * attribute: no form today carries `data-confirm-label` alone, so a
+     * substring match reports nothing either way.
+     *
+     * A sweep over real templates answers « is anything wrong NOW ». Only a
+     * fixture whose answer is known in advance answers « would this reader
+     * notice ». Both halves are needed, and this file has learnt that twice.
+     */
+    public function testTheReadersRecogniseWhatTheyClaimTo(): void
+    {
+        // A French route that mails somebody else. This is the one the
+        // sweep missed: `relance` is not `send…email`.
+        $this->assertMatchesRegularExpression(
+            self::SENDS_AN_EMAIL,
+            '/config/reinscription/relance',
+            'a French « relance » route is a message to somebody else, whatever the English half says'
+        );
+        // The verb has to be its own segment, or every address containing
+        // it becomes a send — and each of these carries its own proof that
+        // the anchors are what rejects it, rather than the verb being
+        // absent. A fixture that contains no verb at all scores 0 whether
+        // the anchors are there or not, which is how a vacuous assertion
+        // gets into a file like this one (a reviewer found two).
+        foreach (['/config/reinscription/relances-envoyees', '/admin/notifyall'] as $url) {
+            $this->assertDoesNotMatchRegularExpression(
+                self::SENDS_AN_EMAIL,
+                $url,
+                "« {$url} » carries the verb inside a longer word, so it is not a send"
+            );
+            $this->assertMatchesRegularExpression(
+                '/(relance|notify)/i',
+                $url,
+                "and the verb IS in « {$url} » — without that, the assertion above would pass for nothing"
+            );
+        }
+        $this->assertMatchesRegularExpression(
+            self::SENDS_AN_EMAIL,
+            '/finance/campaigns/12/notify',
+            'notifying the families of a campaign reaches them and cannot be recalled'
+        );
+        // The plainest French verbs of all, and the first version of this
+        // pattern — written to BE bilingual — did not carry them. Two live
+        // routes use exactly them, and a reviewer named both.
+        $this->assertMatchesRegularExpression(
+            self::SENDS_AN_EMAIL,
+            '/mes-locations/document-envoyer',
+            'sending a rental document mails it to the renter'
+        );
+        $this->assertMatchesRegularExpression(
+            self::SENDS_AN_EMAIL,
+            '/admin/members/12/documents/3/renvoyer',
+            're-sending a member document mails it again'
+        );
+        // A page LISTING what was sent sends nothing. Kept for the shape it
+        // documents, and labelled for what it actually proves: « envoyes »
+        // is not « envoyer », so this one never reaches the anchors — it
+        // says the pattern does not match a past participle, not that the
+        // anchoring works. The two fixtures above are what prove that.
+        $this->assertDoesNotMatchRegularExpression(
+            self::SENDS_AN_EMAIL,
+            '/locations/documents-envoyes',
+            'a page listing what was sent sends nothing: the pattern wants the infinitive'
+        );
+
+        // Either quote style, for the method and for the action.
+        $this->assertTrue(self::isAPostForm('<form method=\'post\' action="/x">'));
+        $this->assertTrue(self::isAPostForm('<form method="POST" action="/x">'));
+        $this->assertFalse(self::isAPostForm('<form method="get" action="/x">'));
+        $this->assertSame('/supprimer', self::actionOf('<form method="post" action=\'/supprimer\'>'));
+        $this->assertNull(self::actionOf('<form method="post">'));
+
+        // And the EXACT attribute: a label is not a dialog.
+        $this->assertTrue(self::asksFirst('<form method="post" action="/x" data-confirm="Sûr ?">'));
+        $this->assertFalse(
+            self::asksFirst('<form method="post" action="/x" data-confirm-label="Supprimer">'),
+            'data-confirm-label only names the button of a dialog somebody else opens'
+        );
+        // A dialog the template may or may not print is not a dialog — and
+        // this fixture carries the shape the rental documents panel really
+        // had, NEWLINE AND INDENTATION INCLUDED, because that detail is the
+        // whole finding: `\sdata-confirm` needs whitespace before the
+        // attribute, so a compact `%}data-confirm="…"` was already rejected
+        // by accident while the indented form — the one that existed — read
+        // as a dialog. A fixture written compact passes without the
+        // conditional-stripping it is meant to prove.
+        $this->assertFalse(
+            self::asksFirst(
+                "<form method=\"post\" action=\"/mes-locations/document-envoyer\" class=\"d-inline\"\n"
+                . "      {% if not document.hasBeenSent and document.type.isGenerated %}\n"
+                . "          data-confirm=\"Envoyer ?\"\n"
+                . "          data-confirm-label=\"Envoyer\"\n"
+                . "      {% endif %}>"
+            ),
+            'an attribute inside {% if %} leaves the other branch asking nothing'
+        );
+        $this->assertTrue(
+            self::asksFirst(
+                '<form method="post" action="/x" data-confirm="Envoyer ?'
+                . '{% if locked %} Le texte sera figé.{% endif %}">'
+            ),
+            'a conditional sentence INSIDE the message still leaves a dialog on every render'
+        );
+    }
+
+    /**
+     * A `<form>` tag that POSTs — in either quote style.
+     *
+     * `method='post'` was skipped, and so was `action='/…'`. Every form in
+     * this repository uses double quotes today, so nothing was missed in
+     * fact; what a reviewer pointed out is that the 200-form floor cannot
+     * notice the omission either, since a form the reader skips is a form
+     * the count never sees. The three readers below are shared so the rule,
+     * the floor and the stale-exception check cannot drift apart — which
+     * they had.
+     */
+    private static function isAPostForm(string $tag): bool
+    {
+        return preg_match('/method\s*=\s*([\'"])post\1/i', $tag) === 1;
+    }
+
+    /** Its action, in either quote style, or null when it has none. */
+    private static function actionOf(string $tag): ?string
+    {
+        return preg_match('/action\s*=\s*([\'"])(.*?)\1/is', $tag, $found) === 1 ? $found[2] : null;
+    }
+
+    /**
+     * Does this form ask before acting — **always**, not sometimes?
+     *
+     * The EXACT attribute, not a prefix: `str_contains($tag, 'data-confirm')`
+     * also accepted `data-confirm-label`, which only labels the button of a
+     * dialog somebody else opens. Every form carrying the label carries the
+     * real attribute too today, so again nothing was wrong in fact — and
+     * again a future destructive form with the label alone would have
+     * passed.
+     *
+     * **And an attribute inside a `{% if %}` is not an attribute.** A
+     * reviewer found this one by its consequence:
+     * `modules/rental/views/management/_documents.html.twig` emitted its
+     * `data-confirm` only `{% if not document.hasBeenSent and
+     * document.type.isGenerated %}`, so **re-sending** a document mailed the
+     * renter with no dialog at all — the exact case design.md §7.5 adds to
+     * the rule — while this reader, which sees template SOURCE rather than
+     * rendered markup, read the attribute as present and said nothing.
+     * The conditional spans are stripped first, so what is tested is what
+     * the tag emits on every render.
+     */
+    private static function asksFirst(string $tag): bool
+    {
+        return preg_match('/\sdata-confirm\s*=/i', self::alwaysEmitted($tag)) === 1;
+    }
+
+    /**
+     * A form tag with its conditional spans removed — what it emits
+     * whatever the page's data says.
+     */
+    private static function alwaysEmitted(string $tag): string
+    {
+        return (string) preg_replace('/\{%-?\s*if\b.*?\{%-?\s*endif\s*-?%\}/s', '', $tag);
+    }
+
+    /**
+     * The POSTs whose address says a destructive verb and which must NOT
+     * ask, one reason each — the shape design.md §7.5 gives for the
+     * exceptions, and the list to re-read whenever a route is added.
+     *
+     * @var array<string, string> action URL => why it asks nothing
+     */
+    private const ASKS_NOTHING = [
+        // Removing one's OWN temporary access. Nothing is lost, the panel
+        // already says so in as many words, and it is offered from two
+        // places (the member page and the site-wide banner).
+        '/admin/members/temporary-access/remove' =>
+            'gives up an access one granted oneself, changing nothing else',
+        // « Réessayer la transmission de l'archive » — the word « archive »
+        // is the NOUN here, a support bundle being uploaded again. Nothing
+        // is archived and nothing is destroyed. The clearest example of
+        // what this check is blind to: it reads addresses, not actions.
+        '/config/support/ticket/archive' =>
+            'retries sending a support archive; « archive » is the noun, not the verb',
+        // Setting a household aside from the fee review. Undone by
+        // `/admin/fees/tarifs/reprendre`, the form sits inside a panel the
+        // reader has to open, and it REQUIRES a typed reason — three
+        // deliberate steps already, and the household comes back on its own
+        // if its composition changes.
+        '/admin/fees/tarifs/ignorer' =>
+            'reversible by « reprendre », and already behind an opened panel and a required reason',
+    ];
+
+    /**
      * A hidden `_csrf_token` field must be written by the `csrf_field()`
      * Twig function, never by interpolating a `csrf_token` *variable*.
      *
@@ -622,6 +888,261 @@ final class UxConventionsTest extends TestCase
             }
         }
         self::assertMatchesAllowlist($found, self::DATA_CONFIRM_ALLOWLIST, 'data-confirm is read on the <form> only; anywhere else it is silently inert');
+    }
+
+    /**
+     * Every destructive POST asks before it happens (design.md §7.5).
+     *
+     * **The rule existed and nothing enforced it.**
+     * {@see testDataConfirmOnlyOnForms()} checks that a `data-confirm` is
+     * in the one place the handler reads; it never asked whether a
+     * destructive form carries one at all. So « Refuser » on a
+     * registration request had no dialog while « Remettre en attente », on
+     * the same row, had one — the harmless gesture guarded and the one
+     * that costs a child their place not (#485).
+     *
+     * **It reads the form's own address**, which is what makes it
+     * mechanical and also what bounds it: an action whose URL does not say
+     * what it does escapes this, and `/config/support/ticket/archive` —
+     * which sends an archive rather than archiving anything — shows the
+     * other side of the same coin. {@see ASKS_NOTHING} carries that one as
+     * an exception with its reason, and the list is to be re-read whenever
+     * a route is added.
+     *
+     * A gesture driven from JavaScript is out of reach here, the attribute
+     * being delegated from a `<form>`; those ask with
+     * `window.ScoutMagicConfirm.ask()`, and `tests/js/` covers them.
+     */
+    /**
+     * Undo-looking addresses that ask ANYWAY, and must.
+     *
+     * Found by the reader above on its first run, which is the argument for
+     * having written it: « reprendre » carries two opposite meanings in
+     * this repository. On `/admin/fees/tarifs/reprendre` it undoes an
+     * « ignorer » and loses nothing. On an attestation batch it RETRACTS
+     * the batch — the published documents are deleted, and the message the
+     * dialog shows says so in as many words. The address is the same verb;
+     * the action is its opposite.
+     *
+     * The same blindness `ASKS_NOTHING` carries, in the other direction,
+     * and named for the same reason: an exception is a decision taken out
+     * loud, not a verb quietly dropped from a pattern — dropping
+     * « reprendre » would have left the harmless one unguarded too.
+     */
+    private const UNDO_THAT_STILL_ASKS = [
+        '/admin/attestations/{{ batch.id }}/reprendre' =>
+            'takes a batch back, DELETING the published documents; « reprendre » is retract here, not undo',
+    ];
+
+    public function testNoUndoAsksForConfirmation(): void
+    {
+        $asking = [];
+        $seen = 0;
+
+        foreach (self::templates() as $rel) {
+            preg_match_all('/<form\b[^>]*>/i', self::templateSource($rel), $forms);
+            foreach ($forms[0] as $tag) {
+                if (!self::isAPostForm($tag)) {
+                    continue;
+                }
+                $url = self::actionOf($tag);
+                if ($url === null || preg_match(self::UNDOES_SOMETHING, $url) !== 1) {
+                    continue;
+                }
+                // An address can carry both halves — « unarchive » holds
+                // « archive ». The destructive rule wins there, because
+                // what such a form does is not decided by this reader.
+                if (preg_match(self::DESTRUCTIVE_ACTION, $url) === 1
+                    || preg_match(self::SENDS_AN_EMAIL, $url) === 1
+                ) {
+                    continue;
+                }
+
+                $seen++;
+                if (self::asksFirst($tag) && !array_key_exists($url, self::UNDO_THAT_STILL_ASKS)) {
+                    $asking[] = $rel . ' — ' . $url;
+                }
+            }
+        }
+
+        sort($asking);
+        $this->assertSame(
+            [],
+            $asking,
+            "An action that UNDOES another does not ask (design.md §7.5): nothing is lost, and a\n"
+                . "dialog on it teaches the reader to dismiss the ones that matter.\n"
+                . "Remove the `data-confirm`, or say in design.md why this one is different.\n\n"
+                . implode("\n", $asking)
+        );
+
+        // The floor, for the same reason as its sibling's: an empty list
+        // satisfies `assertSame([], …)` perfectly, and a reader that has
+        // stopped recognising undo forms produces one.
+        $this->assertGreaterThanOrEqual(
+            4,
+            $seen,
+            'the scan finds almost no undo form, so the rule above was checked against nothing'
+        );
+
+        // And every exception must still BE one: an entry whose form has
+        // since DROPPED its dialog is stale, and would then answer for a
+        // rule that is being followed by accident.
+        $stale = [];
+        foreach (array_keys(self::UNDO_THAT_STILL_ASKS) as $url) {
+            $found = false;
+            foreach (self::templates() as $rel) {
+                preg_match_all('/<form\\b[^>]*>/i', self::templateSource($rel), $forms);
+                foreach ($forms[0] as $tag) {
+                    if (self::actionOf($tag) === $url && self::asksFirst($tag)) {
+                        $found = true;
+                    }
+                }
+            }
+            if (!$found) {
+                $stale[] = $url;
+            }
+        }
+        $this->assertSame(
+            [],
+            $stale,
+            'these exceptions no longer name a form that asks, so they cover nothing: ' . implode(', ', $stale)
+        );
+    }
+
+    /**
+     * Both readers, on literal tags — because a sweep that reports an empty
+     * list proves nothing about what it can recognise.
+     */
+    public function testTheUndoReaderRecognisesBothDirections(): void
+    {
+        $undo = '<form method="post" action="/config/inscriptions/demandes/7/revert">';
+        $undoAsking = '<form method="post" action="/config/inscriptions/demandes/7/revert" data-confirm="Sûr ?">';
+        $notUndo = '<form method="post" action="/config/inscriptions/demandes/7/refuse" data-confirm="Sûr ?">';
+
+        $this->assertSame(1, preg_match(self::UNDOES_SOMETHING, self::actionOf($undo) ?? ''));
+        $this->assertFalse(self::asksFirst($undo), 'the reader must see that this one asks nothing');
+        $this->assertTrue(self::asksFirst($undoAsking), 'and that this one asks');
+        $this->assertSame(
+            0,
+            preg_match(self::UNDOES_SOMETHING, self::actionOf($notUndo) ?? ''),
+            'refusing is not undoing, so the destructive rule keeps it'
+        );
+        // The verb has to be its own segment here too — and the fixture
+        // has to be one where that MATTERS.
+        //
+        // The first version of this assertion used
+        // `/config/reinscription/relances-envoyees`, copied from the
+        // `SENDS_AN_EMAIL` fixture two methods up, where it earns its
+        // place because that address really does contain « relance ». It
+        // contains none of the eleven undo verbs, so it scored 0 whether
+        // the segment anchors were there or not: an assertion that could
+        // not fail, in the file that hunts them.
+        //
+        // These three do contain a verb, and are rejected only BY the
+        // anchors — which the second assertion of each pair proves, rather
+        // than leaving the reader to trust the first.
+        foreach (['/admin/members/reverted', '/admin/prereverted', '/admin/journal/restored-items'] as $url) {
+            $this->assertSame(
+                0,
+                preg_match(self::UNDOES_SOMETHING, $url),
+                "« {$url} » carries an undo verb that is not its own segment, so it is not an undo"
+            );
+            $this->assertSame(
+                1,
+                preg_match('/(revert|restore)/i', $url),
+                "and the verb IS in « {$url} » — without that, the assertion above would pass for nothing"
+            );
+        }
+    }
+
+    public function testEveryDestructivePostFormAsksFirst(): void
+    {
+        $missing = [];
+
+        foreach (self::templates() as $rel) {
+            preg_match_all('/<form\b[^>]*>/i', self::templateSource($rel), $forms);
+            foreach ($forms[0] as $tag) {
+                if (!self::isAPostForm($tag)) {
+                    continue;
+                }
+                $url = self::actionOf($tag);
+                if ($url === null) {
+                    continue;
+                }
+
+                $destructive = preg_match(self::DESTRUCTIVE_ACTION, $url) === 1
+                    || preg_match(self::SENDS_AN_EMAIL, $url) === 1;
+                if (!$destructive || self::asksFirst($tag)) {
+                    continue;
+                }
+                if (array_key_exists($url, self::ASKS_NOTHING)) {
+                    continue;
+                }
+
+                $missing[] = $rel . ' — ' . $url;
+            }
+        }
+
+        sort($missing);
+        $this->assertSame(
+            [],
+            $missing,
+            "A POST that deletes, removes, refuses, revokes, archives, withdraws or sends an e-mail to\n"
+                . "somebody else asks first, with `data-confirm` on the <form> (design.md §7.5).\n"
+                . "If it genuinely must not ask, add its address to ASKS_NOTHING with the reason — the\n"
+                . "exception is a decision to take out loud, not a silent omission.\n\n"
+                . implode("\n", $missing)
+        );
+
+        // A floor under the scan, for the reason every allowlist in this
+        // file carries one: `assertSame([], …)` is perfectly satisfied by a
+        // reader that has stopped recognising forms.
+        $seen = 0;
+        foreach (self::templates() as $rel) {
+            preg_match_all('/<form\b[^>]*>/i', self::templateSource($rel), $forms);
+            foreach ($forms[0] as $tag) {
+                if (self::isAPostForm($tag) && self::actionOf($tag) !== null) {
+                    $seen++;
+                }
+            }
+        }
+        $this->assertGreaterThanOrEqual(
+            200,
+            $seen,
+            'the scan finds far fewer POST forms than this repository holds, so the rule above was '
+                . 'checked against almost nothing'
+        );
+
+        // And every exception must still BE one.
+        //
+        // **Matching the address was not enough**, which a reviewer had to
+        // point out: a form that has since GROWN a dialog still carries its
+        // address, so its exception stayed valid — and removing that dialog
+        // later would then pass unnoticed, the exception answering for it.
+        // An exception is stale the moment the form it names asks first,
+        // exactly as much as when the form is gone.
+        $stale = [];
+        foreach (self::ASKS_NOTHING as $url => $reason) {
+            $found = false;
+            foreach (self::templates() as $rel) {
+                preg_match_all('/<form\b[^>]*>/i', self::templateSource($rel), $forms);
+                foreach ($forms[0] as $tag) {
+                    if (
+                        self::isAPostForm($tag)
+                        && self::actionOf($tag) === $url
+                        && !self::asksFirst($tag)
+                    ) {
+                        $found = true;
+
+                        break 2;
+                    }
+                }
+            }
+            if (!$found) {
+                $stale[] = $url;
+            }
+        }
+        $this->assertSame([], $stale, 'an exception naming a form no template holds any more: ' . implode(', ', $stale));
     }
 
     public function testCsrfFieldsComeFromTheFunctionNotAVariable(): void

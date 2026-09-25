@@ -17,7 +17,7 @@ function recipient(id, search, status, resendable) {
     return `
         <tr data-search="${search}" data-status="${status}">
             <td>${id}</td>
-            <td>${resendable ? `<button type="button" class="mmt-resend-btn" data-id="${id}"></button>` : ''}</td>
+            <td>${resendable ? `<button type="button" class="mmt-resend-btn" data-id="${id}" data-recipient="destinataire-${id}@example.org"></button>` : ''}</td>
         </tr>`;
 }
 
@@ -45,6 +45,10 @@ describe('mass-mail-tracking.js', () => {
         document.body.innerHTML = PAGE;
         global.fetch = vi.fn(() => jsonResponse({ success: true }));
         window.ScoutMagicToast = { show: vi.fn() };
+        // A resend is an e-mail to somebody else, so the file asks first
+        // (design.md §7.5, #485). Answered yes by default; the tests that
+        // are about the question override it.
+        window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)) };
         Object.defineProperty(window, 'location', {
             configurable: true,
             value: { href: '/mass-mail/4/tracking', reload: vi.fn() },
@@ -153,6 +157,41 @@ describe('mass-mail-tracking.js', () => {
     });
 
     describe('resending', () => {
+        // An e-mail that has left cannot be recalled, and this button is
+        // one click away from the row of somebody who already received
+        // one. `data-confirm` cannot serve here — the delegated handler
+        // reads it off a <form> — so the same dialog is opened by hand
+        // (#485).
+        //
+        // Both claims are pinned, and the second one is why: the resend is
+        // QUEUED, not sent — `resendToRecipient()` puts the row back to
+        // `pending` and schedules a batch — so a message promising an
+        // immediate departure would contradict the « En attente » the page
+        // reloads onto. Asserting « rappel » alone would have let that
+        // wording back in.
+        it('asks before sending, naming the recipient and what actually happens', async () => {
+            await boot();
+            document.querySelector('.mmt-resend-btn[data-id="2"]').click();
+
+            await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled());
+            const [options] = window.ScoutMagicConfirm.ask.mock.calls[0];
+            expect(options.message).toContain('destinataire-2@example.org');
+            expect(options.message).toContain('rappel');
+            expect(options.message).toContain('en attente');
+            expect(options.message).not.toContain('immédiatement');
+        });
+
+        it('sends nothing when the question is answered no', async () => {
+            window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(false)) };
+            await boot();
+            const btn = document.querySelector('.mmt-resend-btn[data-id="2"]');
+            btn.click();
+
+            await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled());
+            expect(fetch).not.toHaveBeenCalled();
+            expect(btn.disabled).toBe(false);
+        });
+
         it('POSTs to the recipient\'s own URL with the CSRF token', async () => {
             await boot();
             document.querySelector('.mmt-resend-btn[data-id="2"]').click();

@@ -31,14 +31,18 @@
                 <div class="d-flex flex-wrap gap-2">
                     {% if r.status == 'pending' %}
                         <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/accept">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-primary">Accepter</button></form>
-                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/refuse">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-danger">Refuser</button></form>
-                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/withdraw">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-secondary">Retirer</button></form>
+                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/refuse"
+                              data-confirm="Refuser la demande de {{ r.childFirstName }} {{ r.childLastName }} ? La famille ne le saura que si vous envoyez l'e-mail de refus.">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-danger">Refuser</button></form>
+                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/withdraw"
+                              data-confirm="Retirer la demande de {{ r.childFirstName }} {{ r.childLastName }} ? Elle sort de la liste des demandes à traiter.">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-secondary">Retirer</button></form>
                     {% elseif r.status == 'accepted' %}
-                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/refuse">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-danger">Refuser</button></form>
-                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/withdraw">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-secondary">Retirer</button></form>
-                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/revert" data-confirm="Remettre cette demande en attente ?">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-secondary">Revenir en attente</button></form>
+                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/refuse"
+                              data-confirm="Refuser une demande déjà acceptée ? {{ r.childFirstName }} {{ r.childLastName }} perd sa place, et la famille a peut-être déjà reçu l'e-mail d'acceptation.">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-danger">Refuser</button></form>
+                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/withdraw"
+                              data-confirm="Retirer une demande déjà acceptée ? {{ r.childFirstName }} {{ r.childLastName }} perd sa place, et la famille a peut-être déjà reçu l'e-mail d'acceptation.">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-secondary">Retirer</button></form>
+                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/revert">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-secondary">Revenir en attente</button></form>
                     {% elseif r.status == 'refused' or r.status == 'withdrawn' %}
-                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/revert" data-confirm="Remettre cette demande en attente ?">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-secondary">Revenir en attente</button></form>
+                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/revert">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-secondary">Revenir en attente</button></form>
                     {% endif %}
                 </div>
             </div>
@@ -198,7 +202,8 @@
                         <p class="small text-body-secondary mb-2">
                             {{ r.acceptedEmailSentAt ? 'Envoyé le ' ~ r.acceptedEmailSentAt|french_date : 'Non envoyé' }}
                         </p>
-                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/send-accepted-email">
+                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/send-accepted-email"
+                              data-confirm="{{ r.acceptedEmailSentAt ? 'Renvoyer' : 'Envoyer' }} l'e-mail d'acceptation à la famille de {{ r.childFirstName }} {{ r.childLastName }} ? Il part immédiatement et ne peut pas être rappelé.">
                             {{ csrf_field()|raw }}
                             <button type="submit" class="btn btn-sm btn-outline-primary" {{ accepted_email_ready ? '' : 'disabled' }}>
                                 {{ r.acceptedEmailSentAt ? 'Renvoyer' : 'Envoyer' }}
@@ -213,7 +218,8 @@
                         <p class="small text-body-secondary mb-2">
                             {{ r.refusedEmailSentAt ? 'Envoyé le ' ~ r.refusedEmailSentAt|french_date : 'Non envoyé' }}
                         </p>
-                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/send-refused-email">
+                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/send-refused-email"
+                              data-confirm="{{ r.refusedEmailSentAt ? 'Renvoyer' : 'Envoyer' }} l'e-mail de refus à la famille de {{ r.childFirstName }} {{ r.childLastName }} ? Il part immédiatement et ne peut pas être rappelé.">
                             {{ csrf_field()|raw }}
                             <button type="submit" class="btn btn-sm btn-outline-primary" {{ refused_email_ready ? '' : 'disabled' }}>
                                 {{ r.refusedEmailSentAt ? 'Renvoyer' : 'Envoyer' }}

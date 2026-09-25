@@ -127,16 +127,31 @@
                                         </a>
                                         {% if document.isForRenter %}
                                             {#
-                                              Sending is the action that LOCKS
-                                              the text (§22.6), so the
-                                              confirmation says so before it
-                                              happens rather than after.
+                                              Asks on EVERY send, and the
+                                              attribute is outside any {% if %}
+                                              for a reason (#485): it used to
+                                              be printed only for a first send
+                                              of a generated document, so
+                                              RE-sending mailed the renter with
+                                              no question at all — the case
+                                              design.md §7.5 adds to the rule,
+                                              since a message that has left
+                                              cannot be recalled. It escaped
+                                              `UxConventionsTest` too, which
+                                              reads template source and took a
+                                              conditional attribute for an
+                                              attribute.
+
+                                              The sentence about the text being
+                                              LOCKED (§22.6) stays conditional,
+                                              because that consequence really
+                                              is: it is the first send of a
+                                              generated document that freezes
+                                              it.
                                             #}
                                             <form method="post" action="/mes-locations/document-envoyer" class="d-inline"
-                                                  {% if not document.hasBeenSent and document.type.isGenerated %}
-                                                      data-confirm="Envoyer « {{ document.label }} » au locataire par email ? Le texte de ce document ne sera plus modifiable ensuite."
-                                                      data-confirm-label="Envoyer"
-                                                  {% endif %}>
+                                                  data-confirm="{{ document.hasBeenSent ? 'Renvoyer' : 'Envoyer' }} « {{ document.label }} » au locataire par email ? Il part immédiatement et ne peut pas être rappelé.{% if not document.hasBeenSent and document.type.isGenerated %} Le texte de ce document ne sera plus modifiable ensuite.{% endif %}"
+                                                  data-confirm-label="{{ document.hasBeenSent ? 'Renvoyer' : 'Envoyer' }}">
                                                 {{ csrf_field()|raw }}
                                                 <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                                 <input type="hidden" name="booking_id" value="{{ booking.id }}">
