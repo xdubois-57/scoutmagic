@@ -33,3 +33,50 @@ import { expect } from '@playwright/test';
 export async function settledPanelAround(page, inner) {
     await expect(page.locator('.collapse.show').filter({ has: inner })).toBeVisible();
 }
+
+/**
+ * Performs the gesture that unfolds a Bootstrap collapse, and returns the
+ * panel once it has stopped moving.
+ *
+ * Two barriers, for the two ways this gesture has been lost (#520):
+ *
+ * - BEFORE the gesture, the library. A `data-bs-toggle="collapse"` button
+ *   does nothing at all until Bootstrap's delegated handler exists, and
+ *   base.html.twig loads the bundle after the page's own markup — so a
+ *   toggle, and even its `aria-expanded="false"`, can be on screen while
+ *   the parser has not reached the script yet. A click then is swallowed,
+ *   the panel never so much as starts to open, and the assertion after it
+ *   reports « resolved to <div class="collapse"> » until its ceiling.
+ *   registration-flow.spec.js lost exactly that in CI, after a save whose
+ *   redirect it had judged arrived on that very attribute; delaying the
+ *   bundle by 1.5 s reproduces it every time.
+ * - AFTER it, the settled class. While it animates the panel carries
+ *   `.collapsing` alone, and it is visible then already; only
+ *   `.collapse.show` says it has stopped.
+ *
+ * It asserts on the way that the panel really was folded: a panel that
+ * silently starts open would make the gesture a close, and every later
+ * step would pass without anyone noticing the default had changed.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} panelId the panel's id, without its `#`
+ * @param {() => Promise<unknown>} gesture what unfolds it, usually a click
+ *        on its toggle
+ * @returns {Promise<import('@playwright/test').Locator>} the panel, open
+ */
+export async function openCollapse(page, panelId, gesture) {
+    // The library first, and the panel THERE before it is judged folded:
+    // toBeHidden() alone is also satisfied by an element not parsed yet,
+    // which would let a panel that starts open through unnoticed.
+    await page.waitForFunction(() => typeof (/** @type {any} */ (window)).bootstrap !== 'undefined');
+    const panel = page.locator(`#${panelId}`);
+    await expect(panel).toBeAttached();
+    await expect(panel, 'a panel is unfolded from folded').toBeHidden();
+
+    await gesture();
+
+    await expect(panel).toHaveClass(/\bcollapse\b.*\bshow\b|\bshow\b.*\bcollapse\b/);
+    await expect(panel).toBeVisible();
+
+    return panel;
+}

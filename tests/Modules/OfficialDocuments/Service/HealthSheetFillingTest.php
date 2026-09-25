@@ -254,7 +254,7 @@ final class HealthSheetFillingTest extends TestCase
         $ticks = HealthSheetFilling::ticks(HealthSheet::fromArray([$key => '']));
 
         $this->assertNotContains($yes, $ticks);
-        $this->assertNotContains($no, $ticks, 'Le site répond « non » à la place de la famille.');
+        $this->assertNotContains($no, $ticks, 'the site answers « non » in place of the family');
     }
 
     /**

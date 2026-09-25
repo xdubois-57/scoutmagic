@@ -2392,12 +2392,12 @@ class NewsIntegrationTest extends TestCase
         );
 
         $this->assertSame(302, $submit()->getStatusCode());
-        $this->assertSame(302, $submit()->getStatusCode(), 'le second envoi doit répondre comme le premier');
+        $this->assertSame(302, $submit()->getStatusCode(), 'the second send must answer like the first');
 
         $this->assertSame(
             1,
             (int) $this->pdo->query('SELECT COUNT(*) FROM news_form_responses')->fetchColumn(),
-            'un double clic a créé deux réponses',
+            'a double click created two responses',
         );
     }
 

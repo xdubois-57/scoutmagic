@@ -178,7 +178,7 @@ final class OfficialDocumentsRbacTest extends TestCase
         $this->assertNotSame(
             '/login',
             $response->getHeaders()['Location'] ?? null,
-            $method . ' ' . $path . ' : renvoyé à la connexion alors que le compte est identifié.'
+            $method . ' ' . $path . ' — sent back to the login page although the account is signed in.'
         );
 
         if ($method === 'GET') {

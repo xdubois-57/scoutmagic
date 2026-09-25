@@ -63,10 +63,10 @@ final class OfficialDocumentsRgpdCoverageTest extends TestCase
             : ['33bis. **Module Documents officiels', "\n\n34. **Assistant d'aide"];
 
         $from = strpos($content, $start);
-        self::assertNotFalse($from, $path . ' : la section « Documents officiels » a disparu.');
+        self::assertNotFalse($from, $path . ' — the « Documents officiels » section is gone.');
 
         $to = strpos($content, $end, $from);
-        self::assertNotFalse($to, $path . ' : la borne de fin de section a bougé, ce test ne délimite plus rien.');
+        self::assertNotFalse($to, $path . ' — the end marker of the section moved, so this test now bounds nothing.');
 
         // Whitespace collapsed: both files wrap their prose, so « un chef
         // d'unité » is split across two lines in the prompt and across none
@@ -97,8 +97,8 @@ final class OfficialDocumentsRgpdCoverageTest extends TestCase
             $this->assertStringContainsStringIgnoringCase(
                 $needle,
                 self::officialDocumentsSectionOf($path),
-                $path . ' ne dit plus cela des documents officiels, et une famille qui le lit en saurait '
-                . 'moins que ce qui arrive réellement à ses données.'
+                $path . ' no longer says this about official documents, so a family reading it would know '
+                . 'less than what actually happens to its data.'
             );
         }
     }

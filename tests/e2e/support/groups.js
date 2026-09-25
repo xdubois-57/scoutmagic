@@ -8,6 +8,8 @@
 // scenario, so they live here instead of once per file.
 import { expect } from '@playwright/test';
 
+import { closeModal } from './modal.js';
+
 /**
  * Open the "Créer un groupe" disclosure on /groups.
  *
@@ -86,11 +88,12 @@ export async function openComposer(page) {
  * toBeVisible() does not stand in for that — it passes the instant `.show`
  * lands, which is the START of the fade.
  *
- * `:focus-within` is the proof the opening finished: Bootstrap focuses the
- * modal when it fires `shown.bs.modal`, and matching the element or any
- * descendant covers both that and anything the dialog focuses itself —
- * the same reasoning, and the same pitfall, as support/section-editor.js
- * documents at greater length.
+ * closeModal() (support/modal.js) is the proof the opening finished: it
+ * waits for Bootstrap's own `shown.bs.modal` before the click, and for
+ * `hidden.bs.modal` after it. This helper used to read `:focus-within`
+ * instead, a stand-in for that event that support/section-editor.js
+ * documents losing when focus does not land; the dialog has to have been
+ * opened through openModal() for the event to have been recorded.
  *
  * This cost two failures on this branch, in two different specs
  * (groups-discussion and groups-mentions), each looking like a dialog of
@@ -102,9 +105,6 @@ export async function openComposer(page) {
  * @param {import('@playwright/test').Page} page
  */
 export async function closeDetailDialog(page) {
-    const dialog = page.locator('#groups-detail-modal');
-
-    await expect(page.locator('#groups-detail-modal:focus-within')).toHaveCount(1);
-    await dialog.locator('.btn-close').click();
-    await expect(dialog).toBeHidden();
+    await closeModal(page, 'groups-detail-modal', () =>
+        page.locator('#groups-detail-modal .btn-close').click());
 }

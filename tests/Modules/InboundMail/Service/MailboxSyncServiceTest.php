@@ -282,7 +282,7 @@ class MailboxSyncServiceTest extends TestCase
         $this->assertSame(
             12,
             $this->mailboxRepository->findCursor($this->mailboxId, 'INBOX')->lastUid,
-            'le curseur est resté derrière le message empoisonné',
+            'the cursor stayed behind the poisoned message',
         );
     }
 

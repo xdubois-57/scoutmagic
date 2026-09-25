@@ -2,7 +2,7 @@
   "id": "support_dashboard",
   "name": "Tableau de bord support",
   "description": "Réception et consultation des rapports d'utilisation envoyés par les installations ScoutMagic.",
-  "version": "1.14.2",
+  "version": "1.15.0",
   "enabled_by_default": false,
   "visible_when": [
     "statistics_receiver"
@@ -83,6 +83,12 @@
         "label": "Tickets de support",
         "parents": [
           "Configuration"
+        ],
+        "ancestors": [
+          {
+            "label": "Supervision",
+            "path": "/support-dashboard"
+          }
         ]
       }
     },
@@ -116,6 +122,12 @@
         "label": "Ticket",
         "parents": [
           "Configuration"
+        ],
+        "ancestors": [
+          {
+            "label": "Supervision",
+            "path": "/support-dashboard"
+          }
         ]
       }
     },
@@ -160,6 +172,45 @@
       "method": "POST",
       "controller": "Modules\\SupportDashboard\\Controller\\SupportTicketController",
       "action": "analyse",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/support-dashboard/correspondances",
+      "method": "GET",
+      "controller": "Modules\\SupportDashboard\\Controller\\DeskMappingGapController",
+      "action": "index",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Correspondances",
+        "parents": [
+          "Configuration"
+        ],
+        "ancestors": [
+          {
+            "label": "Supervision",
+            "path": "/support-dashboard"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/support-dashboard/correspondances/{id}/ecarter",
+      "method": "POST",
+      "controller": "Modules\\SupportDashboard\\Controller\\DeskMappingGapController",
+      "action": "ignore",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/support-dashboard/correspondances/{id}/reactiver",
+      "method": "POST",
+      "controller": "Modules\\SupportDashboard\\Controller\\DeskMappingGapController",
+      "action": "restore",
       "menu": "configuration",
       "role_min": "superadmin",
       "label": ""
@@ -227,6 +278,18 @@
       "channels": {
         "in_app": "default_on",
         "push": "default_on",
+        "email": "default_off"
+      }
+    },
+    {
+      "id": "support_dashboard.desk_mapping_unknown",
+      "label": "Correspondance Desk inconnue",
+      "description": "Quand une installation remonte pour la première fois une valeur Desk que ce code ne reconnaît pas — une fonction, une branche, un tarif ou un en-tête de colonne. Le message ne porte que le nombre de valeurs nouvelles : les libellés se lisent sur la page.",
+      "group": "Supervision",
+      "role_min": "superadmin",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_off",
         "email": "default_off"
       }
     }

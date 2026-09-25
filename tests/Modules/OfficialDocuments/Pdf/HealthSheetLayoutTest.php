@@ -115,12 +115,12 @@ final class HealthSheetLayoutTest extends TestCase
     #[DataProvider('textFieldProvider')]
     public function testEveryLineSitsOnOneTheFormPrints(string $name, TextField $field): void
     {
-        $this->assertContains($field->page, [1, 2], $name . ' : page inconnue.');
+        $this->assertContains($field->page, [1, 2], $name . ' — unknown page.');
         $this->assertTrue(
             self::isPrinted($field->page, $field->baselineY),
             sprintf(
-                '%s est écrit à %.1f mm sur la page %d, où le gabarit n\'imprime aucune ligne. '
-                . 'La fédération a-t-elle republié le formulaire ? Voir le docblock de HealthSheetLayout.',
+                '%s is written at %.1f mm on page %d, where the template prints no line at all. '
+                . 'Has the federation republished the form? See the docblock of HealthSheetLayout.',
                 $name,
                 $field->baselineY,
                 $field->page
@@ -135,16 +135,16 @@ final class HealthSheetLayoutTest extends TestCase
     #[DataProvider('textFieldProvider')]
     public function testEveryLineStaysOnThePage(string $name, TextField $field): void
     {
-        $this->assertGreaterThan(15.0, $field->x, $name . ' commence dans la marge de gauche.');
+        $this->assertGreaterThan(15.0, $field->x, $name . ' starts inside the left margin.');
         $this->assertLessThanOrEqual(
             HealthSheetLayout::PAGE_WIDTH_MM - 15.0,
             $field->right(),
-            $name . ' déborde dans la marge de droite.'
+            $name . ' runs over into the right margin.'
         );
         // The shortest printed line on this form is the 11 mm stub of
         // « Mentionnez toute information utile » — anything narrower than
         // that is a coordinate that slipped, not a line.
-        $this->assertGreaterThanOrEqual(11.0, $field->width, $name . ' n\'a presque pas de largeur.');
+        $this->assertGreaterThanOrEqual(11.0, $field->width, $name . ' has almost no width at all.');
     }
 
     /**
@@ -167,11 +167,11 @@ final class HealthSheetLayoutTest extends TestCase
     #[DataProvider('tickBoxProvider')]
     public function testEverySquareSitsOnALineTheFormPrints(string $name, TickBox $box): void
     {
-        $this->assertContains($box->page, [1, 2], $name . ' : page inconnue.');
+        $this->assertContains($box->page, [1, 2], $name . ' — unknown page.');
         $this->assertTrue(
             self::isPrinted($box->page, $box->y + $box->size),
             sprintf(
-                '%s est cochée à %.2f mm sur la page %d, où le gabarit n\'imprime rien.',
+                '%s is ticked at %.2f mm on page %d, where the template prints nothing.',
                 $name,
                 $box->y + $box->size,
                 $box->page
@@ -193,7 +193,7 @@ final class HealthSheetLayoutTest extends TestCase
         $seen = [];
         foreach (HealthSheetLayout::tickBoxes() as $name => $box) {
             $key = sprintf('%d:%.2f:%.2f', $box->page, $box->x, $box->y);
-            $this->assertArrayNotHasKey($key, $seen, $name . ' est au même endroit que ' . ($seen[$key] ?? ''));
+            $this->assertArrayNotHasKey($key, $seen, $name . ' sits in the same place as ' . ($seen[$key] ?? ''));
             $seen[$key] = $name;
         }
     }
@@ -206,7 +206,7 @@ final class HealthSheetLayoutTest extends TestCase
         $seen = [];
         foreach (HealthSheetLayout::textFields() as $name => $field) {
             $key = sprintf('%d:%.2f:%.2f', $field->page, $field->x, $field->baselineY);
-            $this->assertArrayNotHasKey($key, $seen, $name . ' est au même endroit que ' . ($seen[$key] ?? ''));
+            $this->assertArrayNotHasKey($key, $seen, $name . ' sits in the same place as ' . ($seen[$key] ?? ''));
             $seen[$key] = $name;
         }
     }
@@ -224,17 +224,17 @@ final class HealthSheetLayoutTest extends TestCase
         $fields = HealthSheetLayout::textFields();
 
         foreach (HealthSheetLayout::paragraphLines() as $answer => $names) {
-            $this->assertNotEmpty($names, $answer . ' n\'a aucune ligne imprimée.');
+            $this->assertNotEmpty($names, $answer . ' has no printed line.');
 
             $previous = null;
             foreach ($names as $name) {
-                $this->assertArrayHasKey($name, $fields, $answer . ' réclame ' . $name . ', qui n\'est pas au plan.');
+                $this->assertArrayHasKey($name, $fields, $answer . ' asks for ' . $name . ', which is not in the layout.');
                 $field = $fields[$name];
                 if ($previous !== null) {
                     $this->assertGreaterThan(
                         [$previous->page, $previous->baselineY],
                         [$field->page, $field->baselineY],
-                        $answer . ' : ' . $name . ' est imprimée avant la ligne qui la précède.'
+                        $answer . ' — ' . $name . ' is printed above the line before it.'
                     );
                 }
                 $previous = $field;
@@ -285,7 +285,7 @@ final class HealthSheetLayoutTest extends TestCase
             \Tests\Modules\OfficialDocuments\Service\HealthSheetFillingTest::member(),
             HealthSheet::empty()
         )) as $name) {
-            $this->assertArrayHasKey($name, $fields, $name . ' est écrit mais n\'a aucune ligne.');
+            $this->assertArrayHasKey($name, $fields, $name . ' is written but has no line.');
         }
     }
 
@@ -305,7 +305,7 @@ final class HealthSheetLayoutTest extends TestCase
         }
 
         foreach (array_keys(HealthSheetLayout::textFields()) as $name) {
-            $this->assertContains($name, $written, $name . ' est au plan mais rien ne l\'écrit.');
+            $this->assertContains($name, $written, $name . ' is in the layout but nothing writes it.');
         }
     }
 
@@ -383,8 +383,8 @@ final class HealthSheetLayoutTest extends TestCase
         $answers = array_keys(HealthSheet::empty()->toArray());
 
         foreach (HealthSheetLayout::siteSuppliedNames() as $name) {
-            $this->assertArrayHasKey($name, $fields, $name . ' n\'est pas au plan.');
-            $this->assertNotContains($name, $answers, $name . ' est une réponse du formulaire, pas une ligne du site.');
+            $this->assertArrayHasKey($name, $fields, $name . ' is not in the layout.');
+            $this->assertNotContains($name, $answers, $name . ' is a form answer, not a line the site supplies.');
         }
     }
 

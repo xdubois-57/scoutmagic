@@ -65,6 +65,7 @@ import { expect, test } from '@playwright/test';
 import { answerConfirmation } from '../support/confirm-dialog.js';
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin } from '../support/admin-login.js';
+import { openModal } from '../support/modal.js';
 import { scaled } from '../support/timeouts.js';
 
 const BOARD_TITLE = `Rétro camp E2E ${Date.now()}`;
@@ -342,11 +343,10 @@ test('a board linked to a calendar event derives its title server-side, from a f
     // makes a pointer click ambiguous where Enter is not.
     const todayCell = page.locator('.calendar-day-cell--clickable.is-today').first();
     await expect(todayCell).toBeVisible();
-    await todayCell.focus();
-    await page.keyboard.press('Enter');
-
-    const modal = page.locator('#eventModal');
-    await expect(modal).toBeVisible();
+    const modal = await openModal(page, 'eventModal', async () => {
+        await todayCell.focus();
+        await page.keyboard.press('Enter');
+    });
     await modal.getByLabel('Titre').fill(EVENT_TITLE);
     await modal.getByLabel('Calendrier').selectOption({ label: 'Meute E2E' });
     await modal.getByLabel('Heure de début').fill('09:00');

@@ -39,7 +39,7 @@ class ReenrollmentCampaignPlacementTest extends TestCase
             }
         }
 
-        $this->assertNotSame([], $this->routes, 'la page de campagne a disparu du manifeste');
+        $this->assertNotSame([], $this->routes, 'the campaign page is gone from the manifest');
     }
 
     /**
@@ -76,7 +76,7 @@ class ReenrollmentCampaignPlacementTest extends TestCase
             $this->assertSame(
                 'admin',
                 $route['role_min'],
-                "{$route['method']} {$route['path']} n'est pas au même étage que la page"
+                "{$route['method']} {$route['path']} is not on the same floor as the page"
             );
         }
     }

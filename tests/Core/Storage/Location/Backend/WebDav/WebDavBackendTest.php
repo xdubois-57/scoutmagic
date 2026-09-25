@@ -190,7 +190,7 @@ final class WebDavBackendTest extends TestCase
         $this->assertSame(
             ['/dav/scoutmagic/12', '/dav/scoutmagic/12/vignettes'],
             array_map(static fn (array $c): string => parse_url($c['url'], PHP_URL_PATH) ?: '', $made),
-            'les dossiers n\'ont pas été créés de l\'extérieur vers l\'intérieur'
+            'the folders were not created from the outside in'
         );
     }
 

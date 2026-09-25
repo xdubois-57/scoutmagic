@@ -109,6 +109,38 @@ class FileAccessGuard
         return $this->isOwnerScopedAgainst($file) && $this->hasStaffBypass();
     }
 
+    /**
+     * May a search engine keep this file?
+     *
+     * The registry's second, optional question (#516). Only a checker
+     * that implements {@see FileIndexingPolicyInterface} has an opinion;
+     * everything else is indexable as far as this guard is concerned,
+     * which for the vast majority of files is the honest answer — a
+     * crawler never reaches them at all, because `role_min` stops it
+     * before this is asked.
+     *
+     * **An owner type with no checker answers NO**, the same fail-closed
+     * posture as {@see isAllowedByRegistry()}. Such a file is already
+     * refused by {@see check()}, so nothing reaches this through the
+     * ordinary path; if some later caller ever does, the conservative
+     * answer is the one that cannot leak a document into a search index.
+     */
+    public function isIndexable(FileRecord $file): bool
+    {
+        if ($file->ownerType === null) {
+            return true;
+        }
+
+        foreach ($this->ownershipCheckers as $checker) {
+            if ($checker->supports($file->ownerType)) {
+                return !$checker instanceof FileIndexingPolicyInterface
+                    || $checker->isIndexable((int) $file->ownerId);
+            }
+        }
+
+        return false;
+    }
+
     /** The file has an owner, and this session is not linked to them. */
     private function isOwnerScopedAgainst(FileRecord $file): bool
     {

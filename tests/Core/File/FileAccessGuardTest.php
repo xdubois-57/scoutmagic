@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Core\File;
 
 use Core\File\FileAccessGuard;
+use Core\File\FileIndexingPolicyInterface;
 use Core\File\FileOwnershipCheckerInterface;
 use Core\File\FileRepository;
 use Core\Security\Role;
@@ -163,6 +164,104 @@ class FileAccessGuardTest extends TestCase
 
         $guard = new FileAccessGuard($this->repo, Role::PUBLIC, []);
         $this->assertNotNull($guard->check($id));
+    }
+
+    // --- The registry's second, optional question: may a crawler keep it? (#516) ---
+
+    /**
+     * A checker that also has an opinion about search engines.
+     */
+    private function indexingChecker(string $ownerType, bool $indexable): FileOwnershipCheckerInterface
+    {
+        return new class ($ownerType, $indexable) implements FileOwnershipCheckerInterface, FileIndexingPolicyInterface {
+            public function __construct(private string $ownerType, private bool $indexable)
+            {
+            }
+
+            public function supports(string $ownerType): bool
+            {
+                return $ownerType === $this->ownerType;
+            }
+
+            public function isAllowed(int $ownerId, Role $currentRole, array $linkedMemberIds): bool
+            {
+                return true;
+            }
+
+            public function isIndexable(int $ownerId): bool
+            {
+                return $this->indexable;
+            }
+        };
+    }
+
+    /**
+     * A file with no owner type is indexable as far as this guard is
+     * concerned — which for the overwhelming majority is the honest
+     * answer, since `role_min` stops a crawler long before this is asked.
+     */
+    public function testAFileWithNoOwnerTypeIsIndexable(): void
+    {
+        $id = $this->repo->create('f.pdf', 'f.pdf', 'application/pdf', 100, 'public', null, null);
+        $guard = new FileAccessGuard($this->repo, Role::PUBLIC);
+
+        $file = $guard->check($id);
+        $this->assertNotNull($file);
+        $this->assertTrue($guard->isIndexable($file));
+    }
+
+    /**
+     * A checker with no opinion does not make its files unindexable: the
+     * interface is optional, and five `return true;` bodies saying
+     * nothing is exactly what it exists to avoid.
+     */
+    public function testACheckerWithNoOpinionLeavesTheFileIndexable(): void
+    {
+        $id = $this->repo->create('f.pdf', 'f.pdf', 'application/pdf', 100, 'identified', null, null, false, null, 'section_document', 5);
+        $guard = new FileAccessGuard($this->repo, Role::IDENTIFIED, [], [$this->fakeChecker('section_document', true)]);
+
+        $file = $guard->check($id);
+        $this->assertNotNull($file);
+        $this->assertTrue($guard->isIndexable($file));
+    }
+
+    /** And a checker that says no is obeyed. */
+    public function testACheckerThatRefusesIndexingIsObeyed(): void
+    {
+        $id = $this->repo->create('f.pdf', 'f.pdf', 'application/pdf', 100, 'public', null, null, false, null, 'document', 5);
+        $guard = new FileAccessGuard($this->repo, Role::PUBLIC, [], [$this->indexingChecker('document', false)]);
+
+        $file = $guard->check($id);
+        $this->assertNotNull($file);
+        $this->assertFalse($guard->isIndexable($file));
+    }
+
+    /** Granting access and allowing indexing are two separate answers. */
+    public function testACheckerMayAllowAccessAndStillAllowIndexing(): void
+    {
+        $id = $this->repo->create('f.pdf', 'f.pdf', 'application/pdf', 100, 'public', null, null, false, null, 'document', 5);
+        $guard = new FileAccessGuard($this->repo, Role::PUBLIC, [], [$this->indexingChecker('document', true)]);
+
+        $file = $guard->check($id);
+        $this->assertNotNull($file);
+        $this->assertTrue($guard->isIndexable($file));
+    }
+
+    /**
+     * An owner type nothing claims answers NO, the same fail-closed
+     * posture the access question takes. Such a file is already refused
+     * by `check()`, so nothing reaches this through the ordinary path —
+     * but a later caller that did must not be handed « indexable » by
+     * default.
+     */
+    public function testAnOwnerTypeWithNoCheckerIsNotIndexable(): void
+    {
+        $id = $this->repo->create('f.pdf', 'f.pdf', 'application/pdf', 100, 'public', null, null, false, null, 'group_document', 7);
+        $permissive = new FileAccessGuard($this->repo, Role::SUPERADMIN, [], [$this->fakeChecker('group_document', true)]);
+        $file = $permissive->check($id);
+        $this->assertNotNull($file);
+
+        $this->assertFalse((new FileAccessGuard($this->repo, Role::SUPERADMIN, [], []))->isIndexable($file));
     }
 
     // --- Generic owner_type/owner_id registry (Core\File\FileOwnershipCheckerInterface) ---

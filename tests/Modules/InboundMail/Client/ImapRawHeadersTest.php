@@ -61,7 +61,7 @@ class ImapRawHeadersTest extends TestCase
     {
         $fetched = $this->fetch(self::RAW);
 
-        $this->assertNotSame('', $fetched->rawHeaders, 'le client IMAP ne transmet aucun en-tête');
+        $this->assertNotSame('', $fetched->rawHeaders, 'the IMAP client passes no header through');
         $this->assertStringContainsString('Authentication-Results:', $fetched->rawHeaders);
         $this->assertStringContainsString('DKIM-Signature:', $fetched->rawHeaders);
     }

@@ -172,8 +172,8 @@ final class ReferenceDatasetBuildTest extends TestCase
         foreach (UnitBlueprint::YEARS as $label) {
             $members = $this->countActiveMembersIn($label);
 
-            self::assertGreaterThanOrEqual(170, $members, "L'unité de {$label} a perdu du monde en route.");
-            self::assertLessThanOrEqual(190, $members, "L'unité de {$label} a gagné du monde en route.");
+            self::assertGreaterThanOrEqual(170, $members, "The unit in {$label} lost people on the way.");
+            self::assertLessThanOrEqual(190, $members, "The unit in {$label} gained people on the way.");
         }
     }
 
@@ -185,13 +185,13 @@ final class ReferenceDatasetBuildTest extends TestCase
         }
 
         foreach (UnitBlueprint::SECTIONS as $handle => $section) {
-            self::assertArrayHasKey($section['name'], $states, "{$section['name']} n'a pas été créée.");
+            self::assertArrayHasKey($section['name'], $states, "{$section['name']} was not created.");
             self::assertSame(
                 $handle !== 'iam1',
                 $states[$section['name']],
                 // iam1 is the section the dataset empties in 2026-2027
                 // (UnitBlueprint::HEADCOUNT). Every other one stays open.
-                "{$section['name']} n'est pas dans l'état que le blueprint décrit.",
+                "{$section['name']} is not in the state the blueprint describes.",
             );
         }
     }
@@ -214,7 +214,7 @@ final class ReferenceDatasetBuildTest extends TestCase
         self::assertSame(
             $expectedLinks,
             $this->rowCount('camp_camp_sections'),
-            'Un séjour a perdu une section en route — CampService::create() ne les accepte que actives.',
+            'a stay lost a section on the way — CampService::create() takes active ones only',
         );
     }
 
@@ -238,11 +238,11 @@ final class ReferenceDatasetBuildTest extends TestCase
             self::assertSame(
                 (new \DateTimeImmutable((string) $row['transaction_date']))->format('ymd'),
                 substr($reference, 0, 6),
-                'Une référence de paiement de campagne ne porte pas la date de son propre mouvement.',
+                'a campaign payment reference does not carry the date of its own transaction',
             );
         }
 
-        self::assertGreaterThan(0, $checked, "Aucun paiement de campagne n'a été importé.");
+        self::assertGreaterThan(0, $checked, "no campaign payment was imported");
     }
 
     /**
@@ -253,20 +253,27 @@ final class ReferenceDatasetBuildTest extends TestCase
      */
     public function testEverySeededDomainWroteSomething(): void
     {
+        // English, like the sentence they are interpolated into. They read
+        // as part of an assertion message, so they are code — and a
+        // French noun inside an English sentence is the mix this whole
+        // change exists to remove, in the one shape
+        // `Tests\Architecture\AssertionMessagesAreEnglishTest` cannot
+        // see: it scores an interpolation hole as blank, never the value
+        // that lands in it.
         foreach ([
-            'calendar_events' => 'le calendrier',
-            'news_articles' => 'les actualités',
-            'registration_requests' => 'les inscriptions',
-            'banners' => 'les bannières',
-            'gallery_albums' => 'la galerie',
-            'rental_assets' => 'le bien en location',
-            'rental_bookings' => 'les réservations',
-            'member_badges' => 'les badges',
-            'member_photos' => 'les photos de membres',
-            'finance_campaign_rows' => 'la campagne de paiement',
-            'finance_expected_receivables' => 'les créances',
+            'calendar_events' => 'the calendar',
+            'news_articles' => 'the news articles',
+            'registration_requests' => 'the registrations',
+            'banners' => 'the banners',
+            'gallery_albums' => 'the gallery',
+            'rental_assets' => 'the rented asset',
+            'rental_bookings' => 'the bookings',
+            'member_badges' => 'the badges',
+            'member_photos' => 'the member photographs',
+            'finance_campaign_rows' => 'the payment campaign',
+            'finance_expected_receivables' => 'the receivables',
         ] as $table => $domain) {
-            self::assertGreaterThan(0, $this->rowCount($table), "Rien n'a été semé pour {$domain}.");
+            self::assertGreaterThan(0, $this->rowCount($table), "Nothing was seeded for {$domain}.");
         }
     }
 
@@ -289,12 +296,12 @@ final class ReferenceDatasetBuildTest extends TestCase
         self::assertSame(
             count(\Tests\Fixtures\ReferenceDataset\RentalBlueprint::BOOKINGS),
             $this->rowCount('rental_bookings'),
-            'README.md documente sept réservations : le semoir en a perdu une en silence.',
+            'README.md documents seven bookings: the seeder lost one in silence',
         );
         self::assertSame(
             1,
             $this->rowCount('rental_bookings_refused'),
-            "La seule réservation refusée du jeu de données a disparu : plus aucun état final qui n'est pas un succès.",
+            "the one refused booking of the dataset is gone: no final state left that is not a success",
         );
     }
 
@@ -318,7 +325,7 @@ final class ReferenceDatasetBuildTest extends TestCase
             (int) $this->pdo()->query(
                 "SELECT COUNT(*) FROM settings WHERE setting_key = 'current_scout_year_id'"
             )->fetchColumn(),
-            "L'instance construite épingle une année publique — le site n'affiche plus l'année du jour.",
+            "the built instance pins a public year — the site no longer shows the current one",
         );
 
         $expected = ScoutYearService::labelForDate(new \DateTimeImmutable('now', new \DateTimeZone(AppClock::TIMEZONE)));
@@ -331,7 +338,7 @@ final class ReferenceDatasetBuildTest extends TestCase
         self::assertSame(
             $expected,
             (string) ($resolver->getCurrentPublicYear()['label'] ?? ''),
-            "L'année publique de l'instance construite n'est pas celle du jour.",
+            "the built instance's public year is not the current one",
         );
     }
 
@@ -348,7 +355,7 @@ final class ReferenceDatasetBuildTest extends TestCase
         self::assertStringContainsString(
             'Modules activés : ' . $onDisk,
             self::$buildOutput,
-            "Le builder n'a pas activé tous les modules présents sur le disque. Sa sortie :\n" . self::$buildOutput,
+            "The builder did not activate every module present on disk. Its output:\n" . self::$buildOutput,
         );
         self::assertStringNotContainsString('non activé', self::$buildOutput);
         self::assertSame(
@@ -376,8 +383,8 @@ final class ReferenceDatasetBuildTest extends TestCase
         self::assertLessThan(
             1800,
             abs($now->getTimestamp() - $written->getTimestamp()),
-            'Le builder date ce qu\'il écrit sur une autre horloge que celle de l\'application '
-            . "(écrit : {$loggedAt}, application : " . $now->format('Y-m-d H:i:s') . ').',
+            'The builder dates what it writes on a clock other than the application\'s '
+            . "(written: {$loggedAt}, application: " . $now->format('Y-m-d H:i:s') . ').',
         );
     }
 
@@ -394,19 +401,21 @@ final class ReferenceDatasetBuildTest extends TestCase
             $counts[(string) $row['event_type']] = (int) $row['total'];
         }
 
+        // English, for the reason given above the domain map of
+        // testEverySeededDomainWroteSomething().
         foreach ([
-            'article_created' => 'les articles',
-            'form_response_submitted' => 'les réponses de formulaire',
-            'registration_request_received' => 'les demandes d\'inscription',
-            'badge_assigned' => 'les badges',
-            'member_scout_year_offset_changed' => 'les décalages d\'année',
-            'event_created' => 'les évènements du calendrier',
-            'banner_created' => 'les bannières',
+            'article_created' => 'the news articles',
+            'form_response_submitted' => 'the form responses',
+            'registration_request_received' => 'the registration requests',
+            'badge_assigned' => 'the badges',
+            'member_scout_year_offset_changed' => 'the scout-year offsets',
+            'event_created' => 'the calendar events',
+            'banner_created' => 'the banners',
         ] as $eventType => $domain) {
             self::assertGreaterThan(
                 0,
                 $counts[$eventType] ?? 0,
-                "Le journal ne dit rien de {$domain} ({$eventType}).",
+                "The journal says nothing about {$domain} ({$eventType}).",
             );
         }
     }
@@ -426,7 +435,7 @@ final class ReferenceDatasetBuildTest extends TestCase
              WHERE f.access = 'identified' AND r.user_account_id IS NULL"
         )->fetchColumn();
 
-        self::assertSame(0, $orphans, 'Une réponse sans compte sur un formulaire réservé aux connectés.');
+        self::assertSame(0, $orphans, 'a response with no account, on a form reserved for signed-in visitors');
     }
 
     /**
@@ -439,7 +448,7 @@ final class ReferenceDatasetBuildTest extends TestCase
         $paths = $this->query(
             "SELECT relative_path FROM files WHERE relative_path LIKE 'news/images/%'"
         );
-        self::assertNotSame([], $paths, "Aucune image d'article n'a été stockée.");
+        self::assertNotSame([], $paths, "no article image was stored");
 
         // Asked of the service itself rather than recomputed here: the
         // naming rule of a derivative is its business, and a test that
@@ -455,7 +464,7 @@ final class ReferenceDatasetBuildTest extends TestCase
             foreach (ImageVariantService::VARIANTS as $variant) {
                 self::assertNotNull(
                     $variants->resolvePath($relative, $variant),
-                    "Le dérivé « {$variant} » de {$relative} n'a pas été produit.",
+                    "The « {$variant} » derivative of {$relative} was not produced.",
                 );
             }
         }

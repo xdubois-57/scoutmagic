@@ -262,19 +262,46 @@ final class GoogleDriveBackend implements ResumableUploadBackend, QuotaReporting
         unset($this->metadata[$key]);
     }
 
+    /**
+     * **A folder, not a string that names start with** (#484).
+     *
+     * This read its prefix literally, through {@see list()}, whose filter
+     * is a bare `str_starts_with()` — and every real caller passes an
+     * album id with no trailing slash. So `deletePrefix('5')` deleted
+     * `5/…` and also `50/…`, `51/…` and `512/…`: deleting or MIGRATING
+     * album 5 silently destroyed the files of every album whose id it is a
+     * prefix of. The rows survived, so the photographs became 404s with
+     * nothing on screen and nothing in the journal — and in the migration
+     * path the cleanup sits inside a `catch (\Throwable) {}`, so even a
+     * failure said nothing.
+     *
+     * The other three backends never had it: local removes the directory
+     * `5/`, WebDAV the collection `5/`, and S3 lists under
+     * `rtrim($prefix, '/') . '/'`. This is the same normalisation, which
+     * is why {@see StorageBackendInterface::deletePrefix()} now states the
+     * rule rather than leaving each backend to infer it.
+     *
+     * {@see list()} keeps its literal filter: that is its own documented
+     * contract, and other callers depend on it — `StorageInventoryStore`
+     * asks for `RESERVED_PREFIX`, which is not a folder.
+     */
     public function deletePrefix(string $prefix): void
     {
         // An empty prefix is a no-op and never « everything »: the one
         // caller that wants a whole album gone passes its album prefix,
         // and a bug that produced an empty one must not erase the
-        // operator's entire folder.
+        // operator's entire folder. Checked AFTER the normalisation, so
+        // that '/' — which trims to nothing — is refused too rather than
+        // becoming the folder every key is under.
+        $prefix = trim($prefix, '/');
         if ($prefix === '') {
             return;
         }
+        $folder = $prefix . '/';
 
         $cursor = null;
         do {
-            $listing = $this->list($prefix, $cursor);
+            $listing = $this->list($folder, $cursor);
             foreach ($listing->objects as $object) {
                 $this->delete($object->key);
             }

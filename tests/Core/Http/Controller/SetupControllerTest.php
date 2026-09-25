@@ -1508,7 +1508,7 @@ class SetupControllerTest extends TestCase
             ->query("SELECT context FROM event_log WHERE event_type = 'mail_send_failed' ORDER BY id DESC LIMIT 1")
             ->fetch(\PDO::FETCH_ASSOC);
 
-        $this->assertIsArray($row, 'aucun échec d\'envoi journalisé');
+        $this->assertIsArray($row, 'no send failure was journalled');
 
         return json_decode((string) $row['context'], true);
     }

@@ -635,7 +635,7 @@ class MassMailPageTest extends TestCase
         $this->assertSame(
             Email::STATUS_DRAFT,
             $this->massMailService->findById($email->id)?->status,
-            "L'état a changé malgré le refus.",
+            "the state changed despite the refusal",
         );
 
         $saved = $this->controller->save(

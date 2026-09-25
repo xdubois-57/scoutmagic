@@ -39,6 +39,7 @@ import { expect, test } from '@playwright/test';
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin } from '../support/admin-login.js';
+import { closeModal, openModal } from '../support/modal.js';
 import { waitForServerResponse } from '../support/response.js';
 
 const BANNER_TEXT = `Grand nettoyage du local samedi ${Date.now()}`;
@@ -97,9 +98,8 @@ test('a banner is created via the modal (or rolled back on dismiss), and its rol
     // Abandoning the dialog must leave nothing behind: the banner row
     // created for its id is deleted again by the dismiss handler.
     // ---------------------------------------------------------------
-    await page.getByRole('button', { name: 'Ajouter une bannière' }).click();
-    const modal = page.locator('#richTextEditorModal');
-    await expect(modal).toBeVisible();
+    let modal = await openModal(page, 'richTextEditorModal', () =>
+        page.getByRole('button', { name: 'Ajouter une bannière' }).click());
 
     // The compensating delete is the request to watch — waiting on it is
     // what makes the later count assertion about the server, not timing.
@@ -109,7 +109,7 @@ test('a banner is created via the modal (or rolled back on dismiss), and its rol
     const rollback = waitForServerResponse(page, (response) => response.url().includes('/config/banner/delete'));
     // The dialog's only dismissal is its header ✕ (Bootstrap's .btn-close,
     // which the shared partial gives no accessible name).
-    await modal.locator('.btn-close').click();
+    await closeModal(page, 'richTextEditorModal', () => modal.locator('.btn-close').click());
     expect((await rollback).ok(), 'the abandoned banner must be deleted again').toBe(true);
 
     await page.reload({ waitUntil: 'domcontentloaded' });
@@ -121,10 +121,10 @@ test('a banner is created via the modal (or rolled back on dismiss), and its rol
     // ---------------------------------------------------------------
     // The real one: add, type, save. The page reloads itself on save.
     // ---------------------------------------------------------------
-    await page.getByRole('button', { name: 'Ajouter une bannière' }).click();
-    await expect(modal).toBeVisible();
-    await page.locator('#richTextEditorContent').fill(BANNER_TEXT);
-    await page.locator('#richTextEditorSave').click();
+    modal = await openModal(page, 'richTextEditorModal', () =>
+        page.getByRole('button', { name: 'Ajouter une bannière' }).click());
+    await modal.locator('#richTextEditorContent').fill(BANNER_TEXT);
+    await modal.locator('#richTextEditorSave').click();
 
     await expect(page.locator('#banner-list').getByText(BANNER_TEXT)).toBeVisible();
 

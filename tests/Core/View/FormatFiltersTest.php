@@ -82,7 +82,7 @@ final class FormatFiltersTest extends TestCase
         preg_match('~rich-text-form-surface.*?>(.*?)</div>~s', $rendered, $matches);
         $surface = $matches[1] ?? '';
 
-        $this->assertNotSame('', $surface, 'la surface éditable n\'a pas été rendue');
+        $this->assertNotSame('', $surface, 'the editable surface was not rendered');
         $this->assertStringNotContainsString('onerror', $surface);
         $this->assertStringContainsString('Ma note', $surface);
     }

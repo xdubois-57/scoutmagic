@@ -198,7 +198,7 @@ class EmailTemplateControllerTest extends TestCase
 
         $response = (new RbacGuard())->enforce(Role::fromString(self::registeredRoleMin($method, $path)));
 
-        $this->assertNotNull($response, "A chief d'unité must not reach {$method} {$path}.");
+        $this->assertNotNull($response, "A « chef d'unité » must not reach {$method} {$path}.");
         $this->assertSame(403, $response->getStatusCode());
     }
 

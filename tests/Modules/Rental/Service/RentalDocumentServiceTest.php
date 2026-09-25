@@ -452,6 +452,174 @@ class RentalDocumentServiceTest extends TestCase
     }
 
     /**
+     * The window between the check and the write, closed.
+     *
+     * Two managers on one booking: A opens the editor and saves, B presses
+     * « Envoyer ». If A's `textIsLocked()` runs before B writes `sent_at`,
+     * both used to succeed — the tenant holding a PDF whose source had
+     * since moved on, with nothing on screen saying so (#405).
+     *
+     * The interleaving is reproduced by going STRAIGHT TO THE WRITE, which
+     * is what A's request does once its check has passed: the send lands
+     * in between, and the write must refuse by itself. Calling
+     * `saveBookingText()` here would prove the check, not the lock, and
+     * the check was never the broken half.
+     */
+    public function testAWriteThatWonTheRaceAgainstTheSendIsStillRefused(): void
+    {
+        $booking = $this->createBooking();
+        $this->setTemplate('<p>x</p>');
+        $document = $this->service->generate($booking, $this->asset(), DocumentType::CONTRACT, $this->settings());
+
+        // A's check has passed: nothing is sent yet.
+        $this->assertFalse($this->service->textIsLocked($booking, DocumentType::CONTRACT));
+
+        // B's send lands in the window.
+        $this->service->markSent($document->id, new \DateTimeImmutable());
+
+        // A's write, arriving after it, refuses itself.
+        $this->assertFalse(
+            $this->documentRepository->saveText($booking->id, DocumentType::CONTRACT, '<p>Écrit trop tard.</p>'),
+            'a write reaching the database after the send must refuse itself, whatever was checked before'
+        );
+
+        $kept = $this->documentRepository->findText($booking->id, DocumentType::CONTRACT);
+        $this->assertNotNull($kept);
+        $this->assertStringNotContainsString(
+            'Écrit trop tard',
+            $kept,
+            'and the source the tenant\'s PDF was made from is untouched'
+        );
+    }
+
+    /**
+     * **Saving the same text twice is not « it has been sent ».**
+     *
+     * The lock was read off `rowCount()`, and MySQL's `rowCount()` after
+     * an UPDATE counts rows it CHANGED, not rows the WHERE matched — this
+     * application does not set `PDO::MYSQL_ATTR_FOUND_ROWS`. A manager
+     * double-clicking « Enregistrer » on unedited text therefore matched
+     * the row, changed nothing, and was told the document had gone out to
+     * the tenant. Nothing had.
+     *
+     * **This class cannot see the defect, and saying so is the point.**
+     * `DatabaseTestHelper::createTestDatabase()` builds an in-memory
+     * SQLite whatever `TEST_DB_*` says, and SQLite's `changes()` counts
+     * matched rows however the values compared — so this passed before the
+     * fix as well. It is kept because it states the intended behaviour
+     * where the rest of this feature is tested; the engine's own semantic
+     * is held by `Tests\Modules\Rental\Repository\
+     * DocumentTextLockOnTheRealEngineTest`, which connects to MySQL and
+     * was verified red there.
+     *
+     * Two saves inside the same second, deliberately: that is what makes
+     * even `updated_at` — formatted to the second — identical, and so the
+     * whole row unchanged.
+     */
+    public function testSavingTheSameTextTwiceIsAcceptedRatherThanReadAsASend(): void
+    {
+        $booking = $this->createBooking();
+        $this->setTemplate('<p>x</p>');
+        $this->service->generate($booking, $this->asset(), DocumentType::CONTRACT, $this->settings());
+
+        $text = '<p>Le texte que le gestionnaire enregistre deux fois.</p>';
+        $this->assertTrue($this->documentRepository->saveText($booking->id, DocumentType::CONTRACT, $text));
+
+        $this->assertTrue(
+            $this->documentRepository->saveText($booking->id, DocumentType::CONTRACT, $text),
+            'a second save of unchanged text was reported as a document already sent to the tenant'
+        );
+
+        $kept = $this->documentRepository->findText($booking->id, DocumentType::CONTRACT);
+        $this->assertSame($text, $kept);
+    }
+
+    /**
+     * And re-saving the SAME text after a real send is still refused: the
+     * disambiguation above must not become a way through the lock.
+     */
+    public function testSavingTheSameTextAgainAfterTheSendIsStillRefused(): void
+    {
+        $booking = $this->createBooking();
+        $this->setTemplate('<p>x</p>');
+        $document = $this->service->generate($booking, $this->asset(), DocumentType::CONTRACT, $this->settings());
+
+        $text = '<p>Le texte tel qu\'il est parti.</p>';
+        $this->assertTrue($this->documentRepository->saveText($booking->id, DocumentType::CONTRACT, $text));
+
+        $this->service->markSent($document->id, new \DateTimeImmutable());
+
+        $this->assertFalse(
+            $this->documentRepository->saveText($booking->id, DocumentType::CONTRACT, $text),
+            'identical text slipped past the lock because nothing changed'
+        );
+    }
+
+    /**
+     * The service refuses when the write refuses itself.
+     *
+     * The tests around this one prove the REPOSITORY closes the window;
+     * this one proves the service believes it. A regression that read
+     * `saveText()`'s answer and carried on would record the edit as
+     * successful, audit it, and leave the tenant's PDF and its source
+     * disagreeing — which is the whole of #405, one layer up.
+     *
+     * A repository double rather than a real send, so that nothing but the
+     * false answer is under test: `textIsLocked()` says no, and the write
+     * still says no.
+     */
+    public function testTheServiceRefusesTheEditWhenTheWriteRefusesItself(): void
+    {
+        $booking = $this->createBooking();
+        $this->setTemplate('<p>x</p>');
+
+        $repository = $this->createMock(RentalDocumentRepository::class);
+        $repository->method('hasSentDocumentOfType')->willReturn(false);
+        $repository->method('findText')->willReturn('<p>Ce qui est au dossier.</p>');
+        $repository->expects($this->once())->method('saveText')->willReturn(false);
+
+        $service = new RentalDocumentService(
+            $repository,
+            $this->bookingRepository,
+            RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
+            $this->editableContentService,
+            $this->fileRepository,
+            new \Core\File\AttachedFileRemover($this->fileRepository, $this->storagePath),
+            new DocumentPdfService(),
+            new HtmlSanitizer(),
+            new SettingService(new SettingRepository($this->pdo)),
+            new JournalService(new JournalRepository($this->pdo)),
+            $this->storagePath
+        );
+
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessageMatches('/envoyé au locataire/');
+
+        $service->saveBookingText($booking, DocumentType::CONTRACT, '<p>Écrit trop tard.</p>');
+    }
+
+    /**
+     * The same write, before the send, still lands.
+     *
+     * Without this the fix above could be « refuse everything », which no
+     * failing test would notice.
+     */
+    public function testAWriteThatArrivedBeforeTheSendStillLands(): void
+    {
+        $booking = $this->createBooking();
+        $this->setTemplate('<p>x</p>');
+        $this->service->generate($booking, $this->asset(), DocumentType::CONTRACT, $this->settings());
+
+        $this->assertTrue(
+            $this->documentRepository->saveText($booking->id, DocumentType::CONTRACT, '<p>Écrit à temps.</p>')
+        );
+
+        $kept = $this->documentRepository->findText($booking->id, DocumentType::CONTRACT);
+        $this->assertNotNull($kept);
+        $this->assertStringContainsString('Écrit à temps', $kept);
+    }
+
+    /**
      * The hole under the lock: `textIsLocked()` asks whether a document of
      * this type carries a `sent_at`, so deleting the only sent contract
      * unlocked its source text again — while the renter still held the PDF

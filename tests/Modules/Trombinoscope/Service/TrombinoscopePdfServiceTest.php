@@ -334,7 +334,7 @@ class TrombinoscopePdfServiceTest extends TestCase
             file_put_contents($old, '%PDF-old');
             touch($old, time() - (8 * 24 * 60 * 60));
             $service->generate(1, '2025-2026', 'Unité', 'www.example.invalid', true);
-            $this->assertFileDoesNotExist($old, 'un document périmé a survécu à une écriture');
+            $this->assertFileDoesNotExist($old, 'a stale document survived a write');
 
             // Expired on READ too, or a document whose inputs never change
             // is never swept and is served for ever.
@@ -342,7 +342,7 @@ class TrombinoscopePdfServiceTest extends TestCase
             touch($current, time() - (8 * 24 * 60 * 60));
             $rendersBefore = $embedder->renders;
             $service->generate(1, '2025-2026', 'Unité', 'www.example.invalid', true);
-            $this->assertGreaterThan($rendersBefore, $embedder->renders, 'un document périmé a été servi');
+            $this->assertGreaterThan($rendersBefore, $embedder->renders, 'a stale document was served');
         } finally {
             foreach (glob($cacheDir . '/trombinoscope/*') ?: [] as $file) {
                 @unlink($file);
