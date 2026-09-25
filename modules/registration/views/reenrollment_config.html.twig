@@ -90,12 +90,19 @@
             {% endfor %}
         </dl>
         {% if is_open %}
-            {# Asks first (#485): this mails EVERY family that has not
-               answered, immediately, and a second click recalls nothing.
+            {# Asks first (#485): this reaches EVERY family that has not
+               answered, and nothing on this page takes it back.
                The guard missed it for a while because its « sends an e-mail »
-               pattern was English-only while the route is French. #}
+               pattern was English-only while the route is French.
+
+               The message says « programmé », not « tout de suite »:
+               `remind()` seeds a scheduler task rather than sending, and
+               its own success flash says « dans quelques minutes ». The
+               first wording said the opposite of the flash the same click
+               produces — the third time on this pull request that a verb
+               in a route was taken for what the action does. #}
             <form method="post" action="/config/reinscription/relance"
-                  data-confirm="Relancer toutes les familles sans réponse ? Un e-mail part tout de suite à chacune, et il ne peut pas être rappelé.">
+                  data-confirm="Relancer toutes les familles sans réponse ? L'envoi est programmé : chacune reçoit un e-mail dans quelques minutes, et rien ici ne le rappelle.">
                 {{ csrf_field()|raw }}
                 <button type="submit" class="btn btn-outline-primary">Relancer les familles sans réponse</button>
             </form>
