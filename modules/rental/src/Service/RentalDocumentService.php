@@ -211,7 +211,17 @@ class RentalDocumentService
         // `{{ pri<b>x</b>_total }}` is still readable to a human and no
         // longer a keyword to anything that substitutes.
         $clean = DocumentKeywords::repairSplitKeywords($this->sanitizer->sanitize($bodyHtml));
-        $this->documentRepository->saveText($booking->id, $type, $clean);
+
+        // The check above is for the reader; THIS is the lock. Between
+        // `textIsLocked()` and here, a second manager pressing « Envoyer »
+        // can write `sent_at`, and both gestures then succeed — the tenant
+        // holding a PDF whose source has since moved on, with nothing on
+        // screen saying so (#405). `saveText()` carries the condition in
+        // its own UPDATE, so the write either happens before the send or
+        // does not happen at all. It says which.
+        if (!$this->documentRepository->saveText($booking->id, $type, $clean)) {
+            throw new RentalException(self::lockedRefusal($type));
+        }
 
         $this->bookingAudit->record(
             $booking->id,

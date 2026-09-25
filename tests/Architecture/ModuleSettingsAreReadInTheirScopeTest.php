@@ -1071,7 +1071,7 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
         // l'unité, telle que configurée ». Found by this very check on its
         // first real run; whether the setting belongs to core or to the
         // rental module is a decision, and it is issue #497's.
-        'modules/rental/src/Service/RentalDocumentService.php:603',
+        'modules/rental/src/Service/RentalDocumentService.php:613',
     ];
 
     /**
