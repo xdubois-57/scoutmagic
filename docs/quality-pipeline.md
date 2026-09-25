@@ -133,83 +133,38 @@ rely on the list catching you: call the helper.
 
 ### Who carries `database`, and what the group is still for
 
-**Every test class that builds a database carries it.**
-`Tests\Architecture\DatabaseBackedTestsCarryTheGroupTest` holds that, and
-"builds one" means the three idioms this suite uses:
-`DatabaseTestHelper::createTestDatabase()`, a bare
-`new \PDO('sqlite::memory:')`, or a module helper's `createTables()`.
-Inheritance counts — the four `Modules\Groups\Controller` classes build
-nothing themselves and are held to the rule anyway, because
-`GroupsControllerTestCase` builds it for them.
+**The rule lives in [`AGENTS.md` § Database](../AGENTS.md#database)**, with
+its three build idioms, the inheritance and composition it follows, the
+attribute spelling, and why the `@group` doc-comment is inert.
+`Tests\Architecture\DatabaseBackedTestsCarryTheGroupTest` holds it, and its
+own docblocks carry the nine review findings behind each clause.
 
-**And so does composition, which `extends` never shows.** A class that
-builds a support class whose constructor opens a connection, or calls a
-helper method that does, reaches a database as surely as one writing the
-idiom itself. Four did while this guard called them green
-(`RemotePassphraseTest`, `RemoteRetentionTest`, `RentalBookingMailServiceTest`,
-`RedirectServiceTest`) — the detector had already classified those helpers
-as building one, and that answer was never asked for. **The method named is
-the method read**: calling `AttestationsTestHelper::writeTemporaryPdf()`
-is not calling its `createTables()`, and a first version that ignored the
-difference reported six compliant classes as offenders. One hop inside a
-helper is followed (`shippedOnlyForModule()` → `self::emptyStore()`); a hop
-across two classes is not, and nothing in this suite needs it.
+Restated here it would drift, and the original would win — this document
+points, it does not copy (`AGENTS.md` § Pipeline documentation maintenance).
+A reviewer had to say so about the first version of this very section, which
+had copied the rule in full.
 
-The rule runs **one way only**. A class carrying the group without building
-one is not a defect: selecting a test that needed no database costs
-milliseconds, while missing one that did is the silent failure. Two classes
-are in that position today and are left alone.
+What belongs here is what the map is for: **what this layer proves, and what
+it does not.**
 
-**The marker does not have to be on the class.** What the group has to
-select is every test that needs a database, and a class whose build sits
-inside individual test methods says that by marking those methods.
-`Core\Import\DeskCsvParserTest` is the case: four of its eighteen tests
-build one, each carries the attribute, and `--group=database` selects
-exactly those four. Read as a class-level demand, the guard reported that
-file as an offender — and CI found it, not the guard's own shape tests.
-A build **anywhere else** is not answerable that way: `setUp()` runs before
-every test, and a private helper is reached from whichever tests call it,
-a set the reader cannot see. Both are held to the class-level attribute.
-
-Write it as `#[\PHPUnit\Framework\Attributes\Group('database')]`, the
-majority spelling here and the one needing no import. The imported
-attribute counts too.
-
-**A `@group database` doc-comment does not.** This repository pins
-`phpunit/phpunit: ^13.3`, and PHPUnit 13 reads metadata from attributes
-only — the doc-comment is inert, however right it looks. Measured, not
-inferred: `Modules\Gallery\Service\StoredFileCleanerTest` carried it
-alone, held six tests, and `--group=database` selected none of them. The
-guard therefore refuses it, and says so in those words, because a file that
-looks marked and selects nothing is a worse place to be than one that
-carries no marker at all. The doc-comment stays where it explains
-something; it is never what puts a class in the group. This is issue #481
-§A, done here.
-
-CI does not use the group — both PHP jobs run the whole suite, and
-`AGENTS.md` § Database says why. Its one live use is **manual selection**,
-which this repository recommends in the place a newcomer cannot miss: the
-`SessionStart` hook prints
-`run 'vendor/bin/phpunit --group=database' for the MySQL-backed suite` on
-every open. That is what makes the omission expensive rather than untidy.
-Measured on the commit this change branched from (`7ee8aeb1`), the group
-selected **9 619** tests where it should have selected **12 354**, out of a
-suite of 20 751: someone following that advice to check "the database part"
-of a change got a bit over three quarters of it, and nothing in the output
-said so. The base is named because the pair only means something as a pair:
-every later merge moves both numbers — the branch selects 12 471 of 20 845
-once `main`'s own new classes and the four composition misses are in — and a ratio quoted without the tree
-it was taken on is the kind of figure this section had three copies of. A hundred and
-seventy-four classes built a database and said nothing, `covoiturage` and
-`documents` among them without a single grouped file between them.
-
-Every figure in that sentence is the guard's own count, re-derived rather
-than carried over from issue #395 — its reader was corrected four times
-during review (indexing every class in a file rather than the first,
-following inheritance, reading per-method attributes, refusing the inert
-`@group` doc-comment), and a count produced by a reader that was wrong is
-not a count. Two earlier drafts of this repository quoted two different
-stale pairs, which is what a reviewer caught.
+- CI does not use the group — both PHP jobs run the whole suite,
+  `AGENTS.md` § Database says why. Its one live use is **manual selection**,
+  which this repository recommends where a newcomer cannot miss it: the
+  `SessionStart` hook prints
+  `run 'vendor/bin/phpunit --group=database' for the MySQL-backed suite` on
+  every open. That is what makes an omission expensive rather than untidy.
+- **The group selects; it switches no connection.** A test reaches MySQL only
+  if it opens one itself from `TEST_DB_*`. Everything built on
+  `DatabaseTestHelper::createTestDatabase()` runs on in-memory SQLite, group
+  or no group, in every job — see the next section.
+- Measured on the commit this change branched from (`7ee8aeb1`), the group
+  selected **9 619** tests where it should have selected **12 354**, out of a
+  suite of 20 751. A hundred and seventy-four classes built a database and
+  said nothing. The base is named because the pair only means something as a
+  pair: every later merge moves both numbers — the branch selects 12 471 of
+  20 845 once `main`'s own new classes and the four composition misses are
+  in — and a ratio quoted without the tree it was taken on is the kind of
+  figure this section had three copies of.
 
 ### The engine a test actually runs on, which is not what the group says
 

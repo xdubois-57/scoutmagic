@@ -790,6 +790,61 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
     }
 
     /**
+     * **A sentence describing a build is not a build**, on the same side of
+     * the reader as the marker.
+     *
+     * `withoutComments()` was already applied to the heading — so prose
+     * cannot pass for the ATTRIBUTE — and to the body before reading its
+     * named calls. It was not applied to the MOUNTS scan itself, which a
+     * reviewer caught with the case already in the tree:
+     * `Modules\Finance\FinanceTestHelper::createTables()` explains itself
+     * with « already created by `Tests\DatabaseTestHelper::
+     * createTestDatabase()` », and that sentence marked the class as
+     * building one.
+     *
+     * Nothing failed because of it: that helper's name does not end in
+     * `Test`, so it is never asked for the group. The same sentence in a
+     * concrete `*Test` method would have made this guard report a compliant
+     * class — the false-positive direction, which this file's own history
+     * says is the dangerous one, because a false positive reads as an order
+     * rather than as a defect.
+     */
+    public function testProseDescribingABuildIsNotABuild(): void
+    {
+        $classes = $this->classesIn(<<<'PHP'
+            <?php
+            namespace Tests\Fake;
+            class Helper
+            {
+                public static function tables(): void
+                {
+                    // Nothing here: the table is already created by
+                    // Tests\DatabaseTestHelper::createTestDatabase().
+                    $pdo->exec('INSERT INTO t VALUES (1)');
+                }
+            }
+            class ThingTest extends TestCase
+            {
+                protected function setUp(): void { Helper::tables(); }
+            }
+            PHP, 'Fake.php');
+
+        $this->assertFalse(
+            $classes['Tests\Fake\Helper']['mounts'],
+            'a comment naming the helper is prose, not a build'
+        );
+        $this->assertSame(
+            [],
+            $classes['Tests\Fake\Helper']['builders'],
+            'and no method of it builds one either, so nothing composing it does'
+        );
+        $this->assertFalse(
+            $this->buildsADatabase('Tests\Fake\ThingTest', $classes),
+            'the class calling it must not be reported on the strength of a sentence'
+        );
+    }
+
+    /**
      * **Composition reaches a database too, and `extends` never sees it.**
      *
      * Eight rounds into this guard, a reviewer pointed out that
@@ -1188,7 +1243,7 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
 
         foreach ($bodies as $name => $body) {
             foreach (self::MOUNTS as $pattern) {
-                if (preg_match($pattern, $body) === 1) {
+                if (preg_match($pattern, self::withoutComments($body)) === 1) {
                     $mounting[$name] = true;
 
                     break;
@@ -1350,9 +1405,26 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
             $headingStart = $this->headingStart($source, $offset);
             $heading = self::withoutComments(substr($source, $headingStart, $offset - $headingStart));
 
+            // **Comment-stripped, like every other read of a body in this
+            // class.** It was not, and a reviewer found the consequence
+            // waiting rather than the omission: `Modules\Finance\
+            // FinanceTestHelper::createTables()` explains itself with
+            // « already created by Tests\DatabaseTestHelper::
+            // createTestDatabase() » — prose that matched MOUNTS[0] and
+            // marked the class as building a database. It tripped nothing
+            // only because that helper's name does not end in `Test`; the
+            // same sentence inside a concrete `*Test` method would have
+            // made this guard report a compliant class, which is the
+            // direction it has least practice at catching.
+            //
+            // The inconsistency was mine: I stripped comments for
+            // namedCalls() three lines below, for exactly this reason, and
+            // left the scan beside it reading prose.
+            $ownCode = self::withoutComments($own);
+
             $mounts = false;
             foreach (self::MOUNTS as $pattern) {
-                if (preg_match($pattern, $own) === 1) {
+                if (preg_match($pattern, $ownCode) === 1) {
                     $mounts = true;
 
                     break;
@@ -1365,7 +1437,7 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
             // and `extends` never sees it. Three classes were in exactly
             // that position while this guard called them green; see
             // namesABuilder().
-            $names = $this->namedCalls(self::withoutComments($own), $namespace, $source);
+            $names = $this->namedCalls($ownCode, $namespace, $source);
             $builders = $this->mountingMethods($own);
 
             $carries = false;
@@ -1433,7 +1505,11 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
 
             $builds = false;
             foreach (self::MOUNTS as $pattern) {
-                if (preg_match($pattern, $body) === 1) {
+                // The BODY is read without comments; the HEADING below keeps
+                // them, because that is where withoutComments() is applied
+                // for the opposite reason — to stop prose passing for the
+                // marker. Two windows, two questions.
+                if (preg_match($pattern, self::withoutComments($body)) === 1) {
                     $builds = true;
 
                     break;
