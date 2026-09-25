@@ -17,8 +17,10 @@ use Core\Alert\Check\DeferredMailBacklogCheck;
 use Core\Alert\Check\MailDeliveryCheck;
 use Core\Alert\Check\PortableBackupLingerCheck;
 use Core\Alert\Check\RemoteBackupAgeCheck;
+use Core\Alert\Check\RemotePassphraseNotedCheck;
 use Core\Alert\Check\RemoteQuotaCheck;
 use Core\Maintenance\Remote\RemoteBackupDestination;
+use Core\Maintenance\Remote\RemotePassphrase;
 use Core\Storage\Location\Backend\QuotaReportingBackend;
 use Core\Storage\Location\Backend\StorageBackendFactory;
 use Core\Storage\Location\StorageLocationRepository;
@@ -94,6 +96,14 @@ class RunOperationalChecksHandler implements TaskHandlerInterface
             // and one a site backing up perfectly to its own disk fails
             // completely (Core\Alert\Check\RemoteBackupAgeCheck).
             new RemoteBackupAgeCheck($this->remoteDestination($context), $context->settings),
+            // « Et pourra-t-on les ouvrir » — the third question the
+            // off-site backup raises, and the only one whose answer is
+            // fixed for ever on the day the server disappears
+            // (Core\Alert\Check\RemotePassphraseNotedCheck).
+            new RemotePassphraseNotedCheck(
+                $this->remoteDestination($context),
+                new RemotePassphrase($context->settings, $this->secrets($context))
+            ),
             $this->remoteQuotaCheck($context),
             new MailDeliveryCheck(new JournalRepository($pdo)),
             // The two the outbound chantier adds (D9, ARCHITECTURE.md

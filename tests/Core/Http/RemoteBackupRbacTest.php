@@ -52,6 +52,7 @@ final class RemoteBackupRbacTest extends TestCase
         // archive this site has ever sent off-server, the other makes
         // them all unreadable in a single request.
         ['POST', '/config/maintenance/remote/passphrase/reveal'],
+        ['POST', '/config/maintenance/remote/passphrase/confirm'],
         ['POST', '/config/maintenance/remote/passphrase/regenerate'],
     ];
 

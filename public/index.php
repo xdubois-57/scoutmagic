@@ -5162,6 +5162,19 @@ $router->addRoute(
     'revealPassphrase',
     'admin',
 );
+// « Je l'ai recopiée hors du serveur » — a statement nothing can verify,
+// and the only answer there is to the question the phrase raises
+// (Core\Alert\Check\RemotePassphraseNotedCheck). Separate from the
+// reveal route on purpose: opening the screen is not copying the phrase,
+// and a reveal that cleared the warning would clear it for the reader who
+// most needs it.
+$router->addRoute(
+    'POST',
+    '/config/maintenance/remote/passphrase/confirm',
+    RemoteBackupController::class,
+    'confirmPassphraseNoted',
+    'admin',
+);
 $router->addRoute(
     'POST',
     '/config/maintenance/remote/passphrase/regenerate',

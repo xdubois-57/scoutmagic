@@ -982,11 +982,36 @@
                                 id="remote-backup-passphrase-copy">Copier</button>
                     </div>
 
-                    <div class="alert alert-warning small mt-3" role="alert">
-                        <strong>Notez-la hors du site.</strong>
-                        Sans elle, aucune archive distante ne peut être restaurée — et le jour où vous en aurez
-                        besoin, ce site ne sera peut-être plus accessible.
-                    </div>
+                    {# Revealing the phrase is not copying it, so the
+                       confirmation is a gesture of its own. It is stamped
+                       with the generation in force, which is what makes a
+                       regeneration ask again with nothing to remember to
+                       reset (#496). #}
+                    {% if remote_backup_passphrase_noted %}
+                        <div class="alert alert-success small mt-3" role="alert">
+                            <i class="bi bi-check2-circle" aria-hidden="true"></i>
+                            <strong>Génération {{ remote_backup_passphrase_generation }} notée hors du site</strong>
+                            {% if remote_backup_passphrase_noted_at %}
+                                le {{ remote_backup_passphrase_noted_at|date_fr }}
+                            {% endif %}.
+                            Le site vous croit sur parole : il ne peut pas voir votre copie. Si vous régénérez
+                            la phrase, il faudra recopier la nouvelle.
+                        </div>
+                    {% else %}
+                        <div class="alert alert-warning small mt-3" role="alert">
+                            <strong>Notez-la hors du site.</strong>
+                            Sans elle, aucune archive distante ne peut être restaurée — et le jour où vous en
+                            aurez besoin, ce site ne sera peut-être plus accessible. Un gestionnaire de mots de
+                            passe, ou du papier dans un endroit sûr : n'importe où sauf ce serveur.
+                            <form method="post" action="/config/maintenance/remote/passphrase/confirm"
+                                  class="mt-2">
+                                {{ csrf_field()|raw }}
+                                <button type="submit" class="btn btn-outline-secondary btn-sm">
+                                    J'ai recopié cette phrase hors du serveur
+                                </button>
+                            </form>
+                        </div>
+                    {% endif %}
                     <p class="small text-body-secondary">
                         Elle reste consultable ici tant que le site fonctionne : la cacher ne protégerait de rien,
                         puisqu'elle doit rester sur le serveur pour chiffrer chaque sauvegarde.
