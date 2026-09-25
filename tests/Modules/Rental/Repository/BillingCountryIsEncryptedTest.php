@@ -525,6 +525,128 @@ final class BillingCountryIsEncryptedTest extends TestCase
     }
 
     /**
+     * **An error about the NEW column must not be read as « the old one is
+     * gone ».**
+     *
+     * The reader used to ask « is a column missing » and never which. The
+     * statements here name two, and the answer drives a decision recorded
+     * for the life of the process: an « unknown column
+     * billing_country_encrypted » — a live request on a half-applied
+     * schema — would write the carry-over off while the legacy column is
+     * still there holding clear countries. Which is the whole defect this
+     * class exists to remove.
+     *
+     * The probe answers first and alone now, so the row stays carryable
+     * and the next request tries again.
+     */
+    public function testAFailureAboutTheNewColumnDoesNotWriteOffTheCarryOver(): void
+    {
+        $booking = $this->createBooking();
+        $this->giveItALegacyClearCountry($booking, 'FR');
+
+        $broken = new RentalBookingRepository(
+            $this->connectionThatRefusesTheCarryOverWrite(1),
+            $this->encryption
+        );
+        $broken->findBillingIdentity($booking);
+
+        $this->assertSame(
+            'FR',
+            $this->legacyClearCountry($booking),
+            'the write failed, so the clear value must still be there for the next pass'
+        );
+        $this->assertSame(
+            'FR',
+            $this->repository->findBillingIdentity($booking)['country'],
+            'the carry-over was written off by a failure that said nothing about the legacy column'
+        );
+    }
+
+    /**
+     * And the reader itself, on literal messages, because **one column name
+     * is a PREFIX of the other**.
+     *
+     * `billing_country` sits inside `billing_country_encrypted`, so a
+     * `str_contains()` would confuse precisely the two cases being told
+     * apart. `\b` saves it only because an underscore is a word character
+     * and therefore no boundary — which is subtle enough to be worth a
+     * fixture rather than a comment.
+     */
+    public function testTheReaderTellsTheTwoColumnNamesApart(): void
+    {
+        $reader = new \ReflectionMethod(RentalBookingRepository::class, 'saysTheColumnIsGone');
+
+        $aboutTheLegacyColumn = new \PDOException(
+            "SQLSTATE[42S22]: Column not found: 1054 Unknown column 'billing_country' in 'field list'"
+        );
+        $aboutTheNewColumn = new \PDOException(
+            "SQLSTATE[42S22]: Column not found: 1054 Unknown column 'billing_country_encrypted' in 'field list'"
+        );
+        $aLockWait = new \PDOException(
+            'SQLSTATE[HY000]: General error: 1205 Lock wait timeout exceeded; try restarting transaction'
+        );
+
+        $this->assertTrue($reader->invoke(null, $aboutTheLegacyColumn, 'billing_country'));
+        $this->assertFalse(
+            $reader->invoke(null, $aboutTheNewColumn, 'billing_country'),
+            'an error about billing_country_encrypted was read as the legacy column being gone'
+        );
+        $this->assertTrue($reader->invoke(null, $aboutTheNewColumn, 'billing_country_encrypted'));
+        $this->assertFalse(
+            $reader->invoke(null, $aLockWait, 'billing_country'),
+            'a lock wait is not an answer about the schema'
+        );
+    }
+
+    /**
+     * A connection whose CARRY-OVER write fails with « unknown column
+     * billing_country_encrypted », the probe succeeding normally.
+     *
+     * The shape of a half-applied schema, which `MigrationRunner` can leave
+     * behind between two invocations and which `MaintenanceGate`'s bypass
+     * lets a request reach.
+     */
+    private function connectionThatRefusesTheCarryOverWrite(int $refusals): \PDO
+    {
+        return new class ($this->pdo, $refusals) extends \PDO {
+            public function __construct(private \PDO $inner, private int $refusals)
+            {
+            }
+
+            /**
+             * @param  array<int, mixed> $options
+             */
+            public function prepare(string $query, array $options = []): \PDOStatement|false
+            {
+                if (str_contains($query, 'billing_country_encrypted = ?') && $this->refusals > 0) {
+                    $this->refusals--;
+
+                    throw new \PDOException(
+                        "SQLSTATE[42S22]: Column not found: 1054 Unknown column "
+                            . "'billing_country_encrypted' in 'field list'",
+                        1054
+                    );
+                }
+
+                return $this->inner->prepare($query, $options);
+            }
+
+            public function query(
+                string $query,
+                ?int $fetchMode = null,
+                mixed ...$fetchModeArgs
+            ): \PDOStatement|false {
+                return $this->inner->query($query);
+            }
+
+            public function lastInsertId(?string $name = null): string|false
+            {
+                return $this->inner->lastInsertId($name);
+            }
+        };
+    }
+
+    /**
      * A connection that runs `$probe` the moment the repository prepares
      * the backfill's UPDATE — after the snapshot, before any write.
      *

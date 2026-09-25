@@ -702,7 +702,7 @@ class RentalBookingRepository
         try {
             $this->writeBillingIdentity($values, true);
         } catch (\PDOException $e) {
-            if (!self::saysTheColumnIsGone($e)) {
+            if (!self::saysTheColumnIsGone($e, 'billing_country')) {
                 // A save IS what the caller asked for, so a failure that
                 // says nothing about the schema is theirs to hear. This is
                 // the one place in this carry-over that rethrows, and the
@@ -852,18 +852,50 @@ class RentalBookingRepository
             );
 
             if ($rows === false) {
-                // Nothing was learnt about this installation, so the probe
-                // is not written off — see the catch below.
+                // Nothing was learnt about this installation, so nothing
+                // is written off — see the catch below.
                 return;
             }
 
             $legacy = $rows->fetchAll(\PDO::FETCH_ASSOC);
+        } catch (\PDOException $e) {
+            if (!self::saysTheColumnIsGone($e, 'billing_country')) {
+                // A lock wait, a lost connection, a deadlock: none of them
+                // says anything about whether this installation still has
+                // the column, so nothing is recorded and the next request
+                // tries again.
+                //
+                // **The flag used to be set before any of this ran**, so
+                // one transient error disabled the carry-over for the rest
+                // of the worker's life — and since findBillingIdentity()
+                // reads only the new column, every booking still holding a
+                // clear country then reported none at all.
+                //
+                // Swallowed rather than rethrown: carrying the column over
+                // is incidental to what the caller asked for, and a 500 on
+                // the invoice screen is a worse answer than a country that
+                // appears on the next load. What it costs, stated rather
+                // than hidden: for THIS request, a booking not yet carried
+                // over reads its country as null.
+                return;
+            }
 
-            // The SELECT above named the column and was answered, so it is
-            // there — which is what lets saveBillingIdentity() empty it in
-            // the same statement that writes the new one.
-            self::$legacyCountryColumnPresent = true;
+            // No such column: a fresh install, or one already carried over
+            // and dropped. That answer never changes, so it is recorded —
+            // both that there is nothing to carry, and that no statement
+            // may name the column.
+            self::$legacyCountryColumnPresent = false;
+            self::$legacyCountryAdopted = true;
 
+            return;
+        }
+
+        // The SELECT named the column and was answered, so it is there —
+        // which is what lets saveBillingIdentity() empty it in the same
+        // statement that writes the new one.
+        self::$legacyCountryColumnPresent = true;
+
+        try {
             // `updated_at = updated_at` is what actually keeps the
             // timestamp still, and leaving it out was a real defect rather
             // than a stylistic one. Nothing about the booking changed for
@@ -895,55 +927,63 @@ class RentalBookingRepository
                 // leave a clear string on disk for ever.
                 $write->execute([$this->encryptCountry($clear), (int) $row['id'], $clear]);
             }
-        } catch (\PDOException $e) {
-            if (!self::saysTheColumnIsGone($e)) {
-                // A lock wait, a lost connection, a deadlock, a write that
-                // failed half way: none of them says anything about
-                // whether this installation still has the column, so the
-                // flag is NOT set and the next request tries again.
-                //
-                // **The flag used to be set before any of this ran**, so
-                // one transient error disabled the carry-over for the rest
-                // of the worker's life — and since findBillingIdentity()
-                // reads only the new column, every booking still holding a
-                // clear country then reported none at all. That is the
-                // difference between this and the single atomic
-                // `INSERT … SELECT` of
-                // RentalAssetRepository::adoptLegacyCalendarColumn(),
-                // which cannot half-fail and call itself done.
-                //
-                // Swallowed rather than rethrown: carrying the column over
-                // is incidental to what the caller asked for, and a 500 on
-                // the invoice screen is a worse answer than a country that
-                // appears on the next load. What it costs, stated rather
-                // than hidden: for THIS request, a booking not yet carried
-                // over reads its country as null.
-                return;
-            }
-
-            // No such column: a fresh install, or one already carried over
-            // and dropped. That answer never changes, so it is recorded —
-            // both that there is nothing to carry, and that no statement
-            // may name the column.
-            self::$legacyCountryColumnPresent = false;
+        } catch (\PDOException) {
+            // **Nothing here is an answer about the legacy column**, and
+            // that is why this catch records nothing at all — not even
+            // « column gone ». The probe above already settled whether the
+            // column exists; these statements name the NEW one too, so an
+            // « unknown column » thrown here is about
+            // `billing_country_encrypted`, on an installation whose schema
+            // is half applied. Reading it as « the old column is gone »
+            // would write off the carry-over for the life of the process
+            // while clear countries are still on disk — which is the
+            // defect a reviewer found, and the reason the probe and the
+            // writes no longer share a try.
+            //
+            // A write that failed half way therefore leaves the flag down
+            // and the next request starts over: the guarded WHERE makes
+            // every row it already carried a no-op.
+            return;
         }
 
         self::$legacyCountryAdopted = true;
     }
 
     /**
-     * Does this failure mean the retired column is simply not there?
+     * Does this failure mean **this** column is simply not there?
      *
      * MySQL says so with SQLSTATE 42S22 (« Unknown column »); SQLite
      * reports HY000 and says « no such column » in the message, so both
      * spellings are read. Anything else is a database that could not
-     * answer, which is a different thing entirely — see the caller.
+     * answer, which is a different thing entirely — see the callers.
+     *
+     * **It used to ask only « is a column missing », never which**, and a
+     * reviewer was right that the difference matters here: the statements
+     * in this class name TWO columns, and the answer drives a decision
+     * recorded for the life of the process. An error about
+     * `billing_country_encrypted` read as « the legacy column is gone »
+     * would write off the carry-over while the legacy column is still
+     * there, holding clear countries.
+     *
+     * The word boundary is the whole trick, and it is the reason this has
+     * a test of its own: **`billing_country` is a PREFIX of
+     * `billing_country_encrypted`**, so `str_contains()` would confuse
+     * exactly the two cases being told apart. `\b` does not match between
+     * `country` and `_`, because an underscore is a word character.
+     *
+     * A message that names no column at all answers false, which is the
+     * safe direction: the next request retries instead of recording
+     * something permanent on evidence nobody read.
      */
-    private static function saysTheColumnIsGone(\PDOException $failure): bool
+    private static function saysTheColumnIsGone(\PDOException $failure, string $column): bool
     {
-        return $failure->getCode() === '42S22'
-            || stripos($failure->getMessage(), 'no such column') !== false
-            || stripos($failure->getMessage(), 'unknown column') !== false;
+        $message = $failure->getMessage();
+
+        $missing = $failure->getCode() === '42S22'
+            || stripos($message, 'no such column') !== false
+            || stripos($message, 'unknown column') !== false;
+
+        return $missing && preg_match('/\b' . preg_quote($column, '/') . '\b/i', $message) === 1;
     }
 
     /**
