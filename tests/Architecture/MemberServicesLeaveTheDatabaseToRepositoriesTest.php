@@ -49,6 +49,36 @@ final class MemberServicesLeaveTheDatabaseToRepositoriesTest extends TestCase
      */
     private const AT_LEAST_THIS_MANY_FILES_ARE_READ = 8;
 
+    /**
+     * The four that still offend, and the calls each is allowed for now.
+     *
+     * **This list is the finding, not the concession.** Issue #413 named two
+     * Services and said « les deux Services métier qui lisent des données de
+     * membres » — this guard, written for those two, immediately reported
+     * four more. The rule was broken in three times as many places as the
+     * ticket that describes it knew about, which is what a rule nobody
+     * checks does.
+     *
+     * They are not fixed here on purpose. This change already rewrites 240
+     * construction sites across 159 files; four more Services, each with its
+     * own read model, would double it and make one review round cover two
+     * unrelated pieces of reasoning. They are tracked separately.
+     *
+     * **Asserted in both directions**, which is what makes it a ratchet
+     * rather than a blanket: a file that stops offending must LEAVE this
+     * list, and the test below fails until it does. Nobody can quietly park
+     * a fifth Service here either — adding a name costs a line in a list
+     * that the next reader will ask about.
+     *
+     * @var array<string, list<string>>
+     */
+    private const STILL_TO_MOVE = [
+        'core/Member/SectionStaffAuthorizationService.php' => ['prepare(', 'getPdo()', '->blindIndex('],
+        'core/Member/UnitStaffSectionService.php' => ['prepare('],
+        'core/Member/FeeEstimationService.php' => ['->blindIndex('],
+        'core/Member/SectionRosterService.php' => ['->decrypt('],
+    ];
+
     public function testNoServiceInMemberPreparesItsOwnStatements(): void
     {
         $offenders = [];
@@ -57,9 +87,13 @@ final class MemberServicesLeaveTheDatabaseToRepositoriesTest extends TestCase
         foreach (self::servicesInMember() as $path => $source) {
             ++$read;
             foreach (['prepare(', '->query(', '->exec(', 'getPdo()'] as $call) {
-                if (str_contains(self::withoutComments($source), $call)) {
-                    $offenders[] = $path . ' uses ' . $call;
+                if (!str_contains(self::withoutComments($source), $call)) {
+                    continue;
                 }
+                if (in_array($call, self::STILL_TO_MOVE[$path] ?? [], true)) {
+                    continue;
+                }
+                $offenders[] = $path . ' uses ' . $call;
             }
         }
 
@@ -84,9 +118,13 @@ final class MemberServicesLeaveTheDatabaseToRepositoriesTest extends TestCase
         foreach (self::servicesInMember() as $path => $source) {
             $code = self::withoutComments($source);
             foreach (['->decrypt(', '->encrypt(', '->blindIndex('] as $call) {
-                if (str_contains($code, $call)) {
-                    $offenders[] = $path . ' calls ' . $call;
+                if (!str_contains($code, $call)) {
+                    continue;
                 }
+                if (in_array($call, self::STILL_TO_MOVE[$path] ?? [], true)) {
+                    continue;
+                }
+                $offenders[] = $path . ' calls ' . $call;
             }
         }
 
@@ -96,6 +134,42 @@ final class MemberServicesLeaveTheDatabaseToRepositoriesTest extends TestCase
             "a Service in core/Member/ calls EncryptionService. SECURITY.md §5 keeps that in one place so\n"
             . "the encryption contexts have a single home:\n  "
             . implode("\n  ", $offenders) . "\n"
+        );
+    }
+
+    /**
+     * Every exemption still earns its place, every run.
+     *
+     * The direction nobody writes by default, and the one that makes a list
+     * shrink instead of settle: a file that has been cleaned up must be
+     * REMOVED from it, and until somebody does, this fails. An exemption
+     * nobody re-checks is how a rule quietly stops applying to a file.
+     */
+    public function testEveryFileStillWaitingToBeMovedStillOffends(): void
+    {
+        $sources = self::servicesInMember();
+        $dead = [];
+
+        foreach (self::STILL_TO_MOVE as $path => $calls) {
+            if (!isset($sources[$path])) {
+                $dead[] = $path . ' is no longer a Service in core/Member/';
+                continue;
+            }
+
+            $code = self::withoutComments($sources[$path]);
+            foreach ($calls as $call) {
+                if (!str_contains($code, $call)) {
+                    $dead[] = $path . ' no longer uses ' . $call;
+                }
+            }
+        }
+
+        $this->assertSame(
+            [],
+            $dead,
+            "these exemptions name something that is no longer true. Remove the line — an exemption\n"
+            . "kept past its need is a blanket over whatever gets written there next:\n  "
+            . implode("\n  ", $dead) . "\n"
         );
     }
 
