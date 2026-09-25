@@ -239,3 +239,179 @@ Rien. L'écran central, l'envoi et la documentation sont les itérations
 suivantes, comme prévu.
 
 ---
+
+## IT-02 — Enrichir la charge envoyée
+
+**Livré.** Le rapport quotidien porte maintenant de quoi voir le problème
+depuis l'autre bout.
+
+- **Les branches entrent dans `desk_vocabulary`** — code, libellé, et le rang
+  que `canonicalSortOrder()` leur a donné. Le rang est la colonne
+  intéressante : 99 dit qu'aucune des sept aiguilles n'a mordu.
+- **Un bloc `desk_unresolved`** à côté du vocabulaire (D4) : ce que
+  l'émetteur *sait* ne pas avoir su rattacher. Il est le seul à pouvoir le
+  dire — il tient `functions.confirmed` et il sait ce que
+  `canonicalSortOrder()` a répondu.
+- **Les deux bornes existantes s'appliquent au nouveau bloc**, et `total`
+  déclare ce qui a été laissé de côté.
+- **La version du schéma ne monte pas**, et c'est une correction : voir
+  plus bas.
+- **La mise à jour RGPD** des deux surfaces, dans le même changement que
+  l'envoi.
+- La phrase de transparence qu'IT-01 avait différée est posée sous
+  l'encadré, conditionnée à `statistics_enabled`.
+
+### Les décisions prises en autonomie
+
+**Le bloc ne porte pas de comptage.** La maquette de la page centrale montre
+« 7 unités », et c'est le receveur qui l'obtient en comptant les rapports où
+la valeur apparaît. Envoyer en plus « 3 personnes portent cette fonction »
+n'ajouterait rien à cette colonne et ferait voyager un dénombrement de
+personnes par unité. Une nature et une valeur brute, et rien d'autre (D9).
+
+**Deux nullités différentes, gardées distinctes.** `desk_unresolved` à `null`
+veut dire « cette installation ne mesure pas » — aucun service de constat
+câblé. `{"total": 0, "listed": []}` veut dire « je reconnais tout ». La règle
+1 de `StatisticsPayloadBuilder` l'exige, et un receveur qui confondrait les
+deux irait chercher un problème inexistant. Deux tests les séparent.
+
+**La troncature compte les entrées *et* les octets.** Le bloc reprend
+`MAX_VOCABULARY_ENTRIES` et `MAX_VOCABULARY_BYTES` parce que c'est la même
+nature de risque : ce sont les seules parties de la charge dont la taille est
+décidée par les données d'une unité, et la borne qui mord vraiment est les
+65 536 octets que le receveur mesure sur le corps brut. Une unité au
+vocabulaire délirant doit coûter à ce champ sa complétude, jamais au rapport
+entier. **Reprendre la borne ne suffisait pas** — voir plus bas.
+
+**La version du schéma n'est plus écrite en dur dans les tests.** Trois
+assertions épinglaient `1`. Elles lisent désormais la constante : un numéro
+de version recopié dans un test est un test qui échoue à chaque montée sans
+rien avoir vérifié.
+
+### La montée de version était une erreur, et la règle était déjà écrite
+
+La première version de cette itération montait `STATISTICS_SCHEMA_VERSION` à
+2 et faisait accepter `[1, 2]` au receveur, en se justifiant ainsi : « une
+liste qui grandit, jamais qui se déplace — les installations ne se mettent pas
+à jour le même jour ». **Le raisonnement était juste et regardait dans le
+mauvais sens.**
+
+La version voyage de l'émetteur vers le receveur, et la liste des versions
+acceptées vit chez le **receveur**. Une montée ne protège donc pas un vieil
+émetteur d'un nouveau receveur : elle casse un **nouvel** émetteur contre un
+receveur qui n'a pas encore été mis à jour. Toute unité installant cette
+version avant `scoutmagic.be` aurait vu ses rapports refusés en 400 — et les
+données que cette fonctionnalité collecte perdues jusqu'à ce que le receveur
+rattrape.
+
+Et la règle était déjà écrite, pour ce cas exact, à propos de l'ajout de
+`desk_vocabulary` (`ARCHITECTURE.md` §8.49) :
+
+> the schema version is unchanged, since an added field is what that list's
+> tolerance exists for and a bump would make every receiver still on the
+> previous release reject the report outright
+
+Un champ ajouté ne demande donc aucune montée : un champ inconnu est conservé
+tel quel dans la charge et signalé, jamais refusé. Ce qu'une montée sert à
+dire, c'est qu'un vieux receveur lirait le document **de travers** — un champ
+dont le sens ou le type change, une suppression dont quelque chose dépend.
+Rien ici ne fait cela. Relevé par la revue de #521.
+
+### La documentation RGPD appartient à cette itération, pas à IT-04
+
+`AGENTS.md` demande la mise à jour de `RgpdContentService` — contenu par
+défaut **et** prompt de génération — dans **le même changement** que le
+nouveau flux sortant. Ce changement-ci est celui qui commence à envoyer les
+branches et le bloc des valeurs non résolues ; la reporter à IT-04 laissait
+une phrase fausse au lecteur pendant deux itérations, et `AGENTS.md` exige en
+plus qu'un report conscient devienne une issue. Relevé par la revue, et
+corrigé en déplaçant la mise à jour ici plutôt qu'en ouvrant une issue pour un
+report qui n'avait pas lieu d'être.
+
+Ce qui se trouvait déjà juste, et n'a pas bougé : la règle interdit
+explicitement de qualifier ce rapport d'anonyme, puisqu'il porte l'adresse du
+site. Ce qui était absent : les deux surfaces énuméraient ce qui part —
+« uniquement des compteurs agrégés et des informations techniques » — et le
+vocabulaire Desk n'est ni l'un ni l'autre. **Le manque est antérieur au
+chantier** : les fonctions et les catégories de tarif partaient déjà. Un test
+de couverture tient les énoncés sur les deux surfaces, parce qu'une
+régénération par un prompt qui ignorerait le vocabulaire réécrirait
+tranquillement l'ancienne version.
+
+### Passer de deux listes à quatre avait défait la borne d'octets
+
+La seconde revue a trouvé ce que les tests ne pouvaient pas trouver : la borne
+s'appliquait **par liste**, et cette itération faisait passer de **deux** à
+**quatre** le nombre de listes dont la taille est décidée par les données
+d'une unité (`functions`, `fee_categories`, puis `branches` et
+`desk_unresolved`). L'arithmétique qui rendait la borne sûre vivait dans un
+commentaire — « 8 Ko par liste laisse les deux sous 16 Ko » — et pas dans le
+code. Chaque test saturait **une** liste, ou deux, et passait ; aucun ne les
+saturait toutes.
+
+Deux défauts distincts, tous deux mesurés avant d'être corrigés.
+
+**Le budget ne tenait pas compte de l'encodage transmis.** Il était compté sur
+l'encodage compact, alors que le corps part en `JSON_PRETTY_PRINT`. Pour une
+entrée de quatre lignes nichée à seize espaces d'indentation, l'indentation
+coûte plus que les libellés : une entrée courte pèse ~126 octets et non ~60.
+Le pire cas n'est donc **pas** le libellé le plus large — à cent octets par
+champ la borne mord après trente entrées, à vingt caractères elle laisse
+passer les cent, et cent entrées coûtent plus cher.
+
+**Les quatre listes à leur borne donnaient 63 033 octets**, soit 2 503 sous les
+65 536 du receveur — et ce, sur une installation **sans aucun module câblé**.
+`modules` et `module_usage` sur les vingt-cinq modules réels coûtent ~5 500
+octets de plus. Le rapport entier serait refusé en 413, ce que la borne
+existait précisément pour empêcher.
+
+**Deux bornes plutôt qu'une.** Un plafond total de 32 Ko pour tout le
+document, et une part de 8 Ko par liste. Le total est ce qui protège le
+rapport : une cinquième liste ajoutée demain puise dans la même bourse au lieu
+de relever le plafond. La part garde les listes honnêtes entre elles — une
+bourse unique en ordre de lecture laissait `functions` tout manger et
+`branches` repartir **vide** avec `total` à cent cinquante, ce qui est le pire
+des résultats disponibles : `branches` est dans cette charge parce qu'un rang
+à 99 est la correspondance la plus coûteuse à manquer et la seule muette côté
+unité. Pas de report du solde non dépensé d'une liste à la suivante : cela
+ferait dépendre le contenu d'une liste de sa position dans `build()`.
+
+Pire cas après correction : **32 775 octets**, la moitié de la limite, les
+quatre listes servies.
+
+**Trois garde-fous, chacun prouvé en le cassant.** Revenir à la mesure
+compacte, supprimer la part par liste, ajouter une cinquième liste sans lui
+donner de part : chaque mutation fait rougir un test, chaque restauration le
+fait reverdir. Le troisième compte les listes de forme `{total, listed}` dans
+la charge construite, donc une liste future est attrapée **en arrivant**, pas
+parce que quelqu'un aura pensé à la nommer.
+
+**Un test existant disait désormais faux.** Il affirmait que « les libellés
+courts sont bornés par le nombre bien avant de l'être par les octets » et
+épinglait exactement cent entrées. Mesurée sur l'encodage réel, la borne
+d'octets mord à ~66. `MAX_VOCABULARY_ENTRIES` est donc rétrogradée à ce
+qu'elle est : le `LIMIT` qui évite de lire une table emballée, pas la borne
+qui opère. Le test assure maintenant que la liste est coupée, non vide, et que
+`total` déclare la table entière — sans épingler un nombre qui n'était vrai
+que par accident d'encodage.
+
+### Ce que les tests tiennent
+
+Une branche canonique voyage avec son rang, une branche inconnue avec 99. Le
+rapport énonce ce qu'il n'a pas su rattacher. Une installation qui reconnaît
+tout envoie un bloc **vide**, pas une absence de bloc ; sans service de
+constat, le champ est **null**. Une charge de l'ancienne version reste
+acceptée, une charge de la nouvelle aussi et sans champ inconnu, et le bloc
+survit **verbatim** dans `support_installations.payload` — ce que la page
+centrale lira à l'itération suivante. La troncature déclare ce qu'elle a
+laissé. Rien d'autre qu'une nature et un libellé ne voyage.
+
+**Suite complète verte**, PHPStan sans erreur.
+
+### Reporté
+
+Rien. La vérification de `RgpdContentService` que D9 demande a d'abord été
+renvoyée à IT-04 ; la revue a eu raison de refuser ce report, et elle est
+faite ici.
+
+---
