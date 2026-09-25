@@ -48,6 +48,7 @@ function buildDom(options = {}) {
             <input id="db_name" value="scoutmagic">
             <input id="db_user" value="root">
             <input id="db_password" value="secret">
+            ${options.initialized ? '' : `
             <select id="mail_mode">
                 <option value="local" selected>local</option>
                 <option value="smtp">smtp</option>
@@ -57,7 +58,7 @@ function buildDom(options = {}) {
                 <input id="smtp_port" value="587">
                 <input id="smtp_user" value="mailer">
                 <input id="smtp_password" value="mailpass">
-            </div>
+            </div>`}
             ${options.installed ? '' : `
             <input id="mail_from_address" value="unite@exemple.be">
             <input id="mail_from_name" value="Unité">

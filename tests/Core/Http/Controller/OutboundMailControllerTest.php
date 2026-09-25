@@ -340,6 +340,12 @@ class OutboundMailControllerTest extends TestCase
             'saving the addresses' => ['POST', '/config/courrier-sortant/authentification'],
             'checking the returns' => ['POST', '/config/courrier-sortant/authentification/verification'],
             'checking the DNS' => ['POST', '/config/courrier-sortant/authentification/dns'],
+            // The rotation that moved here from « Installation & serveur »
+            // (#336). Its two behaviour tests call the controller method
+            // directly, which is the right shape for what they assert and
+            // the wrong shape for the boundary: they never see RbacGuard.
+            // AGENTS.md § Tests asks for the floor on EVERY new route.
+            'regenerating the DKIM key' => ['POST', '/config/courrier-sortant/authentification/cle-dkim'],
             'the probe' => ['GET', '/config/courrier-sortant/sonde'],
             'sending a probe' => ['POST', '/config/courrier-sortant/sonde/envoi'],
             'recording a verdict' => ['POST', '/config/courrier-sortant/sonde/verdict'],
