@@ -488,18 +488,28 @@ class SendBatchHandlerTest extends TestCase
         $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");
         $recipientBefore = $this->recipientRepository->findByEmailId($this->emailId)[0];
 
+        $capturedTo = null;
         $capturedExtraHeaders = null;
         $capturedBodyHtml = null;
         $mailService = $this->createMock(MailService::class);
         $mailService->expects($this->once())
             ->method('send')
-            ->willReturnCallback(function (...$args) use (&$capturedExtraHeaders, &$capturedBodyHtml): void {
-                $capturedBodyHtml = $args[2];
-                $capturedExtraHeaders = $args[8] ?? null;
-            });
+            ->willReturnCallback(
+                function (...$args) use (&$capturedTo, &$capturedExtraHeaders, &$capturedBodyHtml): void {
+                    $capturedTo = $args[0];
+                    $capturedBodyHtml = $args[2];
+                    $capturedExtraHeaders = $args[8] ?? null;
+                }
+            );
 
         $handler = new SendBatchHandler();
         $handler->handle([], $this->buildContext($mailService));
+
+        // The address, captured with the rest: an unsubscribe token minted
+        // for one recipient and mailed to another is the failure this
+        // header exists to prevent, and a callback that reads every
+        // argument BUT the first cannot see it (issue #439).
+        $this->assertSame('member0@test.be', $capturedTo);
 
         $this->assertIsArray($capturedExtraHeaders);
         $this->assertArrayHasKey('List-Unsubscribe', $capturedExtraHeaders);
@@ -552,6 +562,7 @@ class SendBatchHandlerTest extends TestCase
         $this->pdo->prepare('UPDATE mass_mail_recipients SET audience_row_id = ? WHERE id = ?')
             ->execute([$rowId, $recipient->id]);
 
+        $sentTo = null;
         $sentSubject = null;
         $sentBodyHtml = null;
         $copy = null;
@@ -559,7 +570,8 @@ class SendBatchHandlerTest extends TestCase
         $mailService->expects($this->once())
             ->method('send')
             ->willReturnCallback(
-                function (...$args) use (&$sentSubject, &$sentBodyHtml, &$copy): void {
+                function (...$args) use (&$sentTo, &$sentSubject, &$sentBodyHtml, &$copy): void {
+                    $sentTo = $args[0];
                     $sentSubject = $args[1];
                     $sentBodyHtml = $args[2];
                     $copy = $args[12] ?? null;
@@ -568,8 +580,11 @@ class SendBatchHandlerTest extends TestCase
 
         (new SendBatchHandler())->handle([], $this->buildContext($mailService));
 
-        // **The real message IS personalised**, or the assertions below
-        // would hold on a merge that never happened.
+        // **The real message IS personalised**, and it goes to the member
+        // whose values were merged into it — a mailing that rendered Kaa's
+        // row and posted it to somebody else is a worse defect than the one
+        // this test is about, and it used to be invisible here.
+        $this->assertSame('member0@test.be', $sentTo);
         $this->assertSame('Camp de Kaa', $sentSubject);
         $this->assertStringContainsString('Bonjour Kaa', (string) $sentBodyHtml);
 
@@ -591,16 +606,19 @@ class SendBatchHandlerTest extends TestCase
     {
         $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");
 
+        $sentTo = null;
         $copy = null;
         $mailService = $this->createMock(MailService::class);
         $mailService->expects($this->once())
             ->method('send')
-            ->willReturnCallback(function (...$args) use (&$copy): void {
+            ->willReturnCallback(function (...$args) use (&$sentTo, &$copy): void {
+                $sentTo = $args[0];
                 $copy = $args[12] ?? null;
             });
 
         (new SendBatchHandler())->handle([], $this->buildContext($mailService));
 
+        $this->assertSame('member0@test.be', $sentTo);
         $this->assertInstanceOf(\Core\Mail\Feedback\Seed\SeedCopyContent::class, $copy);
         $subject = $this->pdo->query('SELECT subject FROM mass_mail_emails')->fetchColumn();
         $this->assertSame($subject, $copy->subject);
@@ -872,11 +890,13 @@ class SendBatchHandlerTest extends TestCase
         $this->pdo->exec('DELETE FROM mass_mail_emails');
         [$emailId] = $this->createMergeEmailWithRecipient(['Prenom' => 'Louis', 'Montant' => '145']);
 
+        $capturedTo = null;
         $capturedSubject = null;
         $capturedBody = null;
         $mailService = $this->createMock(MailService::class);
         $mailService->expects($this->once())->method('send')
-            ->willReturnCallback(function (...$args) use (&$capturedSubject, &$capturedBody): void {
+            ->willReturnCallback(function (...$args) use (&$capturedTo, &$capturedSubject, &$capturedBody): void {
+                $capturedTo = $args[0];
                 $capturedSubject = $args[1];
                 $capturedBody = $args[2];
             });
@@ -884,6 +904,8 @@ class SendBatchHandlerTest extends TestCase
         $handler = new SendBatchHandler();
         $handler->handle([], $this->buildContext($mailService));
 
+        // Louis's rendered message goes to Louis's own external address.
+        $this->assertSame('ext@test.be', $capturedTo);
         $this->assertSame('Infos Louis', $capturedSubject);
         $this->assertStringContainsString('Cher Louis, montant : 145 €', $capturedBody);
         // The unsubscribe footer still applies to an external recipient.

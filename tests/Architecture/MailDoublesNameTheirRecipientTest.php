@@ -216,6 +216,70 @@ final class MailDoublesNameTheirRecipientTest extends TestCase
     }
 
     /**
+     * **A callback RECEIVES every argument; reading one is a different
+     * act.**
+     *
+     * The reader used to take `willReturnCallback` at its word, and I had
+     * written exactly that in a reply on this pull request — « it reads
+     * every argument ». A reviewer showed five live expectations in
+     * MassMail capturing `$args[1]`, `$args[2]`, `$args[8]`, `$args[12]`
+     * and never `$args[0]`: the address was unchecked, and the gate written
+     * for that very defect called them constrained.
+     *
+     * Both shapes the repository uses are pinned here, in both directions.
+     * A floor guards against a reader that finds nothing; only a fixture
+     * with a known answer guards against one that approves everything —
+     * and « approves everything » is precisely what this branch did.
+     */
+    public function testACallbackMustActuallyReadTheAddress(): void
+    {
+        $variadicReadsIt = <<<'PHP'
+            $mail->expects($this->once())->method('send')
+                ->willReturnCallback(function (...$args) use (&$sentTo): void {
+                    $sentTo = $args[0];
+                });
+            PHP;
+        $variadicIgnoresIt = <<<'PHP'
+            $mail->expects($this->once())->method('send')
+                ->willReturnCallback(function (...$args) use (&$body): void {
+                    $body = $args[2];
+                });
+            PHP;
+        $namedAndUsed = <<<'PHP'
+            $mail->expects($this->once())->method('send')
+                ->willReturnCallback(function (string $to) use (&$sentTo): void {
+                    $sentTo[] = $to;
+                });
+            PHP;
+        $namedAndDropped = <<<'PHP'
+            $mail->expects($this->once())->method('send')
+                ->willReturnCallback(function (string $to, string $subject) use (&$sent): void {
+                    $sent[] = $subject;
+                });
+            PHP;
+
+        $this->assertTrue($this->constrained($variadicReadsIt));
+        $this->assertFalse(
+            $this->constrained($variadicIgnoresIt),
+            'a callback that captures everything but the address was called constrained'
+        );
+        $this->assertTrue($this->constrained($namedAndUsed));
+        $this->assertFalse(
+            $this->constrained($namedAndDropped),
+            'a first parameter nobody reads is not a constraint'
+        );
+    }
+
+    /** The verdict of the scan on one literal expectation. */
+    private function constrained(string $source): bool
+    {
+        $found = $this->sendExpectations($source);
+        $this->assertCount(1, $found, 'the fixture must hold exactly one send expectation');
+
+        return $found[0]['constrained'];
+    }
+
+    /**
      * **A comment cannot make an unpinned recipient look pinned**, and this
      * is the shape that proved it could.
      *
@@ -563,7 +627,16 @@ final class MailDoublesNameTheirRecipientTest extends TestCase
             return false;
         }
 
-        if (str_contains($statement, 'withConsecutive(') || str_contains($statement, 'willReturnCallback')) {
+        if (str_contains($statement, 'willReturnCallback')) {
+            return self::callbackReadsTheRecipient($statement);
+        }
+
+        // `withConsecutive([$to, …], [$to, …])` pins each call's arguments
+        // positionally, so the address IS named — unless it is written as
+        // `anything()`, which the first-argument read below would catch if
+        // this repository used the shape at all. Two occurrences, neither
+        // on a `send`.
+        if (str_contains($statement, 'withConsecutive(')) {
             return true;
         }
 
@@ -573,6 +646,66 @@ final class MailDoublesNameTheirRecipientTest extends TestCase
         }
 
         return preg_match('/anything\(\s*\)/', self::firstArgumentOf(substr($statement, $with + 7))) !== 1;
+    }
+
+    /**
+     * Does this `willReturnCallback` actually LOOK at the address?
+     *
+     * The presence of the call used to be taken as proof, and a reviewer
+     * showed it was not: five live expectations in MassMail — the module
+     * whose whole subject is who receives what — capture `$args[1]`,
+     * `$args[2]`, `$args[8]`, `$args[12]` and never `$args[0]`. A
+     * regression routing any of those sends to the wrong address passed
+     * both its own test and this gate, which is the exact failure this
+     * pull request exists to remove for `->with()`. It was left open for
+     * callbacks because I had written, in a reply on this very pull
+     * request, that a callback « reads every argument ». It receives every
+     * argument. Reading one is a different act.
+     *
+     * Two shapes, and the repository uses both:
+     *
+     * - `function (string $to) use (&$sentTo)` — a NAMED first parameter.
+     *   The address is read when that variable appears again in the body,
+     *   which is the only reason to have named it.
+     * - `function (...$args)` — variadic. The address is read only through
+     *   `$args[0]`, spelled out.
+     *
+     * Anything this cannot parse answers false, which reports rather than
+     * excuses: a gate that guesses in the permissive direction is the
+     * shape of every finding on this pull request.
+     */
+    private static function callbackReadsTheRecipient(string $statement): bool
+    {
+        $at = strpos($statement, 'willReturnCallback');
+        if ($at === false) {
+            return false;
+        }
+
+        $body = substr($statement, $at);
+
+        // `function (...$args)` / `fn (...$args)`: only `$args[0]` is the
+        // address, and it has to be written down.
+        if (preg_match('/function\s*\(\s*\.\.\.\s*(\$\w+)/', $body, $variadic) === 1
+            || preg_match('/fn\s*\(\s*\.\.\.\s*(\$\w+)/', $body, $variadic) === 1
+        ) {
+            return preg_match(
+                '/' . preg_quote($variadic[1], '/') . '\s*\[\s*0\s*\]/',
+                $body
+            ) === 1;
+        }
+
+        // A named first parameter: read when it is used past its own
+        // declaration.
+        if (preg_match('/(?:function|fn)\s*\(\s*(?:[\w\\\\|?]+\s+)?(\$\w+)/', $body, $named) !== 1) {
+            return false;
+        }
+
+        $afterSignature = strpos($body, $named[1]);
+        if ($afterSignature === false) {
+            return false;
+        }
+
+        return substr_count($body, $named[1]) > 1;
     }
 
     /**
