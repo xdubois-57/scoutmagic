@@ -483,13 +483,46 @@ backlog » — and it is a standing instruction, not a one-off. It means:
    25 files, reviewed end to end in 10 min 47 s, sixteen agents, five real
    findings.
 
-5. **Run the blocks, in parallel where they do not touch each other.**
-   Blocks whose files are disjoint may be in flight at once — each on its
-   own branch off `main`, each merged as it goes green, no waiting on a
-   sibling. Blocks that touch the same files are **serialised**: the later
-   one branches from `main` *after* the earlier has merged. Overlapping
+5. **Run the blocks in parallel where they do not touch each other — and
+   merge them one at a time, always.** Blocks whose files are disjoint may
+   be *in flight* at once, each on its own branch off `main`.
+   Blocks that touch the same files are **serialised**: the later one
+   branches from `main` *after* the earlier has merged. Overlapping
    branches are exactly how the same file gets fixed twice, differently,
    and merged without a conflict marker.
+
+   **Development is parallel; merging never is.** The maintainer asks for
+   both halves in one breath — « Travaille en parallèle, mais fusionne les
+   PR une par une, jamais en même temps », and again « Parallélise ce que
+   tu peux, mais sérialise les merge de PR pour éviter de perdre du
+   temps ». Two merges at once is not faster, it is the failure this whole
+   step exists to stop, arriving by a different door: `main` moves under
+   the second one, and « require branches up to date » is off here, so
+   GitHub merges it happily against a base that no longer exists — the
+   required checks that went green were computed against something else.
+   One merge at a time, carried to completion, before the next begins.
+
+   **Hold the open pull requests as a queue, and cap it at six.**
+   Measured rather than chosen, and the number MOVED once for a reason worth
+   keeping. It was four while every merge obliged a re-merge of `main` into
+   everything still open, each costing a full CI round — `Checks / test`
+   alone runs about 19 minutes, and the `Claude review` beside it prices
+   itself at roughly 10 USD in its own status comment. That re-merge is now
+   required only where the files overlap, so the cost that set the ceiling
+   fell and the maintainer asked for the ceiling to follow. Below it the
+   reviewers idle between merges and the queue starves; above it the
+   overlapping re-merges cost more than the work they carry. So a finished
+   block whose pull request would be the seventh **waits on its branch —
+   pushed, green, with its body already written** — and is opened the moment
+   one merges.
+
+   **And the cap is on OPEN PULL REQUESTS, not on work in progress.**
+   Nothing limits how many blocks are being written at once, and reading one
+   as the other is how an agent ends up watching CI with its hands in its
+   pockets while twenty accepted issues sit untouched — which happened here,
+   and the maintainer had to say so. Keep starting new blocks while the queue
+   drains: a queue that empties with nothing entering it is the failure this
+   paragraph exists to prevent, not its ceiling.
 
    Land the block others build on first, and after **each** merge bring
    `main` into every branch still open, then re-run the checks locally on
@@ -498,6 +531,67 @@ backlog » — and it is a standing instruction, not a one-off. It means:
    together. « Require branches up to date » is deliberately off on this
    repository (docs/quality-pipeline.md § Branch ruleset), so nothing does
    this for you.
+
+   **Locally on all of them; then push the next two or three side by side.**
+   The local run is what catches the semantic conflict and it costs seconds;
+   the push is what spends the CI round. Pushing several DIFFERENT pull
+   requests at once costs no more than pushing them one after another —
+   each needs one review on its final head either way — so the total is
+   unchanged and only the waiting divides. Push them, let their rounds run
+   beside each other, then merge in order **without re-merging `main` in
+   between where their files are disjoint**, which a dry-run merge and one
+   local run of the combined state establish. Re-merge `main` only where
+   the files overlap, or where that combined run shows a conflict.
+
+   **The first version of this rule serialised the pushes too, and its
+   arithmetic was wrong.** It claimed that pushing several branches at once
+   multiplies the review spend by the number in flight. It does not: each
+   pull request needs one review on its final head whichever way the rounds
+   are ordered, so **the total is the same and only the rate changes** — the
+   same money, sooner, for a third of the waiting. The maintainer asked
+   whether two at a time would save time, the numbers were redone, and the
+   rule was relaxed to what stands above.
+
+   Two things it did NOT relax, because they were the real dangers all
+   along. **Two merges at the same instant** stays forbidden, for the reason
+   the paragraph above gives. And the window this opens — a combination
+   tested on `main` after it lands rather than before — is not something
+   this rule gets to decide: `docs/quality-pipeline.md` § Branch ruleset
+   already accepts it, names the maintainer as the one who answers for it on
+   the red-`main` notification, and says the fix goes forward rather than by
+   revert. Relaxing the pushes changes how often that window opens, not who
+   owns it.
+
+   **Do not run those local checks in a `git worktree`.** `vendor/` there
+   is a symlink, so Composer's autoloader resolves `$baseDir` to the main
+   checkout and loads `Core\` and `Tests\` from the OTHER working tree:
+   the branch you believe you are testing is never read. A mutation proof
+   taken that way is worth nothing and looks green — this was found by
+   `Tests\Core\View\TwigCacheVersioningTest` failing with the main
+   checkout's path in it, not by suspecting the setup. Use one checkout and
+   switch branches in it; keep worktrees for pure git plumbing, where no
+   autoloader runs.
+
+   **Never re-merge into a local branch that merely shares a name with the
+   remote one.** `git checkout claude/some-branch` picks a LOCAL ref of that
+   name when one exists, silently, however far behind it is — and a queue
+   that has been running for hours accumulates exactly such refs. Merging
+   `main` into one produces a plausible merge commit whose first parent is
+   the branch as it was hours ago, missing every push since. Pushing it
+   would revert the pull request, review fixes included; only the
+   non-fast-forward rejection stops that, and a `--force` would not be
+   stopped at all. So re-merge from the remote ref by name
+   (`git merge origin/main` onto a branch created with
+   `git checkout -B work origin/claude/some-branch`), and afterwards assert
+   the head you meant to build on is an ancestor:
+   `git merge-base --is-ancestor <pushed head> HEAD`. Delete stale local
+   branches that shadow a remote — including `main` itself, which goes stale
+   the same way and is the one nobody thinks to check.
+
+   **Keep a self check-in armed until the queue is empty**, re-armed after
+   each merge. Webhook events for CI success and for a merge conflict
+   arrive late or not at all, and a queue whose head went green an hour ago
+   while nobody looked is precisely the time this step is meant to save.
 
 6. **Fix them** — every one of them, under the rules in this file: a test
    alongside each fix, `vendor/bin/phpstan analyse` before committing PHP,
