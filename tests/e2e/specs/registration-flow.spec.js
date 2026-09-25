@@ -52,7 +52,7 @@
 // across every target year).
 import { expect, test } from '@playwright/test';
 
-import { answerConfirmation } from '../support/confirm-dialog.js';
+import { answerConfirmation, waitForConfirmReady } from '../support/confirm-dialog.js';
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { openCollapse } from '../support/collapse.js';
@@ -351,6 +351,16 @@ test('a family registers a child, follows the mailed tracking link, and the admi
         // told that before the place is taken back. Answered explicitly
         // rather than through autoConfirm(), because being asked at all is
         // part of what this step is for.
+        // `waitForConfirmReady()` first, which the helper's own docblock
+        // requires before clicking anything inside a `form[data-confirm]`:
+        // confirm.js loads at the END of base.html.twig, so a click that
+        // beats its delegated listener submits the form NATIVELY, no dialog
+        // is ever built, and answerConfirmation() then waits out its
+        // ceiling on a question that was never going to be asked. The
+        // `waitForURL()` above does not cover it — it resolves against a URL
+        // that already matches, since nothing navigates between the
+        // acceptance and this withdrawal.
+        await waitForConfirmReady(page);
         await page.getByRole('button', { name: 'Retirer' }).click();
         const asked = await answerConfirmation(page);
         expect(asked).toContain('déjà acceptée');

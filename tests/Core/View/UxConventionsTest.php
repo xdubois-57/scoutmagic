@@ -210,7 +210,7 @@ final class UxConventionsTest extends TestCase
      * envoyé. » It is English here and so escapes by accident; a French
      * sibling would need a line in ASKS_NOTHING.
      */
-    private const SENDS_AN_EMAIL = '/(send[\w-]*email|resend|(^|[\/_-])(relance|relancer|rappeler|notify|notifier)([\/_-]|$))/i';
+    private const SENDS_AN_EMAIL = '/(send[\w-]*email|resend|(^|[\/_-])(envoyer|renvoyer|relance|relancer|rappeler|notify|notifier)([\/_-]|$))/i';
 
     /**
      * **The three readers, on literal tags** — because the sweep above
@@ -246,6 +246,24 @@ final class UxConventionsTest extends TestCase
             '/finance/campaigns/12/notify',
             'notifying the families of a campaign mails every one of them'
         );
+        // The plainest French verbs of all, and the first version of this
+        // pattern — written to BE bilingual — did not carry them. Two live
+        // routes use exactly them, and a reviewer named both.
+        $this->assertMatchesRegularExpression(
+            self::SENDS_AN_EMAIL,
+            '/mes-locations/document-envoyer',
+            'sending a rental document mails it to the renter'
+        );
+        $this->assertMatchesRegularExpression(
+            self::SENDS_AN_EMAIL,
+            '/admin/members/12/documents/3/renvoyer',
+            're-sending a member document mails it again'
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            self::SENDS_AN_EMAIL,
+            '/locations/documents-envoyes',
+            'a page LISTING what was sent sends nothing — the verb has to be its own segment'
+        );
 
         // Either quote style, for the method and for the action.
         $this->assertTrue(self::isAPostForm('<form method=\'post\' action="/x">'));
@@ -259,6 +277,31 @@ final class UxConventionsTest extends TestCase
         $this->assertFalse(
             self::asksFirst('<form method="post" action="/x" data-confirm-label="Supprimer">'),
             'data-confirm-label only names the button of a dialog somebody else opens'
+        );
+        // A dialog the template may or may not print is not a dialog — and
+        // this fixture carries the shape the rental documents panel really
+        // had, NEWLINE AND INDENTATION INCLUDED, because that detail is the
+        // whole finding: `\sdata-confirm` needs whitespace before the
+        // attribute, so a compact `%}data-confirm="…"` was already rejected
+        // by accident while the indented form — the one that existed — read
+        // as a dialog. A fixture written compact passes without the
+        // conditional-stripping it is meant to prove.
+        $this->assertFalse(
+            self::asksFirst(
+                "<form method=\"post\" action=\"/mes-locations/document-envoyer\" class=\"d-inline\"\n"
+                . "      {% if not document.hasBeenSent and document.type.isGenerated %}\n"
+                . "          data-confirm=\"Envoyer ?\"\n"
+                . "          data-confirm-label=\"Envoyer\"\n"
+                . "      {% endif %}>"
+            ),
+            'an attribute inside {% if %} leaves the other branch asking nothing'
+        );
+        $this->assertTrue(
+            self::asksFirst(
+                '<form method="post" action="/x" data-confirm="Envoyer ?'
+                . '{% if locked %} Le texte sera figé.{% endif %}">'
+            ),
+            'a conditional sentence INSIDE the message still leaves a dialog on every render'
         );
     }
 
@@ -285,7 +328,7 @@ final class UxConventionsTest extends TestCase
     }
 
     /**
-     * Does this form ask before acting?
+     * Does this form ask before acting — **always**, not sometimes?
      *
      * The EXACT attribute, not a prefix: `str_contains($tag, 'data-confirm')`
      * also accepted `data-confirm-label`, which only labels the button of a
@@ -293,10 +336,30 @@ final class UxConventionsTest extends TestCase
      * real attribute too today, so again nothing was wrong in fact — and
      * again a future destructive form with the label alone would have
      * passed.
+     *
+     * **And an attribute inside a `{% if %}` is not an attribute.** A
+     * reviewer found this one by its consequence:
+     * `modules/rental/views/management/_documents.html.twig` emitted its
+     * `data-confirm` only `{% if not document.hasBeenSent and
+     * document.type.isGenerated %}`, so **re-sending** a document mailed the
+     * renter with no dialog at all — the exact case design.md §7.5 adds to
+     * the rule — while this reader, which sees template SOURCE rather than
+     * rendered markup, read the attribute as present and said nothing.
+     * The conditional spans are stripped first, so what is tested is what
+     * the tag emits on every render.
      */
     private static function asksFirst(string $tag): bool
     {
-        return preg_match('/\sdata-confirm\s*=/i', $tag) === 1;
+        return preg_match('/\sdata-confirm\s*=/i', self::alwaysEmitted($tag)) === 1;
+    }
+
+    /**
+     * A form tag with its conditional spans removed — what it emits
+     * whatever the page's data says.
+     */
+    private static function alwaysEmitted(string $tag): string
+    {
+        return (string) preg_replace('/\{%-?\s*if\b.*?\{%-?\s*endif\s*-?%\}/s', '', $tag);
     }
 
     /**

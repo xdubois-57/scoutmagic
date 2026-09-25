@@ -551,6 +551,21 @@ helpers; a page-level primary action that happens to call an AI
     of a campaign. Both ask now. The lesson is worth keeping: route
     addresses here are French, so a pattern written in English is a pattern
     that reads the minority of them.
+
+    **Widened once more, on the same reviewer's second pass**, and this
+    time for the plainest verbs there are: `envoyer` and `renvoyer`. Two
+    live routes use exactly them — `/mes-locations/document-envoyer` and
+    `/admin/members/{id}/documents/{id}/renvoyer` — so a pattern claiming to
+    be bilingual was missing the words a French speaker would try first.
+  - **An attribute inside a `{% if %}` is not an attribute.** The guard
+    reads template SOURCE, not rendered markup, so a `data-confirm` printed
+    on one branch only looked exactly like one printed always.
+    `modules/rental/views/management/_documents.html.twig` asked on a first
+    send of a generated document and on nothing else — so **re-sending**
+    mailed the renter with no question, the very case this rule adds. It
+    asks on every send now; the sentence about the text being locked (§22.6)
+    stays conditional, because that consequence really is. A conditional
+    sentence inside the MESSAGE is fine; a conditional attribute is not.
   - And a verb in an address is **not proof** of what the action does:
     `/finance/campaigns/{id}/reminder` says « rappel » and only prepares a
     draft — « il n'a pas été envoyé ». That is why the exceptions are a
