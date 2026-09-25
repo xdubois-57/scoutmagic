@@ -15,7 +15,7 @@ use Twig\Environment;
 
 /**
  * « Cet hébergeur laisse-t-il passer la synchronisation ? » — the probe
- * behind the button on « Appareils synchronisés » (`ARCHITECTURE.md`
+ * behind the button on « Synchroniser mes contacts » (`ARCHITECTURE.md`
  * §8.118).
  *
  * **It exists because of where this project is deployed.** Shared

@@ -122,7 +122,7 @@ class PushSubscriptionController extends AbstractController
     /**
      * Best-effort "browser sur OS" label from User-Agent (e.g. "Chrome sur
      * Android") — display-only, so a member can tell their devices apart
-     * in a future "Mes appareils" list (push_subscriptions.device_label).
+     * in a future "Mes accès" list (push_subscriptions.device_label).
      * Never parsed for anything security- or logic-relevant.
      */
     private function deviceLabelFromUserAgent(Request $request): ?string

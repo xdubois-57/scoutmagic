@@ -6,6 +6,7 @@ namespace Tests\Core\Contact\Controller;
 
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
+use Core\Contact\CardDav\AddressBookService;
 use Core\Contact\Controller\DeviceCredentialController;
 use Core\Contact\Device\DeviceCredentialRepository;
 use Core\Contact\Device\DeviceCredentialService;
@@ -19,7 +20,7 @@ use Twig\Environment;
 use Twig\Loader\ArrayLoader;
 
 /**
- * « Appareils synchronisés » under Mon compte: what it creates, what it
+ * « Synchroniser mes contacts » under Mon compte: what it creates, what it
  * refuses, and whose credentials it will touch.
  *
  * @group database
@@ -108,6 +109,41 @@ class DeviceCredentialControllerTest extends TestCase
     private function formRequest(array $body): Request
     {
         return new Request('POST', '/account/devices/1/revoke', [], $body, [], []);
+    }
+
+    /**
+     * The controller hands the page the full CardDAV address.
+     *
+     * iOS given the domain alone reaches `/.well-known/carddav` first, and
+     * some hosts answer that with their own 403 page before PHP is ever
+     * reached — so « Vérification » spins forever on correct credentials.
+     * `https://…/carddav/staff/` connects. The page recommended the domain
+     * and offered the full address only as a fallback, which is backwards
+     * (#483).
+     *
+     * This half proves the VALUE reaches the template;
+     * `Tests\Core\View\ContactSyncPageSaysWhatToTypeTest` proves the
+     * template puts it where a phone is configured. The stub loader in
+     * `setUp()` cannot do both, and one assertion pretending to would be
+     * the weaker claim of the two.
+     */
+    public function testTheControllerGivesThePageTheFullServerAddress(): void
+    {
+        $controller = new DeviceCredentialController(
+            new Environment(new ArrayLoader([
+                'account/devices.html.twig' => '{{ site_url }}{{ carddav_collection_path }}',
+                'errors/404.html.twig' => 'Introuvable',
+            ])),
+            $this->service
+        );
+
+        $page = $controller->index(new Request('GET', '/account/devices', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString(
+            AddressBookService::COLLECTION_PATH,
+            $page,
+            'the full CardDAV address is what a phone is told to use'
+        );
     }
 
     public function testCreatingReturnsTheSecretExactlyOnceAndInThisResponseOnly(): void
