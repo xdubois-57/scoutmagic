@@ -493,6 +493,69 @@ class RentalDocumentServiceTest extends TestCase
     }
 
     /**
+     * **Saving the same text twice is not « it has been sent ».**
+     *
+     * The lock was read off `rowCount()`, and MySQL's `rowCount()` after
+     * an UPDATE counts rows it CHANGED, not rows the WHERE matched — this
+     * application does not set `PDO::MYSQL_ATTR_FOUND_ROWS`. A manager
+     * double-clicking « Enregistrer » on unedited text therefore matched
+     * the row, changed nothing, and was told the document had gone out to
+     * the tenant. Nothing had.
+     *
+     * **This class cannot see the defect, and saying so is the point.**
+     * `DatabaseTestHelper::createTestDatabase()` builds an in-memory
+     * SQLite whatever `TEST_DB_*` says, and SQLite's `changes()` counts
+     * matched rows however the values compared — so this passed before the
+     * fix as well. It is kept because it states the intended behaviour
+     * where the rest of this feature is tested; the engine's own semantic
+     * is held by `Tests\Modules\Rental\Repository\
+     * DocumentTextLockOnTheRealEngineTest`, which connects to MySQL and
+     * was verified red there.
+     *
+     * Two saves inside the same second, deliberately: that is what makes
+     * even `updated_at` — formatted to the second — identical, and so the
+     * whole row unchanged.
+     */
+    public function testSavingTheSameTextTwiceIsAcceptedRatherThanReadAsASend(): void
+    {
+        $booking = $this->createBooking();
+        $this->setTemplate('<p>x</p>');
+        $this->service->generate($booking, $this->asset(), DocumentType::CONTRACT, $this->settings());
+
+        $text = '<p>Le texte que le gestionnaire enregistre deux fois.</p>';
+        $this->assertTrue($this->documentRepository->saveText($booking->id, DocumentType::CONTRACT, $text));
+
+        $this->assertTrue(
+            $this->documentRepository->saveText($booking->id, DocumentType::CONTRACT, $text),
+            'a second save of unchanged text was reported as a document already sent to the tenant'
+        );
+
+        $kept = $this->documentRepository->findText($booking->id, DocumentType::CONTRACT);
+        $this->assertSame($text, $kept);
+    }
+
+    /**
+     * And re-saving the SAME text after a real send is still refused: the
+     * disambiguation above must not become a way through the lock.
+     */
+    public function testSavingTheSameTextAgainAfterTheSendIsStillRefused(): void
+    {
+        $booking = $this->createBooking();
+        $this->setTemplate('<p>x</p>');
+        $document = $this->service->generate($booking, $this->asset(), DocumentType::CONTRACT, $this->settings());
+
+        $text = '<p>Le texte tel qu\'il est parti.</p>';
+        $this->assertTrue($this->documentRepository->saveText($booking->id, DocumentType::CONTRACT, $text));
+
+        $this->service->markSent($document->id, new \DateTimeImmutable());
+
+        $this->assertFalse(
+            $this->documentRepository->saveText($booking->id, DocumentType::CONTRACT, $text),
+            'identical text slipped past the lock because nothing changed'
+        );
+    }
+
+    /**
      * The same write, before the send, still lands.
      *
      * Without this the fix above could be « refuse everything », which no

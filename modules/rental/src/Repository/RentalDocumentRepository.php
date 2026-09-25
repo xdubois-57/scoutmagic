@@ -272,6 +272,34 @@ class RentalDocumentRepository implements AttachedFileRepository
      * `locked_at` column and regretted both of its costs, a schema change
      * and that lost derivation. Neither is needed.
      *
+     * **Zero changed rows is not zero matched rows**, and that distinction
+     * is what the first version of this got wrong. Without
+     * `PDO::MYSQL_ATTR_FOUND_ROWS`, which this application does not set,
+     * MySQL's `rowCount()` after an UPDATE counts rows it CHANGED. So a
+     * manager double-clicking « Enregistrer » on unedited text — twice
+     * inside the same second, so that even `updated_at` is identical —
+     * matched the row, changed nothing, and was told « ce document a été
+     * envoyé au locataire » about a document nobody had sent, with the
+     * write dropped. The same trap is already written down for
+     * `SettingRepository::replaceIfUnchanged()` and
+     * `BounceStateRepository` (ARCHITECTURE.md §8.29).
+     *
+     * **A second query disambiguates, and only on that path.** The UPDATE
+     * stays the atomic thing; when it reports nothing changed, the row is
+     * asked whether it already holds exactly this text with nothing sent
+     * — which is the no-op — or not, which is the refusal. Nothing is
+     * re-checked on the ordinary path, so the window the `NOT EXISTS`
+     * closes stays closed. A send landing between the UPDATE and this
+     * question can only turn a no-op into a refusal, and a refusal is
+     * then the truthful answer: the text on file is already the text
+     * asked for, and it has gone out.
+     *
+     * **A unit test cannot catch this**, which is why it survived one:
+     * `DatabaseTestHelper::createTestDatabase()` builds an in-memory
+     * SQLite, whose `changes()` counts matched rows whatever the values
+     * were. The divergence appears only against MySQL — the `test` job of
+     * CI, the `database` group of a remote session, and production.
+     *
      * @return bool false when the text was already sent and nothing was written
      */
     public function saveText(int $bookingId, DocumentType $type, string $bodyHtml): bool
@@ -307,7 +335,37 @@ class RentalDocumentRepository implements AttachedFileRepository
         );
         $stmt->execute([$bodyHtml, $now, $bookingId, $type->value]);
 
-        return $stmt->rowCount() > 0;
+        if ($stmt->rowCount() > 0) {
+            return true;
+        }
+
+        return $this->alreadyHoldsUnsent($bookingId, $type, $bodyHtml);
+    }
+
+    /**
+     * Did the UPDATE change nothing because there was nothing to change?
+     *
+     * Asked only when `rowCount()` is zero, where MySQL cannot tell « the
+     * `NOT EXISTS` refused this » from « the row already said exactly
+     * that ». One row, one answer: the text is identical AND no document
+     * of this type has gone out, so the caller's intent is already the
+     * state on disk.
+     */
+    private function alreadyHoldsUnsent(int $bookingId, DocumentType $type, string $bodyHtml): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 FROM rental_booking_document_texts t
+              WHERE t.booking_id = ? AND t.document_type = ? AND t.body_html = ?
+                AND NOT EXISTS (
+                    SELECT 1 FROM rental_documents d
+                    WHERE d.booking_id = t.booking_id
+                      AND d.document_type = t.document_type
+                      AND d.sent_at IS NOT NULL
+                )'
+        );
+        $stmt->execute([$bookingId, $type->value, $bodyHtml]);
+
+        return $stmt->fetchColumn() !== false;
     }
 
     private function selectWithFile(): string
