@@ -32,7 +32,7 @@ rencontre jamais.
 Ce qui décide réellement est `FeeCategoryClassifier::NEEDLES`, une heuristique
 sur le libellé replié — et c'est en regardant *cette* table que l'écart se
 révèle bien plus profond que le mauvais nom. **Un tarif hors des trois n'est
-pas un défaut.** `ARCHITECTURE.md` §8.74 l'écrit :
+pas un défaut.** `ARCHITECTURE.md` §8.75 l'écrit :
 
 > **A tariff outside the three is not judged.** […] Reporting them would be a
 > false positive on every unit, on the first screen a treasurer opens.
@@ -628,6 +628,42 @@ reformulé), et `discovery: 0` réclame la première place de « Le saviez-vous 
 la page centrale, qui n'existe que chez le mainteneur, est en `discovery: off`.
 
 **Suite complète verte**, PHPStan sans erreur.
+
+### Ce que la revue a trouvé, et que rien ne tenait
+
+Quatre retours sur une itération purement documentaire, et tous portaient sur
+le fond. C'est la démonstration de ce à quoi sert cette itération : rien dans
+la suite de tests ne vérifie qu'une phrase est **vraie**.
+
+**Une citation de section fausse, répétée cinq fois.** J'attribuais la règle
+sur les tarifs à §8.74, qui est « the fees module and the roster snapshot » ;
+la phrase citée vit en **§8.75**, « Justesse des tarifs ». La revue en a vu
+deux, celles du diff. Les trois autres étaient déjà fusionnées — dans
+`DeskMappingGapKind`, dans `DeskMappingGapServiceTest` et dans ce journal
+même, où la citation servait à justifier le retrait de la nature « Tarif ».
+Les cinq sont corrigées : laisser les trois anciennes fausses parce qu'elles
+sont hors diff, c'est laisser un lecteur chercher la règle au mauvais endroit.
+
+**Le sujet d'aide envoyait le chef d'unité faire un geste sans effet.** Il
+donnait « choisir un logo pour la branche » comme la correction, puis disait
+que la ligne s'en va « dès qu'une branche est reconnue ». Or `setLogo()` écrit
+`logo_file_id` et rien d'autre : le rang de 99 vient de
+`canonicalSortOrder()`, une table du logiciel, jamais d'un geste dans
+l'interface. Quelqu'un aurait donc téléversé un logo et vu la ligne rester,
+sans explication. Réécrit : le logo corrige la page des animés, la ligne
+attend une version.
+
+**Et il promettait un correctif qui ne peut pas venir.** Les libellés étaient
+signalés au mainteneur « pour qu'il ajoute les correspondances manquantes dans
+une version suivante » — vrai pour une branche, faux pour une fonction
+(écart 7), et le sujet frère de la même PR le disait déjà explicitement.
+Quelqu'un lisant celui-ci aurait attendu une mise à jour au lieu d'attribuer
+le rôle qui, seul, résout la ligne. La promesse est restreinte aux branches.
+
+Le sujet est passé à 452 mots en gagnant ces nuances, puis resserré à 434 —
+au-dessus des ~400 de la limite souple, sous les 500 de la limite dure, ce que
+`HelpInvariantsTest` accepte. Un sujet né d'une scission pour dépassement
+méritait qu'on y regarde deux fois.
 
 ### Reporté
 

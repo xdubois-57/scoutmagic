@@ -28,22 +28,28 @@ ne voit plus rien après un import.
 **Une branche** n'est pas reconnue : elle n'a pas de logo sur la page
 des animés, et elle se range en dernier dans toutes les listes.
 
-Chaque ligne indique combien de fiches sont concernées et mène là où on
-la corrige : donner un rôle plus bas dans la page, ou choisir un logo
-pour la branche.
+Chaque ligne indique combien de fiches sont concernées. Pour une
+fonction, elle mène là où on la corrige : donnez-lui un rôle plus bas
+dans la page.
+
+Pour une branche, rien à corriger de votre côté : un logo rendra la page
+des animés correcte, mais le rang qui la range en dernier vient d'une
+table du logiciel, donc la ligne restera jusqu'à une version qui connaît
+cette branche.
 
 ## L'encadré disparaît tout seul
 
 Il n'y a rien à marquer comme lu : la liste est recalculée à chaque
-affichage. Dès qu'une fonction est qualifiée ou qu'une branche est
-reconnue, la ligne s'en va.
+affichage. Dès qu'une fonction reçoit un rôle, sa ligne s'en va. Celle
+d'une branche s'en va à la mise à jour qui l'ajoute.
 
 ## Ce qui est transmis, et ce qui ne l'est pas
 
 Si l'envoi quotidien des statistiques est activé (Configuration >
-Diagnostic), ces libellés sont aussi signalés au mainteneur du site,
-pour qu'il ajoute les correspondances manquantes dans une version
-suivante — c'est la seule façon qu'il a de l'apprendre.
+Diagnostic), ces libellés sont aussi signalés au mainteneur — c'est la
+seule façon qu'il a de l'apprendre. Il peut ajouter une branche dans une
+version suivante ; une fonction, non, faute de liste de fonctions
+connues : **c'est le rôle que vous attribuez qui résout la ligne**.
 
 > **Seul le libellé est transmis** : jamais un nom de membre, et jamais
 > un nom de section. Un nom de section est choisi par votre unité et
