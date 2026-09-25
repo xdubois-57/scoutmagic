@@ -56,6 +56,18 @@
 
     resendBtns.forEach(function (btn) {
         btn.addEventListener('click', async function () {
+            // An e-mail to somebody else leaves immediately and cannot be
+            // recalled, so it asks first (design.md §7.5). This gesture is
+            // driven from JavaScript, so `data-confirm` — which confirm.js
+            // delegates from a <form> — does not apply; the same dialog is
+            // opened by hand, as the other modules do (#485).
+            var confirmed = await window.ScoutMagicConfirm.ask({
+                message: 'Renvoyer ce message à ' + (btn.dataset.recipient || 'ce destinataire')
+                    + ' ? Il part immédiatement et ne peut pas être rappelé.',
+                confirmLabel: 'Renvoyer'
+            });
+            if (!confirmed) return;
+
             var res = await api.withDisabled(btn, function () {
                 return api.postJson('/mass-mail/recipients/' + btn.dataset.id + '/resend', {});
             });

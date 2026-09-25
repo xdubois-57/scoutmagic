@@ -521,9 +521,28 @@ helpers; a page-level primary action that happens to call an AI
 - Destructive POSTs carry `data-confirm` **on the `<form>` element** — the
   global handler in `base.html.twig` listens on `submit` and looks at
   `e.target.closest('form[data-confirm]')`; the attribute on a button is
-  silently inert. Rule of thumb: every POST that deletes, removes, refuses
-  or revokes carries one; nothing else does. Messages state the
-  consequence: « {Verbe} {objet} ? {Conséquence concrète}. »
+  silently inert. Messages state the consequence: « {Verbe} {objet} ?
+  {Conséquence concrète}. »
+  - **What carries one**: every POST that **deletes, removes, refuses,
+    revokes, archives**, or **sends an e-mail to somebody else**. The last
+    two joined the rule with #485: archiving takes a thing out of every
+    list, and a message that has left cannot be recalled — neither is
+    undone by clicking again.
+  - **What does not**, and these are exceptions worth naming rather than
+    leaving to taste: an action that UNDOES another (restore, unarchive,
+    reactivate, put back in service, unblock a bounce, put a request back
+    in the pending list), leaving a preview or a mode, removing one's own
+    temporary access, and a **test send to oneself**. Nothing there is
+    lost, and a dialog on each of them teaches the reader to dismiss
+    dialogs.
+  - An action driven from JavaScript cannot use the attribute — the
+    handler delegates from a `<form>` — so it asks with
+    `window.ScoutMagicConfirm.ask()` instead. Same rule, same wording.
+  - Held by `UxConventionsTest::testEveryDestructivePostFormAsksFirst()`,
+    whose allowlist is the exceptions above, one line of reason each. It
+    reads the URL of a form's action, so an action whose address does not
+    say what it does escapes it; the list is to be re-read whenever one is
+    added.
 - Never `on*=` attributes in templates — the CSP (`script-src 'self'
   'nonce-…'`) makes inline handlers dead code, silently.
 - **Behaviour lives in `public/assets/js/`, never in a template's own

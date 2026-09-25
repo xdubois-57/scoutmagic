@@ -174,6 +174,49 @@ final class UxConventionsTest extends TestCase
     private const DATA_CONFIRM_ALLOWLIST = [];
 
     /**
+     * The verbs that make a POST destructive, read from its OWN address.
+     *
+     * design.md §7.5 names them: delete, remove, refuse, revoke, archive,
+     * withdraw — plus « ignorer », where the reading a chief refuses is
+     * deleted and never offered again.
+     */
+    private const DESTRUCTIVE_ACTION = '/(^|[\/_-])(delete|supprimer|remove|retirer|refuse|refuser|revoke|revoquer|archive|archiver|withdraw|ignorer)([\/_-]|$)/i';
+
+    /**
+     * Sending a message to somebody else, which #485 added to the rule: it
+     * leaves immediately and clicking again does not recall it.
+     */
+    private const SENDS_AN_EMAIL = '/(send[\w-]*email|resend)/i';
+
+    /**
+     * The POSTs whose address says a destructive verb and which must NOT
+     * ask, one reason each — the shape design.md §7.5 gives for the
+     * exceptions, and the list to re-read whenever a route is added.
+     *
+     * @var array<string, string> action URL => why it asks nothing
+     */
+    private const ASKS_NOTHING = [
+        // Removing one's OWN temporary access. Nothing is lost, the panel
+        // already says so in as many words, and it is offered from two
+        // places (the member page and the site-wide banner).
+        '/admin/members/temporary-access/remove' =>
+            'gives up an access one granted oneself, changing nothing else',
+        // « Réessayer la transmission de l'archive » — the word « archive »
+        // is the NOUN here, a support bundle being uploaded again. Nothing
+        // is archived and nothing is destroyed. The clearest example of
+        // what this check is blind to: it reads addresses, not actions.
+        '/config/support/ticket/archive' =>
+            'retries sending a support archive; « archive » is the noun, not the verb',
+        // Setting a household aside from the fee review. Undone by
+        // `/admin/fees/tarifs/reprendre`, the form sits inside a panel the
+        // reader has to open, and it REQUIRES a typed reason — three
+        // deliberate steps already, and the household comes back on its own
+        // if its composition changes.
+        '/admin/fees/tarifs/ignorer' =>
+            'reversible by « reprendre », and already behind an opened panel and a required reason',
+    ];
+
+    /**
      * A hidden `_csrf_token` field must be written by the `csrf_field()`
      * Twig function, never by interpolating a `csrf_token` *variable*.
      *
@@ -622,6 +665,101 @@ final class UxConventionsTest extends TestCase
             }
         }
         self::assertMatchesAllowlist($found, self::DATA_CONFIRM_ALLOWLIST, 'data-confirm is read on the <form> only; anywhere else it is silently inert');
+    }
+
+    /**
+     * Every destructive POST asks before it happens (design.md §7.5).
+     *
+     * **The rule existed and nothing enforced it.**
+     * {@see testDataConfirmOnlyOnForms()} checks that a `data-confirm` is
+     * in the one place the handler reads; it never asked whether a
+     * destructive form carries one at all. So « Refuser » on a
+     * registration request had no dialog while « Remettre en attente », on
+     * the same row, had one — the harmless gesture guarded and the one
+     * that costs a child their place not (#485).
+     *
+     * **It reads the form's own address**, which is what makes it
+     * mechanical and also what bounds it: an action whose URL does not say
+     * what it does escapes this, and `/config/support/ticket/archive` —
+     * which sends an archive rather than archiving anything — shows the
+     * other side of the same coin. {@see ASKS_NOTHING} carries that one as
+     * an exception with its reason, and the list is to be re-read whenever
+     * a route is added.
+     *
+     * A gesture driven from JavaScript is out of reach here, the attribute
+     * being delegated from a `<form>`; those ask with
+     * `window.ScoutMagicConfirm.ask()`, and `tests/js/` covers them.
+     */
+    public function testEveryDestructivePostFormAsksFirst(): void
+    {
+        $missing = [];
+
+        foreach (self::templates() as $rel) {
+            preg_match_all('/<form\b[^>]*>/i', self::templateSource($rel), $forms);
+            foreach ($forms[0] as $tag) {
+                if (preg_match('/method\s*=\s*"post"/i', $tag) !== 1) {
+                    continue;
+                }
+                if (preg_match('/action\s*=\s*"([^"]*)"/', $tag, $action) !== 1) {
+                    continue;
+                }
+
+                $url = $action[1];
+                $destructive = preg_match(self::DESTRUCTIVE_ACTION, $url) === 1
+                    || preg_match(self::SENDS_AN_EMAIL, $url) === 1;
+                if (!$destructive || str_contains($tag, 'data-confirm')) {
+                    continue;
+                }
+                if (array_key_exists($url, self::ASKS_NOTHING)) {
+                    continue;
+                }
+
+                $missing[] = $rel . ' — ' . $url;
+            }
+        }
+
+        sort($missing);
+        $this->assertSame(
+            [],
+            $missing,
+            "A POST that deletes, removes, refuses, revokes, archives, withdraws or sends an e-mail to\n"
+                . "somebody else asks first, with `data-confirm` on the <form> (design.md §7.5).\n"
+                . "If it genuinely must not ask, add its address to ASKS_NOTHING with the reason — the\n"
+                . "exception is a decision to take out loud, not a silent omission.\n\n"
+                . implode("\n", $missing)
+        );
+
+        // A floor under the scan, for the reason every allowlist in this
+        // file carries one: `assertSame([], …)` is perfectly satisfied by a
+        // reader that has stopped recognising forms.
+        $seen = 0;
+        foreach (self::templates() as $rel) {
+            $seen += preg_match_all('/<form\b[^>]*method\s*=\s*"post"/i', self::templateSource($rel));
+        }
+        $this->assertGreaterThanOrEqual(
+            200,
+            $seen,
+            'the scan finds far fewer POST forms than this repository holds, so the rule above was '
+                . 'checked against almost nothing'
+        );
+
+        // And every exception must still BE one: a route that has gone, or
+        // that has since grown a dialog, leaves a line nobody will question.
+        $stale = [];
+        foreach (self::ASKS_NOTHING as $url => $reason) {
+            $found = false;
+            foreach (self::templates() as $rel) {
+                if (str_contains(self::templateSource($rel), 'action="' . $url . '"')) {
+                    $found = true;
+
+                    break;
+                }
+            }
+            if (!$found) {
+                $stale[] = $url;
+            }
+        }
+        $this->assertSame([], $stale, 'an exception naming a form no template holds any more: ' . implode(', ', $stale));
     }
 
     public function testCsrfFieldsComeFromTheFunctionNotAVariable(): void

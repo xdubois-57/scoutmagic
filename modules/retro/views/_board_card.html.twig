@@ -38,7 +38,8 @@
                             <i class="bi bi-unlock" aria-hidden="true"></i> Réouvrir
                         </button>
                     </form>
-                    <form method="post" action="/retro/{{ board.id }}/archive">
+                    <form method="post" action="/retro/{{ board.id }}/archive"
+                          data-confirm="Archiver « {{ board.title }} » ? Le tableau quitte la liste et personne ne peut plus y écrire.">
                         {{ csrf_field()|raw }}
                         <button type="submit" class="btn btn-outline-secondary btn-sm">
                             <i class="bi bi-archive" aria-hidden="true"></i> Archiver

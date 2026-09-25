@@ -79,7 +79,14 @@
                             {{ csrf_field()|raw }}
                             <button type="submit" class="btn btn-primary btn-sm">Appliquer</button>
                         </form>
-                        <form method="post" action="/chefs/camps/propositions/{{ proposal.id }}/ignorer">
+                        {# Confirmed, and that was the question #485 left
+                           open: only if the reading cannot be found
+                           afterwards. `MailFieldCompletionService::dismiss()`
+                           DELETES the row — the audit keeps the refusal, but
+                           nothing on this page offers the value again, so a
+                           misplaced click loses it. #}
+                        <form method="post" action="/chefs/camps/propositions/{{ proposal.id }}/ignorer"
+                              data-confirm="Ignorer cette information ? Elle disparaît de cette page et ne sera plus proposée ; le message reçu, lui, reste dans le courrier.">
                             {{ csrf_field()|raw }}
                             <button type="submit" class="btn btn-outline-secondary btn-sm">Ignorer</button>
                         </form>
