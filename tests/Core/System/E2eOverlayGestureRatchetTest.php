@@ -183,6 +183,8 @@ class E2eOverlayGestureRatchetTest extends TestCase
             <div class="navbar-collapse" id="not-a-collapse"></div>
             <div class="modal-dialog" id="not-a-modal"></div>
             <div class="collapse" id="{{ card }}-body"></div>
+            {% embed 'partials/modal.html.twig' with { title: 'Ajouter', id: 'id-second' } only %}{% endembed %}
+            {% embed 'partials/modal.html.twig' with { modal_id: 'not-the-id' } only %}{% endembed %}
             {% embed 'partials/modal.html.twig' with {
                 id: 'contact-' ~ contact.id ~ '-modal',
                 title: 'Contact',
@@ -190,7 +192,7 @@ class E2eOverlayGestureRatchetTest extends TestCase
             TWIG;
 
         $this->assertSame(
-            ['class-double', 'class-single', 'embed-double', 'embed-single', 'id-first'],
+            ['class-double', 'class-single', 'embed-double', 'embed-single', 'id-first', 'id-second'],
             self::overlayIdsIn($source)
         );
     }
@@ -389,13 +391,18 @@ class E2eOverlayGestureRatchetTest extends TestCase
     {
         $ids = [];
 
-        // The literal must close before the next key or the end of the map:
-        // `id: 'contact-' ~ contact.id ~ '-modal'` is a Twig-built family,
-        // not an id called `contact-`.
-        $embed = '/([\'"])partials\/modal\.html\.twig\1\s+with\s+\{\s*id:\s*([\'"])([\w-]+)\2(?=\s*[,}])/';
+        // The whole embed tag, then its `id:` key wherever it sits in the
+        // map — `{ title: …, id: 'x' }` declares a modal as surely as
+        // `{ id: 'x', title: … }`. The literal must close before the next
+        // key or the end of the map: `id: 'contact-' ~ contact.id ~ '-modal'`
+        // is a Twig-built family, not an id called `contact-`.
+        $embed = '/\{%-?\s*(?:embed|include)\s+([\'"])partials\/modal\.html\.twig\1(.*?)-?%\}/s';
+        $key = '/(?<![\w.])id\s*:\s*([\'"])([\w-]+)\1(?=\s*[,}])/';
         if (preg_match_all($embed, $source, $embeds) > 0) {
-            foreach ($embeds[3] as $id) {
-                $ids[$id] = true;
+            foreach ($embeds[2] as $arguments) {
+                if (preg_match($key, $arguments, $id) === 1) {
+                    $ids[$id[2]] = true;
+                }
             }
         }
 
