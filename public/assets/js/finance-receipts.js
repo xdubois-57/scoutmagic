@@ -271,9 +271,33 @@
     bindGridEvents();
     bindPdfThumbnailFallbacks(grid);
 
+    // The results list is replaced wholesale by every search, so what it
+    // shows can be out of date in two ways, and both lose a pick.
+    //
+    // A LATE ANSWER: the near-date search the dialog opens with and the
+    // search the reader types are two requests in flight at once, and
+    // nothing orders their answers. Whichever lands last wins the list, so
+    // an old query's movements could replace the new query's — the token
+    // discards any answer that is no longer the latest request's.
+    //
+    // A LIST ABOUT TO CHANGE: a press on a result that the next answer
+    // replaces before the button is released is no click at all — the
+    // browser fires `click` only when press and release land on the same
+    // element, and the one pressed is gone. `aria-busy` says the list is
+    // not final yet, from the first keystroke (the debounce included)
+    // until the latest answer is drawn: assistive technology waits for it,
+    // and tests/e2e/specs/finance-receipts.spec.js waits for it before it
+    // picks, which is how that spec lost its click in CI (#520).
     let searchTimeoutAssociate = null;
+    let associateSearchToken = 0;
     document.getElementById('associate-search').addEventListener('input', (e) => {
         clearTimeout(searchTimeoutAssociate);
+        // A keystroke already outdates whatever is in flight — the
+        // debounced search about to start is the only answer still wanted,
+        // so an older one landing during the debounce must neither redraw
+        // the list nor clear the busy mark.
+        associateSearchToken++;
+        document.getElementById('associate-results').setAttribute('aria-busy', 'true');
         searchTimeoutAssociate = setTimeout(() => runAssociateSearch(/** @type {HTMLInputElement} */ (e.target).value), 250);
     });
 
@@ -283,9 +307,15 @@
         if (query === '' && currentAttachmentDate) {
             url += '&near_date=' + encodeURIComponent(currentAttachmentDate);
         }
-        const res = await window.ScoutMagicApi.getJson(url);
-        const data = res.data;
+        const token = ++associateSearchToken;
         const results = document.getElementById('associate-results');
+        results.setAttribute('aria-busy', 'true');
+        const res = await window.ScoutMagicApi.getJson(url);
+        if (token !== associateSearchToken) {
+            return;
+        }
+        const data = res.data;
+        results.removeAttribute('aria-busy');
         results.innerHTML = '';
         if (!data?.success || data.movements.length === 0) {
             results.innerHTML = '<p class="text-body-secondary fst-italic mb-0">Aucun résultat.</p>';

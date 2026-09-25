@@ -34,6 +34,7 @@ import { expect, test } from '@playwright/test';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin } from '../support/admin-login.js';
+import { openModal } from '../support/modal.js';
 import { waitForServerResponse } from '../support/response.js';
 
 /** The public page carrying `editable('contact.text', …)`. */
@@ -72,6 +73,7 @@ async function setConfigurationMode(page, active) {
  * around everything in it, as an author who selects their paragraph does.
  *
  * @param {import('@playwright/test').Page} page
+ * @returns {Promise<import('@playwright/test').Locator>} the editor's dialog, open
  */
 async function openEditorOnContactText(page) {
     await page.goto(PAGE, { waitUntil: 'load' });
@@ -79,9 +81,10 @@ async function openEditorOnContactText(page) {
     const block = page.locator('.editable-content[data-key="contact.text"]');
     await expect(block).toBeVisible();
     await block.hover();
-    await block.locator('.editable-edit-btn').click();
+    const dialog = await openModal(page, 'richTextEditorModal', () =>
+        block.locator('.editable-edit-btn').click());
 
-    const editor = page.locator('#richTextEditorContent');
+    const editor = dialog.locator('#richTextEditorContent');
     await expect(editor).toBeVisible();
 
     await editor.evaluate((surface) => {
@@ -93,17 +96,18 @@ async function openEditorOnContactText(page) {
         selection.addRange(range);
     });
 
-    return editor;
+    return dialog;
 }
 
 /**
  * Clicks a toolbar button of the shared modal and saves.
  *
  * @param {import('@playwright/test').Page} page
+ * @param {import('@playwright/test').Locator} dialog the editor, open
  * @param {string} buttonName the button's accessible name
  */
-async function applyAndSave(page, buttonName) {
-    await page.locator('#richTextEditorModal').getByRole('button', { name: buttonName, exact: true }).click();
+async function applyAndSave(page, dialog, buttonName) {
+    await dialog.getByRole('button', { name: buttonName, exact: true }).click();
 
     const saved = waitForServerResponse(page, (response) =>
         response.url().includes('/api/editable-content') && response.request().method() === 'POST');
@@ -129,11 +133,11 @@ test('a heading applied in the shared editor is still a heading after the page i
     await setConfigurationMode(page, true);
 
     try {
-        const editor = await openEditorOnContactText(page);
+        const dialog = await openEditorOnContactText(page);
         // The reporter's own gesture: select the paragraph, click « H2 ».
         // editable.js used to call execCommand('formatBlock', false, null),
         // which every browser answers by doing nothing at all.
-        expect(await applyAndSave(page, 'H2')).toMatchObject({ success: true });
+        expect(await applyAndSave(page, dialog, 'H2')).toMatchObject({ success: true });
 
         // Before the reload, because the two are the same claim only when
         // the block is repainted with what the server stored rather than
@@ -150,7 +154,7 @@ test('a heading applied in the shared editor is still a heading after the page i
         // reads the page it was seeded with.
         const restored = await openEditorOnContactText(page).catch(() => null);
         if (restored !== null) {
-            await applyAndSave(page, 'Paragraphe').catch(() => null);
+            await applyAndSave(page, restored, 'Paragraphe').catch(() => null);
         }
         await setConfigurationMode(page, false).catch(() => null);
     }

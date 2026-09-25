@@ -26,6 +26,7 @@
 import { expect, test } from '@playwright/test';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';
+import { closeModal, openModal } from '../support/modal.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { pngBuffer } from '../support/png.js';
 import { scaled } from '../support/timeouts.js';
@@ -209,20 +210,31 @@ test('a statement imports, a receipt uploads through the client-side resize, and
     // ---------------------------------------------------------------
     // Association: the modal's own movement search, then the pick.
     // ---------------------------------------------------------------
-    await grid.getByRole('button', { name: 'Associer' }).click();
-    const associateModal = page.locator('#associate-modal');
-    await expect(associateModal).toBeVisible();
+    const associateModal = await openModal(page, 'associate-modal', () =>
+        grid.getByRole('button', { name: 'Associer' }).click());
 
     // The searchable label is the movement's own description (its
     // communication line), not the counterparty.
+    //
+    // The pick waits for the list to answer THIS query — `aria-busy` is
+    // gone only once the latest search is drawn. The dialog opens on a
+    // near-date search whose list already holds « Courses camp », so
+    // without that wait the click landed on the opening search's button
+    // while the typed search was on its way: when its answer replaced the
+    // list between press and release, the browser fired no click at all,
+    // the dialog stayed open, and the assertion below timed out. That is
+    // how this spec failed in the security scan (#520) — the dialog had
+    // long finished opening, no animation was involved. Holding the mouse
+    // down across the re-render reproduces it every time.
+    const results = associateModal.locator('#associate-results');
     await associateModal.locator('#associate-search').fill('Courses');
-    const movementChoice = associateModal.locator('#associate-results')
-        .getByRole('button', { name: /Courses camp/ }).first();
+    await expect(results).not.toHaveAttribute('aria-busy', 'true');
+    const movementChoice = results.getByRole('button', { name: /Courses camp/ }).first();
     await expect(movementChoice).toBeVisible();
-    await movementChoice.click();
 
-    // The card's status block flips from "Associer" to the movement link.
-    await expect(associateModal).toBeHidden();
+    // Choosing the movement associates it and closes the dialog; the
+    // card's status block flips from "Associer" to the movement link.
+    await closeModal(page, 'associate-modal', () => movementChoice.click());
     await expect(grid.getByText(/Associé|mouvement/i).first()).toBeVisible();
 
     // And from the movement's side, the attachments panel counts it —

@@ -70,6 +70,7 @@ import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
 // Shared with specs/groups-management.spec.js — see support/groups.js.
 import { closeDetailDialog, openComposer, openCreateGroupForm, waitForGroupsJsReady } from '../support/groups.js';
+import { openModal } from '../support/modal.js';
 import { grantFunctionalConsent } from '../support/cookie-banner.js';
 
 // Unique per run so a re-run against a database that somehow survived
@@ -367,9 +368,7 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     const tally = firstPost.locator('.groups-reaction-tally').first();
     await expect(tally).toContainText('1');
 
-    await tally.click();
-    const dialog = page.locator('#groups-detail-modal');
-    await expect(dialog).toBeVisible();
+    const dialog = await openModal(page, 'groups-detail-modal', () => tally.click());
     // "Qui a réagi" names the same human the same way, which is the whole
     // point of resolving identity in one service: one person must not read
     // as two different people across two surfaces.

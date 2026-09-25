@@ -28,6 +28,7 @@ import { answerCookieBanner } from '../support/cookie-banner.js';
 import { answerConfirmation, autoConfirm } from '../support/confirm-dialog.js';
 import { expectRendersAsAnEventCalendar } from '../support/calendar.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
+import { closeModal, openModal } from '../support/modal.js';
 import { waitForServerResponse } from '../support/response.js';
 
 const EVENT_TITLE = `Réunion de branche E2E ${Date.now()}`;
@@ -82,10 +83,10 @@ test('a chief creates, edits and deletes an event through the modal, the grids r
     // (month_grid.html.twig renders it as one exactly so Enter works),
     // and the day-number overlay drawn over the cell's centre makes a
     // pointer click ambiguous where Enter is not.
-    await page.locator('.calendar-day-cell--clickable[data-date$="-15"]').first().focus();
-    await page.keyboard.press('Enter');
-    const modal = page.locator('#eventModal');
-    await expect(modal).toBeVisible();
+    let modal = await openModal(page, 'eventModal', async () => {
+        await page.locator('.calendar-day-cell--clickable[data-date$="-15"]').first().focus();
+        await page.keyboard.press('Enter');
+    });
     await expect(modal.getByText('Ajouter un évènement')).toBeVisible();
 
     await modal.getByLabel('Titre').fill(EVENT_TITLE);
@@ -105,8 +106,8 @@ test('a chief creates, edits and deletes an event through the modal, the grids r
     // Update: the same modal, opened from the bar, in its other
     // identity — delete button revealed, submit relabelled.
     // ---------------------------------------------------------------
-    await page.locator('.calendar-event-bar--clickable', { hasText: EVENT_TITLE }).click();
-    await expect(modal).toBeVisible();
+    modal = await openModal(page, 'eventModal', () =>
+        page.locator('.calendar-event-bar--clickable', { hasText: EVENT_TITLE }).click());
     await expect(modal.locator('#event-form-delete')).toBeVisible();
     await expect(modal.getByLabel('Titre')).toHaveValue(EVENT_TITLE);
 
@@ -127,9 +128,8 @@ test('a chief creates, edits and deletes an event through the modal, the grids r
         await answerCookieBanner(visitorPage);
         await expectRendersAsAnEventCalendar(visitorPage.locator('main'));
 
-        await visitorPage.locator('.calendar-event-bar--clickable', { hasText: EVENT_TITLE_EDITED }).click();
-        const details = visitorPage.locator('#eventDetailsModal');
-        await expect(details).toBeVisible();
+        const details = await openModal(visitorPage, 'eventDetailsModal', () =>
+            visitorPage.locator('.calendar-event-bar--clickable', { hasText: EVENT_TITLE_EDITED }).click());
         // The shared modal embed names its own title '{id}-title', which is
         // the id public.html.twig's showEventDetails() fills in.
         await expect(details.locator('#eventDetailsModal-title')).toHaveText(EVENT_TITLE_EDITED);
@@ -138,8 +138,8 @@ test('a chief creates, edits and deletes an event through the modal, the grids r
         // header a ✕ whose aria-label is « Fermer », so the name alone now
         // matches two controls. The footer's is the one the dialog offers
         // as its own action.
-        await details.locator('.modal-footer').getByRole('button', { name: 'Fermer' }).click();
-        await expect(details).toBeHidden();
+        await closeModal(visitorPage, 'eventDetailsModal', () =>
+            details.locator('.modal-footer').getByRole('button', { name: 'Fermer' }).click());
     } finally {
         await anonymousVisitor.close();
     }
@@ -200,8 +200,8 @@ test('a chief creates, edits and deletes an event through the modal, the grids r
     // Delete, through the modal's third verb — and the grid forgets it.
     // ---------------------------------------------------------------
     await page.goto('/chefs/calendar', { waitUntil: 'load' });
-    await page.locator('.calendar-event-bar--clickable', { hasText: EVENT_TITLE_EDITED }).click();
-    await expect(modal).toBeVisible();
+    modal = await openModal(page, 'eventModal', () =>
+        page.locator('.calendar-event-bar--clickable', { hasText: EVENT_TITLE_EDITED }).click());
     await modal.locator('#event-form-delete').click();
     await expect(page.locator('.calendar-event-bar', { hasText: EVENT_TITLE_EDITED })).toHaveCount(0);
 

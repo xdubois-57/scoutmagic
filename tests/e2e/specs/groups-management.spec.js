@@ -55,6 +55,7 @@ import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
 // Shared with specs/groups-discussion.spec.js — see support/groups.js.
 import { openComposer, openCreateGroupForm, waitForGroupsJsReady } from '../support/groups.js';
+import { openModal } from '../support/modal.js';
 import { waitForServerResponse } from '../support/response.js';
 
 // Unique per run, so a re-run against a database that somehow survived
@@ -254,7 +255,8 @@ test('a moderator opens a group, invites somebody, promotes, closes, reopens and
         await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });
         const postCard = page.locator('article').filter({ hasText: MEMBER_MESSAGE });
         await postCard.getByRole('button', { name: 'Actions sur ce message' }).click();
-        await postCard.getByRole('button', { name: 'Épingler' }).click();
+        const pinDialog = await openModal(page, 'groups-detail-modal', () =>
+            postCard.getByRole('button', { name: 'Épingler' }).click());
 
         // Pinning asks first, because it is exclusive and dated: a group
         // keeps one pinned message, and the moderator says for how long
@@ -262,7 +264,6 @@ test('a moderator opens a group, invites somebody, promotes, closes, reopens and
         // the only way through with the script running — which is exactly
         // what this scenario exists to exercise, since neither PHPUnit nor
         // Vitest sees the browser hand-build this submit.
-        const pinDialog = page.locator('#groups-detail-modal');
         await expect(pinDialog.getByText('Pendant combien de temps ?')).toBeVisible();
         await Promise.all([
             waitForServerResponse(page, (response) =>
