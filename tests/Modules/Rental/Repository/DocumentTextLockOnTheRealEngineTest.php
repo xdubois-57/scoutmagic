@@ -34,6 +34,16 @@ use Tests\DatabaseTestHelper;
  * nobody had sent, and the write was dropped. Every SQLite-backed test of
  * that method was green over it.
  *
+ * **In a database of its own, created and dropped by this class.** The
+ * repository names its tables in its SQL, so they cannot be renamed for a
+ * test — and a first version therefore dropped and rebuilt
+ * `rental_documents` and `rental_booking_document_texts` in the shared
+ * `TEST_DB_NAME`, in a reduced shape, while other database-backed classes
+ * were using the same server. Whether that broke anything depended on the
+ * order the suite happened to run in, which is not a property a test may
+ * have. A throwaway schema costs one `CREATE DATABASE` and removes the
+ * question.
+ *
  * **Two tables, built here rather than from the module's schema**, because
  * these are the only two `saveText()` touches and the foreign key to
  * `rental_bookings` would drag the module's whole schema in for nothing.
@@ -46,6 +56,8 @@ use Tests\DatabaseTestHelper;
 final class DocumentTextLockOnTheRealEngineTest extends TestCase
 {
     private \PDO $pdo;
+    private \PDO $server;
+    private string $schema = '';
     private RentalDocumentRepository $repository;
 
     protected function setUp(): void
@@ -63,9 +75,33 @@ final class DocumentTextLockOnTheRealEngineTest extends TestCase
             DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database connection not available: ' . $result);
         }
 
-        $this->pdo = $connection->getPdo();
-        $this->pdo->exec('DROP TABLE IF EXISTS rental_booking_document_texts');
-        $this->pdo->exec('DROP TABLE IF EXISTS rental_documents');
+        // A schema of this class's own, so nothing here touches a table
+        // another database-backed class is using. Named per process, so two
+        // runs against one server cannot collide either.
+        $this->schema = 'sm_doc_lock_' . getmypid() . '_' . bin2hex(random_bytes(4));
+        $dsn = sprintf(
+            'mysql:host=%s;port=%d',
+            getenv('TEST_DB_HOST') ?: '127.0.0.1',
+            (int) (getenv('TEST_DB_PORT') ?: 3306)
+        );
+
+        try {
+            $this->server = new \PDO(
+                $dsn,
+                getenv('TEST_DB_USER') ?: 'root',
+                getenv('TEST_DB_PASSWORD') ?: '',
+                [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
+            );
+            $this->server->exec('CREATE DATABASE `' . $this->schema . '`');
+            $this->server->exec('USE `' . $this->schema . '`');
+        } catch (\Throwable $e) {
+            // Without the right to create one, this class would have to
+            // borrow the shared schema, which is what it exists not to do.
+            self::markTestSkipped('A schema of its own could not be created: ' . $e->getMessage());
+        }
+
+        $this->pdo = $this->server;
+        $this->pdo->setAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE, \PDO::FETCH_ASSOC);
         $this->pdo->exec(
             'CREATE TABLE rental_booking_document_texts (
                 id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -99,8 +135,10 @@ final class DocumentTextLockOnTheRealEngineTest extends TestCase
 
     protected function tearDown(): void
     {
-        $this->pdo->exec('DROP TABLE IF EXISTS rental_booking_document_texts');
-        $this->pdo->exec('DROP TABLE IF EXISTS rental_documents');
+        if ($this->schema !== '') {
+            $this->server->exec('DROP DATABASE IF EXISTS `' . $this->schema . '`');
+            $this->schema = '';
+        }
     }
 
     /**

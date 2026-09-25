@@ -556,6 +556,49 @@ class RentalDocumentServiceTest extends TestCase
     }
 
     /**
+     * The service refuses when the write refuses itself.
+     *
+     * The tests around this one prove the REPOSITORY closes the window;
+     * this one proves the service believes it. A regression that read
+     * `saveText()`'s answer and carried on would record the edit as
+     * successful, audit it, and leave the tenant's PDF and its source
+     * disagreeing — which is the whole of #405, one layer up.
+     *
+     * A repository double rather than a real send, so that nothing but the
+     * false answer is under test: `textIsLocked()` says no, and the write
+     * still says no.
+     */
+    public function testTheServiceRefusesTheEditWhenTheWriteRefusesItself(): void
+    {
+        $booking = $this->createBooking();
+        $this->setTemplate('<p>x</p>');
+
+        $repository = $this->createMock(RentalDocumentRepository::class);
+        $repository->method('hasSentDocumentOfType')->willReturn(false);
+        $repository->method('findText')->willReturn('<p>Ce qui est au dossier.</p>');
+        $repository->expects($this->once())->method('saveText')->willReturn(false);
+
+        $service = new RentalDocumentService(
+            $repository,
+            $this->bookingRepository,
+            RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
+            $this->editableContentService,
+            $this->fileRepository,
+            new \Core\File\AttachedFileRemover($this->fileRepository, $this->storagePath),
+            new DocumentPdfService(),
+            new HtmlSanitizer(),
+            new SettingService(new SettingRepository($this->pdo)),
+            new JournalService(new JournalRepository($this->pdo)),
+            $this->storagePath
+        );
+
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessageMatches('/envoyé au locataire/');
+
+        $service->saveBookingText($booking, DocumentType::CONTRACT, '<p>Écrit trop tard.</p>');
+    }
+
+    /**
      * The same write, before the send, still lands.
      *
      * Without this the fix above could be « refuse everything », which no
