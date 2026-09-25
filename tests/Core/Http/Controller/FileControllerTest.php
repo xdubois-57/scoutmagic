@@ -6,6 +6,7 @@ namespace Tests\Core\Http\Controller;
 
 use Core\File\EncryptedFileStorageService;
 use Core\File\FileAccessGuard;
+use Core\File\FileIndexingPolicyInterface;
 use Core\File\FileOwnershipCheckerInterface;
 use Core\File\FileRepository;
 use Core\Http\Controller\FileController;
@@ -244,6 +245,115 @@ class FileControllerTest extends TestCase
         $this->assertSame('public, max-age=86400', $plainResponse->getHeaders()['Cache-Control']);
         $this->assertSame(200, $ownedResponse->getStatusCode());
         $this->assertSame('private, no-cache', $ownedResponse->getHeaders()['Cache-Control']);
+    }
+
+    // --- X-Robots-Tag on the response a crawler ends on (#516) ---
+
+    /**
+     * **The redirect's `noindex` is not the file's.**
+     *
+     * A « Lien direct » document is reached through `/documents/{slug}`,
+     * which redirects here carrying `X-Robots-Tag: noindex` — and a
+     * search engine applies the indexing rule to the response it ENDS on.
+     * A crawler that knew the address and kept the session cookie across
+     * the hop met a file that said nothing, and could keep it.
+     *
+     * Both files below are `public` in role and reachable; only the owner
+     * type's own checker knows that one of them must not be indexed, and
+     * the core never reads its table to find out.
+     */
+    public function testAFileWhoseOwnerRefusesIndexingCarriesTheHeader(): void
+    {
+        [$controller, $refused, $allowed] = $this->indexingFixture();
+
+        $refusedResponse = $controller->serve(
+            new Request('GET', "/files/{$refused}", [], [], [], []),
+            ['id' => (string) $refused]
+        );
+        $allowedResponse = $controller->serve(
+            new Request('GET', "/files/{$allowed}", [], [], [], []),
+            ['id' => (string) $allowed]
+        );
+
+        $this->assertSame(200, $refusedResponse->getStatusCode());
+        $this->assertSame('noindex', $refusedResponse->getHeaders()['X-Robots-Tag'] ?? null);
+        $this->assertSame(200, $allowedResponse->getStatusCode());
+        $this->assertArrayNotHasKey(
+            'X-Robots-Tag',
+            $allowedResponse->getHeaders(),
+            'a file nobody objects to was withdrawn from every search'
+        );
+    }
+
+    /**
+     * **The 304 carries it too**, and that is not belt-and-braces: a
+     * revalidation is precisely what a crawler holding the bytes already
+     * sends, and an answer without the header lets it keep them.
+     */
+    public function testARevalidationOfAnUnindexableFileCarriesTheHeader(): void
+    {
+        [$controller, $refused] = $this->indexingFixture();
+
+        $first = $controller->serve(
+            new Request('GET', "/files/{$refused}", [], [], [], []),
+            ['id' => (string) $refused]
+        );
+        $etag = $first->getHeaders()['ETag'];
+
+        $revalidation = new Request('GET', "/files/{$refused}", [], [], [], ['HTTP_IF_NONE_MATCH' => $etag]);
+        $response = $controller->serve($revalidation, ['id' => (string) $refused]);
+
+        $this->assertSame(304, $response->getStatusCode());
+        $this->assertSame('noindex', $response->getHeaders()['X-Robots-Tag'] ?? null);
+    }
+
+    /**
+     * Two files, one owner type each, and a controller wired with a
+     * checker that allows both and objects to one.
+     *
+     * @return array{0: FileController, 1: int, 2: int}
+     */
+    private function indexingFixture(): array
+    {
+        $checker = new class implements FileOwnershipCheckerInterface, FileIndexingPolicyInterface {
+            public function supports(string $ownerType): bool
+            {
+                return $ownerType === 'document';
+            }
+
+            public function isAllowed(int $ownerId, Role $currentRole, array $linkedMemberIds): bool
+            {
+                return true;
+            }
+
+            public function isIndexable(int $ownerId): bool
+            {
+                return $ownerId !== 1;
+            }
+        };
+        $guard = new FileAccessGuard($this->fileRepository, Role::PUBLIC, [], [$checker]);
+        $controller = new FileController(
+            new Environment(new ArrayLoader(self::REFUSAL_TEMPLATE)),
+            $guard,
+            $this->storagePath,
+            new EncryptedFileStorageService(
+                $this->fileRepository,
+                new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
+                $this->storagePath
+            ),
+            $this->imageVariantService
+        );
+
+        mkdir($this->storagePath, 0755, true);
+        file_put_contents($this->storagePath . '/unlisted.pdf', 'content');
+        file_put_contents($this->storagePath . '/listed.pdf', 'content');
+        $stmt = $this->pdo->prepare('INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min, owner_type, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?)');
+        $stmt->execute(['unlisted.pdf', 'unlisted.pdf', 'application/pdf', 7, 'public', 'document', 1]);
+        $refused = (int) $this->pdo->lastInsertId();
+        $stmt->execute(['listed.pdf', 'listed.pdf', 'application/pdf', 7, 'public', 'document', 2]);
+        $allowed = (int) $this->pdo->lastInsertId();
+
+        return [$controller, $refused, $allowed];
     }
 
     // --- thumbnail caching (audit M8) & streaming (audit M10) ---

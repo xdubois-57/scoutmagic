@@ -773,6 +773,17 @@ $fileOwnershipCheckers[] = new \Modules\MyModule\Service\MyThingOwnershipChecker
 
 `FileAccessGuard` is constructed after every module block, so appending there is enough — there is no setter to call and nothing else to register. Two consequences worth knowing: your files are denied to everyone while your module is disabled (the registry is fail-closed — no checker for an `owner_type` means no access, not free access), and your checker can only ever **narrow** access, never widen it, since `role_min` is enforced first and independently. There is no chief/admin bypass either: if you want staff to reach the file, grant it explicitly in your own `isAllowed()`.
 
+**Optionally, say whether a search engine may keep the file.** If some of your files are reachable by role yet not meant to be found — an unlisted document shared by its address, say — also implement `Core\File\FileIndexingPolicyInterface`:
+
+```php
+public function isIndexable(int $ownerId): bool
+{
+    return $this->repository->isPublic($ownerId);
+}
+```
+
+`FileController` then adds `X-Robots-Tag: noindex` to the file's own response. Do it whenever a `noindex` elsewhere — on a page, or on a redirect that leads to the file — is what you were relying on: a search engine applies the indexing rule to the response it ENDS on, so a header on the redirect does not cover its target. Most modules need none of this, which is why it is a second interface rather than a method on the first: a file nobody anonymous can reach is already out of every index by `role_min` alone.
+
 ## Hard dependencies between modules (`requires`)
 
 A module that genuinely cannot work at all without another one declares it in `module.json`:
