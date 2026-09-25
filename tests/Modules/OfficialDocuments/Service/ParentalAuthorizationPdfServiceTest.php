@@ -116,11 +116,25 @@ final class ParentalAuthorizationPdfServiceTest extends TestCase
      * matters on shared hosting where a temporary file is a file somebody
      * else's process can read.
      *
-     * What is asserted is that no entry APPEARED. The temporary directory
-     * is shared with every other process on the machine, and comparing it
-     * whole failed the CI whenever the runner removed one of its own files
-     * (`runc-process…`) while this test ran: a file somebody else deleted
-     * says nothing about what the renderer wrote.
+     * What is asserted is that no entry appeared THAT THE RENDERER COULD
+     * HAVE WRITTEN. The temporary directory is shared with every other
+     * process on the machine, and this test had already learnt half of it:
+     * comparing the directory whole fails when the runner REMOVES one of
+     * its own files while the test runs.
+     *
+     * The other half cost this very pull request a red `Checks / test`,
+     * on a diff that touches neither this module nor this test — the
+     * runner also CREATES files there, and the failure named one,
+     * `runc-process380233456`, appearing inside the render's own window.
+     *
+     * So the two foreign shapes are named and skipped, and anything else
+     * appearing still fails. Naming them is only possible because no PDF
+     * renderer would produce those names; a filter on « anything that
+     * appeared » would have emptied the assertion.
+     *
+     * Ported from the fix for issue #535 (`Tests\Modules\OfficialDocuments\
+     * TemporaryDirectoryWatch`, which also gives this reader to the sibling
+     * that still carries a copy of it). It no-ops once that lands.
      */
     public function testNothingIsWrittenToDisk(): void
     {
@@ -134,7 +148,12 @@ final class ParentalAuthorizationPdfServiceTest extends TestCase
             new \DateTimeImmutable('2026-09-20')
         );
 
-        $this->assertSame([], array_values(array_diff(self::temporaryFiles(), $before)));
+        $appeared = array_filter(
+            array_diff(self::temporaryFiles(), $before),
+            static fn (string $entry): bool => preg_match('/^(runc-process|scoutmagic-e2e-cov-)/', $entry) !== 1
+        );
+
+        $this->assertSame([], array_values($appeared), 'the renderer wrote to the temporary directory');
     }
 
     /**
