@@ -170,9 +170,20 @@ which this repository recommends in the place a newcomer cannot miss: the
 `SessionStart` hook prints
 `run 'vendor/bin/phpunit --group=database' for the MySQL-backed suite` on
 every open. That is what makes the omission expensive rather than untidy.
-Measured for issue #395, the group selected 9 586 tests where it should have
-selected 11 540: someone following that advice to check "the database part"
-of a change got five sixths of it, and nothing in the output said so.
+Measured on this change's base, the group selected **9 619** tests where it
+should have selected **12 354**, out of a suite of 20 751: someone following
+that advice to check "the database part" of a change got a bit over three
+quarters of it, and nothing in the output said so. A hundred and
+seventy-four classes built a database and said nothing, `covoiturage` and
+`documents` among them without a single grouped file between them.
+
+Every figure in that sentence is the guard's own count, re-derived rather
+than carried over from issue #395 — its reader was corrected four times
+during review (indexing every class in a file rather than the first,
+following inheritance, reading per-method attributes, refusing the inert
+`@group` doc-comment), and a count produced by a reader that was wrong is
+not a count. Two earlier drafts of this repository quoted two different
+stale pairs, which is what a reviewer caught.
 
 ### The engine a test actually runs on, which is not what the group says
 

@@ -21,13 +21,23 @@ use PHPUnit\Framework\TestCase;
  * `AGENTS.md` § Database says why that is deliberate.
  *
  * So the group answers one question — « which tests touch a database? » —
- * and when it was measured for issue #395 it answered it for about half of
- * them. A hundred and seventy classes built one and said nothing, three
- * modules had not a single grouped file, and the boundary of the group was
- * written down nowhere: a new file carried it or not depending on which
- * neighbour had been copied. Somebody following the hook's own advice to
- * check « the database part » of a change got half of it, and nothing in
- * the output said so.
+ * and it answered it for about three quarters of them. **A hundred and
+ * seventy-four classes built one and said nothing**, two whole modules
+ * (`covoiturage` and `documents`) had not a single grouped file, and the
+ * boundary of the group was written down nowhere: a new file carried it or
+ * not depending on which neighbour had been copied. Somebody following the
+ * hook's own advice to check « the database part » of a change got three
+ * quarters of it, and nothing in the output said so.
+ *
+ * **That figure is this guard's own count against this change's base**, and
+ * it is the one to quote. Issue #395 said a hundred and thirty and an
+ * earlier draft of this file said a hundred and seventy; both were counted
+ * by a reader that has since been corrected four times — it now indexes
+ * every class in a file rather than the first, follows inheritance, reads
+ * per-method attributes, and refuses a `@group` doc-comment PHPUnit 13
+ * ignores. A number measured by a tool that was wrong is not a number, so
+ * this one is re-derived rather than carried over, and a reviewer caught
+ * the two stale copies disagreeing inside one change.
  *
  * **ONE DIRECTION, deliberately.** This asserts that a class which builds a
  * database carries the group. It does *not* assert the converse, and two
@@ -422,12 +432,24 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
      * sentence today, harmlessly, because it also carries the real
      * attribute — which is how a defect like this waits for the file that
      * writes the sentence and nothing else.
+     *
+     * **Both fixtures import `Group`, and that import is what makes this
+     * test able to fail at all.** A reviewer showed that the first version
+     * could not: it quoted the BARE spelling in prose without importing
+     * `Group`, and carriesPattern() only puts the bare spelling in the
+     * pattern for a file that imports it — so the sentence could not have
+     * matched with or without the stripping, and deleting the stripping
+     * left this test green. The method-level sibling below had already been
+     * corrected for exactly this, by quoting the fully-qualified spelling
+     * instead; here the fixture takes the other way out and imports, which
+     * is also the shape `BounceSendReceiptMysqlTest` really has.
      */
     public function testProseQuotingTheAttributeInADocblockIsNotTheAttribute(): void
     {
         $quotingIt = $this->classesIn(<<<'PHP'
             <?php
             namespace Tests\Fake;
+            use PHPUnit\Framework\Attributes\Group;
             /**
              * Carrying `#[Group('database')]` is not what makes a test
              * reach MySQL — the connection below is.
@@ -443,15 +465,17 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
             'a sentence about the marker is not the marker, however exactly it spells it'
         );
 
-        // And the real thing, one line below the same sentence, still is.
+        // And the real thing, one line below the same sentence, still is —
+        // written the way a file that imports `Group` writes it.
         $bothAtOnce = $this->classesIn(<<<'PHP'
             <?php
             namespace Tests\Fake;
+            use PHPUnit\Framework\Attributes\Group;
             /**
              * Carrying `#[Group('database')]` is not what makes a test
              * reach MySQL — the connection below is.
              */
-            #[\PHPUnit\Framework\Attributes\Group('database')]
+            #[Group('database')]
             class OtherTest extends TestCase
             {
                 protected function setUp(): void { $this->pdo = DatabaseTestHelper::createTestDatabase(); }
