@@ -198,10 +198,22 @@ final class UxConventionsTest extends TestCase
      * § Language), so the English half is the one that needs the excuse:
      * `send…email`, `resend` and `notify` appear because a few older routes
      * use them. The reviewer's second guess was right too —
-     * `/finance/campaigns/{id}/notify` mails every family of a campaign, and
-     * its own code comment says a failed round « must still leave the
-     * campaign marked rather than invite a second round of messages to the
-     * families who did get one ». That is the definition of not recallable.
+     * `/finance/campaigns/{id}/notify` reaches every account that still owes
+     * something, and its own code comment says a failed round « must still
+     * leave the campaign marked rather than invite a second round of
+     * messages to the families who did get one ». That is the definition of
+     * not recallable.
+     *
+     * **What that route does NOT do is send an e-mail**, and the first draft
+     * of this docblock said it did — twice over, since it also said « every
+     * family ». It dispatches through `NotificationService`, and
+     * `finance.payment_due` declares `email: default_off`: in-app and push
+     * unless a recipient opted the channel in, and only for the accounts
+     * that still owe. So the name of this constant is narrower than what it
+     * has to catch. The property that matters is « reaches somebody else and
+     * cannot be recalled »; an e-mail is its commonest shape, not its
+     * definition — and a confirmation message must state the former, never
+     * assume the latter.
      *
      * **A verb in an address is not proof of a send**, which is why the
      * exception list exists rather than a longer pattern:

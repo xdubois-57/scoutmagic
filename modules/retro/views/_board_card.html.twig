@@ -39,7 +39,7 @@
                         </button>
                     </form>
                     <form method="post" action="/retro/{{ board.id }}/archive"
-                          data-confirm="Archiver « {{ board.title }} » ? Le tableau quitte la liste et personne ne peut plus y écrire.">
+                          data-confirm="Archiver « {{ board.title }} » ? Le tableau quitte la liste principale et rejoint les archives.">
                         {{ csrf_field()|raw }}
                         <button type="submit" class="btn btn-outline-secondary btn-sm">
                             <i class="bi bi-archive" aria-hidden="true"></i> Archiver

@@ -547,10 +547,20 @@ helpers; a page-level primary action that happens to call an AI
     the destructive half was bilingual while the « sends an e-mail » half
     knew only `send…email` and `resend`. Two routes escaped it —
     `/config/reinscription/relance`, which mails every family that has not
-    answered, and `/finance/campaigns/{id}/notify`, which mails every family
-    of a campaign. Both ask now. The lesson is worth keeping: route
-    addresses here are French, so a pattern written in English is a pattern
-    that reads the minority of them.
+    answered, and `/finance/campaigns/{id}/notify`, which notifies every
+    account with a balance left to pay. Both ask now. The lesson is worth
+    keeping: route addresses here are French, so a pattern written in
+    English is a pattern that reads the minority of them.
+
+    **And the family is « reaches somebody else, irrevocably », of which
+    an e-mail is only the commonest case.** The first draft of this bullet
+    said `/finance/campaigns/{id}/notify` « mails every family of a
+    campaign », and the confirmation it wrote said so too. Both were wrong
+    twice: that route dispatches through `NotificationService`, and
+    `finance.payment_due` declares `email: default_off`, so by default
+    nothing is e-mailed at all — and it reaches the accounts that still owe
+    something, not every family. Which is precisely the trap the next
+    bullet names, walked into while writing it.
 
     **Widened once more, on the same reviewer's second pass**, and this
     time for the plainest verbs there are: `envoyer` and `renvoyer`. Two

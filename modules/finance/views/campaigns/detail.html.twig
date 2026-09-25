@@ -162,12 +162,28 @@
             </form>
         {% endif %}
         {% if not campaign.isNotified %}
-            {# Asks first (#485): this mails every family of the campaign, and
-               the controller's own note says a failed round must still leave
-               the campaign marked rather than invite a second one. Nothing
-               here is recallable. #}
+            {# Asks first (#485), and the message says what actually leaves.
+               An earlier draft of it promised « un e-mail part à chacune » and
+               was wrong twice, which a reviewer caught: `notifyFamilies()`
+               dispatches through `NotificationService`, and this type
+               (`finance.payment_due`, modules/finance/module.json) declares
+               `email: default_off` — so by default nothing is e-mailed at all,
+               only in-app and push, unless a recipient opted the channel in.
+               And it is not « toutes les familles » either: `demandsByAccount()`
+               skips what is waived or already settled, and anyone with no
+               account on the site — which the controller's own empty-case
+               flash says in as many words.
+
+               That draft was the trap design.md §7.5 names one bullet later:
+               a verb in an address is not proof of what the action does.
+               `notify` is not `send an email`.
+
+               What IS true, and why it asks: a notification reaches other
+               people at once and cannot be recalled. The controller's own
+               note adds that a failed round must still leave the campaign
+               marked rather than invite a second one. #}
             <form method="post" action="/finance/campaigns/{{ campaign.id }}/notify" class="d-inline"
-                  data-confirm="Notifier toutes les familles de cette campagne ? Un e-mail part à chacune, et il ne peut pas être rappelé.">
+                  data-confirm="Notifier les familles de cette campagne ? Chaque compte avec un solde à payer reçoit une notification, et elle ne peut pas être rappelée.">
                 {{ csrf_field()|raw }}
                 <button type="submit" class="btn btn-outline-secondary btn-sm tap-target">
                     <i class="bi bi-bell" aria-hidden="true"></i> Notifier les familles
