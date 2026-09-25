@@ -130,10 +130,36 @@ final class BacklogIsOneTicketAtATimeTest extends TestCase
         );
 
         $this->assertStringContainsString(
-            '**A lock whose ref is more than thirty minutes old is dead**',
+            '**Time your OWN wait, never the lock\'s age.**',
             $rules,
-            'AGENTS.md no longer says when a merge lock may be broken. Without it, one agent dying '
+            'AGENTS.md no longer says where the staleness clock comes from. A ref carries no creation '
+            . 'date, so an agent reading the lock\'s "age" reads when `main` last moved — and deletes a '
+            . 'lock taken seconds ago to merge on top of its holder.',
+        );
+
+        $this->assertStringContainsString(
+            'is still held after thirty minutes of your waiting, it is stuck',
+            $rules,
+            'AGENTS.md no longer bounds how long an agent waits on a stuck lock, so one agent dying '
             . 'mid-merge stops every other one for good.',
+        );
+    }
+
+    /**
+     * And the rule that says a claim is never taken, because from outside a
+     * live claim and an abandoned one are the same thing: a branch with no
+     * commit and no pull request, which is what step 4 looks like all the
+     * way through.
+     */
+    public function testAClaimIsNeverTakenFromAnotherAgent(): void
+    {
+        $this->assertStringContainsString(
+            '**Never take a ticket somebody else has claimed, even when the claim looks',
+            self::agentRules(),
+            'AGENTS.md no longer forbids taking a claimed ticket. An earlier version called any branch '
+            . 'with no commit a dead claim — which is exactly what a claim looks like while its agent '
+            . 'is reading the issue — so a second agent could delete a live one and fix the same '
+            . 'ticket differently.',
         );
     }
 

@@ -482,10 +482,12 @@ server-side where a label or an assignee is not.
    an event. The claim costs nothing, because the branch is the first thing
    the work needed anyway.
 
-3. **Put `status:in-progress` on the issue**, so the issue list says what is
-   being worked on. That is a signal for whoever is reading, never a lock —
-   step 2 is the lock. Take it off when the pull request merges, or when you
-   give the ticket up.
+3. **Put `status:in-progress` on the issue if that label exists**, so the
+   issue list says what is being worked on. It is a signal for whoever is
+   reading, never a lock — step 2 is the lock, and the work proceeds
+   identically without the label. Do not stop, and do not try to create it:
+   the tools an agent has here cannot. Take it off when the pull request
+   merges, or when you give the ticket up.
 
 4. **Fix it**, under the rules in this file: a test alongside the fix,
    `vendor/bin/phpstan analyse` before committing PHP, `npm run typecheck`
@@ -532,9 +534,16 @@ server-side where a label or an assignee is not.
    merges it happily against a base that no longer exists — the required
    checks that went green were computed against something else.
 
-   **A lock whose ref is more than thirty minutes old is dead**: delete it
-   and take it. No merge on this repository takes that long, and a lock left
-   by an agent that died would otherwise stop every other one.
+   **Time your OWN wait, never the lock's age.** A git ref carries no
+   creation date — the only date reachable from it is that of the commit it
+   points at, which for a lock created off `main` says when `main` last
+   moved. A lock taken ten seconds ago after a quiet afternoon would read as
+   hours old, and the agent that believed it would delete it and merge on
+   top of the holder: the exact failure the lock exists to prevent. So the
+   clock is the one thing a waiting agent can trust, its own: **if the lock
+   is still held after thirty minutes of your waiting, it is stuck** —
+   delete it and take it. No merge here takes that long, and thirty minutes
+   of continuous holding is not a merge in progress.
 
    **While you hold it, check whether `main` has moved into the files your
    branch touches.** If it has, merge `main` in, re-run the checks locally —
@@ -580,10 +589,20 @@ reviewer's ceiling is 60 minutes now, which buys room and does not buy a
 reader. The measured point of comparison is #217: 25 files, reviewed end to
 end in 10 min 47 s.
 
-**A dead claim is a branch `claude/issue-<n>` carrying no commit beyond
-`main` and no pull request.** Delete it and take the ticket. That, and the
-thirty-minute merge lock, are the only reasons to look at another agent's
-refs.
+**Never take a ticket somebody else has claimed, even when the claim looks
+abandoned.** A branch `claude/issue-<n>` with no commit and no pull request
+is what a claim looks like for as long as step 4 lasts — reading the issue,
+writing the fix — and longer still when the ticket is parked on a question.
+From outside there is nothing that distinguishes it from a claim whose agent
+died, which is the same point step 2 makes to explain why a push is not a
+lock. So do not delete another agent's branch: **skip that ticket and name
+it in your report**, where a human clears it in seconds. A ticket that waits
+costs a sentence; a ticket taken from an agent still working on it costs two
+pull requests that fix the same thing differently.
+
+The merge lock above is the one exception, and only on your own thirty
+minutes of waiting, because a stuck lock blocks every agent rather than one
+ticket.
 
 **Do not wait for the maintainer at any other point.** Not to start, not to
 merge, not to close, not between tickets. Report what you did afterwards; do
@@ -648,10 +667,10 @@ A gate you cannot make green is what this sends back: a major version bump
 that takes the suite red, a finding whose fix is a design decision. Finish
 the others, then say which one and why.
 
-## The working tree, and two ways it reports green while lying
+## The working tree, and three ways it reports green while lying
 
-Both were learnt here, both are silent, and neither announces itself as a
-setup problem.
+All three were learnt here, all three are silent, and none of them
+announces itself as a setup problem.
 
 **Do not run the local checks in a `git worktree`.** `vendor/` there is a
 symlink, so Composer's autoloader resolves `$baseDir` to the main checkout

@@ -29,6 +29,8 @@ use PHPUnit\Framework\TestCase;
  */
 final class WorkingTreeTrapsAreWrittenDownTest extends TestCase
 {
+    private const HEADING = '## The working tree, and three ways it reports green while lying';
+
     private static function agentRules(): string
     {
         $path = dirname(__DIR__, 2) . '/AGENTS.md';
@@ -40,13 +42,33 @@ final class WorkingTreeTrapsAreWrittenDownTest extends TestCase
     }
 
     /**
+     * The section alone, not the whole file.
+     *
+     * Asserting over `AGENTS.md` entire would keep passing once a warning
+     * wandered into some other section — which is the regression this file
+     * exists to catch, since a trap documented far from where the checks are
+     * asked for is a trap nobody reads in time.
+     */
+    private static function theSection(): string
+    {
+        $rules = self::agentRules();
+        $start = strpos($rules, self::HEADING);
+
+        self::assertIsInt($start, 'the working-tree section is gone from AGENTS.md');
+
+        $next = strpos($rules, "\n## ", $start + strlen(self::HEADING));
+
+        return $next === false ? substr($rules, $start) : substr($rules, $start, $next - $start);
+    }
+
+    /**
      * The floor. Everything below reads one section, and a test reading a
      * section that has been renamed passes vacuously.
      */
     public function testTheTrapsStillHaveTheirOwnSection(): void
     {
         $this->assertStringContainsString(
-            '## The working tree, and two ways it reports green while lying',
+            self::HEADING,
             self::agentRules(),
             'AGENTS.md no longer gathers the traps that make a local run read the wrong files, so each '
             . 'of them is back to being found the hard way.',
@@ -60,7 +82,7 @@ final class WorkingTreeTrapsAreWrittenDownTest extends TestCase
      */
     public function testTheWorktreeTrapIsWrittenDown(): void
     {
-        $rules = self::agentRules();
+        $rules = self::theSection();
 
         $this->assertStringContainsString(
             'Do not run the local checks in a `git worktree`',
@@ -85,7 +107,7 @@ final class WorkingTreeTrapsAreWrittenDownTest extends TestCase
      */
     public function testTheStaleLocalBranchTrapIsWrittenDown(): void
     {
-        $rules = self::agentRules();
+        $rules = self::theSection();
 
         $this->assertStringContainsString(
             'Never merge into a local branch that merely shares a name with the remote',
@@ -109,7 +131,7 @@ final class WorkingTreeTrapsAreWrittenDownTest extends TestCase
      */
     public function testOneSuiteAtATimeIsWrittenDownWithItsReason(): void
     {
-        $rules = self::agentRules();
+        $rules = self::theSection();
 
         $this->assertStringContainsString(
             'One full suite at a time, and do not touch the working tree while it',
