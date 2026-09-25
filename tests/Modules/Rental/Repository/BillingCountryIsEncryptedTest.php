@@ -217,6 +217,184 @@ final class BillingCountryIsEncryptedTest extends TestCase
         $this->assertSame('BE', $this->repository->findBillingIdentity($booking)['country']);
     }
 
+    /**
+     * **A manager's save is not reverted by a backfill that started
+     * first**, which a reviewer had to point out and which no test here
+     * covered.
+     *
+     * The rows are snapshotted before the loop writes any of them, and
+     * each iteration costs an encryption and a round trip. So worker A can
+     * hold booking #42 as « FR » while worker B saves « NL » on it — and
+     * A's write, keyed on `id` alone, put « FR » back with nothing to show
+     * it: no error, no `updated_at`.
+     *
+     * Each UPDATE therefore names the clear value it was told to carry, so
+     * it matches nothing once somebody else has emptied that column. The
+     * save below happens at the only instant where it used to do damage:
+     * between the snapshot and the writes, which is where the repository
+     * prepares its UPDATE.
+     */
+    public function testASaveThatLandsMidBackfillIsNotRevertedByIt(): void
+    {
+        $booking = $this->createBooking();
+        $this->giveItALegacyClearCountry($booking, 'FR');
+
+        // Worker B, running between the snapshot and the write: it carries
+        // the row over itself and stores a different country.
+        $interleaving = $this->connectionThatInterleaves(function () use ($booking): void {
+            $other = new RentalBookingRepository($this->pdo, $this->encryption);
+            $write = $this->pdo->prepare(
+                'UPDATE rental_bookings
+                    SET billing_country_encrypted = ?, billing_country = NULL
+                  WHERE id = ?'
+            );
+            $write->execute([$this->encryption->encrypt('NL', 'rental_bookings.billing_country'), $booking]);
+            unset($other);
+        });
+
+        (new RentalBookingRepository($interleaving, $this->encryption))
+            ->findBillingIdentity($booking);
+
+        $this->assertSame(
+            'NL',
+            $this->repository->findBillingIdentity($booking)['country'],
+            'the backfill wrote its stale snapshot over a country a manager had just saved'
+        );
+    }
+
+    /**
+     * **A database that could not answer does not disable the carry-over
+     * for good.**
+     *
+     * The flag used to be set before the probe ran, and the catch treated
+     * every `PDOException` as « no such column ». So one lock wait or lost
+     * connection wrote the backfill off for the rest of the worker's life
+     * — and since findBillingIdentity() reads only the new column, every
+     * booking still holding a clear country then reported none at all.
+     *
+     * What distinguishes the two cases is the failure itself: « unknown
+     * column » is an answer about this installation and never changes;
+     * anything else is no answer.
+     */
+    public function testATransientDatabaseFailureLeavesTheCarryOverToBeRetried(): void
+    {
+        $booking = $this->createBooking();
+        $this->giveItALegacyClearCountry($booking, 'FR');
+
+        $refusals = 1;
+        $flaky = $this->connectionThatRefusesTheProbe($refusals);
+
+        $first = new RentalBookingRepository($flaky, $this->encryption);
+        $this->assertNull(
+            $first->findBillingIdentity($booking)['country'],
+            'the failed probe is swallowed rather than turned into a 500, so this read finds nothing yet'
+        );
+
+        // **Nothing is reset here, and that is the test.** The next
+        // repository built in this process is what the next request is,
+        // and it must carry the column over — which it can only do if the
+        // failed probe was not written off. Resetting the flag by
+        // reflection, as setUp() does to isolate the classes from each
+        // other, would hide the very thing being checked: the first
+        // version of this test did exactly that, and stayed green with the
+        // latch put back where it was.
+        $this->assertSame(
+            'FR',
+            $this->repository->findBillingIdentity($booking)['country'],
+            'a transient failure wrote the carry-over off instead of leaving it for the next request'
+        );
+    }
+
+    /**
+     * A connection that runs `$probe` the moment the repository prepares
+     * the backfill's UPDATE — after the snapshot, before any write.
+     *
+     * The same seam, and the same reason, as
+     * DocumentTextLockOnTheRealEngineTest: `prepare()` is the one call the
+     * repository makes between the two, and one process cannot pause
+     * itself there.
+     */
+    private function connectionThatInterleaves(\Closure $probe): \PDO
+    {
+        return new class ($this->pdo, $probe) extends \PDO {
+            /** @param \PDO $inner the real connection every call is passed to */
+            public function __construct(private \PDO $inner, private \Closure $probe)
+            {
+                // No parent::__construct(): an in-memory SQLite opened a
+                // second time is a DIFFERENT, empty database, so this
+                // decorator forwards to the one connection that holds the
+                // fixture rather than opening one of its own.
+            }
+
+            /**
+             * @param  array<int, mixed> $options
+             */
+            public function prepare(string $query, array $options = []): \PDOStatement|false
+            {
+                if (str_contains($query, 'SET billing_country_encrypted')) {
+                    ($this->probe)();
+                }
+
+                return $this->inner->prepare($query, $options);
+            }
+
+            public function query(
+                string $query,
+                ?int $fetchMode = null,
+                mixed ...$fetchModeArgs
+            ): \PDOStatement|false {
+                return $this->inner->query($query);
+            }
+
+            public function lastInsertId(?string $name = null): string|false
+            {
+                return $this->inner->lastInsertId($name);
+            }
+        };
+    }
+
+    /** A connection whose first `$refusals` probes fail the way a busy one does. */
+    private function connectionThatRefusesTheProbe(int $refusals): \PDO
+    {
+        return new class ($this->pdo, $refusals) extends \PDO {
+            public function __construct(private \PDO $inner, private int $refusals)
+            {
+            }
+
+            public function query(
+                string $query,
+                ?int $fetchMode = null,
+                mixed ...$fetchModeArgs
+            ): \PDOStatement|false {
+                if (str_contains($query, 'billing_country IS NOT NULL') && $this->refusals > 0) {
+                    $this->refusals--;
+                    // What InnoDB says when a row will not come free. Note
+                    // the SQLSTATE: it is NOT the « unknown column » one,
+                    // which is the whole distinction being tested.
+                    throw new \PDOException(
+                        'SQLSTATE[HY000]: General error: 1205 Lock wait timeout exceeded',
+                        1205
+                    );
+                }
+
+                return $this->inner->query($query);
+            }
+
+            /**
+             * @param  array<int, mixed> $options
+             */
+            public function prepare(string $query, array $options = []): \PDOStatement|false
+            {
+                return $this->inner->prepare($query, $options);
+            }
+
+            public function lastInsertId(?string $name = null): string|false
+            {
+                return $this->inner->lastInsertId($name);
+            }
+        };
+    }
+
     /** The old column, as an installation upgraded from before #438 has it. */
     private function giveItALegacyClearCountry(int $bookingId, string $country): void
     {

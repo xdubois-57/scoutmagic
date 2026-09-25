@@ -730,11 +730,26 @@ class RentalBookingRepository
      * install never had the column at all, so the first probe fails and
      * nothing else is attempted.
      *
-     * Deliberately NOT locked against a concurrent pass, unlike
-     * saveText()'s two statements: two requests arriving together both
-     * encrypt the same country and the later UPDATE wins, which is a
-     * different ciphertext of the same two letters. There is no answer
-     * here for a reader to get wrong, so nothing is riding on the order.
+     * **Two races, and only one of them is harmless.** Two backfills
+     * arriving together both encrypt the same country and the later UPDATE
+     * wins, which is a different ciphertext of the same two letters —
+     * nothing rides on the order. A backfill racing a real SAVE is another
+     * matter, and a reviewer had to point it out: the snapshot is read
+     * before the loop, each iteration costs an encryption and a round
+     * trip, so a manager who saves « NL » on a booking this pass holds as
+     * « FR » would have had their write reverted, silently, with no
+     * `updated_at` to show it. Worse for a legacy value the writer
+     * refuses: the concurrent save would have been overwritten with NULL.
+     *
+     * So each UPDATE names the clear value it was told to carry:
+     * `WHERE id = ? AND billing_country = ?`. Once any other process has
+     * carried that row over — emptying the column as it goes — this write
+     * matches nothing and does nothing. No lock, no transaction, and the
+     * order stops mattering.
+     *
+     * The rows are snapshotted BEFORE the write is prepared, which reads
+     * in the order it happens and is also what lets
+     * BillingCountryIsEncryptedTest slip a concurrent save between the two.
      */
     private function adoptLegacyCountryColumn(): void
     {
@@ -742,39 +757,84 @@ class RentalBookingRepository
             return;
         }
 
-        self::$legacyCountryAdopted = true;
-
         try {
             $rows = $this->pdo->query(
                 'SELECT id, billing_country FROM rental_bookings
                  WHERE billing_country IS NOT NULL AND billing_country <> \'\''
             );
-        } catch (\PDOException) {
+
+            if ($rows === false) {
+                // Nothing was learnt about this installation, so the probe
+                // is not written off — see the catch below.
+                return;
+            }
+
+            $legacy = $rows->fetchAll(\PDO::FETCH_ASSOC);
+
+            // `updated_at` is deliberately NOT touched: nothing about the
+            // booking changed for its manager, and moving the timestamp
+            // would put every upgraded booking at the top of a list
+            // ordered by it.
+            $write = $this->pdo->prepare(
+                'UPDATE rental_bookings
+                    SET billing_country_encrypted = ?, billing_country = NULL
+                  WHERE id = ? AND billing_country = ?'
+            );
+
+            foreach ($legacy as $row) {
+                $clear = (string) $row['billing_country'];
+                // A value the current writer would refuse is cleared
+                // rather than carried: it cannot have come from this form,
+                // nothing can read it as a country, and leaving it would
+                // leave a clear string on disk for ever.
+                $write->execute([$this->encryptCountry($clear), (int) $row['id'], $clear]);
+            }
+        } catch (\PDOException $e) {
+            if (!self::saysTheColumnIsGone($e)) {
+                // A lock wait, a lost connection, a deadlock, a write that
+                // failed half way: none of them says anything about
+                // whether this installation still has the column, so the
+                // flag is NOT set and the next request tries again.
+                //
+                // **The flag used to be set before any of this ran**, so
+                // one transient error disabled the carry-over for the rest
+                // of the worker's life — and since findBillingIdentity()
+                // reads only the new column, every booking still holding a
+                // clear country then reported none at all. That is the
+                // difference between this and the single atomic
+                // `INSERT … SELECT` of
+                // RentalAssetRepository::adoptLegacyCalendarColumn(),
+                // which cannot half-fail and call itself done.
+                //
+                // Swallowed rather than rethrown: carrying the column over
+                // is incidental to what the caller asked for, and a 500 on
+                // the invoice screen is a worse answer than a country that
+                // appears on the next load. What it costs, stated rather
+                // than hidden: for THIS request, a booking not yet carried
+                // over reads its country as null.
+                return;
+            }
+
             // No such column: a fresh install, or one already carried over
-            // and dropped. Both mean there is nothing to encrypt.
-            return;
+            // and dropped. That answer never changes, so it is recorded.
         }
 
-        if ($rows === false) {
-            return;
-        }
+        self::$legacyCountryAdopted = true;
+    }
 
-        // `updated_at` is deliberately NOT touched: nothing about the
-        // booking changed for its manager, and moving the timestamp would
-        // put every upgraded booking at the top of a list ordered by it.
-        $write = $this->pdo->prepare(
-            'UPDATE rental_bookings
-                SET billing_country_encrypted = ?, billing_country = NULL
-              WHERE id = ?'
-        );
-
-        foreach ($rows->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            // A value the current writer would refuse is cleared rather
-            // than carried: it cannot have come from this form, nothing
-            // can read it as a country, and leaving it would leave a clear
-            // string on disk for ever.
-            $write->execute([$this->encryptCountry((string) $row['billing_country']), (int) $row['id']]);
-        }
+    /**
+     * Does this failure mean the retired column is simply not there?
+     *
+     * MySQL says so with SQLSTATE 42S22 (« Unknown column »); SQLite
+     * reports HY000 and says « no such column » in the message, so both
+     * spellings are read. Anything else is a database that could not
+     * answer, which is a different thing entirely — see the caller.
+     */
+    private static function saysTheColumnIsGone(\PDOException $failure): bool
+    {
+        return $failure->getCode() === '42S22'
+            || stripos($failure->getMessage(), 'no such column') !== false
+            || stripos($failure->getMessage(), 'unknown column') !== false;
     }
 
     /**
