@@ -49,8 +49,19 @@ final class DatabaseBackedTestsReallyRunTest extends TestCase
     /**
      * The words that make a skip message a database one. Matched against
      * the whole argument text of `markTestSkipped()`, case-insensitively.
+     *
+     * `schema` and `PDO` joined the four originals after one slipped
+     * through: `DocumentTextLockOnTheRealEngineTest` creates a MySQL schema
+     * of its own and skipped on « A schema of its own could not be
+     * created », which is a database reason written without a single one of
+     * the four words. The test below therefore read it as nothing to do
+     * with a database, and a runner whose user cannot `CREATE DATABASE`
+     * would have skipped that whole class in silence — the exact outcome
+     * this guard exists to make impossible. A guard that matches words is
+     * only as good as its list, so the list grows when a real message
+     * escapes it rather than when someone imagines one.
      */
-    private const DATABASE_WORDS = '/Database|MySQL|MariaDB|TEST_DB_/i';
+    private const DATABASE_WORDS = '/Database|MySQL|MariaDB|TEST_DB_|schema|PDO/i';
 
     /** The call whose argument says why a test dropped out of the run. */
     private const SKIP_CALL = 'markTestSkipped';

@@ -316,7 +316,10 @@
       "code": "abcdefg"
     },
     "/support-dashboard/tickets/{id}": {
-        "id": "1"
+      "id": "1"
+    },
+    "/support-dashboard/correspondances/{id}": {
+      "id": "1"
     },
     "/support-dashboard/installations/{id}": {
       "id": "1"

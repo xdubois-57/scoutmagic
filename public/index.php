@@ -9508,6 +9508,9 @@ if ($isEnabled('groups')) {
 // §8.49). Only ever discovered on the receiving installation, so this block
 // is dead code everywhere else by construction.
 if ($isEnabled('support_dashboard')) {
+    // Shared by the intake (which writes a first sighting) and the page
+    // (which joins the stored facts onto a derived list) — issue #356.
+    $supportDeskMappingGapRepo = new \Modules\SupportDashboard\Repository\DeskMappingGapRepository($pdo);
     \Core\Debug\RequestTimeline::mark('module_support_dashboard');
     // The key is for the WHOIS response alone: a registry's answer about a
     // unit's domain routinely names the volunteer who registered it, with
@@ -9649,8 +9652,32 @@ if ($isEnabled('support_dashboard')) {
                     $supportInstallationRepo,
                     new \Core\Net\WhoisClient(),
                     $journalService
+                ),
+                // Remembers a Desk value no version of this software
+                // recognises, and announces a new one once (issue #356).
+                // It runs on the ACCEPT path rather than when somebody
+                // opens the page, because a page nobody opens announces
+                // nothing — and « le mainteneur n'apprend un problème que
+                // si quelqu'un le lui rapporte » is the whole problem.
+                new \Modules\SupportDashboard\Service\DeskMappingGapRecorder(
+                    $supportDeskMappingGapRepo,
+                    $journalService,
+                    $notificationService
                 )
             )
+        )
+    );
+
+    $frontController->registerController(
+        \Modules\SupportDashboard\Controller\DeskMappingGapController::class,
+        new \Modules\SupportDashboard\Controller\DeskMappingGapController(
+            $twig,
+            new \Modules\SupportDashboard\Service\DeskMappingGapReport(
+                $supportInstallationRepo,
+                $supportDeskMappingGapRepo
+            ),
+            $supportDeskMappingGapRepo,
+            $journalService
         )
     );
 

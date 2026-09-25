@@ -322,3 +322,49 @@ CREATE TABLE support_ticket_analyses (
     result_encrypted BLOB NOT NULL,
     INDEX idx_support_ticket_analyses_requested (requested_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- The Desk values no reporting installation could match, and the ONLY
+-- thing about them that is not recomputed (issue #356, D6).
+--
+-- Everything a reader sees on Configuration > Supervision >
+-- Correspondances is derived from the payloads still held in
+-- `support_installations.payload`: how many installations report a value,
+-- when it was last seen, which version still carries it. All of that is
+-- true of the reports on hand and of nothing else, so deriving it means a
+-- value corrected in the code leaves the page by itself, with nothing to
+-- clean up and no second source of truth to go stale.
+--
+-- Three facts cannot be derived, and they are the whole table:
+--
+--   * `first_seen_at` — a payload says what an installation looks like
+--     TODAY. The day a value first appeared is nowhere in it, and it is
+--     what tells « arrivé cette semaine sur quatre unités » from « ça
+--     traîne depuis mars ».
+--   * `notified_at` — without it the receiver would announce the same
+--     value every morning, which is how a notification becomes noise
+--     nobody reads (D8).
+--   * `ignored_at` — a maintainer's judgement that a value is one unit's
+--     typo. Nothing in any payload can express that.
+--
+-- No foreign key to `support_installations`: a value is a fact about the
+-- FEDERATION's vocabulary, not about one installation, and it must survive
+-- the purge of the unit that first reported it.
+CREATE TABLE support_desk_mapping_gaps (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    -- 'function', 'branch', 'fee_category' or 'csv_header' —
+    -- Core\Import\DeskMappingGapKind, whose values travel in the payload.
+    kind VARCHAR(20) NOT NULL,
+    -- The grouping key: Core\Service\TextNormalizerService::fold() applied
+    -- to the raw value (D7). Without it « Animateur Nutons » and
+    -- « animateur nutons » are two rows, two notifications and two lines
+    -- on the page for one federation word.
+    value_normalized VARCHAR(190) NOT NULL,
+    -- The first spelling seen, shown as-is. A maintainer reading
+    -- « Animateur Baladinss » can tell a typo from a branch this software
+    -- has yet to learn; the folded form hides both.
+    value_raw VARCHAR(190) NOT NULL,
+    first_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    notified_at DATETIME NULL,
+    ignored_at DATETIME NULL,
+    UNIQUE INDEX idx_support_desk_gap (kind, value_normalized)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
