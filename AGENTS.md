@@ -470,9 +470,10 @@ server-side where a label or an assignee is not.
    a revert.
 
 2. **Claim the first one by creating the branch `claude/issue-<n>` off
-   `main` through the GitHub API**, not with a local `git push`. The API
-   answers **422 « Reference already exists »** when another agent already
-   holds that issue, and that refusal is the whole mechanism. It has to be
+   `main` through the GitHub API**, not with a local `git push`. The call
+   fails with **« Reference already exists »** — verified against the tool
+   rather than assumed, and an HTTP 422 underneath — when another agent
+   already holds that issue, and that refusal is the whole mechanism. It has to be
    a ref: two agents can apply the same label or assignee in the same
    second and both believe they won, and a push can succeed against a
    branch another agent created a moment ago and has not committed to yet.
@@ -516,8 +517,9 @@ server-side where a label or an assignee is not.
    bug, not the convention.
 
 6. **Take the merge lock, merge, release it.** Create the ref
-   `claude/merge-lock` through the API: **422** means another agent is
-   merging, so wait and try again; created means it is your turn. Delete it
+   `claude/merge-lock` through the API: the same **« Reference already
+   exists »** means another agent is merging, so wait and try again; created
+   means it is your turn. Delete it
    as soon as your merge has landed.
 
    **Development is parallel; merging never is.** The maintainer asks for

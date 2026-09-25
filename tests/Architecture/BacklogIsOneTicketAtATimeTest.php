@@ -90,7 +90,7 @@ final class BacklogIsOneTicketAtATimeTest extends TestCase
         $rules = self::agentRules();
 
         $this->assertStringContainsString(
-            '422 « Reference already exists »',
+            '« Reference already exists »',
             $rules,
             'AGENTS.md no longer names the refusal that makes two agents pick different tickets. It is '
             . 'the whole coordination mechanism between agents that cannot see each other.',
