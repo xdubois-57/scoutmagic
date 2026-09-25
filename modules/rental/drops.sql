@@ -52,3 +52,15 @@ ALTER TABLE rental_bookings DROP COLUMN tracking_token_hash;
 -- something and guessing which account each `actor_member_id` belonged to.
 -- A booking that predates this release starts its history here.
 DROP TABLE IF EXISTS rental_booking_events;
+
+-- NOT here either, deliberately: `rental_bookings.billing_country`. The
+-- billing country is now `billing_country_encrypted`, like the six other
+-- billing coordinates beside it, and the old plaintext column no longer
+-- appears in schema.sql — so MigrationRunner leaves it alone, which is its
+-- data-loss safety net doing its job.
+-- RentalBookingRepository::adoptLegacyCountryColumn() carries the values
+-- over the first time a billing identity is read or written, and empties
+-- each one as it goes: this is a column being ENCRYPTED, not moved, so a
+-- copy that left the clear value behind would leave the defect behind too.
+-- Dropping it in the same release would race that backfill and lose the
+-- country of every booking that had one.

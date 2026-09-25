@@ -41,11 +41,21 @@ class RentalBookingRepository
     private const CTX_COMMENT = 'rental_bookings.renter_comment';
     private const CTX_BILLING_NAME = 'rental_bookings.billing_name';
     private const CTX_BILLING_ADDRESS = 'rental_bookings.billing_address';
+    private const CTX_BILLING_COUNTRY = 'rental_bookings.billing_country';
     private const CTX_BILLING_VAT = 'rental_bookings.billing_vat_number';
     private const CTX_BILLING_ENTERPRISE = 'rental_bookings.billing_enterprise_number';
     private const CTX_BILLING_EMAIL = 'rental_bookings.billing_email';
     private const CTX_BILLING_REFERENCE = 'rental_bookings.billing_reference';
     private const CTX_TRACKING_TOKEN = 'rental_bookings.tracking_token';
+
+    /**
+     * Whether adoptLegacyCountryColumn() has already run in this process.
+     * Static for the same reason as its counterpart in
+     * RentalAssetRepository: several instances of this repository are built
+     * per request in the composition root, and the backfill is a property
+     * of the database rather than of any one of them.
+     */
+    private static bool $legacyCountryAdopted = false;
 
     /**
      * Blind-index purpose. Shared with nothing else: an index computed under
@@ -600,8 +610,10 @@ class RentalBookingRepository
      */
     public function findBillingIdentity(int $bookingId): array
     {
+        $this->adoptLegacyCountryColumn();
+
         $stmt = $this->pdo->prepare(
-            'SELECT billing_name_encrypted, billing_address_encrypted, billing_country,
+            'SELECT billing_name_encrypted, billing_address_encrypted, billing_country_encrypted,
                     billing_vat_number_encrypted, billing_enterprise_number_encrypted,
                     billing_email_encrypted, billing_reference_encrypted
              FROM rental_bookings WHERE id = ?'
@@ -619,7 +631,7 @@ class RentalBookingRepository
         return [
             'name' => $this->decryptOptional($row['billing_name_encrypted'] ?? null, self::CTX_BILLING_NAME),
             'address' => $this->decryptOptional($row['billing_address_encrypted'] ?? null, self::CTX_BILLING_ADDRESS),
-            'country' => $row['billing_country'] !== null ? (string) $row['billing_country'] : null,
+            'country' => $this->decryptOptional($row['billing_country_encrypted'] ?? null, self::CTX_BILLING_COUNTRY),
             'vat_number' => $this->decryptOptional($row['billing_vat_number_encrypted'] ?? null, self::CTX_BILLING_VAT),
             'enterprise_number' => $this->decryptOptional(
                 $row['billing_enterprise_number_encrypted'] ?? null,
@@ -646,11 +658,15 @@ class RentalBookingRepository
      */
     public function saveBillingIdentity(int $bookingId, array $identity): void
     {
-        $country = isset($identity['country']) ? strtoupper(trim((string) $identity['country'])) : '';
+        // Called here too, not only on the read: a process that saves a
+        // billing identity without ever having read one would otherwise
+        // leave every OTHER booking's country in clear.
+        $this->adoptLegacyCountryColumn();
 
         $stmt = $this->pdo->prepare(
             'UPDATE rental_bookings SET
-                billing_name_encrypted = ?, billing_address_encrypted = ?, billing_country = ?,
+                billing_name_encrypted = ?, billing_address_encrypted = ?,
+                billing_country_encrypted = ?,
                 billing_vat_number_encrypted = ?, billing_enterprise_number_encrypted = ?,
                 billing_email_encrypted = ?, billing_reference_encrypted = ?, updated_at = ?
              WHERE id = ?'
@@ -658,10 +674,13 @@ class RentalBookingRepository
         $stmt->execute([
             $this->encryptOptional($identity['name'] ?? null, self::CTX_BILLING_NAME),
             $this->encryptOptional($identity['address'] ?? null, self::CTX_BILLING_ADDRESS),
-            // Two letters or nothing: a country field holding "Belgique" in
-            // one row and "BE" in another is what makes a later e-invoice
-            // export a guessing game.
-            preg_match('/^[A-Z]{2}$/', $country) === 1 ? $country : null,
+            // Normalised BEFORE it is encrypted, and the normalisation now
+            // matters more than it did: the column used to be a VARCHAR(2),
+            // so the database itself refused anything longer. A BLOB
+            // refuses nothing, and this is the only place left that can
+            // keep "Belgique" in one row and "BE" in another out of what a
+            // later e-invoice export will read.
+            $this->encryptCountry($identity['country'] ?? null),
             $this->encryptOptional($identity['vat_number'] ?? null, self::CTX_BILLING_VAT),
             $this->encryptOptional($identity['enterprise_number'] ?? null, self::CTX_BILLING_ENTERPRISE),
             $this->encryptOptional($identity['email'] ?? null, self::CTX_BILLING_EMAIL),
@@ -669,6 +688,93 @@ class RentalBookingRepository
             (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
             $bookingId,
         ]);
+    }
+
+    /**
+     * A two-letter ISO country code, encrypted — or null for anything else.
+     *
+     * Its own method rather than a line inside the UPDATE because
+     * adoptLegacyCountryColumn() needs exactly the same two steps, and a
+     * backfill that normalised differently from the writer would encrypt
+     * values the writer would have refused.
+     */
+    private function encryptCountry(?string $country): ?string
+    {
+        $country = strtoupper(trim((string) $country));
+
+        return preg_match('/^[A-Z]{2}$/', $country) === 1
+            ? $this->encryption->encrypt($country, self::CTX_BILLING_COUNTRY)
+            : null;
+    }
+
+    /**
+     * Encrypts the retired plaintext `billing_country` column, once.
+     *
+     * The billing country was the one coordinate of the seven that stayed
+     * in clear (#438). It no longer appears in schema.sql, so
+     * MigrationRunner leaves the old column alone — its data-loss safety
+     * net — and drops.sql deliberately does not drop it either, because
+     * doing both in one release would race this backfill.
+     *
+     * **It empties each value as it carries it**, which is the difference
+     * between this and RentalAssetRepository::adoptLegacyCalendarColumn():
+     * that one moves a calendar id, where a leftover copy is harmless. Here
+     * the whole point is that the clear value stops being on disk, so a
+     * backfill that only copied would report success and change nothing
+     * about the defect.
+     *
+     * Row by row rather than in one UPDATE, because the new value is a
+     * ciphertext PHP has to produce — there is no SQL expression for it.
+     * Bounded by the bookings that still have a country in clear, which is
+     * a number that only goes down and reaches zero for good; a fresh
+     * install never had the column at all, so the first probe fails and
+     * nothing else is attempted.
+     *
+     * Deliberately NOT locked against a concurrent pass, unlike
+     * saveText()'s two statements: two requests arriving together both
+     * encrypt the same country and the later UPDATE wins, which is a
+     * different ciphertext of the same two letters. There is no answer
+     * here for a reader to get wrong, so nothing is riding on the order.
+     */
+    private function adoptLegacyCountryColumn(): void
+    {
+        if (self::$legacyCountryAdopted) {
+            return;
+        }
+
+        self::$legacyCountryAdopted = true;
+
+        try {
+            $rows = $this->pdo->query(
+                'SELECT id, billing_country FROM rental_bookings
+                 WHERE billing_country IS NOT NULL AND billing_country <> \'\''
+            );
+        } catch (\PDOException) {
+            // No such column: a fresh install, or one already carried over
+            // and dropped. Both mean there is nothing to encrypt.
+            return;
+        }
+
+        if ($rows === false) {
+            return;
+        }
+
+        // `updated_at` is deliberately NOT touched: nothing about the
+        // booking changed for its manager, and moving the timestamp would
+        // put every upgraded booking at the top of a list ordered by it.
+        $write = $this->pdo->prepare(
+            'UPDATE rental_bookings
+                SET billing_country_encrypted = ?, billing_country = NULL
+              WHERE id = ?'
+        );
+
+        foreach ($rows->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            // A value the current writer would refuse is cleared rather
+            // than carried: it cannot have come from this form, nothing
+            // can read it as a country, and leaving it would leave a clear
+            // string on disk for ever.
+            $write->execute([$this->encryptCountry((string) $row['billing_country']), (int) $row['id']]);
+        }
     }
 
     /**
