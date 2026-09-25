@@ -516,7 +516,21 @@ CREATE TABLE IF NOT EXISTS rental_bookings (
     -- exporter rather than a migration.
     billing_name_encrypted BLOB NULL,
     billing_address_encrypted BLOB NULL,
-    billing_country VARCHAR(2) NULL,
+    -- The country is a two-letter ISO code, so "all of it is encrypted"
+    -- above was false about exactly one of the seven for a while: the
+    -- column was a plain VARCHAR(2). It is not the leak the other six
+    -- would be — alone it says a bill goes to Belgium and names nobody —
+    -- but it describes the same place as the address beside it, and
+    -- SECURITY.md §5 lists `country` among the encrypted fields of a
+    -- member's address without an asterisk. A rule that tolerates one
+    -- unwritten exception gets a second.
+    --
+    -- The old plaintext column is NOT dropped in the release that adds
+    -- this one: see the note in drops.sql, and
+    -- RentalBookingRepository::adoptLegacyCountryColumn(), which carries
+    -- the values over and — unlike an ordinary column move — empties the
+    -- source, since leaving it behind would leave the defect behind.
+    billing_country_encrypted BLOB NULL,
     billing_vat_number_encrypted BLOB NULL,
     billing_enterprise_number_encrypted BLOB NULL,
     billing_email_encrypted BLOB NULL,

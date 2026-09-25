@@ -176,7 +176,7 @@ class RentalTestHelper
             inventory_snapshotted INTEGER NOT NULL DEFAULT 0,
             billing_name_encrypted BLOB,
             billing_address_encrypted BLOB,
-            billing_country TEXT,
+            billing_country_encrypted BLOB,
             billing_vat_number_encrypted BLOB,
             billing_enterprise_number_encrypted BLOB,
             billing_email_encrypted BLOB,
