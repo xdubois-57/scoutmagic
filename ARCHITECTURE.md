@@ -1946,6 +1946,44 @@ The receiver keeps **one state per installation** and no daily history (§8.49).
 
 **One chart, and it is independent of everything above it.** The history section takes only its own period — 6, 12, 24 months or everything, defaulting to 12, in the query string and not persisted between visits like every other piece of view state here. It is built by a separate service method taking a separate type, so the independence is structural rather than declarative: a history that moved when somebody typed in the search box would be answering a different question than the one its axis claims, and a test pins it. No second historical chart is added — active members over time, version distribution over time, auto-update share over time and module adoption over time are all explicitly out of scope.
 
+### 8.51ter Desk values nothing recognises, and how the maintainer hears about them (issue #356)
+
+The site has to match what Desk exports to what it knows. When a value is not recognised it does **not** stop: it creates the entry with the most cautious setting and carries on. That is the right decision — an import that refused a unit's roster over one unknown word would be worse — and its cost is that nobody finds out. The maintainer is no longer a chef d'unité: they learn of a problem only when somebody reports one, and a **non-blocking** missing mapping will therefore probably never be reported at all, while it inconveniences people.
+
+**Three kinds** (`Core\Import\DeskMappingGapKind`, whose `codeTable()` names where each is decided so a reader never has to rediscover it):
+
+| Kind | Where it is decided | How it fails today |
+|---|---|---|
+| Function | `MappingResolver::resolveFunction()` | created with the raw code as label and the `identified` role; `functions.confirmed = false` |
+| Branch | `AgeBranchRepository::canonicalSortOrder()` | returns **99**: no default logo, an arbitrary rank everywhere, **and no signal at all** |
+| CSV header | `DeskCsvParser::EXPECTED_HEADERS` | the only blocking one: the import stops |
+
+**A function is the exception in that table, and it matters.** There is no list of known functions anywhere in this code — `resolveFunction()` creates every unseen one at the lowest role without consulting anything — so no release can make a function "recognised". Only the unit qualifying it resolves that line. It is still worth reporting, because « seven units carry a function nobody has qualified » is a federation-wide fact no single unit can see; it is just not a table to complete.
+
+**A Desk TARIFF is deliberately not one of these kinds, and the reason is the sharpest constraint in this section.** The chantier started with four, on the premise that a tariff no household barème claims is a mapping to complete. §8.74 says the opposite in as many words — *« A tariff outside the three is not judged. […] Reporting them would be a false positive on every unit, on the first screen a treasurer opens »* — and `FeeCategoryClassifierTest` pins « Cotisation invités », « Cotisation de solidarité » and « COT_iAM_LOCAL » as wordings that must answer `null` for ever. The decisive point is that this code **cannot tell** such a tariff from one of the three spelled unusually, which is exactly why `FeeCategoryClassifier::classify()` refuses to guess: so it cannot report either as unresolved without being wrong about the other. A unit that wants one compared maps it by hand on the barème panel, which is the documented answer and not a gap.
+
+**Sections are deliberately not part of this either.** A section's name is chosen by the unit, there is no central mapping it could fail to match, and it identifies the unit far better than a federal label does. It never travels.
+
+#### The unit's own side, which does not depend on the receiver
+
+Every unresolved value is written to the journal at import time, in `info`, carrying **the label alone** (SECURITY.md §11): `desk_function_unknown`, `desk_branch_not_canonical`, `desk_csv_header_unexpected`. `Core\Support\Collector\DeskMappingsCollector` writes the current list into the support package as `desk-mappings.json`, and Correspondances Desk carries a box at the top saying what was not matched, what the site did instead, how many records are affected, and where to fix it. None of that needs the daily report: a unit that switched `statistics_enabled` off still has all of it when a bug is reported.
+
+**The refused CSV header line is the one place where a value is written down conditionally.** `parse()` treats line 0 as the header line with nothing to go on, so a stripped header row or a misdetected delimiter hands it a member. The cells are journalled only when at least two thirds of the expected names are present — proof that the line is the schema row rather than content — which is what keeps §13's « never raw CSV content » true in both cases.
+
+#### What travels, and why no catalogue exists
+
+`Core\Statistics\StatisticsPayloadBuilder` already sent the unit's Desk vocabulary; it now also sends the branches with the rank `canonicalSortOrder()` gave each, and a `desk_unresolved` block stating **what the sender knows it could not match**. The sender is the one who can say so: it holds `functions.confirmed` and it knows what the sort order answered. A kind and a raw value travel, and no headcount: the receiver's question is on how many *installations* a value appears, which it answers by counting reports.
+
+**Nothing is catalogued on the receiver, and that is the load-bearing decision.** The receiving installation runs the same ScoutMagic, so it compares against its own hard-coded tables: a branch its `canonicalSortOrder()` recognises is one a release has already fixed, and the sender is simply behind. A value corrected in the code therefore leaves `/support-dashboard/correspondances` by itself, with nothing to delete — where a table of "known values" would have to be kept in step with the code for ever, by hand, and would be wrong exactly when it mattered.
+
+`support_desk_mapping_gaps` stores only the three facts no report can carry: `first_seen_at` (a payload describes today, never when a value first appeared), `notified_at` (without it the same value announces itself every morning) and `ignored_at` (a maintainer's judgement that a value is one unit's typo). Everything else — how many installations carry it, when it was last seen, the oldest version still reporting it — is derived on every read. That last column is not decoration: a value corrected in the code keeps being reported by everyone who has not upgraded, and without it the same value gets picked up again next month by somebody who thinks it was forgotten.
+
+**One notification per value, ever** (`support_dashboard.desk_mapping_unknown`, declared in the module's manifest so it exists only where `visible_when: ["statistics_receiver"]` applies). It is decided on the accept path rather than when somebody opens the page — a page nobody opens announces nothing, which is this whole problem arrived at from the other side — and it is never fatal: a receiver that started refusing reports because a notification failed would trade the thing that matters for the thing that does not.
+
+**It is driven by the BACKLOG of un-notified rows, not by what the report in hand brought in**, and the distinction is not academic: a value first seen while nobody had subscribed to the type, or while the push keys were broken, is a value nobody has been told about. Announcing only the current report's new values meant such a value was never announced by any later report, however many carried it — while the first unrelated new value to come along marked it notified without mentioning it. So the count in the message and the rows marked afterwards come from one snapshot of the backlog: a row can only be flagged as announced by the message that actually counted it. A row « écartée » leaves that backlog, because setting a value aside is an answer to it.
+
+« Écarter » is reversible and filtered, never a delete: the next report would recreate the row and the judgement would have to be made again every morning.
+
 ### 8.52 Rental bookings, the public request and the renter's tracking page (`Modules\Rental\Booking`)
 
 **The renter never has an account, and never will.** Everything below follows from that.

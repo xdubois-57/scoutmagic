@@ -573,3 +573,64 @@ vérification RGPD que D9 demande n'y est plus : la revue d'IT-02 a refusé ce
 report, et elle est faite là-bas.
 
 ---
+
+## IT-04 — Documentation et aide
+
+**Livré.**
+
+- **`ARCHITECTURE.md` §8.51ter** — les trois natures et l'endroit du code qui
+  décide de chacune, **pourquoi un tarif n'en est pas une** (écart 1),
+  **pourquoi une fonction n'a pas de table** (écart 7), le bloc de charge, et
+  **pourquoi rien n'est catalogué côté central** (D5) : l'instance réceptrice
+  fait tourner le même logiciel, donc elle compare à ses propres tables, et un
+  catalogue de « valeurs connues » devrait être tenu à jour à la main pour
+  toujours — et serait faux exactement quand ça compte.
+- **`specifications.md`** — la troisième sous-page de Supervision et son écran
+  décrits, l'encadré de Correspondances Desk ajouté à sa ligne de §4.5, et la
+  phrase « les deux écrans » corrigée en trois.
+- **Deux sujets d'aide** : celui de Correspondances Desk pointe vers un nouveau
+  sujet qui explique l'encadré, et la page centrale a le sien.
+
+**La vérification RGPD que D9 demande ne fait pas partie de cette itération.**
+Elle y était prévue, et c'était une erreur que la revue d'IT-02 a refusée à
+juste titre : `AGENTS.md` exige la mise à jour de `RgpdContentService` dans le
+**même changement** que le nouveau flux sortant, et IT-02 est le changement qui
+commence à envoyer. La reporter ici aurait laissé une phrase fausse devant un
+lecteur pendant deux itérations, sur la page dont c'est précisément le rôle de
+dire ce qui quitte l'installation. Faite en IT-02, donc, avec son test de
+couverture sur les deux surfaces.
+
+### Trois phrases étaient déjà périmées en arrivant
+
+Cette itération a été écrite avant la revue d'IT-03, et cette revue a changé le
+comportement qu'elle décrit. Trois textes annonçaient donc **« une notification,
+à l'insertion »**, ce qui n'est plus vrai : l'annonce suit l'arriéré des lignes
+jamais notifiées, donc une valeur vue alors que personne n'était abonné est
+annoncée par un rapport **ultérieur**. Corrigés dans les trois : `ARCHITECTURE.md`
+§8.51ter, `specifications.md` §4.5, et le sujet d'aide de la page centrale.
+
+C'est exactement la panne que cette itération existe pour empêcher, arrivée à
+l'itération qui l'empêche — et elle vaut d'être notée : une documentation écrite
+en même temps que le code qu'elle décrit reste juste, une documentation écrite
+*avant* la dernière revue de ce code ne l'est que par chance.
+
+### La charte de l'aide a tranché à ma place
+
+L'ajout de l'encadré au sujet `config-desk` l'a porté à 515 mots, et
+`HelpInvariantsTest` l'a refusé : au-delà de ~400 mots, `design.md` §7.11 veut
+deux sujets. C'est le bon arbitrage — le sujet traitait déjà des rôles, des
+sections et des branches — donc les valeurs non reconnues ont le leur,
+`config-desk-valeurs-inconnues`, et l'ancien y renvoie.
+
+Deux autres règles de l'aide ont corrigé le tir : un texte entre guillemets doit
+être un libellé réel de l'interface (« je ne vois plus rien » n'en est pas un,
+reformulé), et `discovery: 0` réclame la première place de « Le saviez-vous ? » —
+la page centrale, qui n'existe que chez le mainteneur, est en `discovery: off`.
+
+**Suite complète verte**, PHPStan sans erreur.
+
+### Reporté
+
+Rien. Le chantier est clos.
+
+---
