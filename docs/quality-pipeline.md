@@ -179,10 +179,14 @@ which this repository recommends in the place a newcomer cannot miss: the
 `SessionStart` hook prints
 `run 'vendor/bin/phpunit --group=database' for the MySQL-backed suite` on
 every open. That is what makes the omission expensive rather than untidy.
-Measured on this change's base, the group selected **9 619** tests where it
-should have selected **12 354**, out of a suite of 20 751: someone following
-that advice to check "the database part" of a change got a bit over three
-quarters of it, and nothing in the output said so. A hundred and
+Measured on the commit this change branched from (`7ee8aeb1`), the group
+selected **9 619** tests where it should have selected **12 354**, out of a
+suite of 20 751: someone following that advice to check "the database part"
+of a change got a bit over three quarters of it, and nothing in the output
+said so. The base is named because the pair only means something as a pair:
+every later merge moves both numbers — the branch selects 12 407 of 20 842
+once `main`'s own new classes are in — and a ratio quoted without the tree
+it was taken on is the kind of figure this section had three copies of. A hundred and
 seventy-four classes built a database and said nothing, `covoiturage` and
 `documents` among them without a single grouped file between them.
 
