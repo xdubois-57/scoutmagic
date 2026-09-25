@@ -137,9 +137,9 @@ class StatisticsPayloadBuilder
      * of it — leave nothing for `branches`, whose `listed` came back
      * empty while `total` said a hundred and fifty. An empty list is the
      * worst of the outcomes available: `branches` is in this payload
-     * because a rank of 99 is the costliest mapping failure and the only
-     * one silent on the unit's side, and a receiver cannot read what it
-     * was not sent.
+     * because a rank of 99 is the costliest mapping failure and the one
+     * whose consequences nobody complains about, and a receiver cannot
+     * read what it was not sent.
      *
      * Deliberately no rolling-over of what a list does not spend. A unit
      * with three cotisation types would hand its unspent share to

@@ -32,8 +32,8 @@ ne voit plus rien après un import.
 des animés, et elle se range en dernier dans toutes les listes.
 
 La ligne dit combien de fiches sont concernées quand il y en a — des
-membres pour une fonction, des sections pour une branche — et le dit
-aussi quand il n'y en a aucune.
+membres pour une fonction, des sections pour une branche. Pour une
+fonction, elle le dit aussi quand il n'y en a aucune.
 
 ## Ce qu'il y a à faire, et ce qu'il n'y a pas à faire
 

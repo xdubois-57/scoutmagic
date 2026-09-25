@@ -134,6 +134,11 @@ exactement le cas que D1 décrit comme échouant **sans aucun signal**, et c'est
 vrai. L'encadré ne réécrit pas ce que le point d'attention dit déjà ; il couvre
 ce qui n'est dit nulle part.
 
+*(Au présent de l'état vérifié ici, celui du commit 08d830b. IT-01 a livré la
+journalisation et l'encadré, donc une branche à 99 est signalée depuis — voir le
+second tour de revue d'IT-04, où cette formule avait survécu à cinq endroits qui
+la donnaient encore pour actuelle.)*
+
 ### Écart 7 — Il n'existe aucune table de fonctions connues
 
 *Trouvé en écrivant IT-03.* D1 pose que « une ligne de la page centrale est
@@ -694,8 +699,17 @@ rendue fausse. Quelqu'un s'y fiant aurait réimplémenté un signalement qui
 existe. L'énoncé juste n'est pas « aucun signal » mais **« des conséquences dont
 personne ne se plaint »** : un logo absent n'est signalé par personne, là où une
 fonction non qualifiée l'est par celui qui a perdu ses accès. Corrigé dans le
-tableau, et dans les trois autres endroits où j'avais réemployé la formule
-périmée — `StatisticsPayloadBuilder`, son test, et l'entrée IT-03 de ce journal.
+tableau, et dans les **quatre** autres endroits où j'avais réemployé la formule
+périmée : deux fois dans `StatisticsPayloadBuilder` — `deskBranches()` et le
+docblock de `MAX_VOCABULARY_LIST_BYTES`, écrit lors de la correction du budget —
+une fois dans son test, et une fois dans l'entrée IT-02 de ce journal.
+
+*La première version de ce paragraphe disait « trois » et nommait l'entrée
+IT-03.* Les deux étaient faux, et c'est la revue qui l'a relevé : j'avais corrigé
+une occurrence et laissé sa jumelle à quarante lignes d'écart dans le même
+fichier, pendant que le journal certifiait le contraire. Un compte rendu qui
+affirme une exhaustivité qu'il n'a pas est pire qu'un compte rendu muet — il
+dispense le lecteur suivant de vérifier.
 
 **Le sujet d'aide affirmait qu'un import ne s'arrête jamais.** Faux pour une
 colonne : un en-tête attendu absent lève `ImportException`. Restreint aux
