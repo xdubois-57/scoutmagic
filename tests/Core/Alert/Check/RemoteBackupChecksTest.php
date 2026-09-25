@@ -38,6 +38,7 @@ use Tests\DatabaseTestHelper;
  * retiring it would be left with a permanent alert about a backup that is
  * never coming — and no way to clear it.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class RemoteBackupChecksTest extends TestCase
 {
     private InMemorySettingService $settings;

@@ -48,6 +48,7 @@ use Tests\DatabaseTestHelper;
  * used to hold the intake worker on every ticket that installation sent.
  * Each test below therefore files the ticket, then runs the queued pass.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class TicketDnsSnapshotTest extends TestCase
 {
     private const INSTALLATION_ID = '0a1b2c3d4e5f60718293a4b5c6d7e8f9';

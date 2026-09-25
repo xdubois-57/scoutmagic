@@ -78,7 +78,7 @@ class DeskMappingGapServiceTest extends TestCase
     /**
      * A Desk tariff is not a kind at all, and this is where that decision
      * is checked rather than only written down: one outside the three
-     * household ones is an ordinary state, ARCHITECTURE.md §8.74 says
+     * household ones is an ordinary state, ARCHITECTURE.md §8.75 says
      * reporting it « would be a false positive on every unit », and the
      * site cannot tell it from one of the three spelled unusually.
      */

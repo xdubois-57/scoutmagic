@@ -27,6 +27,7 @@ use Tests\DatabaseTestHelper;
  * the design reuses the statistics identity rather than minting a second
  * credential.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class SupportTicketServiceTest extends TestCase
 {
     private \PDO $pdo;

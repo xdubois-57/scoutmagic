@@ -26,6 +26,7 @@ use Tests\DatabaseTestHelper;
  * fleet large enough to need it. What happens on every report is a date
  * comparison; what happens once a month is a query.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class DomainRegistrationRefresherTest extends TestCase
 {
     private const NOW = '2026-09-06 12:00:00';

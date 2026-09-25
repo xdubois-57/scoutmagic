@@ -43,6 +43,7 @@ use Tests\Modules\Registration\RegistrationTestHelper;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class ProjectedPopulationOverReferenceDatasetTest extends TestCase
 {
     private \PDO $pdo;

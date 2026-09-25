@@ -15,6 +15,7 @@ use Tests\DatabaseTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class JournalControllerTest extends TestCase
 {
     private JournalController $controller;

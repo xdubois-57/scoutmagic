@@ -17,6 +17,7 @@ use Tests\DatabaseTestHelper;
  * the version/build bucket, and the difference between the URL it prints
  * and the URL it is willing to link (ARCHITECTURE.md §8.50).
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class SupportDashboardPresentationTest extends TestCase
 {
     private \PDO $pdo;

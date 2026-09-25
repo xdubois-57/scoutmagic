@@ -19,6 +19,7 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Camps\CampsTestHelper;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class CampsMessageConsumerTest extends TestCase
 {
     private const SHARED_MAILBOX = 1;

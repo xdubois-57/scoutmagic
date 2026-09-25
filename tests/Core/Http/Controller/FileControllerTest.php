@@ -21,6 +21,7 @@ use PHPUnit\Framework\TestCase;
 use Twig\Environment;
 use Twig\Loader\ArrayLoader;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class FileControllerTest extends TestCase
 {
     /**

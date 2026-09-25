@@ -45,6 +45,7 @@ use Twig\Loader\FilesystemLoader;
  * `RemoteBackupRbacTest` covers who may reach these methods at all. What
  * is asserted here is what happens once they are reached.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class GoogleDriveConnectionControllerTest extends TestCase
 {
     private \PDO $pdo;

@@ -46,6 +46,7 @@ use Twig\Loader\ArrayLoader;
  * a family's seat in a car written there would leak to whoever holds the
  * link (docs/chantiers/covoiturage.md, IT-03).
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class EventDescriptionEnrichmentFeedTest extends TestCase
 {
     public const LINE = 'Covoiturage — aller 8 h 30, parking des locaux : en attente';

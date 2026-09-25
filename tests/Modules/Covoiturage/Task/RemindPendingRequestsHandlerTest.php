@@ -22,6 +22,7 @@ use Tests\Modules\Covoiturage\CovoiturageTestHelper as H;
  * covoiturage.request_pending: to the driver, for a request that has
  * waited, never for a trip gone, and not again before a few days.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class RemindPendingRequestsHandlerTest extends TestCase
 {
     private \PDO $pdo;

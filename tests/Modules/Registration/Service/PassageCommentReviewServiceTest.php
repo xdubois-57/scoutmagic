@@ -29,6 +29,7 @@ use Tests\Modules\Registration\RegistrationTestHelper;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class PassageCommentReviewServiceTest extends TestCase
 {
     private \PDO $pdo;

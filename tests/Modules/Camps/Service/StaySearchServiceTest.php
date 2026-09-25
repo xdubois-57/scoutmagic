@@ -21,6 +21,7 @@ use Tests\Modules\Camps\CampsTestHelper;
  * opens on the right line is the difference between a search box and a
  * search box people have to use.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class StaySearchServiceTest extends TestCase
 {
     private \PDO $pdo;

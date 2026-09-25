@@ -34,6 +34,7 @@ use Tests\DatabaseTestHelper;
  * non-2xx retries and a ticket retried is a ticket filed twice; and what
  * a person wrote is a `BLOB` on disk and never appears in the journal.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class TicketIntakeServiceTest extends TestCase
 {
     private \PDO $pdo;

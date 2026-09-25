@@ -9,6 +9,7 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\UsageStats\UsageStatsTestHelper;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class PageViewRepositoryTest extends TestCase
 {
     private \PDO $pdo;

@@ -21,6 +21,7 @@ use Tests\Modules\Covoiturage\CovoiturageTestHelper as H;
  * The members' list: to come by default, the past folded and bounded by
  * the retention (D9), free seats counted in people.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class CarpoolListTest extends TestCase
 {
     private \PDO $pdo;

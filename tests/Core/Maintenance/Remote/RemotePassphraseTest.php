@@ -24,6 +24,9 @@ use PHPUnit\Framework\TestCase;
  * else, and a double would assert that by construction instead of by
  * observation.
  */
+// Through `RefusingSettingService`, whose parent's constructor opens an
+// in-memory database: this class builds none itself and inherits none.
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class RemotePassphraseTest extends TestCase
 {
     private string $base;

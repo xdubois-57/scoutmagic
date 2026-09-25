@@ -18,6 +18,7 @@ use PHPUnit\Framework\TestCase;
  * the whole message, a transport only delivers it. These tests assert the
  * assembly is unchanged by looking at what the transport receives.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class MailTransportSeamTest extends TestCase
 {
     private string $tempDir;

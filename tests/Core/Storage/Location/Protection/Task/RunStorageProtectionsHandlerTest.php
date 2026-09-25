@@ -35,6 +35,7 @@ use Tests\DatabaseTestHelper;
  * no test at all — `Tests\Architecture\ScheduledTasksAreTestedTest` says so
  * for modules, and a core handler that purges files is no different.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class RunStorageProtectionsHandlerTest extends TestCase
 {
     private \PDO $pdo;

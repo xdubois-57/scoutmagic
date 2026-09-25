@@ -42,6 +42,7 @@ final class StubTransport implements StatisticsTransportInterface
     }
 }
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class SendStatisticsHandlerTest extends TestCase
 {
     private \PDO $pdo;

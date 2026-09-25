@@ -32,6 +32,7 @@ use Tests\DatabaseTestHelper;
 use Tests\Modules\Camps\CampsTestHelper;
 use Tests\Modules\InboundMail\InboundMailTestHelper;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class MergeServiceTest extends TestCase
 {
     private \PDO $pdo;

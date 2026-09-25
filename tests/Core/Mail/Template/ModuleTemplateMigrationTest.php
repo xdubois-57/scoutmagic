@@ -35,6 +35,7 @@ use Twig\Environment;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class ModuleTemplateMigrationTest extends TestCase
 {
     /**

@@ -19,6 +19,7 @@ use Tests\DatabaseTestHelper;
  * tests pin the declaration itself before the scheduler bootstrap is
  * reworked (chantier « dépendances entre modules », IT-03).
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class CoreTaskHandlersTest extends TestCase
 {
     public function testEveryDeclaredHandlerClassExistsAndImplementsTheInterface(): void

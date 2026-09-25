@@ -28,6 +28,7 @@ use Tests\DatabaseTestHelper;
  * per-member or per-section query fails here before it reaches a unit of
  * 900 members (docs/chantiers/CHANTIER-performance.md).
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class QueryBudgetTest extends TestCase
 {
     private \PDO $pdo;

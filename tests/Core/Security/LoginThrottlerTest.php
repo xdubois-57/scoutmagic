@@ -10,6 +10,7 @@ use Core\Security\LoginThrottler;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class LoginThrottlerTest extends TestCase
 {
     private LoginThrottler $throttler;

@@ -20,6 +20,7 @@ use Tests\Modules\Rental\RentalTestHelper;
  * Iteration 1's acceptance criterion: two public assets, one pinned to the
  * menu and one not, produce a coherent menu and index page.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class RentalMenuHookServiceTest extends TestCase
 {
     private RentalAssetRepository $assetRepository;
