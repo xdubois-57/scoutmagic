@@ -270,6 +270,22 @@ final class DocumentsControllerTest extends TestCase
         $this->assertStringContainsString('/assets/js/list-editor.js', $body);
     }
 
+    public function testTheManagementPageFoldsAwayPastVersionsAndSaysWhy(): void
+    {
+        $document = $this->service->findById($this->documentId);
+        \assert($document !== null);
+        $this->service->update($document->id, $document->title, null, 'public', H::upload('v2.pdf'), null);
+        $this->loginAs('admin');
+
+        $body = $this->handle('GET', '/admin/documents', 'index', 'admin', '/admin/documents')->getBody();
+
+        $this->assertStringContainsString('<details', $body);
+        $this->assertStringContainsString('Version 2 · 1 version précédente', $body);
+        $this->assertStringContainsString('aria-label="Télécharger la version 1 de Règlement"', $body);
+        $this->assertStringContainsString('href="/files/' . $document->fileId . '"', $body);
+        $this->assertStringContainsString('c\'est ce qui fait qu\'une correction corrige vraiment', $body);
+    }
+
     public function testTheEditFormWarnsOnlyAboutReplacingTheFile(): void
     {
         $this->loginAs('admin');

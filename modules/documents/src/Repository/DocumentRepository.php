@@ -21,7 +21,9 @@ use Modules\Documents\Service\DocumentVisibility;
 class DocumentRepository implements AttachedFileRepository
 {
     private const SELECT = 'SELECT d.id, d.slug, d.slug_is_random, d.title, d.description, d.visibility,'
-        . ' d.file_id, d.sort_order, d.updated_at, f.mime_type, f.size_bytes, f.original_name'
+        . ' d.file_id, d.sort_order, d.updated_at, f.mime_type, f.size_bytes, f.original_name,'
+        . ' (SELECT COALESCE(MAX(v.version_number), 0) + 1 FROM document_versions v'
+        . ' WHERE v.document_id = d.id) AS version_number'
         . ' FROM documents d JOIN files f ON f.id = d.file_id';
 
     public function __construct(private \PDO $pdo)
@@ -172,7 +174,8 @@ class DocumentRepository implements AttachedFileRepository
             (string) $row['mime_type'],
             (int) $row['size_bytes'],
             (string) $row['original_name'],
-            (int) $row['slug_is_random'] === 1
+            (int) $row['slug_is_random'] === 1,
+            (int) $row['version_number']
         );
     }
 }

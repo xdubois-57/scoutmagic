@@ -98,7 +98,9 @@
         {% if document %}
             <output class="alert alert-warning small d-none d-block" id="document-replace-warning">
                 L'adresse <span class="font-monospace">{{ document.path() }}</span> ne change pas : les liens
-                déjà distribués mèneront au nouveau fichier. L'ancien fichier est supprimé.
+                déjà distribués mèneront au nouveau fichier. L'ancien devient la version {{ document.versionNumber }},
+                que seul le Staff d'U peut encore ouvrir, même par son ancien lien. Au-delà de {{ kept_versions }}
+                versions précédentes, la plus ancienne est supprimée.
             </output>
         {% endif %}
 
