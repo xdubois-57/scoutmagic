@@ -59,8 +59,14 @@ final class BillingCountryIsEncryptedTest extends TestCase
         // whether every later one observes anything, and the answer would
         // depend on the order the suite happened to run in. Reset here so
         // each test starts from « not carried over yet ».
+        // Both of them. The second says whether a statement may still NAME
+        // the retired column, and leaving it latched would let one test
+        // decide what the next one is even able to observe — the same
+        // order-dependence, one property further along.
         (new \ReflectionProperty(RentalBookingRepository::class, 'legacyCountryAdopted'))
             ->setValue(null, false);
+        (new \ReflectionProperty(RentalBookingRepository::class, 'legacyCountryColumnPresent'))
+            ->setValue(null, null);
 
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->repository = new RentalBookingRepository($this->pdo, $this->encryption);
@@ -371,6 +377,151 @@ final class BillingCountryIsEncryptedTest extends TestCase
             $this->repository->findBillingIdentity($booking)['country'],
             'the backfill wrote a stale clear country over one a manager had already saved'
         );
+    }
+
+    /**
+     * **The new column and the old one are emptied by ONE statement.**
+     *
+     * This is the fix for the hole a reviewer found, and the only way to
+     * observe it is to count. The clearing used to be a second statement
+     * whose failure was swallowed, on the premise that whatever it left
+     * behind was a value the backfill refuses to act on. That premise
+     * fails for a country a manager CLEARS: encryptCountry() returns null,
+     * `billing_country_encrypted` ends up NULL, and the guard cannot tell
+     * such a row from one never carried over — so the next pass restored
+     * the old value over a deliberate clearing.
+     *
+     * No assertion about the resulting ROW can distinguish the two
+     * designs, because what the fix removes is not a wrong value but the
+     * moment at which one is reachable: with two statements, a failure
+     * between them leaves the row in the reverting state; with one, there
+     * is no between. So what is asserted is exactly that — one write, and
+     * it names both columns.
+     */
+    public function testTheNewCountryAndTheRetiredColumnAreWrittenByOneStatement(): void
+    {
+        $booking = $this->createBooking();
+        $this->giveItALegacyClearCountry($booking, 'FR');
+
+        $written = [];
+        $repository = new RentalBookingRepository(
+            $this->connectionThatRecordsItsWrites($written),
+            $this->encryption
+        );
+        $repository->saveBillingIdentity($booking, ['country' => 'NL']);
+
+        $touchingTheRow = array_values(array_filter(
+            $written,
+            static fn (string $sql): bool => str_contains($sql, 'UPDATE rental_bookings')
+                && str_contains($sql, 'billing_country')
+                // Not the backfill's own write, which is a different job
+                // and names its guard: it carries EVERY row that still has
+                // a clear country, not this one's save.
+                && !str_contains($sql, 'billing_country_encrypted IS NULL')
+        ));
+
+        $this->assertCount(
+            1,
+            $touchingTheRow,
+            'the save spends more than one statement on the two country columns, so a failure '
+                . 'can land between them and leave the row in the state a later backfill reverts'
+        );
+        $this->assertStringContainsString('billing_country_encrypted = ?', $touchingTheRow[0]);
+        $this->assertStringContainsString('billing_country = NULL', $touchingTheRow[0]);
+    }
+
+    /**
+     * And the case that made the old design wrong, end to end: a manager
+     * who CLEARS the country leaves nothing behind.
+     *
+     * The probe is refused once so the backfill touches nothing — without
+     * that, it empties the column on its way and this passes whatever the
+     * save does, which is the trap the sibling test above already fell
+     * into once.
+     */
+    public function testClearingTheCountryEmptiesTheRetiredColumnToo(): void
+    {
+        $booking = $this->createBooking();
+        $this->giveItALegacyClearCountry($booking, 'FR');
+
+        $flaky = new RentalBookingRepository($this->connectionThatRefusesTheProbe(1), $this->encryption);
+        $flaky->saveBillingIdentity($booking, ['country' => null]);
+
+        $this->assertNull(
+            $this->legacyClearCountry($booking),
+            'clearing the country left the old value on disk, where the next backfill pass reads it '
+                . 'as a row never carried over and puts it back'
+        );
+        $this->assertNull($this->repository->findBillingIdentity($booking)['country']);
+    }
+
+    /**
+     * A save still works on an installation that has already been cleaned,
+     * even when the probe never got to say so.
+     *
+     * The price of writing both columns in one statement is that the
+     * statement NAMES the retired one — which is exactly why the clearing
+     * sat apart in the first place. Normally the probe has already
+     * answered and the save knows. This is the gap it cannot: the probe
+     * failed transiently, so nothing is known, and the column happens to
+     * be gone. The save tries the statement that names it, reads « unknown
+     * column » as the answer it is, records it, and goes out again without
+     * it. Anything that is NOT that answer is rethrown — a save is what the
+     * caller asked for.
+     */
+    public function testASaveSurvivesAnInstallationWhoseColumnIsAlreadyGone(): void
+    {
+        $booking = $this->createBooking();
+        $this->assertFalse($this->hasLegacyColumn(), 'this test needs the column absent to mean anything');
+
+        $flaky = new RentalBookingRepository($this->connectionThatRefusesTheProbe(1), $this->encryption);
+        $flaky->saveBillingIdentity($booking, ['country' => 'BE']);
+
+        $this->assertSame(
+            'BE',
+            $this->repository->findBillingIdentity($booking)['country'],
+            'the save failed on a column this installation no longer has'
+        );
+    }
+
+    /**
+     * A connection that remembers every statement prepared through it.
+     *
+     * @param list<string> $written
+     */
+    private function connectionThatRecordsItsWrites(array &$written): \PDO
+    {
+        return new class ($this->pdo, $written) extends \PDO {
+            /**
+             * @param list<string> $written
+             */
+            public function __construct(private \PDO $inner, private array &$written)
+            {
+            }
+
+            /**
+             * @param  array<int, mixed> $options
+             */
+            public function prepare(string $query, array $options = []): \PDOStatement|false
+            {
+                $this->written[] = $query;
+
+                return $this->inner->prepare($query, $options);
+            }
+
+            public function query(
+                string $query,
+                ?int $fetchMode = null,
+                mixed ...$fetchModeArgs
+            ): \PDOStatement|false {
+                return $this->inner->query($query);
+            }
+
+            public function lastInsertId(?string $name = null): string|false
+            {
+                return $this->inner->lastInsertId($name);
+            }
+        };
     }
 
     /**

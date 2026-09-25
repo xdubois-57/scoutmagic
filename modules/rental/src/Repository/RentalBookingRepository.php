@@ -58,6 +58,18 @@ class RentalBookingRepository
     private static bool $legacyCountryAdopted = false;
 
     /**
+     * Whether `rental_bookings.billing_country` is still there at all.
+     *
+     * null until a probe has answered. The two are not the same question:
+     * $legacyCountryAdopted says « there is nothing left to carry over »,
+     * which is true both when the column is gone AND when a pass has just
+     * emptied it. Only this one says whether a statement may still NAME the
+     * column — which saveBillingIdentity() has to know to empty it in the
+     * same write.
+     */
+    private static ?bool $legacyCountryColumnPresent = null;
+
+    /**
      * Blind-index purpose. Shared with nothing else: an index computed under
      * one purpose must never collide with the same address indexed for
      * another feature, or the two become linkable.
@@ -663,15 +675,7 @@ class RentalBookingRepository
         // leave every OTHER booking's country in clear.
         $this->adoptLegacyCountryColumn();
 
-        $stmt = $this->pdo->prepare(
-            'UPDATE rental_bookings SET
-                billing_name_encrypted = ?, billing_address_encrypted = ?,
-                billing_country_encrypted = ?,
-                billing_vat_number_encrypted = ?, billing_enterprise_number_encrypted = ?,
-                billing_email_encrypted = ?, billing_reference_encrypted = ?, updated_at = ?
-             WHERE id = ?'
-        );
-        $stmt->execute([
+        $values = [
             $this->encryptOptional($identity['name'] ?? null, self::CTX_BILLING_NAME),
             $this->encryptOptional($identity['address'] ?? null, self::CTX_BILLING_ADDRESS),
             // Normalised BEFORE it is encrypted, and the normalisation now
@@ -687,42 +691,68 @@ class RentalBookingRepository
             $this->encryptOptional($identity['reference'] ?? null, self::CTX_BILLING_REFERENCE),
             (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
             $bookingId,
-        ]);
+        ];
 
-        $this->forgetLegacyCountry($bookingId);
+        if (self::$legacyCountryColumnPresent === false) {
+            $this->writeBillingIdentity($values, false);
+
+            return;
+        }
+
+        try {
+            $this->writeBillingIdentity($values, true);
+        } catch (\PDOException $e) {
+            if (!self::saysTheColumnIsGone($e)) {
+                // A save IS what the caller asked for, so a failure that
+                // says nothing about the schema is theirs to hear. This is
+                // the one place in this carry-over that rethrows, and the
+                // asymmetry is deliberate: adoptLegacyCountryColumn() is
+                // incidental to every call it hangs off, this is not.
+                throw $e;
+            }
+
+            // An installation already carried over and cleaned. That
+            // answer never changes, so it is recorded and the same write
+            // goes out again without naming the column.
+            self::$legacyCountryColumnPresent = false;
+            $this->writeBillingIdentity($values, false);
+        }
     }
 
     /**
-     * Empty the retired plaintext column for one booking, if it is still
-     * there.
+     * The billing identity write, with or without emptying the retired
+     * plaintext country column in the same statement.
      *
-     * Its own statement rather than a `billing_country = NULL` inside the
-     * UPDATE above, because that column is gone on any installation that
-     * has already been carried over and cleaned: naming it in the write
-     * every save depends on would make the save fail there. Here a failure
-     * that says the column is absent is the expected answer and is
-     * swallowed; anything else is left to the next save, exactly as
-     * adoptLegacyCountryColumn() does.
+     * **One statement rather than two, and that is the whole point.** This
+     * used to be a plain UPDATE followed by a separate
+     * `billing_country = NULL`, whose failure was swallowed — on the
+     * premise that what it left behind was « a stale value the backfill
+     * refuses to act on ». A reviewer found the case where the premise is
+     * false: a manager who CLEARS the country makes encryptCountry() return
+     * null, so `billing_country_encrypted` ends up NULL, which is exactly
+     * what adoptLegacyCountryColumn()'s guard reads as « never carried
+     * over ». The stale `'FR'` still matched, and the next pass restored
+     * it — reverting a deliberate clearing, with nothing to show it. Two
+     * statements always leave that window; one cannot.
      *
-     * A second round trip, and it is affordable where the one in
-     * findBillingIdentity() was not: this runs when a manager saves a
-     * billing identity, not on every page that reads one.
+     * Which is why knowing whether the column exists had to become a
+     * question this class answers. Naming a column that is gone fails the
+     * write every save depends on, and that was the reason the clearing sat
+     * in a statement of its own in the first place.
+     *
+     * @param list<string|int|null> $values
      */
-    private function forgetLegacyCountry(int $bookingId): void
+    private function writeBillingIdentity(array $values, bool $emptyTheRetiredColumn): void
     {
-        try {
-            $this->pdo
-                ->prepare('UPDATE rental_bookings SET billing_country = NULL WHERE id = ?')
-                ->execute([$bookingId]);
-        } catch (\PDOException $e) {
-            if (!self::saysTheColumnIsGone($e)) {
-                // Nothing is retried here on purpose: the row's country is
-                // already correct in the new column, and what is left
-                // behind is a stale value the backfill above now refuses
-                // to act on.
-                return;
-            }
-        }
+        $this->pdo->prepare(
+            'UPDATE rental_bookings SET
+                billing_name_encrypted = ?, billing_address_encrypted = ?,
+                billing_country_encrypted = ?,'
+            . ($emptyTheRetiredColumn ? ' billing_country = NULL,' : '')
+            . ' billing_vat_number_encrypted = ?, billing_enterprise_number_encrypted = ?,
+                billing_email_encrypted = ?, billing_reference_encrypted = ?, updated_at = ?
+             WHERE id = ?'
+        )->execute($values);
     }
 
     /**
@@ -795,10 +825,15 @@ class RentalBookingRepository
      * Hence `AND billing_country_encrypted IS NULL`, which says what this
      * backfill is actually for: filling a row that has none. A row a save
      * has already written is never its business, whatever the old column
-     * still says. That is the clause that closes the race; the save
-     * clearing the legacy column (below) is what stops a clear country
-     * being left behind, and neither substitutes for the other — a clear
-     * that fails transiently would otherwise re-open exactly this.
+     * still says.
+     *
+     * That clause closes the race for a country a save WROTE. It cannot
+     * close it for one a manager CLEARED — encryptCountry() returns null
+     * then, so the row reads exactly like one never carried over — and that
+     * hole was open as long as the save emptied the old column in a
+     * statement of its own that was allowed to fail. It does not any more:
+     * writeBillingIdentity() empties it in the same write, so there is no
+     * moment at which a cleared row still carries its old value.
      *
      * The rows are snapshotted BEFORE the write is prepared, which reads
      * in the order it happens and is also what lets
@@ -824,13 +859,30 @@ class RentalBookingRepository
 
             $legacy = $rows->fetchAll(\PDO::FETCH_ASSOC);
 
-            // `updated_at` is deliberately NOT touched: nothing about the
-            // booking changed for its manager, and moving the timestamp
-            // would put every upgraded booking at the top of a list
-            // ordered by it.
+            // The SELECT above named the column and was answered, so it is
+            // there — which is what lets saveBillingIdentity() empty it in
+            // the same statement that writes the new one.
+            self::$legacyCountryColumnPresent = true;
+
+            // `updated_at = updated_at` is what actually keeps the
+            // timestamp still, and leaving it out was a real defect rather
+            // than a stylistic one. Nothing about the booking changed for
+            // its manager, and moving the timestamp would put every
+            // upgraded booking at the top of a list ordered by it — but
+            // rental_bookings.updated_at is declared
+            // `ON UPDATE CURRENT_TIMESTAMP`, so MySQL bumps it on any
+            // UPDATE that changes another column and does not assign it.
+            // Simply not naming the column therefore achieved the exact
+            // opposite of what the comment here used to claim, on the
+            // production engine only: SQLite has no such clause, so every
+            // test of this method was green over it. Assigning the column
+            // its own value is the documented way to stop the engine, and
+            // it keeps a literal — and a second round trip to read one —
+            // out of the statement.
             $write = $this->pdo->prepare(
                 'UPDATE rental_bookings
-                    SET billing_country_encrypted = ?, billing_country = NULL
+                    SET billing_country_encrypted = ?, billing_country = NULL,
+                        updated_at = updated_at
                   WHERE id = ? AND billing_country = ?
                     AND billing_country_encrypted IS NULL'
             );
@@ -870,7 +922,10 @@ class RentalBookingRepository
             }
 
             // No such column: a fresh install, or one already carried over
-            // and dropped. That answer never changes, so it is recorded.
+            // and dropped. That answer never changes, so it is recorded —
+            // both that there is nothing to carry, and that no statement
+            // may name the column.
+            self::$legacyCountryColumnPresent = false;
         }
 
         self::$legacyCountryAdopted = true;
