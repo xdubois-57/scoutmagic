@@ -136,7 +136,7 @@ class ConfigMenuSplitRbacTest extends TestCase
 
         foreach (self::SUPERADMIN_ROUTES as [$method, $path]) {
             $response = $fc->handle(new Request($method, $path, [], [], [], []));
-            $this->assertSame(403, $response->getStatusCode(), "{$method} {$path} should be denied for admin (Chef d'Unité)");
+            $this->assertSame(403, $response->getStatusCode(), "{$method} {$path} should be denied for admin (« Chef d'Unité »)");
         }
     }
 
@@ -151,7 +151,7 @@ class ConfigMenuSplitRbacTest extends TestCase
 
         foreach (self::ADMIN_ROUTES as [$method, $path]) {
             $response = $fc->handle(new Request($method, $path, [], [], [], []));
-            $this->assertSame(200, $response->getStatusCode(), "{$method} {$path} should be allowed for admin (Chef d'Unité)");
+            $this->assertSame(200, $response->getStatusCode(), "{$method} {$path} should be allowed for admin (« Chef d'Unité »)");
         }
     }
 

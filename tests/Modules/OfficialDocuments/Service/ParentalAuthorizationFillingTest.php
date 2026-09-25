@@ -172,7 +172,7 @@ final class ParentalAuthorizationFillingTest extends TestCase
             self::leaderWith('Avenue des Anciens Combattants de la Seconde Guerre mondiale', '1348', 'Ottignies')
         );
 
-        $this->assertNotSame('', $second, 'une adresse trop longue doit passer sur la seconde ligne');
+        $this->assertNotSame('', $second, 'an address too long must wrap onto the second line');
         $this->assertStringEndsNotWith(',', $first);
         $this->assertStringStartsNotWith(' ', $second);
         // Nothing lost between the two halves.
@@ -187,10 +187,10 @@ final class ParentalAuthorizationFillingTest extends TestCase
         foreach (SignatoryCapacity::all() as $chosen) {
             $strikes = ParentalAuthorizationFilling::strikes(self::member(), self::input($chosen));
 
-            $this->assertNotContains($chosen->strikeZone(), $strikes, $chosen->value . ' ne doit pas être barré');
+            $this->assertNotContains($chosen->strikeZone(), $strikes, $chosen->value . ' must not be struck through');
             foreach (SignatoryCapacity::all() as $other) {
                 if ($other !== $chosen) {
-                    $this->assertContains($other->strikeZone(), $strikes, $other->value . ' doit être barré');
+                    $this->assertContains($other->strikeZone(), $strikes, $other->value . ' must be struck through');
                 }
             }
         }
@@ -216,7 +216,7 @@ final class ParentalAuthorizationFillingTest extends TestCase
             $this->assertSame(
                 'branch_eclaireurs',
                 ParentalAuthorizationFilling::branchStrikeFor(self::member($spelling)),
-                "« {$spelling} » doit être reconnu comme la branche Éclaireurs"
+                "« {$spelling} » must be recognised as the Éclaireurs branch"
             );
         }
     }
@@ -235,7 +235,7 @@ final class ParentalAuthorizationFillingTest extends TestCase
                 $this->assertNotContains(
                     $zone,
                     $strikes,
-                    sprintf('« %s » ne doit rien barrer du tout', $branch ?? 'aucune fonction')
+                    sprintf('« %s » must strike nothing at all', $branch ?? 'none')
                 );
             }
         }

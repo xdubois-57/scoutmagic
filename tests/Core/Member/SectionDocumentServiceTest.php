@@ -126,7 +126,7 @@ class SectionDocumentServiceTest extends TestCase
         try {
             $this->service->upload($this->sectionId, $this->scoutYearId, '%PDF-1.4 fake content',
                 'application/pdf', 'camp.pdf', 'Camp booklet', null, 7);
-            $this->fail('une exception était attendue');
+            $this->fail('an exception was expected');
         } catch (\Throwable) {
             // The point is what is left behind.
         }
@@ -134,10 +134,10 @@ class SectionDocumentServiceTest extends TestCase
         $this->assertSame(
             $before,
             (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn(),
-            'une ligne `files` orpheline est restée',
+            'an orphaned `files` row was left behind',
         );
         $stored = glob($this->storagePath . '/section_documents/*') ?: [];
-        $this->assertSame([], $stored, 'un fichier chiffré orphelin est resté sur le disque');
+        $this->assertSame([], $stored, 'an orphaned encrypted file was left on disk');
     }
 
     public function testUploadDefaultsTitleToTheOriginalFilenameWhenBlank(): void

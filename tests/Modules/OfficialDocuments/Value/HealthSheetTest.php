@@ -184,7 +184,7 @@ final class HealthSheetTest extends TestCase
                 'epilepsy', 'bedwetting', 'sleepwalking', 'headaches',
             ],
             HealthSheet::CONDITIONS,
-            'l\'ordre est celui que le formulaire imprime : trois rangées de quatre'
+            'the order is the one the form prints: three rows of four'
         );
     }
 
@@ -211,7 +211,7 @@ final class HealthSheetTest extends TestCase
         // The parent unticks diabetes: the browser now posts asthma alone.
         $after = HealthSheet::fromBody(['conditions' => ['asthma']]);
         $this->assertTrue($after->conditions['asthma']);
-        $this->assertFalse($after->conditions['diabetes'], 'décocher doit être enregistré');
+        $this->assertFalse($after->conditions['diabetes'], 'unticking must be recorded');
     }
 
     /**

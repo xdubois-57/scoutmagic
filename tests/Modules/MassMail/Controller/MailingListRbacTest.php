@@ -146,7 +146,7 @@ class MailingListRbacTest extends TestCase
         string $action,
         string $roleMin
     ): void {
-        $this->assertSame('admin', $roleMin, "Route {$path} should open to a chef d'unité");
+        $this->assertSame('admin', $roleMin, "Route {$path} should open to a « chef d'unité »");
 
         AuthSession::login($this->accountId, 'cu@test.com', $roleMin);
 

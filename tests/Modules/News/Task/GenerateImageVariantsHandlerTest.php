@@ -120,7 +120,7 @@ class GenerateImageVariantsHandlerTest extends TestCase
                 "SELECT COUNT(*) FROM scheduled_actions
                  WHERE module_id = 'news' AND task_key = 'generate_image_variants' AND status = 'pending'"
             )->fetchColumn(),
-            'la reprise ne s\'est pas réarmée',
+            'the retry did not re-arm itself',
         );
 
         // The next pass picks up where this one stopped — through the

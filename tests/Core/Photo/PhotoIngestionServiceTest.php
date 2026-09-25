@@ -122,7 +122,7 @@ final class PhotoIngestionServiceTest extends TestCase
         );
 
         self::assertNotNull($result->fileId);
-        self::assertTrue($result->linked, 'Une photo de membre doit être rattachée même sans compte auteur.');
+        self::assertTrue($result->linked, 'a member photo must be linked even with no author account');
         self::assertSame(
             $result->fileId,
             $this->memberPhotoService->resolveFileId($this->memberId, $this->scoutYearId),
@@ -151,7 +151,7 @@ final class PhotoIngestionServiceTest extends TestCase
         $stored = $this->storedPathOf((int) $result->fileId);
         $size = getimagesize($stored);
         self::assertNotFalse($size);
-        self::assertEqualsWithDelta(4 / 3, $size[0] / $size[1], 0.01, 'La photo de groupe n\'a pas été recadrée en 4:3.');
+        self::assertEqualsWithDelta(4 / 3, $size[0] / $size[1], 0.01, 'the group photo was not cropped to 4:3');
     }
 
     public function testAStoredPhotoCarriesTheRoleFloorItsContextRequires(): void
@@ -175,8 +175,8 @@ final class PhotoIngestionServiceTest extends TestCase
         // Resolved through the service that reads derivatives in production,
         // rather than by rebuilding the path here: the naming convention
         // (always .webp, whatever the original extension) belongs to it.
-        self::assertNotNull($this->variantPathOf((int) $member->fileId, 'thumb'), 'La photo de membre n\'a pas de vignette.');
-        self::assertNotNull($this->variantPathOf((int) $section->fileId, 'md'), 'La photo de groupe n\'a pas de dérivé « md ».');
+        self::assertNotNull($this->variantPathOf((int) $member->fileId, 'thumb'), 'the member photo has no thumbnail');
+        self::assertNotNull($this->variantPathOf((int) $section->fileId, 'md'), 'the group photo has no "md" derivative');
 
         // And nothing generates the variant the other context uses.
         self::assertNull($this->variantPathOf((int) $member->fileId, 'md'));

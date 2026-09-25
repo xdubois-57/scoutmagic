@@ -292,7 +292,7 @@ class MemberControllerScoutYearOffsetTest extends TestCase
 
         $stmt = $this->pdo->prepare('SELECT scout_year_offset FROM member_years WHERE id = ?');
         $stmt->execute([$memberYearId]);
-        $this->assertSame(0, (int) $stmt->fetchColumn(), 'Le décalage a été écrit malgré le refus.');
+        $this->assertSame(0, (int) $stmt->fetchColumn(), 'the offset was written despite the refusal');
     }
 
     /**
