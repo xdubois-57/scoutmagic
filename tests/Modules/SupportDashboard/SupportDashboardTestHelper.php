@@ -122,6 +122,17 @@ class SupportDashboardTestHelper
             raw_headers_encrypted BLOB NULL
         )');
 
+        $pdo->exec('CREATE TABLE support_desk_mapping_gaps (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind TEXT NOT NULL,
+            value_normalized TEXT NOT NULL,
+            value_raw TEXT NOT NULL,
+            first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            notified_at TEXT,
+            ignored_at TEXT,
+            UNIQUE (kind, value_normalized)
+        )');
+
         $pdo->exec('CREATE TABLE support_ticket_analyses (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             requested_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,

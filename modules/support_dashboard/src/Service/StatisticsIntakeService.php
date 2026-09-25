@@ -93,7 +93,14 @@ class StatisticsIntakeService
          * a receiver on a host with no outbound port 43 is the ordinary
          * case for this one, not a broken one.
          */
-        private ?DomainRegistrationRefresher $registrations = null
+        private ?DomainRegistrationRefresher $registrations = null,
+        /**
+         * Remembers the Desk values no version of this software
+         * recognises, and announces a new one once (issue #356). Null
+         * accepts reports exactly as before — a receiver that cannot
+         * record a vocabulary gap must still record the report.
+         */
+        private ?DeskMappingGapRecorder $deskMappingGaps = null
     ) {
     }
 
@@ -153,6 +160,7 @@ class StatisticsIntakeService
             $this->recordMonthlyContribution($installationId);
             $this->journalAcceptance($installationId, true, $unknownFields);
             $this->refreshRegistration($rowId);
+            $this->recordDeskMappingGaps($payload);
 
             return StatisticsIntakeResult::accepted(true, $unknownFields);
         }
@@ -165,6 +173,7 @@ class StatisticsIntakeService
         $this->recordMonthlyContribution($installationId);
         $this->journalAcceptance($installationId, false, $unknownFields);
         $this->refreshRegistration((int) $existing['id']);
+        $this->recordDeskMappingGaps($payload);
 
         return StatisticsIntakeResult::accepted(false, $unknownFields);
     }
@@ -232,6 +241,25 @@ class StatisticsIntakeService
         }
 
         return true;
+    }
+
+    /**
+     * Last, and never before the report is stored and journaled: the
+     * vocabulary gap is a nice-to-have next to actually accepting the
+     * report, exactly as the monthly contribution is. Deliberately never
+     * fatal for the same reason — a receiver that started refusing reports
+     * because a notification failed would trade the thing that matters for
+     * the thing that does not.
+     *
+     * @param array<string, mixed> $payload
+     */
+    private function recordDeskMappingGaps(array $payload): void
+    {
+        try {
+            $this->deskMappingGaps?->record($payload);
+        } catch (\Throwable) {
+            // Swallowed on purpose — see the docblock.
+        }
     }
 
     /**
