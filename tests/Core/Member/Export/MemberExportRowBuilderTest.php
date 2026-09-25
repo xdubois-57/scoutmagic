@@ -16,6 +16,8 @@ use Core\Security\EncryptionService;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 #[Group('database')]
 class MemberExportRowBuilderTest extends TestCase
@@ -31,7 +33,10 @@ class MemberExportRowBuilderTest extends TestCase
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
 
-        $sectionService = new SectionService($connection, $this->encryption, new \Core\Badge\MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, new \Core\Badge\MemberBadgeRepository($this->pdo))
+);
         $scoutYearService = new ScoutYearService($this->pdo);
         $memberEmailRepository = new MemberEmailRepository($this->pdo, $this->encryption);
         $movementClassifier = new MemberMovementClassifierService(new MemberMovementRepository($this->pdo), $scoutYearService);

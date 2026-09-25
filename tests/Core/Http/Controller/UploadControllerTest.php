@@ -34,6 +34,7 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * @group database
@@ -85,10 +86,9 @@ class UploadControllerTest extends TestCase
         $this->journalRepo = new JournalRepository($this->pdo);
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $memberService = new MemberService(
-            new MemberYearRepository($this->pdo),
-            $this->encryption,
-            Connection::withPdo($this->pdo)
-        );
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption)
+);
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);

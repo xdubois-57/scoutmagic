@@ -49,6 +49,8 @@ use Core\Storage\Location\Backend\WebDavBackend;
 use Core\Storage\Location\Backend\WebDav\WebDavClient;
 use Tests\Core\Storage\Location\Backend\WebDav\FakeWebDavServer;
 use Modules\Gallery\Service\GalleryLocationService;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -86,9 +88,15 @@ class GalleryControllerTest extends TestCase
         $this->albumRepository = new AlbumRepository($this->pdo);
         $this->mediaRepository = new MediaRepository($this->pdo);
         $memberBadgeRepository = new MemberBadgeRepository($this->pdo);
-        $this->sectionService = new SectionService($connection, $encryption, $memberBadgeRepository);
+        $this->sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, $memberBadgeRepository)
+);
         $memberYearRepo = new MemberYearRepository($this->pdo);
-        $this->memberService = new MemberService($memberYearRepo, $encryption, $connection);
+        $this->memberService = new MemberService(
+    $memberYearRepo,
+    new MemberProfileRepository($connection, $encryption)
+);
         $this->scoutYearService = new ScoutYearService($this->pdo);
         $settingService = $this->createMock(SettingService::class);
         $settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);

@@ -17,6 +17,8 @@ use Modules\Registration\Service\PassageService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Registration\RegistrationTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * "Prévisions" page's domain logic: the four apports (real Desk data for
@@ -70,7 +72,10 @@ class ForecastServiceTest extends TestCase
         $this->pionniersSectionId = $this->createSection('PION1', $pionniersBranchId, 'Pionniers A');
 
         $connection = Connection::withPdo($this->pdo);
-        $sectionService = new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
+);
         $this->transferRepository = new SectionTransferRepository($this->pdo);
         $this->requestRepository = new RegistrationRequestRepository($this->pdo, $this->encryption);
 

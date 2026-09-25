@@ -36,6 +36,8 @@ use Tests\DatabaseTestHelper;
 use Tests\Modules\News\NewsTestHelper;
 use Twig\Environment;
 use Twig\Loader\ArrayLoader;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -81,7 +83,10 @@ class ResponseServiceTest extends TestCase
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
         $roleResolver = new RoleResolver(new MemberYearRepository($this->pdo), $encryption, $this->pdo);
-        $sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, new MemberBadgeRepository($this->pdo))
+);
         // The real bodies, not stubs: whether the ticket block renders at
         // all is half of what these tests are about.
         $twig = \Core\View\TwigFactory::create(

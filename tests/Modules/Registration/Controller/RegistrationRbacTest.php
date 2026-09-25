@@ -40,6 +40,8 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Registration\RegistrationTestHelper;
 use Twig\Environment;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * RBAC boundary for the iteration-5 staff routes — role_min: admin (the
@@ -83,7 +85,10 @@ class RegistrationRbacTest extends TestCase
         $slotCapacityRepository = new SlotCapacityRepository($this->pdo);
         $slotService = new SlotService($this->pdo, $encryption, $settingService, $ageBracketRepository, $slotCapacityRepository, $requestRepository);
         $connection = Connection::withPdo($this->pdo);
-        $sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, new MemberBadgeRepository($this->pdo))
+);
         $editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
         $journalService = new JournalService(new JournalRepository($this->pdo));
         $statusService = new RequestStatusService($requestRepository, $journalService);
@@ -122,7 +127,10 @@ class RegistrationRbacTest extends TestCase
             $statusService, $this->createMock(\Modules\Registration\Service\RequestEmailService::class),
             $this->createMock(\Modules\Registration\Service\MigrationService::class),
             new MemberRepository($this->pdo), new MemberYearRepository($this->pdo), $scoutYearResolver, $scoutYearService, $slotService,
-            new MemberService(new MemberYearRepository($this->pdo), $encryption, $connection)
+            new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository($connection, $encryption)
+)
         );
 
         if (session_status() === PHP_SESSION_NONE) {

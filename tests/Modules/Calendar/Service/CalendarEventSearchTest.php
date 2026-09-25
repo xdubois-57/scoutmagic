@@ -16,6 +16,8 @@ use Modules\Calendar\Service\CalendarService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Calendar\CalendarTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * The calendar API as the carpool module reads it (docs/chantiers/
@@ -38,7 +40,10 @@ final class CalendarEventSearchTest extends TestCase
         $this->calendars = new CalendarService(
             new CalendarRepository($this->pdo, $encryption),
             $this->events,
-            new SectionService(Connection::withPdo($this->pdo), $encryption, new MemberBadgeRepository($this->pdo)),
+            new SectionService(
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $encryption, new MemberBadgeRepository($this->pdo))
+),
             new CalendarUnitFeedTokenRepository($this->pdo, $encryption)
         );
     }

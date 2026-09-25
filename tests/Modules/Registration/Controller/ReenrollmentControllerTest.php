@@ -32,6 +32,8 @@ use Modules\Registration\Service\ReenrollmentService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Registration\RegistrationTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * « Réinscription » — the page a parent answers on (spec §11).
@@ -118,8 +120,14 @@ class ReenrollmentControllerTest extends TestCase
         $this->settingService->set(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->currentYearId);
 
         $connection = Connection::withPdo($this->pdo);
-        $sectionService = new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo));
-        $memberService = new MemberService(new MemberYearRepository($this->pdo), $this->encryption, $connection);
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
+);
+        $memberService = new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository($connection, $this->encryption)
+);
         $scoutYearService = new ScoutYearService($this->pdo);
         $scoutYearResolver = new ScoutYearResolver(
             $scoutYearService,

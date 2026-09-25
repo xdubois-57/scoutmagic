@@ -27,6 +27,8 @@ use Modules\Gallery\Service\GalleryAccessService;
 use Modules\Gallery\Service\GalleryStorageWiring;
 use Modules\Gallery\Service\MediaService;
 use Modules\Gallery\Service\StoredFileCleaner;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * Builds a DelegatedAlbumManager from a Core\Scheduler\TaskContext —
@@ -77,13 +79,15 @@ final class DelegatedAlbumManagerFactory
             $context->settings,
             new GalleryAccessService(
                 new MemberService(
-                    new MemberYearRepository($pdo),
-                    $context->encryption,
-                    $context->connection,
-                    null,
-                    new MemberEmailRepository($pdo, $context->encryption)
-                ),
-                new SectionService($context->connection, $context->encryption, new MemberBadgeRepository($pdo)),
+    new MemberYearRepository($pdo),
+    new MemberProfileRepository($context->connection, $context->encryption),
+    null,
+    new MemberEmailRepository($pdo, $context->encryption)
+),
+                new SectionService(
+    new SectionRepository($context->connection),
+    new MemberProfileRepository($context->connection, $context->encryption, new MemberBadgeRepository($pdo))
+),
                 $scoutYearService
             ),
             $storage->backends,

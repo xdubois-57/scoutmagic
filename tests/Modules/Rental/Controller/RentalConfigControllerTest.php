@@ -27,6 +27,7 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Rental\RentalTestHelper;
 use Twig\Environment;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * The park administration page: who may be designated a manager, and what a
@@ -80,10 +81,9 @@ class RentalConfigControllerTest extends TestCase
         $this->managerRepository = new RentalAssetManagerRepository($this->pdo);
 
         $memberService = new MemberService(
-            new MemberYearRepository($this->pdo),
-            $this->encryption,
-            Connection::withPdo($this->pdo)
-        );
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption)
+);
         $journalService = new JournalService(new JournalRepository($this->pdo));
 
         $this->managerService = new RentalManagerService(

@@ -15,6 +15,8 @@ use Core\Security\Role;
 use Modules\Gallery\Service\GalleryAccessService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -33,8 +35,14 @@ class GalleryAccessServiceTest extends TestCase
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
 
-        $memberService = new MemberService(new MemberYearRepository($this->pdo), $this->encryption, $connection);
-        $sectionService = new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo));
+        $memberService = new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository($connection, $this->encryption)
+);
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
+);
         $scoutYearService = new ScoutYearService($this->pdo);
 
         $this->service = new GalleryAccessService($memberService, $sectionService, $scoutYearService);

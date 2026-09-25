@@ -23,6 +23,7 @@ use Modules\MassMail\Service\MergeRenderer;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * @group database
@@ -326,7 +327,10 @@ class CampaignReminderServiceTest extends TestCase
             $this->receivables,
             FinanceTestHelper::allocationService($this->pdo, $this->encryption, $this->receivables),
             new AccountRepository($this->pdo, $this->encryption),
-            new MemberService(new MemberYearRepository($this->pdo), $this->encryption, Connection::withPdo($this->pdo)),
+            new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption)
+),
             $this->tokens,
             'https://scoutmagic.test',
             $withDraftProvider ? $this->draft : null

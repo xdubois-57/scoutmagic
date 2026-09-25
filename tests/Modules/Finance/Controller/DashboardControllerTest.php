@@ -33,6 +33,8 @@ use Tests\Modules\Finance\FinanceTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 use Twig\TwigFunction;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -57,7 +59,10 @@ class DashboardControllerTest extends TestCase
 
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
-        $sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, new MemberBadgeRepository($this->pdo))
+);
 
         $this->accountRepository = new AccountRepository($this->pdo, $encryption);
         $this->fiscalYearRepository = new FiscalYearRepository($this->pdo, new \Core\Config\ScoutYearService($this->pdo));
@@ -132,7 +137,10 @@ class DashboardControllerTest extends TestCase
                 $this->accountRepository,
                 new \Modules\Finance\Service\AccountVisibility(\Modules\Finance\Service\TreasurerScope::systemCaller()),
                 \Tests\Modules\Finance\FinanceTestHelper::allocationService($this->pdo, $encryption, $expectedReceivableRepository),
-                new \Core\Member\MemberService(new \Core\Import\MemberYearRepository($this->pdo), $encryption, $connection),
+                new \Core\Member\MemberService(
+    new \Core\Import\MemberYearRepository($this->pdo),
+    new \Core\Member\Repository\MemberProfileRepository($connection, $encryption)
+),
                 new \Core\Member\Household\HouseholdService(
                     new \Core\Member\Household\HouseholdRepository($this->pdo, $encryption),
                     $encryption

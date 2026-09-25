@@ -44,6 +44,7 @@ use Modules\Rental\Service\RentalPricingService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Rental\RentalTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * What POSTing the « Rappels » section actually stores (§6.29).
@@ -87,10 +88,9 @@ class RentalReminderSettingsTest extends TestCase
         $assetRepository = new RentalAssetRepository($this->pdo, $encryption);
         $managerRepository = new RentalAssetManagerRepository($this->pdo);
         $memberService = new MemberService(
-            new MemberYearRepository($this->pdo),
-            $encryption,
-            Connection::withPdo($this->pdo)
-        );
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $encryption)
+);
 
         $this->reminderRepository = new RentalAssetReminderRepository($this->pdo);
 

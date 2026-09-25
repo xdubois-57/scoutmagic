@@ -556,16 +556,14 @@ class SendBatchHandler implements TaskHandlerInterface
     {
         $pdo = $context->connection->getPdo();
         $sectionService = new \Core\Member\SectionService(
-            $context->connection,
-            $context->encryption,
-            new \Core\Badge\MemberBadgeRepository($pdo)
-        );
+    new \Core\Member\Repository\SectionRepository($context->connection),
+    new \Core\Member\Repository\MemberProfileRepository($context->connection, $context->encryption, new \Core\Badge\MemberBadgeRepository($pdo))
+);
 
         $memberService = new \Core\Member\MemberService(
-            new \Core\Import\MemberYearRepository($pdo),
-            $context->encryption,
-            $context->connection
-        );
+    new \Core\Import\MemberYearRepository($pdo),
+    new \Core\Member\Repository\MemberProfileRepository($context->connection, $context->encryption)
+);
         $scoutYearService = new \Core\Config\ScoutYearService($pdo);
 
         // No module namespace needed — Core\Member\MemberEmailService only

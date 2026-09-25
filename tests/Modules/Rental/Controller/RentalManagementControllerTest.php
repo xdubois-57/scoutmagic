@@ -60,6 +60,7 @@ use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
 use Tests\Modules\Rental\RentalTestHelper;
 use Twig\Environment;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * The managed space, dispatched through the real Router and FrontController.
@@ -143,7 +144,10 @@ class RentalManagementControllerTest extends TestCase
         $this->blockRepository = new RentalBlockRepository($this->pdo);
         $bookingAudit = RentalTestHelper::bookingAudit($this->pdo, $this->encryption);
 
-        $memberService = new MemberService(new MemberYearRepository($this->pdo), $this->encryption, $connection);
+        $memberService = new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository($connection, $this->encryption)
+);
 
         $this->pricingService = new RentalPricingService(
             new RentalPricingRepository($this->pdo),
@@ -587,7 +591,10 @@ class RentalManagementControllerTest extends TestCase
             $this->bookingRepository,
             new \Modules\Rental\Repository\RentalDocumentRepository($this->pdo),
             new RentalAuthorizationService(
-                new MemberService(new MemberYearRepository($this->pdo), $this->encryption, Connection::withPdo($this->pdo)),
+                new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption)
+),
                 $this->assetRepository,
                 $this->managerRepository
             ),

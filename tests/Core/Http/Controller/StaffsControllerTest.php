@@ -28,6 +28,8 @@ use Tests\DatabaseTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 use Twig\TwigFunction;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -51,9 +53,15 @@ class StaffsControllerTest extends TestCase
         $connection = Connection::withPdo($this->pdo);
 
         $memberBadgeRepository = new MemberBadgeRepository($this->pdo);
-        $this->sectionService = new SectionService($connection, $this->encryption, $memberBadgeRepository);
+        $this->sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, $memberBadgeRepository)
+);
         $memberYearRepo = new MemberYearRepository($this->pdo);
-        $this->memberService = new MemberService($memberYearRepo, $this->encryption, $connection);
+        $this->memberService = new MemberService(
+    $memberYearRepo,
+    new MemberProfileRepository($connection, $this->encryption)
+);
         $scoutYearService = new ScoutYearService($this->pdo);
         $settingService = new SettingService(new SettingRepository($this->pdo));
         $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);

@@ -27,6 +27,8 @@ use Tests\DatabaseTestHelper;
 use Tests\Fixtures\ReferenceDataset\DeskImportReplay;
 use Tests\Fixtures\ReferenceDataset\UnitBlueprint;
 use Tests\Modules\Registration\RegistrationTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * `Api\ProjectedPopulationProvider` against the reference unit — ~180
@@ -79,7 +81,10 @@ final class ProjectedPopulationOverReferenceDatasetTest extends TestCase
         $this->targetLabel = UnitBlueprint::YEARS[count(UnitBlueprint::YEARS) - 1];
 
         $connection = Connection::withPdo($this->pdo);
-        $sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, new MemberBadgeRepository($this->pdo))
+);
         $this->sectionService = $sectionService;
         $ageBracketRepository = new AgeBracketRepository($this->pdo);
         $requestRepository = new RegistrationRequestRepository($this->pdo, $encryption);

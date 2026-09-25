@@ -29,6 +29,7 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
 use Twig\Loader\ArrayLoader;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * The two routes behind « Ajouter à mes contacts »: what they answer, what
@@ -64,7 +65,10 @@ class MemberContactControllerTest extends TestCase
 
         $this->controller = new MemberContactController(
             $twig,
-            new MemberService(new MemberYearRepository($this->pdo), $enc, $connection),
+            new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository($connection, $enc)
+),
             new ContactCardService(
                 new ContactCardRepository($connection),
                 $settingService,

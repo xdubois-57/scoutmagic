@@ -30,6 +30,8 @@ use Modules\Calendar\Service\CalendarService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Calendar\CalendarTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -61,10 +63,9 @@ class CalendarNotificationServiceTest extends TestCase
         $this->calendarRepository = new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
         $this->eventRepository = new CalendarEventRepository($this->pdo);
         $sectionService = new SectionService(
-            Connection::withPdo($this->pdo),
-            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
-            new MemberBadgeRepository($this->pdo)
-        );
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), new MemberBadgeRepository($this->pdo))
+);
         $calendarService = new CalendarService(
             $this->calendarRepository, $this->eventRepository, $sectionService, new CalendarUnitFeedTokenRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)))
         );

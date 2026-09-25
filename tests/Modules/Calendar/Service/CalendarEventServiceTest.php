@@ -24,6 +24,8 @@ use Modules\Calendar\Service\CalendarService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Calendar\CalendarTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -45,10 +47,9 @@ class CalendarEventServiceTest extends TestCase
         $calendarRepository = new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
         $eventRepository = new CalendarEventRepository($this->pdo);
         $sectionService = new SectionService(
-            Connection::withPdo($this->pdo),
-            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
-            new MemberBadgeRepository($this->pdo)
-        );
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), new MemberBadgeRepository($this->pdo))
+);
         $this->calendarService = new CalendarService($calendarRepository, $eventRepository, $sectionService, new CalendarUnitFeedTokenRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))));
         $settingService = new SettingService(new SettingRepository($this->pdo));
         $settingService->register('notify_multiday_events_enabled', '0', 'boolean', 'Rappels', 'desc', 'calendar');

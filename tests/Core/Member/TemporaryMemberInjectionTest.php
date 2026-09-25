@@ -11,6 +11,7 @@ use Core\Member\TemporaryMemberProviderInterface;
 use Core\Security\EncryptionService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * The temporary-member override (ARCHITECTURE.md §8.42) as MemberService
@@ -58,20 +59,18 @@ class TemporaryMemberInjectionTest extends TestCase
         };
 
         return new MemberService(
-            new MemberYearRepository($this->pdo),
-            $this->enc,
-            Connection::withPdo($this->pdo),
-            $provider
-        );
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->enc),
+    $provider
+);
     }
 
     private function plainService(): MemberService
     {
         return new MemberService(
-            new MemberYearRepository($this->pdo),
-            $this->enc,
-            Connection::withPdo($this->pdo)
-        );
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->enc)
+);
     }
 
     /** @return array{memberId: int, memberYearId: int} */

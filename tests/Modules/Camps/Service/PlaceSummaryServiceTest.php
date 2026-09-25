@@ -29,6 +29,8 @@ use Modules\LlmConnector\Api\LlmTier;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Camps\CampsTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class PlaceSummaryServiceTest extends TestCase
@@ -459,10 +461,9 @@ class PlaceSummaryServiceTest extends TestCase
             $this->reviews,
             $this->notes(),
             new SectionDescriber(new SectionService(
-                Connection::withPdo($this->pdo),
-                $this->encryption,
-                new MemberBadgeRepository($this->pdo)
-            )),
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption, new MemberBadgeRepository($this->pdo))
+)),
             $llm
         );
     }
@@ -529,10 +530,9 @@ class PlaceSummaryServiceTest extends TestCase
     private function sectionName(int $sectionId): string
     {
         $sections = new SectionService(
-            Connection::withPdo($this->pdo),
-            $this->encryption,
-            new MemberBadgeRepository($this->pdo)
-        );
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption, new MemberBadgeRepository($this->pdo))
+);
         $found = $sections->findByIds([$sectionId]);
         $this->assertArrayHasKey($sectionId, $found);
 

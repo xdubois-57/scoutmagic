@@ -22,6 +22,7 @@ use Core\Security\EncryptionService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * MemberController::updateDeparture — the AJAX save behind the admin
@@ -52,7 +53,10 @@ class MemberControllerDepartureTest extends TestCase
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $memberYearRepo = new MemberYearRepository($this->pdo);
-        $memberService = new MemberService($memberYearRepo, $this->encryption, Connection::withPdo($this->pdo));
+        $memberService = new MemberService(
+    $memberYearRepo,
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption)
+);
         $journalService = new JournalService(new JournalRepository($this->pdo));
         $this->departureService = new DepartureService(new DepartureRepository($this->pdo, $this->encryption), $journalService);
 

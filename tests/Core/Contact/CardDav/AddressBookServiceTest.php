@@ -19,6 +19,7 @@ use Core\Member\MemberService;
 use Core\Security\EncryptionService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * Who the synchronised address book contains, and what a client is told
@@ -60,7 +61,10 @@ class AddressBookServiceTest extends TestCase
                 new MemberEmailRepository($this->pdo, $this->enc)
             ),
             new VCardBuilder(),
-            new MemberService(new MemberYearRepository($this->pdo), $this->enc, $connection),
+            new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository($connection, $this->enc)
+),
             new ScoutYearService($this->pdo)
         );
 

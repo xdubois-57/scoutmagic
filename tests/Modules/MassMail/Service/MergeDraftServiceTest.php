@@ -48,6 +48,8 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\MassMail\MassMailTestHelper;
 use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * Turning somebody else's rows into a mail-merge draft.
@@ -75,8 +77,14 @@ class MergeDraftServiceTest extends TestCase
 
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
-        $sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
-        $memberService = new MemberService(new MemberYearRepository($this->pdo), $encryption, $connection);
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, new MemberBadgeRepository($this->pdo))
+);
+        $memberService = new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository($connection, $encryption)
+);
         $scoutYearService = new ScoutYearService($this->pdo);
 
         $this->audienceRepository = new AudienceRepository($this->pdo, $encryption);

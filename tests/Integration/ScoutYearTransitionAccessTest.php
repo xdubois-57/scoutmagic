@@ -32,6 +32,8 @@ use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * Two animateurs, one day, opposite answers.
@@ -429,7 +431,10 @@ class ScoutYearTransitionAccessTest extends TestCase
         $staffedSections = new SectionStaffAuthorizationService(
             $connection,
             $this->encryption,
-            new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo)),
+            new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
+),
             new MemberEmailRepository($this->pdo, $this->encryption)
         );
 
@@ -483,16 +488,18 @@ class ScoutYearTransitionAccessTest extends TestCase
 
         $connection = Connection::withPdo($this->pdo);
         $memberService = new \Core\Member\MemberService(
-            new MemberYearRepository($this->pdo),
-            $this->encryption,
-            $connection,
-            null,
-            new MemberEmailRepository($this->pdo, $this->encryption)
-        );
+    new MemberYearRepository($this->pdo),
+    new \Core\Member\Repository\MemberProfileRepository($connection, $this->encryption),
+    null,
+    new MemberEmailRepository($this->pdo, $this->encryption)
+);
         $staffedSections = new SectionStaffAuthorizationService(
             $connection,
             $this->encryption,
-            new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo)),
+            new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
+),
             new MemberEmailRepository($this->pdo, $this->encryption)
         );
 

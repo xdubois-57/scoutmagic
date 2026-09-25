@@ -36,6 +36,8 @@ use Modules\OfficialDocuments\Api\OfficialDocumentsSummary;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -64,8 +66,14 @@ class MemberPageServiceTest extends TestCase
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
         $this->memberBadgeRepository = new MemberBadgeRepository($this->pdo);
-        $this->sectionService = new SectionService($connection, $this->encryption, $this->memberBadgeRepository);
-        $this->memberService = new MemberService(new MemberYearRepository($this->pdo), $this->encryption, $connection);
+        $this->sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, $this->memberBadgeRepository)
+);
+        $this->memberService = new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository($connection, $this->encryption)
+);
         $this->badgeRepository = new BadgeRepository($this->pdo);
         $this->ageBranchRepository = new AgeBranchRepository($this->pdo);
         $this->memberDocumentService = new MemberDocumentService(new MemberDocumentRepository($this->pdo));

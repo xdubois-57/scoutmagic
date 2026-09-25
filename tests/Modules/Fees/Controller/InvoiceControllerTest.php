@@ -43,6 +43,8 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Fees\FeesTestHelper;
 use Twig\Environment;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * The two screens and their RBAC boundary: every route allowed at `admin`
@@ -128,7 +130,10 @@ class InvoiceControllerTest extends TestCase
             $settingService,
             new MemberYearRepository($this->pdo)
         );
-        $sections = new SectionService(Connection::withPdo($this->pdo), $encryption, new MemberBadgeRepository($this->pdo));
+        $sections = new SectionService(
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $encryption, new MemberBadgeRepository($this->pdo))
+);
         $journal = new JournalService(new JournalRepository($this->pdo));
 
         return new InvoiceController(

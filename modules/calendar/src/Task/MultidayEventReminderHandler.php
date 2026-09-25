@@ -19,6 +19,8 @@ use Core\Service\DateInput;
 use Core\View\TwigFactory;
 use Modules\Calendar\Repository\CalendarEventRepository;
 use Modules\Calendar\Repository\CalendarRepository;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * Sends the multi-day event reminder (module spec: Configuration >
@@ -61,10 +63,9 @@ class MultidayEventReminderHandler implements TaskHandlerInterface
         }
 
         $sectionService = new SectionService(
-            $context->connection,
-            $context->encryption,
-            new MemberBadgeRepository($pdo)
-        );
+    new SectionRepository($context->connection),
+    new MemberProfileRepository($context->connection, $context->encryption, new MemberBadgeRepository($pdo))
+);
         // The year the EVENT falls in, not "today's". getCurrentYear() is
         // the date-computed year and it goes further than reading: it
         // CREATES the new year's row (ScoutYearService::ensureYear()). A

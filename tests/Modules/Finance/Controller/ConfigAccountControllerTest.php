@@ -37,6 +37,8 @@ use Tests\Modules\Finance\FinanceTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 use Twig\TwigFunction;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * « Configuration > Finance > Comptes » — the weakest-covered
@@ -84,7 +86,10 @@ class ConfigAccountControllerTest extends TestCase
         $categoryRepository = new CategoryRepository($this->pdo);
         $categoryRuleRepository = new CategoryRuleRepository($this->pdo);
         $transactionRepository = new TransactionRepository($this->pdo, $this->encryption);
-        $sectionService = new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
+);
 
         $financeService = new FinanceService(
             $this->accountRepository,

@@ -42,6 +42,8 @@ use Tests\Modules\Leadership\LeadershipTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 use Twig\TwigFunction;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * The RBAC boundary of every leadership route, exercised through the real
@@ -608,7 +610,10 @@ class LeadershipRbacTest extends TestCase
             new FormationLevelResolver(),
             new TrainingService(
                 $repository,
-                new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo)),
+                new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, new MemberBadgeRepository($this->pdo))
+),
                 new MemberYearService(),
                 new SupervisionCalculator()
             ),

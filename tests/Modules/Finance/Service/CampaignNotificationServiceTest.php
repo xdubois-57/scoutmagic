@@ -35,6 +35,7 @@ use Modules\Finance\Service\StructuredCommunicationService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * @group database
@@ -269,7 +270,10 @@ class CampaignNotificationServiceTest extends TestCase
                 new UserAccountRepository($this->pdo, $this->encryption),
                 $this->encryption
             ),
-            new MemberService(new MemberYearRepository($this->pdo), $this->encryption, Connection::withPdo($this->pdo)),
+            new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption)
+),
             new MemberYearRepository($this->pdo),
             $withNotifications ? ($notifications ?? $this->notifications) : null
         );

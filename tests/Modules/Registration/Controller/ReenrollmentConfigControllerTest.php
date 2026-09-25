@@ -31,6 +31,8 @@ use Modules\Registration\Service\ReenrollmentCampaignService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Registration\RegistrationTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * « Espace chefs d'U > Réinscription » — where a chef d'unité sets the
@@ -108,7 +110,10 @@ class ReenrollmentConfigControllerTest extends TestCase
         $passageService = new PassageService(
             $this->pdo,
             $encryption,
-            new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo)),
+            new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, new MemberBadgeRepository($this->pdo))
+),
             new SectionTransferRepository($this->pdo),
             new RegistrationRequestRepository($this->pdo, $encryption),
             new AgeBracketRepository($this->pdo)

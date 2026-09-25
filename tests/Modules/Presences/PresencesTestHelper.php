@@ -14,6 +14,8 @@ use Modules\Presences\Repository\PresenceRepository;
 use Modules\Presences\Service\PresenceAuthorizationService;
 use Modules\Presences\Service\PresenceSheetService;
 use Tests\Modules\Calendar\CalendarTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * Builds a small but REAL unit for the presences tests: two sections,
@@ -83,10 +85,9 @@ class PresencesTestHelper
     public static function sectionService(\PDO $pdo, EncryptionService $encryption): SectionService
     {
         return new SectionService(
-            Connection::withPdo($pdo),
-            $encryption,
-            new MemberBadgeRepository($pdo)
-        );
+    new SectionRepository(Connection::withPdo($pdo)),
+    new MemberProfileRepository(Connection::withPdo($pdo), $encryption, new MemberBadgeRepository($pdo))
+);
     }
 
     public static function authorization(\PDO $pdo, EncryptionService $encryption): PresenceAuthorizationService

@@ -54,6 +54,8 @@ use Tests\Modules\Finance\FinanceTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 use Twig\TwigFunction;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * RBAC boundary for every GET route declared in module.json — espace_chefs
@@ -106,7 +108,10 @@ class FinanceRbacTest extends TestCase
 
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
-        $this->sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
+        $this->sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, new MemberBadgeRepository($this->pdo))
+);
         $this->journalService = new JournalService(new JournalRepository($this->pdo));
         $this->schedulerService = new SchedulerService(new SchedulerRepository($this->pdo));
 
@@ -501,10 +506,9 @@ class FinanceRbacTest extends TestCase
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
         return new \Core\Member\MemberService(
-            new \Core\Import\MemberYearRepository($this->pdo),
-            $encryption,
-            Connection::withPdo($this->pdo)
-        );
+    new \Core\Import\MemberYearRepository($this->pdo),
+    new \Core\Member\Repository\MemberProfileRepository(Connection::withPdo($this->pdo), $encryption)
+);
     }
 
     // ------------------------------------------------------------------

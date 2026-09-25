@@ -22,6 +22,8 @@ use Modules\Camps\Repository\ReviewRepository;
 use Modules\Camps\Service\PlaceSummaryService;
 use Modules\Camps\Service\SectionDescriber;
 use Modules\LlmConnector\Api\LlmConnectorInterface;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * Regenerates the summaries of places whose stays or reviews changed,
@@ -91,10 +93,9 @@ class RefreshPlaceSummariesHandler implements TaskHandlerInterface
             new ReviewRepository($pdo),
             new EditableContentService(new EditableContentRepository($pdo)),
             new SectionDescriber(new SectionService(
-                Connection::withPdo($pdo),
-                $context->encryption,
-                new MemberBadgeRepository($pdo)
-            )),
+    new SectionRepository(Connection::withPdo($pdo)),
+    new MemberProfileRepository(Connection::withPdo($pdo), $context->encryption, new MemberBadgeRepository($pdo))
+)),
             $this->llm ?? $context->getOptional(LlmConnectorInterface::class)
         );
 

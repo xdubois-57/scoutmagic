@@ -24,6 +24,8 @@ use Modules\MassMail\Service\MailingListService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\MassMail\MassMailTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -45,7 +47,10 @@ class MailingListServiceTest extends TestCase
         MassMailTestHelper::createTables($this->pdo);
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
-        $sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, new MemberBadgeRepository($this->pdo))
+);
 
         $this->scoutYearResolver = new ScoutYearResolver(
             new ScoutYearService($this->pdo),
@@ -243,7 +248,10 @@ class MailingListServiceTest extends TestCase
         $service = new MailingListService(
             new MailingListRepository($this->pdo),
             new MemberResolutionRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))),
-            new SectionService(Connection::withPdo($this->pdo), new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), new MemberBadgeRepository($this->pdo)),
+            new SectionService(
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), new MemberBadgeRepository($this->pdo))
+),
             new FunctionRepository($this->pdo)
         );
 
@@ -453,7 +461,10 @@ class MailingListServiceTest extends TestCase
         ]);
         $service = new MailingListService(
             new MailingListRepository($this->pdo), new MemberResolutionRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))),
-            new SectionService(Connection::withPdo($this->pdo), new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), new MemberBadgeRepository($this->pdo)),
+            new SectionService(
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), new MemberBadgeRepository($this->pdo))
+),
             new FunctionRepository($this->pdo), null, null, $provider
         );
 
@@ -474,7 +485,10 @@ class MailingListServiceTest extends TestCase
         $provider->method('targetScoutYearId')->willReturn(999);
         $service = new MailingListService(
             new MailingListRepository($this->pdo), new MemberResolutionRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))),
-            new SectionService(Connection::withPdo($this->pdo), new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), new MemberBadgeRepository($this->pdo)),
+            new SectionService(
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), new MemberBadgeRepository($this->pdo))
+),
             new FunctionRepository($this->pdo), null, null, $provider
         );
 
@@ -502,7 +516,10 @@ class MailingListServiceTest extends TestCase
         return new MailingListService(
             new MailingListRepository($this->pdo),
             new MemberResolutionRepository($this->pdo, $encryption),
-            new SectionService(Connection::withPdo($this->pdo), $encryption, new MemberBadgeRepository($this->pdo)),
+            new SectionService(
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $encryption, new MemberBadgeRepository($this->pdo))
+),
             new FunctionRepository($this->pdo),
             null,
             null,
@@ -753,7 +770,10 @@ class MailingListServiceTest extends TestCase
         return new MailingListService(
             new MailingListRepository($this->pdo),
             new MemberResolutionRepository($this->pdo, $encryption),
-            new SectionService(Connection::withPdo($this->pdo), $encryption, new MemberBadgeRepository($this->pdo)),
+            new SectionService(
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $encryption, new MemberBadgeRepository($this->pdo))
+),
             new FunctionRepository($this->pdo)
         );
     }

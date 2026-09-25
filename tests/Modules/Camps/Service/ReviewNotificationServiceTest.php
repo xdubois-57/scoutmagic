@@ -16,6 +16,8 @@ use Modules\Camps\Service\ReviewNotificationService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Camps\CampsTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -213,7 +215,10 @@ class ReviewNotificationServiceTest extends TestCase
 
         return new ReviewNotificationService(
             $this->camps,
-            new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo)),
+            new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
+),
             new UserAccountRepository($this->pdo, $this->encryption),
             $this->encryption,
             $this->pdo,

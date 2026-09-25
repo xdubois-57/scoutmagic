@@ -41,6 +41,8 @@ use Tests\Modules\Calendar\CalendarTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 use Twig\TwigFunction;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -65,7 +67,10 @@ class CalendarChiefControllerTest extends TestCase
         $this->calendarRepository = new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
         $this->eventRepository = new CalendarEventRepository($this->pdo);
         $memberBadgeRepository = new MemberBadgeRepository($this->pdo);
-        $sectionService = new SectionService($connection, $encryption, $memberBadgeRepository);
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, $memberBadgeRepository)
+);
         $this->calendarService = new CalendarService(
             $this->calendarRepository,
             $this->eventRepository,
@@ -84,7 +89,10 @@ class CalendarChiefControllerTest extends TestCase
         $calendarEventService = new CalendarEventService($this->eventRepository, $this->calendarService, $notificationService);
 
         $memberYearRepo = new MemberYearRepository($this->pdo);
-        $memberService = new MemberService($memberYearRepo, $encryption, $connection);
+        $memberService = new MemberService(
+    $memberYearRepo,
+    new MemberProfileRepository($connection, $encryption)
+);
         $scoutYearService = new ScoutYearService($this->pdo);
         $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
         $journalService = new JournalService(new JournalRepository($this->pdo));

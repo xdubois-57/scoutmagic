@@ -36,6 +36,8 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Fees\FeesTestHelper;
 use Twig\Environment;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * The verification report, and its RBAC boundary: allowed at `admin`,
@@ -103,7 +105,10 @@ class InvoiceReportControllerTest extends TestCase
 
         $this->invoices = new InvoiceRepository($this->pdo);
         $this->snapshots = new RosterSnapshotRepository($this->pdo);
-        $sections = new SectionService(Connection::withPdo($this->pdo), $this->encryption, new MemberBadgeRepository($this->pdo));
+        $sections = new SectionService(
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption, new MemberBadgeRepository($this->pdo))
+);
 
         $this->controller = new InvoiceReportController(
             $twig,

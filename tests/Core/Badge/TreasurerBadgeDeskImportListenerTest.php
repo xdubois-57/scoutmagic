@@ -15,6 +15,8 @@ use Core\Member\SectionService;
 use Core\Security\EncryptionService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * The half of issue #222 a refusal cannot cover: an animateur who carried
@@ -39,10 +41,9 @@ class TreasurerBadgeDeskImportListenerTest extends TestCase
             new BadgeRepository($this->pdo),
             $memberBadges,
             new SectionService(
-                Connection::withPdo($this->pdo),
-                new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
-                $memberBadges
-            )
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $memberBadges)
+)
         );
         $this->listener = new TreasurerBadgeDeskImportListener(
             $this->badgeService,

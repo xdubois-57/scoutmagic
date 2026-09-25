@@ -16,6 +16,8 @@ use Modules\Camps\Service\MemberCampStayService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Camps\CampsTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * Where a member went, as the admin member page shows it.
@@ -70,7 +72,10 @@ class MemberCampStayServiceTest extends TestCase
             $this->camps,
             $this->places,
             new SectionMembershipRepository($this->pdo),
-            new SectionService($connection, $encryption, new \Core\Badge\MemberBadgeRepository($this->pdo)),
+            new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, new \Core\Badge\MemberBadgeRepository($this->pdo))
+),
             $scoutYearService
         );
     }

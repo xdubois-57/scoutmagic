@@ -16,6 +16,8 @@ use Modules\Finance\Repository\AccountRepository;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * « Cette adresse anime-t-elle un seul staff, et ce staff a-t-il un seul
@@ -57,7 +59,10 @@ class SenderStaffAccountResolverTest extends TestCase
             new SectionStaffAuthorizationService(
                 $connection,
                 $this->encryption,
-                new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo)),
+                new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
+),
                 // Never omitted: without it an animateur writing from a
                 // confirmed secondary address staffs no section at all, and
                 // their receipt lands in the sorting pile for no reason.

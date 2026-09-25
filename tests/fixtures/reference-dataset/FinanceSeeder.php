@@ -42,6 +42,8 @@ use Modules\Finance\Service\ImportService;
 use Modules\Finance\Service\ReceivableAllocationService;
 use Modules\Finance\Service\ReceiptMatchingService;
 use Modules\Finance\Service\TreasurerScope;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * Creates the unit's two bank accounts and imports the six statements through
@@ -302,10 +304,9 @@ final class FinanceSeeder
             $categoryRepository,
             new FiscalYearRepository($this->pdo, $scoutYearService),
             new SectionService(
-                \Core\Database\Connection::withPdo($this->pdo),
-                $this->encryption,
-                new \Core\Badge\MemberBadgeRepository($this->pdo),
-            ),
+    new SectionRepository(\Core\Database\Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(\Core\Database\Connection::withPdo($this->pdo), $this->encryption, new \Core\Badge\MemberBadgeRepository($this->pdo))
+),
             $transactionRepository,
             new BalanceService($checkpointRepository, $transactionRepository),
             $settingService,

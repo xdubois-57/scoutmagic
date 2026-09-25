@@ -26,6 +26,8 @@ use Core\Security\EncryptionService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -94,8 +96,14 @@ class MemberEmailServiceTest extends TestCase
             $this->mailService,
             EmailTemplateRendererFactory::overTestDatabase($this->pdo, $twig),
             new JournalService(new JournalRepository($this->pdo)),
-            new SectionService($connection, $this->encryption, new \Core\Badge\MemberBadgeRepository($this->pdo)),
-            new MemberService(new MemberYearRepository($this->pdo), $this->encryption, $connection),
+            new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, new \Core\Badge\MemberBadgeRepository($this->pdo))
+),
+            new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository($connection, $this->encryption)
+),
             new ScoutYearService($this->pdo),
             'https://example.test',
             'Test Unité',
@@ -149,8 +157,14 @@ class MemberEmailServiceTest extends TestCase
             $this->mailService,
             EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createMock(\Twig\Environment::class)),
             new JournalService(new JournalRepository($this->pdo)),
-            new SectionService(Connection::withPdo($this->pdo), $this->encryption, new \Core\Badge\MemberBadgeRepository($this->pdo)),
-            new MemberService(new MemberYearRepository($this->pdo), $this->encryption, Connection::withPdo($this->pdo)),
+            new SectionService(
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption, new \Core\Badge\MemberBadgeRepository($this->pdo))
+),
+            new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption)
+),
             new ScoutYearService($this->pdo),
             'https://example.test',
             'Test Unité',

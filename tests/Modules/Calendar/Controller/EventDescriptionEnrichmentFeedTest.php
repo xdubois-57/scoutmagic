@@ -37,6 +37,8 @@ use Tests\DatabaseTestHelper;
 use Tests\Modules\Calendar\CalendarTestHelper;
 use Twig\Environment;
 use Twig\Loader\ArrayLoader;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * Api\EventDescriptionEnricherInterface reaches the personal feed, and
@@ -69,7 +71,10 @@ final class EventDescriptionEnrichmentFeedTest extends TestCase
         $connection = Connection::withPdo($this->pdo);
 
         $this->events = new CalendarEventRepository($this->pdo);
-        $sections = new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo));
+        $sections = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
+);
         $this->calendars = new CalendarService(
             new CalendarRepository($this->pdo, $this->encryption),
             $this->events,
@@ -108,7 +113,10 @@ final class EventDescriptionEnrichmentFeedTest extends TestCase
             $this->calendars,
             $this->events,
             new RoleResolver($memberYears, $this->encryption, $this->pdo),
-            new MemberService($memberYears, $this->encryption, $connection),
+            new MemberService(
+    $memberYears,
+    new MemberProfileRepository($connection, $this->encryption)
+),
             new UserAccountRepository($this->pdo, $this->encryption),
             $sections,
             null,

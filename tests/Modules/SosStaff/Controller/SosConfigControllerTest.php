@@ -30,6 +30,8 @@ use Tests\Modules\SosStaff\SosStaffTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 use Twig\TwigFunction;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -55,7 +57,10 @@ class SosConfigControllerTest extends TestCase
         $providerConfigService = new ProviderConfigService($this->credentialRepository, $this->fakeTransport());
 
         $memberBadgeRepository = new \Core\Badge\MemberBadgeRepository($this->pdo);
-        $this->sectionService = new SectionService($connection, $encryption, $memberBadgeRepository);
+        $this->sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, $memberBadgeRepository)
+);
         $settingService = new SettingService(new SettingRepository($this->pdo));
         $settingService->register('transition_hour', '10:00', 'text', 'Heure', 'desc', 'sos_staff');
         $settingService->register('email_notifications_enabled', '1', 'boolean', 'Emails', 'desc', 'sos_staff');

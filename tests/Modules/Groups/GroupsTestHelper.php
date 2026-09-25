@@ -248,10 +248,9 @@ class GroupsTestHelper
             new \Core\Security\UserAccountRepository($pdo, $encryption),
             new \Core\Import\MemberYearRepository($pdo),
             new \Core\Member\MemberService(
-                new \Core\Import\MemberYearRepository($pdo),
-                $encryption,
-                \Core\Database\Connection::withPdo($pdo)
-            )
+    new \Core\Import\MemberYearRepository($pdo),
+    new \Core\Member\Repository\MemberProfileRepository(\Core\Database\Connection::withPdo($pdo), $encryption)
+)
         );
     }
 

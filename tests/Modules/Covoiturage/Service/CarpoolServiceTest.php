@@ -21,6 +21,8 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Covoiturage\CovoiturageTestHelper as H;
 use Tests\Modules\Covoiturage\FakeCalendar;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * Organising a carpool: who may, the two guards at creation, the place and
@@ -49,7 +51,10 @@ final class CarpoolServiceTest extends TestCase
         $this->service = new CarpoolService(
             $this->carpools,
             new OfferRepository($this->pdo, H::encryption()),
-            new SectionService(Connection::withPdo($this->pdo), H::encryption(), new MemberBadgeRepository($this->pdo)),
+            new SectionService(
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), H::encryption(), new MemberBadgeRepository($this->pdo))
+),
             new FakeCalendar([
                 new EventSummary(501, "Fête d'unité — Baladins", 'Baladins', H::day(20), H::day(20), null, 'Plaine de Basse-Wavre', 10, 'Baladins'),
                 new EventSummary(502, "Fête d'unité — Louveteaux", 'Louveteaux', H::day(20), H::day(20), null, 'Plaine de Basse-Wavre', 20, 'Louveteaux'),
@@ -290,7 +295,10 @@ final class CarpoolServiceTest extends TestCase
         $service = new CarpoolService(
             $this->carpools,
             new OfferRepository($this->pdo, H::encryption()),
-            new SectionService(Connection::withPdo($this->pdo), H::encryption(), new MemberBadgeRepository($this->pdo)),
+            new SectionService(
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), H::encryption(), new MemberBadgeRepository($this->pdo))
+),
             null
         );
 

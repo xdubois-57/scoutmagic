@@ -27,6 +27,8 @@ use Modules\Registration\Service\SlotService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Registration\RegistrationTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * Full-stack tests for the Passage controller: the public-year+1 anchor
@@ -92,7 +94,10 @@ class PassageControllerTest extends TestCase
         $slotCapacityRepository = new SlotCapacityRepository($this->pdo);
         $slotService = new SlotService($this->pdo, $encryption, $settingService, $ageBracketRepository, $slotCapacityRepository, $this->requestRepository);
         $connection = Connection::withPdo($this->pdo);
-        $sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, new MemberBadgeRepository($this->pdo))
+);
         $this->transferRepository = new SectionTransferRepository($this->pdo);
 
         $passageService = new PassageService(

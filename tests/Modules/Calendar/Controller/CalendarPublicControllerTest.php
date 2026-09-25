@@ -36,6 +36,8 @@ use Tests\Modules\Calendar\CalendarTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 use Twig\TwigFunction;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -62,7 +64,10 @@ class CalendarPublicControllerTest extends TestCase
         $this->calendarRepository = new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
         $this->eventRepository = new CalendarEventRepository($this->pdo);
         $memberBadgeRepository = new MemberBadgeRepository($this->pdo);
-        $sectionService = new SectionService($connection, $this->encryption, $memberBadgeRepository);
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, $memberBadgeRepository)
+);
         $this->calendarService = new CalendarService(
             $this->calendarRepository,
             $this->eventRepository,
@@ -72,7 +77,10 @@ class CalendarPublicControllerTest extends TestCase
 
         $memberYearRepo = new MemberYearRepository($this->pdo);
         $roleResolver = new RoleResolver($memberYearRepo, $this->encryption, $this->pdo);
-        $memberService = new MemberService($memberYearRepo, $this->encryption, $connection);
+        $memberService = new MemberService(
+    $memberYearRepo,
+    new MemberProfileRepository($connection, $this->encryption)
+);
         $userAccountRepository = new UserAccountRepository($this->pdo, $this->encryption);
         $this->personalFeedService = new PersonalFeedService(
             new CalendarPersonalTokenRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))),

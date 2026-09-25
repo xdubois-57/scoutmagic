@@ -23,6 +23,8 @@ use Modules\Registration\Service\ReenrollmentRecipientService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Registration\RegistrationTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * The campaign's clock and its address book.
@@ -94,7 +96,10 @@ class ReenrollmentCampaignServiceTest extends TestCase
         $this->settingService->set(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->currentYearId);
 
         $connection = Connection::withPdo($this->pdo);
-        $sectionService = new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
+);
         $scoutYearService = new ScoutYearService($this->pdo);
         $requestRepository = new RegistrationRequestRepository($this->pdo, $this->encryption);
         $passageService = new PassageService(
