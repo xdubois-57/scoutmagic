@@ -284,15 +284,24 @@ class RentalDocumentRepository implements AttachedFileRepository
      * `SettingRepository::replaceIfUnchanged()` and
      * `BounceStateRepository` (ARCHITECTURE.md §8.29).
      *
-     * **A second query disambiguates, and only on that path.** The UPDATE
-     * stays the atomic thing; when it reports nothing changed, the row is
-     * asked whether it already holds exactly this text with nothing sent
-     * — which is the no-op — or not, which is the refusal. Nothing is
-     * re-checked on the ordinary path, so the window the `NOT EXISTS`
-     * closes stays closed. A send landing between the UPDATE and this
-     * question can only turn a no-op into a refusal, and a refusal is
-     * then the truthful answer: the text on file is already the text
-     * asked for, and it has gone out.
+     * **A second query disambiguates, and the two run as one.** When the
+     * UPDATE reports nothing changed, the row is asked whether it already
+     * holds exactly this text with nothing sent — the no-op — or not,
+     * which is the refusal. Nothing is re-checked on the ordinary path,
+     * so the window the `NOT EXISTS` closes stays closed.
+     *
+     * **They share a transaction, and that is not belt-and-braces.** The
+     * first version left them as two independent statements, reasoning
+     * only about a SEND landing in between (where refusing is truthful:
+     * the text on file is already the text asked for, and it has gone
+     * out). A concurrent SAVE breaks that reasoning — a second manager
+     * writing different text between the UPDATE and the question makes
+     * the question find a row that no longer holds what was asked for,
+     * so it answers « refused » and the first manager is told the
+     * document went to the tenant. Nothing went anywhere. The UPDATE
+     * takes the row's write lock, so holding both inside one transaction
+     * makes that second save wait rather than slip in: a false refusal
+     * introduced by the very disambiguation that removed another one.
      *
      * **A unit test cannot catch this**, which is why it survived one:
      * `DatabaseTestHelper::createTestDatabase()` builds an in-memory
@@ -323,23 +332,50 @@ class RentalDocumentRepository implements AttachedFileRepository
             return true;
         }
 
-        $stmt = $this->pdo->prepare(
-            'UPDATE rental_booking_document_texts SET body_html = ?, updated_at = ?
-             WHERE booking_id = ? AND document_type = ?
-               AND NOT EXISTS (
-                   SELECT 1 FROM rental_documents d
-                   WHERE d.booking_id = rental_booking_document_texts.booking_id
-                     AND d.document_type = rental_booking_document_texts.document_type
-                     AND d.sent_at IS NOT NULL
-               )'
-        );
-        $stmt->execute([$bodyHtml, $now, $bookingId, $type->value]);
-
-        if ($stmt->rowCount() > 0) {
-            return true;
+        // Only when nobody above us owns one: this repository is called
+        // from a service that may already have opened its own, and a
+        // second `beginTransaction()` on the same connection throws.
+        $ownsTransaction = !$this->pdo->inTransaction();
+        if ($ownsTransaction) {
+            $this->pdo->beginTransaction();
         }
 
-        return $this->alreadyHoldsUnsent($bookingId, $type, $bodyHtml);
+        try {
+            $stmt = $this->pdo->prepare(
+                'UPDATE rental_booking_document_texts SET body_html = ?, updated_at = ?
+                 WHERE booking_id = ? AND document_type = ?
+                   AND NOT EXISTS (
+                       SELECT 1 FROM rental_documents d
+                       WHERE d.booking_id = rental_booking_document_texts.booking_id
+                         AND d.document_type = rental_booking_document_texts.document_type
+                         AND d.sent_at IS NOT NULL
+                   )'
+            );
+            $stmt->execute([$bodyHtml, $now, $bookingId, $type->value]);
+
+            $written = $stmt->rowCount() > 0
+                || $this->alreadyHoldsUnsent($bookingId, $type, $bodyHtml);
+
+            if ($ownsTransaction) {
+                $this->pdo->commit();
+            }
+        } catch (\Throwable $e) {
+            if ($ownsTransaction) {
+                try {
+                    $this->pdo->rollBack();
+                } catch (\Throwable) {
+                    // Nothing left to roll back — a commit that threw
+                    // after doing its work leaves no transaction open.
+                    // Swallowed on purpose: the caller is about to
+                    // receive the original failure, which is the one
+                    // sentence they can act on.
+                }
+            }
+
+            throw $e;
+        }
+
+        return $written;
     }
 
     /**
@@ -350,6 +386,11 @@ class RentalDocumentRepository implements AttachedFileRepository
      * that ». One row, one answer: the text is identical AND no document
      * of this type has gone out, so the caller's intent is already the
      * state on disk.
+     *
+     * Runs inside {@see saveText()}'s transaction, after its UPDATE has
+     * taken the row's write lock — which is what stops a concurrent save
+     * from changing the answer between the two. Never called from
+     * anywhere else, for that reason.
      */
     private function alreadyHoldsUnsent(int $bookingId, DocumentType $type, string $bodyHtml): bool
     {
