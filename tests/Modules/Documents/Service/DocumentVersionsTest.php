@@ -13,6 +13,7 @@ use Modules\Documents\Repository\Document;
 use Modules\Documents\Repository\DocumentRepository;
 use Modules\Documents\Repository\DocumentVersionRepository;
 use Modules\Documents\Service\DocumentService;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Documents\DocumentsTestHelper;
@@ -22,6 +23,7 @@ use Tests\Modules\Documents\DocumentsTestHelper;
  * outgoing file into a past version only the Staff d'U can read, and
  * keeps five of them.
  */
+#[Group('database')]
 final class DocumentVersionsTest extends TestCase
 {
     private \PDO $pdo;

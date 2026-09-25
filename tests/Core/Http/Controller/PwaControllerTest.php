@@ -18,6 +18,7 @@ use Tests\DatabaseTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class PwaControllerTest extends TestCase
 {
     private PwaController $controller;

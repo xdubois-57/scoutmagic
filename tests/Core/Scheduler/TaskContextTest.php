@@ -24,6 +24,7 @@ use Tests\DatabaseTestHelper;
  * before the scheduler bootstrap is reworked (chantier « dépendances
  * entre modules », IT-03).
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class TaskContextTest extends TestCase
 {
     private function buildContext(?NotificationService $notifications = null, bool $withNotificationsArg = true): TaskContext

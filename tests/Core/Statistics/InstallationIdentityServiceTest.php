@@ -14,6 +14,7 @@ use Core\Statistics\StatisticsException;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class InstallationIdentityServiceTest extends TestCase
 {
     private \PDO $pdo;

@@ -17,6 +17,7 @@ use Tests\Modules\Rental\RentalTestHelper;
  * member's return reactivates it. Same shape as
  * Core\Import\MappingResolver::deactivateAllSections().
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class RentalDeskImportListenerTest extends TestCase
 {
     private \PDO $pdo;

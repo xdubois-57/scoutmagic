@@ -18,6 +18,7 @@ use Tests\DatabaseTestHelper;
  * IT-10: the activity threshold, the retention window, manual deletion, and
  * the XLSX export.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class SupportRetentionTest extends TestCase
 {
     private \PDO $pdo;

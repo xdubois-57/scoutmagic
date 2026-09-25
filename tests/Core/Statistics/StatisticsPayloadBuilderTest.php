@@ -26,6 +26,7 @@ use Core\View\MenuBuilder;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class StatisticsPayloadBuilderTest extends TestCase
 {
     private \PDO $pdo;

@@ -20,6 +20,7 @@ use Tests\Modules\Covoiturage\CovoiturageTestHelper as H;
  * Offers and requests: the place is the carpool's, seats are counted in
  * people, only acceptance holds them, and a request is accepted whole.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class OfferServiceTest extends TestCase
 {
     private \PDO $pdo;

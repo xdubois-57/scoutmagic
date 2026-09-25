@@ -23,6 +23,7 @@ use Tests\Modules\Covoiturage\CovoiturageTestHelper as H;
  * The geocoding task's decisions — nothing here reaches Nominatim: every
  * case below either has nothing to send or is switched off.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class GeocodeCarpoolsHandlerTest extends TestCase
 {
     private \PDO $pdo;

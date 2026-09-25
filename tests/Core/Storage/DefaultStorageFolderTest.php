@@ -39,6 +39,7 @@ use Tests\DatabaseTestHelper;
  * the constant wherever it goes, and fail the day only one of the three
  * follows it.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class DefaultStorageFolderTest extends TestCase
 {
     private string $storagePath;

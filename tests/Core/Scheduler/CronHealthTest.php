@@ -22,6 +22,7 @@ use Tests\DatabaseTestHelper;
  * lives under `storage/temp` and does not survive everything, and the ring
  * buffer because one stamp is not an interval.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class CronHealthTest extends TestCase
 {
     private string $storagePath;

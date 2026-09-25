@@ -13,6 +13,7 @@ use PHPUnit\Framework\TestCase;
  * camps or carpools, only the four columns every table that carries a point
  * declares.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class GeoPointStoreTest extends TestCase
 {
     private \PDO $pdo;

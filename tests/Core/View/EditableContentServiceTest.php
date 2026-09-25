@@ -8,6 +8,7 @@ use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
 use PHPUnit\Framework\TestCase;
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class EditableContentServiceTest extends TestCase
 {
     private \PDO $pdo;

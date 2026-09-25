@@ -23,6 +23,7 @@ use Tests\Modules\Rental\RentalTestHelper;
  * by the booking's history like any other action — and only a step the
  * site can never derive is ever ticked at all.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class RentalMilestoneMarkServiceTest extends TestCase
 {
     private \PDO $pdo;

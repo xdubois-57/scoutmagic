@@ -131,6 +131,41 @@ whose user cannot `CREATE DATABASE` would have dropped that whole class in
 silence. `schema` and `PDO` are in the list now. When writing a skip, do not
 rely on the list catching you: call the helper.
 
+### Who carries `database`, and what the group is still for
+
+**The rule lives in [`AGENTS.md` § Database](../AGENTS.md#database)**, with
+its three build idioms, the inheritance and composition it follows, the
+attribute spelling, and why the `@group` doc-comment is inert.
+`Tests\Architecture\DatabaseBackedTestsCarryTheGroupTest` holds it, and its
+own docblocks carry the nine review findings behind each clause.
+
+Restated here it would drift, and the original would win — this document
+points, it does not copy (`AGENTS.md` § Pipeline documentation maintenance).
+A reviewer had to say so about the first version of this very section, which
+had copied the rule in full.
+
+What belongs here is what the map is for: **what this layer proves, and what
+it does not.**
+
+- CI does not use the group — both PHP jobs run the whole suite,
+  `AGENTS.md` § Database says why. Its one live use is **manual selection**,
+  which this repository recommends where a newcomer cannot miss it: the
+  `SessionStart` hook prints
+  `run 'vendor/bin/phpunit --group=database' for the MySQL-backed suite` on
+  every open. That is what makes an omission expensive rather than untidy.
+- **The group selects; it switches no connection.** A test reaches MySQL only
+  if it opens one itself from `TEST_DB_*`. Everything built on
+  `DatabaseTestHelper::createTestDatabase()` runs on in-memory SQLite, group
+  or no group, in every job — see the next section.
+- Measured on the commit this change branched from (`7ee8aeb1`), the group
+  selected **9 619** tests where it should have selected **12 354**, out of a
+  suite of 20 751. A hundred and seventy-four classes built a database and
+  said nothing. The base is named because the pair only means something as a
+  pair: every later merge moves both numbers — the branch selects 12 471 of
+  20 845 once `main`'s own new classes and the four composition misses are
+  in — and a ratio quoted without the tree it was taken on is the kind of
+  figure this section had three copies of.
+
 ### The engine a test actually runs on, which is not what the group says
 
 `#[Group('database')]` selects tests for the `database-mariadb` job. It

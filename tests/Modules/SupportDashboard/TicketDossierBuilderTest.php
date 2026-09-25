@@ -34,6 +34,7 @@ use Tests\DatabaseTestHelper;
  * the other side of the wire, and one partly written by its recipient is
  * no longer the thing anybody was relying on. It goes in whole.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class TicketDossierBuilderTest extends TestCase
 {
     private \PDO $pdo;

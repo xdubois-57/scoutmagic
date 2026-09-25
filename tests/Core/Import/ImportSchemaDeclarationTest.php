@@ -22,6 +22,7 @@ use PHPUnit\Framework\TestCase;
  * `SqlParser` the migration runner uses. It is the cheap half of a guard
  * the expensive half of which is `npm run e2e`.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class ImportSchemaDeclarationTest extends TestCase
 {
     /** @var array<string, string[]> table => columns the import pipeline writes */

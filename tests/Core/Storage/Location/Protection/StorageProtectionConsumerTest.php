@@ -32,6 +32,7 @@ use Tests\DatabaseTestHelper;
  * installation with that module turned off — which is exactly the kind of
  * hole the registry exists to close.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class StorageProtectionConsumerTest extends TestCase
 {
     private \PDO $pdo;

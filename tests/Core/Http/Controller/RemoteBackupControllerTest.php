@@ -42,6 +42,7 @@ use Twig\Loader\ArrayLoader;
  * `RemoteBackupRbacTest` covers who may reach these methods at all. What
  * is asserted here is what happens once they are reached.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class RemoteBackupControllerTest extends TestCase
 {
     private string $base;

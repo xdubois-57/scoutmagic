@@ -29,6 +29,7 @@ use Tests\Modules\Camps\CampsTestHelper;
  * What both messages DO carry is the period. It is the evidence a chief
  * would use, and it is the only one there is.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class ExistingStayMatcherTest extends TestCase
 {
     private \PDO $pdo;

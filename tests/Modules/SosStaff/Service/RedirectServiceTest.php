@@ -24,6 +24,10 @@ use PHPUnit\Framework\TestCase;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 
+// Through `EmailTemplateRendererFactory::shippedOnlyForModule()`, which
+// reaches an in-memory database by way of its own `emptyStore()`: this
+// class builds none itself and inherits none.
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class RedirectServiceTest extends TestCase
 {
     private ProviderConfigService $providerConfigService;
