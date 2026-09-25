@@ -162,7 +162,12 @@
             </form>
         {% endif %}
         {% if not campaign.isNotified %}
-            <form method="post" action="/finance/campaigns/{{ campaign.id }}/notify" class="d-inline">
+            {# Asks first (#485): this mails every family of the campaign, and
+               the controller's own note says a failed round must still leave
+               the campaign marked rather than invite a second one. Nothing
+               here is recallable. #}
+            <form method="post" action="/finance/campaigns/{{ campaign.id }}/notify" class="d-inline"
+                  data-confirm="Notifier toutes les familles de cette campagne ? Un e-mail part à chacune, et il ne peut pas être rappelé.">
                 {{ csrf_field()|raw }}
                 <button type="submit" class="btn btn-outline-secondary btn-sm tap-target">
                     <i class="bi bi-bell" aria-hidden="true"></i> Notifier les familles

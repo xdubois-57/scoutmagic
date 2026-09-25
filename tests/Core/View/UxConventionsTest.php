@@ -185,8 +185,119 @@ final class UxConventionsTest extends TestCase
     /**
      * Sending a message to somebody else, which #485 added to the rule: it
      * leaves immediately and clicking again does not recall it.
+     *
+     * **Bilingual, like its sibling above, and it was not.** A reviewer
+     * found the consequence rather than the omission:
+     * `/config/reinscription/relance` mails EVERY family that has not
+     * answered a re-enrolment campaign, and this guard said nothing —
+     * `relance` is not `send…email`. The rule this change writes into
+     * design.md §7.5 claims the allowlist is the complete set of
+     * exceptions, so a verb the reader cannot see made that claim false.
+     *
+     * Route addresses in this repository are French (`AGENTS.md`
+     * § Language), so the English half is the one that needs the excuse:
+     * `send…email`, `resend` and `notify` appear because a few older routes
+     * use them. The reviewer's second guess was right too —
+     * `/finance/campaigns/{id}/notify` mails every family of a campaign, and
+     * its own code comment says a failed round « must still leave the
+     * campaign marked rather than invite a second round of messages to the
+     * families who did get one ». That is the definition of not recallable.
+     *
+     * **A verb in an address is not proof of a send**, which is why the
+     * exception list exists rather than a longer pattern:
+     * `/finance/campaigns/{id}/reminder` says « rappel » and only prepares a
+     * DRAFT — « Le brouillon est prêt — relisez-le, il n'a pas été
+     * envoyé. » It is English here and so escapes by accident; a French
+     * sibling would need a line in ASKS_NOTHING.
      */
-    private const SENDS_AN_EMAIL = '/(send[\w-]*email|resend)/i';
+    private const SENDS_AN_EMAIL = '/(send[\w-]*email|resend|(^|[\/_-])(relance|relancer|rappeler|notify|notifier)([\/_-]|$))/i';
+
+    /**
+     * **The three readers, on literal tags** — because the sweep above
+     * cannot hold them.
+     *
+     * Measured rather than assumed, and the measurement is the reason this
+     * test exists: reverting the French half of `SENDS_AN_EMAIL` leaves the
+     * sweep GREEN, because the form it was missing now carries a dialog, so
+     * a narrower pattern simply stops reporting it. Same for the exact
+     * attribute: no form today carries `data-confirm-label` alone, so a
+     * substring match reports nothing either way.
+     *
+     * A sweep over real templates answers « is anything wrong NOW ». Only a
+     * fixture whose answer is known in advance answers « would this reader
+     * notice ». Both halves are needed, and this file has learnt that twice.
+     */
+    public function testTheReadersRecogniseWhatTheyClaimTo(): void
+    {
+        // A French route that mails somebody else. This is the one the
+        // sweep missed: `relance` is not `send…email`.
+        $this->assertMatchesRegularExpression(
+            self::SENDS_AN_EMAIL,
+            '/config/reinscription/relance',
+            'a French « relance » route is a message to somebody else, whatever the English half says'
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            self::SENDS_AN_EMAIL,
+            '/config/reinscription/relances-envoyees',
+            'the verb has to be its own segment, or every address containing it becomes a send'
+        );
+        $this->assertMatchesRegularExpression(
+            self::SENDS_AN_EMAIL,
+            '/finance/campaigns/12/notify',
+            'notifying the families of a campaign mails every one of them'
+        );
+
+        // Either quote style, for the method and for the action.
+        $this->assertTrue(self::isAPostForm('<form method=\'post\' action="/x">'));
+        $this->assertTrue(self::isAPostForm('<form method="POST" action="/x">'));
+        $this->assertFalse(self::isAPostForm('<form method="get" action="/x">'));
+        $this->assertSame('/supprimer', self::actionOf('<form method="post" action=\'/supprimer\'>'));
+        $this->assertNull(self::actionOf('<form method="post">'));
+
+        // And the EXACT attribute: a label is not a dialog.
+        $this->assertTrue(self::asksFirst('<form method="post" action="/x" data-confirm="Sûr ?">'));
+        $this->assertFalse(
+            self::asksFirst('<form method="post" action="/x" data-confirm-label="Supprimer">'),
+            'data-confirm-label only names the button of a dialog somebody else opens'
+        );
+    }
+
+    /**
+     * A `<form>` tag that POSTs — in either quote style.
+     *
+     * `method='post'` was skipped, and so was `action='/…'`. Every form in
+     * this repository uses double quotes today, so nothing was missed in
+     * fact; what a reviewer pointed out is that the 200-form floor cannot
+     * notice the omission either, since a form the reader skips is a form
+     * the count never sees. The three readers below are shared so the rule,
+     * the floor and the stale-exception check cannot drift apart — which
+     * they had.
+     */
+    private static function isAPostForm(string $tag): bool
+    {
+        return preg_match('/method\s*=\s*([\'"])post\1/i', $tag) === 1;
+    }
+
+    /** Its action, in either quote style, or null when it has none. */
+    private static function actionOf(string $tag): ?string
+    {
+        return preg_match('/action\s*=\s*([\'"])(.*?)\1/is', $tag, $found) === 1 ? $found[2] : null;
+    }
+
+    /**
+     * Does this form ask before acting?
+     *
+     * The EXACT attribute, not a prefix: `str_contains($tag, 'data-confirm')`
+     * also accepted `data-confirm-label`, which only labels the button of a
+     * dialog somebody else opens. Every form carrying the label carries the
+     * real attribute too today, so again nothing was wrong in fact — and
+     * again a future destructive form with the label alone would have
+     * passed.
+     */
+    private static function asksFirst(string $tag): bool
+    {
+        return preg_match('/\sdata-confirm\s*=/i', $tag) === 1;
+    }
 
     /**
      * The POSTs whose address says a destructive verb and which must NOT
@@ -697,17 +808,17 @@ final class UxConventionsTest extends TestCase
         foreach (self::templates() as $rel) {
             preg_match_all('/<form\b[^>]*>/i', self::templateSource($rel), $forms);
             foreach ($forms[0] as $tag) {
-                if (preg_match('/method\s*=\s*"post"/i', $tag) !== 1) {
+                if (!self::isAPostForm($tag)) {
                     continue;
                 }
-                if (preg_match('/action\s*=\s*"([^"]*)"/', $tag, $action) !== 1) {
+                $url = self::actionOf($tag);
+                if ($url === null) {
                     continue;
                 }
 
-                $url = $action[1];
                 $destructive = preg_match(self::DESTRUCTIVE_ACTION, $url) === 1
                     || preg_match(self::SENDS_AN_EMAIL, $url) === 1;
-                if (!$destructive || str_contains($tag, 'data-confirm')) {
+                if (!$destructive || self::asksFirst($tag)) {
                     continue;
                 }
                 if (array_key_exists($url, self::ASKS_NOTHING)) {
@@ -734,7 +845,12 @@ final class UxConventionsTest extends TestCase
         // reader that has stopped recognising forms.
         $seen = 0;
         foreach (self::templates() as $rel) {
-            $seen += preg_match_all('/<form\b[^>]*method\s*=\s*"post"/i', self::templateSource($rel));
+            preg_match_all('/<form\b[^>]*>/i', self::templateSource($rel), $forms);
+            foreach ($forms[0] as $tag) {
+                if (self::isAPostForm($tag) && self::actionOf($tag) !== null) {
+                    $seen++;
+                }
+            }
         }
         $this->assertGreaterThanOrEqual(
             200,
@@ -743,16 +859,29 @@ final class UxConventionsTest extends TestCase
                 . 'checked against almost nothing'
         );
 
-        // And every exception must still BE one: a route that has gone, or
-        // that has since grown a dialog, leaves a line nobody will question.
+        // And every exception must still BE one.
+        //
+        // **Matching the address was not enough**, which a reviewer had to
+        // point out: a form that has since GROWN a dialog still carries its
+        // address, so its exception stayed valid — and removing that dialog
+        // later would then pass unnoticed, the exception answering for it.
+        // An exception is stale the moment the form it names asks first,
+        // exactly as much as when the form is gone.
         $stale = [];
         foreach (self::ASKS_NOTHING as $url => $reason) {
             $found = false;
             foreach (self::templates() as $rel) {
-                if (str_contains(self::templateSource($rel), 'action="' . $url . '"')) {
-                    $found = true;
+                preg_match_all('/<form\b[^>]*>/i', self::templateSource($rel), $forms);
+                foreach ($forms[0] as $tag) {
+                    if (
+                        self::isAPostForm($tag)
+                        && self::actionOf($tag) === $url
+                        && !self::asksFirst($tag)
+                    ) {
+                        $found = true;
 
-                    break;
+                        break 2;
+                    }
                 }
             }
             if (!$found) {

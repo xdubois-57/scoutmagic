@@ -543,6 +543,18 @@ helpers; a page-level primary action that happens to call an AI
     reads the URL of a form's action, so an action whose address does not
     say what it does escapes it; the list is to be re-read whenever one is
     added.
+  - **It reads French AND English verbs, and the first version did not**:
+    the destructive half was bilingual while the « sends an e-mail » half
+    knew only `send…email` and `resend`. Two routes escaped it —
+    `/config/reinscription/relance`, which mails every family that has not
+    answered, and `/finance/campaigns/{id}/notify`, which mails every family
+    of a campaign. Both ask now. The lesson is worth keeping: route
+    addresses here are French, so a pattern written in English is a pattern
+    that reads the minority of them.
+  - And a verb in an address is **not proof** of what the action does:
+    `/finance/campaigns/{id}/reminder` says « rappel » and only prepares a
+    draft — « il n'a pas été envoyé ». That is why the exceptions are a
+    named list and not a longer pattern.
 - Never `on*=` attributes in templates — the CSP (`script-src 'self'
   'nonce-…'`) makes inline handlers dead code, silently.
 - **Behaviour lives in `public/assets/js/`, never in a template's own
