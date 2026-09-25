@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Tests\Security;
 
 use PHPUnit\Framework\AssertionFailedError;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\NothingInClear;
 
@@ -27,7 +28,13 @@ use Tests\NothingInClear;
  * not one of the directories `phpunit.xml` lists, so a file put next to
  * `NothingInClear.php` would never run — which is the failure mode this
  * class exists to guard against, arriving through the door.
+ *
+ * Carries `database` because one test builds an in-memory SQLite connection
+ * — `DatabaseBackedTestsCarryTheGroupTest` said so, and it was right: the
+ * group is what `--group=database` selects, and a class missing from that
+ * selection is a class it silently does not check.
  */
+#[Group('database')]
 final class NothingInClearTest extends TestCase
 {
     /**

@@ -136,7 +136,15 @@ final class TestsDoNotFailForReasonsOfTheirOwnTest extends TestCase
     {
         $source = file_get_contents(self::repositoryRoot() . '/' . self::THE_SHARED_WATCH);
         $this->assertIsString($source);
-        $this->assertStringContainsString('array_diff(self::entries(), $this->before)', $source);
+        // The call carries its directory since that became injectable — a
+        // seam added so a failed scan is observable at all. Pinned on the
+        // shape rather than the exact text, so the next honest refactor
+        // does not have to come and edit this line, but still close enough
+        // that « compares only what appeared » is what is being asserted.
+        $this->assertMatchesRegularExpression(
+            '/array_diff\(self::entries\([^)]*\),\s*\$this->before\)/',
+            $source
+        );
         $this->assertStringContainsString('function assertNothingAppeared', $source);
     }
 
