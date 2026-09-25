@@ -541,6 +541,22 @@ backlog » — and it is a standing instruction, not a one-off. It means:
    switch branches in it; keep worktrees for pure git plumbing, where no
    autoloader runs.
 
+   **Never re-merge into a local branch that merely shares a name with the
+   remote one.** `git checkout claude/some-branch` picks a LOCAL ref of that
+   name when one exists, silently, however far behind it is — and a queue
+   that has been running for hours accumulates exactly such refs. Merging
+   `main` into one produces a plausible merge commit whose first parent is
+   the branch as it was hours ago, missing every push since. Pushing it
+   would revert the pull request, review fixes included; only the
+   non-fast-forward rejection stops that, and a `--force` would not be
+   stopped at all. So re-merge from the remote ref by name
+   (`git merge origin/main` onto a branch created with
+   `git checkout -B work origin/claude/some-branch`), and afterwards assert
+   the head you meant to build on is an ancestor:
+   `git merge-base --is-ancestor <pushed head> HEAD`. Delete stale local
+   branches that shadow a remote — including `main` itself, which goes stale
+   the same way and is the one nobody thinks to check.
+
    **Keep a self check-in armed until the queue is empty**, re-armed after
    each merge. Webhook events for CI success and for a merge conflict
    arrive late or not at all, and a queue whose head went green an hour ago

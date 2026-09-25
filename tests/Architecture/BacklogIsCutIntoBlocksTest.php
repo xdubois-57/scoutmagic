@@ -185,6 +185,41 @@ final class BacklogIsCutIntoBlocksTest extends TestCase
     }
 
     /**
+     * The trap that nearly reverted a pull request.
+     *
+     * `git checkout claude/some-branch` resolves a LOCAL ref of that name
+     * before the remote one, silently and however stale it is. A queue that
+     * has run for hours is full of them, `main` included. Merging `main`
+     * into one produces a merge whose first parent is the branch as it was
+     * hours earlier — and pushing it reverts the pull request, review fixes
+     * and all. It happened here on #541: the merge\'s first parent was the
+     * pre-review commit, and only the non-fast-forward rejection stopped
+     * the push. `--force` would not have been stopped.
+     *
+     * Written down because the recovery is not obvious under time pressure
+     * and the failure is silent: the merge succeeds, the tests pass, and
+     * the diff looks smaller than it should in a way nobody reads.
+     */
+    public function testTheStaleLocalBranchTrapIsWrittenDown(): void
+    {
+        $rules = self::agentRules();
+
+        $this->assertStringContainsString(
+            'Never re-merge into a local branch that merely shares a name with the',
+            $rules,
+            'AGENTS.md no longer warns that a local branch shadows the remote one of the same name. '
+            . 'Nothing else does: the merge succeeds, the checks pass, and the push would revert the '
+            . 'pull request.',
+        );
+
+        $this->assertStringContainsString(
+            'git merge-base --is-ancestor',
+            $rules,
+            'AGENTS.md no longer names the check that catches the shadowed merge before it is pushed.',
+        );
+    }
+
+    /**
      * The trap that makes a green run mean nothing.
      *
      * Running several branches\' checks at once invites a `git worktree`,
