@@ -41,6 +41,7 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\InboundMail\InboundMailTestHelper;
 use Tests\Modules\Rental\RentalTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * `rental` claiming its own mail (§7.6, §7.7, §7.8).
@@ -92,10 +93,9 @@ class RentalMessageConsumerTest extends TestCase
         $this->mailboxRepository = new InboundMailboxRepository($this->pdo, $this->encryption);
 
         $memberService = new MemberService(
-            new MemberYearRepository($this->pdo),
-            $this->encryption,
-            Connection::withPdo($this->pdo)
-        );
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption)
+);
         $this->authorizationService = new RentalAuthorizationService(
             $memberService,
             $this->assetRepository,

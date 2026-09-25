@@ -35,6 +35,8 @@ use Tests\Modules\Finance\FinanceTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 use Twig\TwigFunction;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -54,7 +56,10 @@ class ConfigCategoryControllerTest extends TestCase
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
-        $sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, new MemberBadgeRepository($this->pdo))
+);
         $accountRepository = new AccountRepository($this->pdo, $encryption);
         $this->accountRepository = $accountRepository;
         $fiscalYearRepository = new FiscalYearRepository($this->pdo, new \Core\Config\ScoutYearService($this->pdo));

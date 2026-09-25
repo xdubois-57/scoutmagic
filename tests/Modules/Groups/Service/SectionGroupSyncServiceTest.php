@@ -16,6 +16,8 @@ use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Groups\GroupsTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * One group per visible, active section per scout year — created
@@ -234,10 +236,9 @@ class SectionGroupSyncServiceTest extends TestCase
 
         return new SectionGroupSyncService(
             new SectionService(
-                $connection,
-                new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
-                new MemberBadgeRepository($this->pdo)
-            ),
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), new MemberBadgeRepository($this->pdo))
+),
             $this->groupRepo,
             $this->sectionRepo
         );

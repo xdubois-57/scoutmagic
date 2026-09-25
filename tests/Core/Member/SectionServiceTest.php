@@ -10,6 +10,8 @@ use Core\Member\SectionService;
 use Core\Security\EncryptionService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -29,7 +31,10 @@ class SectionServiceTest extends TestCase
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
         $this->memberBadgeRepository = new MemberBadgeRepository($this->pdo);
-        $this->service = new SectionService($connection, $this->encryption, $this->memberBadgeRepository);
+        $this->service = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, $this->memberBadgeRepository)
+);
 
         // Create scout year
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");

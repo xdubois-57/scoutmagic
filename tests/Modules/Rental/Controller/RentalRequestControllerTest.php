@@ -48,6 +48,7 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Rental\RentalTestHelper;
 use Twig\Environment;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * The two public surfaces of a booking, end to end through the real
@@ -125,7 +126,10 @@ class RentalRequestControllerTest extends TestCase
         $this->constraintsRepository = new RentalConstraintsRepository($this->pdo);
         $this->editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
 
-        $memberService = new MemberService(new MemberYearRepository($this->pdo), $this->encryption, $connection);
+        $memberService = new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository($connection, $this->encryption)
+);
         $bookingService = new RentalBookingService($this->bookingRepository, $journalService);
 
         $availabilityService = new RentalAvailabilityService(

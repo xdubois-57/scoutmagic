@@ -29,6 +29,7 @@ use Modules\Rental\Service\RentalAuthorizationService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Rental\RentalTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * Publishing rental occupancy onto the calendar (§6.30–§6.32).
@@ -69,10 +70,9 @@ class RentalVirtualEventProviderTest extends TestCase
         $this->blockRepository = new RentalBlockRepository($this->pdo);
 
         $memberService = new MemberService(
-            new MemberYearRepository($this->pdo),
-            $this->encryption,
-            Connection::withPdo($this->pdo)
-        );
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption)
+);
 
         $this->provider = new RentalVirtualEventProvider(
             $this->assetRepository,
@@ -655,10 +655,9 @@ class RentalVirtualEventProviderTest extends TestCase
         };
 
         $memberService = new MemberService(
-            new MemberYearRepository($counter),
-            $this->encryption,
-            Connection::withPdo($counter)
-        );
+    new MemberYearRepository($counter),
+    new MemberProfileRepository(Connection::withPdo($counter), $this->encryption)
+);
         $assetRepository = new RentalAssetRepository($counter, $this->encryption);
         $provider = new RentalVirtualEventProvider(
             $assetRepository,

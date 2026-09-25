@@ -8,9 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Member;
 
-use Core\Badge\MemberBadgeRepository;
-use Core\Database\Connection;
-use Core\Security\EncryptionService;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 class SectionService
 {
@@ -28,9 +27,8 @@ class SectionService
      */
 
     public function __construct(
-        private Connection $connection,
-        private EncryptionService $encryption,
-        private MemberBadgeRepository $memberBadgeRepository
+        private SectionRepository $sections,
+        private MemberProfileRepository $profiles
     ) {
     }
 
@@ -86,36 +84,7 @@ class SectionService
      */
     public function getAllWithBranches(bool $includeHidden = false): array
     {
-        $pdo = $this->connection->getPdo();
-        $sql = 'SELECT s.id, s.desk_code, s.name, s.email, s.age_branch_id, s.is_visible, s.is_active, s.color,
-                       ab.label AS branch_name, ab.sort_order AS branch_sort_order
-                FROM sections s
-                JOIN age_branches ab ON s.age_branch_id = ab.id
-                WHERE s.is_active = 1' . (!$includeHidden ? ' AND s.is_visible = 1' : '');
-        $sql .= ' ORDER BY ab.sort_order, s.desk_code';
-
-        $stmt = $pdo->query($sql);
-
-        if ($stmt === false) {
-            return [];
-        }
-
-        $sections = [];
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $sections[] = [
-                'id' => (int) $row['id'],
-                'desk_code' => (string) $row['desk_code'],
-                'name' => $row['name'] !== null ? (string) $row['name'] : null,
-                'email' => $row['email'] !== null ? (string) $row['email'] : null,
-                'age_branch_id' => (int) $row['age_branch_id'],
-                'branch_name' => (string) $row['branch_name'],
-                'branch_sort_order' => (int) $row['branch_sort_order'],
-                'is_visible' => (bool) $row['is_visible'],
-                'is_active' => (bool) $row['is_active'],
-                'color' => $row['color'] !== null ? (string) $row['color'] : null,
-            ];
-        }
-        return $sections;
+        return $this->sections->allWithBranches($includeHidden);
     }
 
     /**
@@ -144,36 +113,7 @@ class SectionService
      */
     public function findByIds(array $sectionIds): array
     {
-        $sectionIds = array_values(array_unique(array_map('intval', $sectionIds)));
-        if ($sectionIds === []) {
-            return [];
-        }
-
-        $pdo = $this->connection->getPdo();
-        $placeholders = implode(',', array_fill(0, count($sectionIds), '?'));
-        $stmt = $pdo->prepare(
-            "SELECT s.id, s.desk_code, s.name, s.email, s.age_branch_id, s.color,
-                    ab.label AS branch_name, ab.sort_order AS branch_sort_order
-             FROM sections s
-             JOIN age_branches ab ON s.age_branch_id = ab.id
-             WHERE s.id IN ($placeholders)"
-        );
-        $stmt->execute($sectionIds);
-
-        $result = [];
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $result[(int) $row['id']] = [
-                'id' => (int) $row['id'],
-                'desk_code' => (string) $row['desk_code'],
-                'name' => $row['name'] !== null ? (string) $row['name'] : null,
-                'email' => $row['email'] !== null ? (string) $row['email'] : null,
-                'age_branch_id' => (int) $row['age_branch_id'],
-                'branch_name' => (string) $row['branch_name'],
-                'branch_sort_order' => (int) $row['branch_sort_order'],
-                'color' => $row['color'] !== null ? (string) $row['color'] : null,
-            ];
-        }
-        return $result;
+        return $this->sections->findByIds($sectionIds);
     }
 
     /**
@@ -185,15 +125,7 @@ class SectionService
      */
     public function isMemberYearInSection(int $memberYearId, string $sectionDeskCode): bool
     {
-        $pdo = $this->connection->getPdo();
-        $stmt = $pdo->prepare(
-            'SELECT 1 FROM member_functions mf
-             JOIN sections s ON mf.section_id = s.id
-             WHERE mf.member_year_id = ? AND s.desk_code = ?
-             LIMIT 1'
-        );
-        $stmt->execute([$memberYearId, $sectionDeskCode]);
-        return $stmt->fetchColumn() !== false;
+        return $this->sections->hasFunctionInSection($memberYearId, $sectionDeskCode);
     }
 
     /**
@@ -212,29 +144,7 @@ class SectionService
      */
     public function getSection(int $sectionId): ?array
     {
-        $pdo = $this->connection->getPdo();
-        $stmt = $pdo->prepare(
-            'SELECT s.id, s.desk_code, s.name, s.email, s.age_branch_id, s.color,
-                    ab.label AS branch_name, ab.sort_order AS branch_sort_order
-             FROM sections s
-             JOIN age_branches ab ON s.age_branch_id = ab.id
-             WHERE s.id = ?'
-        );
-        $stmt->execute([$sectionId]);
-        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
-        if ($row === false) {
-            return null;
-        }
-        return [
-            'id' => (int) $row['id'],
-            'desk_code' => (string) $row['desk_code'],
-            'name' => $row['name'] !== null ? (string) $row['name'] : null,
-            'email' => $row['email'] !== null ? (string) $row['email'] : null,
-            'age_branch_id' => (int) $row['age_branch_id'],
-            'branch_name' => (string) $row['branch_name'],
-            'branch_sort_order' => (int) $row['branch_sort_order'],
-            'color' => $row['color'] !== null ? (string) $row['color'] : null,
-        ];
+        return $this->sections->findById($sectionId);
     }
 
     /**
@@ -257,29 +167,7 @@ class SectionService
      */
     public function findByDeskCode(string $deskCode): ?array
     {
-        $pdo = $this->connection->getPdo();
-        $stmt = $pdo->prepare(
-            'SELECT s.id, s.desk_code, s.name, s.email, s.age_branch_id, s.color,
-                    ab.label AS branch_name, ab.sort_order AS branch_sort_order
-             FROM sections s
-             JOIN age_branches ab ON s.age_branch_id = ab.id
-             WHERE s.desk_code = ?'
-        );
-        $stmt->execute([$deskCode]);
-        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
-        if ($row === false) {
-            return null;
-        }
-        return [
-            'id' => (int) $row['id'],
-            'desk_code' => (string) $row['desk_code'],
-            'name' => $row['name'] !== null ? (string) $row['name'] : null,
-            'email' => $row['email'] !== null ? (string) $row['email'] : null,
-            'age_branch_id' => (int) $row['age_branch_id'],
-            'branch_name' => (string) $row['branch_name'],
-            'branch_sort_order' => (int) $row['branch_sort_order'],
-            'color' => $row['color'] !== null ? (string) $row['color'] : null,
-        ];
+        return $this->sections->findByDeskCode($deskCode);
     }
 
     /**
@@ -293,20 +181,7 @@ class SectionService
      */
     public function getSectionStaff(int $sectionId, int $scoutYearId): array
     {
-        $pdo = $this->connection->getPdo();
-
-        // Find all distinct member_year IDs linked to this section via a
-        // chief/admin-role function.
-        $stmt = $pdo->prepare(
-            'SELECT DISTINCT mf.member_year_id
-             FROM member_functions mf
-             JOIN member_years my ON mf.member_year_id = my.id
-             JOIN functions f ON mf.function_id = f.id
-             WHERE mf.section_id = ? AND my.scout_year_id = ? AND my.is_active = 1
-               AND f.role IN (\'chief\', \'admin\')'
-        );
-        $stmt->execute([$sectionId, $scoutYearId]);
-        $memberYearIds = array_map(fn(array $row) => (int) $row['member_year_id'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+        $memberYearIds = $this->sections->memberYearIdsInSection($sectionId, $scoutYearId, staff: true);
 
         if (count($memberYearIds) === 0) {
             return [];
@@ -397,34 +272,13 @@ class SectionService
             return $bySection;
         }
 
-        $placeholders = implode(', ', array_fill(0, count($sectionIds), '?'));
-        // Two literal statements, the same role split as getSectionStaff()
-        // and getSectionAnimeMemberYearIds() — never a filter built from a
-        // string.
-        $sql = $staff
-            ? "SELECT DISTINCT mf.section_id, mf.member_year_id
-             FROM member_functions mf
-             JOIN member_years my ON mf.member_year_id = my.id
-             JOIN functions f ON mf.function_id = f.id
-             WHERE mf.section_id IN ({$placeholders}) AND my.scout_year_id = ? AND my.is_active = 1
-               AND f.role IN ('chief', 'admin')"
-            : "SELECT DISTINCT mf.section_id, mf.member_year_id
-             FROM member_functions mf
-             JOIN member_years my ON mf.member_year_id = my.id
-             JOIN functions f ON mf.function_id = f.id
-             WHERE mf.section_id IN ({$placeholders}) AND my.scout_year_id = ? AND my.is_active = 1
-               AND f.role NOT IN ('chief', 'admin', 'intendant')";
-        $stmt = $this->connection->getPdo()->prepare($sql);
-        $stmt->execute([...$sectionIds, $scoutYearId]);
-        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        $rows = $this->sections->memberYearIdsInSections($sectionIds, $scoutYearId, $staff);
 
-        $profiles = $this->hydrateMemberProfiles(
-            array_map(static fn(array $row): int => (int) $row['member_year_id'], $rows)
-        );
+        $profiles = $this->hydrateMemberProfiles(array_column($rows, 'member_year_id'));
         foreach ($rows as $row) {
-            $profile = $profiles[(int) $row['member_year_id']] ?? null;
+            $profile = $profiles[$row['member_year_id']] ?? null;
             if ($profile !== null) {
-                $bySection[(int) $row['section_id']][] = $profile;
+                $bySection[$row['section_id']][] = $profile;
             }
         }
         foreach ($bySection as &$list) {
@@ -452,19 +306,7 @@ class SectionService
      */
     public function getSectionAnimeMemberYearIds(int $sectionId, int $scoutYearId): array
     {
-        $pdo = $this->connection->getPdo();
-
-        $stmt = $pdo->prepare(
-            'SELECT DISTINCT mf.member_year_id
-             FROM member_functions mf
-             JOIN member_years my ON mf.member_year_id = my.id
-             JOIN functions f ON mf.function_id = f.id
-             WHERE mf.section_id = ? AND my.scout_year_id = ? AND my.is_active = 1
-               AND f.role NOT IN (\'chief\', \'admin\', \'intendant\')'
-        );
-        $stmt->execute([$sectionId, $scoutYearId]);
-
-        return array_map(fn(array $row) => (int) $row['member_year_id'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+        return $this->sections->memberYearIdsInSection($sectionId, $scoutYearId, staff: false);
     }
 
     /**
@@ -486,17 +328,7 @@ class SectionService
      */
     public function getAnimatedSectionIds(int $memberYearId): array
     {
-        $stmt = $this->connection->getPdo()->prepare(
-            'SELECT DISTINCT mf.section_id
-             FROM member_functions mf
-             JOIN functions f ON mf.function_id = f.id
-             WHERE mf.member_year_id = ?
-               AND mf.section_id IS NOT NULL
-               AND f.role IN (\'chief\', \'admin\')'
-        );
-        $stmt->execute([$memberYearId]);
-
-        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+        return $this->sections->sectionIdsAnimatedBy($memberYearId);
     }
 
     /**
@@ -517,17 +349,7 @@ class SectionService
      */
     public function getSectionAnimeMemberIds(int $sectionId, int $scoutYearId): array
     {
-        $stmt = $this->connection->getPdo()->prepare(
-            'SELECT DISTINCT my.member_id
-             FROM member_functions mf
-             JOIN member_years my ON mf.member_year_id = my.id
-             JOIN functions f ON mf.function_id = f.id
-             WHERE mf.section_id = ? AND my.scout_year_id = ? AND my.is_active = 1
-               AND f.role NOT IN (\'chief\', \'admin\', \'intendant\')'
-        );
-        $stmt->execute([$sectionId, $scoutYearId]);
-
-        return array_map(fn(array $row) => (int) $row['member_id'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+        return $this->sections->memberIdsOfAnimes($sectionId, $scoutYearId);
     }
 
     /**
@@ -535,12 +357,10 @@ class SectionService
      */
     public function updateSectionInfo(int $sectionId, ?string $name, ?string $email): void
     {
-        $pdo = $this->connection->getPdo();
         $cleanName = $name !== null && trim($name) !== '' ? trim($name) : null;
         $cleanEmail = $email !== null && trim($email) !== '' ? trim($email) : null;
 
-        $stmt = $pdo->prepare('UPDATE sections SET name = ?, email = ? WHERE id = ?');
-        $stmt->execute([$cleanName, $cleanEmail, $sectionId]);
+        $this->sections->updateInfo($sectionId, $cleanName, $cleanEmail);
     }
 
     /**
@@ -548,9 +368,7 @@ class SectionService
      */
     public function updateSectionVisibility(int $sectionId, bool $visible): void
     {
-        $pdo = $this->connection->getPdo();
-        $stmt = $pdo->prepare('UPDATE sections SET is_visible = ? WHERE id = ?');
-        $stmt->execute([$visible ? 1 : 0, $sectionId]);
+        $this->sections->updateVisibility($sectionId, $visible);
     }
 
     /**
@@ -568,9 +386,7 @@ class SectionService
             throw new SectionException('Couleur invalide — format hexadécimal attendu (ex : #378ADD).');
         }
 
-        $pdo = $this->connection->getPdo();
-        $stmt = $pdo->prepare('UPDATE sections SET color = ? WHERE id = ?');
-        $stmt->execute([$clean, $sectionId]);
+        $this->sections->updateColor($sectionId, $clean);
     }
 
     /**
@@ -599,112 +415,6 @@ class SectionService
      */
     public function hydrateMemberProfiles(array $memberYearIds): array
     {
-        $memberYearIds = array_values(array_unique(array_map('intval', $memberYearIds)));
-        if ($memberYearIds === []) {
-            return [];
-        }
-
-        $pdo = $this->connection->getPdo();
-        $placeholders = implode(', ', array_fill(0, count($memberYearIds), '?'));
-
-        $stmt = $pdo->prepare(
-            "SELECT my.*, m.desk_id FROM member_years my JOIN members m ON my.member_id = m.id WHERE my.id IN "
-                . "({$placeholders})"
-        );
-        $stmt->execute($memberYearIds);
-        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-        if ($rows === []) {
-            return [];
-        }
-
-        // Functions with branch/section info, grouped by member_year.
-        $stmt = $pdo->prepare(
-            "SELECT mf.*, f.label as function_label, f.role as function_role,
-                    ab.label as branch_name, s.name as section_name, s.desk_code as section_code
-             FROM member_functions mf
-             JOIN functions f ON mf.function_id = f.id
-             LEFT JOIN age_branches ab ON mf.age_branch_id = ab.id
-             LEFT JOIN sections s ON mf.section_id = s.id
-             WHERE mf.member_year_id IN ({$placeholders})"
-        );
-        $stmt->execute($memberYearIds);
-        $functionsByMemberYear = [];
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $fnRow) {
-            $functionsByMemberYear[(int) $fnRow['member_year_id']][] = new MemberFunctionInfo(
-                functionLabel: $fnRow['function_label'],
-                functionRole: $fnRow['function_role'],
-                branchName: $fnRow['branch_name'],
-                sectionName: $fnRow['section_name'],
-                sectionCode: $fnRow['section_code'],
-                isMainFunction: (bool) $fnRow['is_main_function'],
-                startDate: $fnRow['start_date'],
-                endDate: $fnRow['end_date'],
-            );
-        }
-        // One function said twice is one function — see
-        // MemberFunctionInfo::deduplicate() for why the rows are there at
-        // all and why only strictly identical ones collapse.
-        $functionsByMemberYear = array_map(
-            [MemberFunctionInfo::class, 'deduplicate'],
-            $functionsByMemberYear
-        );
-
-        // Scout year labels for every year the set spans.
-        $yearIds = array_values(array_unique(array_map(fn(array $row) => (int) $row['scout_year_id'], $rows)));
-        $yearPlaceholders = implode(', ', array_fill(0, count($yearIds), '?'));
-        $stmt = $pdo->prepare("SELECT id, label FROM scout_years WHERE id IN ({$yearPlaceholders})");
-        $stmt->execute($yearIds);
-        $labelsByYear = [];
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $yearRow) {
-            $labelsByYear[(int) $yearRow['id']] = (string) $yearRow['label'];
-        }
-
-        $badgesByMemberYear = $this->memberBadgeRepository->getActiveBadgesForMemberYears($memberYearIds);
-
-        $profiles = [];
-        foreach ($rows as $row) {
-            $memberYearId = (int) $row['id'];
-            $profiles[$memberYearId] = new MemberProfile(
-                memberYearId: $memberYearId,
-                memberId: (int) $row['member_id'],
-                deskId: $row['desk_id'],
-                firstName: $this->encryption->decrypt($row['first_name_encrypted'], 'member_years.first_name'),
-                lastName: $this->encryption->decrypt($row['last_name_encrypted'], 'member_years.last_name'),
-                totem: $row['totem_encrypted']
-                    ? $this->encryption->decrypt($row['totem_encrypted'], 'member_years.totem')
-                    : null,
-                quali: $row['quali_encrypted']
-                    ? $this->encryption->decrypt($row['quali_encrypted'], 'member_years.quali')
-                    : null,
-                gender: $row['gender_encrypted']
-                    ? $this->encryption->decrypt($row['gender_encrypted'], 'member_years.gender')
-                    : null,
-                birthDate: $row['birth_date_encrypted']
-                    ? $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date')
-                    : null,
-                phone: $row['phone_encrypted']
-                    ? $this->encryption->decrypt($row['phone_encrypted'], 'member_years.phone')
-                    : null,
-                mobile: $row['mobile_encrypted']
-                    ? $this->encryption->decrypt($row['mobile_encrypted'], 'member_years.mobile')
-                    : null,
-                email: $row['email_encrypted']
-                    ? $this->encryption->decrypt($row['email_encrypted'], 'member_years.email')
-                    : null,
-                patrol: $row['patrol_encrypted']
-                    ? $this->encryption->decrypt($row['patrol_encrypted'], 'member_years.patrol')
-                    : null,
-                formationLevel: $row['formation_level'],
-                federationMailConsent: (bool) $row['federation_mail_consent'],
-                unitMailConsent: (bool) $row['unit_mail_consent'],
-                addresses: [],
-                functions: $functionsByMemberYear[$memberYearId] ?? [],
-                scoutYearLabel: $labelsByYear[(int) $row['scout_year_id']] ?? '',
-                scoutYearOffset: (int) $row['scout_year_offset'],
-                badges: $badgesByMemberYear[$memberYearId] ?? []
-            );
-        }
-
-        return $profiles;
+        return $this->profiles->hydrateMany($memberYearIds);
     }
 }

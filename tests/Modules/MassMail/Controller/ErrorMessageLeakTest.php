@@ -31,6 +31,8 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\MassMail\MassMailTestHelper;
 use Twig\Environment;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * What this endpoint is allowed to SAY when something fails.
@@ -107,7 +109,10 @@ class ErrorMessageLeakTest extends TestCase
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
-        $sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, new MemberBadgeRepository($this->pdo))
+);
 
         return new MassMailController(
             $this->createMock(Environment::class),

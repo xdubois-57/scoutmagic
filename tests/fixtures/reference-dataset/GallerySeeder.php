@@ -34,6 +34,7 @@ use Modules\Gallery\Service\OgScraperService;
 use Core\Storage\Location\StorageLocationConsumerRegistry;
 use Core\Storage\Location\StorageLocationService;
 use Core\Storage\Location\Backend\StorageBackendFactory;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * Creates the gallery's external album through Modules\Gallery\Service\
@@ -81,7 +82,10 @@ final class GallerySeeder
             $albumRepository,
             new MediaRepository($pdo),
             new GalleryAccessService(
-                new MemberService(new MemberYearRepository($pdo), $encryption, Connection::withPdo($pdo)),
+                new MemberService(
+    new MemberYearRepository($pdo),
+    new MemberProfileRepository(Connection::withPdo($pdo), $encryption)
+),
                 $sectionService,
                 $scoutYearService,
             ),

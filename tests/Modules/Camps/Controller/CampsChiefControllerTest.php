@@ -41,6 +41,8 @@ use Modules\LlmConnector\Api\LlmTier;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Camps\CampsTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * Creating a stay and its place from one form.
@@ -69,10 +71,9 @@ class CampsChiefControllerTest extends TestCase
         $audit = new AuditService(new AuditRepository($this->pdo, $encryption));
         $settings = new SettingService(new SettingRepository($this->pdo));
         $sections = new SectionService(
-            \Core\Database\Connection::withPdo($this->pdo),
-            $encryption,
-            new \Core\Badge\MemberBadgeRepository($this->pdo)
-        );
+    new SectionRepository(\Core\Database\Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(\Core\Database\Connection::withPdo($this->pdo), $encryption, new \Core\Badge\MemberBadgeRepository($this->pdo))
+);
         $albums = new CampAlbumService($audit, null);
         $reviews = new ReviewRepository($this->pdo);
 
@@ -346,10 +347,9 @@ class CampsChiefControllerTest extends TestCase
             new ReviewRepository($this->pdo),
             new EditableContentService(new EditableContentRepository($this->pdo)),
             new SectionDescriber(new SectionService(
-                \Core\Database\Connection::withPdo($this->pdo),
-                $encryption,
-                new \Core\Badge\MemberBadgeRepository($this->pdo)
-            )),
+    new SectionRepository(\Core\Database\Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(\Core\Database\Connection::withPdo($this->pdo), $encryption, new \Core\Badge\MemberBadgeRepository($this->pdo))
+)),
             $llm
         );
     }
@@ -360,10 +360,9 @@ class CampsChiefControllerTest extends TestCase
         $audit = new AuditService(new AuditRepository($this->pdo, $encryption));
         $reviews = new ReviewRepository($this->pdo);
         $sections = new SectionService(
-            \Core\Database\Connection::withPdo($this->pdo),
-            $encryption,
-            new \Core\Badge\MemberBadgeRepository($this->pdo)
-        );
+    new SectionRepository(\Core\Database\Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(\Core\Database\Connection::withPdo($this->pdo), $encryption, new \Core\Badge\MemberBadgeRepository($this->pdo))
+);
 
         return new CampsChiefController(
             TwigFactory::create(
@@ -766,10 +765,9 @@ class CampsChiefControllerTest extends TestCase
         $audit = new AuditService(new AuditRepository($this->pdo, $encryption));
         $settings = new SettingService(new SettingRepository($this->pdo));
         $sections = new SectionService(
-            \Core\Database\Connection::withPdo($this->pdo),
-            $encryption,
-            new \Core\Badge\MemberBadgeRepository($this->pdo)
-        );
+    new SectionRepository(\Core\Database\Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(\Core\Database\Connection::withPdo($this->pdo), $encryption, new \Core\Badge\MemberBadgeRepository($this->pdo))
+);
         $reviews = new ReviewRepository($this->pdo);
         $albums = new CampAlbumService($audit, null);
 

@@ -52,6 +52,8 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\News\NewsTestHelper;
 use Twig\Environment;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * End-to-end controller tests rendering the REAL templates (not stubs),
@@ -110,7 +112,10 @@ class NewsIntegrationTest extends TestCase
 
         $connection = Connection::withPdo($this->pdo);
         $roleResolver = new RoleResolver(new MemberYearRepository($this->pdo), $this->encryption, $this->pdo);
-        $sectionService = new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
+);
         $this->sectionService = $sectionService;
         $mailService = $this->createMock(MailService::class);
 
@@ -141,7 +146,10 @@ class NewsIntegrationTest extends TestCase
         $this->schedulerService = $schedulerService;
         $this->userAccountRepository = $userAccountRepository;
 
-        $memberService = new MemberService(new MemberYearRepository($this->pdo), $this->encryption, $connection);
+        $memberService = new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository($connection, $this->encryption)
+);
         $this->memberService = $memberService;
 
         $uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());

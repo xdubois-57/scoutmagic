@@ -31,6 +31,8 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
 use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * MemberController's optional Modules\MassMail\Api\MassMailQueryInterface
@@ -59,7 +61,10 @@ class MemberControllerMassMailTest extends TestCase
 
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $this->memberService = new MemberService(new MemberYearRepository($this->pdo), $this->encryption, Connection::withPdo($this->pdo));
+        $this->memberService = new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption)
+);
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
         $scoutYearId = (int) $this->pdo->lastInsertId();
@@ -101,7 +106,10 @@ class MemberControllerMassMailTest extends TestCase
             $this->createMock(\Core\Mail\MailService::class),
             EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createMock(Environment::class)),
             new JournalService(new JournalRepository($this->pdo)),
-            new SectionService($connection, $this->encryption, $memberBadgeRepository),
+            new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, $memberBadgeRepository)
+),
             $this->memberService,
             new \Core\Config\ScoutYearService($this->pdo),
             'https://example.test',
@@ -118,7 +126,10 @@ class MemberControllerMassMailTest extends TestCase
             new \Core\Member\SectionMembershipRepository($this->pdo),
             new \Core\File\EncryptedFileStorageService(new \Core\File\FileRepository($this->pdo), $this->encryption, $storagePath),
             new \Core\File\FileRepository($this->pdo),
-            new SectionService($connection, $this->encryption, $memberBadgeRepository),
+            new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, $memberBadgeRepository)
+),
             new \Core\Config\ScoutYearService($this->pdo),
             new JournalService(new JournalRepository($this->pdo)),
             new \Core\Scheduler\SchedulerService(new \Core\Scheduler\SchedulerRepository($this->pdo)),
@@ -127,7 +138,10 @@ class MemberControllerMassMailTest extends TestCase
         );
 
         return new MemberPageService(
-            new SectionService($connection, $this->encryption, $memberBadgeRepository),
+            new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, $memberBadgeRepository)
+),
             $this->memberService,
             new BadgeRepository($this->pdo),
             $memberBadgeRepository,

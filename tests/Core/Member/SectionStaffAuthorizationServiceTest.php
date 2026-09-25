@@ -12,6 +12,8 @@ use Core\Member\SectionStaffAuthorizationService;
 use Core\Security\EncryptionService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -30,7 +32,10 @@ class SectionStaffAuthorizationServiceTest extends TestCase
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
-        $sectionService = new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
+);
         $this->service = new SectionStaffAuthorizationService(
             $connection,
             $this->encryption,

@@ -48,6 +48,8 @@ use Tests\Modules\Finance\FinanceTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 use Twig\TwigFunction;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -95,7 +97,10 @@ class CampaignControllerTest extends TestCase
             $accountRepository,
             $categoryRepository,
             new FiscalYearRepository($this->pdo, $scoutYearService),
-            new SectionService(Connection::withPdo($this->pdo), $this->encryption, new MemberBadgeRepository($this->pdo)),
+            new SectionService(
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption, new MemberBadgeRepository($this->pdo))
+),
             $transactionRepository,
             new BalanceService($checkpointRepository, $transactionRepository),
             new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),
@@ -130,14 +135,20 @@ class CampaignControllerTest extends TestCase
                 $allocations,
                 $accountRepository,
                 $accountVisibility,
-                new MemberService(new MemberYearRepository($this->pdo), $this->encryption, Connection::withPdo($this->pdo)),
+                new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption)
+),
                 new UserAccountRepository($this->pdo, $this->encryption)
             ),
             'rows' => $this->rows,
             'receivables' => $this->receivables,
             'allocations' => $allocations,
             'accounts' => $accountRepository,
-            'members' => new MemberService(new MemberYearRepository($this->pdo), $this->encryption, Connection::withPdo($this->pdo)),
+            'members' => new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption)
+),
             'finance' => $financeService,
             'scoutYears' => $scoutYearService,
         ];
@@ -152,7 +163,10 @@ class CampaignControllerTest extends TestCase
                 $allocations,
                 $accountRepository,
                 $accountVisibility,
-                new MemberService(new MemberYearRepository($this->pdo), $this->encryption, Connection::withPdo($this->pdo)),
+                new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption)
+),
                 new UserAccountRepository($this->pdo, $this->encryption)
             ),
             new CampaignExportService(),
@@ -161,7 +175,10 @@ class CampaignControllerTest extends TestCase
                 $this->receivables,
                 $allocations,
                 $accountRepository,
-                new MemberService(new MemberYearRepository($this->pdo), $this->encryption, Connection::withPdo($this->pdo)),
+                new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption)
+),
                 new \Modules\Finance\Service\ReceivableQrTokenService($this->encryption),
                 'https://scoutmagic.test',
                 // mass_mail disabled: the button is simply not offered.
@@ -177,7 +194,10 @@ class CampaignControllerTest extends TestCase
                     new UserAccountRepository($this->pdo, $this->encryption),
                     $this->encryption
                 ),
-                new MemberService(new MemberYearRepository($this->pdo), $this->encryption, Connection::withPdo($this->pdo)),
+                new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption)
+),
                 new MemberYearRepository($this->pdo),
                 // The notification centre is exercised on its own, in
                 // Service\CampaignNotificationServiceTest.
@@ -190,7 +210,10 @@ class CampaignControllerTest extends TestCase
                 $this->receivables,
                 $allocations,
                 $accountRepository,
-                new MemberService(new MemberYearRepository($this->pdo), $this->encryption, Connection::withPdo($this->pdo)),
+                new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption)
+),
                 new \Modules\Finance\Service\SepaQrCodeService(),
                 new \Core\Pdf\DocumentPdfService(),
                 $this->twig()

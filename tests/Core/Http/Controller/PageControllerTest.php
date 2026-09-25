@@ -29,6 +29,7 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * @group database
@@ -123,7 +124,10 @@ class PageControllerTest extends TestCase
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
         $memberBadgeRepository = new \Core\Badge\MemberBadgeRepository($this->pdo);
-        $sectionService = new SectionService($connection, $encryption, $memberBadgeRepository);
+        $sectionService = new SectionService(
+    new \Core\Member\Repository\SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, $memberBadgeRepository)
+);
         $unitStaffSectionService = new UnitStaffSectionService($this->pdo);
         $scoutYearService = new ScoutYearService($this->pdo);
 

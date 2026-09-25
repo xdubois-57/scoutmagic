@@ -41,6 +41,8 @@ use Modules\Gallery\Service\GalleryStorageWiring;
 use Core\Storage\Location\StorageLocationType;
 use Core\Storage\Location\Config\LocalLocationConfig;
 use Modules\Gallery\Service\GalleryLocationService;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -77,9 +79,15 @@ class GalleryChiefControllerTest extends TestCase
         $this->albumRepository = new AlbumRepository($this->pdo);
         $this->mediaRepository = new MediaRepository($this->pdo);
         $memberBadgeRepository = new MemberBadgeRepository($this->pdo);
-        $sectionService = new SectionService($connection, $encryption, $memberBadgeRepository);
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, $memberBadgeRepository)
+);
         $memberYearRepo = new MemberYearRepository($this->pdo);
-        $memberService = new MemberService($memberYearRepo, $encryption, $connection);
+        $memberService = new MemberService(
+    $memberYearRepo,
+    new MemberProfileRepository($connection, $encryption)
+);
         $scoutYearService = new ScoutYearService($this->pdo);
         $settingService = $this->createMock(SettingService::class);
         $settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);

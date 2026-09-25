@@ -12,6 +12,7 @@ use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Groups\GroupsTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * "@Marie Dupont" turned into the people it names — resolved from the
@@ -198,10 +199,9 @@ class MentionServiceTest extends TestCase
 
         $encryption = GroupsTestHelper::testEncryption();
         $memberService = new MemberService(
-            new \Core\Import\MemberYearRepository($pdo),
-            $encryption,
-            \Core\Database\Connection::withPdo($pdo)
-        );
+    new \Core\Import\MemberYearRepository($pdo),
+    new MemberProfileRepository(\Core\Database\Connection::withPdo($pdo), $encryption)
+);
 
         return [
             'service' => new MentionService($resolver, $memberService, GroupsTestHelper::identityService($pdo)),

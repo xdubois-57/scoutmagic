@@ -30,6 +30,8 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\MassMail\MassMailTestHelper;
 use Twig\Environment;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * What the mailing lists page's four JSON endpoints actually answer.
@@ -84,10 +86,9 @@ class MailingListControllerTest extends TestCase
         $this->badgeId = (int) $this->pdo->lastInsertId();
 
         $sectionService = new SectionService(
-            Connection::withPdo($this->pdo),
-            $encryption,
-            new MemberBadgeRepository($this->pdo)
-        );
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $encryption, new MemberBadgeRepository($this->pdo))
+);
         $this->listService = new MailingListService(
             new MailingListRepository($this->pdo),
             new MemberResolutionRepository($this->pdo, $encryption),

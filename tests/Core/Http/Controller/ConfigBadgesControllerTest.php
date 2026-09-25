@@ -19,6 +19,8 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -63,8 +65,9 @@ class ConfigBadgesControllerTest extends TestCase
         $this->badgeRepository = new BadgeRepository($this->pdo);
         $this->memberBadgeRepository = new MemberBadgeRepository($this->pdo);
         $sectionService = new SectionService(
-            Connection::withPdo($this->pdo), new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->memberBadgeRepository
-        );
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->memberBadgeRepository)
+);
         $this->badgeService = new BadgeService($this->badgeRepository, $this->memberBadgeRepository, $sectionService);
 
         $this->controller = new ConfigBadgesController($twig, $this->badgeService, $journalService);

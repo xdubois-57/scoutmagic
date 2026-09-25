@@ -52,6 +52,8 @@ use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\MassMail\MassMailTestHelper;
 use Twig\Environment;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * The composition screen of ONE email — the page « Écrire aux répondants »
@@ -100,8 +102,14 @@ class MassMailPageTest extends TestCase
         $this->pdo->exec("INSERT INTO sections (desk_code, age_branch_id, name) VALUES ('LOU01', {$branchId}, 'Meute A')");
         $this->sectionId = (int) $this->pdo->lastInsertId();
 
-        $sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
-        $memberService = new MemberService(new MemberYearRepository($this->pdo), $encryption, $connection);
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, new MemberBadgeRepository($this->pdo))
+);
+        $memberService = new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository($connection, $encryption)
+);
         $listService = new MailingListService(
             new MailingListRepository($this->pdo),
             new MemberResolutionRepository($this->pdo, $encryption),

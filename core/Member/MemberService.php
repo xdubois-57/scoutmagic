@@ -8,9 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Member;
 
-use Core\Database\Connection;
 use Core\Import\MemberYearRepository;
-use Core\Security\EncryptionService;
+use Core\Member\Repository\MemberProfileRepository;
 use Core\Security\Role;
 use Core\Service\DateInput;
 
@@ -34,8 +33,7 @@ class MemberService
      */
     public function __construct(
         private MemberYearRepository $memberYearRepo,
-        private EncryptionService $encryption,
-        private Connection $connection,
+        private MemberProfileRepository $profiles,
         private ?TemporaryMemberProviderInterface $temporaryMemberProvider = null,
         private ?MemberEmailRepository $memberEmailRepo = null
     ) {
@@ -76,7 +74,7 @@ class MemberService
     private function loadLinkedMembers(string $email, int $scoutYearId): array
     {
         $normalizedEmail = strtolower(trim($email));
-        $blindIndex = $this->encryption->blindIndex($normalizedEmail, 'email');
+        $blindIndex = $this->profiles->emailBlindIndex($normalizedEmail);
         $memberYearRows = [
             ...$this->memberYearRepo->findAllByEmail($blindIndex, $scoutYearId),
             ...$this->memberYearRowsViaSecondaryEmail($blindIndex, $scoutYearId),
@@ -312,7 +310,7 @@ class MemberService
             return false;
         }
 
-        $userBlindIndex = $this->encryption->blindIndex(strtolower(trim($userEmail)), 'email');
+        $userBlindIndex = $this->profiles->emailBlindIndex($userEmail);
         if ($row['email_blind_index'] === $userBlindIndex) {
             return true;
         }
@@ -363,7 +361,7 @@ class MemberService
             return false;
         }
 
-        $userBlindIndex = $this->encryption->blindIndex(strtolower(trim($email)), 'email');
+        $userBlindIndex = $this->profiles->emailBlindIndex($email);
         if ($row['email_blind_index'] === $userBlindIndex) {
             return true;
         }
@@ -405,22 +403,9 @@ class MemberService
             return [];
         }
 
-        $names = [];
-        foreach ($this->memberYearRepo->findAllByMemberIds($memberIds, $scoutYearId) as $row) {
-            $totem = $row['totem_encrypted'] !== null
-                ? $this->encryption->decrypt($row['totem_encrypted'], 'member_years.totem')
-                : null;
-            $firstName = $row['first_name_encrypted'] !== null
-                ? $this->encryption->decrypt($row['first_name_encrypted'], 'member_years.first_name')
-                : '';
-            $displayName = $totem !== null && $totem !== '' ? $totem : $firstName;
-
-            if ($displayName !== '') {
-                $names[(int) $row['member_id']] = $displayName;
-            }
-        }
-
-        return $names;
+        return $this->profiles->displayNamesFrom(
+            $this->memberYearRepo->findAllByMemberIds($memberIds, $scoutYearId)
+        );
     }
 
     /**
@@ -446,19 +431,9 @@ class MemberService
             return [];
         }
 
-        $emails = [];
-        foreach ($this->memberYearRepo->findAllByMemberIds($memberIds, $scoutYearId) as $row) {
-            if (($row['email_encrypted'] ?? null) === null) {
-                continue;
-            }
-
-            $email = trim($this->encryption->decrypt($row['email_encrypted'], 'member_years.email'));
-            if ($email !== '') {
-                $emails[(int) $row['member_id']] = $email;
-            }
-        }
-
-        return $emails;
+        return $this->profiles->emailsFrom(
+            $this->memberYearRepo->findAllByMemberIds($memberIds, $scoutYearId)
+        );
     }
 
     /**
@@ -481,23 +456,9 @@ class MemberService
      */
     public function findNamesForMembers(array $memberIds): array
     {
-        $names = [];
-
-        foreach ($this->memberYearRepo->findMostRecentNamesForMembers($memberIds) as $memberId => $row) {
-            $first = $row['first_name_encrypted'] !== null
-                ? $this->encryption->decrypt($row['first_name_encrypted'], 'member_years.first_name')
-                : '';
-            $last = $row['last_name_encrypted'] !== null
-                ? $this->encryption->decrypt($row['last_name_encrypted'], 'member_years.last_name')
-                : '';
-
-            $display = trim($first . ' ' . $last);
-            if ($display !== '') {
-                $names[$memberId] = $display;
-            }
-        }
-
-        return $names;
+        return $this->profiles->fullNamesFrom(
+            $this->memberYearRepo->findMostRecentNamesForMembers($memberIds)
+        );
     }
 
     /**
@@ -527,42 +488,29 @@ class MemberService
         $today ??= new \DateTimeImmutable('today');
         $entries = [];
 
-        foreach ($this->memberYearRepo->findActiveRosterForYear($scoutYearId) as $row) {
-            $birthDate = $row['birth_date_encrypted'] !== null
-                ? $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date')
-                : null;
+        $roster = $this->profiles->rosterEntriesFrom(
+            $this->memberYearRepo->findActiveRosterForYear($scoutYearId)
+        );
 
-            if ($minimumAge !== null && !self::isAtLeast($birthDate, $minimumAge, $today)) {
+        foreach ($roster as $row) {
+            if ($minimumAge !== null && !self::isAtLeast($row['birth_date'], $minimumAge, $today)) {
                 continue;
             }
 
-            $firstName = $row['first_name_encrypted'] !== null
-                ? $this->encryption->decrypt($row['first_name_encrypted'], 'member_years.first_name')
-                : '';
-            $lastName = $row['last_name_encrypted'] !== null
-                ? $this->encryption->decrypt($row['last_name_encrypted'], 'member_years.last_name')
-                : '';
-            $totem = $row['totem_encrypted'] !== null
-                ? $this->encryption->decrypt($row['totem_encrypted'], 'member_years.totem')
-                : null;
-
-            $displayName = $totem !== null && $totem !== '' ? $totem : $firstName;
+            $totem = $row['totem'];
+            $displayName = $totem !== null && $totem !== '' ? $totem : $row['first_name'];
             if ($displayName === '') {
                 continue;
             }
 
             $entries[] = new MemberDirectoryEntry(
-                memberId: (int) $row['member_id'],
+                memberId: $row['member_id'],
                 displayName: $displayName,
-                firstName: $firstName,
-                lastName: $lastName,
+                firstName: $row['first_name'],
+                lastName: $row['last_name'],
                 totem: $totem !== '' ? $totem : null,
-                sectionName: isset($row['section_name']) && $row['section_name'] !== ''
-                    ? (string) $row['section_name']
-                    : null,
-                functionLabel: isset($row['function_label']) && $row['function_label'] !== ''
-                    ? (string) $row['function_label']
-                    : null
+                sectionName: $row['section_name'],
+                functionLabel: $row['function_label']
             );
         }
 
@@ -604,115 +552,7 @@ class MemberService
      */
     private function hydrateMemberProfile(array $row): MemberProfile
     {
-        $pdo = $this->connection->getPdo();
-
-        // Load addresses
-        $stmt = $pdo->prepare('SELECT * FROM member_addresses WHERE member_year_id = ?');
-        $stmt->execute([$row['id']]);
-        $addresses = [];
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $addrRow) {
-            $addresses[] = new MemberAddress(
-                type: $addrRow['address_type'],
-                street: $addrRow['street_encrypted']
-                    ? $this->encryption->decrypt($addrRow['street_encrypted'], 'member_addresses.street')
-                    : null,
-                number: $addrRow['number_encrypted']
-                    ? $this->encryption->decrypt($addrRow['number_encrypted'], 'member_addresses.number')
-                    : null,
-                box: $addrRow['box_encrypted']
-                    ? $this->encryption->decrypt($addrRow['box_encrypted'], 'member_addresses.box')
-                    : null,
-                complement: $addrRow['complement_encrypted']
-                    ? $this->encryption->decrypt($addrRow['complement_encrypted'], 'member_addresses.complement')
-                    : null,
-                postalCode: $addrRow['postal_code_encrypted']
-                    ? $this->encryption->decrypt($addrRow['postal_code_encrypted'], 'member_addresses.postal_code')
-                    : null,
-                city: $addrRow['city_encrypted']
-                    ? $this->encryption->decrypt($addrRow['city_encrypted'], 'member_addresses.city')
-                    : null,
-                country: $addrRow['country_encrypted']
-                    ? $this->encryption->decrypt($addrRow['country_encrypted'], 'member_addresses.country')
-                    : null,
-            );
-        }
-
-        // Load functions with branch/section info
-        $stmt = $pdo->prepare(
-            'SELECT mf.*, f.label as function_label, f.role as function_role,
-                    ab.label as branch_name, s.name as section_name, s.desk_code as section_code
-             FROM member_functions mf
-             JOIN functions f ON mf.function_id = f.id
-             LEFT JOIN age_branches ab ON mf.age_branch_id = ab.id
-             LEFT JOIN sections s ON mf.section_id = s.id
-             WHERE mf.member_year_id = ?'
-        );
-        $stmt->execute([$row['id']]);
-        $functions = [];
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $fnRow) {
-            $functions[] = new MemberFunctionInfo(
-                functionLabel: $fnRow['function_label'],
-                functionRole: $fnRow['function_role'],
-                branchName: $fnRow['branch_name'],
-                sectionName: $fnRow['section_name'],
-                sectionCode: $fnRow['section_code'],
-                isMainFunction: (bool) $fnRow['is_main_function'],
-                startDate: $fnRow['start_date'],
-                endDate: $fnRow['end_date'],
-            );
-        }
-        // One function said twice is one function — see
-        // MemberFunctionInfo::deduplicate() for why the rows are there at
-        // all and why only strictly identical ones collapse.
-        $functions = MemberFunctionInfo::deduplicate($functions);
-
-        // Get scout year label
-        $stmt = $pdo->prepare('SELECT label FROM scout_years WHERE id = ?');
-        $stmt->execute([$row['scout_year_id']]);
-        $scoutYearLabel = (string) $stmt->fetchColumn();
-
-        return new MemberProfile(
-            memberYearId: (int) $row['id'],
-            memberId: (int) $row['member_id'],
-            deskId: $row['desk_id'],
-            firstName: $this->encryption->decrypt($row['first_name_encrypted'], 'member_years.first_name'),
-            lastName: $this->encryption->decrypt($row['last_name_encrypted'], 'member_years.last_name'),
-            totem: $row['totem_encrypted']
-                ? $this->encryption->decrypt($row['totem_encrypted'], 'member_years.totem')
-                : null,
-            quali: $row['quali_encrypted']
-                ? $this->encryption->decrypt($row['quali_encrypted'], 'member_years.quali')
-                : null,
-            gender: $row['gender_encrypted']
-                ? $this->encryption->decrypt($row['gender_encrypted'], 'member_years.gender')
-                : null,
-            birthDate: $row['birth_date_encrypted']
-                ? $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date')
-                : null,
-            phone: $row['phone_encrypted']
-                ? $this->encryption->decrypt($row['phone_encrypted'], 'member_years.phone')
-                : null,
-            mobile: $row['mobile_encrypted']
-                ? $this->encryption->decrypt($row['mobile_encrypted'], 'member_years.mobile')
-                : null,
-            email: $row['email_encrypted']
-                ? $this->encryption->decrypt($row['email_encrypted'], 'member_years.email')
-                : null,
-            patrol: $row['patrol_encrypted']
-                ? $this->encryption->decrypt($row['patrol_encrypted'], 'member_years.patrol')
-                : null,
-            formationLevel: $row['formation_level'],
-            federationMailConsent: (bool) $row['federation_mail_consent'],
-            unitMailConsent: (bool) $row['unit_mail_consent'],
-            handicap: !empty($row['handicap_encrypted'])
-                ? $this->encryption->decrypt($row['handicap_encrypted'], 'member_years.handicap')
-                : null,
-            supplementaryInsurance: $row['supplementary_insurance'] ?? null,
-            addresses: $addresses,
-            functions: $functions,
-            scoutYearLabel: $scoutYearLabel,
-            scoutYearOffset: (int) ($row['scout_year_offset'] ?? 0)
-        );
+        return $this->profiles->hydrateFromRow($row);
     }
 
     /**

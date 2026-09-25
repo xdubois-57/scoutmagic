@@ -35,6 +35,7 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
 use Twig\Loader\ArrayLoader;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * The protocol, end to end: what a real address-book client sends and
@@ -123,7 +124,10 @@ class CardDavControllerTest extends TestCase
                 new MemberEmailRepository($this->pdo, $this->enc)
             ),
             new VCardBuilder(),
-            new MemberService(new MemberYearRepository($this->pdo), $this->enc, $connection),
+            new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository($connection, $this->enc)
+),
             $scoutYearService
         ) extends AddressBookService {
             /** How many times the whole collection was listed. */

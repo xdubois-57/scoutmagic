@@ -112,10 +112,9 @@ final class RentalSeeder
             // built here, and the minimum-age setting is read from the real
             // settings table.
             new \Core\Member\MemberService(
-                new \Core\Import\MemberYearRepository($pdo),
-                $encryption,
-                \Core\Database\Connection::withPdo($pdo),
-            ),
+    new \Core\Import\MemberYearRepository($pdo),
+    new \Core\Member\Repository\MemberProfileRepository(\Core\Database\Connection::withPdo($pdo), $encryption)
+),
             $journal,
             $settingService,
         );

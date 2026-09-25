@@ -16,6 +16,8 @@ use Modules\Trombinoscope\Repository\TrombinoscopeRepository;
 use Modules\Trombinoscope\Service\TrombinoscopeService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * The query budget of the member-listing paths, on a real (SQLite)
@@ -101,7 +103,10 @@ final class QueryBudgetTest extends TestCase
 
     private function sectionService(): SectionService
     {
-        return new SectionService(Connection::withPdo($this->pdo), $this->encryption, new MemberBadgeRepository($this->pdo));
+        return new SectionService(
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption, new MemberBadgeRepository($this->pdo))
+);
     }
 
     /**

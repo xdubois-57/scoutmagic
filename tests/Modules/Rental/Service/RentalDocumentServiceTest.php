@@ -1113,10 +1113,9 @@ class RentalDocumentServiceTest extends TestCase
             $this->bookingRepository,
             new RentalAuthorizationService(
                 new \Core\Member\MemberService(
-                    new \Core\Import\MemberYearRepository($this->pdo),
-                    $this->encryption,
-                    \Core\Database\Connection::withPdo($this->pdo)
-                ),
+    new \Core\Import\MemberYearRepository($this->pdo),
+    new \Core\Member\Repository\MemberProfileRepository(\Core\Database\Connection::withPdo($this->pdo), $this->encryption)
+),
                 $this->assetRepository,
                 $this->managerRepository
             ),

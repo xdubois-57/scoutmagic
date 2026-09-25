@@ -15,6 +15,8 @@ use Modules\Registration\Service\PassageService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Registration\RegistrationTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * "Passage" page's domain logic: only last-rank-of-branch animés change
@@ -58,7 +60,10 @@ class PassageServiceTest extends TestCase
         $this->eclaireursSectionId = $this->createSection('ECLA1', $this->eclaireursBranchId, 'Éclaireurs A');
 
         $connection = Connection::withPdo($this->pdo);
-        $sectionService = new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
+);
         $transferRepository = new SectionTransferRepository($this->pdo);
         $this->requestRepository = new RegistrationRequestRepository($this->pdo, $this->encryption);
 

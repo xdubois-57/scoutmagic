@@ -36,6 +36,8 @@ use Tests\Modules\Registration\RegistrationTestHelper;
 use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
 use Core\View\TwigFactory;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * Full-stack tests through the real controller (GET renders the real form,
@@ -100,8 +102,14 @@ class PublicRegistrationControllerTest extends TestCase
         $secondaryEmailRepository = new RegistrationSecondaryEmailRepository($this->pdo, $this->encryption);
 
         $connection = Connection::withPdo($this->pdo);
-        $sectionService = new SectionService($connection, $this->encryption, new \Core\Badge\MemberBadgeRepository($this->pdo));
-        $memberService = new MemberService(new MemberYearRepository($this->pdo), $this->encryption, $connection);
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, new \Core\Badge\MemberBadgeRepository($this->pdo))
+);
+        $memberService = new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository($connection, $this->encryption)
+);
 
         $slotService = new SlotService($this->pdo, $this->encryption, $this->settingService, $ageBracketRepository, $slotCapacityRepository, $requestRepository);
         $editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));

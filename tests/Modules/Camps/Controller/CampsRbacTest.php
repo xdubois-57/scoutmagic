@@ -41,6 +41,8 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Camps\CampsTestHelper;
 use Twig\Environment;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * RBAC boundary through the REAL Router/RbacGuard pipeline, against the
@@ -86,8 +88,9 @@ class CampsRbacTest extends TestCase
         $audit = new AuditService(new AuditRepository($this->pdo, $encryption));
         $settings = new SettingService(new SettingRepository($this->pdo));
         $sections = new SectionService(
-            Connection::withPdo($this->pdo), $encryption, new MemberBadgeRepository($this->pdo)
-        );
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $encryption, new MemberBadgeRepository($this->pdo))
+);
 
         $root = dirname(__DIR__, 4);
         $twig = TwigFactory::create($root . '/core/View/templates', false, ['camps' => $root . '/modules/camps/views', 'inbound_mail' => $root . '/modules/inbound_mail/views']);

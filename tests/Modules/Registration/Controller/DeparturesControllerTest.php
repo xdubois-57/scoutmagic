@@ -25,6 +25,8 @@ use Core\View\TwigFactory;
 use Modules\Registration\Controller\DeparturesController;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * "Départs" page: section-scoped by Core\Member\
@@ -68,7 +70,10 @@ class DeparturesControllerTest extends TestCase
         $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
 
         $badgeRepo = new \Core\Badge\MemberBadgeRepository($this->pdo);
-        $sectionService = new SectionService($connection, $this->encryption, $badgeRepo);
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, $badgeRepo)
+);
         $sectionStaffAuth = new SectionStaffAuthorizationService($connection, $this->encryption, $sectionService);
         $departureRepository = new DepartureRepository($this->pdo, $this->encryption);
         $journalService = new JournalService(new JournalRepository($this->pdo));

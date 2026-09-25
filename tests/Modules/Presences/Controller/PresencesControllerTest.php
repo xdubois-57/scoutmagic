@@ -697,10 +697,9 @@ class PresencesControllerTest extends TestCase
                 $registerService, $sectionService, $repository
             ),
             new \Core\Member\MemberService(
-                new \Core\Import\MemberYearRepository($this->pdo, $this->encryption),
-                $this->encryption,
-                \Core\Database\Connection::withPdo($this->pdo)
-            ),
+    new \Core\Import\MemberYearRepository($this->pdo, $this->encryption),
+    new \Core\Member\Repository\MemberProfileRepository(\Core\Database\Connection::withPdo($this->pdo), $this->encryption)
+),
             $this->stubResolver(),
             new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo))
         );

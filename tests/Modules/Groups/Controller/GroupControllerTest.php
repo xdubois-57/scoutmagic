@@ -38,6 +38,8 @@ use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Groups\GroupsTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -237,10 +239,9 @@ class GroupControllerTest extends TestCase
             // returning [] would make these tests pass by doing nothing.
             new \Modules\Groups\Service\SectionGroupSyncService(
                 new SectionService(
-                    \Core\Database\Connection::withPdo($this->pdo),
-                    new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
-                    new \Core\Badge\MemberBadgeRepository($this->pdo)
-                ),
+    new SectionRepository(\Core\Database\Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(\Core\Database\Connection::withPdo($this->pdo), new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), new \Core\Badge\MemberBadgeRepository($this->pdo))
+),
                 $this->groupRepo,
                 new GroupSectionRepository($this->pdo)
             ),

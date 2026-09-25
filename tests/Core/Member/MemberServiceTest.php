@@ -8,6 +8,7 @@ use Core\Member\MemberNotFoundException;
 use Core\Member\MemberService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * @group database
@@ -24,10 +25,9 @@ class MemberServiceTest extends TestCase
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         $this->service = new MemberService(
-            memberYearRepo: new \Core\Import\MemberYearRepository($this->pdo),
-            encryption: new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
-            connection: \Core\Database\Connection::withPdo($this->pdo)
-        );
+    memberYearRepo: new \Core\Import\MemberYearRepository($this->pdo),
+    profiles: new MemberProfileRepository(connection: \Core\Database\Connection::withPdo($this->pdo), encryption: new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)))
+);
 
         // Create scout year
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
@@ -88,10 +88,9 @@ class MemberServiceTest extends TestCase
         $this->assertCount(1, $this->service->getLinkedMembers($this->testEmail, $this->scoutYearId));
         // A fresh instance (a fresh request) sees the new member.
         $fresh = new MemberService(
-            memberYearRepo: new \Core\Import\MemberYearRepository($this->pdo),
-            encryption: new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
-            connection: \Core\Database\Connection::withPdo($this->pdo)
-        );
+    memberYearRepo: new \Core\Import\MemberYearRepository($this->pdo),
+    profiles: new MemberProfileRepository(connection: \Core\Database\Connection::withPdo($this->pdo), encryption: new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)))
+);
         $this->assertCount(2, $fresh->getLinkedMembers($this->testEmail, $this->scoutYearId));
     }
 
@@ -337,12 +336,11 @@ class MemberServiceTest extends TestCase
         $encryption = new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
         return new MemberService(
-            memberYearRepo: new \Core\Import\MemberYearRepository($this->pdo),
-            encryption: $encryption,
-            connection: \Core\Database\Connection::withPdo($this->pdo),
-            temporaryMemberProvider: null,
-            memberEmailRepo: new \Core\Member\MemberEmailRepository($this->pdo, $encryption)
-        );
+    memberYearRepo: new \Core\Import\MemberYearRepository($this->pdo),
+    profiles: new MemberProfileRepository(connection: \Core\Database\Connection::withPdo($this->pdo), encryption: $encryption),
+    temporaryMemberProvider: null,
+    memberEmailRepo: new \Core\Member\MemberEmailRepository($this->pdo, $encryption)
+);
     }
 
     private function memberIdOf(int $memberYearId): int

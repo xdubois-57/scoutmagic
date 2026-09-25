@@ -44,6 +44,8 @@ use Tests\Modules\Finance\FinanceTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 use Twig\TwigFunction;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * The "Outils" page: a payment QR, and a communication checker.
@@ -349,7 +351,10 @@ class ToolsControllerTest extends TestCase
             $accountRepository,
             $categoryRepository,
             new FiscalYearRepository($this->pdo, $scoutYearService),
-            new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo)),
+            new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, new MemberBadgeRepository($this->pdo))
+),
             $transactionRepository,
             new BalanceService(new BalanceCheckpointRepository($this->pdo), $transactionRepository),
             new SettingService(new SettingRepository($this->pdo)),

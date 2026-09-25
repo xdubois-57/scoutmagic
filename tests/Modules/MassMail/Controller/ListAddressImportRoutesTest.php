@@ -31,6 +31,8 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\MassMail\MassMailTestHelper;
 use Twig\Environment;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * The three routes of the Excel round trip, and above all the one
@@ -73,7 +75,10 @@ class ListAddressImportRoutesTest extends TestCase
             new MailingListService(
                 $listRepository,
                 new MemberResolutionRepository($this->pdo, $encryption),
-                new SectionService($this->connection(), $encryption, new MemberBadgeRepository($this->pdo)),
+                new SectionService(
+    new SectionRepository($this->connection()),
+    new MemberProfileRepository($this->connection(), $encryption, new MemberBadgeRepository($this->pdo))
+),
                 new FunctionRepository($this->pdo),
                 null,
                 $this->repository

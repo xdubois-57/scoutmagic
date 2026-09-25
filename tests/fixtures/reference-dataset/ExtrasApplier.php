@@ -47,6 +47,8 @@ use Modules\Finance\Service\ExpectedReceivableService;
 use Modules\Finance\Service\ReceivableAllocationService;
 use Modules\Finance\Service\TreasurerScope;
 use Modules\Registration\Service\SlotService;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * Applies the extras through the application's own services, and orchestrates
@@ -584,10 +586,9 @@ final class ExtrasApplier
     private function sectionService(): SectionService
     {
         return new SectionService(
-            Connection::withPdo($this->pdo),
-            $this->encryption,
-            new MemberBadgeRepository($this->pdo),
-        );
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption, new MemberBadgeRepository($this->pdo))
+);
     }
 
     /**

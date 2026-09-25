@@ -164,6 +164,7 @@ use Core\View\RgpdContentService;
 use Core\View\MenuBuilder;
 use Core\View\SectionRepository;
 use Core\View\TwigFactory;
+use Core\Member\Repository\MemberProfileRepository;
 
 // Load configuration
 $config = new AppConfig(__DIR__ . '/../config/app.php');
@@ -2565,8 +2566,7 @@ $notificationService = new NotificationService(
 $temporaryMemberProvider = new \Core\Member\SessionTemporaryMemberProvider();
 $memberService = new MemberService(
     $memberYearRepo,
-    $encryptionService,
-    $connection,
+    new MemberProfileRepository($connection, $encryptionService),
     $temporaryMemberProvider,
     $memberEmailRepository
 );
@@ -2591,7 +2591,10 @@ $departureService = new \Core\Member\DepartureService(
 $badgeRepository = new BadgeRepository($pdo);
 $memberBadgeRepository = new MemberBadgeRepository($pdo);
 
-$sectionService = new SectionService($connection, $encryptionService, $memberBadgeRepository);
+$sectionService = new SectionService(
+    new \Core\Member\Repository\SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryptionService, $memberBadgeRepository)
+);
 // Single-implementation CORE hooks (§7.4) all register in this registry —
 // one line in the providing module's block, far below, resolved by
 // consumers at request time (Core\Module\HookRegistry's own docblock says

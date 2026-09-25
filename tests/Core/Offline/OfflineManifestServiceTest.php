@@ -26,6 +26,8 @@ use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -56,8 +58,14 @@ class OfflineManifestServiceTest extends TestCase
         $this->memberPhotoService = new MemberPhotoService(new MemberPhotoRepository($this->pdo));
         $this->sectionPhotoService = new SectionPhotoService(new SectionPhotoRepository($this->pdo));
         $memberBadgeRepository = new \Core\Badge\MemberBadgeRepository($this->pdo);
-        $this->sectionService = new SectionService($connection, $this->encryption, $memberBadgeRepository);
-        $this->memberService = new MemberService(new MemberYearRepository($this->pdo), $this->encryption, $connection);
+        $this->sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, $memberBadgeRepository)
+);
+        $this->memberService = new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository($connection, $this->encryption)
+);
 
         [$label, $yearStart, $yearEnd] = DatabaseTestHelper::scoutYear();
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('{$label}', '{$yearStart}', '{$yearEnd}', 1)");
@@ -119,11 +127,10 @@ class OfflineManifestServiceTest extends TestCase
 
         return [
             new MemberService(
-                new MemberYearRepository($this->pdo),
-                $this->encryption,
-                Connection::withPdo($this->pdo),
-                $provider
-            ),
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption),
+    $provider
+),
             $provider,
         ];
     }

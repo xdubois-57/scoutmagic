@@ -21,6 +21,8 @@ use Modules\SosStaff\Service\SosSettingsService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\SosStaff\SosStaffTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -45,7 +47,10 @@ class SosSettingsServiceTest extends TestCase
         $connection = Connection::withPdo($this->pdo);
 
         $memberBadgeRepository = new MemberBadgeRepository($this->pdo);
-        $this->sectionService = new SectionService($connection, $this->encryption, $memberBadgeRepository);
+        $this->sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, $memberBadgeRepository)
+);
         $this->memberYearRepository = new MemberYearRepository($this->pdo);
         $this->unitStaffSectionService = new UnitStaffSectionService($this->pdo);
         $this->settingService = new SettingService(new SettingRepository($this->pdo));

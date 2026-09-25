@@ -28,6 +28,8 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\MassMail\MassMailTestHelper;
 use Twig\Environment;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * The live counter on the criteria form: `POST /admin/listes-de-diffusion/
@@ -101,10 +103,9 @@ class MailingListPreviewCountTest extends TestCase
 
         $connection = Connection::withPdo($this->pdo);
         $sectionService = new SectionService(
-            $connection,
-            $this->encryption,
-            new MemberBadgeRepository($this->pdo)
-        );
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
+);
 
         $this->controller = new MailingListController(
             $this->createMock(Environment::class),

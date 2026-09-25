@@ -24,6 +24,7 @@ use Modules\Finance\Service\TreasurerScope;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * @group database
@@ -60,7 +61,10 @@ class ReconciliationServiceTest extends TestCase
             new AccountRepository($this->pdo, $this->encryption),
             new AccountVisibility(TreasurerScope::systemCaller()),
             $this->allocations,
-            new MemberService(new MemberYearRepository($this->pdo), $this->encryption, Connection::withPdo($this->pdo)),
+            new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption)
+),
             new HouseholdService(new HouseholdRepository($this->pdo, $this->encryption), $this->encryption)
         );
 

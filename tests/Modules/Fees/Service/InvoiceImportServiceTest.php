@@ -21,6 +21,8 @@ use Modules\Fees\Value\InvoiceImportOutcome;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Fees\FeesTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * Three states, and two of them are failures — deliberately different
@@ -70,7 +72,10 @@ class InvoiceImportServiceTest extends TestCase
             $this->invoices,
             new InvoiceMemberMatchRepository($this->pdo, $this->encryption),
             $this->snapshots,
-            new SectionService(Connection::withPdo($this->pdo), $this->encryption, new MemberBadgeRepository($this->pdo)),
+            new SectionService(
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption, new MemberBadgeRepository($this->pdo))
+),
             new JournalService(new JournalRepository($this->pdo))
         );
 

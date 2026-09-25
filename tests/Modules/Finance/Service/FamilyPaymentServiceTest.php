@@ -25,6 +25,7 @@ use Modules\Finance\Service\StructuredCommunicationService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * @group database
@@ -412,7 +413,10 @@ class FamilyPaymentServiceTest extends TestCase
             $this->campaigns,
             $this->imports,
             new ReceivableQrTokenService($this->encryption),
-            new MemberService(new MemberYearRepository($this->pdo), $this->encryption, Connection::withPdo($this->pdo)),
+            new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption)
+),
             $this->scoutYearResolver(),
             'https://scoutmagic.test'
         );

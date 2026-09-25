@@ -33,6 +33,8 @@ use Tests\Modules\Calendar\CalendarTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 use Twig\TwigFunction;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -61,7 +63,10 @@ class CalendarConfigControllerTest extends TestCase
         $this->calendarRepository = new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
         $this->eventRepository = new CalendarEventRepository($this->pdo);
         $memberBadgeRepository = new MemberBadgeRepository($this->pdo);
-        $sectionService = new SectionService($connection, $encryption, $memberBadgeRepository);
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, $memberBadgeRepository)
+);
         $this->sectionService = $sectionService;
         $this->calendarService = new CalendarService(
             $this->calendarRepository,

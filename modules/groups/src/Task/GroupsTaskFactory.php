@@ -34,6 +34,8 @@ use Modules\Groups\Service\PostService;
 use Modules\Groups\Service\RateLimitService;
 use Modules\Groups\Service\ReplyService;
 use Modules\Groups\Service\SectionGroupSyncService;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * Builds this module's lifecycle services from a TaskContext.
@@ -134,7 +136,10 @@ final class GroupsTaskFactory
         $pdo = $context->connection->getPdo();
 
         return new SectionGroupSyncService(
-            new SectionService($context->connection, $context->encryption, new MemberBadgeRepository($pdo)),
+            new SectionService(
+    new SectionRepository($context->connection),
+    new MemberProfileRepository($context->connection, $context->encryption, new MemberBadgeRepository($pdo))
+),
             new GroupRepository($pdo),
             new GroupSectionRepository($pdo)
         );

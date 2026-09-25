@@ -41,6 +41,8 @@ use Tests\Modules\SosStaff\SosStaffTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 use Twig\TwigFunction;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -65,19 +67,21 @@ class SosAdminControllerTest extends TestCase
         $connection = Connection::withPdo($this->pdo);
 
         $memberBadgeRepository = new MemberBadgeRepository($this->pdo);
-        $sectionService = new SectionService($connection, $encryption, $memberBadgeRepository);
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, $memberBadgeRepository)
+);
         $memberYearRepository = new MemberYearRepository($this->pdo);
         // « Ma disponibilité » resolves which roster member the signed-in
         // visitor is through the same linked-members lookup the rest of the
         // site uses — the real service, not a stub, so the tab's emptiness
         // for a login on no roster is a real answer.
         $memberService = new MemberService(
-            $memberYearRepository,
-            $encryption,
-            $connection,
-            null,
-            new MemberEmailRepository($this->pdo, $encryption)
-        );
+    $memberYearRepository,
+    new MemberProfileRepository($connection, $encryption),
+    null,
+    new MemberEmailRepository($this->pdo, $encryption)
+);
 
         $settingService = new SettingService(new SettingRepository($this->pdo));
         $settingService->register('transition_hour', '10:00', 'text', 'Heure', 'desc', 'sos_staff');

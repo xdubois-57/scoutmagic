@@ -24,6 +24,8 @@ use Core\Security\EncryptionService;
 use Modules\OfficialDocuments\Service\ParentalAuthorizationService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * Everything the authorization needs that the parent does not type.
@@ -55,15 +57,13 @@ final class ParentalAuthorizationServiceTest extends TestCase
         $connection = Connection::withPdo($this->pdo);
 
         $this->memberService = new MemberService(
-            new MemberYearRepository($this->pdo),
-            $this->encryption,
-            $connection
-        );
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository($connection, $this->encryption)
+);
         $this->sectionService = new SectionService(
-            $connection,
-            $this->encryption,
-            new \Core\Badge\MemberBadgeRepository($this->pdo)
-        );
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, new \Core\Badge\MemberBadgeRepository($this->pdo))
+);
         $this->settings = new SettingService(new SettingRepository($this->pdo));
 
         $this->pdo->exec(

@@ -23,6 +23,8 @@ use Core\Security\EncryptionService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * MemberController::updateScoutYearOffset — the AJAX save behind the "Décalage
@@ -56,11 +58,17 @@ class MemberControllerScoutYearOffsetTest extends TestCase
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $memberYearRepo = new MemberYearRepository($this->pdo);
-        $this->memberService = new MemberService($memberYearRepo, $this->encryption, Connection::withPdo($this->pdo));
+        $this->memberService = new MemberService(
+    $memberYearRepo,
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption)
+);
         $journalService = new JournalService(new JournalRepository($this->pdo));
 
         $connection = Connection::withPdo($this->pdo);
-        $sectionService = new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
+);
 
         $this->controller = new MemberController(
             $this->createMock(Environment::class),

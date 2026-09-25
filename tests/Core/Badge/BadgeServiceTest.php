@@ -16,6 +16,8 @@ use Core\Module\HookRegistry;
 use Core\Security\EncryptionService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -36,8 +38,9 @@ class BadgeServiceTest extends TestCase
         $this->badgeRepository = new BadgeRepository($this->pdo);
         $this->memberBadgeRepository = new MemberBadgeRepository($this->pdo);
         $this->sectionService = new SectionService(
-            Connection::withPdo($this->pdo), new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->memberBadgeRepository
-        );
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->memberBadgeRepository)
+);
         $this->service = new BadgeService($this->badgeRepository, $this->memberBadgeRepository, $this->sectionService);
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2025-2026', '2025-09-01', '2026-08-31')");

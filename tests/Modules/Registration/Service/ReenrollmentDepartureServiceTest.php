@@ -19,6 +19,7 @@ use Modules\Registration\Service\ReenrollmentService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Registration\RegistrationTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * IT-16 — a family's answer and the staff's « Départs » box write the same
@@ -76,17 +77,15 @@ class ReenrollmentDepartureServiceTest extends TestCase
             $this->repository,
             $settingService,
             new MemberService(
-                new MemberYearRepository($this->pdo),
-                $this->encryption,
-                Connection::withPdo($this->pdo)
-            ),
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption)
+),
             $this->link,
             RegistrationTestHelper::projectedPopulation($this->pdo, $this->encryption, $settingService),
             new \Core\Member\SectionService(
-                Connection::withPdo($this->pdo),
-                $this->encryption,
-                new \Core\Badge\MemberBadgeRepository($this->pdo)
-            )
+    new \Core\Member\Repository\SectionRepository(Connection::withPdo($this->pdo)),
+    new \Core\Member\Repository\MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption, new \Core\Badge\MemberBadgeRepository($this->pdo))
+)
         );
 
         [$this->memberId, $this->memberYearId] = $this->createMember('Léa');

@@ -25,6 +25,8 @@ use Modules\Registration\Service\SlotService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Registration\RegistrationTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -53,7 +55,10 @@ class ForecastControllerTest extends TestCase
         $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, new \Core\Import\MemberYearRepository($this->pdo));
 
         $connection = Connection::withPdo($this->pdo);
-        $sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, new MemberBadgeRepository($this->pdo))
+);
 
         $requestRepository = new RegistrationRequestRepository($this->pdo, $encryption);
         $ageBracketRepository = new AgeBracketRepository($this->pdo);

@@ -27,6 +27,8 @@ use Modules\Calendar\Service\VirtualEventRegistry;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Calendar\CalendarTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -52,13 +54,19 @@ class PersonalFeedServiceTest extends TestCase
         $calendarRepository = new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
         $this->eventRepository = new CalendarEventRepository($this->pdo);
         $memberBadgeRepository = new MemberBadgeRepository($this->pdo);
-        $sectionService = new SectionService($connection, $this->encryption, $memberBadgeRepository);
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, $memberBadgeRepository)
+);
         $this->calendarService = new CalendarService($calendarRepository, $this->eventRepository, $sectionService, new CalendarUnitFeedTokenRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))));
         $this->tokenRepository = new CalendarPersonalTokenRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
 
         $memberYearRepo = new MemberYearRepository($this->pdo);
         $roleResolver = new RoleResolver($memberYearRepo, $this->encryption, $this->pdo);
-        $memberService = new MemberService($memberYearRepo, $this->encryption, $connection);
+        $memberService = new MemberService(
+    $memberYearRepo,
+    new MemberProfileRepository($connection, $this->encryption)
+);
         $userAccountRepository = new UserAccountRepository($this->pdo, $this->encryption);
 
         $this->service = new PersonalFeedService(
@@ -217,14 +225,20 @@ class PersonalFeedServiceTest extends TestCase
     {
         $connection = Connection::withPdo($this->pdo);
         $memberYearRepo = new MemberYearRepository($this->pdo);
-        $sectionService = new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
+);
 
         return new PersonalFeedService(
             $this->tokenRepository,
             $this->calendarService,
             $this->eventRepository,
             new RoleResolver($memberYearRepo, $this->encryption, $this->pdo),
-            new MemberService($memberYearRepo, $this->encryption, $connection),
+            new MemberService(
+    $memberYearRepo,
+    new MemberProfileRepository($connection, $this->encryption)
+),
             new UserAccountRepository($this->pdo, $this->encryption),
             $sectionService
         );
@@ -235,14 +249,20 @@ class PersonalFeedServiceTest extends TestCase
     ): PersonalFeedService {
         $connection = Connection::withPdo($this->pdo);
         $memberYearRepo = new MemberYearRepository($this->pdo);
-        $sectionService = new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
+);
 
         return new PersonalFeedService(
             $this->tokenRepository,
             $this->calendarService,
             $this->eventRepository,
             new RoleResolver($memberYearRepo, $this->encryption, $this->pdo),
-            new MemberService($memberYearRepo, $this->encryption, $connection),
+            new MemberService(
+    $memberYearRepo,
+    new MemberProfileRepository($connection, $this->encryption)
+),
             new UserAccountRepository($this->pdo, $this->encryption),
             $sectionService,
             null,
@@ -332,9 +352,15 @@ class PersonalFeedServiceTest extends TestCase
             $this->calendarService,
             $this->eventRepository,
             new RoleResolver($memberYearRepo, $this->encryption, $this->pdo),
-            new MemberService($memberYearRepo, $this->encryption, $connection),
+            new MemberService(
+    $memberYearRepo,
+    new MemberProfileRepository($connection, $this->encryption)
+),
             new UserAccountRepository($this->pdo, $this->encryption),
-            new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo)),
+            new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
+),
             $retro,
             $presences
         );
@@ -360,14 +386,20 @@ class PersonalFeedServiceTest extends TestCase
         $connection = Connection::withPdo($this->pdo);
         $memberYearRepo = new MemberYearRepository($this->pdo);
         $memberBadgeRepository = new MemberBadgeRepository($this->pdo);
-        $sectionService = new SectionService($connection, $this->encryption, $memberBadgeRepository);
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, $memberBadgeRepository)
+);
 
         return new PersonalFeedService(
             $this->tokenRepository,
             $this->calendarService,
             $this->eventRepository,
             new RoleResolver($memberYearRepo, $this->encryption, $this->pdo),
-            new MemberService($memberYearRepo, $this->encryption, $connection),
+            new MemberService(
+    $memberYearRepo,
+    new MemberProfileRepository($connection, $this->encryption)
+),
             new UserAccountRepository($this->pdo, $this->encryption),
             $sectionService,
             $lookup

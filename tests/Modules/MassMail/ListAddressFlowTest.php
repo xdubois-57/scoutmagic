@@ -46,6 +46,8 @@ use PHPUnit\Framework\TestCase;
 use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * A custom list is the UNION of what its criteria resolve and its own
@@ -86,8 +88,14 @@ class ListAddressFlowTest extends TestCase
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
         $connection = Connection::withPdo($this->pdo);
-        $sectionService = new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo));
-        $memberService = new MemberService(new MemberYearRepository($this->pdo), $this->encryption, $connection);
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
+);
+        $memberService = new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository($connection, $this->encryption)
+);
 
         $this->addressRepository = new ListAddressRepository($this->pdo, $this->encryption);
         $listRepository = new MailingListRepository($this->pdo);

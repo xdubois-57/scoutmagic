@@ -23,6 +23,8 @@ use Modules\SosStaff\Repository\SosSettingsRepository;
 use Modules\SosStaff\Service\ProviderConfigService;
 use Modules\SosStaff\Service\RedirectService;
 use Modules\SosStaff\Service\SosSettingsService;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * Runs a single scheduled redirect transition (module spec §3/§4) — the
@@ -42,18 +44,16 @@ class ApplyRedirectHandler implements TaskHandlerInterface
         $pdo = $context->connection->getPdo();
 
         $sectionService = new SectionService(
-            $context->connection,
-            $context->encryption,
-            new MemberBadgeRepository($pdo)
-        );
+    new SectionRepository($context->connection),
+    new MemberProfileRepository($context->connection, $context->encryption, new MemberBadgeRepository($pdo))
+);
         $memberYearRepository = new MemberYearRepository($pdo);
         $memberService = new MemberService(
-            $memberYearRepository,
-            $context->encryption,
-            $context->connection,
-            null,
-            new MemberEmailRepository($pdo, $context->encryption)
-        );
+    $memberYearRepository,
+    new MemberProfileRepository($context->connection, $context->encryption),
+    null,
+    new MemberEmailRepository($pdo, $context->encryption)
+);
 
         $settingsService = new SosSettingsService(
             new ExcludedSectionRepository($pdo),

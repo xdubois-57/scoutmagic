@@ -24,6 +24,8 @@ use Core\Scheduler\SchedulerService;
 use Core\Security\EncryptionService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -51,7 +53,10 @@ class SectionDocumentServiceTest extends TestCase
         $this->fileRepository = new FileRepository($this->pdo);
         $this->storagePath = sys_get_temp_dir() . '/section_document_test_' . uniqid();
         $fileStorage = new EncryptedFileStorageService($this->fileRepository, $encryption, $this->storagePath);
-        $sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, new MemberBadgeRepository($this->pdo))
+);
 
         $settingService = new SettingService(new SettingRepository($this->pdo));
         $settingService->register('section_document_compression_enabled', '1', 'boolean', 'x', 'x');

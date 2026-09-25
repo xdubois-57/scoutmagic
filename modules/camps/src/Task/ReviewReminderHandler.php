@@ -15,6 +15,8 @@ use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Modules\Camps\Repository\CampRepository;
 use Modules\Camps\Service\ReviewNotificationService;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * Sends the "leave a review" notification for every stay that has ended
@@ -41,7 +43,10 @@ class ReviewReminderHandler implements TaskHandlerInterface
 
         $service = new ReviewNotificationService(
             new CampRepository($pdo, $context->encryption),
-            new SectionService($context->connection, $context->encryption, new MemberBadgeRepository($pdo)),
+            new SectionService(
+    new SectionRepository($context->connection),
+    new MemberProfileRepository($context->connection, $context->encryption, new MemberBadgeRepository($pdo))
+),
             $context->userAccounts,
             $context->encryption,
             $pdo,

@@ -10,6 +10,8 @@ use Core\Member\SectionService;
 use Core\Security\EncryptionService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * getSectionAnimeMemberIds() — the persistent-identity twin of
@@ -37,10 +39,9 @@ class SectionServiceAnimeMemberIdsTest extends TestCase
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->service = new SectionService(
-            Connection::withPdo($this->pdo),
-            $this->encryption,
-            new MemberBadgeRepository($this->pdo)
-        );
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption, new MemberBadgeRepository($this->pdo))
+);
 
         [$label, $start, $end] = DatabaseTestHelper::scoutYear();
         $stmt = $this->pdo->prepare('INSERT INTO scout_years (label, start_date, end_date) VALUES (?, ?, ?)');

@@ -31,6 +31,8 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
 use Twig\Loader\ArrayLoader;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -51,10 +53,16 @@ class OfflineControllerTest extends TestCase
         $offlineWhitelist = new OfflineWhitelist();
         $this->offlineManifestService = new OfflineManifestService(
             $offlineWhitelist,
-            new MemberService(new MemberYearRepository($this->pdo), $encryption, $connection),
+            new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository($connection, $encryption)
+),
             new MemberPhotoService(new MemberPhotoRepository($this->pdo)),
             new SectionPhotoService(new SectionPhotoRepository($this->pdo)),
-            new SectionService($connection, $encryption, new \Core\Badge\MemberBadgeRepository($this->pdo)),
+            new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, new \Core\Badge\MemberBadgeRepository($this->pdo))
+),
             new UnitStaffSectionService($this->pdo),
             new \Core\ScoutYear\ScoutYearResolver(
                 new \Core\Config\ScoutYearService($this->pdo),

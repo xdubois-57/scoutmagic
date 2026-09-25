@@ -22,6 +22,7 @@ use Core\Security\EncryptionService;
 use Core\Import\MemberYearRepository;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * What a contact card is assembled from — and the fields of the member
@@ -51,7 +52,10 @@ class ContactCardServiceTest extends TestCase
         $settingService = new SettingService(new SettingRepository($this->pdo));
         $settingService->register('site_name', '15e Unité Saint-Michel', 'text', 'Nom', 'Nom de l\'unité');
 
-        $this->memberService = new MemberService(new MemberYearRepository($this->pdo), $this->enc, $connection);
+        $this->memberService = new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository($connection, $this->enc)
+);
         // The portrait resolver is wired here, not left null: the Full
         // variant's PHOTO is part of what this class decides, and a test
         // that never gives it a resolver never exercises it.

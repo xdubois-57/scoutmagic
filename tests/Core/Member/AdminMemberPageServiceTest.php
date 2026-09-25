@@ -17,6 +17,8 @@ use Core\Photo\MemberPhotoService;
 use Core\Security\EncryptionService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * The blocks of /admin/members/{id} that this iteration adds on top of
@@ -91,12 +93,18 @@ class AdminMemberPageServiceTest extends TestCase
         $stmt->execute([$this->memberYearId, $secondFunctionId, $this->louveteauxId, 0]);
 
         $memberYearRepo = new \Core\Import\MemberYearRepository($this->pdo);
-        $this->memberService = new MemberService($memberYearRepo, $this->enc, $connection);
+        $this->memberService = new MemberService(
+    $memberYearRepo,
+    new MemberProfileRepository($connection, $this->enc)
+);
         $badgeRepository = new MemberBadgeRepository($this->pdo);
         $this->emailRepository = new MemberEmailRepository($this->pdo, $this->enc);
 
         $this->badgeRepository = $badgeRepository;
-        $this->sectionService = new SectionService($connection, $this->enc, $badgeRepository);
+        $this->sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->enc, $badgeRepository)
+);
         $this->scoutYearService = $scoutYearService;
 
         $this->service = $this->serviceWith(null, null);

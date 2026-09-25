@@ -24,6 +24,8 @@ use Modules\Registration\Service\SlotService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Registration\RegistrationTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * `Api\ProjectedPopulationProvider` — the projection as a public contract.
@@ -74,7 +76,10 @@ class ProjectedPopulationServiceTest extends TestCase
         $this->eclaireursSectionId = $this->createSection('ECLA1', $eclaireursBranchId, 'Éclaireurs A');
 
         $connection = Connection::withPdo($this->pdo);
-        $sectionService = new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
+);
         $ageBracketRepository = new AgeBracketRepository($this->pdo);
         $this->transferRepository = new SectionTransferRepository($this->pdo);
         $this->requestRepository = new RegistrationRequestRepository($this->pdo, $this->encryption);

@@ -25,6 +25,8 @@ use Modules\MassMail\Service\MassMailAccessService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * Every mutating action in Controller\MassMailController and
@@ -61,7 +63,10 @@ class CsrfTest extends TestCase
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
-        $sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, new MemberBadgeRepository($this->pdo))
+);
         $listService = new MailingListService(
             new MailingListRepository($this->pdo),
             new MemberResolutionRepository($this->pdo, $encryption),
@@ -106,7 +111,10 @@ class CsrfTest extends TestCase
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
-        $sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, new MemberBadgeRepository($this->pdo))
+);
         $listService = new MailingListService(
             new MailingListRepository($this->pdo),
             new MemberResolutionRepository($this->pdo, $encryption),
@@ -145,7 +153,10 @@ class CsrfTest extends TestCase
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
-        $sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, new MemberBadgeRepository($this->pdo))
+);
         $listService = new MailingListService(
             new MailingListRepository($this->pdo),
             new MemberResolutionRepository($this->pdo, $encryption),

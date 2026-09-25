@@ -16,6 +16,8 @@ use Modules\Registration\Service\PassageStatisticsService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Registration\RegistrationTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * The Passage page's statistics box (spec §8).
@@ -61,10 +63,9 @@ class PassageStatisticsServiceTest extends TestCase
         $this->eclaireursA = $this->createSection('ECLA1', $eclaireurs, 'Éclaireurs A');
 
         $this->sectionService = new SectionService(
-            Connection::withPdo($this->pdo),
-            $encryption,
-            new MemberBadgeRepository($this->pdo)
-        );
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $encryption, new MemberBadgeRepository($this->pdo))
+);
     }
 
     // ── the two scopes ────────────────────────────────────────────────

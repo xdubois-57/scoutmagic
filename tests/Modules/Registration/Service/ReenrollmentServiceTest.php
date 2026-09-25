@@ -17,6 +17,7 @@ use Modules\Registration\Service\ReenrollmentService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Registration\RegistrationTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * The reenrollment answer: what a family says about next year, the friends
@@ -80,10 +81,9 @@ class ReenrollmentServiceTest extends TestCase
         );
 
         $memberService = new MemberService(
-            new MemberYearRepository($this->pdo),
-            $this->encryption,
-            Connection::withPdo($this->pdo)
-        );
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption)
+);
 
         $this->repository = new ReenrollmentRepository($this->pdo, $this->encryption);
         $this->service = new ReenrollmentService(
@@ -93,10 +93,9 @@ class ReenrollmentServiceTest extends TestCase
             RegistrationTestHelper::departureLink($this->pdo, $this->encryption, $this->settingService),
             RegistrationTestHelper::projectedPopulation($this->pdo, $this->encryption, $this->settingService),
             new \Core\Member\SectionService(
-                Connection::withPdo($this->pdo),
-                $this->encryption,
-                new \Core\Badge\MemberBadgeRepository($this->pdo)
-            )
+    new \Core\Member\Repository\SectionRepository(Connection::withPdo($this->pdo)),
+    new \Core\Member\Repository\MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption, new \Core\Badge\MemberBadgeRepository($this->pdo))
+)
         );
 
         $this->members['Léo Martin'] = $this->createMember('Léo', 'Martin');

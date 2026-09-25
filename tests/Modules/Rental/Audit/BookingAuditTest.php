@@ -16,6 +16,7 @@ use Modules\Rental\Audit\BookingAudit;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Rental\RentalTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * The rental side of the Core\Audit boundary: this module's field keys and
@@ -149,10 +150,9 @@ class BookingAuditTest extends TestCase
     {
         return new ActorAccountResolver(
             new MemberService(
-                new \Core\Import\MemberYearRepository($this->pdo),
-                $this->encryption,
-                \Core\Database\Connection::withPdo($this->pdo)
-            ),
+    new \Core\Import\MemberYearRepository($this->pdo),
+    new MemberProfileRepository(\Core\Database\Connection::withPdo($this->pdo), $this->encryption)
+),
             new UserAccountRepository($this->pdo, $this->encryption),
             new ScoutYearService($this->pdo)
         );

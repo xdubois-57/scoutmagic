@@ -21,6 +21,8 @@ use Modules\Registration\Service\ScoutYearPreparationService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Registration\RegistrationTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * Api\ScoutYearPreparationProvider — the two numbers the "Année scoute"
@@ -61,7 +63,10 @@ class ScoutYearPreparationServiceTest extends TestCase
         $this->eclaireursSectionId = $this->createSection('ECLA1', $eclaireursBranchId, 'Éclaireurs A');
 
         $connection = Connection::withPdo($this->pdo);
-        $sectionService = new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
+);
         $this->transferRepository = new SectionTransferRepository($this->pdo);
 
         $passageService = new PassageService(
@@ -184,7 +189,10 @@ class ScoutYearPreparationServiceTest extends TestCase
     private function freshService(): ScoutYearPreparationService
     {
         $connection = Connection::withPdo($this->pdo);
-        $sectionService = new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
+);
 
         $passageService = new PassageService(
             $this->pdo,

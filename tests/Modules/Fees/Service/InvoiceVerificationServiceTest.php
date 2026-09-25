@@ -23,6 +23,8 @@ use Modules\Fees\Value\StoredInvoice;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Fees\FeesTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * "Did the federation count the right number of people?"
@@ -81,7 +83,10 @@ class InvoiceVerificationServiceTest extends TestCase
             $this->invoices,
             $this->snapshots,
             new HouseholdTariffService(new HouseholdTariffRepository($this->pdo), $feeCategories),
-            new SectionService(Connection::withPdo($this->pdo), $encryption, new MemberBadgeRepository($this->pdo)),
+            new SectionService(
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $encryption, new MemberBadgeRepository($this->pdo))
+),
             new HouseholdDetailRepository($this->pdo, $encryption)
         );
     }

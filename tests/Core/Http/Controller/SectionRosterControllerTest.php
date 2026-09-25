@@ -34,6 +34,8 @@ use Tests\DatabaseTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 use Twig\TwigFunction;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 #[Group('database')]
 class SectionRosterControllerTest extends TestCase
@@ -50,7 +52,10 @@ class SectionRosterControllerTest extends TestCase
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
         $memberBadgeRepository = new \Core\Badge\MemberBadgeRepository($this->pdo);
-        $this->sectionService = new SectionService($connection, $this->encryption, $memberBadgeRepository);
+        $this->sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $this->encryption, $memberBadgeRepository)
+);
 
         $memberEmailRepository = new MemberEmailRepository($this->pdo, $this->encryption);
         $scoutYearService = new ScoutYearService($this->pdo);

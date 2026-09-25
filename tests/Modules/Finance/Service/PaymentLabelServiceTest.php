@@ -27,6 +27,7 @@ use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * The four things about a sheet of payment labels that must be provably
@@ -344,7 +345,10 @@ class PaymentLabelServiceTest extends TestCase
             $this->receivables,
             FinanceTestHelper::allocationService($this->pdo, $this->encryption, $this->receivables),
             new AccountRepository($this->pdo, $this->encryption),
-            new MemberService(new MemberYearRepository($this->pdo), $this->encryption, Connection::withPdo($this->pdo)),
+            new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption)
+),
             new SepaQrCodeService(),
             new DocumentPdfService(),
             $this->twig()

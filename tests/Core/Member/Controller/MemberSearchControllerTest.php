@@ -30,6 +30,7 @@ use Tests\DatabaseTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 use Twig\TwigFunction;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * @group database
@@ -81,7 +82,10 @@ class MemberSearchControllerTest extends TestCase
         $memberYearRepo = new MemberYearRepository($this->pdo);
         $resolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
         $searchService = new MemberSearchService(new MemberSearchRepository($connection, $this->enc), $scoutYearService);
-        $memberService = new MemberService($memberYearRepo, $this->enc, $connection);
+        $memberService = new MemberService(
+    $memberYearRepo,
+    new MemberProfileRepository($connection, $this->enc)
+);
 
         $this->yearId = $scoutYearService->ensureYear('2025-2026');
         // Pin the public year so the effective year is deterministic.
@@ -114,7 +118,10 @@ class MemberSearchControllerTest extends TestCase
         $twig->addFunction(new TwigFunction('param', fn(string $k) => 'Test'));
 
         $departureService = new DepartureService(new DepartureRepository($this->pdo, $this->enc), new JournalService(new JournalRepository($this->pdo)));
-        $sectionService = new \Core\Member\SectionService($connection, $this->enc, new \Core\Badge\MemberBadgeRepository($this->pdo));
+        $sectionService = new \Core\Member\SectionService(
+    new \Core\Member\Repository\SectionRepository($connection),
+    new \Core\Member\Repository\MemberProfileRepository($connection, $this->enc, new \Core\Badge\MemberBadgeRepository($this->pdo))
+);
         $exportRowBuilder = new \Core\Member\Export\MemberExportRowBuilder(
             new \Core\Member\SectionRosterRepository($this->pdo),
             $sectionService,

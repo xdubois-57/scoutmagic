@@ -22,6 +22,8 @@ use Modules\Calendar\Service\PersonalFeedService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Calendar\CalendarTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -45,7 +47,10 @@ class CalendarPickerServiceTest extends TestCase
         $this->calendarRepository = new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
         $eventRepository = new CalendarEventRepository($this->pdo);
         $memberBadgeRepository = new MemberBadgeRepository($this->pdo);
-        $sectionService = new SectionService($connection, $encryption, $memberBadgeRepository);
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, $memberBadgeRepository)
+);
         $this->calendarService = new CalendarService(
             $this->calendarRepository,
             $eventRepository,
@@ -55,7 +60,10 @@ class CalendarPickerServiceTest extends TestCase
 
         $memberYearRepo = new MemberYearRepository($this->pdo);
         $roleResolver = new RoleResolver($memberYearRepo, $encryption, $this->pdo);
-        $memberService = new MemberService($memberYearRepo, $encryption, $connection);
+        $memberService = new MemberService(
+    $memberYearRepo,
+    new MemberProfileRepository($connection, $encryption)
+);
         $userAccountRepository = new UserAccountRepository($this->pdo, $encryption);
         $personalFeedService = new PersonalFeedService(
             new CalendarPersonalTokenRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))),

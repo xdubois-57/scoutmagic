@@ -50,6 +50,8 @@ use Modules\News\Service\SeoKeywordService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\News\NewsTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * Core\Security\HumanCheck integration on the news module's public form
@@ -93,7 +95,10 @@ class NewsFormHumanCheckTest extends TestCase
 
         $connection = Connection::withPdo($this->pdo);
         $roleResolver = new RoleResolver(new MemberYearRepository($this->pdo), $encryption, $this->pdo);
-        $sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, new MemberBadgeRepository($this->pdo))
+);
         $mailService = $this->createMock(MailService::class);
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
@@ -118,7 +123,10 @@ class NewsFormHumanCheckTest extends TestCase
         $scoutYearService = new ScoutYearService($this->pdo);
         $schedulerService = new SchedulerService(new SchedulerRepository($this->pdo));
         $userAccountRepository = new UserAccountRepository($this->pdo, $encryption);
-        $memberService = new MemberService(new MemberYearRepository($this->pdo), $encryption, $connection);
+        $memberService = new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository($connection, $encryption)
+);
         $uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
         $journalService = new JournalService(new JournalRepository($this->pdo));
 

@@ -25,6 +25,8 @@ use Modules\Finance\Service\FinanceService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -48,7 +50,10 @@ class FinanceServiceTest extends TestCase
 
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
-        $sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, new MemberBadgeRepository($this->pdo))
+);
 
         $this->accountRepository = new AccountRepository($this->pdo, $encryption);
         $this->fiscalYearRepository = new FiscalYearRepository($this->pdo, new ScoutYearService($this->pdo));

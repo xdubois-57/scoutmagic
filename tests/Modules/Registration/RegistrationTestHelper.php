@@ -248,10 +248,9 @@ class RegistrationTestHelper
             $pdo,
             $encryption,
             new \Core\Member\SectionService(
-                \Core\Database\Connection::withPdo($pdo),
-                $encryption,
-                new \Core\Badge\MemberBadgeRepository($pdo)
-            ),
+    new \Core\Member\Repository\SectionRepository(\Core\Database\Connection::withPdo($pdo)),
+    new \Core\Member\Repository\MemberProfileRepository(\Core\Database\Connection::withPdo($pdo), $encryption, new \Core\Badge\MemberBadgeRepository($pdo))
+),
             new \Modules\Registration\Repository\SectionTransferRepository($pdo),
             new \Modules\Registration\Repository\RegistrationRequestRepository($pdo, $encryption),
             new \Modules\Registration\Repository\AgeBracketRepository($pdo)
@@ -272,10 +271,9 @@ class RegistrationTestHelper
             new \Modules\Registration\Repository\ReenrollmentRepository($pdo, $encryption),
             new \Modules\Registration\Repository\PassageNoteRepository($pdo, $encryption),
             new \Core\Member\SectionService(
-                \Core\Database\Connection::withPdo($pdo),
-                $encryption,
-                new \Core\Badge\MemberBadgeRepository($pdo)
-            ),
+    new \Core\Member\Repository\SectionRepository(\Core\Database\Connection::withPdo($pdo)),
+    new \Core\Member\Repository\MemberProfileRepository(\Core\Database\Connection::withPdo($pdo), $encryption, new \Core\Badge\MemberBadgeRepository($pdo))
+),
             $reenrollmentService
         );
     }
@@ -294,10 +292,16 @@ class RegistrationTestHelper
         return new \Modules\Registration\Service\ReenrollmentService(
             new \Modules\Registration\Repository\ReenrollmentRepository($pdo, $encryption),
             $settingService,
-            new \Core\Member\MemberService(new \Core\Import\MemberYearRepository($pdo), $encryption, $connection),
+            new \Core\Member\MemberService(
+    new \Core\Import\MemberYearRepository($pdo),
+    new \Core\Member\Repository\MemberProfileRepository($connection, $encryption)
+),
             self::departureLink($pdo, $encryption, $settingService),
             self::projectedPopulation($pdo, $encryption, $settingService),
-            new \Core\Member\SectionService($connection, $encryption, new \Core\Badge\MemberBadgeRepository($pdo))
+            new \Core\Member\SectionService(
+    new \Core\Member\Repository\SectionRepository($connection),
+    new \Core\Member\Repository\MemberProfileRepository($connection, $encryption, new \Core\Badge\MemberBadgeRepository($pdo))
+)
         );
     }
 
@@ -315,10 +319,9 @@ class RegistrationTestHelper
     ): \Modules\Registration\Service\ProjectedPopulationService {
         $connection = \Core\Database\Connection::withPdo($pdo);
         $sectionService = new \Core\Member\SectionService(
-            $connection,
-            $encryption,
-            new \Core\Badge\MemberBadgeRepository($pdo)
-        );
+    new \Core\Member\Repository\SectionRepository($connection),
+    new \Core\Member\Repository\MemberProfileRepository($connection, $encryption, new \Core\Badge\MemberBadgeRepository($pdo))
+);
         $requestRepository = new \Modules\Registration\Repository\RegistrationRequestRepository($pdo, $encryption);
         $ageBracketRepository = new \Modules\Registration\Repository\AgeBracketRepository($pdo);
 

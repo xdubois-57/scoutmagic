@@ -39,6 +39,8 @@ use Modules\Registration\Service\SlotService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Registration\RegistrationTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * Full-stack tests through the real controller/templates for the "fiche
@@ -108,7 +110,10 @@ class RegistrationRequestControllerTest extends TestCase
             $this->pdo, $encryption, $settingService, $ageBracketRepository, $slotCapacityRepository, $this->requestRepository
         );
         $connection = Connection::withPdo($this->pdo);
-        $sectionService = new SectionService($connection, $encryption, new \Core\Badge\MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, new \Core\Badge\MemberBadgeRepository($this->pdo))
+);
 
         $feeEstimationRepository = new FeeEstimationRepository($this->pdo);
         $registrationCount = new HouseholdRegistrationCountService($this->requestRepository);
@@ -131,7 +136,10 @@ class RegistrationRequestControllerTest extends TestCase
 
         $memberRepository = new MemberRepository($this->pdo);
         $memberYearRepository = new MemberYearRepository($this->pdo);
-        $memberService = new MemberService($memberYearRepository, $encryption, $connection);
+        $memberService = new MemberService(
+    $memberYearRepository,
+    new MemberProfileRepository($connection, $encryption)
+);
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/registration/views';

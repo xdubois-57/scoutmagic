@@ -15,6 +15,8 @@ use Modules\Calendar\Service\CalendarService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Calendar\CalendarTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * Api\SectionEventLookupInterface — the contract `presences` builds an
@@ -48,7 +50,10 @@ class SectionEventLookupTest extends TestCase
         $this->service = new CalendarService(
             new CalendarRepository($this->pdo, $encryption),
             new CalendarEventRepository($this->pdo),
-            new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo)),
+            new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, new MemberBadgeRepository($this->pdo))
+),
             new CalendarUnitFeedTokenRepository($this->pdo, $encryption)
         );
 

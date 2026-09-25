@@ -22,6 +22,8 @@ use Modules\Registration\Repository\AgeBracketRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\SectionTransferRepository;
 use Modules\Registration\Service\PassageService;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * Assigns the destination of every branch-change animé whose arrival branch
@@ -72,7 +74,10 @@ class AutoAssignPassageHandler implements TaskHandlerInterface
         $passageService = new PassageService(
             $pdo,
             $context->encryption,
-            new SectionService($context->connection, $context->encryption, new MemberBadgeRepository($pdo)),
+            new SectionService(
+    new SectionRepository($context->connection),
+    new MemberProfileRepository($context->connection, $context->encryption, new MemberBadgeRepository($pdo))
+),
             $transferRepository,
             new RegistrationRequestRepository($pdo, $context->encryption),
             new AgeBracketRepository($pdo)

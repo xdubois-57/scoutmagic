@@ -903,10 +903,9 @@ class FinanceMessageConsumerTest extends TestCase
                 \Core\Database\Connection::withPdo($this->pdo),
                 $this->encryption,
                 new \Core\Member\SectionService(
-                    \Core\Database\Connection::withPdo($this->pdo),
-                    $this->encryption,
-                    new \Core\Badge\MemberBadgeRepository($this->pdo)
-                ),
+    new \Core\Member\Repository\SectionRepository(\Core\Database\Connection::withPdo($this->pdo)),
+    new \Core\Member\Repository\MemberProfileRepository(\Core\Database\Connection::withPdo($this->pdo), $this->encryption, new \Core\Badge\MemberBadgeRepository($this->pdo))
+),
                 new \Core\Member\MemberEmailRepository($this->pdo, $this->encryption)
             ),
             $this->accounts,

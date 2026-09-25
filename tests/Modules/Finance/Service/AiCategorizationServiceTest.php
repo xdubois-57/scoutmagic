@@ -77,10 +77,9 @@ class AiCategorizationServiceTest extends TestCase
             $this->calendarRepository,
             $this->calendarEventRepository,
             new \Core\Member\SectionService(
-                \Core\Database\Connection::withPdo($this->pdo),
-                $encryption,
-                new \Core\Badge\MemberBadgeRepository($this->pdo)
-            ),
+    new \Core\Member\Repository\SectionRepository(\Core\Database\Connection::withPdo($this->pdo)),
+    new \Core\Member\Repository\MemberProfileRepository(\Core\Database\Connection::withPdo($this->pdo), $encryption, new \Core\Badge\MemberBadgeRepository($this->pdo))
+),
             new \Modules\Calendar\Repository\CalendarUnitFeedTokenRepository($this->pdo, $encryption)
         );
 

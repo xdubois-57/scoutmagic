@@ -43,6 +43,8 @@ use Tests\Modules\Finance\FinanceTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 use Twig\TwigFunction;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -81,7 +83,10 @@ class ReconciliationControllerTest extends TestCase
             $accountRepository,
             $categoryRepository,
             new FiscalYearRepository($this->pdo, $scoutYearService),
-            new SectionService(Connection::withPdo($this->pdo), $this->encryption, new MemberBadgeRepository($this->pdo)),
+            new SectionService(
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption, new MemberBadgeRepository($this->pdo))
+),
             $this->transactions,
             new BalanceService(new BalanceCheckpointRepository($this->pdo), $this->transactions),
             new SettingService(new SettingRepository($this->pdo)),
@@ -90,7 +95,10 @@ class ReconciliationControllerTest extends TestCase
             $accountVisibility
         );
 
-        $memberService = new MemberService(new MemberYearRepository($this->pdo), $this->encryption, Connection::withPdo($this->pdo));
+        $memberService = new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption)
+);
 
         $this->controller = new ReconciliationController(
             $this->twig(),

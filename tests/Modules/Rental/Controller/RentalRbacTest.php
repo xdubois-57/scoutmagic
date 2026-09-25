@@ -40,6 +40,7 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Rental\RentalTestHelper;
 use Twig\Environment;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * The route-level RBAC boundary, dispatched through the real Router and
@@ -109,10 +110,9 @@ class RentalRbacTest extends TestCase
         $this->managerRepository = new RentalAssetManagerRepository($this->pdo);
 
         $memberService = new MemberService(
-            new MemberYearRepository($this->pdo),
-            $encryption,
-            Connection::withPdo($this->pdo)
-        );
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $encryption)
+);
         $journalService = new JournalService(new JournalRepository($this->pdo));
 
         $authorizationService = new RentalAuthorizationService(

@@ -33,6 +33,8 @@ use Tests\DatabaseTestHelper;
 use Tests\Modules\Covoiturage\CovoiturageTestHelper as H;
 use Tests\Modules\Covoiturage\FakeCalendar;
 use Twig\Environment;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * Every route of the module, through the REAL Router/RbacGuard pipeline, at
@@ -87,7 +89,10 @@ final class CovoiturageRbacTest extends TestCase
         $carpools = new CarpoolRepository($this->pdo);
         $offers = new OfferRepository($this->pdo, $encryption);
         $requests = new SeatRequestRepository($this->pdo, $encryption);
-        $sections = new SectionService(Connection::withPdo($this->pdo), $encryption, new MemberBadgeRepository($this->pdo));
+        $sections = new SectionService(
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $encryption, new MemberBadgeRepository($this->pdo))
+);
         $board = new CarpoolBoard($carpools, $offers, $requests, $settings);
         $viewers = new CarpoolViewerResolver(new ScoutYearResolver(
             new ScoutYearService($this->pdo),

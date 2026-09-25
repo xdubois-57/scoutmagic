@@ -15,6 +15,7 @@ use Modules\MassMail\Api\MassMailQueryInterface;
 use Modules\MassMail\Controller\MemberEmailController;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * Modules\MassMail\Controller\MemberEmailController — the member page's
@@ -46,7 +47,10 @@ class MemberEmailControllerTest extends TestCase
 
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $this->memberService = new MemberService(new MemberYearRepository($this->pdo), $this->encryption, Connection::withPdo($this->pdo));
+        $this->memberService = new MemberService(
+    new MemberYearRepository($this->pdo),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption)
+);
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
         $scoutYearId = (int) $this->pdo->lastInsertId();

@@ -29,6 +29,8 @@ use Modules\Registration\Service\SlotService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Registration\RegistrationTestHelper;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * Full-stack tests through the real controller/templates for the "page de
@@ -95,7 +97,10 @@ class RegistrationConfigControllerTest extends TestCase
             $this->pdo, $encryption, $settingService, $ageBracketRepository, $slotCapacityRepository, $this->requestRepository
         );
         $connection = Connection::withPdo($this->pdo);
-        $sectionService = new SectionService($connection, $encryption, new \Core\Badge\MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, new \Core\Badge\MemberBadgeRepository($this->pdo))
+);
         $editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
         $journalService = new JournalService(new JournalRepository($this->pdo));
         $statusService = new RequestStatusService($this->requestRepository, $journalService);

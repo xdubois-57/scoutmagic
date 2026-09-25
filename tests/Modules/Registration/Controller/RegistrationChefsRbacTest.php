@@ -38,6 +38,8 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Registration\RegistrationTestHelper;
 use Twig\Environment;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * RBAC boundary for the "Départs"/"Prévisions" routes — role_min: chief
@@ -78,7 +80,10 @@ class RegistrationChefsRbacTest extends TestCase
         $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, new MemberYearRepository($this->pdo));
 
         $connection = Connection::withPdo($this->pdo);
-        $sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, new MemberBadgeRepository($this->pdo))
+);
         $sectionStaffAuth = new SectionStaffAuthorizationService($connection, $encryption, $sectionService);
         $departureService = new DepartureService(new DepartureRepository($this->pdo, $encryption), new JournalService(new JournalRepository($this->pdo)));
 

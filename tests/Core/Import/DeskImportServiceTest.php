@@ -564,20 +564,18 @@ class DeskImportServiceTest extends TestCase
         $this->assertSame(2, $this->functionCountFor('T903'), 'the fixture must really hold two rows');
 
         $sectionService = new \Core\Member\SectionService(
-            \Core\Database\Connection::withPdo($this->pdo),
-            $this->encryption,
-            new \Core\Badge\MemberBadgeRepository($this->pdo)
-        );
+    new \Core\Member\Repository\SectionRepository(\Core\Database\Connection::withPdo($this->pdo)),
+    new \Core\Member\Repository\MemberProfileRepository(\Core\Database\Connection::withPdo($this->pdo), $this->encryption, new \Core\Badge\MemberBadgeRepository($this->pdo))
+);
         $profile = $sectionService->hydrateMemberProfile((int) $existing['member_year_id']);
 
         self::assertNotNull($profile);
         $this->assertCount(1, $profile->functions);
 
         $memberService = new \Core\Member\MemberService(
-            new MemberYearRepository($this->pdo),
-            $this->encryption,
-            \Core\Database\Connection::withPdo($this->pdo)
-        );
+    new MemberYearRepository($this->pdo),
+    new \Core\Member\Repository\MemberProfileRepository(\Core\Database\Connection::withPdo($this->pdo), $this->encryption)
+);
         $single = $memberService->getMemberProfile((int) $existing['member_year_id']);
 
         self::assertNotNull($single);

@@ -28,6 +28,7 @@ use PHPUnit\Framework\TestCase;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
+use Core\Member\Repository\MemberProfileRepository;
 
 /**
  * A magic link identifies the address it was sent to, and only that address
@@ -125,12 +126,11 @@ class SecondaryEmailLoginIdentityTest extends TestCase
         );
         $this->roleResolver = new RoleResolver($memberYearRepo, $this->encryption, $this->pdo, $memberEmailRepo);
         $this->memberService = new MemberService(
-            $memberYearRepo,
-            $this->encryption,
-            $connection,
-            null,
-            $memberEmailRepo
-        );
+    $memberYearRepo,
+    new MemberProfileRepository($connection, $this->encryption),
+    null,
+    $memberEmailRepo
+);
 
         $settingService = new SettingService(new SettingRepository($this->pdo));
 

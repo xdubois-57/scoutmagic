@@ -29,6 +29,8 @@ use Tests\DatabaseTestHelper;
 use Tests\Modules\Gallery\GalleryTestHelper;
 use Modules\Gallery\Service\GalleryStorageWiring;
 use Modules\Gallery\Service\GalleryLocationService;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -55,7 +57,10 @@ class GalleryMemberQueryServiceTest extends TestCase
         $this->albumRepository = new AlbumRepository($this->pdo);
         $mediaRepository = new MediaRepository($this->pdo);
         $memberBadgeRepository = new MemberBadgeRepository($this->pdo);
-        $sectionService = new SectionService($connection, $encryption, $memberBadgeRepository);
+        $sectionService = new SectionService(
+    new SectionRepository($connection),
+    new MemberProfileRepository($connection, $encryption, $memberBadgeRepository)
+);
         $scoutYearService = new ScoutYearService($this->pdo);
 
         $accessService = $this->createMock(GalleryAccessService::class);

@@ -29,6 +29,8 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -57,10 +59,9 @@ class FunctionsControllerTest extends TestCase
         $journalService = new JournalService($this->journalRepo);
         $memberBadgeRepository = new MemberBadgeRepository($this->pdo);
         $this->sectionService = new SectionService(
-            Connection::withPdo($this->pdo),
-            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
-            $memberBadgeRepository
-        );
+    new SectionRepository(Connection::withPdo($this->pdo)),
+    new MemberProfileRepository(Connection::withPdo($this->pdo), new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $memberBadgeRepository)
+);
         $this->badgeService = new BadgeService(new BadgeRepository($this->pdo), $memberBadgeRepository, $this->sectionService);
         $this->unitStaffSectionService = new UnitStaffSectionService($this->pdo);
         $memberYearRepo = new MemberYearRepository($this->pdo);
