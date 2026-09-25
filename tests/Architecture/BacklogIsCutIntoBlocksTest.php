@@ -168,11 +168,19 @@ final class BacklogIsCutIntoBlocksTest extends TestCase
         );
 
         $this->assertStringContainsString(
-            'Hold the open pull requests as a queue, and cap it at four',
+            'Hold the open pull requests as a queue, and cap it at six',
             $rules,
             'AGENTS.md no longer caps how many pull requests may be open at once. The number is a '
             . 'measurement of this repository, not a preference: below it the queue starves, above '
-            . 'it the re-merges each merge forces cost more than the work they carry.',
+            . 'it the overlapping re-merges cost more than the work they carry.',
+        );
+
+        $this->assertStringContainsString(
+            'the cap is on OPEN PULL REQUESTS, not on work in progress',
+            $rules,
+            'AGENTS.md no longer distinguishes the ceiling on open pull requests from the number of '
+            . 'blocks being written. Reading one as the other is how an agent stops developing and '
+            . 'starts watching CI, which is what this step was written against.',
         );
 
         $this->assertStringContainsString(

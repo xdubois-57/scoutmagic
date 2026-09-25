@@ -502,19 +502,27 @@ backlog » — and it is a standing instruction, not a one-off. It means:
    required checks that went green were computed against something else.
    One merge at a time, carried to completion, before the next begins.
 
-   **Hold the open pull requests as a queue, and cap it at four.**
-   Measured on this repository rather than chosen: a merge whose files
-   overlap what is still open obliges a re-merge of `main` there, and a push
-   costs a full CI round — `Checks / test` alone runs about 19 minutes, and the
-   `Claude review` beside it prices itself at roughly 10 USD in its own
-   status comment. Below four, the reviewers idle between merges and the
-   queue starves; above it, the re-merges cost more than the work they
-   carry, and a merge invalidates every round started further down. So a
-   finished block whose pull request would be the fifth **waits on its
-   branch — pushed, green, with its body already written** — and is opened
-   the moment one merges. Keep starting new blocks while the queue drains:
-   a queue that empties with nothing entering it is an agent watching CI
-   with its hands in its pockets.
+   **Hold the open pull requests as a queue, and cap it at six.**
+   Measured rather than chosen, and the number MOVED once for a reason worth
+   keeping. It was four while every merge obliged a re-merge of `main` into
+   everything still open, each costing a full CI round — `Checks / test`
+   alone runs about 19 minutes, and the `Claude review` beside it prices
+   itself at roughly 10 USD in its own status comment. That re-merge is now
+   required only where the files overlap, so the cost that set the ceiling
+   fell and the maintainer asked for the ceiling to follow. Below it the
+   reviewers idle between merges and the queue starves; above it the
+   overlapping re-merges cost more than the work they carry. So a finished
+   block whose pull request would be the seventh **waits on its branch —
+   pushed, green, with its body already written** — and is opened the moment
+   one merges.
+
+   **And the cap is on OPEN PULL REQUESTS, not on work in progress.**
+   Nothing limits how many blocks are being written at once, and reading one
+   as the other is how an agent ends up watching CI with its hands in its
+   pockets while twenty accepted issues sit untouched — which happened here,
+   and the maintainer had to say so. Keep starting new blocks while the queue
+   drains: a queue that empties with nothing entering it is the failure this
+   paragraph exists to prevent, not its ceiling.
 
    Land the block others build on first, and after **each** merge bring
    `main` into every branch still open, then re-run the checks locally on
