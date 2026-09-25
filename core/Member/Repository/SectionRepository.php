@@ -31,6 +31,27 @@ use Core\Database\Connection;
  */
 final class SectionRepository
 {
+    /**
+     * The two single-row reads share their SELECT and NOTHING else.
+     *
+     * A first version passed the `WHERE` clause in as a parameter and
+     * interpolated it. Both callers hand it a literal, so nothing was
+     * reachable — and `SqlInjectionAuditTest` reported it anyway, which is
+     * the right verdict: a clause assembled from an argument is the shape
+     * that becomes exploitable the day somebody passes a variable, and
+     * « the callers are careful » is not a property the next edit
+     * preserves. It is also exactly the argument this class makes about the
+     * role filters below, which is where it should have been applied first.
+     *
+     * So the two clauses are written out, and only the column list is
+     * shared — a constant cannot be built from anything.
+     */
+    private const ONE_SECTION =
+        'SELECT s.id, s.desk_code, s.name, s.email, s.age_branch_id, s.color,
+                ab.label AS branch_name, ab.sort_order AS branch_sort_order
+           FROM sections s
+           JOIN age_branches ab ON s.age_branch_id = ab.id';
+
     public function __construct(private Connection $connection)
     {
     }
@@ -114,7 +135,10 @@ final class SectionRepository
      */
     public function findById(int $sectionId): ?array
     {
-        return $this->oneBy('s.id = ?', $sectionId);
+        $stmt = $this->connection->getPdo()->prepare(self::ONE_SECTION . ' WHERE s.id = ?');
+        $stmt->execute([$sectionId]);
+
+        return $this->firstSection($stmt);
     }
 
     /**
@@ -129,7 +153,10 @@ final class SectionRepository
      */
     public function findByDeskCode(string $deskCode): ?array
     {
-        return $this->oneBy('s.desk_code = ?', $deskCode);
+        $stmt = $this->connection->getPdo()->prepare(self::ONE_SECTION . ' WHERE s.desk_code = ?');
+        $stmt->execute([$deskCode]);
+
+        return $this->firstSection($stmt);
     }
 
     public function hasFunctionInSection(int $memberYearId, string $sectionDeskCode): bool
@@ -281,16 +308,8 @@ final class SectionRepository
      *     age_branch_id: int, branch_name: string, branch_sort_order: int, color: ?string
      * }|null
      */
-    private function oneBy(string $where, string|int $value): ?array
+    private function firstSection(\PDOStatement $stmt): ?array
     {
-        $stmt = $this->connection->getPdo()->prepare(
-            "SELECT s.id, s.desk_code, s.name, s.email, s.age_branch_id, s.color,
-                    ab.label AS branch_name, ab.sort_order AS branch_sort_order
-             FROM sections s
-             JOIN age_branches ab ON s.age_branch_id = ab.id
-             WHERE {$where}"
-        );
-        $stmt->execute([$value]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
         return $row === false ? null : $this->section($row);
