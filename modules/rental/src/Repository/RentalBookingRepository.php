@@ -688,6 +688,41 @@ class RentalBookingRepository
             (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
             $bookingId,
         ]);
+
+        $this->forgetLegacyCountry($bookingId);
+    }
+
+    /**
+     * Empty the retired plaintext column for one booking, if it is still
+     * there.
+     *
+     * Its own statement rather than a `billing_country = NULL` inside the
+     * UPDATE above, because that column is gone on any installation that
+     * has already been carried over and cleaned: naming it in the write
+     * every save depends on would make the save fail there. Here a failure
+     * that says the column is absent is the expected answer and is
+     * swallowed; anything else is left to the next save, exactly as
+     * adoptLegacyCountryColumn() does.
+     *
+     * A second round trip, and it is affordable where the one in
+     * findBillingIdentity() was not: this runs when a manager saves a
+     * billing identity, not on every page that reads one.
+     */
+    private function forgetLegacyCountry(int $bookingId): void
+    {
+        try {
+            $this->pdo
+                ->prepare('UPDATE rental_bookings SET billing_country = NULL WHERE id = ?')
+                ->execute([$bookingId]);
+        } catch (\PDOException $e) {
+            if (!self::saysTheColumnIsGone($e)) {
+                // Nothing is retried here on purpose: the row's country is
+                // already correct in the new column, and what is left
+                // behind is a stale value the backfill above now refuses
+                // to act on.
+                return;
+            }
+        }
     }
 
     /**
@@ -747,6 +782,24 @@ class RentalBookingRepository
      * matches nothing and does nothing. No lock, no transaction, and the
      * order stops mattering.
      *
+     * **That clause alone was not enough, and its premise was the flaw:**
+     * it assumed every competitor EMPTIES the legacy column. A plain
+     * `saveBillingIdentity()` does not — it writes the new column and,
+     * until this fix, left the old one alone. So a save that landed while
+     * a backfill had failed transiently left the row holding `enc('NL')`
+     * AND the stale `'FR'`; the next successful pass then matched on
+     * `'FR'`, still there, and reverted the manager's country. Silently,
+     * with no `updated_at` to show it, and to NULL rather than to `'FR'`
+     * where the writer refuses the legacy value.
+     *
+     * Hence `AND billing_country_encrypted IS NULL`, which says what this
+     * backfill is actually for: filling a row that has none. A row a save
+     * has already written is never its business, whatever the old column
+     * still says. That is the clause that closes the race; the save
+     * clearing the legacy column (below) is what stops a clear country
+     * being left behind, and neither substitutes for the other — a clear
+     * that fails transiently would otherwise re-open exactly this.
+     *
      * The rows are snapshotted BEFORE the write is prepared, which reads
      * in the order it happens and is also what lets
      * BillingCountryIsEncryptedTest slip a concurrent save between the two.
@@ -778,7 +831,8 @@ class RentalBookingRepository
             $write = $this->pdo->prepare(
                 'UPDATE rental_bookings
                     SET billing_country_encrypted = ?, billing_country = NULL
-                  WHERE id = ? AND billing_country = ?'
+                  WHERE id = ? AND billing_country = ?
+                    AND billing_country_encrypted IS NULL'
             );
 
             foreach ($legacy as $row) {

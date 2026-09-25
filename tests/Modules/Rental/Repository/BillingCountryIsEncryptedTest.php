@@ -306,6 +306,74 @@ final class BillingCountryIsEncryptedTest extends TestCase
     }
 
     /**
+     * A save empties the retired column for its own booking **even when
+     * the backfill it called first did not**.
+     *
+     * The flaky connection is the whole test. On a healthy one the
+     * backfill carries the row over and empties the column on its way, so
+     * the assertion below passes whether the save clears anything or not —
+     * the first version of this test did exactly that, and stayed green
+     * with the clearing removed. It proved the backfill worked, under a
+     * name that claimed something about the save.
+     *
+     * With the probe refused once, the backfill returns having touched
+     * nothing, and the clear value survives unless the save itself empties
+     * it. Which is the case that matters: leaving it there is what let a
+     * later pass revert the manager's country.
+     */
+    public function testASaveEmptiesTheRetiredColumnEvenWhenTheBackfillCouldNot(): void
+    {
+        $booking = $this->createBooking();
+        $this->giveItALegacyClearCountry($booking, 'FR');
+
+        $flaky = new RentalBookingRepository($this->connectionThatRefusesTheProbe(1), $this->encryption);
+        $flaky->saveBillingIdentity($booking, ['country' => 'NL']);
+
+        $this->assertNull(
+            $this->legacyClearCountry($booking),
+            'the save left a clear country behind, which a later backfill pass can revert to'
+        );
+        $this->assertSame('NL', $this->repository->findBillingIdentity($booking)['country']);
+    }
+
+    /**
+     * **And the backfill refuses a row a save has already written, even
+     * when the old clear value is still sitting there.**
+     *
+     * This is the reviewer's sequence, and it was a real silent data loss.
+     * A save calls the backfill first; if that pass fails transiently —
+     * the path deliberately swallowed so an invoice screen is not a 500 —
+     * the row keeps its clear `'FR'`. The save then writes `enc('NL')`
+     * beside it. The next successful pass snapshots `'FR'`, its
+     * value-keyed WHERE still matches because nothing cleared it, and the
+     * manager's country is reverted with no error and no `updated_at` to
+     * show it.
+     *
+     * The clear value is put BACK by hand here on purpose. The save now
+     * empties it, so the two fixes would hide each other and this test
+     * would pass on the strength of the wrong one — what is being checked
+     * is that `AND billing_country_encrypted IS NULL` holds on its own,
+     * for the day the emptying is the thing that fails.
+     */
+    public function testTheBackfillDoesNotRevertACountryASaveHasAlreadyWritten(): void
+    {
+        $booking = $this->createBooking();
+        $this->giveItALegacyClearCountry($booking, 'FR');
+
+        $flaky = new RentalBookingRepository($this->connectionThatRefusesTheProbe(1), $this->encryption);
+        $flaky->saveBillingIdentity($booking, ['country' => 'NL']);
+
+        // The clear value as a failed emptying would have left it.
+        $this->giveItALegacyClearCountry($booking, 'FR');
+
+        $this->assertSame(
+            'NL',
+            $this->repository->findBillingIdentity($booking)['country'],
+            'the backfill wrote a stale clear country over one a manager had already saved'
+        );
+    }
+
+    /**
      * A connection that runs `$probe` the moment the repository prepares
      * the backfill's UPDATE — after the snapshot, before any write.
      *
