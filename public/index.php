@@ -5965,7 +5965,9 @@ $statisticsPayloadBuilder = new \Core\Statistics\StatisticsPayloadBuilder(
     dirname(__DIR__),
     $moduleManager,
     $mailService,
-    $usageStatsModuleUsageForOthers
+    $usageStatsModuleUsageForOthers,
+    // What this installation does not recognise in its Desk data (#356).
+    $deskMappingGapService
 );
 
 // The same sender the daily task builds from its TaskContext (Core\Statistics\

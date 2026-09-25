@@ -28,8 +28,14 @@
             </button>
             <div class="collapse mt-2" id="settings-group-{{ group_id }}">
             <div class="border rounded-3 overflow-hidden">
+                {# Every row here is editable: SettingsController::index()
+                   drops the settings the application maintains for itself
+                   before this template sees them (#510). This loop used to
+                   carry a second branch that rendered a non-editable
+                   setting greyed out with a padlock — a row that looked
+                   like a control, in the middle of the rows that are
+                   controls. #}
                 {% for setting in group.settings %}
-                    {% if setting.editable %}
                         <div class="d-flex align-items-center justify-content-between p-3 border-bottom setting-row"
                              data-module="{{ group_id }}" data-key="{{ setting.setting_key }}"
                              data-type="{{ setting.setting_type }}" data-regex="{{ setting.validation_regex }}"
@@ -58,21 +64,6 @@
                                 <i class="bi bi-chevron-right text-body-tertiary small" aria-hidden="true"></i>
                             </div>
                         </div>
-                    {% else %}
-                        <div class="d-flex align-items-center justify-content-between p-3 border-bottom"
-                             style="opacity:0.5;">
-                            <div>
-                                <div class="small fw-semibold">{{ setting.label }}</div>
-                                <div class="text-body-secondary" style="font-size:0.75rem;">
-                                    {{ setting.description }}
-                                </div>
-                            </div>
-                            <div class="d-flex align-items-center gap-2">
-                                <span class="text-body-secondary small">{{ setting.setting_value }}</span>
-                                <i class="bi bi-lock text-body-tertiary small" aria-hidden="true"></i>
-                            </div>
-                        </div>
-                    {% endif %}
                 {% endfor %}
             </div>
             </div>

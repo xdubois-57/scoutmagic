@@ -76,7 +76,11 @@ final class StatisticsServiceFactory
             // (ARCHITECTURE.md §7.5 applied to the scheduler): null when
             // the module is absent or disabled, which the report then
             // states as a null field rather than as an empty list.
-            $context->getOptional(\Modules\UsageStats\Api\ModuleUsageInterface::class)
+            $context->getOptional(\Modules\UsageStats\Api\ModuleUsageInterface::class),
+            // What this installation does not recognise in its Desk data
+            // (issue #356). Built here rather than passed in, because the
+            // scheduled path gets only the context.
+            new \Core\Import\DeskMappingGapService($pdo, new \Core\Config\ScoutYearService($pdo))
         );
     }
 

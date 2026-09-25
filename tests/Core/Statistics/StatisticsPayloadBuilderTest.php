@@ -93,7 +93,8 @@ class StatisticsPayloadBuilderTest extends TestCase
     private function builder(
         ?ModuleManager $moduleManager = null,
         ?MailService $mailService = null,
-        ?\Modules\UsageStats\Api\ModuleUsageInterface $moduleUsage = null
+        ?\Modules\UsageStats\Api\ModuleUsageInterface $moduleUsage = null,
+        ?\Core\Import\DeskMappingGapService $mappingGaps = null
     ): StatisticsPayloadBuilder {
         return new StatisticsPayloadBuilder(
             $this->settings,
@@ -102,7 +103,16 @@ class StatisticsPayloadBuilderTest extends TestCase
             $this->projectRoot,
             $moduleManager,
             $mailService,
-            $moduleUsage
+            $moduleUsage,
+            $mappingGaps
+        );
+    }
+
+    private function gapService(): \Core\Import\DeskMappingGapService
+    {
+        return new \Core\Import\DeskMappingGapService(
+            $this->pdo,
+            new \Core\Config\ScoutYearService($this->pdo)
         );
     }
 
@@ -237,7 +247,10 @@ class StatisticsPayloadBuilderTest extends TestCase
 
         $payload = $this->builder($this->moduleManager())->build();
 
-        $this->assertSame(1, $payload['statistics_schema_version']);
+        $this->assertSame(
+            StatisticsPayloadBuilder::STATISTICS_SCHEMA_VERSION,
+            $payload['statistics_schema_version']
+        );
         $this->assertMatchesRegularExpression('/^[0-9a-f]{32}$/', (string) $payload['installation_id']);
         $this->assertSame('https://unite-exemple.be', $payload['instance_url']);
         // Null, not '' — an installation that was never restored from an
@@ -260,6 +273,7 @@ class StatisticsPayloadBuilderTest extends TestCase
             [
                 'statistics_schema_version', 'installation_id', 'restored_from', 'instance_url', 'generated_at',
                 'scoutmagic', 'scout_year', 'usage', 'modules', 'module_usage', 'desk_vocabulary',
+                'desk_unresolved',
                 'installation', 'runtime', 'database', 'host', 'security', 'email', 'scheduler',
                 'updates', 'lifecycle', 'storage',
             ],
@@ -568,7 +582,10 @@ class StatisticsPayloadBuilderTest extends TestCase
 
         $payload = $this->builder()->build();
 
-        $this->assertSame(1, $payload['statistics_schema_version']);
+        $this->assertSame(
+            StatisticsPayloadBuilder::STATISTICS_SCHEMA_VERSION,
+            $payload['statistics_schema_version']
+        );
         $this->assertNull($payload['instance_url']);
     }
 
@@ -699,8 +716,23 @@ class StatisticsPayloadBuilderTest extends TestCase
     }
 
     /**
-     * The entry cap is still the second bound: ordinary short labels are
-     * limited by count long before they are limited by bytes.
+     * An absurd number of short labels is truncated, and says so.
+     *
+     * This test used to assert exactly a hundred, on the reasoning that
+     * « ordinary short labels are limited by count long before they are
+     * limited by bytes ». That was true only while the byte budget was
+     * counted on the compact encoding; counted on the one the receiver
+     * measures, a four-line entry carries sixteen spaces of indentation
+     * per line, and a short entry costs about 126 bytes rather than 60.
+     * So the BYTE cap now bites first even here, which is the honest
+     * outcome — bytes are the bound that can lose a report, and
+     * `MAX_VOCABULARY_ENTRIES` is the outer guard that keeps a runaway
+     * table from being fetched at all.
+     *
+     * Hence no exact count: the assertion is that the list was cut, that
+     * it is not empty, and that `total` still declares the whole table.
+     * A unit configures three cotisation types, so what matters is that a
+     * hundred and fifty never travel whole and never travel silently.
      */
     public function testAnAbsurdNumberOfCategoriesIsTruncatedAndSaysSo(): void
     {
@@ -712,9 +744,15 @@ class StatisticsPayloadBuilderTest extends TestCase
         }
 
         $payload = $this->builder()->build();
+        $listed = $payload['desk_vocabulary']['fee_categories']['listed'];
 
         $this->assertSame(150, $payload['desk_vocabulary']['fee_categories']['total']);
-        $this->assertCount(100, $payload['desk_vocabulary']['fee_categories']['listed']);
+        $this->assertLessThan(150, count($listed), 'a hundred and fifty must never travel whole');
+        $this->assertGreaterThan(
+            20,
+            count($listed),
+            'and the cut must leave a list worth reading: a unit configures three, so twenty is already generous'
+        );
         $this->assertLessThan(65536, strlen($this->builder()->buildJson()));
     }
 
@@ -754,5 +792,237 @@ class StatisticsPayloadBuilderTest extends TestCase
         $stmt->execute(['2026-2027', '2026-09-01', '2027-08-31']);
         $this->settingRepository->updateValue(null, 'current_scout_year_id', (string) $this->pdo->lastInsertId());
         $this->settings->clearCache();
+    }
+
+    /**
+     * Issue #356. The branch is the costliest mapping to get wrong and the
+     * only one that fails with no signal at all on the unit's side, so the
+     * report says what this installation's own code answered for each.
+     */
+    public function testTheVocabularyCarriesEachBranchWithTheRankTheCodeGaveIt(): void
+    {
+        $branches = new \Core\Import\AgeBranchRepository($this->pdo);
+        $branches->create('Baladins', 'Baladins');
+        $branches->create('Nutons', 'Nutons');
+
+        $listed = $this->builder()->build()['desk_vocabulary']['branches']['listed'];
+        $ranks = array_column($listed, 'sort_order', 'desk_code');
+
+        $this->assertSame(10, $ranks['Baladins']);
+        $this->assertSame(99, $ranks['Nutons'], 'a branch none of the needles matched must travel as 99');
+    }
+
+    /**
+     * D4: the sender is the one who KNOWS. It holds `functions.confirmed`,
+     * it knows what `canonicalSortOrder()` answered — so it states what it
+     * could not match rather than leaving the receiver to work it out from
+     * the vocabulary.
+     */
+    public function testTheReportStatesWhatItCouldNotMatch(): void
+    {
+        (new \Core\Import\FunctionRepository($this->pdo))->create('Animateur Nutons', 'Animateur Nutons', 'identified', false);
+
+        $unresolved = $this->builder(mappingGaps: $this->gapService())->build()['desk_unresolved'];
+
+        $this->assertSame(1, $unresolved['total']);
+        $this->assertSame([['kind' => 'function', 'value' => 'Animateur Nutons']], $unresolved['listed']);
+    }
+
+    /**
+     * An installation with nothing unresolved sends an EMPTY block, not an
+     * absent one — « je reconnais tout » is an answer, and a receiver that
+     * read it as « cette installation ne dit rien » would go looking for a
+     * problem that does not exist.
+     */
+    public function testAnInstallationThatRecognisesEverythingSendsAnEmptyBlock(): void
+    {
+        $unresolved = $this->builder(mappingGaps: $this->gapService())->build()['desk_unresolved'];
+
+        $this->assertSame(['total' => 0, 'listed' => []], $unresolved);
+    }
+
+    /**
+     * And the OTHER null, which rule 1 of the class keeps distinct: no gap
+     * service wired at all is « nobody measured », a null field.
+     */
+    public function testWithoutTheGapServiceTheFieldIsNullRatherThanEmpty(): void
+    {
+        (new \Core\Import\FunctionRepository($this->pdo))->create('Animateur Nutons', 'Animateur Nutons', 'identified', false);
+
+        $this->assertNull($this->builder()->build()['desk_unresolved']);
+    }
+
+    /**
+     * The bound that actually matters is the receiver's 64 KB body: a unit
+     * whose Desk vocabulary went haywire must cost this field its
+     * completeness, never the whole report. `total` says what was left
+     * out, so a truncated list never reads as a complete one.
+     */
+    public function testATruncatedUnresolvedListDeclaresWhatItLeftOut(): void
+    {
+        $functions = new \Core\Import\FunctionRepository($this->pdo);
+        for ($i = 0; $i < 150; $i++) {
+            $functions->create(
+                'Fonction ' . str_pad((string) $i, 3, '0', STR_PAD_LEFT) . ' ' . str_repeat('x', 80),
+                'Fonction ' . str_pad((string) $i, 3, '0', STR_PAD_LEFT) . ' ' . str_repeat('x', 80),
+                'identified',
+                false
+            );
+        }
+
+        $unresolved = $this->builder(mappingGaps: $this->gapService())->build()['desk_unresolved'];
+
+        $this->assertSame(150, $unresolved['total']);
+        $this->assertLessThan(150, count($unresolved['listed']));
+        $this->assertNotSame([], $unresolved['listed']);
+    }
+
+    /**
+     * D9, on the document that actually leaves the installation: a kind
+     * and a federal label. Not a headcount — the receiver's question is on
+     * how many INSTALLATIONS a value appears, which it answers by counting
+     * reports.
+     */
+    public function testNothingButAKindAndALabelTravels(): void
+    {
+        (new \Core\Import\FunctionRepository($this->pdo))->create('Animateur Nutons', 'Animateur Nutons', 'identified', false);
+
+        $listed = $this->builder(mappingGaps: $this->gapService())->build()['desk_unresolved']['listed'];
+
+        $this->assertSame(['kind', 'value'], array_keys($listed[0]));
+    }
+
+    /**
+     * The bound none of the tests above was watching: the receiver
+     * measures the WHOLE body, and this chantier took the number of lists
+     * whose size a unit's own data decides from two to four.
+     *
+     * Every test above maxes out one list, or two, and each passes — which
+     * is exactly how the aggregate came to be unbounded without anybody
+     * noticing. Four lists at their own cap is not four times a case that
+     * passes: the caps are per list, the limit is per body.
+     *
+     * The worst case is NOT the widest label. At a hundred-odd bytes per
+     * field the byte cap bites after thirty entries; at about twenty it
+     * lets all hundred through, and a hundred entries of four lines each
+     * cost more in `JSON_PRETTY_PRINT` indentation — which the cap was not
+     * counting at all — than the labels themselves. So this seeds labels
+     * of that width deliberately, and it is the shape a real unit has.
+     */
+    public function testAllFourVocabularyListsAtOnceStayUnderTheReceiversBodyLimit(): void
+    {
+        $this->seedScoutYear();
+
+        // Twenty-odd characters: an entry short enough that a hundred fit
+        // under the byte cap, long enough that a hundred of them matter.
+        $label = static fn(string $prefix, int $i): string
+            => $prefix . ' ' . str_pad((string) $i, 3, '0', STR_PAD_LEFT) . ' ' . str_repeat('x', 12);
+
+        $fees = $this->pdo->prepare('INSERT INTO fee_categories (desk_code, label) VALUES (?, ?)');
+        $functions = new \Core\Import\FunctionRepository($this->pdo);
+        $branches = new \Core\Import\AgeBranchRepository($this->pdo);
+
+        for ($i = 0; $i < 150; $i++) {
+            $fees->execute([$label('TARIF', $i), $label('Cotisation', $i)]);
+            // Unconfirmed, so the same rows fill `functions` AND the
+            // unresolved list — which is how a real unit gets both at
+            // once, and why the two lists cannot be budgeted apart.
+            $functions->create($label('FONCTION', $i), $label('Animateur', $i), 'identified', false);
+            $branches->create($label('BRANCHE', $i), $label('Branche', $i));
+        }
+
+        $builder = $this->builder(mappingGaps: $this->gapService());
+        $payload = $builder->build();
+
+        // All four lists are genuinely at their cap — without this the
+        // assertion below would pass for the wrong reason.
+        $this->assertNotSame([], $payload['desk_vocabulary']['functions']['listed']);
+        $this->assertNotSame([], $payload['desk_vocabulary']['fee_categories']['listed']);
+        $this->assertNotSame([], $payload['desk_vocabulary']['branches']['listed']);
+        $this->assertNotSame([], $payload['desk_unresolved']['listed']);
+        $this->assertSame(150, $payload['desk_vocabulary']['fee_categories']['total']);
+        $this->assertSame(300, $payload['desk_unresolved']['total']);
+
+        $body = strlen($builder->buildJson());
+
+        $this->assertLessThan(
+            65536,
+            $body,
+            'the receiver checks MAX_BODY_BYTES on the raw body before parsing: over it, '
+            . 'the whole report is answered 413 and lost, not merely truncated'
+        );
+
+        // And the assertion above is not enough on its own, which is the
+        // second half of what went wrong. This harness wires no
+        // ModuleManager and no usage capability, so `modules` and
+        // `module_usage` are null here — about 5 500 bytes on the
+        // twenty-five real modules. A version of this code that budgeted
+        // on the COMPACT encoding while transmitting the pretty-printed
+        // one came to 63 033 bytes and passed the assertion above with
+        // 2 503 to spare, then lost the report on any real installation.
+        // So: the worst case must leave the rest of the payload room,
+        // not merely squeeze inside the limit.
+        $this->assertLessThan(
+            45056,
+            $body,
+            'the vocabulary must leave 20 KB for the rest of the payload — `modules` and `module_usage` alone '
+            . 'cost about 5 500 bytes, and this harness wires neither'
+        );
+    }
+
+    /**
+     * And the guard that will still be there when somebody adds a fifth
+     * list, which is how the fourth came to break the bound.
+     *
+     * Every list whose size a unit's own data decides is shaped
+     * `{total, listed}`, so they can be counted rather than listed by
+     * hand here — a new one is caught by arriving, not by somebody
+     * remembering to name it. The invariant is the one the per-list cap
+     * cannot state on its own: the shares have to fit in the total.
+     */
+    public function testEveryDataSizedListFitsInTheSharedByteBudget(): void
+    {
+        $this->seedScoutYear();
+        $this->seedVocabulary();
+
+        $payload = $this->builder(mappingGaps: $this->gapService())->build();
+
+        $reflection = new \ReflectionClass(StatisticsPayloadBuilder::class);
+        $total = (int) $reflection->getConstant('MAX_VOCABULARY_BYTES');
+        $perList = (int) $reflection->getConstant('MAX_VOCABULARY_LIST_BYTES');
+
+        $lists = self::countBudgetedLists($payload);
+
+        $this->assertGreaterThanOrEqual(4, $lists, 'the four lists this chantier left behind must still be found');
+        $this->assertLessThanOrEqual(
+            $total,
+            $lists * $perList,
+            $lists . ' lists of ' . $perList . ' bytes exceed the ' . $total . '-byte budget for the whole '
+            . 'document: a list was added without giving it a share, which is exactly how four lists of 8 KB '
+            . 'came to sit 2 503 bytes under the receiver\'s 64 KB body limit'
+        );
+    }
+
+    /**
+     * How many `{total, listed}` pairs the document carries, at any depth.
+     *
+     * @param array<string, mixed> $node
+     */
+    private static function countBudgetedLists(array $node): int
+    {
+        $found = 0;
+        $keys = array_keys($node);
+        sort($keys);
+        if ($keys === ['listed', 'total']) {
+            $found++;
+        }
+
+        foreach ($node as $value) {
+            if (is_array($value)) {
+                $found += self::countBudgetedLists($value);
+            }
+        }
+
+        return $found;
     }
 }

@@ -73,6 +73,20 @@
                         </li>
                     {% endfor %}
                 </ul>
+
+                {#
+                  The counterpart of sending: a chief is told that the
+                  labels travel, on the screen where they are shown. Only
+                  when the daily report is actually enabled — saying it on
+                  an installation that switched reporting off would be
+                  false in the other direction.
+                #}
+                {% if param('statistics_enabled') == '1' %}
+                    <p class="small text-body-secondary mt-3 mb-0">
+                        Ces valeurs sont aussi signalées au mainteneur du site, pour qu'il les ajoute
+                        aux versions suivantes. Seul le libellé est transmis.
+                    </p>
+                {% endif %}
             </div>
         </div>
     {% endif %}

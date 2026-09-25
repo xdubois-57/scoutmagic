@@ -361,11 +361,21 @@ class RentalMessageConsumerTest extends TestCase
         $this->assertSame(0, $this->countRentalAssociations());
     }
 
-    public function testTheSignedAddressStillYieldsToAnExplicitReference(): void
+    public function testTheSignedAddressWinsOverAConflictingReference(): void
     {
-        // Both are certain; the reference is what the subject says NOW,
-        // and a renter answering an old mail about a different booking
-        // will have typed the one they mean.
+        // Both look certain, and they disagree — so one of them has to be
+        // trusted first. It is the address: this site MINTED it for one
+        // booking and the gateway verified its signature, while a subject
+        // line carries whatever the sender's mail client left there. « Re: »
+        // on a forwarded thread quotes someone else's reference for free.
+        //
+        // So the address is read at Level 0 and the walk stops there,
+        // before the subject is even parsed (§22.9, ARCHITECTURE.md §8.59,
+        // docs/rental-guide.md §11).
+        //
+        // The name and comment here used to say the opposite of what the
+        // assertions below check, and during the review of #514 this test
+        // was cited as evidence for the reverse order (#522).
         $first = $this->createBooking('LOC-2027-0042');
         $second = $this->createBooking('LOC-2027-0043');
         $address = $this->replyAddresses->addressFor(RentalMessageConsumer::CONSUMER_ID, $first->reference);

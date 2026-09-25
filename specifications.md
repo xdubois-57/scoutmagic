@@ -207,7 +207,7 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 | Cotisations (module fees) | admin | Checking what the federation bills against the unit's own roster: the season's snapshot, tariff accuracy per household, and the report of an imported invoice. See §31 |
 | Listes de diffusion (module mass_mail) | admin | Qui l'unité écrit : les listes par défaut (une par section, « Membres actifs », « Animateurs uniquement » et « Anciens »), en lecture seule, et les listes personnalisées croisant trois critères — fonctions, sections et badges — en ET entre les axes et en OU à l'intérieur de chacun, un axe laissé vide ne restreignant rien et les trois vides ne contenant personne. Une phrase sous les sélecteurs énonce la combinaison et un compteur en direct dit combien de membres elle atteint pour l'année scoute effective. Création, modification, activation, suppression. Chaque liste porte en outre **ses propres adresses** — la commune, le curé, le propriétaire d'un terrain de camp, un ancien — et la liste vaut alors pour la réunion de ses critères et de ses adresses, dédoublonnée sur l'adresse. **Tout le contenu d'une liste se décide dans la fenêtre qui la modifie**, ses adresses comprises ; la page ne fait que résumer chaque liste en deux phrases — ce que ses critères désignent, nommés, et combien d'adresses propres elle porte — sans aucune commande sur l'une ni sur l'autre. Une adresse s'ajoute et se retire (corbeille, sans étape de confirmation d'écran), jamais ne se corrige en place : une ligne ne porte qu'un nom et une adresse, donc une faute de frappe se répare en la retirant et en la retapant. Une désinscription vaut pour toutes les listes à la fois, la ligne restant visible, grisée et définitivement exclue des envois. Nom et adresse sont chiffrés au repos, et un plafond réglable (2000 par défaut) borne l'ensemble. Le travail en masse passe par un **aller-retour Excel** : export en flux de trois colonnes (`Nom`, `Adresse`, `Désinscrit` en lecture seule), et import qui **remplace** la liste — colonnes reconnues par leur en-tête, dépôt qui ne fait qu'analyser et afficher les compteurs, confirmation explicite avant toute écriture, fichier supprimé dès l'analyse, adresses désinscrites conservées et jamais réabonnées. La liste « Anciens » est **calculée à la volée** — ni table, ni jonction, ni tâche planifiée : est un ancien celui qui a été actif lors d'une année scoute passée, ne l'est plus cette année, apparaît dans au moins `former_members_min_scout_years` années scoutes distinctes (2 par défaut, le seuil étant en années parce que `member_years` est un instantané annuel) et est parti depuis moins de `former_members_max_years_since_departure` années scoutes (10 par défaut, `0` levant la borne). Elle est la seule à exiger `unit_mail_consent`, chaque ancien y étant joint à l'adresse de **sa** dernière année active — d'où l'absence de choix d'année à l'envoi — et sa description nomme la plus ancienne année importée, avant laquelle le site ne connaît personne. Une liste déjà utilisée par un e-mail se désactive, jamais ne se supprime. C'est un chef d'unité qui décide à qui l'unité écrit, d'où le plancher `admin` ; la page vivait dans Configuration au plancher `superadmin`. La cadence d'envoi n'est pas ici : elle appartient au fournisseur qui l'impose, et s'édite dans la section « Avancé » de sa fiche, sous Configuration > Courrier sortant. Voir §24 |
 | Courrier reçu (module inbound_mail) | admin | L'archive des messages relevés dans les boîtes de l'unité, **y compris ceux qu'aucun module n'a reconnus** — c'est ici qu'on les oriente à la main, et ce qui reste sans rattachement disparaît à la rétention. Un seul rôle répond de cette archive, d'où l'absence de toute seconde route à un plancher plus bas. Les filtres ne portent que sur les métadonnées — boîte, message associé ou non, automatique ou non : **rien n'y cherche dans le contenu**, un index en clair de tout ce qu'on écrit à l'unité étant ce qui transforme une archive avec rétention en archive sans. Les boîtes elles-mêmes se déclarent dans Configuration > Courrier entrant. Voir §23 |
-| Documents (module documents) | admin | What the public « Documents » page shows: add a document (title, description, visibility, file), edit it — a new file included — reorder by drag and drop, delete. Each row shows the stable address to share. See §46 |
+| Documents (module documents) | admin | What the public « Documents » page shows: add a document (title, description, visibility, file), edit it — a new file included — reorder by drag and drop, delete. Each row shows the stable address to share and, folded away, the past versions only the Staff d'U can still open. See §46 |
 | Réinscriptions (module registration) | admin | The campaign that asks the families of this year's animés whether the child comes back (§18.5): its recurring MM-JJ window, the two reminder delays, a manual switch that forces the state either way, the current state with the planned close date, and a manual « relancer les familles sans réponse » button — unavailable on a closed campaign, since reminding somebody to fill in a form they can no longer fill in is worse than not reminding them. The tracking is **counts only** — answers received out of total, départs annoncés, sans réponse — never a list: a list here would be a list of children whose parents have said they are leaving, sitting on a configuration screen. Individual decisions belong to « Départs de l'unité » and « Passages de branche ». |
 
 #### The page of one member (`/admin/members/{id}`)
@@ -3202,4 +3202,33 @@ Chaque document a une adresse, `/documents/{slug}`, figée à sa création :
 changer le titre ne la change pas. Elle redirige vers le fichier courant,
 servi par `/files/{id}` comme tout fichier du site ; seul un document
 public peut être indexé par les moteurs de recherche.
+
+### 46.4 Les versions
+
+Remplacer le fichier d'un document garde l'ancien comme **version
+précédente**. Une version précédente n'est plus accessible qu'au Staff
+d'U, même sur un document public et même par son ancien lien : c'est ce
+qui fait qu'une correction corrige vraiment. Les cinq dernières versions
+précédentes sont gardées ; au-delà, la plus ancienne est supprimée,
+fichier compris. Supprimer un document supprime aussi ses versions. Les
+membres ne voient jamais l'historique.
+
+### 46.5 L'écran de gestion
+
+- **La liste**, dans l'ordre de la page publique, se réordonne au
+  glisser-déposer (des flèches sur un écran étroit). Chaque ligne montre
+  le titre, la visibilité, le type, la taille, la date et l'adresse à
+  partager ; sous un document remplacé au moins une fois, ses versions
+  précédentes, repliées, chacune téléchargeable.
+- **Un seul formulaire** pour ajouter comme pour modifier : titre,
+  description facultative, visibilité, fichier (obligatoire à l'ajout,
+  facultatif ensuite). L'avertissement sur le remplacement n'apparaît
+  qu'une fois un fichier choisi ; passer un document listé en « Lien
+  direct » prévient que son adresse, tirée du titre, reste devinable.
+- **Types acceptés** : PDF, documents bureautiques et OpenDocument,
+  texte, CSV et images, 25 Mo au plus ; un PDF est compressé quand
+  l'hébergement le permet.
+- **Journal** : ajout, modification, remplacement de fichier,
+  suppression d'une version, suppression — identifiants seulement,
+  jamais un titre.
 
