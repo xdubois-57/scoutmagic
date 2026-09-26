@@ -161,6 +161,66 @@ class ReleaseGatesTest extends TestCase
     }
 
     /**
+     * README.md's own numbered list of the gates, which is a SEVENTH place
+     * nothing connects — and the one that drifted.
+     *
+     * The gate added for issue #379 was wired into all six places above and
+     * into AGENTS.md, and the README was updated where it lists the
+     * `--skip-*` flags. The enumeration four lines higher still said « cinq
+     * verrous » and still jumped from « Fraîcheur des dépendances » to
+     * « SonarQube Cloud », so the file advertised a bypass flag for a gate it
+     * never documented. Nothing failed; a reviewer noticed.
+     *
+     * Counted rather than matched by name: the keys here are English and
+     * that list is French, so anything finer would be a translation table
+     * drifting beside the thing it describes. A count is enough to make a
+     * missing entry impossible to merge.
+     */
+    public function testTheReadmeEnumeratesEveryGateItSaysTheScriptRuns(): void
+    {
+        $readme = (string) file_get_contents(dirname(__DIR__, 3) . '/README.md');
+        $expected = count(self::launchedKeys());
+
+        $numerals = [
+            4 => 'quatre', 5 => 'cinq', 6 => 'six', 7 => 'sept', 8 => 'huit', 9 => 'neuf',
+        ];
+        $this->assertArrayHasKey($expected, $numerals, 'add the French numeral for this many gates');
+
+        $sentence = "le script exécute {$numerals[$expected]} verrous";
+        $this->assertStringContainsString(
+            $sentence,
+            $readme,
+            "README.md § Releases must say « {$sentence} » — scripts/release.sh launches {$expected}"
+        );
+
+        // The list itself, bounded to the section that holds it — from the
+        // count sentence to the next heading.
+        //
+        // Two narrower boundaries were tried and both read the « Installation
+        // sur hébergement mutualisé » list further down: the highest number
+        // in the rest of the file (7), and then a walk stopping at the first
+        // number that did not continue the run — which also answered 7,
+        // because that list's first BOLD item happens to be its seventh and
+        // nothing before it matches. A section ends at a heading; that is the
+        // only boundary here that means anything.
+        $start = (int) strpos($readme, $sentence);
+        $section = substr($readme, $start);
+        $nextHeading = preg_match('/\n#{2,3} /', $section, $found, PREG_OFFSET_CAPTURE) === 1
+            ? (int) $found[0][1]
+            : strlen($section);
+        $section = substr($section, 0, $nextHeading);
+
+        $described = preg_match_all('/^(\d+)\. \*\*/m', $section);
+
+        $this->assertSame(
+            $expected,
+            $described,
+            'README.md § Releases numbers ' . $described . " gates while scripts/release.sh launches {$expected}"
+            . ' — one of them has no entry, so the file describes a release nobody runs'
+        );
+    }
+
+    /**
      * What this script deliberately does NOT run, and what it reads
      * instead.
      *
