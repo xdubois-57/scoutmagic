@@ -1054,6 +1054,94 @@ class MassMailServiceTest extends TestCase
         );
     }
 
+    // ── Une adresse que le site ne peut pas aligner (issue #418) ───────
+
+    /**
+     * **The case that used to be sent anyway, and refused at the far end.**
+     * The site signs for `test.be`; a section on `telenet.be` aligns with
+     * neither SPF nor DKIM, so the message fails DMARC and Telenet's own
+     * `p=reject` throws it away — while every screen here stays green.
+     *
+     * So the `From:` becomes the site's (a null override), the section is
+     * named in the display name, and the section's address moves to
+     * `Reply-To:` where « Répondre » still finds it.
+     */
+    public function testASectionAddressTheSiteCannotSignForIsMovedToReplyTo(): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE sections SET email = ? WHERE id = ?');
+        $stmt->execute(['meute-a@telenet.be', $this->sectionId]);
+
+        $identity = $this->service->resolveSenderIdentity($this->sectionId);
+
+        $this->assertNull($identity['address'], 'the From: has to be an address the site can sign for');
+        $this->assertSame('Meute A (Test Unité)', $identity['name']);
+        $this->assertSame('meute-a@telenet.be', $identity['reply_to']);
+        $this->assertSame('meute-a@telenet.be', $identity['contact']);
+    }
+
+    /** A subdomain of the site's own domain is signed for, so it is kept. */
+    public function testASectionOnASubdomainKeepsItsOwnFrom(): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE sections SET email = ? WHERE id = ?');
+        $stmt->execute(['meute-a@meutes.test.be', $this->sectionId]);
+
+        $identity = $this->service->resolveSenderIdentity($this->sectionId);
+
+        $this->assertSame('meute-a@meutes.test.be', $identity['address']);
+        $this->assertSame('Meute A', $identity['name']);
+        $this->assertNull($identity['reply_to'], 'the From: is the section already');
+    }
+
+    /**
+     * A look-alike domain is not a subdomain, and this is the assertion
+     * that says the rule is not a substring search: `test.be.evil.com`
+     * contains the site's whole domain and belongs to somebody else.
+     */
+    public function testALookAlikeDomainIsNotTreatedAsTheSites(): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE sections SET email = ? WHERE id = ?');
+        $stmt->execute(['meute-a@test.be.evil.com', $this->sectionId]);
+
+        $identity = $this->service->resolveSenderIdentity($this->sectionId);
+
+        $this->assertNull($identity['address']);
+        $this->assertSame('meute-a@test.be.evil.com', $identity['reply_to']);
+    }
+
+    /**
+     * **The screen shows what will really leave** — its whole contract.
+     * A preview naming the section's address for a message that will go out
+     * under the site's would be the one screen the author checks telling
+     * them the opposite of what happens.
+     */
+    public function testTheDisplayedSenderShowsTheSubstitutionRatherThanTheSectionAddress(): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE sections SET email = ? WHERE id = ?');
+        $stmt->execute(['meute-a@telenet.be', $this->sectionId]);
+
+        $this->assertSame(
+            ['address' => 'unite@test.be', 'name' => 'Meute A (Test Unité)'],
+            $this->service->resolveDisplayedSender($this->sectionId)
+        );
+    }
+
+    /**
+     * `contact` is the address a human reaches this mailing at, and it is
+     * never null — which is what the seed copy's `mailto:` unsubscribe
+     * header needs. With `address` it wrote `<mailto:?subject=unsubscribe>`
+     * for every section without an e-mail, and a malformed header is
+     * precisely the bulk-sender signal that copy exists to measure.
+     */
+    public function testTheContactAddressFallsBackToTheSiteAndIsNeverEmpty(): void
+    {
+        // $this->sectionId has no e-mail of its own (see setUp).
+        $identity = $this->service->resolveSenderIdentity($this->sectionId);
+
+        $this->assertSame('unite@test.be', $identity['contact']);
+        $this->assertNull($identity['address']);
+        $this->assertNull($identity['reply_to']);
+    }
+
     // ── The preview opens on somebody at random ─────────────────────────
 
     /**
@@ -1108,9 +1196,75 @@ class MassMailServiceTest extends TestCase
         $stmt->execute(['meute-a@test.be', $this->sectionId]);
 
         $mailServiceMock = $this->createMock(MailService::class);
+        // **`getDefaultSender()` has to answer the shape it really
+        // answers.** Left unconfigured, the mock returns `[]`, which the
+        // comment on `siteMailService()` above already flags as a shape this
+        // method never returns — and since issue #418 the service reads the
+        // site's own address from it to decide whether it can sign for the
+        // section's. An empty array there is a test double disagreeing with
+        // production, not a case worth supporting.
+        $mailServiceMock->method('getDefaultSender')
+            ->willReturn(['address' => 'unite@test.be', 'name' => 'Test Unité']);
         $mailServiceMock->expects($this->once())->method('send')->with(
-            'to@test.be', $this->anything(), $this->anything(), $this->anything(), $this->anything(), $this->anything(),
-            'meute-a@test.be', 'Meute A'
+            'to@test.be',
+            $this->anything(),
+            $this->anything(),
+            $this->anything(),
+            // **`null`, asserted rather than waved through.** This argument
+            // used to be `$this->anything()`, which reads an argument and
+            // pins nothing — and that is what let the test send keep a
+            // hardcoded null after `resolveSenderIdentity()` started
+            // answering a `reply_to` (found in review on #573). Here the
+            // section's address IS the `From:`, so a `Reply-To:` repeating it
+            // would be one more header to keep in step for no reader.
+            null,
+            $this->anything(),
+            'meute-a@test.be',
+            'Meute A'
+        );
+
+        $service = $this->buildServiceWithMailService($mailServiceMock);
+
+        $email = $service->createDraft(
+            'Sujet', '<p>Corps</p>', $this->sectionId, Email::LIST_TYPE_DEFAULT_ACTIVE_MEMBERS, null, null,
+            [$this->scoutYearId], null, $this->unrestricted
+        );
+        $service->moveToTest($email->id, null);
+
+        $service->sendTestEmail($email->id, 'to@test.be');
+    }
+
+    /**
+     * **The test send has to show what the batch sends, for the sections this
+     * rule is about too** (found in review on #573).
+     *
+     * `sendTestEmail()` passed a hardcoded null where `SendBatchHandler`
+     * passes `$sender['reply_to']`. For a section whose address this site
+     * cannot sign for, the substituted `From:` names the section while
+     * `MailService::send()`'s own fallback routed « Répondre » to the SITE —
+     * so the one message a chief reads before sending to everybody described
+     * a behaviour the real send does not have.
+     */
+    public function testTheTestSendCarriesTheSameReplyToAsTheBatchForAMisalignedSection(): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE sections SET email = ? WHERE id = ?');
+        $stmt->execute(['meute-a@telenet.be', $this->sectionId]);
+
+        $mailServiceMock = $this->createMock(MailService::class);
+        $mailServiceMock->method('getDefaultSender')
+            ->willReturn(['address' => 'unite@test.be', 'name' => 'Test Unité']);
+        $mailServiceMock->expects($this->once())->method('send')->with(
+            'to@test.be',
+            $this->anything(),
+            $this->anything(),
+            $this->anything(),
+            // Where the reply goes: the section, as on the real batch.
+            'meute-a@telenet.be',
+            $this->anything(),
+            // No `From:` override — the site's own address, the one it signs
+            // for — under the substituted name.
+            null,
+            'Meute A (Test Unité)'
         );
 
         $service = $this->buildServiceWithMailService($mailServiceMock);

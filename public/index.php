@@ -6710,6 +6710,7 @@ $frontController->registerController(
         $scoutYearResolver,
         $badgeService,
         $ageBranchRepo,
+        new \Core\Mail\SectionSenderAlignment($settingService, $sectionService),
         $moduleHooks,
         $deskMappingGapService
     )
@@ -7817,6 +7818,7 @@ $frontController->registerController(
         new \Core\Mail\DnsVerifier(),
         $returnPathVerifier,
         $journalService,
+        new \Core\Mail\SectionSenderAlignment($settingService, $sectionService),
         new \Core\Mail\Probe\MailProbeSender(
             $mailService,
             $mailProviderDirectory,

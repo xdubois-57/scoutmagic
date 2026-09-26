@@ -20,6 +20,7 @@ use Core\Mail\Feedback\ReturnPathVerifier;
 use Core\Mail\Feedback\ReturnState;
 use Core\Mail\DnsVerifier;
 use Core\Mail\MailIdentity;
+use Core\Mail\SectionSenderAlignment;
 use Core\Mail\Probe\MailProbeException;
 use Core\Mail\Probe\MailProbeNotRecordedException;
 use Core\Mail\Probe\MailProbeRepository;
@@ -133,6 +134,21 @@ class OutboundMailController extends AbstractController
         private DnsVerifier $dns,
         private ReturnPathVerifier $returns,
         private JournalService $journal,
+        /**
+         * Which sections this site cannot sign a `From:` for (issue #418).
+         *
+         * **Required, like every dependency above it**, and for the reason
+         * §8.17 records: a defaulted one turns the composition root somebody
+         * forgets into a warning that silently never appears — and this
+         * warning exists precisely because the failure it describes is
+         * invisible. `p=reject` at the section's provider refuses the
+         * mailing while this page is entirely green, and no DMARC report can
+         * say so, because a report goes to the `rua=` of the FROM domain.
+         *
+         * The nullable ones below are a different case each time, and each
+         * says so where it sits: they gate a sub-page on a module being on.
+         */
+        private SectionSenderAlignment $sectionSenders,
         /**
          * The manual probe (roadmap IT-04).
          *
@@ -2501,6 +2517,13 @@ class OutboundMailController extends AbstractController
                 'dkim_selector' => (string) ($this->settings->get('dkim_selector') ?? ''),
             ],
             'roles' => $identity->roles(),
+            // The sections whose mailings this site cannot sign for. This
+            // page explains which address plays which role, so it is the
+            // page where « and this one plays none of them » belongs — the
+            // operator who reads the four roles here is the one who can
+            // change a section's address.
+            'misaligned_sections' => $this->sectionSenders->misaligned(),
+            'sections_url' => '/config/functions',
             'spf_domain' => $identity->spfDomain(),
             'dkim_domain' => $identity->dkimDomain(),
             'sending_hosts' => $hosts ?? [],

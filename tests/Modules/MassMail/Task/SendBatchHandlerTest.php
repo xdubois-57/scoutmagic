@@ -103,6 +103,183 @@ class SendBatchHandlerTest extends TestCase
 
     private ?BulkCadence $bulkCadence = null;
 
+    // ── Le « De : » qui part vraiment (issue #418) ─────────────────────
+
+    /**
+     * **The seed copy's `mailto:` unsubscribe, which had no address to name
+     * in two cases out of three.** It was built from the section's address,
+     * and that is null both for a section with no e-mail and — since issue
+     * #418 — for one the site cannot sign for, so the header went out as
+     * `<mailto:?subject=unsubscribe>`.
+     *
+     * That is not cosmetic here. This copy exists to measure where a
+     * mailing lands, and a malformed `List-Unsubscribe` is exactly the
+     * bulk-sender signal a provider weighs: the copy would have biased the
+     * reading it was sent to take, in the direction that triggers a
+     * reroute.
+     *
+     * @return ?\Core\Mail\Feedback\Seed\SeedCopyContent
+     */
+    private function seedCopyOfOneSend(): ?\Core\Mail\Feedback\Seed\SeedCopyContent
+    {
+        $this->pdo->exec('DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)');
+
+        $copy = null;
+        $mailService = $this->mailServiceDouble();
+        $mailService->expects($this->once())
+            ->method('send')
+            // The address is named rather than swallowed by `...$args`:
+            // `send()` takes it first, and an expectation that never reads it
+            // would pass while the batch wrote to somebody else
+            // (`Tests\Architecture\MailDoublesNameTheirRecipientTest`).
+            ->willReturnCallback(function (string $to, ...$rest) use (&$copy): void {
+                self::assertSame('member0@test.be', $to, 'the one recipient left standing in this fixture');
+                // One place further left than before, the address having been
+                // taken out of the variadic.
+                $copy = $rest[11] ?? null;
+            });
+
+        (new SendBatchHandler())->handle([], $this->buildContext($mailService));
+
+        return $copy;
+    }
+
+    public function testTheSeedCopyNamesAnAddressToUnsubscribeFromEvenWhenTheFromIsSubstituted(): void
+    {
+        $this->giveTheSectionTheAddress('meute-a@telenet.be');
+
+        $copy = $this->seedCopyOfOneSend();
+
+        $this->assertNotNull($copy);
+        $this->assertSame(
+            '<mailto:meute-a@telenet.be?subject=unsubscribe>',
+            $copy->extraHeaders['List-Unsubscribe'] ?? null,
+            'the substituted From: must not empty the header the copy is measured on.'
+        );
+    }
+
+    public function testTheSeedCopyFallsBackToTheSitesAddressWhenTheSectionHasNone(): void
+    {
+        // The fixture's section carries no e-mail (see setUp).
+        $copy = $this->seedCopyOfOneSend();
+
+        $this->assertNotNull($copy);
+        $this->assertSame(
+            '<mailto:unite@test.be?subject=unsubscribe>',
+            $copy->extraHeaders['List-Unsubscribe'] ?? null
+        );
+    }
+
+    /**
+     * **`&$seen` and not a returned array.** List destructuring assigns by
+     * value, so returning `[&$seen, $mailService]` handed the test a
+     * snapshot of the empty array and every assertion read nothing — which
+     * is how this helper was written first, and it failed loudly rather
+     * than passing on an empty capture.
+     *
+     * @param list<array{reply_to: ?string, from: ?string, name: ?string, headers: array<string, string>}> $seen
+     */
+    private function capturingMailService(array &$seen): MailService
+    {
+        $seen = [];
+        $mailService = $this->mailServiceDouble();
+        $mailService->method('send')->willReturnCallback(
+            function (
+                string $to,
+                string $subject,
+                string $bodyHtml,
+                string $bodyText = '',
+                ?string $replyTo = null,
+                array $attachments = [],
+                ?string $fromAddressOverride = null,
+                ?string $fromNameOverride = null,
+                array $extraHeaders = []
+            ) use (&$seen): void {
+                $seen[] = [
+                    'reply_to' => $replyTo,
+                    'from' => $fromAddressOverride,
+                    'name' => $fromNameOverride,
+                    'headers' => $extraHeaders,
+                ];
+            }
+        );
+
+        return $mailService;
+    }
+
+    private function giveTheSectionTheAddress(string $address): void
+    {
+        $statement = $this->pdo->prepare('UPDATE sections SET email = ? WHERE id = 1');
+        $statement->execute([$address]);
+    }
+
+    /**
+     * A section on the site's own domain keeps its own `From:` — the
+     * behaviour issue #418 explicitly left alone — and carries no
+     * `Reply-To:`, because the `From:` is already where a reply should go.
+     */
+    public function testASectionTheSiteCanSignForKeepsItsOwnFromAndNeedsNoReplyTo(): void
+    {
+        $this->giveTheSectionTheAddress('meute-a@test.be');
+        $seen = [];
+        $mailService = $this->capturingMailService($seen);
+
+        (new SendBatchHandler())->handle([], $this->buildContext($mailService));
+
+        $this->assertNotSame([], $seen);
+        $this->assertSame('meute-a@test.be', $seen[0]['from']);
+        $this->assertSame('Meute A', $seen[0]['name']);
+        $this->assertNull($seen[0]['reply_to']);
+    }
+
+    /**
+     * **And the case the site cannot sign for, which used to go out and be
+     * refused.** `telenet.be` publishes `p=reject`, so a mailing sent as
+     * `meute-a@telenet.be` over this site's envelope and DKIM key was thrown
+     * away at the far end with every screen here green — and no aggregate
+     * report would ever have said so, since it goes to the From domain's
+     * `rua=`, i.e. to Telenet.
+     *
+     * So: the `From:` is the site's own (a null override), the section is
+     * still named to the recipient, and `Reply-To:` keeps « Répondre »
+     * arriving at the section exactly as before.
+     */
+    public function testASectionTheSiteCannotSignForSendsUnderTheSiteWithTheSectionInReplyTo(): void
+    {
+        $this->giveTheSectionTheAddress('meute-a@telenet.be');
+        $seen = [];
+        $mailService = $this->capturingMailService($seen);
+
+        (new SendBatchHandler())->handle([], $this->buildContext($mailService));
+
+        $this->assertNotSame([], $seen);
+        $this->assertNull($seen[0]['from'], 'the From: must be an address this site can sign for');
+        $this->assertSame('Meute A (Test Unité)', $seen[0]['name']);
+        $this->assertSame('meute-a@telenet.be', $seen[0]['reply_to']);
+    }
+
+    /**
+     * A `MailService` double that answers `getDefaultSender()` the way the
+     * real one does.
+     *
+     * **An unconfigured mock answers `[]`, and that is not a shape this
+     * method ever returns**: `MailService::getDefaultSender()` builds it
+     * from two string properties. Since issue #418 the mailing reads the
+     * site's own address out of it — to decide whether it can sign for a
+     * section's — and a null there quietly produced the malformed
+     * `<mailto:?subject=unsubscribe>` header that this very file is here to
+     * catch. One helper rather than twenty-two call sites, so the next
+     * double cannot forget.
+     */
+    private function mailServiceDouble(): MailService
+    {
+        $mailService = $this->createMock(MailService::class);
+        $mailService->method('getDefaultSender')
+            ->willReturn(['address' => 'unite@test.be', 'name' => 'Test Unité']);
+
+        return $mailService;
+    }
+
     private function buildContext(MailService $mailService): TaskContext
     {
         return new TaskContext(
@@ -143,7 +320,7 @@ class SendBatchHandlerTest extends TestCase
         // mailing is the one feature here whose whole subject is who
         // receives what.
         $sentTo = [];
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->mailServiceDouble();
         $mailService->expects($this->exactly(2))->method('send')
             ->willReturnCallback(function (string $to) use (&$sentTo): void {
                 $sentTo[] = $to;
@@ -171,7 +348,7 @@ class SendBatchHandlerTest extends TestCase
         // Shrink to 1 recipient so a single batch (size 2) drains everything.
         $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");
 
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->mailServiceDouble();
         $handler = new SendBatchHandler();
         $handler->handle([], $this->buildContext($mailService));
 
@@ -205,7 +382,7 @@ class SendBatchHandlerTest extends TestCase
         $this->pdo->exec('DROP TABLE mail_send_receipts');
 
         $sentTo = [];
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->mailServiceDouble();
         $mailService->expects($this->exactly(2))->method('send')
             ->willReturnCallback(function (string $to) use (&$sentTo): void {
                 $sentTo[] = $to;
@@ -254,7 +431,7 @@ class SendBatchHandlerTest extends TestCase
     public function testEveryCopyVouchesForItsRecipientSoTheLiveGateApplies(): void
     {
         $seen = [];
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->mailServiceDouble();
         $mailService->method('send')->willReturnCallback(
             function (
                 string $to,
@@ -293,7 +470,7 @@ class SendBatchHandlerTest extends TestCase
      */
     public function testAnAddressBlockedMidRunIsRecordedInThePagesOwnWords(): void
     {
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->mailServiceDouble();
         $mailService->method('send')
             ->willThrowException(\Core\Mail\SuppressedRecipientException::blocked());
 
@@ -312,7 +489,7 @@ class SendBatchHandlerTest extends TestCase
 
     public function testMailExceptionMarksRecipientAsErrorWithoutLeakingAddress(): void
     {
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->mailServiceDouble();
         $mailService->method('send')->willThrowException(new MailException('550 relay denied'));
 
         $handler = new SendBatchHandler();
@@ -335,7 +512,7 @@ class SendBatchHandlerTest extends TestCase
      */
     public function testASendFailureStoresAFrenchSentenceRatherThanThePhpMailerText(): void
     {
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->mailServiceDouble();
         $mailService->method('send')->willThrowException(new MailException(
             'SMTP Error: data not accepted. SMTP server error: 554 5.7.1 <x@test.be>: Relay access denied'
         ));
@@ -365,7 +542,7 @@ class SendBatchHandlerTest extends TestCase
      */
     public function testASendFailureStillJournalsTheRealTransportError(): void
     {
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->mailServiceDouble();
         $mailService->method('send')->willThrowException(new MailException('554 5.7.1 Relay access denied'));
 
         $journal = $this->createMock(JournalService::class);
@@ -414,7 +591,7 @@ class SendBatchHandlerTest extends TestCase
         $handler->handle([], new TaskContext(
             Connection::withPdo($this->pdo),
             $this->encryption,
-            $this->createMock(MailService::class),
+            $this->mailServiceDouble(),
             $journal,
             new SettingService(new SettingRepository($this->pdo)),
             $this->userAccountRepository,
@@ -449,7 +626,7 @@ class SendBatchHandlerTest extends TestCase
      */
     public function testASendFailureIsFiledAsAnErrorAndNamesItsMailing(): void
     {
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->mailServiceDouble();
         $mailService->method('send')->willThrowException(new MailException('554 5.7.1 Relay access denied'));
 
         $logged = [];
@@ -491,7 +668,7 @@ class SendBatchHandlerTest extends TestCase
         $capturedTo = null;
         $capturedExtraHeaders = null;
         $capturedBodyHtml = null;
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->mailServiceDouble();
         $mailService->expects($this->once())
             ->method('send')
             ->willReturnCallback(
@@ -566,7 +743,7 @@ class SendBatchHandlerTest extends TestCase
         $sentSubject = null;
         $sentBodyHtml = null;
         $copy = null;
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->mailServiceDouble();
         $mailService->expects($this->once())
             ->method('send')
             ->willReturnCallback(
@@ -608,7 +785,7 @@ class SendBatchHandlerTest extends TestCase
 
         $sentTo = null;
         $copy = null;
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->mailServiceDouble();
         $mailService->expects($this->once())
             ->method('send')
             ->willReturnCallback(function (...$args) use (&$sentTo, &$copy): void {
@@ -628,7 +805,7 @@ class SendBatchHandlerTest extends TestCase
     {
         $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");
 
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->mailServiceDouble();
         $handler = new SendBatchHandler();
         $handler->handle([], $this->buildContext($mailService));
 
@@ -672,7 +849,7 @@ class SendBatchHandlerTest extends TestCase
         $stmt->execute([$this->memberId, $this->scoutYearId, $this->encryption->encrypt('Jean', 'member_years.first_name'), $this->encryption->encrypt('Dupont', 'member_years.last_name')]);
         $memberYearId = (int) $this->pdo->lastInsertId();
 
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->mailServiceDouble();
         $notificationService = $this->buildNotificationService();
 
         $handler = new SendBatchHandler();
@@ -731,7 +908,7 @@ class SendBatchHandlerTest extends TestCase
 
         $handler = new SendBatchHandler();
         $handler->handle([], $this->buildContextWithNotifications(
-            $this->createMock(MailService::class),
+            $this->mailServiceDouble(),
             $this->buildNotificationService()
         ));
 
@@ -787,7 +964,7 @@ class SendBatchHandlerTest extends TestCase
 
         $handler = new SendBatchHandler();
         $handler->handle([], $this->buildContextWithNotifications(
-            $this->createMock(MailService::class),
+            $this->mailServiceDouble(),
             $this->buildNotificationService()
         ));
 
@@ -835,7 +1012,7 @@ class SendBatchHandlerTest extends TestCase
 
         $handler = new SendBatchHandler();
         $handler->handle([], $this->buildContextWithNotifications(
-            $this->createMock(MailService::class),
+            $this->mailServiceDouble(),
             $this->buildNotificationService()
         ));
 
@@ -848,7 +1025,7 @@ class SendBatchHandlerTest extends TestCase
     {
         $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");
 
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->mailServiceDouble();
         $notificationService = $this->buildNotificationService();
 
         $handler = new SendBatchHandler();
@@ -893,7 +1070,7 @@ class SendBatchHandlerTest extends TestCase
         $capturedTo = null;
         $capturedSubject = null;
         $capturedBody = null;
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->mailServiceDouble();
         $mailService->expects($this->once())->method('send')
             ->willReturnCallback(function (...$args) use (&$capturedTo, &$capturedSubject, &$capturedBody): void {
                 $capturedTo = $args[0];
@@ -922,7 +1099,7 @@ class SendBatchHandlerTest extends TestCase
         $this->createMergeEmailWithRecipient(['Prenom' => '<script>alert(1)</script>', 'Montant' => '1']);
 
         $capturedBody = null;
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->mailServiceDouble();
         $mailService->method('send')->willReturnCallback(function (...$args) use (&$capturedBody): void {
             $capturedBody = $args[2];
         });
@@ -939,7 +1116,7 @@ class SendBatchHandlerTest extends TestCase
         $this->pdo->exec('DELETE FROM mass_mail_emails');
         [$emailId] = $this->createMergeEmailWithRecipient(null); // no audience row at all
 
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->mailServiceDouble();
         $mailService->expects($this->never())->method('send');
 
         (new SendBatchHandler())->handle([], $this->buildContext($mailService));
