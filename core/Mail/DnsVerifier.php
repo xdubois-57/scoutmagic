@@ -331,6 +331,23 @@ class DnsVerifier
     }
 
     /**
+     * The TXT records of one host, through the seam above.
+     *
+     * **A public face on the protected one, so that the SPF chain walk has
+     * no resolver of its own** (issue #421, found in review). `SpfCoverage`
+     * used to call `dns_get_record()` directly, which gave the outbound-mail
+     * screens two places to reach the network and left the controller's test
+     * — which already replaces THIS verifier with a canned zone — asking a
+     * real resolver for `unite.test`. One seam answers for the whole screen.
+     *
+     * @return array<string>
+     */
+    public function txtRecordsFor(string $host): array
+    {
+        return $this->getTxtRecords($host);
+    }
+
+    /**
      * Get TXT records for a host. Overridable for testing.
      *
      * @return array<string>

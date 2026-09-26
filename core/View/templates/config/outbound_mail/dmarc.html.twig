@@ -65,11 +65,19 @@
                         elle-même.
                     </p>
                 {% endif %}
-                {# **Three separate things, said separately.** « Never taken », « too old to
-                   trust » and « taken but incomplete » leave the operator at the same place on
-                   screen — a source that is not named — for three different reasons, and only
-                   one of them is « press the button ». Rolling them into one sentence would
-                   send somebody to re-run a check that will come back just as short. #}
+                {# **Five separate things, said separately.** « Never taken », « about another
+                   domain », « too old to trust », « a host did not answer », « over the
+                   protocol's budget » and « more ranges than we keep » all leave the operator
+                   at the same place on screen — a source that is not named — for different
+                   reasons, and they do not have the same remedy. Rolling them into one
+                   sentence would send somebody to re-run a check that will come back just as
+                   short.
+
+                   **And the lookup sentence no longer says what receivers do.** It claimed the
+                   ranges beyond the limit authorise nothing in practice; the counter here is
+                   one budget for the whole queue, so exhaustion on one branch says nothing
+                   about the branch a given source is matched by. Review of #571 was right, and
+                   the sentence now reports only what this reading is: incomplete. #}
                 {% if spf_stale %}
                     <p class="text-body-secondary small">
                         La lecture de votre enregistrement SPF a plus de {{ spf_max_age_days }} jours, donc
@@ -82,12 +90,24 @@
                         relais ne peut pas non plus être rattaché à un <code>include:</code> de votre
                         domaine.
                     </p>
+                {% elseif spf_other_domain %}
+                    <p class="text-body-secondary small">
+                        La dernière lecture porte sur <code>{{ spf_other_domain }}</code>, qui n'est plus
+                        votre domaine d'envoi : elle ne sert donc à rattacher personne. Relancez
+                        « Vérifier les enregistrements ».
+                    </p>
+                {% elseif spf_partial == spf_partial_unreadable %}
+                    <p class="text-body-secondary small">
+                        Un des domaines de votre chaîne d'<code>include:</code> n'a pas répondu lors de la
+                        dernière lecture : elle est donc incomplète, et un serveur affiché « Autre » peut
+                        malgré tout figurer dans votre SPF. Relancez « Vérifier les enregistrements ».
+                    </p>
                 {% elseif spf_partial == spf_partial_lookups %}
                     <p class="text-body-secondary small">
-                        La chaîne d'<code>include:</code> de votre enregistrement SPF dépasse les
-                        {{ spf_max_lookups }} résolutions que le protocole accorde : au-delà, les serveurs
-                        destinataires abandonnent eux aussi, et les plages qui s'y cachent n'autorisent donc
-                        rien en pratique. C'est l'enregistrement qu'il faut raccourcir, pas cette page.
+                        La chaîne d'<code>include:</code> de votre enregistrement SPF demande plus que les
+                        {{ spf_max_lookups }} résolutions que le protocole accorde : la lecture s'arrête là,
+                        elle est donc incomplète, et un serveur affiché « Autre » peut malgré tout y figurer.
+                        C'est l'enregistrement qu'il faut raccourcir.
                     </p>
                 {% elseif spf_partial %}
                     <p class="text-body-secondary small">

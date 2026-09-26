@@ -2345,9 +2345,13 @@ rien dire. C'est le test à deux relais qui l'a attrapé.
   pourquoi.
 
   Trois bornes sont empruntées plutôt que choisies : dix résolutions, le
-  nombre que RFC 7208 §4.6.4 donne aux destinataires ; 256 plages, ce que la
-  colonne `TEXT` du réglage peut porter sans être tronquée ; trente jours,
-  la fenêtre de rapports que la page montre déjà. Ce qui n'est pas lu — `a`,
+  nombre que RFC 7208 §4.6.4 donne aux destinataires ; 256 plages, un
+  **compte** dont la taille stockée est bornée à part — chaque attribution
+  est écrite une fois et désignée par son rang, donc au plus une douzaine de
+  noms et 256 adresses en hexadécimal, moins de 12 Ko ; trente jours, la
+  fenêtre de rapports que la page montre déjà. La première version répétait
+  le nom dans chaque plage et pouvait dépasser les 65 535 octets de la
+  colonne, ce que la revue a relevé. Ce qui n'est pas lu — `a`,
   `mx`, `exists:`, `ptr`, et tout mécanisme portant un qualificateur `-`,
   `~` ou `?` — laisse ses adresses **non placées** plutôt que mal placées.
 

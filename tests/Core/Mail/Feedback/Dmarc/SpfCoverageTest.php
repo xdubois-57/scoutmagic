@@ -260,6 +260,75 @@ class SpfCoverageTest extends TestCase
         $this->assertSame('_spf.hebergeur.example', $coverage->viaFor('198.51.100.7'));
     }
 
+    /**
+     * **`all` makes `redirect=` dead text** — RFC 7208 §6.1 says the modifier
+     * MUST be ignored when the record carries an `all` mechanism, whatever
+     * the order of the terms. Following it anyway named a target that
+     * supplied no part of the record's verdict (found in review on #571).
+     */
+    public function testARedirectIsIgnoredWhenTheRecordCarriesAnAll(): void
+    {
+        $coverage = $this->coverage([
+            'exemple.be' => 'v=spf1 ip4:192.0.2.0/24 -all redirect=_spf.hebergeur.example',
+            '_spf.hebergeur.example' => 'v=spf1 ip4:198.51.100.0/24 -all',
+        ]);
+
+        // The record's own range still counts; the redirect's does not.
+        $this->assertSame('exemple.be', $coverage->viaFor('192.0.2.7'));
+        $this->assertNull($coverage->viaFor('198.51.100.7'));
+        $this->assertNotContains('_spf.hebergeur.example', $this->lookups);
+    }
+
+    /** And an `include:` is unaffected: `all` only ends the list after it. */
+    public function testAnIncludeIsStillFollowedWhenTheRecordCarriesAnAll(): void
+    {
+        $coverage = $this->coverage([
+            'exemple.be' => 'v=spf1 include:_spf.exemple.net -all',
+            '_spf.exemple.net' => 'v=spf1 ip4:198.51.100.0/24 -all',
+        ]);
+
+        $this->assertSame('_spf.exemple.net', $coverage->viaFor('198.51.100.7'));
+    }
+
+    /**
+     * **« Nothing published » and « nobody answered » are opposite readings.**
+     * A resolver that fails midway used to leave the chain short while the
+     * stored relevé looked complete: a source that IS covered then reads as
+     * « Autre » with nothing on screen saying the reading was partial. Found
+     * in review on #571, and it is the failure `DnsRecordReader` names a
+     * skipped type to avoid.
+     */
+    public function testAResolverThatCouldNotBeAskedMakesTheReadingPartial(): void
+    {
+        SpfCoverage::refresh(
+            $this->settings,
+            'exemple.be',
+            function (string $host): ?array {
+                $this->lookups[] = $host;
+
+                // The unit's own record reads; the include's host is the one
+                // nobody could answer for — null, not an empty list.
+                return $host === 'exemple.be' ? ['v=spf1 include:_spf.injoignable.test -all'] : null;
+            }
+        );
+
+        $coverage = SpfCoverage::remembered($this->settings);
+
+        $this->assertSame(SpfCoverage::PARTIAL_UNREADABLE, $coverage->partial);
+        $this->assertSame(0, $coverage->rangeCount());
+    }
+
+    /** A host that answers « I publish nothing » is not a failure. */
+    public function testAHostThatPublishesNothingLeavesTheReadingComplete(): void
+    {
+        $coverage = $this->coverage([
+            'exemple.be' => 'v=spf1 include:_spf.vide.example ip4:192.0.2.0/24 -all',
+        ]);
+
+        $this->assertNull($coverage->partial);
+        $this->assertSame('exemple.be', $coverage->viaFor('192.0.2.7'));
+    }
+
     public function testMechanismsThisClassDoesNotResolveNameNothing(): void
     {
         $coverage = $this->coverage([
@@ -547,12 +616,18 @@ class SpfCoverageTest extends TestCase
             (string) json_encode([
                 'at' => '2026-03-01 10:00:00',
                 'domain' => 'exemple.be',
+                'vias' => ['exemple.be'],
                 'ranges' => [
-                    ['v' => 'exemple.be', 'b' => 'pas du hex', 'p' => 24],
-                    ['v' => '', 'b' => bin2hex((string) inet_pton('203.0.113.0')), 'p' => 24],
+                    ['v' => 0, 'b' => 'pas du hex', 'p' => 24],
+                    // **An index into no name.** Attributing it to whatever
+                    // sits at index zero would put a range under a provider
+                    // that never published it.
+                    ['v' => 7, 'b' => bin2hex((string) inet_pton('203.0.113.0')), 'p' => 24],
                     // A prefix longer than the address it qualifies.
-                    ['v' => 'exemple.be', 'b' => bin2hex((string) inet_pton('192.0.2.0')), 'p' => 40],
-                    ['v' => 'exemple.be', 'b' => bin2hex((string) inet_pton('198.51.100.0')), 'p' => 24],
+                    ['v' => 0, 'b' => bin2hex((string) inet_pton('192.0.2.0')), 'p' => 40],
+                    // An attribution that is not an index at all.
+                    ['v' => 'exemple.be', 'b' => bin2hex((string) inet_pton('10.0.0.0')), 'p' => 8],
+                    ['v' => 0, 'b' => bin2hex((string) inet_pton('198.51.100.0')), 'p' => 24],
                 ],
             ])
         );
@@ -564,6 +639,37 @@ class SpfCoverageTest extends TestCase
         $this->assertSame('exemple.be', $coverage->viaFor('198.51.100.7', $now));
         $this->assertNull($coverage->viaFor('203.0.113.7', $now));
         $this->assertNull($coverage->viaFor('192.0.2.7', $now));
+        $this->assertNull($coverage->viaFor('10.0.0.1', $now));
+    }
+
+    /**
+     * **The stored reading names each attribution once.** Repeating it in
+     * every range is what let an encoded reading outgrow the `TEXT` column it
+     * lives in — 256 ranges under a 253-character `include:` target came to
+     * some 80 KB (review of #571). The assertion is on the stored bytes,
+     * because that is the thing that has to fit.
+     */
+    public function testTheStoredReadingNamesEachAttributionOnce(): void
+    {
+        $long = str_repeat('a', 60) . '.' . str_repeat('b', 60) . '.exemple.net';
+        $mechanisms = [];
+        for ($i = 0; $i < 100; $i++) {
+            $mechanisms[] = 'ip4:10.0.' . $i . '.0/24';
+        }
+
+        $this->coverage([
+            'exemple.be' => 'v=spf1 include:' . $long . ' -all',
+            $long => 'v=spf1 ' . implode(' ', $mechanisms) . ' -all',
+        ]);
+
+        $stored = (string) $this->settings->get(SpfCoverage::SETTING_KEY);
+
+        $this->assertSame(
+            1,
+            substr_count($stored, $long),
+            'the attribution is written once and referred to by index, never repeated per range.'
+        );
+        $this->assertLessThan(65535, strlen($stored), 'the reading has to fit in a TEXT column.');
     }
 
     public function testAnUnknownPartialReasonIsNotCarriedOntoThePage(): void

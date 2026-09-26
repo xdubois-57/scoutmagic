@@ -4670,10 +4670,19 @@ the warning's count, because « je l'ai mis dans le SPF il y a trois ans » is
 the commonest way a forgotten tool got there. Three of its bounds are
 borrowed rather than chosen: ten lookups, the number RFC 7208 §4.6.4 gives
 receivers, past which a real receiver abandons the chain too; 256 ranges,
-what the setting's `TEXT` column carries without truncating into an
-unreadable blob; thirty days before the reading stops naming anybody, since
-a provider's published ranges are the one input here that moves without
-anybody at the unit touching it. `a`, `mx`, `exists:`, `ptr` and any
+a COUNT whose stored size is bounded separately — each attribution is
+written once and referred to by index, so at most `MAX_LOOKUPS + 1` names
+of 253 characters plus 256 hex addresses, under 12 KB in the setting's
+`TEXT` column (the first version repeated the name per range and could
+reach 80 KB, which review of #571 caught); thirty days before the reading
+stops naming anybody, since a provider's published ranges are the one input
+here that moves without anybody at the unit touching it. **A `redirect=` is
+ignored when the record carries an `all`**, as RFC 7208 §6.1 requires, so
+the page cannot name a target no receiver read; a host in the chain that
+does not answer marks the reading incomplete rather than passing for a
+record that publishes nothing; and a reading taken for a domain the site no
+longer sends from places nothing at all, which is asked on the read side so
+that a restore or an edit made anywhere else is covered too. `a`, `mx`, `exists:`, `ptr` and any
 mechanism carrying a `-`, `~` or `?` qualifier are deliberately not read —
 `-ip4:` names a range the record REFUSES — each leaving its addresses
 **unplaced** rather than misplaced. Unlike a relay hostname, an `include:`

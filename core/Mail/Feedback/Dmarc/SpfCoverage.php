@@ -96,11 +96,20 @@ class SpfCoverage
      * How many ranges one reading may keep.
      *
      * The reading goes into `settings.setting_value`, a MySQL `TEXT` —
-     * 65 535 bytes, and a truncated JSON blob is an unreadable reading
-     * rather than a short one. At 256 ranges the encoded form is around
-     * 20 KB at its worst, which leaves the column room to spare. For scale,
-     * the published chains of Google, Microsoft and Mailgun together are
-     * well under a hundred.
+     * 65 535 bytes — and a truncated JSON blob is an unreadable reading
+     * rather than a short one. For scale, the published chains of Google,
+     * Microsoft and Mailgun together are well under a hundred ranges.
+     *
+     * **This is a count, and the size is bounded separately** — by writing
+     * each `via` once and referring to it by index. Review of #571 was right
+     * that the first version's arithmetic did not hold: it repeated the
+     * attribution string in every range, so 256 ranges under a 253-character
+     * `include:` target came to some 80 KB, over the column. With the index
+     * the bound is provable rather than hoped for: there are at most
+     * `MAX_LOOKUPS + 1` distinct attributions (the unit's own domain, plus
+     * one per top-level `include:`, each of which costs a lookup), so at most
+     * 11 × 253 bytes of names, and 256 ranges of a 32-character hex address
+     * and a small integer. Under 12 KB at its worst.
      */
     public const MAX_RANGES = 256;
 
@@ -121,9 +130,14 @@ class SpfCoverage
      */
     public const MAX_AGE_DAYS = 30;
 
-    /** Why a reading is incomplete. The two are different operator actions. */
+    /**
+     * Why a reading is incomplete. Three, because they are three different
+     * things for the operator to do: shorten the record, accept that we keep
+     * fewer ranges than it publishes, or try again later.
+     */
     public const PARTIAL_LOOKUPS = 'lookups';
     public const PARTIAL_RANGES = 'ranges';
+    public const PARTIAL_UNREADABLE = 'unreadable';
 
     /**
      * @param list<array{via: string, bytes: string, prefix: int}> $ranges
@@ -173,8 +187,10 @@ class SpfCoverage
         return new self(
             $takenAt,
             (string) ($decoded['domain'] ?? ''),
-            in_array($partial, [self::PARTIAL_LOOKUPS, self::PARTIAL_RANGES], true) ? $partial : null,
-            self::decodeRanges($decoded['ranges'] ?? null)
+            in_array($partial, [self::PARTIAL_LOOKUPS, self::PARTIAL_RANGES, self::PARTIAL_UNREADABLE], true)
+                ? $partial
+                : null,
+            self::decodeRanges($decoded['ranges'] ?? null, $decoded['vias'] ?? null)
         );
     }
 
@@ -197,6 +213,23 @@ class SpfCoverage
 
         $walk = $domain === '' ? ['ranges' => [], 'partial' => null] : self::walk($domain, $txt);
 
+        // **Each attribution written once, and referred to by index.**
+        // Repeating it per range is what made the encoded reading able to
+        // outgrow the `TEXT` column (see `MAX_RANGES`); there are at most a
+        // dozen distinct ones, so an index bounds the blob by arithmetic
+        // instead of by hope.
+        $vias = [];
+        $rows = [];
+        foreach ($walk['ranges'] as $range) {
+            $index = array_search($range['via'], $vias, true);
+            if ($index === false) {
+                $index = count($vias);
+                $vias[] = $range['via'];
+            }
+
+            $rows[] = ['v' => $index, 'b' => bin2hex($range['bytes']), 'p' => $range['prefix']];
+        }
+
         $encoded = json_encode([
             'at' => $takenAt->format('Y-m-d H:i:s'),
             // Stored rather than passed in again: the page then needs
@@ -205,14 +238,8 @@ class SpfCoverage
             // somebody edits the sending domain.
             'domain' => $domain,
             'partial' => $walk['partial'],
-            'ranges' => array_map(
-                static fn(array $range): array => [
-                    'v' => $range['via'],
-                    'b' => bin2hex($range['bytes']),
-                    'p' => $range['prefix'],
-                ],
-                $walk['ranges']
-            ),
+            'vias' => $vias,
+            'ranges' => $rows,
         ]);
 
         // `setInternal()` because this is written by an action and never by
@@ -259,6 +286,28 @@ class SpfCoverage
     public function isOwnDomain(string $via): bool
     {
         return $this->domain !== '' && strcasecmp($via, $this->domain) === 0;
+    }
+
+    /**
+     * Is this reading about the domain the site sends from **today**?
+     *
+     * **A reading outlives the address it was taken for** (found in review on
+     * #571). Changing the sending address changes the domain the site signs
+     * for, and the stored ranges then belong to the old one: for up to
+     * `MAX_AGE_DAYS` the page would go on calling them « déclarée dans votre
+     * SPF », and {@see self::isOwnDomain()} — which compares against the
+     * STORED domain — would call a range « directement dans votre
+     * enregistrement » for a domain that is no longer the unit's.
+     *
+     * Asked on the read side rather than cleared when the address is saved,
+     * and deliberately: a reading can also be left behind by a restore or by
+     * an edit made anywhere else, and one question asked where the answer is
+     * used covers every one of those. The reading is left in place — it costs
+     * nothing and the next check overwrites it.
+     */
+    public function isFor(string $domain): bool
+    {
+        return $this->domain !== '' && strcasecmp($this->domain, trim($domain)) === 0;
     }
 
     /** Whether a reading has ever been taken. */
@@ -318,13 +367,41 @@ class SpfCoverage
 
         while ($queue !== []) {
             $current = array_shift($queue);
-            $record = self::recordOf($current['host'], $txt);
+            $texts = self::txtOf($current['host'], $txt);
+
+            // **« Nothing published » and « nobody answered » are opposite
+            // readings, and this used to collapse them** (found in review on
+            // #571). A resolver that fails midway left the chain short while
+            // the stored reading looked complete: sources that ARE covered
+            // then read as « Autre » — the safe side — but with nothing on
+            // screen to say the reading was partial, which is the failure
+            // `DnsRecordReader` names a skipped type to avoid.
+            if ($texts === null) {
+                $partial ??= self::PARTIAL_UNREADABLE;
+                continue;
+            }
+
+            $record = self::recordIn($texts);
             if ($record === null) {
                 continue;
             }
 
+            // **`all` makes `redirect=` dead text** (RFC 7208 §6.1: « if the
+            // SPF record contains an `all` mechanism, the `redirect` modifier
+            // MUST be ignored », whatever the order of the terms). Following
+            // it anyway would name a target that supplied no part of the
+            // record's verdict — « déclarée dans votre SPF, via X » for an X
+            // no receiver ever read. `include:` is unaffected: it is a
+            // mechanism, evaluated in place, and `all` only ends the list
+            // after it.
+            $redirectIsDeadText = self::hasAll($record);
+
             foreach (self::mechanisms($record) as $mechanism) {
                 [$name, $value] = $mechanism;
+
+                if ($name === 'redirect' && $redirectIsDeadText) {
+                    continue;
+                }
 
                 if ($name === 'ip4' || $name === 'ip6') {
                     $range = self::parseRange($name, $value);
@@ -389,7 +466,7 @@ class SpfCoverage
     }
 
     /**
-     * The `v=spf1` record published at this host, or null.
+     * The `v=spf1` record among a host's TXT records, or null.
      *
      * **`str_starts_with`, case-sensitive — the same test
      * {@see \Core\Mail\DnsVerifier::checkSpfForHosts()} applies**, so the
@@ -398,10 +475,12 @@ class SpfCoverage
      * case-insensitive and neither reader is; a record spelled `V=spf1`
      * would be honoured by receivers and read by neither of these. Recorded
      * separately rather than fixed in one of the two places.
+     *
+     * @param list<string> $texts
      */
-    private static function recordOf(string $host, ?\Closure $txt): ?string
+    private static function recordIn(array $texts): ?string
     {
-        foreach (self::txtOf($host, $txt) as $record) {
+        foreach ($texts as $record) {
             if (str_starts_with($record, 'v=spf1')) {
                 return $record;
             }
@@ -411,9 +490,38 @@ class SpfCoverage
     }
 
     /**
-     * @return list<string>
+     * Whether a record carries an `all` mechanism, qualifier or not.
+     *
+     * Read off the raw record rather than through {@see self::mechanisms()},
+     * which only yields terms carrying a value: `all` has neither `:` nor
+     * `=`, so it never appears there.
      */
-    private static function txtOf(string $host, ?\Closure $txt): array
+    private static function hasAll(string $record): bool
+    {
+        foreach (preg_split('/\s+/', trim($record)) ?: [] as $token) {
+            if ($token !== '' && in_array($token[0], ['+', '-', '~', '?'], true)) {
+                $token = substr($token, 1);
+            }
+
+            if (strcasecmp($token, 'all') === 0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * One host's TXT records, or **null when the resolver could not be
+     * asked** — which is not the same answer as « this host publishes
+     * nothing », and the caller acts on the difference.
+     *
+     * The injected closure may return null for the same reason, so a test
+     * can stand in for a resolver that is down as well as for a zone.
+     *
+     * @return ?list<string>
+     */
+    private static function txtOf(string $host, ?\Closure $txt): ?array
     {
         if ($txt !== null) {
             return ($txt)($host);
@@ -421,10 +529,11 @@ class SpfCoverage
 
         // Silenced for `DnsVerifier::getTxtRecords()`'s reason: PHP warns
         // for NXDOMAIN and for a resolver that did not answer, and neither
-        // is a fault of this installation. Both are « rien à placer » here.
+        // is a fault of this installation. The two are told apart below
+        // rather than here.
         $records = @dns_get_record($host, DNS_TXT);
         if ($records === false) {
-            return [];
+            return null;
         }
 
         $texts = [];
@@ -587,8 +696,15 @@ class SpfCoverage
      *
      * @return list<array{via: string, bytes: string, prefix: int}>
      */
-    private static function decodeRanges(mixed $stored): array
+    private static function decodeRanges(mixed $stored, mixed $storedVias): array
     {
+        $vias = [];
+        foreach (is_array($storedVias) ? $storedVias : [] as $via) {
+            if (is_string($via) && $via !== '') {
+                $vias[] = $via;
+            }
+        }
+
         $ranges = [];
 
         foreach (is_array($stored) ? $stored : [] as $row) {
@@ -596,7 +712,11 @@ class SpfCoverage
                 continue;
             }
 
-            $via = isset($row['v']) && is_string($row['v']) ? $row['v'] : '';
+            // The index into the names above. A row pointing outside it is a
+            // row this reader cannot attribute, which is dropped like any
+            // other it cannot use — never attributed to whatever happens to
+            // sit at index zero.
+            $via = isset($row['v']) && is_int($row['v']) ? ($vias[$row['v']] ?? '') : '';
             $hex = isset($row['b']) && is_string($row['b']) ? $row['b'] : '';
             $prefix = isset($row['p']) ? (int) $row['p'] : -1;
             $bytes = $hex === '' ? false : @hex2bin($hex);
