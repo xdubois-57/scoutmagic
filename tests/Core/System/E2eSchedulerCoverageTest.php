@@ -207,6 +207,9 @@ class E2eSchedulerCoverageTest extends TestCase
     {
         $dir = sys_get_temp_dir() . '/scoutmagic-e2e-cov-' . bin2hex(random_bytes(6));
         mkdir($dir . '/public', 0o777, true);
+        // Canonical, as the paths a coverage driver records are: on macOS
+        // the temporary directory lives behind the /var → /private/var link.
+        $dir = (string) realpath($dir);
 
         register_shutdown_function(static function () use ($dir): void {
             @rmdir($dir . '/public');
