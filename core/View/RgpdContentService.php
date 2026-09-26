@@ -1174,12 +1174,14 @@ paragraphe « Rattachement d'un domaine à son fournisseur de messagerie » : po
 personnel chez son vrai fournisseur, le site lit une fois par jour, en tâche de fond et jamais au moment d'un envoi,
 les **enregistrements MX** publics des domaines auxquels il envoie un publipostage et de ceux des boîtes témoins ;
 **seul le nom de domaine est interrogé, jamais l'adresse**, il ne conserve que le rapprochement
-domaine → fournisseur sans aucune adresse, le domaine y étant **chiffré au repos**, et cette lecture passe par le résolveur DNS de l'hébergeur : elle
+domaine → fournisseur sans aucune adresse, le domaine y étant **chiffré au repos**, et cette lecture passe par
+le résolveur DNS de l'hébergeur : elle
 n'introduit **aucun nouveau sous-traitant**. Conserve aussi, en section
 3.1, la puce « Résultats des boîtes témoins » : deux jours avant qu'une copie introuvable soit déclarée jamais
 arrivée, puis quatre-vingt-dix jours pour le constat qui en reste ; et la puce « Domaines destinataires rattachés à
 un fournisseur de messagerie » : relu au plus tard tous les sept jours, oublié cent quatre-vingts jours après le
-dernier message vers ce domaine (publipostage ou copie vers une boîte témoin). Une durée de conservation retirée de cette section
+dernier message vers ce domaine (publipostage ou copie vers une boîte témoin). Une durée de conservation retirée
+de cette section
 est une durée que plus personne ne peut vérifier.
 
 Rappel final — instructions de l'administrateur à intégrer intégralement, point par point (voir règle 18) :
