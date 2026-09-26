@@ -1071,8 +1071,21 @@ fixed, except those that are *all three at once* — software quality
 a *list* of impacts and is exempt only when every one of them qualifies; an
 issue with no impacts at all is not exempt.
 
+**The deprecated browser API gate** (`scripts/check-deprecated-api.php`) is
+the odd one out here: it is the only gate that does **not** fail closed. It
+asks whether any engine has removed `document.execCommand`, which six files
+under `public/assets/js/` are built on (issue #379), by reading MDN's
+`browser-compat-data` — the machine-readable form of what caniuse.com shows.
+An unreachable or restructured source is reported as « non vérifié
+automatiquement » in the release notes rather than blocking, because the
+question is about a removal that has happened nowhere yet; a removal found
+in the data blocks. The blocking half of that pair lives in the browser
+suite, where `rich-text-commands.spec.js` exercises all twelve commands in a
+real Chromium — see § The layers, and what each is for.
+
 **Bypass flags** (`--skip-deployment-check`, `--skip-ci-gate`,
-`--skip-security-gate`, `--skip-dependency-check`, `--skip-sonar-gate`)
+`--skip-security-gate`, `--skip-dependency-check`,
+`--skip-deprecated-api-gate`, `--skip-sonar-gate`)
 exist for genuine emergencies. Each prints a warning naming exactly what
 was not checked. Using one to route around a real finding is how a release
 ships a known defect — and `--skip-ci-gate` is the widest of them by far,
@@ -1767,6 +1780,23 @@ nothing**:
   failing under a mutation of `public/sw.js`. What the entry above says
   remains the lesson: the two layers were each right about themselves, and
   the gap lived in what neither could name.
+
+- **The deprecated browser API gate passes when it has not run, by
+  design.** `scripts/check-deprecated-api.php` asks whether an engine has
+  removed `document.execCommand`; an unreachable source or an upstream
+  schema that moved makes it exit 0, so the release proceeds. That is the
+  intended behaviour and it is argued in `AGENTS.md` § Deprecated browser
+  API release gate — it warns about a removal that has happened nowhere
+  yet, and a 502 is not a reason to refuse a release. It belongs on this
+  list all the same, because the failure mode is the one this section is
+  about: nothing distinguishes "no engine has removed it" from "nobody
+  looked" except the report line, so **the report line is the mechanism**.
+  It reads « non vérifié automatiquement (…) — à vérifier à la main sur
+  caniuse.com » and lands in the release notes, where a reader sees it. A
+  release whose notes say that has not had this check. What makes the
+  arrangement safe is that the *blocking* half is somewhere else entirely:
+  `rich-text-commands.spec.js` in the browser suite, which cannot be green
+  without having run the twelve commands.
 
 The habit that catches these is cheap: ask what a green result would look
 like if the thing had not run at all. When the answer is "the same", the

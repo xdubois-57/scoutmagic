@@ -7,7 +7,7 @@ namespace Tests\Core\System;
 use PHPUnit\Framework\TestCase;
 
 /**
- * `scripts/release.sh` runs five gates, and adding one means touching six
+ * `scripts/release.sh` runs six gates, and adding one means touching six
  * places that no compiler connects: the skip flag's variable, its
  * argument case, its documentation in the header, the `run_gate` call,
  * the line that reads the gate's report file, and the assembled Markdown
@@ -54,16 +54,20 @@ class ReleaseGatesTest extends TestCase
     }
 
     /**
-     * The five, by key and in order. Written out rather than counted:
+     * The six, by key and in order. Written out rather than counted:
      * the order is the documented one (a precondition about production,
      * then the verdict on the code, then what ships), and a gate silently
      * dropped from the sequence is exactly what this file exists to
      * catch.
+     *
+     * `deprecated_api` sits beside `dependency` because it asks the same
+     * kind of question — has the ground moved under us upstream — rather
+     * than anything about this commit. It was added for issue #379.
      */
-    public function testTheFiveGatesRunInTheDocumentedOrder(): void
+    public function testTheSixGatesRunInTheDocumentedOrder(): void
     {
         $this->assertSame(
-            ['deployment', 'ci', 'security', 'dependency', 'sonar'],
+            ['deployment', 'ci', 'security', 'dependency', 'deprecated_api', 'sonar'],
             self::launchedKeys()
         );
     }

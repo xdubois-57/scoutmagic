@@ -583,11 +583,20 @@ decided it does not need one.
    which is still open is the backlog lying about itself; one closed with
    nothing written on it is the backlog being rude.
 
-   **And delete `claude/issue-<n>`.** Nothing here deletes a head branch on
-   merge — this repository carries hundreds of them — so the claim would
-   outlive the work it stood for, and a ticket reopened later would answer
-   « Reference already exists » to every agent for ever, reported at step 8
-   as held by somebody who finished months ago.
+   **And delete `claude/issue-<n>`.** GitHub deletes the head branch on
+   merge on its own since 2026-09-26, so for a pull request that merged this
+   is usually a no-op — deleting a branch that is already gone costs
+   nothing and needs no special case.
+
+   It stays because that setting only ever covers a MERGE, and a claim can
+   end three other ways: a pull request closed without merging, a ticket
+   given up at step 4, and a claim taken before any pull request existed at
+   all. Nothing deletes the branch in those, and they are exactly the cases
+   the rules below already tell you to handle by hand. What a surviving ref
+   costs is unchanged either way: the claim outlives the work it stood for,
+   and a ticket reopened later answers « Reference already exists » to every
+   agent for ever, reported at step 8 as held by somebody who finished
+   months ago.
 
 8. **Back to step 1.** When no accepted issue is left that you can take,
    **stop and report**: what you delivered, which tickets you skipped as
@@ -831,7 +840,7 @@ When the user asks to release a new version (`scripts/release.sh`), do this **in
    - open CodeQL scanning findings (`gh api "repos/{owner}/{repo}/code-scanning/alerts" --paginate --jq '.[] | select(.state == "open")'`)
    - open Dependabot alerts (`gh api "repos/{owner}/{repo}/dependabot/alerts" --paginate --jq '.[] | select(.state == "open")'`)
    - active SonarQube Cloud findings for `main` — **every** unresolved issue, plus unreviewed Security Hotspots. The one exemption is a pure convention nit: see § SonarQube Cloud release gate below for the exact rule (project `xdubois-57_scoutmagic`, https://sonarcloud.io/project/overview?id=xdubois-57_scoutmagic)
-2. Only after all of them are resolved, run the release script. Its five gates — **deployment** (www.scoutmagic.be is on the previous release and responds normally — via the public `GET /api/version`, `Core\Http\Controller\VersionController`), **continuous integration** (see below), **security** (`composer audit` + `npm audit` — always mandatory and blocking, queried directly against public advisory databases, no GitHub permission of any kind involved — plus the CodeQL/Dependabot query described above; see § A gate that cannot be verified from the current environment below for what happens when that query alone hits a permission gap), **dependency freshness** (`composer outdated --direct` + every vendored front-end library — Bootstrap, Bootstrap Icons, Chart.js, Leaflet, html5-qrcode — each vs. its latest upstream GitHub release), and **SonarQube Cloud** (`scripts/check-sonar-release.sh` — see below) — run in that order, in seconds, and are the final checks rather than the fix: the first one that finds a problem aborts the script before any commit or tag exists. Do not bypass or disable any gate to make a release "pass" — `--skip-deployment-check`, `--skip-ci-gate`, `--skip-security-gate`, `--skip-dependency-check` and `--skip-sonar-gate` (see below) exist only for genuine emergencies, not to route around a real finding, a real test failure, a real outdated dependency, or a real production problem.
+2. Only after all of them are resolved, run the release script. Its six gates — **deployment** (www.scoutmagic.be is on the previous release and responds normally — via the public `GET /api/version`, `Core\Http\Controller\VersionController`), **continuous integration** (see below), **security** (`composer audit` + `npm audit` — always mandatory and blocking, queried directly against public advisory databases, no GitHub permission of any kind involved — plus the CodeQL/Dependabot query described above; see § A gate that cannot be verified from the current environment below for what happens when that query alone hits a permission gap), **dependency freshness** (`composer outdated --direct` + every vendored front-end library — Bootstrap, Bootstrap Icons, Chart.js, Leaflet, html5-qrcode — each vs. its latest upstream GitHub release), **deprecated browser API** (`scripts/check-deprecated-api.php` — has any engine removed `document.execCommand`, which the rich-text editors are built on; see below), and **SonarQube Cloud** (`scripts/check-sonar-release.sh` — see below) — run in that order, in seconds, and are the final checks rather than the fix: the first one that finds a problem aborts the script before any commit or tag exists. Do not bypass or disable any gate to make a release "pass" — `--skip-deployment-check`, `--skip-ci-gate`, `--skip-security-gate`, `--skip-dependency-check`, `--skip-deprecated-api-gate` and `--skip-sonar-gate` (see below) exist only for genuine emergencies, not to route around a real finding, a real test failure, a real outdated dependency, or a real production problem.
 
 ### The tests are not among those gates, and that is deliberate
 
@@ -870,6 +879,16 @@ An exempt finding is still a finding. The exemption exists so that formatting an
 
 Fix upgrades/dependency alerts as code changes in the normal flow (with tests), not by blindly dismissing them — but for alerts with demonstrably no fix or clear false positives, dismissing with a justification is acceptable so the gate can pass.
 
+### Deprecated browser API release gate
+
+`scripts/check-deprecated-api.php` (invoked automatically by `release.sh` unless `--skip-deprecated-api-gate` is passed) answers one question: has any browser engine **removed** `document.execCommand`? Six files under `public/assets/js/` are built on it — the shared rich-text toolbar, the mass-mail token and chip insertions, the news form builder's own toolbar, and two clipboard fallbacks — and it is deprecated with no standard replacement (issue #379). It reads MDN's published `browser-compat-data`, which is the machine-readable form of what https://caniuse.com/document-execcommand renders.
+
+**It is the one gate here that does not fail closed, and that is deliberate.** A network error or a moved upstream schema is reported as « non vérifié automatiquement — à vérifier à la main », in the release notes, with the page to read; it does not refuse the release. Every other gate answers a question about *this* release; this one answers a question about a removal that has happened nowhere yet, and blocking a release because `raw.githubusercontent.com` returned a 502 would buy nothing. A removal actually **found** in the data does block.
+
+What makes that safe is the second layer, which is blocking: `tests/e2e/specs/rich-text-commands.spec.js` exercises all twelve commands in a real Chromium and fails if any stops producing markup, so a removal that has actually shipped is caught by the `ci` gate above. The two are complementary and neither replaces the other — the spec is exact but knows one engine and only after the fact; the gate is an early warning and the only thing here that can speak about Firefox or Safari at all. `tests/Architecture/DeprecatedBrowserApiIsWatchedTest.php` is what keeps the spec's list of commands and the count of call sites above honest: it reads them out of the product and fails until the alarm covers each one.
+
+Test the gate's own logic with `vendor/bin/phpunit tests/Core/System/DeprecatedApiCheckTest.php` (pure, no network) rather than against the live document. The shape of that document is the whole difficulty — a per-engine entry is an object, *or* a newest-first list of them, *or* the string `"mirror"`, and a `version_removed` anywhere but the first entry is history rather than a removal. Reading it indiscriminately reports Firefox as having dropped the API in version 69, on data that says the opposite; there is a regression test for exactly that.
+
 ### Release notes — mandatory when releasing from Claude
 
 `scripts/release.sh` accepts `--notes-file <path>`. Every time a release is started from Claude, you **must** write a release-notes file and pass it via `--notes-file` — never rely on the auto-generated commit-list notes (the default when the flag is omitted, intended for manual/human-triggered releases only). Write the file to a temp path (e.g. `mktemp`) since the notes are multi-line Markdown; do not attempt to pass this inline.
@@ -893,6 +912,7 @@ The script appends two more things after the note and the "Vérifications effect
 - `--skip-security-gate`: skips composer audit, npm audit, AND the CodeQL/Dependabot check — all of it. Only use this if the user explicitly asks for an urgent release despite a real, known finding in one of these; the script prints a warning, and you must tell the user the same and follow up to resolve them right after. This is **not** what a CodeQL/Dependabot permission gap needs — see the next section, `check_security_gate` already turns that specific case into a non-blocking warning on its own, while composer audit/npm audit still run and still block for real.
 - `--skip-ci-gate`: skips the check that `All checks` is green on the commit being released — which is to say, every test and scan this project has. **This is the widest bypass in the list**: nothing else in the script looks at the code at all, so a release cut with it has been tested by nobody at the moment it is tagged. Only use this if the user explicitly asks, knowing that; the script prints a warning, and you must tell the user the same. Note what happens next either way: the tag's own Release workflow runs every gate again and creates no draft if one is red, so the release will simply refuse to publish rather than ship untested — which is why reaching for this flag to get past a red test wastes an hour and fixes nothing.
 - `--skip-dependency-check`: skips the dependency freshness gate (outdated direct Composer packages, outdated vendored front-end libraries — Bootstrap, Bootstrap Icons, Chart.js, Leaflet, html5-qrcode). Only use this if the user explicitly asks for an urgent release despite outdated dependencies; the script prints a warning, and you must tell the user the same and follow up to update them right after.
+- `--skip-deprecated-api-gate`: skips the deprecated browser API check. Rarely the right flag: that gate already reports « non vérifié » instead of blocking when it cannot read the compatibility data, so the only thing this flag suppresses is a removal it actually found — which is a broken editor, not an inconvenience. Use it only if the user asks for an urgent release knowing that, and follow up.
 - `--skip-sonar-gate`: skips the SonarQube Cloud check (every unresolved finding bar the pure convention nits exempted above, unreviewed Security Hotspots, the Quality Gate). Only use this if the user explicitly asks for an urgent release despite open findings or an unavailable/unconfirmed SonarQube Cloud result; the script prints a warning, and you must tell the user the same and follow up to resolve them right after.
 
 ### A gate that cannot be verified from the current environment
