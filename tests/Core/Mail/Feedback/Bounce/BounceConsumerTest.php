@@ -596,7 +596,51 @@ class BounceConsumerTest extends TestCase
         $this->assertSame('5.1.1', $probe->bounce->statusCode);
     }
 
-    private function candidateFrom(string $bodyText): CandidateMessage
+    /**
+     * **The refusal is dated by this site, never by the server that sent
+     * it** (found in review on #562).
+     *
+     * `$message->sentAt` is the far end's own `Date:` header with whatever
+     * UTC offset it carried, and `recordBounce()` writes a naive `DATETIME`
+     * on a clock `AppClock` pins to `Europe/Brussels`. So the header below —
+     * years in the past, in a distant offset, which is what a
+     * badly-configured or hostile MTA sends — used to become the probe's
+     * bounce date, and the send/refusal interval the page shows became
+     * nonsense. First-write-wins meant it could never be corrected either.
+     *
+     * The assertion is a window rather than an equality, because the value
+     * is « now »: what it pins is that the stored instant came from the
+     * clock this test runs on and not from the message.
+     */
+    public function testTheBounceIsDatedByThisSiteAndNotByTheServerThatSentIt(): void
+    {
+        $id = $this->probeSent('SM-7K2XPQ');
+        $before = new \DateTimeImmutable();
+
+        $this->consumer->analyze($this->candidateFrom(
+            self::bounceQuoting(MailProbeSender::subjectFor('SM-7K2XPQ')),
+            new \DateTimeImmutable('2020-01-01 00:00:00', new \DateTimeZone('-0700'))
+        ));
+
+        $probe = $this->probes->find($id);
+        $this->assertNotNull($probe?->bounce);
+        $this->assertGreaterThanOrEqual(
+            $before->format('Y-m-d H:i:s'),
+            $probe->bounce->at->format('Y-m-d H:i:s'),
+            'the refusal is dated from reception, so it cannot precede the moment this test began'
+        );
+        $this->assertLessThanOrEqual(
+            (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+            $probe->bounce->at->format('Y-m-d H:i:s')
+        );
+        $this->assertStringNotContainsString(
+            '2020',
+            $probe->bounce->at->format('Y-m-d H:i:s'),
+            'the far end\'s own Date: header must not be what the page shows'
+        );
+    }
+
+    private function candidateFrom(string $bodyText, ?\DateTimeImmutable $sentAt = null): CandidateMessage
     {
         return new CandidateMessage(
             mailboxId: 1,
@@ -607,7 +651,11 @@ class BounceConsumerTest extends TestCase
             inReplyTo: null,
             references: [],
             toEmails: ['info@unite.be'],
-            sentAt: new \DateTimeImmutable('2026-09-15 08:00:00'),
+            // What `MimeMessageParser::parseDate()` made of the far end's
+            // own `Date:` header — its offset included, since nothing
+            // normalises it. Overridable so a test can hand over the header
+            // a hostile or badly-configured server would send.
+            sentAt: $sentAt ?? new \DateTimeImmutable('2026-09-15 08:00:00'),
             bodyText: $bodyText,
             bodyHtml: ''
         );

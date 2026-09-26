@@ -75,6 +75,20 @@ final class BounceConsumer implements MessageConsumerInterface
 
     public function analyze(CandidateMessage $message): AnalysisResult
     {
+        // **One instant for the whole message.** Both writes below date the
+        // same event — an address refused us, once.
+        //
+        // Passing it to `record()` is **not a defence**, and saying so is
+        // the point: that method defaults to « now » itself, so removing
+        // the argument changes nothing any test can see, and mutation says
+        // as much. It is here so that one instant reads as one instant
+        // rather than as two calls that happen to agree — which is what
+        // the bug found in review on #562 looked like from the outside,
+        // right up to the moment the two clocks turned out to be genuinely
+        // different. `traceToProbe()` below is where the argument carries
+        // its weight, and it has a test.
+        $now = new \DateTimeImmutable();
+
         $accepted = [];
         foreach (DeliveryStatusReport::parseAll($message->bodyText) as $report) {
             // **The return value is the anti-forgery verdict, not a
@@ -84,12 +98,12 @@ final class BounceConsumer implements MessageConsumerInterface
             // sent ». Anything built on a refused report is built on that
             // word. Throwing the verdict away is what made the tracing below
             // forgeable (found in review on #562).
-            if ($this->bounces->record($report) !== null) {
+            if ($this->bounces->record($report, $now) !== null) {
                 $accepted[] = $report;
             }
         }
 
-        $this->traceToProbe($message, $accepted);
+        $this->traceToProbe($message, $accepted, $now);
 
         return AnalysisResult::nothing();
     }
@@ -126,10 +140,32 @@ final class BounceConsumer implements MessageConsumerInterface
      * forgery: a digest bounce carrying two messages passes the gate for both,
      * and only one of them can be the probe.
      *
+     * **The date is OURS, never the bouncing server's.**
+     * `$message->sentAt` is `MimeMessageParser::parseDate()` on the far
+     * end's own `Date:` header, kept with whatever UTC offset it carried —
+     * and `recordBounce()` writes a naive `DATETIME`, a column
+     * {@see \Core\Config\AppClock} pins to `Europe/Brussels` like every
+     * other one here. `mail_probes.sent_at` is stamped from this site's
+     * clock, so the two would sit on different ones: a probe sent at 23:00
+     * Brussels and refused two seconds later by a server writing
+     * `Date: … 14:00:07 -0700` would read as refused nine hours BEFORE it
+     * left. That destroys the one thing the pair is shown for — the
+     * interval between the send and the refusal — and `recordBounce()` is
+     * first-write-wins, so the skew could never be corrected afterwards.
+     * A hostile header is the same hole with a worse number in it.
+     *
+     * Reception time is not the instant the far end refused, and that is
+     * the honest cost: it is later by however long the mailbox went
+     * unpolled. But it is later by minutes on the same clock, where the
+     * header is wrong by hours on another — and `BounceService::record()`
+     * above has always used reception time, so this is also the two halves
+     * of one event finally agreeing. The far end's claimed time is dropped,
+     * like its diagnostic text and for a related reason: it is its word.
+     *
      * @param list<DeliveryStatusReport> $reports the ones `BounceService`
      *                                            accepted, never the parsed ones
      */
-    private function traceToProbe(CandidateMessage $message, array $reports): void
+    private function traceToProbe(CandidateMessage $message, array $reports, \DateTimeImmutable $now): void
     {
         if ($reports === []) {
             return;
@@ -166,7 +202,7 @@ final class BounceConsumer implements MessageConsumerInterface
                 continue;
             }
 
-            $this->probes->recordBounce($probe->id, $report->category, $report->statusCode, $message->sentAt);
+            $this->probes->recordBounce($probe->id, $report->category, $report->statusCode, $now);
 
             return;
         }
