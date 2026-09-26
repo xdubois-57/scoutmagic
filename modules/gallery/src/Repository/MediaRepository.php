@@ -32,6 +32,35 @@ class MediaRepository
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
+    /**
+     * The most recent processed photos of a set of albums, newest first,
+     * minus the ones already picked — the second half of the photo picker
+     * (Service\PhotoPickerService). Photos only: a video is a reel, with
+     * its own rules.
+     *
+     * @param int[] $albumIds
+     * @param int[] $excludedIds
+     * @return Media[]
+     */
+    public function findRecentPhotos(array $albumIds, array $excludedIds, int $limit): array
+    {
+        if ($albumIds === [] || $limit <= 0) {
+            return [];
+        }
+
+        $sql = 'SELECT * FROM gallery_media WHERE media_type = ? AND processing_status = ? AND album_id IN ('
+            . implode(',', array_fill(0, count($albumIds), '?')) . ')';
+        $params = array_merge([Media::TYPE_PHOTO, Media::STATUS_DONE], array_values($albumIds));
+        if ($excludedIds !== []) {
+            $sql .= ' AND id NOT IN (' . implode(',', array_fill(0, count($excludedIds), '?')) . ')';
+            $params = array_merge($params, array_values($excludedIds));
+        }
+        $stmt = $this->pdo->prepare($sql . ' ORDER BY created_at DESC, id DESC LIMIT ' . $limit);
+        $stmt->execute($params);
+
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
     public function countByAlbumId(int $albumId): int
     {
         $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM gallery_media WHERE album_id = ?');

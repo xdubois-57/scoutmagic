@@ -1,0 +1,63 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Partager « {{ source.title }} » — {{ site_name }}{% endblock %}
+
+{% block content %}
+{% include 'partials/page_header.html.twig' with { title: 'Partager « ' ~ source.title ~ ' »' } only %}
+
+<div class="row g-4">
+    <div class="col-12 col-lg-5">
+        {% if source.image %}
+            <p class="small text-body-secondary mb-2">Voici exactement l'image qui sera publiée.</p>
+            <img src="{{ self_path }}/apercu" alt="Carte qui sera publiée : {{ source.title }}"
+                 class="img-fluid rounded border" width="1080" height="1080" loading="lazy" data-card-preview>
+            {% if source.imageFromGallery %}
+                <p class="small text-body-secondary mt-2 mb-0">
+                    La photo de couverture est floutée : c'est systématique pour toute image venant de la galerie.
+                </p>
+            {% endif %}
+        {% else %}
+            <div class="alert alert-secondary">Pas d'image à publier.</div>
+        {% endif %}
+        {% if facebook_link %}
+            <p class="small text-body-secondary mt-2 mb-0">
+                Sur la Page Facebook, l'actualité part en lien, avec l'aperçu de sa page ; l'image ci-dessus va sur Instagram.
+            </p>
+        {% endif %}
+    </div>
+
+    <div class="col-12 col-lg-7">
+        {% if source.blockedReason %}
+            <div class="alert alert-warning">{{ source.blockedReason }}</div>
+        {% endif %}
+
+        <form method="post" action="{{ self_path }}">
+            {{ csrf_field()|raw }}
+
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'share-caption',
+                field_name: 'caption',
+                label: 'Légende',
+                type: 'textarea',
+                rows: 4,
+                value: source.defaultCaption,
+                maxlength: max_caption,
+            } only %}
+
+            {% include '@social/share/_destinations.html.twig' with { destinations: destinations } only %}
+
+            <div class="alert alert-warning small" data-publish-warning>
+                Une fois publié, c'est <strong>public</strong> et hors du site : ni vous ni ScoutMagic ne pourrez le reprendre.
+                Sur Instagram, l'adresse n'est pas cliquable — c'est pourquoi elle est écrite sur l'image.
+            </div>
+
+            <div class="d-flex flex-wrap gap-2 justify-content-end">
+                <a class="btn btn-outline-secondary" href="{{ source.backPath }}">Annuler</a>
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-share" aria-hidden="true"></i> Publier
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

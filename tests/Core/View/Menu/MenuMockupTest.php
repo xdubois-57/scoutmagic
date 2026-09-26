@@ -45,6 +45,7 @@ final class MenuMockupTest extends TestCase
         'Outils de test' => 'visible_when (test_tools) — test installations',
         'Documents' => 'module arrived after the mockup (documents, #508) — Notre unité and Espace chefs d\'U › Communication',
         'Réseaux sociaux' => 'module arrived after the mockup (social, #528) — Configuration › Réglages des modules',
+        'Communications' => 'module arrived after the mockup (social, #528) — Espace animateurs › Communication',
     ];
 
     /**

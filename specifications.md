@@ -182,6 +182,7 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 | Camps (module) | chief | Camp sites and the stays made there. Search over places (name, address, postal code, city); "À venir" and "Lieux" lists; a collapsed map of the places that have coordinates. A place sheet shows its stays, the rating of its most recent RATED stay (never an average), an optional AI summary, and — for a chef d'unité only — merge and archive. A stay carries its sections, price, participant count, contacts, links, documents, photos, a free-text note, a review and its own change history. A "Courrier des camps" screen lists what the module attached to a stay, what it proposes attaching, and — on a mailbox declared dedicated to camps — everything else that mailbox holds; a message that concerns no stay can be set aside from that list, reversibly, without being deleted and without escaping the retention. |
 | Envoi de mails (module) | chief | Mass email to selected members/sections across one or more scout years; a mail-merge mode sending one personalized email per row of an uploaded Excel file (see §24); when the Inscriptions module is also active, an extra predefined, non-editable "Inscriptions {année cible}" list is available (see §18.3) |
 | Rédiger les actualités (module news) | chief | Article list with each one's visibility, editor (rich text, mandatory summary and image, form builder, A4 poster with QR code, optional AI keywords/summary), responses and their payment state, Excel export and « Écrire aux répondants » — see §32. An article belongs to its author: only they and the Staff d'U may edit it |
+| Communications (module social) | chief | A free communication — an image from the gallery (always blurred) or uploaded, a title written on it, a text — published on the unit's Facebook Page and Instagram account, and « Ce qui est parti », every publication destination by destination with its retry — see §47.7. A communication belongs to its author: only they and the Staff d'U may change or publish it |
 | Rétrospectives (module) | intendant | Create/manage post-activity retrospective boards (§37) |
 | Gérer les photos (module gallery) | chief | Manage photo/video albums |
 | Départs de l'unité (module registration) | chief | Mark which of this year's animés won't be back next scout year, per section — see §18.1 |
@@ -3244,10 +3245,11 @@ membres ne voient jamais l'historique.
 ## 47. Réseaux sociaux (module social)
 
 Chantier « Partage vers Facebook et Instagram » (issue #528,
-`docs/chantiers/CHANTIER-partage-social.md`). Cette section décrit les deux
-premières itérations : le **connecteur** et **l'image publiée**. La
-publication depuis les actualités, les albums et l'écran Communications
-arrive avec les itérations suivantes.
+`docs/chantiers/CHANTIER-partage-social.md`). Cette section décrit les quatre
+premières itérations : le **connecteur**, **l'image publiée**, **le
+partage depuis un album ou une actualité** et **l'écran
+Communications**. Le groupe de discussion arrive avec la dernière
+itération.
 
 ### 47.1 Ce que le module relie
 
@@ -3303,9 +3305,8 @@ pas chaque nuit.
   messages d'erreur ou les traces : le journal dit quelle plateforme et
   quel évènement ; une erreur de Meta y garde son code et son message,
   débarrassés de tout ce qui ressemble à un jeton.
-- **Rien n'est publié** par cette itération. Les autres modules voient la
-  liste des comptes connectés et en état de marche — la question que
-  toute publication posera d'abord — et rien d'autre.
+- **Rien n'est publié de lui-même.** Chaque publication est décidée par un
+  animateur, sur la page de partage (§ 47.6), après avoir vu l'image.
 - **Meta est un destinataire au sens du RGPD.** Tant qu'un compte est
   raccordé, la page Protection des données générée par IA le décrit ;
   sans compte raccordé, elle n'en dit rien.
@@ -3327,3 +3328,104 @@ parce qu'Instagram ne publie pas de lien.
   une heure. Passé ce délai, l'adresse répond « introuvable » comme une
   adresse qui n'a jamais existé, et l'image est effacée dans la journée.
   Chaque téléchargement est inscrit au journal, sans l'adresse.
+
+### 47.6 Partager un album ou une actualité
+
+**Le bouton.** « Partager » apparaît sur la page de modification d'un
+album et dans l'éditeur d'une actualité, **seulement quand au moins un
+compte est connecté** et en état de marche. Il mène à une page de
+confirmation, `/partage/album/{id}` ou `/partage/actualite/{id}`.
+
+**Qui.** Un animateur (`chief`) ou plus, et seulement sur ce qu'il peut
+déjà modifier : un album qu'il gère, une actualité qu'il peut modifier.
+Pour tout autre album ou actualité, la page répond « introuvable ». Un
+album délégué (à un camp, par exemple) ou en cours de déplacement ne se
+partage pas.
+
+**La page de confirmation** montre, dans cet ordre :
+
+- **l'image exacte qui sera publiée** — pour un album, sa photo de
+  couverture floutée (§ 47.5) avec son titre et l'adresse du site ; pour
+  une actualité, son image, non floutée puisqu'elle est déjà publique ;
+- **la légende**, proposée d'avance et modifiable (2 200 caractères au
+  plus, la limite d'Instagram) : pour un album « Les photos de « titre »
+  sont en ligne ! À voir sur adresse », pour une actualité « titre — à lire sur
+  adresse » ;
+- **les destinations connectées, chacune avec son état** : disponible
+  (cochée) ; déjà publiée (cochée, grisée, avec sa date) ; en échec (la
+  raison donnée par Meta et une case « Je confirme : réessayer sur … ») ;
+  en cours ; indisponible, avec la raison — un album sans photo de
+  couverture ou une actualité sans image pour Instagram, une actualité
+  réservée aux animateurs ou aux administrateurs, un compte dont Meta
+  n'accepte plus l'autorisation, un site sans adresse ;
+- l'avertissement : « Une fois publié, c'est public et hors du site : ni
+  vous ni ScoutMagic ne pourrez le reprendre », et la raison pour laquelle
+  l'adresse est écrite sur l'image — elle n'est pas cliquable sur
+  Instagram ;
+- « Annuler », qui revient à l'album ou à l'actualité, et « Publier »,
+  avec son mot et son icône.
+
+**Ce qui part.** Un album part en publication d'image sur la Page et sur
+Instagram. Une actualité part **en lien** sur la Page — Facebook en
+affiche l'aperçu à partir de la page de l'actualité — et en image sur
+Instagram, qui n'accepte jamais de lien. Seule une actualité publique,
+en lien direct ou réservée aux membres identifiés peut quitter le site :
+ce sont les visibilités dont l'image est déjà un fichier public.
+
+**Une seule fois par destination.** Le serveur refuse une deuxième
+publication du même album ou de la même actualité au même endroit, même
+si la page est renvoyée deux fois. Une destination en échec se retente
+seulement si la case de confirmation est cochée, et les destinations déjà
+publiées ne sont pas touchées. Après « Publier », la page se réaffiche
+avec un message qui dit, destination par destination, ce qui est parti
+et ce qui a échoué.
+
+**Le journal** inscrit chaque publication réussie ou échouée : l'album ou
+l'actualité, la plateforme, qui a publié — ni la légende, ni aucun jeton.
+
+### 47.7 L'écran Communications
+
+« Communications », dans l'espace animateurs (`chief` et plus), a deux
+pages.
+
+**« Nouvelle communication »** publie ce qui n'est ni un album ni une
+actualité. Une vraie page, dans cet ordre :
+
+1. **l'image en grand**, telle qu'elle sera publiée, titre et adresse
+   compris ; sans image, la page dit qu'aucune publication ne part sans
+   image ;
+2. **« Galerie » et « Téléverser »**, sur une ligne, à parts égales, avec
+   sous eux : « Une image téléversée part telle quelle. Une image de la
+   galerie est toujours floutée. » Pour téléverser, on choisit le fichier
+   puis on clique (JPEG, PNG ou WebP, 10 Mo au plus) ;
+3. **le titre sur l'image** (120 caractères, obligatoire pour publier) ;
+4. **le texte de la publication** (2 200 caractères) ;
+5. **les destinations**, avec leur état comme au § 47.6, l'avertissement
+   que c'est public et hors du site, puis « Publier ».
+
+Une communication appartient à son auteur et aux administrateurs ; pour
+tout autre animateur, elle est « introuvable ». **Dès qu'une destination
+a été tentée, elle ne change plus** : l'image, le titre et le texte sont
+figés, et une destination publiée ensuite reçoit exactement la même chose.
+
+**« Choisir une photo »** propose **trente photos au maximum, sans
+navigation** : les photos de couverture des quinze albums les plus
+récents, quelle que soit leur année, complétées par les photos les plus
+récentes hors couverture, le tout de la plus récente à la plus ancienne.
+Albums hébergés seulement, photos seulement (pas de vidéo), une seule
+photo. Ce qu'un animateur peut voir est la règle de la galerie, telle
+quelle : tous les albums ordinaires, et un album délégué (un camp, un
+groupe) quand son module le permet. Chaque vignette est un vrai bouton :
+un clic la choisit. Les vignettes sont nettes ; le flou est appliqué à la
+fabrication de l'image publiée. Pas de champ de recherche.
+
+**« Ce qui est parti »** montre les trente derniers contenus partis —
+albums, actualités et communications —, chacun avec son titre, le début
+de son texte, sa date et son auteur, et **une ligne par destination** :
+publié (avec sa date et « Voir »), échec (avec sa raison, conservée, et
+« Réessayer »), ou **non demandé**. « Voir » et « Réessayer » sont des
+icônes à la même place en bout de ligne ; une ligne sans action garde une
+case vide de même largeur. « Réessayer » ouvre une confirmation qui dit
+ce qui repart (la même image et le même texte, vers cette destination
+seulement), que la destination déjà publiée n'est pas touchée, et la
+raison de l'échec précédent.

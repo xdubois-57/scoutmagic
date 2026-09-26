@@ -150,6 +150,20 @@
     "/config/pages-de-texte/{id}": {
       "id": "1"
     },
+    "/communications/{id}": {
+      "id": "1"
+    },
+    "/communications/reessayer/{kind}": {
+      "kind": "album",
+      "id": "1",
+      "platform": "facebook"
+    },
+    "/partage/album/{id}": {
+      "id": "1"
+    },
+    "/partage/actualite/{id}": {
+      "id": "1"
+    },
     "/partage/carte/{token}": {
       "token": "0000000000000000000000000000000000000000000000000000000000000000"
     },

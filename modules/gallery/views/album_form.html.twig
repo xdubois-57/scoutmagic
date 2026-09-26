@@ -5,6 +5,18 @@
 {% block content %}
     {% include 'partials/page_header.html.twig' with { title: album ? 'Éditer l\'album' : 'Nouvel album' } only %}
 
+    {# Contributed by other modules (Service\AlbumActionRegistry) — the
+       gallery renders them and never learns who offered them. #}
+    {% if album_actions|default([]) %}
+        <div class="d-flex flex-wrap gap-2 mb-3" data-album-actions>
+            {% for action in album_actions %}
+                <a class="btn btn-outline-secondary" href="{{ action.url }}">
+                    <i class="bi {{ action.icon }}" aria-hidden="true"></i> {{ action.label }}
+                </a>
+            {% endfor %}
+        </div>
+    {% endif %}
+
     {% if submit_error %}
         <div class="alert alert-danger">{{ submit_error }}</div>
     {% endif %}

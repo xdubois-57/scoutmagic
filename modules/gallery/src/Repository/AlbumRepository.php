@@ -127,6 +127,25 @@ class AlbumRepository
     }
 
     /**
+     * Local albums whose media can be read right now — delegated ones
+     * included, their access being the caller's to check — newest album
+     * date first: the photo picker other modules offer
+     * (Service\PhotoPickerService). An external album hosts nothing, and
+     * a migrating one is gated like everywhere else.
+     *
+     * @return Album[]
+     */
+    public function findPickable(): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM gallery_albums WHERE type = ? AND migration_status <> ? ORDER BY album_date DESC, id DESC'
+        );
+        $stmt->execute([Album::TYPE_LOCAL, Album::MIGRATION_IN_PROGRESS]);
+
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
      * The delegated album already owned by (ownerType, ownerId), or null
      * when none exists yet — Service\DelegatedAlbumService::ensureAlbum()'s
      * "find" half, called both before attempting create() (the common

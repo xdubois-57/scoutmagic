@@ -173,6 +173,16 @@
                         {% else %}
                             <p class="text-body-secondary mb-0">Enregistrez l'article pour générer le lien court.</p>
                         {% endif %}
+                        {# Contributed by other modules (Service\ArticleActionRegistry). #}
+                        {% if article_actions|default([]) %}
+                            <div class="d-flex flex-wrap gap-2 mt-2" data-article-actions>
+                                {% for action in article_actions %}
+                                    <a class="btn btn-outline-secondary" href="{{ action.url }}">
+                                        <i class="bi {{ action.icon }}" aria-hidden="true"></i> {{ action.label }}
+                                    </a>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
                     </div>
                 </div>
             {% endif %}

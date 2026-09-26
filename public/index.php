@@ -8714,8 +8714,14 @@ if (isset($financeCampaignControllerFactory)) {
     );
 }
 
+// The news module's share source and editor buttons (ARCHITECTURE.md
+// §7.5/§7.6): null while the module is off; `social`'s block below reads
+// the one and registers into the other.
+$newsArticleActions = null;
+$newsShareSourceForOthers = null;
 if ($isEnabled('news')) {
     \Core\Debug\RequestTimeline::mark('module_news');
+    $newsArticleActions = new \Modules\News\Service\ArticleActionRegistry();
     $newsArticleRepo = new \Modules\News\Repository\ArticleRepository($pdo);
     $newsFormRepo = new \Modules\News\Repository\FormRepository($pdo);
     $newsFieldRepo = new \Modules\News\Repository\FormFieldRepository($pdo);
@@ -8828,8 +8834,13 @@ if ($isEnabled('news')) {
             $newsTicketService,
             $financeAccountForOthers,
             $humanCheckService,
-            $imageVariantService
+            $imageVariantService,
+            $newsArticleActions
         )
+    );
+    $newsShareSourceForOthers = new \Modules\News\Service\ArticleShareSourceService(
+        $newsArticleService,
+        $settingService
     );
 
     // One-shot backfill of thumb/md derivatives for article images uploaded
@@ -8968,8 +8979,14 @@ if ($isEnabled('news')) {
     }
 }
 
+// The gallery's share source and album-page buttons (ARCHITECTURE.md
+// §7.5/§7.6), read and registered into by `social`'s block below.
+$galleryAlbumActions = null;
+$galleryShareSourceForOthers = null;
+$galleryPhotoPickerForOthers = null;
 if ($isEnabled('gallery')) {
     \Core\Debug\RequestTimeline::mark('module_gallery');
+    $galleryAlbumActions = new \Modules\Gallery\Service\AlbumActionRegistry();
     $galleryAlbumRepo = new \Modules\Gallery\Repository\AlbumRepository($pdo);
     $galleryMediaRepo = new \Modules\Gallery\Repository\MediaRepository($pdo);
     // The gallery standing on its locations: what makes a deletion refuse
@@ -9079,8 +9096,31 @@ if ($isEnabled('gallery')) {
             $galleryLocationService,
             new \Core\File\ChunkedUploadStore($storagePath, $diskBudget),
             $scoutYearService,
-            $scoutYearResolver
+            $scoutYearResolver,
+            $galleryAlbumActions
         )
+    );
+    $galleryShareSourceForOthers = new \Modules\Gallery\Service\AlbumShareSourceService(
+        $galleryAlbumService,
+        $galleryMediaRepo,
+        $galleryAccessService,
+        $galleryLocationService,
+        $storageBackendFactory,
+        $storedFileReader
+    );
+    // The photo picker other modules offer (social's free communication).
+    // Delegated albums are seen through the checkers the groups and camps
+    // blocks append further down, so the registry is built on first use,
+    // over the list by reference — never over the copy it holds now.
+    $galleryPhotoPickerForOthers = new \Modules\Gallery\Service\PhotoPickerService(
+        $galleryAlbumRepo,
+        $galleryMediaRepo,
+        $galleryMediaService,
+        $galleryLocationService,
+        $storageBackendFactory,
+        static function () use (&$galleryDelegatedAlbumAccessCheckers): \Modules\Gallery\Service\DelegatedAlbumAccessRegistry {
+            return new \Modules\Gallery\Service\DelegatedAlbumAccessRegistry($galleryDelegatedAlbumAccessCheckers);
+        }
     );
     // GalleryConfigController is NOT registered here — see the late block
     // at the end of this file. It needs the describer registry, and every
@@ -10336,19 +10376,75 @@ if ($isEnabled('social')) {
 
     // The composed images Meta fetches (§8.122): the one public route of
     // the module, and the daily purge of the expired ones.
+    $socialCardService = new \Modules\Social\Card\CardService(
+        new \Modules\Social\Repository\CardRepository($pdo),
+        new \Modules\Social\Card\CardRenderer(),
+        $settingService,
+        $journalService,
+        $storagePath . '/' . \Modules\Social\Card\CardService::DIRECTORY
+    );
     $frontController->registerController(
         \Modules\Social\Controller\CardController::class,
-        new \Modules\Social\Controller\CardController(
+        new \Modules\Social\Controller\CardController($twig, $socialCardService)
+    );
+
+    // Sharing an album or an article (§8.122): through the gallery's and
+    // the news module's Api, both optional — null when either is off.
+    $socialPublicationRepo = new \Modules\Social\Repository\PublicationRepository($pdo);
+    $socialPublishing = new \Modules\Social\Service\PublishingService(
+        $socialConnectionRepo,
+        $socialPublicationRepo,
+        $socialCardService,
+        $settingService,
+        $journalService
+    );
+    $socialDestinationStates = new \Modules\Social\Service\DestinationStates(
+        $socialPublishing,
+        $socialPublicationRepo,
+        $socialConnectionRepo,
+        $settingService
+    );
+    $socialCommunicationRepo = new \Modules\Social\Repository\CommunicationRepository($pdo);
+    $socialShareSources = new \Modules\Social\Service\ShareSourceResolver(
+        $settingService,
+        $storedFileReader,
+        $galleryShareSourceForOthers,
+        $newsShareSourceForOthers,
+        $socialCommunicationRepo,
+        $galleryPhotoPickerForOthers,
+        $linkedMemberIds
+    );
+    $frontController->registerController(
+        \Modules\Social\Controller\ShareController::class,
+        new \Modules\Social\Controller\ShareController(
             $twig,
-            new \Modules\Social\Card\CardService(
-                new \Modules\Social\Repository\CardRepository($pdo),
-                new \Modules\Social\Card\CardRenderer(),
-                $settingService,
-                $journalService,
-                $storagePath . '/' . \Modules\Social\Card\CardService::DIRECTORY
-            )
+            $socialShareSources,
+            $socialPublishing,
+            $socialDestinationStates,
+            $socialCardService
         )
     );
+    // « Communications »: a free communication, and the history of
+    // everything that left (§8.122).
+    $frontController->registerController(
+        \Modules\Social\Controller\CommunicationController::class,
+        new \Modules\Social\Controller\CommunicationController(
+            $twig,
+            $socialCommunicationRepo,
+            $socialShareSources,
+            $socialPublishing,
+            $socialDestinationStates,
+            $socialPublicationRepo,
+            $socialConnectionRepo,
+            $socialCardService,
+            $uploadHandler,
+            $userAccountRepo,
+            $galleryPhotoPickerForOthers,
+            $linkedMemberIds
+        )
+    );
+    $galleryAlbumActions?->register(new \Modules\Social\Service\AlbumShareAction($socialSharingForOthers));
+    $newsArticleActions?->register(new \Modules\Social\Service\ArticleShareAction($socialSharingForOthers));
     $schedulerService->seed(
         'social',
         \Modules\Social\Task\PurgeCardsHandler::TASK_KEY,

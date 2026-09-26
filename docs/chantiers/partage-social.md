@@ -144,3 +144,90 @@ désormais par doublements, lissés à chaque étape.
    « tout téléchargement passe par `/files/{id}` », après l'extrait de
    triage — le document parlait de la seconde, l'exception « photos hors
    ligne » ayant disparu depuis.
+
+## IT-03 — Le partage depuis les actualités et les albums
+
+« Partager » sur la page de modification d'un album et dans l'éditeur
+d'une actualité, contribué par le module social à travers deux registres
+que la galerie et les actualités possèdent (ARCHITECTURE.md §7.6). La page
+`/partage/album/{id}` ou `/partage/actualite/{id}` montre la carte réelle,
+la légende et chaque destination avec son état ; la publication part vers
+la Page (photo pour un album, lien pour une actualité) et vers Instagram
+(toujours une image), une seule fois par destination, décidé par une clé
+unique en base. Voir ARCHITECTURE.md §8.122, SECURITY.md §38 et
+specifications.md §47.6.
+
+### Décisions prises en autonomie
+
+1. **Une vraie page plutôt que la fenêtre de la maquette.** La maquette
+   dessine la confirmation d'un album par-dessus un fond grisé ; la page
+   dédiée garde l'image à sa taille sur un téléphone, survit à un
+   rechargement après une erreur, se prête au retour « Post/Redirect/Get »
+   qui réaffiche l'état de chaque destination, et c'est la forme que la
+   maquette retient elle-même pour la « Nouvelle communication ». Libellés,
+   ordre et avertissement sont ceux de la maquette.
+2. **Les icônes de marque sont celles de Bootstrap Icons** (`bi-facebook`,
+   `bi-instagram`), déjà servies par le site, plutôt que les dessins de la
+   maquette ou les fichiers officiels de Meta.
+3. **Qui peut partager** : la règle du module propriétaire, jamais
+   recalculée — gérer l'album (`canManageAlbum()`), pouvoir modifier
+   l'actualité (`canEdit()` : son auteur ou un administrateur). Un album
+   délégué ou en cours de déplacement ne se partage pas.
+4. **Quelles actualités peuvent sortir** : celles que le module
+   Actualités tient déjà pour partageables (`isSociallyShareable()` —
+   publique, lien direct, membres identifiés), c'est-à-dire celles dont
+   l'image est déjà un fichier public. Une actualité réservée aux
+   animateurs ou aux administrateurs montre pourquoi elle ne peut pas
+   partir.
+5. **L'image d'une actualité n'est pas floutée.** Le document ne floute
+   que « toute image venant de la galerie » ; l'image d'une actualité a été
+   choisie pour être montrée, et elle l'est déjà publiquement.
+6. **Sans image, pas d'Instagram.** Un album sans photo de couverture ou
+   une actualité sans image laisse Instagram indisponible, avec la raison ;
+   la Page reste possible pour une actualité (publication de lien).
+7. **Une publication interrompue** (le serveur tombe entre la réservation
+   de la destination et la réponse de Meta) reste « en cours » quinze
+   minutes, puis se présente comme un échec qu'on peut retenter en le
+   confirmant : sans cela, une coupure bloquerait la destination pour
+   toujours.
+8. **La légende est limitée à 2 200 caractères**, la limite d'Instagram,
+   pour toutes les destinations : une seule légende pour toutes.
+
+## IT-04 — L'écran Communications
+
+« Communications » dans l'espace animateurs : une communication libre
+(image de la galerie ou téléversée, titre sur l'image, texte) publiée par
+le même service qu'un album, et « Ce qui est parti », l'historique de
+tout ce qui est parti, destination par destination, avec son réessai.
+Le sélecteur de photo est une `Api` de la galerie
+(`PhotoPickerInterface`). Voir ARCHITECTURE.md §8.122, SECURITY.md §38 et
+specifications.md §47.7.
+
+### Décisions prises en autonomie
+
+1. **Une vignette choisie d'un clic**, sans bouton « Utiliser cette
+   photo » : chaque vignette est un vrai bouton d'envoi. La maquette montre
+   une sélection puis une confirmation ; sans script, un clic qui choisit
+   et revient à la communication fait la même chose en un geste, et la
+   photo retenue se juge aussitôt sur l'image publiée.
+2. **« Téléverser » demande d'abord le fichier**, dans un champ visible
+   sous les deux boutons : sans script, un bouton ne peut pas ouvrir le
+   sélecteur de fichiers et envoyer le formulaire à la fois.
+3. **Une communication se fige dès qu'une destination a été tentée.** Le
+   document dit qu'un réessai renvoie « la même image et le même texte » ;
+   figer la communication est la façon la plus simple de le garantir pour
+   toutes les destinations, pas seulement pour le réessai.
+4. **Une communication est à son auteur et aux administrateurs**, comme
+   une actualité ; l'historique, lui, est lisible par tous les animateurs.
+5. **Le titre sur l'image est obligatoire pour publier** : la carte sans
+   titre ne dit pas ce qu'elle annonce.
+6. **L'historique couvre albums et actualités**, pas seulement les
+   communications : c'est « ce qui est parti ». Il garde, avec chaque
+   publication, le titre, le texte envoyé et l'adresse de la publication
+   (celle d'Instagram demandée après coup, sans jamais transformer une
+   publication réussie en échec si Meta ne la donne pas).
+7. **« Réessayer » passe par une page de confirmation**, comme le partage
+   d'IT-03, plutôt que par une fenêtre.
+8. **Le sélecteur voit les albums délégués** à travers les contrôles que
+   les modules Groupes et Camps ajoutent après la galerie : le registre est
+   construit à la première utilisation, sur la liste prise par référence.

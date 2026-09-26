@@ -42,3 +42,51 @@ CREATE TABLE IF NOT EXISTS social_cards (
     UNIQUE KEY uq_social_cards_token (token_hash),
     KEY idx_social_cards_expiry (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- social_publications: what left, where, and how it went — one row per
+-- content and destination, never more (docs/chantiers/
+-- CHANTIER-partage-social.md, « Une publication, une seule fois »). The
+-- unique key is the rule itself, enforced by the database: a second
+-- publication of the same album to the same Page is refused by the INSERT,
+-- not only hidden by the dialog. A row in `failed` can be taken again
+-- — that is a retry — and a row left in `pending` by an interrupted
+-- request becomes retryable after a quarter of an hour.
+--
+-- source_kind: 'album' | 'article' | 'communication'.
+-- destination: 'facebook' | 'instagram'.
+CREATE TABLE IF NOT EXISTS social_publications (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    source_kind VARCHAR(20) NOT NULL,
+    source_id INT UNSIGNED NOT NULL,
+    destination VARCHAR(40) NOT NULL,
+    status VARCHAR(12) NOT NULL,
+    remote_id VARCHAR(100) NULL,
+    error_message VARCHAR(500) NULL,
+    attempted_at DATETIME NOT NULL,
+    published_at DATETIME NULL,
+    user_account_id INT UNSIGNED NULL,
+    -- What was sent, kept for the history and so a retry resends the same
+    -- (IT-04): the content's title at the time, the caption, and where the
+    -- post can be seen once published.
+    source_title VARCHAR(200) NULL,
+    caption TEXT NULL,
+    remote_url VARCHAR(500) NULL,
+    UNIQUE KEY uq_social_publications (source_kind, source_id, destination)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- social_communications: a free communication (IT-04, « Nouvelle
+-- communication ») — a title written on the card, the text of the post, and
+-- ONE image: a gallery photo (by media id, read through the gallery's Api at
+-- publication, so its visibility is asked again then) or an uploaded file
+-- (core `files`, role_min chief). Its publications live in
+-- social_publications with source_kind 'communication'.
+CREATE TABLE IF NOT EXISTS social_communications (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(120) NOT NULL DEFAULT '',
+    body TEXT NOT NULL,
+    gallery_media_id INT UNSIGNED NULL,
+    file_id INT UNSIGNED NULL,
+    created_by INT UNSIGNED NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

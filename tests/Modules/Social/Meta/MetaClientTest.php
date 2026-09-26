@@ -7,6 +7,7 @@ namespace Tests\Modules\Social\Meta;
 use Modules\Social\Meta\MetaClient;
 use Modules\Social\Meta\MetaException;
 use PHPUnit\Framework\TestCase;
+use Tests\Modules\Social\FakeMetaTransport;
 use Tests\Modules\Social\SocialTestHelper as H;
 
 /**
@@ -144,4 +145,85 @@ final class MetaClientTest extends TestCase
         );
         $this->assertStringContainsString('grant_type=ig_refresh_token', $transport->requests[0]['url']);
     }
+
+    public function testAFacebookImagePostSendsTheCardsAddress(): void
+    {
+        $transport = H::transport(['/photos' => H::ok(['id' => 'P1', 'post_id' => '42_99'])]);
+
+        $id = (new MetaClient($transport))->publishFacebookPhoto('42', 'PAGE', 'https://u.be/partage/carte/x', 'Légende');
+
+        $this->assertSame('42_99', $id);
+        $this->assertSame('POST', $transport->requests[0]['method']);
+        $this->assertSame('https://u.be/partage/carte/x', $transport->requests[0]['fields']['url']);
+        $this->assertSame('Légende', $transport->requests[0]['fields']['caption']);
+        $this->assertStringNotContainsString('PAGE', $transport->requests[0]['url'], 'The token travels in the body.');
+    }
+
+    public function testAFacebookLinkPostSendsTheLink(): void
+    {
+        $transport = H::transport(['/feed' => H::ok(['id' => '42_100'])]);
+
+        $this->assertSame('42_100', (new MetaClient($transport))->publishFacebookLink('42', 'PAGE', 'https://u.be/s/abc', 'Texte'));
+        $this->assertSame('https://u.be/s/abc', $transport->requests[0]['fields']['link']);
+    }
+
+    public function testAnInstagramPostWaitsForItsContainerThenPublishesIt(): void
+    {
+        // '/media_publish' first: the fake answers the first fragment a URL contains.
+        $transport = H::transport([
+            '/media_publish' => H::ok(['id' => 'IGMEDIA']),
+            '/media' => H::ok(['id' => 'C1']),
+        ]);
+        // Meta says « still working » once, then « ready ».
+        $statuses = ['IN_PROGRESS', 'FINISHED'];
+        $client = new MetaClient(new class ($transport, $statuses) implements \Modules\Social\Meta\MetaTransport {
+            /** @param list<string> $statuses */
+            public function __construct(private FakeMetaTransport $inner, private array $statuses)
+            {
+            }
+
+            public function get(string $url): ?array
+            {
+                return H::ok(['status_code' => array_shift($this->statuses) ?? 'FINISHED']);
+            }
+
+            public function postForm(string $url, array $fields): ?array
+            {
+                return $this->inner->postForm($url, $fields);
+            }
+        }, static function (int $seconds): void {
+        });
+
+        $this->assertSame('IGMEDIA', $client->publishInstagramImage('9', 'T', 'https://u.be/partage/carte/x', 'L'));
+        $this->assertSame('https://u.be/partage/carte/x', $transport->requests[0]['fields']['image_url']);
+        $this->assertSame('C1', $transport->requests[1]['fields']['creation_id']);
+    }
+
+    public function testAnInstagramPermalinkIsAnHttpsAddressOrNothing(): void
+    {
+        $client = new MetaClient(H::transport(['IG1?' => H::ok(['permalink' => 'https://www.instagram.com/p/abc/'])]));
+        $this->assertSame('https://www.instagram.com/p/abc/', $client->instagramPermalink('IG1', 'T'));
+
+        $odd = new MetaClient(H::transport(['IG1?' => H::ok(['permalink' => 'javascript:alert(1)'])]));
+        $this->assertNull($odd->instagramPermalink('IG1', 'T'), 'Never a link the history would render as is.');
+    }
+
+    public function testAContainerMetaCouldNotFillIsNotPublished(): void
+    {
+        $transport = H::transport([
+            '/media_publish' => H::ok(['id' => 'IGMEDIA']),
+            '/media' => H::ok(['id' => 'C1']),
+            'C1?' => H::ok(['status_code' => 'ERROR']),
+        ]);
+
+        try {
+            (new MetaClient($transport, static function (int $seconds): void {
+            }))->publishInstagramImage('9', 'T', 'https://u.be/x', 'L');
+            $this->fail('A failed container must not be published.');
+        } catch (MetaException $e) {
+            $this->assertStringContainsString('récupérer l\'image', $e->getMessage());
+        }
+        $this->assertCount(2, $transport->requests, 'No media_publish after a failed container.');
+    }
 }
+

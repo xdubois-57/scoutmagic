@@ -85,6 +85,231 @@
       "menu": "notre_unite",
       "role_min": "public",
       "label": ""
+    },
+    {
+      "path": "/partage/album/{id}",
+      "method": "GET",
+      "controller": "Modules\\Social\\Controller\\ShareController",
+      "action": "showAlbum",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Partager",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Gérer les photos",
+            "path": "/gallery/manage"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/partage/album/{id}/apercu",
+      "method": "GET",
+      "controller": "Modules\\Social\\Controller\\ShareController",
+      "action": "previewAlbum",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/partage/album/{id}",
+      "method": "POST",
+      "controller": "Modules\\Social\\Controller\\ShareController",
+      "action": "publishAlbum",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/partage/actualite/{id}",
+      "method": "GET",
+      "controller": "Modules\\Social\\Controller\\ShareController",
+      "action": "showArticle",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Partager",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Rédiger les actualités",
+            "path": "/news/manage"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/partage/actualite/{id}/apercu",
+      "method": "GET",
+      "controller": "Modules\\Social\\Controller\\ShareController",
+      "action": "previewArticle",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/partage/actualite/{id}",
+      "method": "POST",
+      "controller": "Modules\\Social\\Controller\\ShareController",
+      "action": "publishArticle",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/communications",
+      "method": "GET",
+      "controller": "Modules\\Social\\Controller\\CommunicationController",
+      "action": "history",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "Communications",
+      "menu_icon": "bi-megaphone",
+      "menu_group": "communication",
+      "menu_order": 85,
+      "breadcrumb": {
+        "label": "Communications",
+        "parents": [
+          "Espace animateurs"
+        ]
+      }
+    },
+    {
+      "path": "/communications/nouvelle",
+      "method": "GET",
+      "controller": "Modules\\Social\\Controller\\CommunicationController",
+      "action": "create",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Nouvelle communication",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Communications",
+            "path": "/communications"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/communications",
+      "method": "POST",
+      "controller": "Modules\\Social\\Controller\\CommunicationController",
+      "action": "store",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/communications/{id}",
+      "method": "GET",
+      "controller": "Modules\\Social\\Controller\\CommunicationController",
+      "action": "edit",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Communication",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Communications",
+            "path": "/communications"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/communications/{id}",
+      "method": "POST",
+      "controller": "Modules\\Social\\Controller\\CommunicationController",
+      "action": "update",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/communications/{id}/apercu",
+      "method": "GET",
+      "controller": "Modules\\Social\\Controller\\CommunicationController",
+      "action": "preview",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/communications/{id}/photo",
+      "method": "GET",
+      "controller": "Modules\\Social\\Controller\\CommunicationController",
+      "action": "picker",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Choisir une photo",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Communications",
+            "path": "/communications"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/communications/{id}/photo",
+      "method": "POST",
+      "controller": "Modules\\Social\\Controller\\CommunicationController",
+      "action": "pick",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/communications/reessayer/{kind}/{id}/{platform}",
+      "method": "GET",
+      "controller": "Modules\\Social\\Controller\\CommunicationController",
+      "action": "confirmRetry",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Confirmer un réessai",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Communications",
+            "path": "/communications"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/communications/reessayer/{kind}/{id}/{platform}",
+      "method": "POST",
+      "controller": "Modules\\Social\\Controller\\CommunicationController",
+      "action": "retry",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
     }
   ],
   "settings": [
