@@ -183,6 +183,19 @@
                                         {% else %}
                                             <span class="badge text-bg-secondary">En attente</span>
                                         {% endif %}
+                                        {# The bounce's reason, when one could be traced back to
+                                           this probe by the code in its subject. It is shown NEXT
+                                           TO the verdict rather than instead of it: the verdict is
+                                           what a person saw in the mailbox, this is what the far
+                                           end answered before there was anything to see. Absent
+                                           most of the time, and that is normal — a server that
+                                           rejects without quoting the message it rejected sends no
+                                           code, so nothing can be traced. #}
+                                        {% if probe.bounce %}
+                                            <span class="d-block small text-danger mt-1">
+                                                Rebond : {{ probe.bounce }}
+                                            </span>
+                                        {% endif %}
                                     </td>
                                 </tr>
                             {% endfor %}

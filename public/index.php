@@ -7491,7 +7491,12 @@ if ($isEnabled('inbound_mail')) {
                         new \Core\Security\UserAccountRepository($pdo, $encryptionService),
                         $encryptionService
                     )
-                )
+                ),
+                // Built here rather than reusing $mailProbeRepository: this
+                // factory is an arrow function, so it captures by value at
+                // the line above — and that variable is assigned two
+                // hundred lines further down (issue #419).
+                new \Core\Mail\Probe\MailProbeRepository($pdo, $encryptionService)
             )
     );
 

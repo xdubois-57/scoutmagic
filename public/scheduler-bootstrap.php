@@ -449,7 +449,13 @@ function scoutmagicBootstrapScheduler(
                             $userAccountRepo,
                             $encryptionService
                         )
-                    )
+                    ),
+                    // Not optional, unlike the notifier above: a bounce that
+                    // cannot be traced to its probe is a line the operator
+                    // reads wrong, and a defaulted dependency would make THIS
+                    // entry point the one where it silently never happens
+                    // (issue #419).
+                    new \Core\Mail\Probe\MailProbeRepository($pdo, $encryptionService)
                 ));
 
                 // The DMARC reports (roadmap IT-06), registered on BOTH

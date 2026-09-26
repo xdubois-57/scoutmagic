@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Mail\Feedback\Bounce;
 
+use Core\Mail\Probe\MailProbeRepository;
+use Core\Mail\Probe\MailProbeSender;
 use Modules\InboundMail\Api\AnalysisResult;
 use Modules\InboundMail\Api\CandidateMessage;
 use Modules\InboundMail\Api\InboundMessage;
@@ -44,7 +46,20 @@ final class BounceConsumer implements MessageConsumerInterface
 {
     public const CONSUMER_ID = 'core_mail_bounce';
 
-    public function __construct(private BounceService $bounces)
+    public function __construct(
+        private BounceService $bounces,
+        /**
+         * Required, deliberately, although a default would have spared two
+         * call sites. This consumer is registered from BOTH entry points —
+         * public/index.php and public/scheduler-bootstrap.php — and a
+         * defaulted dependency turns a site somebody forgets into a
+         * feature that quietly does nothing. ARCHITECTURE.md §8.17 records
+         * what that costs: a handler missing from the real cron entry point
+         * failed every background backup and nothing said so. A fatal on
+         * startup is the cheaper failure.
+         */
+        private MailProbeRepository $probes
+    )
     {
     }
 
@@ -60,11 +75,69 @@ final class BounceConsumer implements MessageConsumerInterface
 
     public function analyze(CandidateMessage $message): AnalysisResult
     {
-        foreach (DeliveryStatusReport::parseAll($message->bodyText) as $report) {
+        $reports = DeliveryStatusReport::parseAll($message->bodyText);
+        foreach ($reports as $report) {
             $this->bounces->record($report);
         }
 
+        $this->traceToProbe($message, $reports);
+
         return AnalysisResult::nothing();
+    }
+
+    /**
+     * Give a probe the reason its message came back (issue #419).
+     *
+     * A manual probe carries `SM-XXXXXX` in its subject, and a bounce that
+     * quotes the message it rejected quotes that subject with it — so the
+     * link is already in the body this method has just parsed. Nothing else
+     * was missing: `MailProbeSender::codeIn()` has always been able to read
+     * the code, and `mail_probes` has carried an index on it from the start.
+     *
+     * **Every step here may come up empty, and none of them is an error.**
+     * A server that rejects before citing the original sends no code; a code
+     * that belongs to no probe is a coincidence in someone else's subject; a
+     * probe that already carries a rejection keeps its first one. The page
+     * says « jamais reçu » in all three cases, which stays true — it is what
+     * the operator saw when they went and looked.
+     *
+     * The `SM-` prefix is distinct from IT-03's `RET-` on purpose, so there
+     * is no ambiguity to resolve between the two mechanisms.
+     *
+     * @param list<DeliveryStatusReport> $reports
+     */
+    private function traceToProbe(CandidateMessage $message, array $reports): void
+    {
+        if ($reports === []) {
+            return;
+        }
+
+        // A fast path and not a guard, which is worth saying because it
+        // reads like one: `findByCode('')` would answer null a line later
+        // and the outcome would be identical. It is here because this method
+        // runs on EVERY bounce the site receives, and almost none of them
+        // quote a probe — one avoided round trip per bounce, not a defence
+        // against anything. (Mutation says as much: removing it breaks no
+        // test, and no test was added to pretend otherwise.)
+        $code = MailProbeSender::codeIn($message->bodyText);
+        if ($code === null) {
+            return;
+        }
+
+        $probe = $this->probes->findByCode($code);
+        if ($probe === null) {
+            return;
+        }
+
+        // The first failed recipient. A probe goes to one address, so a
+        // report with several means this bounce is about a message that was
+        // not the probe — and the code was quoted for another reason. Taking
+        // the first is still the right answer for the ordinary case, and the
+        // wrong one costs a category on one row rather than a blocked
+        // address: `record()` above has already handled every recipient on
+        // its own terms.
+        $first = $reports[0];
+        $this->probes->recordBounce($probe->id, $first->category, $first->statusCode, $message->sentAt);
     }
 
     /**

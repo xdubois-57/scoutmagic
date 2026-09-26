@@ -7,6 +7,10 @@ namespace Tests\Core\Mail\Feedback\Bounce;
 use Core\Mail\Feedback\Bounce\BounceConsumer;
 use Core\Mail\Feedback\Bounce\BounceService;
 use Core\Mail\Feedback\Bounce\BounceStateRepository;
+use Core\Mail\Feedback\Bounce\BounceCategory;
+use Core\Mail\Probe\MailProbeSender;
+use Core\Mail\Transport\MailLane;
+use Core\Mail\Probe\MailProbeRepository;
 use Core\Security\EncryptionService;
 use Modules\InboundMail\Api\CandidateMessage;
 use Modules\InboundMail\Mime\BulkMailDetector;
@@ -32,15 +36,15 @@ class BounceConsumerTest extends TestCase
     private \PDO $pdo;
     private BounceStateRepository $states;
     private BounceConsumer $consumer;
+    private MailProbeRepository $probes;
 
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
-        $this->states = new BounceStateRepository(
-            $this->pdo,
-            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
-        );
-        $this->consumer = new BounceConsumer(new BounceService($this->states));
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->states = new BounceStateRepository($this->pdo, $encryption);
+        $this->probes = new MailProbeRepository($this->pdo, $encryption);
+        $this->consumer = new BounceConsumer(new BounceService($this->states), $this->probes);
 
         // The unit wrote to this address. Without that receipt the bounce
         // below is refused, which is the point of
@@ -293,6 +297,172 @@ class BounceConsumerTest extends TestCase
     {
         $this->assertSame(0, $this->consumer->triageAudienceCount());
         $this->assertFalse($this->consumer->canRead('anything', [], 'superadmin'));
+    }
+
+    /**
+     * The same bounce, but the message it quotes back is a probe.
+     *
+     * That is the whole mechanism: a probe's subject carries `SM-XXXXXX`
+     * (MailProbeSender::subjectFor()), a bounce quotes the subject of the
+     * message it rejected, so the code is in this body — and
+     * `MailProbeSender::codeIn()` has always been able to read it.
+     */
+    private static function bounceQuoting(string $subject): string
+    {
+        return str_replace('Subject: Reunion de samedi', 'Subject: ' . $subject, self::bounceMessage());
+    }
+
+    private function probeSent(string $code): int
+    {
+        return $this->probes->record(
+            $code,
+            'parent@exemple.be',
+            null,
+            'Relais principal',
+            MailLane::Transactional,
+            new \DateTimeImmutable('2026-09-15 07:00:00')
+        );
+    }
+
+    /**
+     * **The reason a probe's row can say why, and not only « jamais reçu »**
+     * (issue #419).
+     *
+     * Everything needed was already there and unused: the code in the
+     * subject, `codeIn()` to read it, `idx_mail_probes_code` to find the
+     * row. The category and the status code are what gets attached —
+     * deliberately NOT the diagnostic text, which
+     * `DeliveryStatusReport` reads and drops because it quotes the address
+     * back, and which this table's own `destination_encrypted` exists to
+     * keep out of the clear.
+     */
+    public function testABounceQuotingAProbeGivesThatProbeItsReason(): void
+    {
+        $id = $this->probeSent('SM-7K2XPQ');
+
+        $this->consumer->analyze($this->candidateFrom(
+            self::bounceQuoting(MailProbeSender::subjectFor('SM-7K2XPQ'))
+        ));
+
+        $probe = $this->probes->find($id);
+        $this->assertNotNull($probe);
+        $this->assertNotNull($probe->bounce, 'the bounce quoted this probe and nothing was attached');
+        $this->assertSame(BounceCategory::NoSuchAddress, $probe->bounce->category);
+        $this->assertSame('5.1.1', $probe->bounce->statusCode);
+        $this->assertSame('Adresse inexistante (5.1.1)', $probe->bounce->label());
+        // And the address is still blocked: tracing is an extra, never a
+        // replacement for what IT-05 is for.
+        $this->assertNotNull($this->states->find('parent@exemple.be'));
+    }
+
+    /**
+     * **A bounce that names no probe is the ordinary case, not a failure.**
+     *
+     * A server that rejects before citing the message it rejected sends no
+     * code at all, and the overwhelming majority of bounces are about
+     * ordinary mail rather than probes. The address must still be blocked —
+     * which is what makes this test about the coupling rather than about the
+     * absence: a tracing step that threw, or that returned early before
+     * `record()`, would cost the protection the whole iteration is for.
+     */
+    public function testABounceNamingNoProbeStillBlocksAndAttachesNothing(): void
+    {
+        $id = $this->probeSent('SM-7K2XPQ');
+
+        $this->consumer->analyze($this->candidateFrom(self::bounceMessage()));
+
+        $probe = $this->probes->find($id);
+        $this->assertNotNull($probe);
+        $this->assertNull($probe->bounce, 'nothing quoted this probe, so nothing may be attached to it');
+        $this->assertNotNull($this->states->find('parent@exemple.be'));
+    }
+
+    /**
+     * A code that belongs to no probe: someone else's subject happening to
+     * contain something shaped like one, or a probe whose row has been
+     * purged. Nothing to attach, and nothing to report — the bounce is
+     * recorded exactly as it would have been.
+     */
+    public function testACodeThatMatchesNoProbeIsNotAnError(): void
+    {
+        $id = $this->probeSent('SM-7K2XPQ');
+
+        $this->consumer->analyze($this->candidateFrom(
+            self::bounceQuoting(MailProbeSender::subjectFor('SM-ZZZZZZ'))
+        ));
+
+        $probe = $this->probes->find($id);
+        $this->assertNotNull($probe);
+        $this->assertNull($probe->bounce);
+        $this->assertNotNull($this->states->find('parent@exemple.be'));
+    }
+
+    /**
+     * **A REPLY to a probe quotes its code and is not a bounce.**
+     *
+     * The likeliest one is the operator's own: they send a probe to an
+     * address they control, find it, and answer it to be sure the road works
+     * both ways. The reply quotes « Vérification de délivrabilité SM-… » in
+     * its subject, so the code is there — and there is no delivery-status
+     * part anywhere, so there is no category and no status code to attach.
+     *
+     * This is the case the `$reports === []` guard is for, and the only one:
+     * without it the tracing would reach `$reports[0]` on an empty list.
+     * Found by mutation — removing that guard passed every other test in
+     * this class, because they all feed either a real bounce or a body with
+     * no code in it at all.
+     */
+    public function testAReplyQuotingAProbeIsNotABounceAndAttachesNothing(): void
+    {
+        $id = $this->probeSent('SM-7K2XPQ');
+
+        $this->consumer->analyze($this->candidateFrom(
+            "Bien reçu, merci.\r\n"
+            . "\r\n"
+            . "> Objet : " . MailProbeSender::subjectFor('SM-7K2XPQ') . "\r\n"
+            . "> Ceci est un message de vérification.\r\n"
+        ));
+
+        $probe = $this->probes->find($id);
+        $this->assertNotNull($probe);
+        $this->assertNull($probe->bounce, 'a reply is not a rejection and must attach nothing');
+        // And no address was blocked on the strength of a thank-you note.
+        $this->assertNull($this->states->find('parent@exemple.be'));
+    }
+
+    /**
+     * The FIRST rejection stays.
+     *
+     * A mailbox that bounces once bounces again, and the later ones are
+     * about other messages that quoted nothing. Overwriting would move the
+     * probe's date forward every time somebody else's mail failed, and the
+     * row would end up dated by an event that had nothing to do with it.
+     */
+    public function testASecondBounceDoesNotRewriteTheFirstReason(): void
+    {
+        $id = $this->probeSent('SM-7K2XPQ');
+        $quoting = self::bounceQuoting(MailProbeSender::subjectFor('SM-7K2XPQ'));
+
+        $this->consumer->analyze($this->candidateFrom($quoting));
+        $first = $this->probes->find($id)?->bounce?->at;
+        $this->assertNotNull($first);
+
+        // A later bounce, same probe code quoted, a different verdict from
+        // the far end — a full mailbox this time.
+        $this->consumer->analyze($this->candidateFrom(str_replace(
+            ['Status: 5.1.1', 'Diagnostic-Code: smtp; 550 5.1.1 User unknown'],
+            ['Status: 5.2.2', 'Diagnostic-Code: smtp; 552 5.2.2 Mailbox full'],
+            $quoting
+        )));
+
+        $probe = $this->probes->find($id);
+        $this->assertNotNull($probe?->bounce);
+        $this->assertSame(
+            BounceCategory::NoSuchAddress,
+            $probe->bounce->category,
+            'the first rejection is the one that explains this probe'
+        );
+        $this->assertSame('5.1.1', $probe->bounce->statusCode);
     }
 
     private function candidateFrom(string $bodyText): CandidateMessage
