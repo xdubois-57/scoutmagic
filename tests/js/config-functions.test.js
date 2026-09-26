@@ -34,7 +34,7 @@ const SECTION_ROW = `
         <button type="button" class="section-color-reset" disabled></button>
         <input type="checkbox" class="section-visible-input" role="switch"
                id="section-visible-10" checked aria-checked="true">
-        <div class="section-email-warning d-none"><span class="section-email-warning-text"></span></div>
+        <output class="section-email-warning d-none"><span class="section-email-warning-text"></span></output>
     </div>`;
 
 const BRANCH_ROW = `

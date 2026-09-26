@@ -241,13 +241,17 @@
                         {# The DMARC warning for an address this site cannot sign for (issue #418). The
                            element is always in the page, hidden when there is nothing to say, so a save
                            has somewhere to write its answer without rebuilding the row. #}
-                        {%- set alignment_classes = 'px-3 pb-3 pt-0 small text-warning-emphasis'
+                        {%- set alignment_classes = 'd-block px-3 pb-3 pt-0 small text-warning-emphasis'
                             ~ ' section-email-warning'
                             ~ (section.alignment_warning is empty ? ' d-none' : '') -%}
-                        <div class="{{ alignment_classes }}" role="status">
+                        {# <output>, not a div carrying role="status" (SonarCloud Web:S6819): the
+                           element announces a result the operator's own save produced, which is what
+                           <output> means, and the implicit role travels where the explicit one does
+                           not on some assistive technology. d-block because <output> is inline. #}
+                        <output class="{{ alignment_classes }}">
                             <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
                             <span class="section-email-warning-text">{{ section.alignment_warning }}</span>
-                        </div>
+                        </output>
                         </div>
                     {% endfor %}
                 </div>
