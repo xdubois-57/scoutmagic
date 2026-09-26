@@ -238,7 +238,7 @@
             return;
         }
 
-        var memberYearId = parseInt(image.dataset.memberYearId || '', 10);
+        var memberYearId = Number.parseInt(image.dataset.memberYearId || '', 10);
         if (!memberYearId || memberYearId <= 0) {
             return;
         }

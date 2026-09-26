@@ -40,9 +40,11 @@
         try {
             var rows = JSON.parse(picker.dataset.selected || '[]');
             return Array.isArray(rows) ? rows.filter(function (row) {
-                return row && row.id !== undefined && row.id !== null && row.label !== undefined;
+                return row?.id !== undefined && row.id !== null && row.label !== undefined;
             }) : [];
         } catch (e) {
+            // A malformed attribute is the server's bug, not the reader's:
+            // the picker starts empty rather than taking the page down.
             return [];
         }
     }
@@ -56,7 +58,21 @@
      * @returns {string}
      */
     function searchUrl(base, query) {
-        return base + (base.indexOf('?') === -1 ? '?' : '&') + 'q=' + encodeURIComponent(query);
+        return base + (base.includes('?') ? '&' : '?') + 'q=' + encodeURIComponent(query);
+    }
+
+    /**
+     * The selection without one row, compared by id as a string because
+     * the server's ids and the dataset's may differ in type.
+     *
+     * @param {PickerRow[]} rows
+     * @param {PickerRow} row
+     * @returns {PickerRow[]}
+     */
+    function withoutRow(rows, row) {
+        return rows.filter(function (other) {
+            return String(other.id) !== String(row.id);
+        });
     }
 
     /**
@@ -145,9 +161,7 @@
                 chip.appendChild(cross);
 
                 chip.addEventListener('click', function () {
-                    selected = selected.filter(function (other) {
-                        return String(other.id) !== String(row.id);
-                    });
+                    selected = withoutRow(selected, row);
                     refresh();
                     announce();
                     search.focus();

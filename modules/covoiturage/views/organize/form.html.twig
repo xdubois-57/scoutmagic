@@ -81,7 +81,7 @@
             help: 'Reprise du lieu des évènements retenus. C\'est la destination de tous les allers et le départ de tous les retours.',
         } only %}
 
-        <div class="alert alert-warning small {{ location_mismatch is empty ? 'd-none' : '' }}" id="carpool-location-warning" role="status">
+        <div class="alert alert-warning small {{ location_mismatch is empty ? 'd-none' : '' }}" id="carpool-location-warning" aria-live="polite">
             Les évènements retenus n'indiquent pas tous le même lieu<span data-carpool-locations>{% if location_mismatch is not empty %} ({{ location_mismatch|join(' ; ') }}){% endif %}</span>. Vérifiez : un covoiturage n'a qu'une destination, et s'ils divergent c'est qu'ils n'appartiennent probablement pas au même trajet.
             <div class="form-check mt-2">
                 <input class="form-check-input" type="checkbox" name="confirm_locations" value="1" id="carpool-confirm-locations"
