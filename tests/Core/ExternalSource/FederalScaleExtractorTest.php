@@ -71,6 +71,24 @@ final class FederalScaleExtractorTest extends TestCase
     }
 
     /**
+     * Around a rollover the page can carry two seasons: the most recent one
+     * is read, whichever comes first, and only its own amounts.
+     */
+    public function testTheMostRecentSeasonIsReadWhateverItsPlace(): void
+    {
+        $old = '<h3>Cotisations 2025-2026</h3><p>Cotisation normale : 56,25 €</p>'
+            . '<p>Cotisation couple : 45 €</p><p>Cotisation familiale : 38 €</p>';
+        $new = '<h3>Cotisations 2026-2027</h3><p>Cotisation normale : 57,50 €</p>'
+            . '<p>Cotisation couple : 46 €</p><p>Cotisation familiale : 39 €</p>';
+
+        foreach ([$old . $new, $new . $old] as $html) {
+            $scale = FederalScaleExtractor::extract($html);
+            $this->assertSame('2026-2027', $scale?->year);
+            $this->assertSame([5750, 4600, 3900], [$scale->normalCents, $scale->coupleCents, $scale->familyCents]);
+        }
+    }
+
+    /**
      * The live page's defects, which cut `strip_tags()` short before the
      * amounts — seen again on the first live run of this checker.
      */

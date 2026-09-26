@@ -103,7 +103,10 @@ class FeeAccuracyController extends AbstractController
         // else. They are shown in the form's own fields, unsaved. Failing
         // that, the shipped scale — only on an empty barème, only for the
         // year on screen (ShippedScaleService says why).
-        $suggested = SuggestedScale::take() ?? $this->shippedScale->suggestionFor($year->label);
+        // Not after a failed lookup, whose message says nothing was filled.
+        $declined = SuggestedScale::takeDeclined();
+        $suggested = SuggestedScale::take()
+            ?? ($declined ? null : $this->shippedScale->suggestionFor($year->label));
 
         return $this->render('@fees/accuracy.html.twig', [
             'scout_year_label' => $year->label,
@@ -288,6 +291,7 @@ class FeeAccuracyController extends AbstractController
         $lookup = $this->federalScale->lookup($year->label, AuthSession::getUserAccountId());
 
         if (!$lookup->isFound()) {
+            SuggestedScale::decline();
             FlashMessage::set('error', $lookup->message);
 
             return $this->redirect(self::PATH);

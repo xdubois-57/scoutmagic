@@ -54,7 +54,7 @@ Replié en haut de la page. Trois montants, un par catégorie, qui ne servent
 qu'à traduire un écart en euros. Sans eux, un écart s'affiche sans montant
 plutôt qu'avec un montant faux.
 
-Tant qu'aucun montant n'est enregistré, le site pré-remplit les trois
+Tant que le barème n'a jamais été enregistré, le site pré-remplit les trois
 champs avec les montants fédéraux livrés avec lui, s'ils portent sur
 l'année de l'écran. Le bloc affiche cette année, la date du relevé et un
 lien vers la page de la fédération. Vérifiez, puis cliquez sur

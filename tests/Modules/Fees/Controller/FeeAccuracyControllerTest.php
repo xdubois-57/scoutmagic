@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Fees\Controller;
 
+use Core\Http\FlashMessage;
 use Core\Config\AppConfig;
 use Core\Config\ScoutYearService;
 use Core\Config\SettingRepository;
@@ -623,6 +624,32 @@ class FeeAccuracyControllerTest extends TestCase
         $this->assertStringContainsString('vérifiez puis enregistrez', $body);
         // A proposal on a GET: nothing reached the table.
         $this->assertSame(0, $this->storedTariffRows());
+    }
+
+    /**
+     * A failed lookup says nothing was pre-filled: the page it redirects to
+     * must not open pre-filled from the shipped scale either. The next
+     * visit offers it again.
+     */
+    public function testAFailedLookupIsNotContradictedByTheShippedScale(): void
+    {
+        $this->switchToTheShippedYear();
+        $this->useLookupService($this->lookupAnswering(
+            '{"annee": "2027-2028", "normale": "59", "couple": "47,50", "familiale": "40,25"}'
+        ));
+        AuthSession::login(1, 'admin@test.be', 'admin');
+
+        $this->dispatch('POST', '/admin/fees/tarifs/bareme/chercher', 'lookupTariffs', [
+            '_csrf_token' => CsrfGuard::generateToken(),
+        ]);
+        $this->assertSame('error', FlashMessage::get()['type'] ?? null);
+
+        $body = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
+        $this->assertStringNotContainsString('value="57,50"', $body);
+        $this->assertStringNotContainsString('Montants fédéraux', $body);
+
+        $again = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
+        $this->assertStringContainsString('value="57,50"', $again);
     }
 
     /** The shipped file is 2026-2027; this unit's screen is about 2025-2026. */

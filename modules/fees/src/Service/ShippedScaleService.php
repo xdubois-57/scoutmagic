@@ -16,9 +16,10 @@ use Modules\Fees\Support\ShippedFederalScale;
  *
  * Two conditions, both required:
  *
- * - **no amount is stored** in `fees_household_tariffs` — a unit that
- *   typed or saved even one figure has made the barème its own, and a
- *   shipped figure must never sit over it;
+ * - **the barème was never saved** — a unit that saved it, even with its
+ *   amounts left empty on purpose, has made it its own, and a shipped
+ *   figure must never sit over it; offered again on every visit, it would
+ *   be saved by the next unrelated change to the panel;
  * - **the file's year is the year the screen is about** — the effective
  *   scout year, the same one « Chercher les montants » compares its answer
  *   with. Last season's amounts in this season's fields would be three
@@ -54,7 +55,7 @@ class ShippedScaleService
      */
     public function suggestionFor(string $scoutYearLabel): ?array
     {
-        if ($this->tariffs->hasAnyAmount()) {
+        if ($this->tariffs->wasEverSaved()) {
             return null;
         }
 

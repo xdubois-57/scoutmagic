@@ -71,12 +71,16 @@ final class ShippedScaleServiceTest extends TestCase
         $this->assertNull((new ShippedScaleService($this->tariffs))->suggestionFor('2026-2027'));
     }
 
-    /** A mapping without an amount is still an empty barème. */
-    public function testAStoredMappingWithoutAmountsStillGetsTheShippedScale(): void
+    /**
+     * Saved with its amounts left empty is a choice, not a blank: offered
+     * again on every visit, the shipped figures would be saved by the next
+     * unrelated change to the panel.
+     */
+    public function testABaremeSavedEmptyIsNotPreFilled(): void
     {
         $this->tariffs->save(HouseholdFeeCategory::COUPLE, null, null);
 
-        $this->assertNotNull((new ShippedScaleService($this->tariffs))->suggestionFor('2026-2027'));
+        $this->assertNull((new ShippedScaleService($this->tariffs))->suggestionFor('2026-2027'));
     }
 
     public function testNothingIsWritten(): void
