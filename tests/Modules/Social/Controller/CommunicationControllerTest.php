@@ -219,7 +219,10 @@ final class CommunicationControllerTest extends TestCase
         $sorted = $positions;
         sort($sorted);
         $this->assertSame($sorted, $positions, 'In the mockup\'s order.');
-        $this->assertStringContainsString('Une image téléversée part telle quelle. Une image de la galerie est toujours floutée.', $html);
+        $this->assertStringContainsString(
+            'Une image téléversée part telle quelle. Une image de la galerie est toujours floutée sur Facebook et Instagram.',
+            $html
+        );
     }
 
     public function testGalleryButtonSavesTheTextAndOpensThePicker(): void
