@@ -10,7 +10,7 @@ use PHPUnit\Framework\TestCase;
  * « Fixe le backlog » used to mean the accepted issues and nothing else,
  * and the gap that left was only ever visible at the worst moment.
  *
- * `scripts/release.sh` runs six gates before it writes a single commit,
+ * `scripts/release.sh` runs seven gates before it writes a single commit,
  * and three of them describe the state of the repository rather than the
  * state of the change being released: dependency freshness, SonarQube
  * Cloud, and the security queries. None of them is anybody's job between
