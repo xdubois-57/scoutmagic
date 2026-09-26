@@ -25,11 +25,16 @@ use PHPUnit\Framework\TestCase;
  * - the CLAIM, which must be a git ref because creating one is atomic
  *   server-side. A label or an assignee is not: two agents can apply either
  *   in the same second, both see success, and both do the ticket;
- * - the MERGE LOCK, because « fusionne les PR une par une, jamais en même
- *   temps » cannot be honoured by an agent that cannot see the others. It was
- *   asked for twice, and the reason survives the redesign unchanged: `main`
- *   moves under the second merge, « require branches up to date » is off
- *   here, and GitHub merges happily against a base that no longer exists.
+ * - the ABSENCE of a merge lock, and the written reason for it. « Fusionne
+ *   les PR une par une, jamais en même temps » was asked for twice and cannot
+ *   be honoured by an agent that does not merge: it arms auto-merge, and
+ *   GitHub merges when the ruleset is satisfied, at a moment no agent
+ *   chooses. Four attempts to bridge that with a git ref each produced a new
+ *   hole instead of a mutex, and `docs/quality-pipeline.md` § Branch ruleset
+ *   had already decided to accept the window and named the maintainer as the
+ *   one who answers for it. So what this file pins is that the EXPLANATION
+ *   stays written down — a section that merely lacked a lock would read as an
+ *   oversight worth correcting.
  *
  * The 50-file ceiling stays too, as the one number #257 bought: 40 issues,
  * 188 files, `Claude review` cancelled at 20m20s and again at 20m21s with the

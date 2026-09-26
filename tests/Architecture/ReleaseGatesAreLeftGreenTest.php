@@ -130,7 +130,7 @@ final class ReleaseGatesAreLeftGreenTest extends TestCase
         $this->assertStringContainsString(
             '**Dependency work and SonarQube Cloud work are each their own pull',
             self::agentRules(),
-            'AGENTS.md no longer says that the dependency and SonarCloud work are blocks of their own, '
+            'AGENTS.md no longer says that the dependency and SonarCloud work are pull requests of their own, '
             . 'so the next agent may fold a lockfile bump into a pull request opened to fix an issue.',
         );
     }
