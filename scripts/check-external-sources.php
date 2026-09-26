@@ -31,6 +31,14 @@ use Core\ExternalSource\ExternalSourceChecker;
 use Core\ExternalSource\ExternalSources;
 use Core\ExternalSource\StreamPageFetcher;
 
+// The in-code guard is the authority (SECURITY.md §24): scripts/ ships, and
+// .htaccess does not apply on nginx. Served over HTTP, each request would
+// fetch every registered page.
+if (PHP_SAPI !== 'cli') {
+    fwrite(STDERR, "check-external-sources.php is a CLI script.\n");
+    exit(1);
+}
+
 $autoload = dirname(__DIR__) . '/vendor/autoload.php';
 if (!is_file($autoload)) {
     fwrite(STDERR, "vendor/autoload.php not found — run composer install first.\n");

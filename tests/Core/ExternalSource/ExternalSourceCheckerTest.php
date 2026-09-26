@@ -262,4 +262,18 @@ final class ExternalSourceCheckerTest extends TestCase
         $this->assertFalse(ExternalSourceChecker::allConform([$ok, $dead]));
         $this->assertTrue(ExternalSourceChecker::allConform([$ok]));
     }
+
+    /**
+     * scripts/ ships with the artifact and .htaccess does not apply on
+     * nginx, so the script refuses a web request itself, before it loads
+     * anything or fetches a single page (SECURITY.md §24).
+     */
+    public function testTheScriptRefusesAnythingButTheCommandLineFirst(): void
+    {
+        $script = (string) file_get_contents(dirname(__DIR__, 3) . '/scripts/check-external-sources.php');
+
+        $guard = strpos($script, "if (PHP_SAPI !== 'cli') {");
+        $this->assertNotFalse($guard, 'The script has no CLI guard.');
+        $this->assertLessThan((int) strpos($script, 'require $autoload'), $guard);
+    }
 }
