@@ -67,6 +67,5 @@ plus l'autorisation, la carte l'affiche et le journal le note une fois ;
 « Déconnecter » efface le compte et la clé secrète de l'application. Ce
 qui a déjà été publié reste sur Facebook et Instagram.
 
-Meta reçoit ce que l'unité publie : c'est un destinataire au sens du
-RGPD. Tant qu'un compte est raccordé, la page Protection des données
+Raccorder un compte fait de Meta un destinataire au sens du RGPD. Tant qu'un compte est raccordé, la page Protection des données
 générée par IA le mentionne ; vérifiez-la après la première connexion.

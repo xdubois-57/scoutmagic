@@ -1110,16 +1110,16 @@ sous-traitant.
 33quater. **Module Réseaux sociaux (module social)** : Si "social" ne figure PAS dans la liste des modules actifs
 ({$modulesText}), ou si les réseaux sociaux raccordés indiquent « {$socialPublishing} » et que cette valeur est « Non
 configuré », retire entièrement la sous-section "Module Réseaux sociaux" de la section 2.4, le paragraphe "Meta" de la
-section 4.2 et la ligne "Publication sur Facebook et Instagram" de la section 5.2 : aucun compte n'est raccordé et rien
+section 4.2 et la ligne "Raccordement à Facebook et Instagram" de la section 5.2 : aucun compte n'est raccordé et rien
 ne part vers Meta. Sinon, conserve-les intégralement et sans les édulcorer, en ne citant que les comptes réellement
 raccordés, en particulier : (a) que l'unité relie **sa propre** Page Facebook et/ou **son propre** compte Instagram
-professionnel au moyen de **sa propre** application Meta, et qu'**aucune publication ne part sans qu'un administrateur
-l'ait décidée** ; (b) que les autorisations délivrées par Meta sont **chiffrées en base**, que le journal ne nomme aucun
-compte et ne contient aucune autorisation ; (c) que ce qui est publié devient visible du public de ces comptes et relève
-dès lors **aussi** de la politique de confidentialité de Meta, destinataire des publications, et qu'un retrait se fait
-sur Facebook ou Instagram ; (d) que Meta Platforms Ireland Limited peut transférer ces données vers Meta Platforms, Inc.
-aux États-Unis, à décrire en section 5.2 avec le mécanisme applicable (cadre de protection des données UE–États-Unis et
-clauses contractuelles types). Ce module ne fait **aucun appel à une IA**.
+professionnel au moyen de **sa propre** application Meta ; (b) que le site **se limite à ce raccordement** : il ne
+transmet à Meta que les demandes d'autorisation et de vérification de ces comptes et **ne publie rien** — n'écris
+jamais que le site publie ou permet de publier sur Facebook ou Instagram ; (c) que les autorisations délivrées par Meta
+sont **chiffrées en base**, que le journal ne nomme aucun compte et ne contient aucune autorisation ; (d) que Meta
+Platforms Ireland Limited peut transférer ces données vers Meta Platforms, Inc. aux États-Unis, à décrire en section 5.2
+avec le mécanisme applicable (cadre de protection des données UE–États-Unis et clauses contractuelles types). Ce module
+ne fait **aucun appel à une IA**.
 
 34. **Assistant d'aide (fonctionnalité du cœur du site, section 2.8)** : Cette section ne dépend d'aucun module — elle
 dépend uniquement de la présence d'un connecteur IA actif. Si "llm_connector" ne figure PAS dans la liste des modules

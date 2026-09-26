@@ -79,7 +79,8 @@ class ConnectionRepository
         $kept = new ConnectionSecrets(
             $appSecret ?? $secrets->appSecret,
             $sameApp ? $secrets->accessToken : '',
-            $sameApp ? $secrets->pendingUserToken : ''
+            $sameApp ? $secrets->pendingUserToken : '',
+            $sameApp ? $secrets->pendingSince : ''
         );
 
         if ($current === null) {
@@ -103,13 +104,37 @@ class ConnectionRepository
      * several Pages. The previous connection, if any, stays as it was
      * until they do.
      */
-    public function holdPendingUserToken(SocialPlatform $platform, string $userToken): void
+    public function holdPendingUserToken(SocialPlatform $platform, string $userToken, \DateTimeImmutable $now): void
     {
         $secrets = $this->secretsOf($platform);
         $this->writeSecrets(
             $platform,
-            new ConnectionSecrets($secrets->appSecret, $secrets->accessToken, $userToken)
+            new ConnectionSecrets($secrets->appSecret, $secrets->accessToken, $userToken, $now->format(DATE_ATOM))
         );
+    }
+
+    /**
+     * Drops a held user token older than `$before`: whoever was choosing a
+     * Page did not finish, and the token can reach every Page they manage.
+     * One without a date is older than anything.
+     *
+     * @return bool whether one was dropped
+     */
+    public function dropPendingUserTokenHeldBefore(SocialPlatform $platform, \DateTimeImmutable $before): bool
+    {
+        $secrets = $this->secretsOf($platform);
+        if ($secrets->pendingUserToken === '') {
+            return false;
+        }
+
+        $since = DateInput::fromStorage($secrets->pendingSince);
+        if ($since !== null && $since > $before) {
+            return false;
+        }
+
+        $this->writeSecrets($platform, new ConnectionSecrets($secrets->appSecret, $secrets->accessToken));
+
+        return true;
     }
 
     /**
@@ -133,7 +158,7 @@ class ConnectionRepository
         )->execute([
             $accountId,
             mb_substr($accountName, 0, 255),
-            $this->encrypt(new ConnectionSecrets($secrets->appSecret, $accessToken, '')),
+            $this->encrypt(new ConnectionSecrets($secrets->appSecret, $accessToken)),
             $stamp,
             $stamp,
             $expiresAt?->format('Y-m-d H:i:s'),
@@ -155,7 +180,12 @@ class ConnectionRepository
             'UPDATE social_connections SET secrets = ?, token_refreshed_at = ?, token_expires_at = ?'
             . ' WHERE platform = ?'
         )->execute([
-            $this->encrypt(new ConnectionSecrets($secrets->appSecret, $accessToken, $secrets->pendingUserToken)),
+            $this->encrypt(new ConnectionSecrets(
+                $secrets->appSecret,
+                $accessToken,
+                $secrets->pendingUserToken,
+                $secrets->pendingSince
+            )),
             $now->format('Y-m-d H:i:s'),
             $expiresAt?->format('Y-m-d H:i:s'),
             $platform->value,

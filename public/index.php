@@ -10324,8 +10324,8 @@ if ($isEnabled('social')) {
         new \Modules\Social\Controller\ConfigController(
             $twig,
             $socialConnectionRepo,
-            $settingService,
-            $journalService
+            new \Modules\Social\Service\ConnectionService($socialConnectionRepo, $journalService),
+            $settingService
         )
     );
 

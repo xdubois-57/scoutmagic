@@ -19,6 +19,7 @@ use Modules\Social\Api\SocialPlatform;
 use Modules\Social\Controller\ConfigController;
 use Modules\Social\Meta\MetaClient;
 use Modules\Social\Repository\ConnectionRepository;
+use Modules\Social\Service\ConnectionService;
 use PHPUnit\Framework\TestCase;
 use Tests\Core\Http\Controller\RecordingJournalRepository;
 use Tests\Core\Http\Controller\RemoteBackupSettingsDouble;
@@ -340,6 +341,60 @@ final class ConfigControllerTest extends TestCase
         $this->assertNotNull($this->connections->find(SocialPlatform::Instagram));
     }
 
+    public function testReconnectingWithSeveralPagesShowsThePickerOverTheConnectedCard(): void
+    {
+        $this->connections->saveCredentials(SocialPlatform::Facebook, '123456', 'S');
+        $this->connections->connect(SocialPlatform::Facebook, '41', 'Ancienne page', 'OLD', null, new \DateTimeImmutable());
+        SessionStore::set('social_oauth_state_facebook', 'st');
+        $this->meta->answers = $this->facebookAnswers([
+            ['id' => '41', 'name' => 'Ancienne page', 'access_token' => 'P41'],
+            ['id' => '42', 'name' => 'Unité 25', 'access_token' => 'P42'],
+        ]);
+        AuthSession::login(1, 'super@test.be', 'superadmin');
+
+        $this->controller()->callback($this->get(['state' => 'st', 'code' => 'C']), ['platform' => 'facebook']);
+        $page = $this->frontController('GET', '/config/reseaux-sociaux', 'index')
+            ->handle(new Request('GET', '/config/reseaux-sociaux', [], [], [], []))->getBody();
+
+        $this->assertStringContainsString('Quelle Page est celle de l\'unité ?', $page);
+        $this->assertStringContainsString('Unité 25', $page);
+
+        $this->controller()->choosePage($this->post(['page_id' => '42']), []);
+        $this->assertSame('42', $this->connections->find(SocialPlatform::Facebook)?->accountId);
+        $this->assertSame(1, $this->journal->countOf('reconnected'));
+    }
+
+    public function testMetaNotAnsweringIsNotARefusal(): void
+    {
+        $this->connections->saveCredentials(SocialPlatform::Facebook, '123456', 'S');
+        $this->connections->connect(SocialPlatform::Facebook, '42', 'Unité 25', 'P', null, new \DateTimeImmutable());
+        $this->meta->answers = ['graph.facebook.com' => ['status' => 503, 'body' => 'Service Unavailable']];
+
+        $this->controller()->test($this->post([]), ['platform' => 'facebook']);
+
+        $this->assertTrue($this->connections->find(SocialPlatform::Facebook)?->checkOk, 'The last verdict stands.');
+        $this->assertSame(0, $this->journal->countOf('auth_failed'));
+        $this->assertStringContainsString('Réessayez', FlashMessage::get()['message'] ?? '');
+    }
+
+    public function testAnExpiredTokenIsReportedWithoutCallingMeta(): void
+    {
+        $this->connections->saveCredentials(SocialPlatform::Instagram, '123456', 'S');
+        $this->connections->connect(
+            SocialPlatform::Instagram,
+            '9',
+            'unite25sv',
+            'T',
+            new \DateTimeImmutable('-1 day'),
+            new \DateTimeImmutable('-61 days')
+        );
+
+        $this->controller()->test($this->post([]), ['platform' => 'instagram']);
+
+        $this->assertSame([], $this->meta->requests);
+        $this->assertStringContainsString('expiré', FlashMessage::get()['message'] ?? '');
+    }
+
     /**
      * @param list<array{id: string, name: string, access_token: string}> $pages
      * @return array<string, array{status: int, body: string}>
@@ -361,12 +416,14 @@ final class ConfigControllerTest extends TestCase
 
     private function controller(): ConfigController
     {
+        $meta = new MetaClient($this->meta);
+
         return new ConfigController(
             $this->twig(),
             $this->connections,
+            new ConnectionService($this->connections, new JournalService($this->journal), $meta),
             $this->settings,
-            new JournalService($this->journal),
-            new MetaClient($this->meta)
+            $meta
         );
     }
 

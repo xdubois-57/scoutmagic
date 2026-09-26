@@ -16,6 +16,9 @@ namespace Modules\Social\Repository;
  * Instagram user token), and — only between the Facebook consent and the
  * choice of a Page — the long-lived user token that lists the Pages. The
  * last one is dropped as soon as a Page is chosen: nothing needs it after.
+ * `pendingSince` dates it, so that one nobody chose a Page for — a tab
+ * closed, a session expired — is dropped by the nightly task a day later
+ * rather than kept for ever.
  *
  * Never logged, never rendered, never put in an exception message.
  */
@@ -25,6 +28,7 @@ final class ConnectionSecrets
         public readonly string $appSecret = '',
         public readonly string $accessToken = '',
         public readonly string $pendingUserToken = '',
+        public readonly string $pendingSince = '',
     ) {
     }
 
@@ -39,6 +43,7 @@ final class ConnectionSecrets
             is_string($data['app_secret'] ?? null) ? $data['app_secret'] : '',
             is_string($data['access_token'] ?? null) ? $data['access_token'] : '',
             is_string($data['pending_user_token'] ?? null) ? $data['pending_user_token'] : '',
+            is_string($data['pending_since'] ?? null) ? $data['pending_since'] : '',
         );
     }
 
@@ -48,6 +53,7 @@ final class ConnectionSecrets
             'app_secret' => $this->appSecret,
             'access_token' => $this->accessToken,
             'pending_user_token' => $this->pendingUserToken,
+            'pending_since' => $this->pendingSince,
         ]);
     }
 }

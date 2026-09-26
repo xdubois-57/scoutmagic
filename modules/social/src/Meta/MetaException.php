@@ -18,6 +18,9 @@ use Core\Exception\UserFacingException;
  * what Meta itself said — its error code and message, tokens redacted —
  * for the journal only. Meta's prose is English, and it has no place in a
  * sentence a volunteer reads.
+ *
+ * `transient` marks a failure that says nothing about the authorisation —
+ * no answer, a 5xx, a rate limit: a check keeps its last verdict on one.
  */
 final class MetaException extends \RuntimeException implements UserFacingException
 {
@@ -27,14 +30,20 @@ final class MetaException extends \RuntimeException implements UserFacingExcepti
     public function __construct(
         string $message,
         public readonly string $detail = '',
-        public readonly bool $authRefused = false
+        public readonly bool $authRefused = false,
+        public readonly bool $transient = false
     ) {
         parent::__construct($message);
     }
 
     public static function unreachable(): self
     {
-        return new self('Meta ne répond pas. Vérifiez la connexion du serveur à Internet, puis réessayez.', 'no response');
+        return new self(
+            'Meta ne répond pas. Vérifiez la connexion du serveur à Internet, puis réessayez.',
+            'no response',
+            false,
+            true
+        );
     }
 
     /**
@@ -51,6 +60,12 @@ final class MetaException extends \RuntimeException implements UserFacingExcepti
                 $detail,
                 true
             );
+        }
+
+        // Meta down, or asking to slow down: says nothing about the
+        // authorisation, so a check must not conclude that it was refused.
+        if ($status >= 500 || $status === 429) {
+            return new self('Meta ne répond pas pour l\'instant. Réessayez plus tard.', $detail, false, true);
         }
 
         return new self('Meta a refusé la demande. Le journal en garde le détail.', $detail);

@@ -13,13 +13,14 @@ use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
-use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\SessionStore;
 use Modules\Social\Api\SocialPlatform;
 use Modules\Social\Meta\MetaClient;
 use Modules\Social\Meta\MetaException;
 use Modules\Social\Repository\ConnectionRepository;
+use Modules\Social\Service\CheckOutcome;
+use Modules\Social\Service\ConnectionService;
 use Twig\Environment;
 
 /**
@@ -38,9 +39,9 @@ use Twig\Environment;
  * connexion » and « Reconnecter »: one platform can be broken while the
  * other works, and a single pair of buttons could not say which.
  *
- * **The journal names no account.** Connected, reconnected, refused,
- * disconnected — with the platform and nothing else. The Page's name or the
- * handle are on this page, for the administrator who needs them.
+ * **What changes a connection is {@see ConnectionService}'s**, shared with
+ * the nightly task; this class keeps what belongs to a request — the CSRF
+ * guard, the `state` and the offered Pages in the session, the flash.
  */
 final class ConfigController extends AbstractController
 {
@@ -54,8 +55,8 @@ final class ConfigController extends AbstractController
     public function __construct(
         Environment $twig,
         private readonly ConnectionRepository $connections,
+        private readonly ConnectionService $service,
         private readonly SettingService $settings,
-        private readonly JournalService $journalService,
         private readonly MetaClient $meta = new MetaClient()
     ) {
         parent::__construct($twig);
@@ -116,8 +117,7 @@ final class ConfigController extends AbstractController
             return $this->redirect(self::PAGE_URL);
         }
 
-        $this->connections->saveCredentials($platform, $appId, $appSecret === '' ? null : $appSecret);
-        $this->journal($platform, 'credentials_saved', 'security', 'Identifiants de l\'application Meta enregistrés');
+        $this->service->saveCredentials($platform, $appId, $appSecret === '' ? null : $appSecret, self::userId());
         FlashMessage::set('success', 'Identifiants enregistrés. Vous pouvez maintenant connecter le compte.');
 
         return $this->redirect(self::PAGE_URL);
@@ -159,7 +159,6 @@ final class ConfigController extends AbstractController
         // every return for a reason nobody could see.
         $state = bin2hex(random_bytes(16));
         SessionStore::set(self::STATE_SESSION_KEY . $platform->value, $state);
-
         $appId = $connection->appId;
 
         return $this->redirect(match ($platform) {
@@ -185,54 +184,40 @@ final class ConfigController extends AbstractController
         SessionStore::remove(self::STATE_SESSION_KEY . $platform->value);
         $expected = is_string($stored) ? $stored : '';
         if ($expected === '' || !hash_equals($expected, (string) $request->getQuery('state', ''))) {
-            FlashMessage::set('error', 'Le retour de Meta n\'a pas pu être vérifié. Recommencez la connexion.');
-
-            return $this->redirect(self::PAGE_URL);
+            return $this->back('error', 'Le retour de Meta n\'a pas pu être vérifié. Recommencez la connexion.');
         }
 
         // « Annuler » on Meta's screen: not an incident.
         if ((string) $request->getQuery('error', '') !== '') {
-            FlashMessage::set('error', 'La connexion a été annulée : Meta n\'a pas accordé l\'autorisation.');
-
-            return $this->redirect(self::PAGE_URL);
+            return $this->back('error', 'La connexion a été annulée : Meta n\'a pas accordé l\'autorisation.');
         }
 
         $code = (string) $request->getQuery('code', '');
-        $connection = $this->connections->find($platform);
-        if ($code === '' || $connection === null || !$connection->hasAppSecret) {
-            FlashMessage::set('error', 'Meta n\'a renvoyé aucun code d\'autorisation. Recommencez la connexion.');
-
-            return $this->redirect(self::PAGE_URL);
+        if ($code === '') {
+            return $this->back('error', 'Meta n\'a renvoyé aucun code d\'autorisation. Recommencez la connexion.');
         }
-
-        $wasConnected = $connection->isConnected();
-        $appSecret = $this->connections->secretsOf($platform)->appSecret;
-        $redirectUri = self::redirectUriFor($this->baseUrl(), $platform);
 
         try {
-            if ($platform === SocialPlatform::Facebook) {
-                return $this->receiveFacebook($connection->appId, $appSecret, $redirectUri, $code, $wasConnected);
-            }
-
-            $token = $this->meta->instagramToken($connection->appId, $appSecret, $redirectUri, $code);
-            $account = $this->meta->instagramAccount($token['token']);
-            $now = new \DateTimeImmutable();
-            $this->connections->connect(
+            $offered = $this->service->receiveCode(
                 $platform,
-                $account['id'],
-                $account['username'],
-                $token['token'],
-                self::expiry($now, $token['expires_in']),
-                $now
+                self::redirectUriFor($this->baseUrl(), $platform),
+                $code,
+                new \DateTimeImmutable(),
+                self::userId()
             );
         } catch (MetaException $e) {
-            $this->journalRefusal($platform, $e);
-            FlashMessage::set('error', $e->getMessage());
-
-            return $this->redirect(self::PAGE_URL);
+            return $this->back('error', $e->getMessage());
         }
 
-        return $this->connected($platform, $wasConnected);
+        if ($offered !== []) {
+            SessionStore::set(self::PAGES_SESSION_KEY, $offered);
+
+            return $this->back('warning', 'Ce compte gère plusieurs Pages : choisissez celle de l\'unité.');
+        }
+
+        SessionStore::remove(self::PAGES_SESSION_KEY);
+
+        return $this->back('success', self::connectedMessage($platform));
     }
 
     /**
@@ -247,35 +232,22 @@ final class ConfigController extends AbstractController
         }
 
         $offered = SessionStore::get(self::PAGES_SESSION_KEY);
-        $pageId = (string) $request->getBody('page_id', '');
-        $offeredIds = is_array($offered) ? array_column($offered, 'id') : [];
-        $userToken = $this->connections->secretsOf(SocialPlatform::Facebook)->pendingUserToken;
-        // Only a Page this very consent offered: the list is the session's,
-        // not the form's.
-        if ($userToken === '' || !in_array($pageId, $offeredIds, true)) {
-            FlashMessage::set('error', 'Cette Page n\'a pas été proposée par Meta. Recommencez la connexion.');
-
-            return $this->redirect(self::PAGE_URL);
-        }
-
-        $wasConnected = $this->connections->find(SocialPlatform::Facebook)?->isConnected() === true;
+        $offeredIds = is_array($offered) ? array_map('strval', array_column($offered, 'id')) : [];
 
         try {
-            foreach ($this->meta->facebookPages($userToken) as $page) {
-                if ($page['id'] === $pageId) {
-                    return $this->attachPage($page, $wasConnected);
-                }
-            }
+            $this->service->choosePage(
+                (string) $request->getBody('page_id', ''),
+                $offeredIds,
+                new \DateTimeImmutable(),
+                self::userId()
+            );
         } catch (MetaException $e) {
-            $this->journalRefusal(SocialPlatform::Facebook, $e);
-            FlashMessage::set('error', $e->getMessage());
-
-            return $this->redirect(self::PAGE_URL);
+            return $this->back('error', $e->getMessage());
         }
 
-        FlashMessage::set('error', 'Meta ne donne plus accès à cette Page. Recommencez la connexion.');
+        SessionStore::remove(self::PAGES_SESSION_KEY);
 
-        return $this->redirect(self::PAGE_URL);
+        return $this->back('success', self::connectedMessage(SocialPlatform::Facebook));
     }
 
     /**
@@ -293,32 +265,16 @@ final class ConfigController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        $connection = $this->connections->find($platform);
-        if ($connection === null || !$connection->isConnected()) {
-            FlashMessage::set('error', 'Aucun compte n\'est connecté.');
+        [$outcome, $error] = $this->service->check($platform, new \DateTimeImmutable(), self::userId());
 
-            return $this->redirect(self::PAGE_URL);
-        }
-
-        $token = $this->connections->secretsOf($platform)->accessToken;
-        $now = new \DateTimeImmutable();
-
-        try {
-            $name = $platform === SocialPlatform::Facebook
-                ? $this->meta->facebookPageName((string) $connection->accountId, $token)
-                : $this->meta->instagramAccount($token)['username'];
-        } catch (MetaException $e) {
-            $this->connections->recordCheck($platform, false, $now);
-            $this->journalRefusal($platform, $e);
-            FlashMessage::set('error', $e->getMessage());
-
-            return $this->redirect(self::PAGE_URL);
-        }
-
-        $this->connections->recordCheck($platform, true, $now, $name);
-        FlashMessage::set('success', 'Connexion vérifiée : Meta répond et accepte l\'autorisation de ce site.');
-
-        return $this->redirect(self::PAGE_URL);
+        return match ($outcome) {
+            CheckOutcome::Ok => $this->back(
+                'success',
+                'Connexion vérifiée : Meta répond et accepte l\'autorisation de ce site.'
+            ),
+            CheckOutcome::NotConnected => $this->back('error', 'Aucun compte n\'est connecté.'),
+            default => $this->back('error', (string) $error?->getMessage()),
+        };
     }
 
     /**
@@ -337,14 +293,12 @@ final class ConfigController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        $this->connections->delete($platform);
+        $this->service->disconnect($platform, self::userId());
         if ($platform === SocialPlatform::Facebook) {
             SessionStore::remove(self::PAGES_SESSION_KEY);
         }
-        $this->journal($platform, 'disconnected', 'security', 'Compte déconnecté du site');
-        FlashMessage::set('success', 'Compte déconnecté. Ce site ne peut plus y publier.');
 
-        return $this->redirect(self::PAGE_URL);
+        return $this->back('success', 'Compte déconnecté. Ce site ne peut plus y publier.');
     }
 
     /**
@@ -360,93 +314,24 @@ final class ConfigController extends AbstractController
         return $base === '' ? '' : $base . self::PAGE_URL . '/' . $platform->value . '/retour';
     }
 
-    private function receiveFacebook(
-        string $appId,
-        string $appSecret,
-        string $redirectUri,
-        string $code,
-        bool $wasConnected
-    ): Response {
-        $userToken = $this->meta->facebookUserToken($appId, $appSecret, $redirectUri, $code);
-        $pages = $this->meta->facebookPages($userToken);
-
-        if ($pages === []) {
-            FlashMessage::set('error', 'Ce compte Facebook ne gère aucune Page, ou n\'en a partagé aucune avec '
-                . 'l\'application. Reconnectez-vous et cochez la Page de l\'unité.');
-
-            return $this->redirect(self::PAGE_URL);
-        }
-
-        if (count($pages) === 1) {
-            return $this->attachPage($pages[0], $wasConnected);
-        }
-
-        $this->connections->holdPendingUserToken(SocialPlatform::Facebook, $userToken);
-        SessionStore::set(
-            self::PAGES_SESSION_KEY,
-            array_map(static fn (array $page): array => ['id' => $page['id'], 'name' => $page['name']], $pages)
-        );
-        FlashMessage::set('warning', 'Ce compte gère plusieurs Pages : choisissez celle de l\'unité.');
+    private function back(string $type, string $message): Response
+    {
+        FlashMessage::set($type, $message);
 
         return $this->redirect(self::PAGE_URL);
     }
 
-    /**
-     * @param array{id: string, name: string, access_token: string} $page
-     */
-    private function attachPage(array $page, bool $wasConnected): Response
+    private static function connectedMessage(SocialPlatform $platform): string
     {
-        // A Page token obtained from a long-lived user token has no end.
-        $this->connections->connect(
-            SocialPlatform::Facebook,
-            $page['id'],
-            $page['name'],
-            $page['access_token'],
-            null,
-            new \DateTimeImmutable()
-        );
-        SessionStore::remove(self::PAGES_SESSION_KEY);
-
-        return $this->connected(SocialPlatform::Facebook, $wasConnected);
-    }
-
-    private function connected(SocialPlatform $platform, bool $wasConnected): Response
-    {
-        $wasConnected
-            ? $this->journal($platform, 'reconnected', 'security', 'Compte reconnecté au site')
-            : $this->journal($platform, 'connected', 'security', 'Compte connecté au site');
-        FlashMessage::set('success', match ($platform) {
+        return match ($platform) {
             SocialPlatform::Facebook => 'Page Facebook connectée.',
             SocialPlatform::Instagram => 'Compte Instagram connecté.',
-        });
-
-        return $this->redirect(self::PAGE_URL);
+        };
     }
 
-    private function journalRefusal(SocialPlatform $platform, MetaException $e): void
+    private static function userId(): ?int
     {
-        $this->journalService->log(
-            'social',
-            'auth_failed',
-            'warning',
-            $platform->label() . ' : ' . $e->getMessage(),
-            // Meta's own words, tokens redacted — the only way to tell a
-            // wrong secret from a withdrawn authorisation afterwards.
-            ['platform' => $platform->value, 'detail' => $e->detail],
-            (int) AuthSession::getUserAccountId()
-        );
-    }
-
-    private function journal(SocialPlatform $platform, string $event, string $level, string $message): void
-    {
-        $this->journalService->log(
-            'social',
-            $event,
-            $level,
-            $platform->label() . ' : ' . $message,
-            ['platform' => $platform->value],
-            (int) AuthSession::getUserAccountId()
-        );
+        return AuthSession::getUserAccountId();
     }
 
     private function baseUrl(): string
@@ -460,10 +345,5 @@ final class ConfigController extends AbstractController
     private static function platform(array $params): ?SocialPlatform
     {
         return SocialPlatform::tryFrom((string) ($params['platform'] ?? ''));
-    }
-
-    private static function expiry(\DateTimeImmutable $now, ?int $seconds): ?\DateTimeImmutable
-    {
-        return $seconds === null ? null : $now->modify('+' . $seconds . ' seconds');
     }
 }

@@ -12,7 +12,21 @@
         <div class="card-body">
             <h2 class="h5 mb-3">{{ title }}</h2>
 
-            {% if connected %}
+            {% if platform == 'facebook' and page_choices %}
+                <form method="post" action="/config/reseaux-sociaux/facebook/page" class="mb-3">
+                    {{ csrf_field()|raw }}
+                    <fieldset>
+                        <legend class="h6">Quelle Page est celle de l'unité ?</legend>
+                        {% for page in page_choices %}
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="page_id" id="page-{{ page.id }}" value="{{ page.id }}" required>
+                                <label class="form-check-label" for="page-{{ page.id }}">{{ page.name }}</label>
+                            </div>
+                        {% endfor %}
+                    </fieldset>
+                    <button type="submit" class="btn btn-primary mt-2">Choisir cette Page</button>
+                </form>
+            {% elseif connected %}
                 <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
                     <strong data-account>{{ platform == 'instagram' ? '@' : '' }}{{ connection.accountName }}</strong>
                     {% if expired %}
@@ -45,20 +59,6 @@
                     </form>
                     <a class="btn btn-outline-secondary" href="/config/reseaux-sociaux/{{ platform }}/connecter">Reconnecter</a>
                 </div>
-            {% elseif platform == 'facebook' and page_choices %}
-                <form method="post" action="/config/reseaux-sociaux/facebook/page" class="mb-3">
-                    {{ csrf_field()|raw }}
-                    <fieldset>
-                        <legend class="h6">Quelle Page est celle de l'unité ?</legend>
-                        {% for page in page_choices %}
-                            <div class="form-check">
-                                <input class="form-check-input" type="radio" name="page_id" id="page-{{ page.id }}" value="{{ page.id }}" required>
-                                <label class="form-check-label" for="page-{{ page.id }}">{{ page.name }}</label>
-                            </div>
-                        {% endfor %}
-                    </fieldset>
-                    <button type="submit" class="btn btn-primary mt-2">Choisir cette Page</button>
-                </form>
             {% else %}
                 <p class="mb-3">
                     {% include 'partials/status_badge.html.twig' with { status: 'neutral', label: 'Non connecté' } only %}
@@ -88,19 +88,24 @@
                 </p>
                 <form method="post" action="/config/reseaux-sociaux/{{ platform }}/identifiants">
                     {{ csrf_field()|raw }}
-                    <div class="mb-3">
-                        <label class="form-label" for="{{ platform }}-app-id">Identifiant de l'application</label>
-                        <input class="form-control" type="text" inputmode="numeric" id="{{ platform }}-app-id" name="app_id"
-                               value="{{ connection ? connection.appId : '' }}" required autocomplete="off">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label" for="{{ platform }}-app-secret">Clé secrète de l'application</label>
-                        <input class="form-control" type="password" id="{{ platform }}-app-secret" name="app_secret" autocomplete="new-password"
-                               {{ connection and connection.hasAppSecret ? '' : 'required' }}>
-                        {% if connection and connection.hasAppSecret %}
-                            <div class="form-text">Laisser vide pour conserver la clé actuelle.</div>
-                        {% endif %}
-                    </div>
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: platform ~ '-app-id',
+                        field_name: 'app_id',
+                        label: "Identifiant de l'application",
+                        value: connection ? connection.appId : '',
+                        inputmode: 'numeric',
+                        required: true,
+                        autocomplete: 'off',
+                    } only %}
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: platform ~ '-app-secret',
+                        field_name: 'app_secret',
+                        label: "Clé secrète de l'application",
+                        type: 'password',
+                        required: not (connection and connection.hasAppSecret),
+                        help: connection and connection.hasAppSecret ? 'Laisser vide pour conserver la clé actuelle.' : null,
+                        autocomplete: 'new-password',
+                    } only %}
                     <button type="submit" class="btn btn-outline-primary">Enregistrer</button>
                 </form>
                 {% if connection %}

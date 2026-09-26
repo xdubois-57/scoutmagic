@@ -68,13 +68,32 @@ final class ConnectionRepositoryTest extends TestCase
     public function testChoosingAPageDropsTheHeldUserToken(): void
     {
         $this->repository->saveCredentials(SocialPlatform::Facebook, '123456', 'S');
-        $this->repository->holdPendingUserToken(SocialPlatform::Facebook, 'USER-TOKEN');
+        $this->repository->holdPendingUserToken(SocialPlatform::Facebook, 'USER-TOKEN', $this->now);
         $this->assertTrue($this->repository->find(SocialPlatform::Facebook)?->awaitsPageChoice);
 
         $this->repository->connect(SocialPlatform::Facebook, '42', 'Unité 25', 'PAGE-TOKEN', null, $this->now);
 
         $this->assertSame('', $this->repository->secretsOf(SocialPlatform::Facebook)->pendingUserToken);
         $this->assertFalse($this->repository->find(SocialPlatform::Facebook)?->awaitsPageChoice);
+    }
+
+    public function testAHeldUserTokenIsDroppedOnlyOnceItIsOldEnough(): void
+    {
+        $this->repository->saveCredentials(SocialPlatform::Facebook, '123456', 'S');
+        $this->repository->holdPendingUserToken(SocialPlatform::Facebook, 'USER-TOKEN', $this->now);
+
+        $this->assertFalse($this->repository->dropPendingUserTokenHeldBefore(
+            SocialPlatform::Facebook,
+            $this->now->modify('-1 hour')
+        ));
+        $this->assertSame('USER-TOKEN', $this->repository->secretsOf(SocialPlatform::Facebook)->pendingUserToken);
+
+        $this->assertTrue($this->repository->dropPendingUserTokenHeldBefore(
+            SocialPlatform::Facebook,
+            $this->now->modify('+1 hour')
+        ));
+        $this->assertSame('', $this->repository->secretsOf(SocialPlatform::Facebook)->pendingUserToken);
+        $this->assertSame('S', $this->repository->secretsOf(SocialPlatform::Facebook)->appSecret);
     }
 
     public function testARenewalAndACheckAreDated(): void

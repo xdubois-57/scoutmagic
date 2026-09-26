@@ -47,9 +47,9 @@ final class CheckConnectionsHandlerTest extends TestCase
         $this->runPass();
 
         $this->assertSame([], $this->meta->requests);
-        $this->assertSame(1, (int) $this->pdo->query(
-            "SELECT COUNT(*) FROM scheduled_actions WHERE module_id = 'social' AND task_key = 'check_connections'"
-        )->fetchColumn());
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM scheduled_actions WHERE module_id = ? AND task_key = ?');
+        $stmt->execute(['social', CheckConnectionsHandler::TASK_KEY]);
+        $this->assertSame(1, (int) $stmt->fetchColumn());
     }
 
     public function testAWeekOldInstagramTokenIsRenewedThenChecked(): void
@@ -107,6 +107,35 @@ final class CheckConnectionsHandlerTest extends TestCase
         $this->assertFalse($this->connections->find(SocialPlatform::Facebook)?->checkOk);
         $this->assertSame(1, $this->journal->countOf('auth_failed'));
         $this->assertStringContainsString('code 190', $this->journal->textOf('auth_failed'));
+    }
+
+    public function testANightWithoutAnAnswerChangesNothing(): void
+    {
+        $this->connections->saveCredentials(SocialPlatform::Facebook, '123456', 'S');
+        $this->connections->connect(SocialPlatform::Facebook, '42', 'Unité 25', 'PAGE', null, new \DateTimeImmutable('-3 days'));
+        $this->meta->answers = ['graph.facebook.com' => null];
+
+        $this->runPass();
+
+        $this->assertTrue($this->connections->find(SocialPlatform::Facebook)?->checkOk);
+        $this->assertSame(0, $this->journal->countOf('auth_failed'));
+
+        // A real withdrawal the night after is still journalled.
+        $this->meta->answers = ['graph.facebook.com' => ['status' => 400, 'body' => (string) json_encode(
+            ['error' => ['message' => 'Session invalidated', 'code' => 190]]
+        )]];
+        $this->runPass();
+        $this->assertSame(1, $this->journal->countOf('auth_failed'));
+    }
+
+    public function testAPageChoiceNobodyFinishedIsDroppedAfterADay(): void
+    {
+        $this->connections->saveCredentials(SocialPlatform::Facebook, '123456', 'S');
+        $this->connections->holdPendingUserToken(SocialPlatform::Facebook, 'USER', new \DateTimeImmutable('-2 days'));
+
+        $this->runPass();
+
+        $this->assertSame('', $this->connections->secretsOf(SocialPlatform::Facebook)->pendingUserToken);
     }
 
     private function instagram(\DateTimeImmutable $refreshedAt, \DateTimeImmutable $expiresAt): void

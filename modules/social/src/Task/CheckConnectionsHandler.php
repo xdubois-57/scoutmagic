@@ -13,8 +13,8 @@ use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Modules\Social\Api\SocialPlatform;
 use Modules\Social\Meta\MetaClient;
-use Modules\Social\Meta\MetaException;
 use Modules\Social\Repository\ConnectionRepository;
+use Modules\Social\Service\ConnectionService;
 
 /**
  * Once a day: renews the Instagram token before it runs out, and checks
@@ -34,7 +34,11 @@ use Modules\Social\Repository\ConnectionRepository;
  * « Publier ».
  *
  * The journal hears of a failure **once**, when a working connection
- * stops working — not every night after.
+ * stops working — not every night after; a night when Meta or the network
+ * does not answer changes nothing. The judgement is
+ * {@see ConnectionService::check()}'s, the same one « Tester la connexion »
+ * uses. The pass also drops a Facebook user token held for a Page choice
+ * nobody finished.
  *
  * Re-arms itself daily through rearm(), never schedule()
  * (Tests\Architecture\RecurringTasksRearmTest).
@@ -43,9 +47,6 @@ class CheckConnectionsHandler implements TaskHandlerInterface
 {
     public const TASK_KEY = 'check_connections';
     public const REFERENCE = 'daily';
-
-    /** Meta refuses a renewal younger than a day; a week keeps well clear of it. */
-    public const REFRESH_AFTER_DAYS = 7;
 
     public function __construct(private readonly ?MetaClient $meta = null)
     {
@@ -57,11 +58,16 @@ class CheckConnectionsHandler implements TaskHandlerInterface
     public function handle(array $payload, TaskContext $context): void
     {
         $pdo = $context->connection->getPdo();
-        $connections = new ConnectionRepository($pdo, $context->encryption);
-        $meta = $this->meta ?? new MetaClient();
+        $service = new ConnectionService(
+            new ConnectionRepository($pdo, $context->encryption),
+            $context->journal,
+            $this->meta ?? new MetaClient()
+        );
+        $now = new \DateTimeImmutable();
 
+        $service->dropAbandonedPageChoice($now);
         foreach (SocialPlatform::cases() as $platform) {
-            $this->checkOne($platform, $connections, $meta, $context);
+            $service->check($platform, $now, null, true);
         }
 
         SchedulerService::forPdo($pdo)->rearm(
@@ -69,79 +75,6 @@ class CheckConnectionsHandler implements TaskHandlerInterface
             self::TASK_KEY,
             self::REFERENCE,
             new \DateTimeImmutable('tomorrow 04:20')
-        );
-    }
-
-    private function checkOne(
-        SocialPlatform $platform,
-        ConnectionRepository $connections,
-        MetaClient $meta,
-        TaskContext $context
-    ): void {
-        $connection = $connections->find($platform);
-        if ($connection === null || !$connection->isConnected()) {
-            return;
-        }
-
-        $now = new \DateTimeImmutable();
-        $wasWorking = $connection->checkOk !== false;
-
-        if ($connection->isExpired($now)) {
-            $connections->recordCheck($platform, false, $now);
-            if ($wasWorking) {
-                $this->log($context, $platform, 'token_expired', 'warning', 'L\'autorisation a expiré. '
-                    . 'Reconnectez le compte dans Configuration > Réseaux sociaux.');
-            }
-
-            return;
-        }
-
-        $token = $connections->secretsOf($platform)->accessToken;
-
-        try {
-            if ($platform === SocialPlatform::Instagram && $this->dueForRefresh($connection->tokenRefreshedAt, $now)) {
-                $renewed = $meta->refreshInstagramToken($token);
-                $token = $renewed['token'];
-                $connections->recordRefresh(
-                    $platform,
-                    $token,
-                    $renewed['expires_in'] === null ? null : $now->modify('+' . $renewed['expires_in'] . ' seconds'),
-                    $now
-                );
-                $this->log($context, $platform, 'token_refreshed', 'info', 'Autorisation renouvelée.');
-            }
-
-            $name = $platform === SocialPlatform::Facebook
-                ? $meta->facebookPageName((string) $connection->accountId, $token)
-                : $meta->instagramAccount($token)['username'];
-            $connections->recordCheck($platform, true, $now, $name);
-        } catch (MetaException $e) {
-            $connections->recordCheck($platform, false, $now);
-            if ($wasWorking) {
-                $this->log($context, $platform, 'auth_failed', 'warning', $e->getMessage(), $e->detail);
-            }
-        }
-    }
-
-    private function dueForRefresh(?\DateTimeImmutable $refreshedAt, \DateTimeImmutable $now): bool
-    {
-        return $refreshedAt === null || $refreshedAt <= $now->modify('-' . self::REFRESH_AFTER_DAYS . ' days');
-    }
-
-    private function log(
-        TaskContext $context,
-        SocialPlatform $platform,
-        string $event,
-        string $level,
-        string $message,
-        ?string $detail = null
-    ): void {
-        $context->journal->log(
-            'social',
-            $event,
-            $level,
-            $platform->label() . ' : ' . $message,
-            array_filter(['platform' => $platform->value, 'detail' => $detail], static fn ($v) => $v !== null)
         );
     }
 }

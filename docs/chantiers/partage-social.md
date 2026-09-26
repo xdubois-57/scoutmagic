@@ -77,8 +77,14 @@ SECURITY.md §38 et specifications.md §47.
    `SubProcessorView::CATEGORY_SOCIAL_PUBLISHING`, et la règle 33quater du
    prompt RGPD : Meta n'entre dans aucune des trois catégories existantes,
    et le prompt doit savoir retirer les paragraphes quand aucun compte
-   n'est raccordé. Meta est présenté comme **destinataire** des
-   publications, dont la politique s'applique à ce qui est publié.
+   n'est raccordé. Tant que rien n'est publié, la page dit que le site se
+   limite au raccordement et ne publie rien ; IT-03 y ajoutera la
+   publication, avec Meta comme destinataire de ce qui est publié.
+8. **Un service de connexion partagé** (`Service\ConnectionService`),
+   après la revue de #554 : « Tester la connexion » et la tâche jugent une
+   connexion par le même code. Une panne réseau ou une erreur 5xx de Meta
+   ne vaut pas refus ; un jeton utilisateur gardé pour un choix de Page
+   jamais fait est effacé par la tâche au bout d'un jour.
 
 ### Reporté
 
