@@ -65,7 +65,7 @@ class DnsVerifier
      */
     public function checkSpfForHosts(string $domain, array $sendingHosts): array
     {
-        $records = $this->getTxtRecords($domain);
+        $records = $this->txtRecordsOrNone($domain);
         $actual = null;
 
         foreach ($records as $record) {
@@ -259,7 +259,7 @@ class DnsVerifier
         $expected = "v=DKIM1; k=rsa; p={$expectedPublicKey}";
         $host = "{$selector}._domainkey.{$domain}";
 
-        $records = $this->getTxtRecords($host);
+        $records = $this->txtRecordsOrNone($host);
         $actual = null;
 
         foreach ($records as $record) {
@@ -288,7 +288,7 @@ class DnsVerifier
     {
         $host = "_dmarc.{$domain}";
 
-        $records = $this->getTxtRecords($host);
+        $records = $this->txtRecordsOrNone($host);
         $actual = null;
 
         foreach ($records as $record) {
@@ -331,33 +331,55 @@ class DnsVerifier
     }
 
     /**
-     * The TXT records of one host, through the seam above.
+     * The TXT records of one host, or **null when the resolver could not be
+     * asked** — which is not the same answer as « this host publishes
+     * nothing » (issue #421, found in review twice).
      *
-     * **A public face on the protected one, so that the SPF chain walk has
-     * no resolver of its own** (issue #421, found in review). `SpfCoverage`
-     * used to call `dns_get_record()` directly, which gave the outbound-mail
-     * screens two places to reach the network and left the controller's test
-     * — which already replaces THIS verifier with a canned zone — asking a
-     * real resolver for `unite.test`. One seam answers for the whole screen.
+     * **A public face on the seam below, so that the SPF chain walk has no
+     * resolver of its own.** `SpfCoverage` used to call `dns_get_record()`
+     * directly, which gave the outbound-mail screens two places to reach the
+     * network and left the controller's test — which already replaces THIS
+     * verifier with a canned zone — asking a real resolver for `unite.test`.
+     * One seam answers for the whole screen.
      *
-     * @return array<string>
+     * **And the nullable return is the whole point of the second round.**
+     * The first version handed the walk `getTxtRecords()`, which mapped a
+     * failed lookup to `[]`; `SpfCoverage::walk()` then read a host that
+     * never answered as a host with no SPF record, stored the reading as
+     * complete, and the « un des domaines n'a pas répondu » warning it had
+     * just gained could not fire outside its own unit test. A reviewer found
+     * it by following the declared types: a closure typed `: array` cannot
+     * return the `null` the walk branches on, so that branch was dead in
+     * production while every test passed.
+     *
+     * @return ?array<string>
      */
-    public function txtRecordsFor(string $host): array
+    public function txtRecordsFor(string $host): ?array
     {
-        return $this->getTxtRecords($host);
+        return $this->readTxtRecords($host);
     }
 
     /**
-     * Get TXT records for a host. Overridable for testing.
+     * **The one place this class reaches a resolver**, and the only seam a
+     * test replaces.
      *
-     * @return array<string>
+     * There used to be a second overridable method over it, and the two were
+     * a trap rather than a convenience: a fake that replaced one left the
+     * other calling the real resolver, which is how the SPF walk came to ask
+     * the network in a test that thought it had substituted a zone. This
+     * returns `null` for « could not ask », and every caller decides for
+     * itself what that means — {@see self::txtRecordsOrNone()} for the three
+     * record checks, where a failure and an absence read the same, and
+     * {@see self::txtRecordsFor()} for the chain walk, where they must not.
+     *
+     * @return ?array<string>
      */
-    protected function getTxtRecords(string $host): array
+    protected function readTxtRecords(string $host): ?array
     {
         $records = @dns_get_record($host, DNS_TXT);
 
         if ($records === false) {
-            return [];
+            return null;
         }
 
         $texts = [];
@@ -368,5 +390,23 @@ class DnsVerifier
         }
 
         return $texts;
+    }
+
+    /**
+     * The TXT records of one host, a failed lookup reading as « nothing
+     * published ».
+     *
+     * That collapse is right **here and only here**: the three checks below
+     * ask « is the record I expect present », and a resolver that did not
+     * answer is not a record that is present. They report « absent », which
+     * is the conservative reading — where the chain walk has to say « I could
+     * not look », because there the difference decides whether a stored
+     * reading may be called complete.
+     *
+     * @return array<string>
+     */
+    private function txtRecordsOrNone(string $host): array
+    {
+        return $this->readTxtRecords($host) ?? [];
     }
 }

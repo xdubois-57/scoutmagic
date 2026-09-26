@@ -2004,7 +2004,15 @@ class OutboundMailController extends AbstractController
                 // second way to reach the network, and left this action's own
                 // test asking a real resolver for a domain its canned zone
                 // already answers for.
-                fn(string $host): array => $this->dns->txtRecordsFor($host)
+                //
+                // **`?array`, and the question mark is load-bearing.** The
+                // walk distinguishes « this host publishes nothing » from
+                // « nobody answered » and marks the reading incomplete for the
+                // second; a closure declared `: array` could never hand back
+                // the null that says so, which made that branch — and the
+                // warning the page had just gained — dead in production while
+                // the unit test that injects its own closure kept passing.
+                fn(string $host): ?array => $this->dns->txtRecordsFor($host)
             );
         } catch (\Throwable) {
             // As above: the previous reading still places what it placed,

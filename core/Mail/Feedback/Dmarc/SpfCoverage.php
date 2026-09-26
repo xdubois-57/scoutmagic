@@ -199,13 +199,22 @@ class SpfCoverage
      * DNS**, so it is called from an explicit action and never from a page
      * render.
      *
-     * @param ?\Closure $txt injected so a test can publish a zone without a
-     *                       resolver — `fn(string $host): list<string>`
+     * **The resolver is handed in, and it is not optional.** It used to
+     * default to null and fall back to a `dns_get_record()` of this class's
+     * own, which was a second way for the outbound-mail screens to reach the
+     * network — the very thing the review of #571 asked to remove. Every
+     * caller already passed one, so the fallback was dead code that only a
+     * future caller could wake up, having forgotten why it should not.
+     *
+     * @param \Closure $txt `fn(string $host): ?list<string>` — null for « the
+     *                      resolver could not be asked », which is not the
+     *                      same answer as an empty list, and
+     *                      {@see self::walk()} acts on the difference
      */
     public static function refresh(
         SettingService $settings,
         string $domain,
-        ?\Closure $txt = null,
+        \Closure $txt,
         ?\DateTimeImmutable $now = null
     ): self {
         $domain = trim($domain);
@@ -355,7 +364,7 @@ class SpfCoverage
      *
      * @return array{ranges: list<array{via: string, bytes: string, prefix: int}>, partial: ?string}
      */
-    private static function walk(string $domain, ?\Closure $txt): array
+    private static function walk(string $domain, \Closure $txt): array
     {
         /** @var list<array{host: string, via: string}> $queue */
         $queue = [['host' => $domain, 'via' => $domain]];
@@ -367,7 +376,7 @@ class SpfCoverage
 
         while ($queue !== []) {
             $current = array_shift($queue);
-            $texts = self::txtOf($current['host'], $txt);
+            $texts = ($txt)($current['host']);
 
             // **« Nothing published » and « nobody answered » are opposite
             // readings, and this used to collapse them** (found in review on
@@ -509,41 +518,6 @@ class SpfCoverage
         }
 
         return false;
-    }
-
-    /**
-     * One host's TXT records, or **null when the resolver could not be
-     * asked** — which is not the same answer as « this host publishes
-     * nothing », and the caller acts on the difference.
-     *
-     * The injected closure may return null for the same reason, so a test
-     * can stand in for a resolver that is down as well as for a zone.
-     *
-     * @return ?list<string>
-     */
-    private static function txtOf(string $host, ?\Closure $txt): ?array
-    {
-        if ($txt !== null) {
-            return ($txt)($host);
-        }
-
-        // Silenced for `DnsVerifier::getTxtRecords()`'s reason: PHP warns
-        // for NXDOMAIN and for a resolver that did not answer, and neither
-        // is a fault of this installation. The two are told apart below
-        // rather than here.
-        $records = @dns_get_record($host, DNS_TXT);
-        if ($records === false) {
-            return null;
-        }
-
-        $texts = [];
-        foreach ($records as $record) {
-            if (isset($record['txt']) && is_string($record['txt'])) {
-                $texts[] = $record['txt'];
-            }
-        }
-
-        return $texts;
     }
 
     /**

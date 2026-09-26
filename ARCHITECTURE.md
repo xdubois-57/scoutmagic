@@ -4680,8 +4680,19 @@ here that moves without anybody at the unit touching it. **A `redirect=` is
 ignored when the record carries an `all`**, as RFC 7208 §6.1 requires, so
 the page cannot name a target no receiver read; a host in the chain that
 does not answer marks the reading incomplete rather than passing for a
-record that publishes nothing; and a reading taken for a domain the site no
-longer sends from places nothing at all, which is asked on the read side so
+record that publishes nothing — which needed a nullable seam to be true and
+not merely written: the walk is handed
+`Core\Mail\DnsVerifier::txtRecordsFor()`, which returns `null` for « the
+resolver could not be asked », where the three record checks keep reading
+that same failure as « the record is absent ». **The first version of this
+claim was false in production and every test passed**, because the closure
+was declared `: array` over a verifier that mapped a failed lookup to `[]`;
+the branch the page's warning hangs on was dead outside the unit test that
+injected its own `?array` closure. `DnsVerifier` now reaches a resolver in
+exactly one method, and it is the only one a fake replaces — two
+overridable methods over one lookup is how the chain walk came to ask the
+real network from a test that thought it had substituted a zone. A reading
+taken for a domain the site no longer sends from places nothing at all, which is asked on the read side so
 that a restore or an edit made anywhere else is covered too. `a`, `mx`, `exists:`, `ptr` and any
 mechanism carrying a `-`, `~` or `?` qualifier are deliberately not read —
 `-ip4:` names a range the record REFUSES — each leaving its addresses

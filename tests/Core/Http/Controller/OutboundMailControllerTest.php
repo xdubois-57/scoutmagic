@@ -2472,7 +2472,7 @@ class OutboundMailControllerTest extends TestCase
             {
             }
 
-            protected function getTxtRecords(string $host): array
+            protected function readTxtRecords(string $host): ?array
             {
                 $this->asked[] = $host;
 
@@ -2492,6 +2492,59 @@ class OutboundMailControllerTest extends TestCase
             'unite.be',
             $taken->viaFor('203.0.113.7'),
             'the range read is the one the canned zone publishes, so the reading came from it.'
+        );
+    }
+
+    /**
+     * **A host that did not answer has to reach the page as « incomplete »,
+     * through the real verifier** — and it did not (found in review on #571,
+     * twice, by two different readings of the declared types).
+     *
+     * `SpfCoverage::walk()` branches on `null` to mark a reading incomplete,
+     * and the action's closure was declared `: array` over a verifier that
+     * mapped a failed `dns_get_record()` to `[]`. So in production a resolver
+     * that fell over mid-chain read as a host publishing nothing: the reading
+     * was stored as complete, and the « un des domaines n'a pas répondu »
+     * warning could not render at all. Every test passed, because the unit
+     * test injects a closure of its own typed `?array`.
+     *
+     * This one goes the whole way round — action, verifier, walk, stored
+     * reading — which is the only path that could have caught it. It stops at
+     * the stored reading on purpose:
+     * `testAHostThatDidNotAnswerIsReportedAsSuchRatherThanAsATooLongChain()`
+     * already pins the sentence the page shows for it, and asserting the same
+     * rendering twice would make one of the two the ornament.
+     */
+    public function testAHostThatDidNotAnswerReachesThePageAsAnIncompleteReading(): void
+    {
+        $dkim = $this->dkim;
+        $failing = new class ($dkim) extends \Core\Mail\DnsVerifier {
+            public function __construct(private \Core\Mail\DkimManager $dkim)
+            {
+            }
+
+            protected function readTxtRecords(string $host): ?array
+            {
+                // The unit's own record reads; the include's target is the
+                // host nobody could answer for — null, the way a real
+                // `dns_get_record()` failure now arrives.
+                return $host === 'unite.be'
+                    ? ['v=spf1 include:_spf.injoignable.test -all']
+                    : null;
+            }
+        };
+
+        $this->settings->set('mail_from_address', 'info@unite.be');
+        $this->settings->set('dkim_selector', 's2026');
+
+        $this->controllerWith('dns', $failing)->checkDns($this->formRequest([]), []);
+
+        $taken = \Core\Mail\Feedback\Dmarc\SpfCoverage::remembered($this->settings);
+
+        $this->assertSame(
+            \Core\Mail\Feedback\Dmarc\SpfCoverage::PARTIAL_UNREADABLE,
+            $taken->partial,
+            'a resolver that could not be asked makes the stored reading incomplete, not complete.'
         );
     }
 
@@ -2714,8 +2767,15 @@ class OutboundMailControllerTest extends TestCase
     }
 
     /**
-     * Canned TXT records, through the seam `DnsVerifier::getTxtRecords()`
-     * documents as « overridable for testing ».
+     * Canned TXT records, through `DnsVerifier::readTxtRecords()` — the one
+     * seam that class documents as overridable, and the only place it reaches
+     * a resolver. A fixture that replaced one of the two there used to be left
+     * the other asking the network (issue #421, found in review).
+     *
+     * A host outside the canned zone answers `[]`, « publishes nothing »,
+     * never `null`: null is the separate answer « the resolver could not be
+     * asked », and handing it back here would make every reading in this
+     * suite incomplete.
      */
     private static function fakeDnsVerifier(\Core\Mail\DkimManager $dkim): \Core\Mail\DnsVerifier
     {
@@ -2724,7 +2784,7 @@ class OutboundMailControllerTest extends TestCase
             {
             }
 
-            protected function getTxtRecords(string $host): array
+            protected function readTxtRecords(string $host): ?array
             {
                 if ($host === 'unite.be') {
                     return ['v=spf1 a mx ~all'];
