@@ -308,6 +308,7 @@ final class ShareControllerTest extends TestCase
         $html = $this->controller()->showAlbum($this->get(), ['id' => '3'])->getBody();
 
         $this->assertStringNotContainsString('Groupe de discussion', $html);
+        $this->assertStringNotContainsString('groupe de discussion', $html);
     }
 
     public function testTheGroupsAreChosenInADialogWithTheirSize(): void
@@ -327,6 +328,9 @@ final class ShareControllerTest extends TestCase
             (string) preg_replace('/\s+/u', ' ', $html)
         );
         $this->assertStringContainsString('social-share-groups.js', $html);
+        // What differs for a group is said, never contradicted (#528).
+        $this->assertStringContainsString('Dans un groupe de discussion, elle part nette', $html);
+        $this->assertStringContainsString('Dans un groupe de discussion, la publication reste dans le site', $html);
     }
 
     public function testPublishingInGroupsSendsThePhotoAsItIsAndTheLink(): void

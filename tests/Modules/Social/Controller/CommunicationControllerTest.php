@@ -219,7 +219,10 @@ final class CommunicationControllerTest extends TestCase
         $sorted = $positions;
         sort($sorted);
         $this->assertSame($sorted, $positions, 'In the mockup\'s order.');
-        $this->assertStringContainsString('Une image téléversée part telle quelle. Une image de la galerie est toujours floutée.', $html);
+        $this->assertStringContainsString(
+            'Une image téléversée part telle quelle. Une image de la galerie est toujours floutée sur Facebook et Instagram.',
+            $html
+        );
     }
 
     public function testGalleryButtonSavesTheTextAndOpensThePicker(): void
@@ -420,6 +423,21 @@ final class CommunicationControllerTest extends TestCase
         $this->controller()->retry($this->post([]), $params);
         $this->assertTrue($this->publications->forSource('communication', $id)['group:4']->isPublished());
         $this->assertCount(2, $this->groups->posts, 'Staff Lutins is not touched.');
+    }
+
+    public function testTheWarningsSayWhatDiffersForAGroup(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+
+        $html = $this->controller()->edit($this->get(), ['id' => (string) $id])->getBody();
+        $this->assertStringContainsString('floutée, sans exception, sur Facebook et Instagram.', $html);
+        $this->assertStringNotContainsString('groupe de discussion', $html, 'No group offered, none mentioned.');
+
+        $this->groups = new FakeGroupPublisher();
+        $html = $this->controller()->edit($this->get(), ['id' => (string) $id])->getBody();
+        $this->assertStringContainsString('dans un groupe de discussion, elle part nette', $html);
+        $this->assertStringContainsString('Dans un groupe de discussion, la publication reste dans le site', $html);
     }
 
     public function testNothingToRetryIsNotThere(): void
