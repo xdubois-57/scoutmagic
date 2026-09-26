@@ -809,9 +809,14 @@ class MassMailPageTest extends TestCase
         $payload = json_decode((string) $response->getBody(), true);
         $this->assertIsArray($payload);
         $this->assertFalse($payload['success']);
-        // The service's own words, carried through — the count dialog is
-        // where a chief finds out, and « Liste externe indisponible. » is
-        // actionable where a blank number is not.
+        // The service's own words, carried through. Asserted on the PAYLOAD,
+        // and the distinction matters: the browser does not show them.
+        // `recipientSentence()` in public/assets/js/mass-mail-compose.js
+        // returns '' on `!data.success` and never reads `data.error`, which
+        // tests/js/mass-mail-compose.test.js already pins. So the confirm
+        // dialog looks the same before and after this fix, and what changed
+        // is server-side: a clean 404 where an uncaught MailingListException
+        // used to become a 500. Surfacing the reason in the dialog is #579.
         $this->assertSame('Liste externe indisponible.', $payload['error']);
     }
 

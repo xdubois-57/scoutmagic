@@ -1732,7 +1732,7 @@ liste après. Mesuré : sans le correctif, les trois tests **erreurent** sur un
 | Page | Ce qu'un chef obtenait | Ce qu'il obtient |
 |---|---|---|
 | « Destinataires » | 500 | la page, et la raison affichée |
-| le décompte avant envoi | 500 | `404` et « Liste externe indisponible. » |
+| le décompte avant envoi | 500 | `404`, la raison dans la charge JSON |
 | « Lancer l'envoi » | 500 | l'envoi refusé, l'email intact en mode test |
 
 La première ligne a demandé une seconde passe, sur un autre finding de revue.
@@ -1743,6 +1743,16 @@ se rendait **vide**. Mieux qu'un 500 et inutile pour le chef, venu justement
 savoir qui le courrier atteint. La raison est désormais posée en message,
 comme le fait le `catch` de l'audience dix lignes plus haut et comme le font
 les deux autres sites corrigés.
+
+La deuxième ligne mérite sa nuance, relevée par une troisième passe de revue :
+le gain y est **entièrement côté serveur**. `recipientSentence()`
+(`public/assets/js/mass-mail-compose.js`) rend `''` dès que `data.success` est
+faux et ne lit jamais `data.error` — ce qu'un test Vitest existant épingle
+déjà. Le dialogue de confirmation est donc identique avant et après : toujours
+sans nombre et sans raison. Ce qui a changé est qu'un `404` propre remplace un
+`MailingListException` non attrapé devenu 500. Afficher la raison dans le
+dialogue est déposé en **#579**, parce que cela touche le JavaScript et son
+test, et qu'un constat différé sans ticket est ce qu'`AGENTS.md` interdit.
 
 Le test de cette page souffrait du défaut jumeau, relevé par la même revue :
 il affirmait la présence de « Destinataires », que le contrôleur passe
