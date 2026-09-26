@@ -521,6 +521,63 @@ describe('the delegated data-confirm form handler', () => {
         expect(replay).toHaveBeenCalled();
     });
 
+    describe('with data-confirm on one submit button', () => {
+        /** @returns {{ form: HTMLFormElement, publish: HTMLButtonElement, save: HTMLButtonElement }} */
+        function twoButtons() {
+            const form = document.createElement('form');
+            form.method = 'post';
+            const save = document.createElement('button');
+            save.type = 'submit';
+            save.name = 'action';
+            save.value = 'save';
+            const publish = document.createElement('button');
+            publish.type = 'submit';
+            publish.name = 'action';
+            publish.value = 'publish';
+            publish.setAttribute('data-confirm', 'Publier sur Facebook et Instagram ?');
+            publish.setAttribute('data-confirm-label', 'Publier');
+            form.append(save, publish);
+            document.body.appendChild(form);
+            return { form, publish, save };
+        }
+
+        /** @param {HTMLFormElement} form @param {HTMLElement} submitter */
+        function submitWith(form, submitter) {
+            const replay = vi.fn();
+            form.requestSubmit = replay;
+            const event = new window.Event('submit', { bubbles: true, cancelable: true });
+            Object.defineProperty(event, 'submitter', { value: submitter });
+            form.dispatchEvent(event);
+            return { replay, event };
+        }
+
+        it('asks with the button\'s own question, and replays with that button', async () => {
+            await loadConfirm();
+            const { form, publish } = twoButtons();
+
+            const { replay, event } = submitWith(form, publish);
+            expect(event.defaultPrevented).toBe(true);
+            expect(document.getElementById('sm-confirm-modal-body').textContent)
+                .toBe('Publier sur Facebook et Instagram ?');
+
+            buttonLabelled('Publier').click();
+            await Promise.resolve();
+            await Promise.resolve();
+
+            expect(replay).toHaveBeenCalledWith(publish);
+        });
+
+        it('leaves the form\'s other buttons alone', async () => {
+            await loadConfirm();
+            const { form, save } = twoButtons();
+
+            const { event } = submitWith(form, save);
+
+            expect(event.defaultPrevented).toBe(false);
+            expect(document.getElementById('sm-confirm-modal-body')).toBeNull();
+        });
+    });
+
     describe('with data-confirm-note', () => {
         it('asks for a word and posts it under the given name', async () => {
             await loadConfirm();

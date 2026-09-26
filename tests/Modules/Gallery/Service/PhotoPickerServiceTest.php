@@ -120,6 +120,11 @@ final class PhotoPickerServiceTest extends TestCase
         $this->assertNull($this->service()->photoContents($video, 'chief', []));
         $this->assertNull($this->service()->photoContents(999, 'chief', []));
         $this->assertNull($this->service()->photoContents($photo, 'intendant', []));
+
+        // Chosen before an administrator started moving the album: never
+        // the bytes of a half-copied photo.
+        $this->albums->startMigration($album, 2);
+        $this->assertNull($this->service()->photoContents($photo, 'chief', []));
     }
 
     private function album(string $date, string $title): int

@@ -28,6 +28,8 @@ use Modules\Social\Repository\CardRepository;
 use Modules\Social\Repository\ConnectionRepository;
 use Modules\Social\Repository\PublicationRepository;
 use Modules\Social\Service\DestinationStates;
+use Modules\Social\Service\GroupPublishingService;
+use Tests\Modules\Social\FakeGroupPublisher;
 use Modules\Social\Service\PublishingService;
 use Modules\Social\Service\ShareSourceResolver;
 use PHPUnit\Framework\TestCase;
@@ -57,6 +59,7 @@ final class ShareControllerTest extends TestCase
     private FakeAlbumSource $albums;
     private FakeArticleSource $articles;
     private string $directory;
+    private ?FakeGroupPublisher $groups = null;
 
     protected function setUp(): void
     {
@@ -178,6 +181,7 @@ final class ShareControllerTest extends TestCase
         $this->assertStringContainsString('@unite25', $html);
         $this->assertStringContainsString('ni vous ni ScoutMagic ne pourrez le reprendre', $html);
         $this->assertStringContainsString('href="/gallery/3/edit"', $html);
+        $this->assertStringContainsString('data-confirm="Publier maintenant ?', $html, 'Irreversible: asked first.');
     }
 
     public function testAnArticleGoesAsALinkAndItsImageToInstagram(): void
@@ -295,6 +299,61 @@ final class ShareControllerTest extends TestCase
         $this->assertTrue($this->publications->forSource('album', 3)['instagram']->isPublished());
     }
 
+    // ————— Discussion groups —————
+
+    public function testWithoutTheGroupsModuleThereIsNoGroupDestination(): void
+    {
+        $this->loginManager();
+
+        $html = $this->controller()->showAlbum($this->get(), ['id' => '3'])->getBody();
+
+        $this->assertStringNotContainsString('Groupe de discussion', $html);
+        $this->assertStringNotContainsString('groupe de discussion', $html);
+    }
+
+    public function testTheGroupsAreChosenInADialogWithTheirSize(): void
+    {
+        $this->groups = new FakeGroupPublisher();
+        $this->loginManager();
+
+        $html = $this->controller()->showAlbum($this->get(), ['id' => '3'])->getBody();
+
+        $this->assertStringContainsString('name="destinations[]" value="groups"', $html);
+        $this->assertStringContainsString('aria-label="Changer les groupes de discussion"', $html);
+        $this->assertStringContainsString('data-bs-target="#share-groups"', $html);
+        $this->assertStringContainsString('name="groups[]" value="3"', $html);
+        $this->assertStringContainsString('— 14 membres', $html);
+        $this->assertStringContainsString(
+            'Chaque groupe reçoit sa propre publication, avec ses propres règles de modération.',
+            (string) preg_replace('/\s+/u', ' ', $html)
+        );
+        $this->assertStringContainsString('social-share-groups.js', $html);
+        // What differs for a group is said, never contradicted (#528).
+        $this->assertStringContainsString('Dans un groupe de discussion, elle part nette', $html);
+        $this->assertStringContainsString('Dans un groupe de discussion, la publication reste dans le site', $html);
+    }
+
+    public function testPublishingInGroupsSendsThePhotoAsItIsAndTheLink(): void
+    {
+        $this->groups = new FakeGroupPublisher();
+        $this->loginManager();
+
+        $this->controller()->publishAlbum(
+            $this->post(['destinations' => ['groups'], 'groups' => ['3', '4'], 'caption' => 'En ligne !']),
+            ['id' => '3']
+        );
+
+        $this->assertSame('success', FlashMessage::get()['type'] ?? null);
+        $this->assertCount(2, $this->groups->posts);
+        $this->assertSame(H::groupPhoto(), $this->groups->posts[0]['image']);
+        $this->assertSame('https://unite.example/gallery/3', $this->groups->posts[0]['link']);
+        $this->assertSame([], $this->meta->requests, 'Nothing went to Meta.');
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM social_cards')->fetchColumn(), 'No card.');
+
+        $html = $this->controller()->showAlbum($this->get(), ['id' => '3'])->getBody();
+        $this->assertStringContainsString('data-group="3" data-state="published"', $html);
+    }
+
     public function testNoDestinationTickedPublishesNothing(): void
     {
         $this->loginManager();
@@ -374,8 +433,13 @@ final class ShareControllerTest extends TestCase
                 $this->albums,
                 $this->articles
             ),
-            $publishing,
-            new DestinationStates($publishing, $this->publications, $this->connections, $settings),
+            new DestinationStates(
+                $publishing,
+                $this->publications,
+                $this->connections,
+                $settings,
+                $this->groups === null ? null : new GroupPublishingService($this->groups, $this->publications, $journal)
+            ),
             $cards
         );
     }

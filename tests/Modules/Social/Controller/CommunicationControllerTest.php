@@ -29,6 +29,8 @@ use Modules\Social\Repository\CommunicationRepository;
 use Modules\Social\Repository\ConnectionRepository;
 use Modules\Social\Repository\PublicationRepository;
 use Modules\Social\Service\DestinationStates;
+use Modules\Social\Service\GroupPublishingService;
+use Tests\Modules\Social\FakeGroupPublisher;
 use Modules\Social\Service\PublishingService;
 use Modules\Social\Service\ShareSourceResolver;
 use PHPUnit\Framework\TestCase;
@@ -60,6 +62,7 @@ final class CommunicationControllerTest extends TestCase
     private FakePhotoPicker $picker;
     private string $storage;
     private RecordingJournalRepository $journal;
+    private ?FakeGroupPublisher $groups = null;
 
     protected function setUp(): void
     {
@@ -152,7 +155,7 @@ final class CommunicationControllerTest extends TestCase
         AuthSession::login($this->author, 'claire@unite.be', 'chief');
         $body = $method === 'POST' ? ['_csrf_token' => $this->csrf()] : [];
 
-        $response = $this->route($method, $path, $action, $body);
+        $response = $this->route($method, $path, $action, $body, null, $id);
 
         $this->assertLessThan(400, $response->getStatusCode(), substr($response->getBody(), 0, 400));
     }
@@ -180,6 +183,28 @@ final class CommunicationControllerTest extends TestCase
 
     // ————— The page —————
 
+    public function testAnExistingCommunicationIsNotTitledNew(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+
+        $html = $this->controller()->edit($this->get(), ['id' => (string) $id])->getBody();
+
+        $this->assertStringContainsString('<title>Communication — ', $html);
+        $this->assertStringNotContainsString('Nouvelle communication', $html);
+    }
+
+    public function testPublishingAsksForConfirmationButSavingDoesNot(): void
+    {
+        $this->loginAuthor();
+
+        $html = $this->controller()->create($this->get(), [])->getBody();
+
+        $this->assertMatchesRegularExpression('#value="publish"[^>]*\s+data-confirm="Publier maintenant \?#', $html);
+        $this->assertDoesNotMatchRegularExpression('#value="save"[^>]*data-confirm#', $html);
+        $this->assertStringNotContainsString('<form method="post" action="/communications" enctype="multipart/form-data" data-confirm', $html);
+    }
+
     public function testTheNewPageFollowsTheMockupsOrder(): void
     {
         $this->loginAuthor();
@@ -194,7 +219,10 @@ final class CommunicationControllerTest extends TestCase
         $sorted = $positions;
         sort($sorted);
         $this->assertSame($sorted, $positions, 'In the mockup\'s order.');
-        $this->assertStringContainsString('Une image téléversée part telle quelle. Une image de la galerie est toujours floutée.', $html);
+        $this->assertStringContainsString(
+            'Une image téléversée part telle quelle. Une image de la galerie est toujours floutée sur Facebook et Instagram.',
+            $html
+        );
     }
 
     public function testGalleryButtonSavesTheTextAndOpensThePicker(): void
@@ -361,6 +389,57 @@ final class CommunicationControllerTest extends TestCase
         $this->assertNull($this->request('/photos'), 'Facebook is not touched.');
     }
 
+    public function testAGroupHasItsOwnLineAndItsOwnRetry(): void
+    {
+        $this->groups = new FakeGroupPublisher();
+        $this->groups->refusals[4] = 'Ce groupe est fermé.';
+        $id = $this->communication('Week-end', 'Inscriptions ouvertes', self::PHOTO);
+        $this->loginAuthor();
+
+        $this->controller()->update(
+            $this->post(['action' => 'publish', 'title' => 'Week-end', 'body' => 'Inscriptions ouvertes', 'destinations' => ['groups'], 'groups' => ['3', '4']]),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame('warning', FlashMessage::get()['type'] ?? null);
+        $this->assertSame(H::groupPhoto(), $this->groups->posts[0]['image'], 'Never blurred for a group.');
+        $this->assertNull($this->groups->posts[0]['link'], 'A free communication has no page of its own.');
+        $html = $this->controller()->history($this->get(), [])->getBody();
+        $this->assertStringContainsString('data-platform="group:3" data-state="published"', $html);
+        $this->assertStringContainsString('href="/groups/3#post-101"', $html);
+        $this->assertStringContainsString('data-platform="group:4" data-state="failed"', $html);
+        $this->assertStringContainsString('Staff d&#039;unité', $html);
+        $this->assertStringContainsString('href="/communications/reessayer/communication/' . $id . '/group:4"', $html);
+        // The link as a browser follows it, through the real router.
+        $routed = $this->route('GET', '/communications/reessayer/{kind}/{id}/{platform}', 'confirmRetry', [], 'communication/' . $id . '/group:4');
+        $this->assertSame(200, $routed->getStatusCode());
+
+        unset($this->groups->refusals[4]);
+        $params = ['kind' => 'communication', 'id' => (string) $id, 'platform' => 'group:4'];
+        $page = $this->controller()->confirmRetry($this->get(), $params)->getBody();
+        $this->assertStringContainsString('Réessayer sur Staff d&#039;unité ?', $page);
+        $this->assertStringContainsString('« Staff Lutins », déjà publié', $page);
+
+        $this->controller()->retry($this->post([]), $params);
+        $this->assertTrue($this->publications->forSource('communication', $id)['group:4']->isPublished());
+        $this->assertCount(2, $this->groups->posts, 'Staff Lutins is not touched.');
+    }
+
+    public function testTheWarningsSayWhatDiffersForAGroup(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+
+        $html = $this->controller()->edit($this->get(), ['id' => (string) $id])->getBody();
+        $this->assertStringContainsString('floutée, sans exception, sur Facebook et Instagram.', $html);
+        $this->assertStringNotContainsString('groupe de discussion', $html, 'No group offered, none mentioned.');
+
+        $this->groups = new FakeGroupPublisher();
+        $html = $this->controller()->edit($this->get(), ['id' => (string) $id])->getBody();
+        $this->assertStringContainsString('dans un groupe de discussion, elle part nette', $html);
+        $this->assertStringContainsString('Dans un groupe de discussion, la publication reste dans le site', $html);
+    }
+
     public function testNothingToRetryIsNotThere(): void
     {
         $id = $this->communication('Hike', 'Texte', self::PHOTO);
@@ -410,8 +489,14 @@ final class CommunicationControllerTest extends TestCase
     /**
      * @param array<string, mixed> $body
      */
-    private function route(string $method, string $path, string $action, array $body): Response
-    {
+    private function route(
+        string $method,
+        string $path,
+        string $action,
+        array $body,
+        ?string $tail = null,
+        int $id = 1
+    ): Response {
         $router = new Router();
         $router->addRoute($method, $path, CommunicationController::class, $action, 'chief');
 
@@ -420,7 +505,9 @@ final class CommunicationControllerTest extends TestCase
 
         $front = new FrontController($router, $this->twig(), new AppConfig($configFile));
         $front->registerController(CommunicationController::class, $this->controller());
-        $concrete = strtr($path, ['{kind}' => 'communication', '{id}' => '1', '{platform}' => 'instagram']);
+        $concrete = $tail !== null
+            ? '/communications/reessayer/' . $tail
+            : strtr($path, ['{kind}' => 'communication', '{id}' => (string) $id, '{platform}' => 'instagram']);
 
         return $front->handle(new Request($method, $concrete, [], $body, [], []));
     }
@@ -446,8 +533,13 @@ final class CommunicationControllerTest extends TestCase
             $this->twig(),
             $this->communications,
             new ShareSourceResolver($settings, $reader, null, null, $this->communications, $this->picker, []),
-            $publishing,
-            new DestinationStates($publishing, $this->publications, $this->connections, $settings),
+            new DestinationStates(
+                $publishing,
+                $this->publications,
+                $this->connections,
+                $settings,
+                $this->groups === null ? null : new GroupPublishingService($this->groups, $this->publications, $journal)
+            ),
             $this->publications,
             $this->connections,
             $cards,

@@ -53,7 +53,8 @@ CREATE TABLE IF NOT EXISTS social_cards (
 -- request becomes retryable after a quarter of an hour.
 --
 -- source_kind: 'album' | 'article' | 'communication'.
--- destination: 'facebook' | 'instagram'.
+-- destination: 'facebook' | 'instagram' | 'group:{id}' — each discussion
+-- group is a destination of its own, so « once » holds group by group.
 CREATE TABLE IF NOT EXISTS social_publications (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     source_kind VARCHAR(20) NOT NULL,
@@ -71,6 +72,9 @@ CREATE TABLE IF NOT EXISTS social_publications (
     source_title VARCHAR(200) NULL,
     caption TEXT NULL,
     remote_url VARCHAR(500) NULL,
+    -- A discussion group's name when the post was made (IT-05): the
+    -- history keeps naming it after a rename.
+    destination_label VARCHAR(200) NULL,
     UNIQUE KEY uq_social_publications (source_kind, source_id, destination)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

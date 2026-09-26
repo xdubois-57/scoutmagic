@@ -21,7 +21,7 @@ Page Facebook et le compte Instagram »).
 
 **L'image exacte qui sera publiée** : un carré avec le titre et
 l'adresse du site écrits dessus. Pour un album, c'est sa photo de
-couverture, **toujours floutée** : on devine l'ambiance, pas les
+couverture, **toujours floutée** sur Facebook et Instagram : on devine l'ambiance, pas les
 visages. Pour qu'on voie les photos, il faut venir sur le site, là où
 seuls les membres les voient.
 
@@ -50,9 +50,19 @@ montrée.
 Une actualité réservée aux animateurs ou aux administrateurs ne peut
 pas quitter le site.
 
+## Un groupe de discussion
+
+Si les groupes de discussion sont actifs, cochez « Groupe de
+discussion », puis choisissez les groupes avec le crayon : seuls ceux où
+vous pouvez publier sont proposés, avec leur nombre de membres. Chaque
+groupe reçoit **sa propre publication** : le texte, la photo **nette**
+— le groupe est privé — et un lien vers l'album ou l'actualité. Elle
+suit les règles du groupe, comme n'importe quel message.
+
 ## Publier
 
-> Une publication est publique, hors du site, et le site ne peut pas la
+> Sur Facebook et Instagram, une publication est publique, hors du
+> site, et le site ne peut pas la
 > reprendre : pour la retirer, il faut passer par Facebook ou Instagram
 > eux-mêmes.
 

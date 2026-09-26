@@ -887,9 +887,13 @@ final class UxConventionsTest extends TestCase
         $found = [];
         foreach (self::templates() as $rel) {
             $count = 0;
-            preg_match_all('/<(\w+)[^>]*?\bdata-confirm\s*=/', self::templateSource($rel), $m);
-            foreach ($m[1] as $tag) {
-                if (strtolower($tag) !== 'form') {
+            preg_match_all('/<(\w+)([^>]*?)\bdata-confirm\s*=/', self::templateSource($rel), $m, PREG_SET_ORDER);
+            foreach ($m as [, $tag, $attributes]) {
+                // A submit button is read too, when its form has no
+                // data-confirm of its own (confirm.js, design.md §7.5).
+                $isSubmitButton = strtolower($tag) === 'button'
+                    && preg_match('/\btype\s*=\s*"submit"/i', $attributes) === 1;
+                if (strtolower($tag) !== 'form' && !$isSubmitButton) {
                     $count++;
                 }
             }
@@ -897,7 +901,7 @@ final class UxConventionsTest extends TestCase
                 $found[$rel] = $count;
             }
         }
-        self::assertMatchesAllowlist($found, self::DATA_CONFIRM_ALLOWLIST, 'data-confirm is read on the <form> only; anywhere else it is silently inert');
+        self::assertMatchesAllowlist($found, self::DATA_CONFIRM_ALLOWLIST, 'data-confirm is read on the <form> or its submit button only; anywhere else it is silently inert');
     }
 
     /**

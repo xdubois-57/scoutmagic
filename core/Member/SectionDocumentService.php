@@ -226,6 +226,22 @@ class SectionDocumentService
         // handler itself degrades to 'skipped' for every other reason
         // (no backend, no size win), this is just avoiding scheduling a
         // task that would immediately no-op for a non-PDF.
+        //
+        // **The `else` is not symmetry for its own sake** (issue #556). The
+        // row was inserted 'pending', and 'pending' is what
+        // chefs/staffs.html.twig renders as « Compression en cours… ». A
+        // document nobody scheduled has nothing running for it and never
+        // will, so without this branch eleven of the twelve accepted types —
+        // Word, Excel, PowerPoint, the three OpenDocument, text, CSV — wore
+        // that badge for ever, and so did every PDF uploaded while the
+        // setting was off. Saying 'skipped' here is what keeps 'pending'
+        // meaning what it says: a task exists and has not run yet.
+        //
+        // Not journaled, deliberately: the handler logs
+        // section_document_compression_skipped when it has looked and found
+        // no gain, which is a measurement. This branch has not looked at
+        // anything — it is the ordinary outcome of uploading a spreadsheet,
+        // and an entry per upload would bury the ones that mean something.
         if (
             $mimeType === 'application/pdf'
             && $this->settingService->get('section_document_compression_enabled') !== '0'
@@ -236,6 +252,8 @@ class SectionDocumentService
                 0,
                 ['section_document_id' => $documentId]
             );
+        } else {
+            $this->repository->markSkipped($documentId);
         }
 
         $document = $this->repository->findById($documentId);

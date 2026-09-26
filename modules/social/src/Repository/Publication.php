@@ -32,6 +32,8 @@ final class Publication
         /** Where the post can be seen, when Meta said. */
         public readonly ?string $remoteUrl = null,
         public readonly ?int $userAccountId = null,
+        /** A discussion group's name when it was sent; null for Facebook and Instagram. */
+        public readonly ?string $destinationLabel = null,
     ) {
     }
 

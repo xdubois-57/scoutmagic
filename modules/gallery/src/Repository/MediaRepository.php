@@ -55,8 +55,12 @@ class MediaRepository
             $sql .= ' AND id NOT IN (' . implode(',', array_fill(0, count($excludedIds), '?')) . ')';
             $params = array_merge($params, array_values($excludedIds));
         }
-        $stmt = $this->pdo->prepare($sql . ' ORDER BY created_at DESC, id DESC LIMIT ' . $limit);
-        $stmt->execute($params);
+        $stmt = $this->pdo->prepare($sql . ' ORDER BY created_at DESC, id DESC LIMIT ?');
+        foreach ($params as $index => $value) {
+            $stmt->bindValue($index + 1, $value);
+        }
+        $stmt->bindValue(count($params) + 1, $limit, \PDO::PARAM_INT);
+        $stmt->execute();
 
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }

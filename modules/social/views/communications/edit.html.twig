@@ -1,9 +1,10 @@
 {% extends "base.html.twig" %}
 
-{% block title %}Nouvelle communication — {{ site_name }}{% endblock %}
+{% set page_title = communication ? 'Communication' : 'Nouvelle communication' %}
+{% block title %}{{ page_title }} — {{ site_name }}{% endblock %}
 
 {% block content %}
-{% include 'partials/page_header.html.twig' with { title: 'Nouvelle communication' } only %}
+{% include 'partials/page_header.html.twig' with { title: page_title } only %}
 
 <div class="row"><div class="col-12 col-lg-8">
 <form method="post" action="{{ form_action }}" enctype="multipart/form-data">
@@ -16,7 +17,7 @@
                  class="img-fluid rounded border" width="1080" height="1080" loading="lazy" data-card-preview>
             <p class="small text-body-secondary mt-2 mb-0">
                 Voici exactement ce qui sera publié.
-                {% if from_gallery %}Cette photo vient de la galerie : elle est floutée, sans exception.{% endif %}
+                {% if from_gallery %}Cette photo vient de la galerie : elle est floutée, sans exception, sur Facebook et Instagram{% if offers_groups|default(false) %} ; dans un groupe de discussion, elle part nette{% endif %}.{% endif %}
             </p>
         {% else %}
             <div class="alert alert-secondary mb-0">Choisissez une image : aucune publication ne part sans image.</div>
@@ -45,7 +46,7 @@
                    accept="image/jpeg,image/png,image/webp">
         </div>
         <p class="small text-body-secondary mb-4">
-            Une image téléversée part telle quelle. Une image de la galerie est toujours floutée.
+            Une image téléversée part telle quelle. Une image de la galerie est toujours floutée sur Facebook et Instagram.
         </p>
     {% else %}
         <div class="alert alert-info small mb-4">
@@ -81,10 +82,11 @@
     {% if source and source.blockedReason %}
         <div class="alert alert-warning">{{ source.blockedReason }}</div>
     {% endif %}
-    {% include '@social/share/_destinations.html.twig' with { destinations: destinations } only %}
+    {% include '@social/share/_destinations.html.twig' with { destinations: destinations, offers_groups: offers_groups|default(false), groups: groups|default([]), csp_nonce: csp_nonce|default('') } only %}
 
     <div class="alert alert-warning small" data-publish-warning>
-        Une fois publié, c'est <strong>public</strong> et hors du site : personne ne pourra le reprendre d'ici.
+        Sur Facebook et Instagram, une fois publié, c'est <strong>public</strong> et hors du site : personne ne pourra le reprendre d'ici.
+        {% if offers_groups|default(false) %}Dans un groupe de discussion, la publication reste dans le site et suit les règles du groupe.{% endif %}
     </div>
 
     <div class="d-flex flex-wrap gap-2 justify-content-end align-items-center">
@@ -92,7 +94,9 @@
         {% if not frozen %}
             <button type="submit" name="action" value="save" class="btn btn-outline-secondary">Enregistrer</button>
         {% endif %}
-        <button type="submit" name="action" value="publish" class="btn btn-primary">
+        <button type="submit" name="action" value="publish" class="btn btn-primary"
+                data-confirm="Publier maintenant ? Sur Facebook et Instagram, c'est public et hors du site : personne ne pourra le reprendre d'ici."
+                data-confirm-label="Publier">
             <i class="bi bi-share" aria-hidden="true"></i> Publier
         </button>
     </div>

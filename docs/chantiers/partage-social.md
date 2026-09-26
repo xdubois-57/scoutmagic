@@ -231,3 +231,43 @@ specifications.md §47.7.
 8. **Le sélecteur voit les albums délégués** à travers les contrôles que
    les modules Groupes et Camps ajoutent après la galerie : le registre est
    construit à la première utilisation, sur la liste prise par référence.
+
+## IT-05 — Le groupe de discussion comme destination
+
+Le module Groupes a désormais un espace `Api` (`GroupPublisherInterface`)
+qui liste les groupes où une personne peut publier et crée une
+publication ordinaire — accès, limite de rythme, modération, média, lien,
+notification, dans l'ordre du formulaire du groupe. Le module social
+s'en sert en dépendance facultative : chaque groupe est une destination
+à part entière (`group:{id}`), avec sa ligne d'historique et la règle
+« une seule fois » appliquée groupe par groupe. Voir ARCHITECTURE.md
+§8.40 et §8.122, SECURITY.md §38 et specifications.md §47.8.
+
+### Décisions prises en autonomie
+
+1. **La fenêtre de choix est une modale Bootstrap placée dans le
+   formulaire** : ses cases partent avec « Publier ». Un petit script
+   écrit en clair les groupes retenus et coche « Groupe de discussion » ;
+   sans lui, le formulaire marche encore — on coche la case à la main.
+2. **Une communication libre part sans lien** dans un groupe : elle n'a
+   pas de page sur le site. L'album et l'actualité partent avec le leur.
+3. **Un même texte pour toutes les destinations** : la légende saisie
+   devient le texte de la publication du groupe.
+4. **Le nom du groupe est gardé avec la publication**
+   (`destination_label`) : l'historique continue de le nommer après un
+   renommage ou une fermeture.
+5. **Pas de ligne « non demandé » par groupe** dans l'historique : un
+   groupe n'est pas un compte permanent comme la Page ou Instagram ; seuls
+   les groupes tentés y figurent.
+6. **Les groupes n'apparaissent sur une communication qu'une fois
+   enregistrée** : leur état se lit sur le contenu, qui n'existe pas avant
+   le premier enregistrement.
+7. **Le lien de réessai garde `group:3` tel quel dans l'adresse** : le
+   routeur compare le chemin brut, et un deux-points y est valide.
+8. **Suites de la revue d'IT-04**, fusionnée avant qu'elle n'arrive :
+   « Publier » demande désormais confirmation sur la page de partage et
+   sur la communication — `confirm.js` lit aussi `data-confirm` sur le
+   bouton pressé, pour qu'« Enregistrer », « Galerie » et « Téléverser »
+   ne demandent rien ; la page d'une communication existante n'est plus
+   titrée « Nouvelle communication » ; les deux `LIMIT` sont liés en
+   paramètres.

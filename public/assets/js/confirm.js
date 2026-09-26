@@ -411,7 +411,9 @@
      * would silently never fire for anything added after the page
      * rendered.
      *
-     * Read from the form:
+     * Read from the form — or from the submit button that was pressed,
+     * when only that one of a form's buttons needs asking (« Publier »
+     * beside « Enregistrer »: one form, one irreversible button):
      *   data-confirm            the question. Required; nothing else fires without it.
      *   data-confirm-label      the wording of the agreeing button.
      *   data-confirm-note       a second question — asks for a free-text
@@ -435,19 +437,29 @@
 
         doc.addEventListener('submit', function (e) {
             var target = /** @type {HTMLElement|null} */ (e.target);
-            var form = /** @type {HTMLFormElement|null} */ (
-                target === null ? null : target.closest('form[data-confirm]')
-            );
-            if (form === null || form.dataset.confirmed === '1') {
-                return;
-            }
-            e.preventDefault();
             // Carried along so a form with two submit buttons still sends
             // which one was pressed: form.submit() would drop that, and
             // skip validation with it.
             var submitter = /** @type {HTMLElement|null} */ (
                 /** @type {any} */ (e).submitter || null
             );
+            if (target === null) {
+                return;
+            }
+            // Where the question is written: the form, else the button
+            // that was pressed.
+            /** @type {HTMLFormElement|null} */
+            var form = target.closest('form[data-confirm]');
+            /** @type {HTMLElement|null} */
+            var host = form;
+            if (form === null && submitter?.dataset.confirm !== undefined) {
+                form = target.closest('form');
+                host = submitter;
+            }
+            if (form === null || host === null || form.dataset.confirmed === '1') {
+                return;
+            }
+            e.preventDefault();
 
             var replay = function () {
                 form.dataset.confirmed = '1';
@@ -458,11 +470,11 @@
                 }
             };
 
-            var note = form.dataset.confirmNote || '';
+            var note = host.dataset.confirmNote || '';
             if (note === '') {
                 api.ask({
-                    message: form.dataset.confirm || '',
-                    confirmLabel: form.dataset.confirmLabel || 'Confirmer'
+                    message: host.dataset.confirm || '',
+                    confirmLabel: host.dataset.confirmLabel || 'Confirmer'
                 }).then(function (confirmed) {
                     if (confirmed) {
                         replay();
@@ -476,11 +488,11 @@
             // cancels. Danger styling because what is behind it is a
             // refusal or a cancellation, not a form to fill in.
             api.prompt({
-                message: form.dataset.confirm || '',
+                message: host.dataset.confirm || '',
                 label: note,
                 multiline: true,
                 variant: 'danger',
-                confirmLabel: form.dataset.confirmLabel || 'Confirmer'
+                confirmLabel: host.dataset.confirmLabel || 'Confirmer'
             }).then(function (written) {
                 if (written === null) {
                     return;
@@ -497,7 +509,7 @@
                     carrier.dataset.confirmNoteField = '';
                     form.appendChild(carrier);
                 }
-                carrier.name = form.dataset.confirmNoteName || 'message';
+                carrier.name = host.dataset.confirmNoteName || 'message';
                 carrier.value = written;
                 replay();
             });
