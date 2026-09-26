@@ -1596,6 +1596,12 @@ class OutboundMailControllerTest extends TestCase
 
         $this->assertStringContainsString('Adresse inexistante (5.1.1)', $body);
         $this->assertStringContainsString('Jamais reçu', $body);
+        // **The date of the refusal, and not the date of the send.** The
+        // probe left at 07:00 and the bounce came back at 08:00; a test
+        // that only read the label passed while `bounce_at` was computed
+        // in the view model and printed nowhere, which is what the review
+        // of #562 found.
+        $this->assertStringContainsString('Rebond le 15/09/2026 à 08:00', $body);
     }
 
     /**
@@ -1626,10 +1632,10 @@ class OutboundMailControllerTest extends TestCase
 
         $body = (string) $this->controller->probe($this->getRequest(), [])->getBody();
 
-        // `Rebond :` and not `Rebond`: the page's own navigation carries a
-        // « Rebonds » tab, so the looser needle passed on that instead and
-        // said nothing about the row under test.
-        $this->assertStringNotContainsString('Rebond :', $body);
+        // `Rebond le ` and not `Rebond`: the page's own navigation carries
+        // a « Rebonds » tab, so the looser needle passed on that instead
+        // and said nothing about the row under test.
+        $this->assertStringNotContainsString('Rebond le ', $body);
     }
 
     /**

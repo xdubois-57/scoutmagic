@@ -190,10 +190,21 @@
                                            end answered before there was anything to see. Absent
                                            most of the time, and that is normal — a server that
                                            rejects without quoting the message it rejected sends no
-                                           code, so nothing can be traced. #}
+                                           code, so nothing can be traced.
+
+                                           **The date is here because it answers a question the
+                                           send date cannot.** A refusal that came back minutes
+                                           after the send is an address that does not exist; one
+                                           that came back three days later is a far end that
+                                           accepted the message and then gave up on it, which is a
+                                           different problem with a different remedy. The row
+                                           already carries the send date in its own column, so the
+                                           two together are the interval. It was computed in the
+                                           view model and printed nowhere until the review of #562
+                                           said so. #}
                                         {% if probe.bounce %}
                                             <span class="d-block small text-danger mt-1">
-                                                Rebond : {{ probe.bounce }}
+                                                Rebond le {{ probe.bounce_at }} : {{ probe.bounce }}
                                             </span>
                                         {% endif %}
                                     </td>
