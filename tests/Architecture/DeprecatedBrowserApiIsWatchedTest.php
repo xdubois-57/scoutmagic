@@ -245,14 +245,63 @@ class DeprecatedBrowserApiIsWatchedTest extends TestCase
         return implode("\n", $lines);
     }
 
+    /**
+     * Every file under one of $directories whose name ends with $suffix, at
+     * ANY depth.
+     *
+     * A walk rather than a glob, and the reason is worth writing down
+     * because the first version of this file got it wrong in two places at
+     * once. **PHP's `glob()` has no globstar**: two adjacent `*` inside a
+     * path segment collapse into one, so `modules/*\/views/**\/*.html.twig`
+     * is exactly `modules/*\/views/*\/*.html.twig` — 153 files either way,
+     * measured — and it silently skipped the 115 templates sitting directly
+     * in `modules/*\/views/`. The scan of `core/` was narrower still: it
+     * named `templates/partials/` alone, 42 of that tree's 129 templates.
+     *
+     * Neither showed up as a failure, because no `data-command` lives in
+     * either blind spot today. That is exactly the shape of defect this
+     * whole file exists to prevent — a safety net that reports green
+     * because it never looked — so it is fixed by looking everywhere rather
+     * than by widening one pattern and hoping.
+     *
+     * @param list<string> $directories
+     * @return list<string>
+     */
+    private static function filesUnder(array $directories, string $suffix): array
+    {
+        $found = [];
+
+        foreach ($directories as $directory) {
+            if (!is_dir($directory)) {
+                continue;
+            }
+
+            /** @var \SplFileInfo $entry */
+            foreach (new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS)
+            ) as $entry) {
+                if ($entry->isFile() && str_ends_with($entry->getFilename(), $suffix)) {
+                    $found[] = $entry->getPathname();
+                }
+            }
+        }
+
+        sort($found);
+
+        return $found;
+    }
+
     /** @return list<string> */
     private static function clientScripts(): array
     {
         $root = dirname(__DIR__, 2);
 
-        return array_merge(
-            glob($root . '/public/assets/js/*.js') ?: [],
-            glob($root . '/modules/*/assets/js/*.js') ?: []
+        return self::filesUnder(
+            array_merge(
+                [$root . '/public/assets/js'],
+                glob($root . '/modules/*/assets/js', GLOB_ONLYDIR) ?: []
+            ),
+            '.js'
         );
     }
 
@@ -261,9 +310,12 @@ class DeprecatedBrowserApiIsWatchedTest extends TestCase
     {
         $root = dirname(__DIR__, 2);
 
-        return array_merge(
-            glob($root . '/core/View/templates/partials/*.html.twig') ?: [],
-            glob($root . '/modules/*/views/**/*.html.twig') ?: []
+        return self::filesUnder(
+            array_merge(
+                [$root . '/core/View/templates'],
+                glob($root . '/modules/*/views', GLOB_ONLYDIR) ?: []
+            ),
+            '.html.twig'
         );
     }
 
