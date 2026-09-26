@@ -595,7 +595,9 @@ the new address, the new fees amounts — and returns one title and body per
 divergent source as JSON; a shell step then opens an issue per source, or
 comments on the one already open for it, found by a hidden
 `<!-- external-source:<id> -->` marker. A fingerprint of the script's own
-wording stops a weekly repeat of a divergence the issue already reports.
+wording stops a weekly repeat of a divergence the issue already reports —
+unless the earlier report had no analysis and this week's has one, which
+is then added.
 The split is issue-backlog-scan's: the agent holds read tools only (the
 checkout, the web, GitHub's read tools), the source ids come from the
 script and not the model, and if the agent returns nothing the issue still

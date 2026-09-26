@@ -203,7 +203,6 @@ jobs:
             # could otherwise pass for another source's marker next week.
             section="${section//<!--/\&lt;!--}"
             marker="<!-- external-source:${id} -->"
-            stamp="<!-- external-source-fingerprint:${fingerprint} -->"
 
             finding="$(printf '%s' "${FINDINGS}" | jq -c --arg id "${id}" \
               '[.findings[]? | select(.source == $id
@@ -215,9 +214,17 @@ jobs:
               # GitHub refuses a body over 65 536 characters; the schema caps
               # it, and this holds even if the schema was not honoured.
               analysis="$(printf '%s' "${finding}" | jq -r '.body | .[0:20000] | gsub("<!--"; "&lt;!--")')"
+              stamp="<!-- external-source-fingerprint:${fingerprint} -->"
+              # Already written with an analysis: nothing new to say.
+              known="${stamp}"
             else
               title="divergence détectée"
               analysis="Le contrôle a signalé cette source ; aucune analyse n'a pu être produite."
+              # A report without analysis says so in its stamp, so a later
+              # week whose agent succeeds still adds its analysis; another
+              # empty report on a divergence already written adds nothing.
+              stamp="<!-- external-source-fingerprint:${fingerprint}:sans-analyse -->"
+              known="external-source-fingerprint:${fingerprint}"
             fi
 
             body="$(printf '**Type: bug**\n\n%s\n\n### Rapport du contrôle\n\n```\n%s\n```\n\n%s\n%s\n' \
@@ -248,7 +255,7 @@ jobs:
 
             seen="$( { gh api "repos/${GITHUB_REPOSITORY}/issues/${existing}" --jq '.body // ""';
               gh api "repos/${GITHUB_REPOSITORY}/issues/${existing}/comments" --paginate --jq '.[].body'; } \
-              | grep -cF "${stamp}" || true)"
+              | grep -cF "${known}" || true)"
             if [ "${seen}" -gt 0 ]; then
               echo "#${existing} already reports ${id} as it diverges today; nothing written."
               continue
