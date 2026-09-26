@@ -244,10 +244,16 @@
                         {%- set alignment_classes = 'd-block px-3 pb-3 pt-0 small text-warning-emphasis'
                             ~ ' section-email-warning'
                             ~ (section.alignment_warning is empty ? ' d-none' : '') -%}
-                        {# <output>, not a div carrying role="status" (SonarCloud Web:S6819): the
-                           element announces a result the operator's own save produced, which is what
-                           <output> means, and the implicit role travels where the explicit one does
-                           not on some assistive technology. d-block because <output> is inline. #}
+                        {# <output>, not a div carrying an explicit status role (SonarCloud
+                           Web:S6819): the element announces a result the operator's own save
+                           produced, which is what <output> means, and its implicit role travels
+                           where an explicit one does not on some assistive technology. d-block
+                           because <output> is inline.
+
+                           **The attribute is deliberately not spelled out above.** Sonar's HTML
+                           analyser reads a Twig comment as markup, so quoting it here raised the
+                           very finding this comment explains away — on the comment itself, with
+                           the markup already correct. #}
                         <output class="{{ alignment_classes }}">
                             <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
                             <span class="section-email-warning-text">{{ section.alignment_warning }}</span>
