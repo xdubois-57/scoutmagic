@@ -212,7 +212,7 @@ class SpfCoverageTest extends TestCase
 
             $this->assertNull(
                 $coverage->viaFor('198.51.100.7'),
-                'Un qualificateur « ' . $qualifier . ' » ne vouche pour rien.'
+                'A "' . $qualifier . '" qualifier vouches for nothing.'
             );
         }
     }
@@ -294,7 +294,7 @@ class SpfCoverageTest extends TestCase
         $this->assertSame(
             ['exemple.be', 'a.example', 'b.example', 'partage.example'],
             $this->lookups,
-            'Le dépôt partagé est lu une fois, pas une fois par branche.'
+            'The shared record is read once, not once per branch.'
         );
     }
 
@@ -371,7 +371,7 @@ class SpfCoverageTest extends TestCase
         $this->assertSame(SpfCoverage::MAX_RANGES, $coverage->rangeCount());
         $this->assertNull(
             $coverage->partial,
-            'Une plage refusée par le lecteur ne doit pas avoir consommé une place au passage.'
+            'A range the reader refuses must not have spent a slot on its way there.'
         );
     }
 

@@ -4654,6 +4654,32 @@ and AAAA both, because a relay reached over IPv6 would otherwise be
 has no reason to write it the way a resolver does. The host itself never
 reaches a screen (SECURITY.md §11); the provider's name does.
 
+*`SpfCoverage` names what `KnownSenders` cannot* (issue #421). A source no
+declared relay places is an address and nothing else — and almost always a
+mail service the unit really uses and never told the site about, whose
+ranges are in the unit's own SPF record behind an `include:`, because
+somebody had to put them there for that mail to pass. So the same
+« Vérifier les enregistrements » action walks that chain and stores what it
+authorises, and the page says « déclarée dans votre SPF, via
+`_spf.google.com` ». **The attribution is the top-level `include:`, however
+deep the range was found**: `_netblocks3.google.com` is where the addresses
+actually are and appears nowhere in the operator's zone, so naming it would
+send them hunting for a string they cannot find. **Naming is not
+clearing** — a source this places keeps its « À identifier » and stays in
+the warning's count, because « je l'ai mis dans le SPF il y a trois ans » is
+the commonest way a forgotten tool got there. Three of its bounds are
+borrowed rather than chosen: ten lookups, the number RFC 7208 §4.6.4 gives
+receivers, past which a real receiver abandons the chain too; 256 ranges,
+what the setting's `TEXT` column carries without truncating into an
+unreadable blob; thirty days before the reading stops naming anybody, since
+a provider's published ranges are the one input here that moves without
+anybody at the unit touching it. `a`, `mx`, `exists:`, `ptr` and any
+mechanism carrying a `-`, `~` or `?` qualifier are deliberately not read —
+`-ip4:` names a range the record REFUSES — each leaving its addresses
+**unplaced** rather than misplaced. Unlike a relay hostname, an `include:`
+target is public DNS the operator published themselves and has to find again
+in their own zone, which is why this one name does reach the screen.
+
 *The caps are on the DRAWING, and on nothing else.* `sourcesSince()` and
 `reportsSince()` feed tables and are limited; every count and the one
 warning come from uncapped queries (`totalsSince()`, and
