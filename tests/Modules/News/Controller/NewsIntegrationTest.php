@@ -279,6 +279,37 @@ class NewsIntegrationTest extends TestCase
         $this->assertStringContainsString('href="/news/' . $articleId . '/gerer?tab=preview"', $body);
     }
 
+    /**
+     * Another module's action ("Partager") shows in the editor through the
+     * registry, and nowhere when nothing is registered.
+     */
+    public function testTheEditorShowsTheActionsOtherModulesContribute(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $registry = new \Modules\News\Service\ArticleActionRegistry();
+        $registry->register(new class implements \Modules\News\Api\ArticleActionProviderInterface {
+            public function actionsFor(int $articleId): array
+            {
+                return [new \Modules\News\Api\ArticleAction('Partager', '/partage/actualite/' . $articleId, 'bi-share')];
+            }
+        });
+        $controller = new NewsController(
+            $this->twig, $this->articleService, $this->formService, $this->responseService, new SeoKeywordService(null),
+            new PosterPdfService(), $this->scoutYearService, $this->settingService, $this->schedulerService, $this->userAccountRepository,
+            $this->memberService, $this->sectionService, new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir()),
+            new FileRepository($this->pdo), sys_get_temp_dir(), $this->journalService,
+            new \Modules\News\Service\TicketService($this->responseRepository), articleActions: $registry
+        );
+        $request = new Request('GET', '/news/' . $articleId . '/gerer', [], [], [], []);
+
+        $body = $controller->edit($request, ['id' => (string) $articleId])->getBody();
+        $this->assertStringContainsString('data-article-actions', $body);
+        $this->assertStringContainsString('href="/partage/actualite/' . $articleId . '"', $body);
+
+        $this->assertStringNotContainsString('data-article-actions', $this->newsController->edit($request, ['id' => (string) $articleId])->getBody());
+    }
+
     public function testTheEditorTabIsTheSelectedOneAndThePreviewTabIsNot(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');

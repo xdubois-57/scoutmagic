@@ -54,7 +54,13 @@ class GalleryChiefController extends AbstractController
          * filed in the year the chief is actually working in when its own
          * date names no known year; without it, in the public one.
          */
-        private ?\Core\ScoutYear\ScoutYearResolver $scoutYearResolver = null
+        private ?\Core\ScoutYear\ScoutYearResolver $scoutYearResolver = null,
+        /**
+         * The buttons other modules add to an album's page (ARCHITECTURE.md
+         * §7.6) — the object, not a snapshot: a module registering after
+         * this controller was built still reaches it. Null: no buttons.
+         */
+        private ?\Modules\Gallery\Service\AlbumActionRegistry $albumActions = null
     ) {
     }
 
@@ -545,6 +551,7 @@ class GalleryChiefController extends AbstractController
 
         return [
             'album' => $album,
+            'album_actions' => $album !== null ? ($this->albumActions?->collect($album->id) ?? []) : [],
             // The location the album's files are ACTUALLY on, resolved
             // rather than read. A null `location_id` means « not written
             // down yet », not « nowhere »: the raw column had this page

@@ -85,6 +85,84 @@
       "menu": "notre_unite",
       "role_min": "public",
       "label": ""
+    },
+    {
+      "path": "/partage/album/{id}",
+      "method": "GET",
+      "controller": "Modules\\Social\\Controller\\ShareController",
+      "action": "showAlbum",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Partager",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Gérer les photos",
+            "path": "/gallery/manage"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/partage/album/{id}/apercu",
+      "method": "GET",
+      "controller": "Modules\\Social\\Controller\\ShareController",
+      "action": "previewAlbum",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/partage/album/{id}",
+      "method": "POST",
+      "controller": "Modules\\Social\\Controller\\ShareController",
+      "action": "publishAlbum",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/partage/actualite/{id}",
+      "method": "GET",
+      "controller": "Modules\\Social\\Controller\\ShareController",
+      "action": "showArticle",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Partager",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Rédiger les actualités",
+            "path": "/news/manage"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/partage/actualite/{id}/apercu",
+      "method": "GET",
+      "controller": "Modules\\Social\\Controller\\ShareController",
+      "action": "previewArticle",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/partage/actualite/{id}",
+      "method": "POST",
+      "controller": "Modules\\Social\\Controller\\ShareController",
+      "action": "publishArticle",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
     }
   ],
   "settings": [

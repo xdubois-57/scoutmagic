@@ -29,10 +29,17 @@ final class ModuleManifestTest extends TestCase
         $this->assertFalse($this->manifest['enabled_by_default']);
     }
 
-    public function testEveryRouteButTheCardIsSuperadminUnderConfiguration(): void
+    public function testConfigurationIsSuperadminAndSharingIsForChiefs(): void
     {
         foreach ($this->manifest['routes'] as $route) {
             if ($route['path'] === '/partage/carte/{token}') {
+                continue;
+            }
+            if (str_starts_with($route['path'], '/partage/')) {
+                // Sharing: a chief at the floor, narrowed by the gallery's
+                // and the news module's own rule (ShareSourceResolver).
+                $this->assertSame('chief', $route['role_min'], $route['path']);
+                $this->assertSame('espace_chefs', $route['menu'], $route['path']);
                 continue;
             }
             $this->assertSame('superadmin', $route['role_min'], $route['path']);
@@ -67,7 +74,9 @@ final class ModuleManifestTest extends TestCase
     public function testEveryStateChangeIsAPost(): void
     {
         foreach ($this->manifest['routes'] as $route) {
-            $reads = in_array($route['action'], ['index', 'connect', 'callback', 'show'], true);
+            $reads = in_array($route['action'], [
+                'index', 'connect', 'callback', 'show', 'showAlbum', 'showArticle', 'previewAlbum', 'previewArticle',
+            ], true);
             $this->assertSame($reads ? 'GET' : 'POST', $route['method'], $route['path'] . ' → ' . $route['action']);
         }
     }

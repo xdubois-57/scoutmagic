@@ -93,7 +93,12 @@ class NewsController extends AbstractController
         // dependencies): without it, uploads are stored full-size only and
         // the templates' variant URLs simply 404 into a hidden image — the
         // composition root always wires it.
-        private ?\Core\Photo\ImageVariantService $imageVariantService = null
+        private ?\Core\Photo\ImageVariantService $imageVariantService = null,
+        /**
+         * The buttons other modules add to the editor (ARCHITECTURE.md
+         * §7.6) — the object, not a snapshot. Null: no buttons.
+         */
+        private ?\Modules\News\Service\ArticleActionRegistry $articleActions = null
     ) {
     }
 
@@ -747,6 +752,7 @@ class NewsController extends AbstractController
             // leaving both blank (forever-open, easy to forget about).
             'default_opens_at' => $form?->opensAt ?? (new \DateTimeImmutable())->format('Y-m-d'),
             'default_closes_at' => $form?->closesAt ?? (new \DateTimeImmutable('+6 months'))->format('Y-m-d'),
+            'article_actions' => $article !== null ? ($this->articleActions?->collect($article->id) ?? []) : [],
             'short_url' => $article?->shortUrlCode !== null
                 ? rtrim((string) ($this->settingService->get('base_url') ?: ''), '/') . '/s/' . $article->shortUrlCode
                 : null,

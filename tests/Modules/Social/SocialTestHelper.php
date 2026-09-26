@@ -36,6 +36,19 @@ final class SocialTestHelper
             expires_at TEXT NOT NULL,
             served_count INTEGER NOT NULL DEFAULT 0
         )');
+        $pdo->exec('CREATE TABLE social_publications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_kind TEXT NOT NULL,
+            source_id INTEGER NOT NULL,
+            destination TEXT NOT NULL,
+            status TEXT NOT NULL,
+            remote_id TEXT NULL,
+            error_message TEXT NULL,
+            attempted_at TEXT NOT NULL,
+            published_at TEXT NULL,
+            user_account_id INTEGER NULL,
+            UNIQUE (source_kind, source_id, destination)
+        )');
     }
 
     /** A real photo of people, from the reference dataset. */

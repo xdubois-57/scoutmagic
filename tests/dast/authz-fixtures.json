@@ -150,6 +150,12 @@
     "/config/pages-de-texte/{id}": {
       "id": "1"
     },
+    "/partage/album/{id}": {
+      "id": "1"
+    },
+    "/partage/actualite/{id}": {
+      "id": "1"
+    },
     "/partage/carte/{token}": {
       "token": "0000000000000000000000000000000000000000000000000000000000000000"
     },

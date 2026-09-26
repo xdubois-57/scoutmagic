@@ -144,3 +144,51 @@ désormais par doublements, lissés à chaque étape.
    « tout téléchargement passe par `/files/{id}` », après l'extrait de
    triage — le document parlait de la seconde, l'exception « photos hors
    ligne » ayant disparu depuis.
+
+## IT-03 — Le partage depuis les actualités et les albums
+
+« Partager » sur la page de modification d'un album et dans l'éditeur
+d'une actualité, contribué par le module social à travers deux registres
+que la galerie et les actualités possèdent (ARCHITECTURE.md §7.6). La page
+`/partage/album/{id}` ou `/partage/actualite/{id}` montre la carte réelle,
+la légende et chaque destination avec son état ; la publication part vers
+la Page (photo pour un album, lien pour une actualité) et vers Instagram
+(toujours une image), une seule fois par destination, décidé par une clé
+unique en base. Voir ARCHITECTURE.md §8.122, SECURITY.md §38 et
+specifications.md §47.6.
+
+### Décisions prises en autonomie
+
+1. **Une vraie page plutôt que la fenêtre de la maquette.** La maquette
+   dessine la confirmation d'un album par-dessus un fond grisé ; la page
+   dédiée garde l'image à sa taille sur un téléphone, survit à un
+   rechargement après une erreur, se prête au retour « Post/Redirect/Get »
+   qui réaffiche l'état de chaque destination, et c'est la forme que la
+   maquette retient elle-même pour la « Nouvelle communication ». Libellés,
+   ordre et avertissement sont ceux de la maquette.
+2. **Les icônes de marque sont celles de Bootstrap Icons** (`bi-facebook`,
+   `bi-instagram`), déjà servies par le site, plutôt que les dessins de la
+   maquette ou les fichiers officiels de Meta.
+3. **Qui peut partager** : la règle du module propriétaire, jamais
+   recalculée — gérer l'album (`canManageAlbum()`), pouvoir modifier
+   l'actualité (`canEdit()` : son auteur ou un administrateur). Un album
+   délégué ou en cours de déplacement ne se partage pas.
+4. **Quelles actualités peuvent sortir** : celles que le module
+   Actualités tient déjà pour partageables (`isSociallyShareable()` —
+   publique, lien direct, membres identifiés), c'est-à-dire celles dont
+   l'image est déjà un fichier public. Une actualité réservée aux
+   animateurs ou aux administrateurs montre pourquoi elle ne peut pas
+   partir.
+5. **L'image d'une actualité n'est pas floutée.** Le document ne floute
+   que « toute image venant de la galerie » ; l'image d'une actualité a été
+   choisie pour être montrée, et elle l'est déjà publiquement.
+6. **Sans image, pas d'Instagram.** Un album sans photo de couverture ou
+   une actualité sans image laisse Instagram indisponible, avec la raison ;
+   la Page reste possible pour une actualité (publication de lien).
+7. **Une publication interrompue** (le serveur tombe entre la réservation
+   de la destination et la réponse de Meta) reste « en cours » quinze
+   minutes, puis se présente comme un échec qu'on peut retenter en le
+   confirmant : sans cela, une coupure bloquerait la destination pour
+   toujours.
+8. **La légende est limitée à 2 200 caractères**, la limite d'Instagram,
+   pour toutes les destinations : une seule légende pour toutes.

@@ -36,8 +36,23 @@ class MetaClient
     /** The account types Instagram's publishing API serves; a personal account is not one of them. */
     private const PROFESSIONAL_ACCOUNT_TYPES = ['BUSINESS', 'MEDIA_CREATOR'];
 
-    public function __construct(private readonly MetaTransport $transport = new StreamMetaTransport())
-    {
+    /** How many times an Instagram container is asked whether it is ready, a second apart. */
+    private const CONTAINER_POLLS = 10;
+
+    /** @var \Closure(int): void */
+    private readonly \Closure $sleep;
+
+    /**
+     * @param (\Closure(int): void)|null $sleep how to wait between two
+     *        polls of an Instagram container — tests pass a no-op
+     */
+    public function __construct(
+        private readonly MetaTransport $transport = new StreamMetaTransport(),
+        ?\Closure $sleep = null
+    ) {
+        $this->sleep = $sleep ?? static function (int $seconds): void {
+            sleep($seconds);
+        };
     }
 
     public function facebookAuthorizationUrl(string $appId, string $redirectUri, string $state): string
@@ -208,6 +223,100 @@ class MetaClient
         }
 
         return ['id' => $id, 'username' => self::string($answer, 'username')];
+    }
+
+    /**
+     * An image post on the Page: Meta fetches `$imageUrl` itself.
+     *
+     * @return string the post's id
+     */
+    public function publishFacebookPhoto(string $pageId, string $pageToken, string $imageUrl, string $caption): string
+    {
+        $answer = $this->decode($this->transport->postForm(
+            'https://graph.facebook.com/' . self::GRAPH_VERSION . '/' . rawurlencode($pageId) . '/photos',
+            ['url' => $imageUrl, 'caption' => $caption, 'access_token' => $pageToken]
+        ));
+
+        $id = $answer['post_id'] ?? $answer['id'] ?? null;
+
+        return is_string($id) && $id !== '' ? $id : throw MetaException::unexpected('no post id');
+    }
+
+    /**
+     * A link post on the Page: Facebook builds the preview from the page's
+     * own Open Graph tags.
+     *
+     * @return string the post's id
+     */
+    public function publishFacebookLink(string $pageId, string $pageToken, string $link, string $message): string
+    {
+        $answer = $this->decode($this->transport->postForm(
+            'https://graph.facebook.com/' . self::GRAPH_VERSION . '/' . rawurlencode($pageId) . '/feed',
+            ['link' => $link, 'message' => $message, 'access_token' => $pageToken]
+        ));
+
+        return self::string($answer, 'id');
+    }
+
+    /**
+     * An Instagram image post, in Meta's two steps: a container that Meta
+     * fills by fetching `$imageUrl`, then its publication once it is
+     * ready.
+     *
+     * @return string the media's id
+     */
+    public function publishInstagramImage(string $accountId, string $token, string $imageUrl, string $caption): string
+    {
+        $base = 'https://graph.instagram.com/' . self::GRAPH_VERSION . '/' . rawurlencode($accountId);
+        $created = $this->transport->postForm(
+            $base . '/media',
+            ['image_url' => $imageUrl, 'caption' => $caption, 'access_token' => $token]
+        );
+        $container = self::string($this->decode($created), 'id');
+
+        $this->awaitContainer($container, $token);
+
+        $published = $this->transport->postForm(
+            $base . '/media_publish',
+            ['creation_id' => $container, 'access_token' => $token]
+        );
+
+        return self::string($this->decode($published), 'id');
+    }
+
+    /**
+     * An image container is usually ready at once; when Meta says it is
+     * still working, it is asked again a few times, and a container that
+     * failed — an image Meta could not fetch, a format it refuses — says
+     * so rather than being published.
+     */
+    private function awaitContainer(string $container, string $token): void
+    {
+        for ($poll = 0; $poll < self::CONTAINER_POLLS; $poll++) {
+            $answer = $this->getJson('https://graph.instagram.com/' . self::GRAPH_VERSION . '/'
+                . rawurlencode($container) . '?'
+                . http_build_query(['fields' => 'status_code', 'access_token' => $token]));
+            $status = is_string($answer['status_code'] ?? null) ? $answer['status_code'] : 'FINISHED';
+
+            if ($status === 'FINISHED' || $status === 'PUBLISHED') {
+                return;
+            }
+            if ($status === 'ERROR' || $status === 'EXPIRED') {
+                throw new MetaException(
+                    'Instagram n\'a pas pu récupérer l\'image. Réessayez dans quelques minutes.',
+                    'container ' . $status
+                );
+            }
+
+            ($this->sleep)(1);
+        }
+
+        throw new MetaException(
+            'Instagram met trop de temps à préparer l\'image. Réessayez dans quelques minutes.',
+            'container still in progress',
+            false,
+            true
+        );
     }
 
     /**
