@@ -58,7 +58,15 @@ final class DestinationStates
             $userId,
             $now
         );
-        if ($request->groupIds !== [] && $this->groups !== null && $userId !== null) {
+        if ($request->groupIds !== [] && ($this->groups === null || $userId === null)) {
+            // Asked for, but not offered here: said so, never dropped.
+            $outcomes[] = new PublishOutcome(
+                null,
+                false,
+                'Les groupes de discussion ne sont pas disponibles.',
+                'Groupe de discussion'
+            );
+        } elseif ($request->groupIds !== []) {
             $outcomes = array_merge($outcomes, $this->groups->publish(
                 $source,
                 $request->groupIds,
@@ -182,6 +190,11 @@ final class DestinationStates
             $lines[] = $outcome->published
                 ? 'Publié sur ' . $outcome->label() . '.'
                 : $outcome->label() . ' : ' . $outcome->message;
+        }
+
+        if ($outcomes === []) {
+            // Never a green banner over nothing.
+            return ['error', 'Rien n\'a été publié.'];
         }
 
         return [
