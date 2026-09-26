@@ -90,3 +90,57 @@ SECURITY.md §38 et specifications.md §47.
 
 Rien de ce qui relève d'IT-01. La publication elle-même, les cartes
 d'image et la route éphémère arrivent avec IT-02 et IT-03.
+
+---
+
+## IT-02 — Le générateur de carte et la route éphémère
+
+`Card\CardRenderer` compose l'image publiée, `Card\CardService` la garde
+une heure derrière `/partage/carte/{token}` et la sert à Meta,
+`Task\PurgeCardsHandler` efface les cartes expirées. Voir ARCHITECTURE.md
+§8.122, SECURITY.md §6 et specifications.md §47.5. Rien ne publie encore :
+le premier consommateur arrive avec IT-03.
+
+### Le calibrage du flou
+
+Cartes générées à partir des photos du jeu de données de référence
+(`tests/fixtures/reference-dataset/photos/` : deux photos de groupe, un
+portrait rapproché) à 1, 2, 3, 3,5, 4, 5, 6 et 7 % du côté.
+
+- À 2 et 3 %, les sourires et l'expression se lisent encore sur le
+  portrait.
+- À 4 %, les traits ont disparu des photos de groupe, mais le portrait
+  laisse deviner un visage souriant.
+- **À 5 %, le portrait ne laisse plus rien deviner**, et la scène — une
+  tente, un uniforme, une clairière — reste lisible. C'est la valeur
+  retenue, et le plancher : `CardService::MIN_BLUR_RATIO`.
+- Au-delà, l'image n'est plus qu'une tache de couleur.
+
+Le premier essai (un seul agrandissement de l'image réduite) laissait
+voir une grille de carrés flous dès 5 % ; l'agrandissement se fait
+désormais par doublements, lissés à chaque étape.
+
+### Décisions prises en autonomie
+
+1. **Un carré de 1080 px** pour toutes les destinations. Instagram accepte
+   de 4:5 à 1,91:1 et recadre sa grille en carrés ; Facebook montre un carré
+   entier. Un format unique permet à la confirmation d'IT-03 de montrer
+   l'image exacte qui part, quelle que soit la destination. La maquette
+   dessine un aperçu paysage : c'est un aperçu, pas un format.
+2. **Le réglage n'apparaît pas sur la page Paramètres.** Le document le
+   voulait « en lecture seule sur la page Paramètres, comme
+   `pwa_icon_version` » ; depuis #510, cette page ne montre que des lignes
+   modifiables, et `pwa_icon_version` n'y figure pas davantage. Le réglage
+   `social_card_blur_ratio` est déclaré `editable: false` : enregistré,
+   lisible, jamais modifiable depuis l'interface — et le service ne descend
+   jamais sous le plancher, quoi qu'il contienne.
+3. **La police est DejaVu Sans Bold**, licence Bitstream Vera/Arev,
+   permissive ; son texte officiel est versionné à côté
+   (`modules/social/resources/fonts/`). Couverture complète du français.
+4. **Une tâche de purge à part** (`purge_cards`, quotidienne) plutôt qu'une
+   étape de la vérification des connexions : l'expiration est vérifiée à
+   chaque requête, la purge n'est que du ménage.
+5. **SECURITY.md** : c'est la **troisième** exception écrite à la règle
+   « tout téléchargement passe par `/files/{id}` », après l'extrait de
+   triage — le document parlait de la seconde, l'exception « photos hors
+   ligne » ayant disparu depuis.

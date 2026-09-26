@@ -3244,10 +3244,10 @@ membres ne voient jamais l'historique.
 ## 47. Réseaux sociaux (module social)
 
 Chantier « Partage vers Facebook et Instagram » (issue #528,
-`docs/chantiers/CHANTIER-partage-social.md`). Cette section décrit la
-première itération : le **connecteur**. La publication depuis les
-actualités, les albums et l'écran Communications arrive avec les
-itérations suivantes.
+`docs/chantiers/CHANTIER-partage-social.md`). Cette section décrit les deux
+premières itérations : le **connecteur** et **l'image publiée**. La
+publication depuis les actualités, les albums et l'écran Communications
+arrive avec les itérations suivantes.
 
 ### 47.1 Ce que le module relie
 
@@ -3309,3 +3309,21 @@ pas chaque nuit.
 - **Meta est un destinataire au sens du RGPD.** Tant qu'un compte est
   raccordé, la page Protection des données générée par IA le décrit ;
   sans compte raccordé, elle n'en dit rien.
+
+### 47.5 L'image publiée
+
+Toute publication porte une image composée par le site : un carré de
+1080 px — le format que Facebook et Instagram montrent tous deux en
+entier —, l'image de fond, un titre incrusté (trois lignes au plus,
+raccourci au-delà) et l'adresse du site en pied. L'adresse est sur l'image
+parce qu'Instagram ne publie pas de lien.
+
+- **Une photo de la galerie est toujours floutée**, sur toute l'image, sans
+  case pour l'éviter. L'intensité est une proportion du côté de l'image,
+  calibrée sur de vraies photos à 5 % : le visage d'un portrait rapproché
+  n'est plus reconnaissable, la scène reste lisible. C'est un réglage non
+  modifiable ; une valeur plus faible écrite en base est ignorée.
+- **Meta vient chercher l'image** à une adresse publique aléatoire, valable
+  une heure. Passé ce délai, l'adresse répond « introuvable » comme une
+  adresse qui n'a jamais existé, et l'image est effacée dans la journée.
+  Chaque téléchargement est inscrit au journal, sans l'adresse.

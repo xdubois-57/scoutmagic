@@ -80,6 +80,10 @@ final class ConfigControllerTest extends TestCase
         $manifest = json_decode((string) file_get_contents(dirname(__DIR__, 4) . '/modules/social/module.json'), true);
         $cases = [];
         foreach ($manifest['routes'] as $route) {
+            // The card route is public by design (CardControllerTest).
+            if (!str_ends_with($route['controller'], '\\ConfigController')) {
+                continue;
+            }
             self::assertSame('superadmin', $route['role_min'], $route['path']);
             $cases[$route['method'] . ' ' . $route['path']] = [$route['method'], $route['path'], $route['action']];
         }
