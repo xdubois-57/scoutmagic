@@ -205,7 +205,14 @@ class SendBatchHandler implements TaskHandlerInterface
                     $subject,
                     $bodyHtml,
                     $bodyText,
-                    null,
+                    // **`Reply-To:` only when the `From:` had to be
+                    // substituted** (issue #418): a section address the site
+                    // cannot sign for is moved here so « Répondre » still
+                    // reaches the section, while the `From:` becomes the
+                    // site's own address, which DKIM and SPF do align with.
+                    // Null for a section whose address the site CAN sign
+                    // for — the `From:` is already the section there.
+                    $sender['reply_to'],
                     $attachments,
                     $sender['address'],
                     $sender['name'],
@@ -296,7 +303,16 @@ class SendBatchHandler implements TaskHandlerInterface
                             // promises one-click, and a `mailto:` is not
                             // one. Claiming it would be a second lie to a
                             // provider that checks.
-                            'List-Unsubscribe' => '<mailto:' . $sender['address'] . '?subject=unsubscribe>',
+                            // `contact` and not `address`: the latter is
+                            // NULL whenever the site sends under its own
+                            // address — a section with no e-mail, and since
+                            // issue #418 a section whose address the site
+                            // cannot sign for — which would have written
+                            // `<mailto:?subject=unsubscribe>`. A malformed
+                            // header is exactly the bulk-sender signal this
+                            // copy exists to measure, so it would have
+                            // biased the reading it is here to take.
+                            'List-Unsubscribe' => '<mailto:' . $sender['contact'] . '?subject=unsubscribe>',
                         ],
                         // The subject travels with the body or not at
                         // all: on a merge it is rendered from the same

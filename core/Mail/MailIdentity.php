@@ -176,14 +176,66 @@ final class MailIdentity
      * own settings. There was an « alignment » check here and a warning
      * on the screen fed by it; both were unreachable, and an alarm that
      * cannot ring is worse than no alarm — it reads as a check somebody
-     * is doing. The one case that WOULD diverge is a mailing sent under a
-     * section's own address, and that belongs to the iteration that
-     * touches the mailing (journal: « Reporté »), which is also where the
-     * check will have something to compare.
+     * is doing.
+     *
+     * The one case that DOES diverge is a mailing sent under a section's
+     * own address, and it is no longer deferred: {@see self::canAlignFrom()}
+     * below is the check that case was waiting for, and issue #418 is where
+     * it was decided what to do when the answer is no.
      */
     public function dkimDomain(): string
     {
         return self::domainOf($this->fromAddress);
+    }
+
+    /**
+     * Could this site make DMARC pass for a message whose `From:` is that
+     * address? (issue #418)
+     *
+     * **The question is not « is the address valid » but « can we sign for
+     * it ».** A mailing sent under a section's own address keeps the site's
+     * envelope and the site's DKIM key, so neither SPF nor DKIM aligns with
+     * the `From:` unless that address is on the domain this site signs for.
+     * When it is not, the message fails DMARC outright and its fate is
+     * decided by the section's own provider: measured on 2026-09-24,
+     * telenet.be and yahoo.* publish `p=reject` — refused everywhere DMARC
+     * is applied — while skynet.be, proximus.be, voo.be, icloud.com and
+     * proton.me publish `p=quarantine`. And the site would never learn it:
+     * an aggregate report goes to the `rua=` of the FROM domain, so a
+     * message sent as `baladins@telenet.be` is reported to Telenet, never
+     * here.
+     *
+     * **A subdomain passes, and the parent domain does not.** DMARC's own
+     * relaxed alignment compares organizational domains, which needs the
+     * Public Suffix List; issue #418 decided against carrying that list, so
+     * the rule here is the narrow half of it — the address is on the DKIM
+     * domain or under it. The asymmetry is deliberate and it errs toward the
+     * warning: a site sending from `noreply@mail.unite.be` reads a section's
+     * `baladins@unite.be` as not alignable, where a real receiver doing
+     * relaxed alignment would have accepted it. Wrong in that direction
+     * costs a warning nobody needed and a `Reply-To` that still works;
+     * wrong in the other lets a mailing be refused with every screen green.
+     *
+     * **`str_ends_with` on a dot-prefixed suffix, and the dot is the whole
+     * point.** `unite.be.evil.com` and `autre-unite.be` both contain the
+     * site's domain as a substring and neither is under it; requiring the
+     * separator is what tells a subdomain from a look-alike somebody
+     * registered on purpose.
+     */
+    public function canAlignFrom(string $address): bool
+    {
+        $own = $this->dkimDomain();
+        $domain = self::domainOf($address);
+
+        // Both are already lower-cased by `domainOf()`. An empty one on
+        // either side is « we cannot say », which is « cannot align »: a
+        // site with no sending address configured signs for nothing, and an
+        // address with no domain is not one.
+        if ($own === '' || $domain === '') {
+            return false;
+        }
+
+        return $domain === $own || str_ends_with($domain, '.' . $own);
     }
 
     /**

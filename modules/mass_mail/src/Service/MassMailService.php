@@ -13,6 +13,7 @@ use Core\File\FileRepository;
 use Core\Import\ImportJournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\MailException;
+use Core\Mail\MailIdentity;
 use Core\Mail\MailService;
 use Core\Member\MemberEmailService;
 use Core\Member\MemberService;
@@ -73,23 +74,99 @@ class MassMailService
     }
 
     /**
-     * The email's "From" — always the sender section's own configured
+     * The email's "From" — the sender section's own configured
      * address/name (module addendum: never the site's global mail
-     * configuration), for both the real batch send and a test send. Falls
-     * back to the site's default (null override) only when the section
-     * itself has no configured email.
+     * configuration) **when the site can make DMARC pass for it**, and the
+     * site's own address with the section named in the display name when it
+     * cannot. Falls back to the site's default (null override) when the
+     * section has no configured email at all.
      *
-     * @return array{address: ?string, name: ?string}
+     * **Why a section address is not always usable as a `From:`** (issue
+     * #418). The mailing keeps the site's envelope and the site's DKIM key
+     * whatever the `From:` says, so a section address on somebody else's
+     * domain aligns with neither SPF nor DKIM: the message fails DMARC
+     * outright. Measured on 2026-09-24, that means REFUSED at telenet.be
+     * and yahoo.*, and quarantined at skynet.be, proximus.be, voo.be,
+     * icloud.com and proton.me. And nothing here would ever learn it — an
+     * aggregate report goes to the `rua=` of the From domain, so a message
+     * sent as `baladins@telenet.be` is reported to Telenet. The failure has
+     * to be avoided at the send and announced in the configuration, which
+     * is what {@see \Core\Mail\MailIdentity::canAlignFrom()} and the two
+     * warning screens do.
+     *
+     * **The section is still named, and replies still reach it.** Issue #418
+     * chose a substitution over a refusal: the display name becomes
+     * « Baladins (Unité X) » so the recipient still reads who is writing,
+     * and `Reply-To:` carries the section's address so « Répondre » arrives
+     * where it always did. Nothing about the mailing is blocked.
+     *
+     * **The site's own identity is read through `getDefaultSender()`**, not
+     * from a `MailIdentity` of our own: that method is already the one
+     * source {@see self::resolveDisplayedSender()} trusts for « who is this
+     * message from », and two sources for one question is how the screen and
+     * the send come to disagree. `canAlignFrom()` reads the From address and
+     * nothing else, so this is the whole of what it needs.
+     *
+     * @return array{address: ?string, name: ?string, reply_to: ?string, contact: string}
      */
     public function resolveSenderIdentity(int $sectionId): array
     {
         $section = $this->sectionService->getSection($sectionId);
-        $address = $section['email'] ?? null;
+        $sectionAddress = trim((string) ($section['email'] ?? ''));
+        $sectionName = $section['name'] ?? null;
+        $site = $this->mailService->getDefaultSender();
+
+        if ($sectionAddress === '') {
+            // No address to align or to substitute: the site's own, exactly
+            // as before this rule existed.
+            return [
+                'address' => null,
+                'name' => $sectionName,
+                'reply_to' => null,
+                'contact' => $site['address'],
+            ];
+        }
+
+        if ((new MailIdentity($site['address'], $site['name']))->canAlignFrom($sectionAddress)) {
+            return [
+                'address' => $sectionAddress,
+                'name' => $sectionName,
+                // No `Reply-To:` — the `From:` is the section already, and a
+                // header repeating it would be one more thing to keep in
+                // step for no reader's benefit.
+                'reply_to' => null,
+                'contact' => $sectionAddress,
+            ];
+        }
 
         return [
-            'address' => $address !== null && $address !== '' ? $address : null,
-            'name' => $section['name'] ?? null,
+            // Null, so `MailService::send()` uses the site's own address —
+            // the one it can sign for.
+            'address' => null,
+            'name' => self::substitutedName($sectionName, $site['name']),
+            'reply_to' => $sectionAddress,
+            'contact' => $sectionAddress,
         ];
+    }
+
+    /**
+     * « Baladins (Unité X) » — the name a recipient reads when the address
+     * had to be substituted.
+     *
+     * The unit's part is dropped rather than rendered empty: a site that
+     * never filled its sending name would otherwise show « Baladins () »,
+     * which reads as a bug to the one person it was meant to reassure.
+     */
+    private static function substitutedName(?string $sectionName, string $siteName): ?string
+    {
+        $sectionName = trim((string) $sectionName);
+        $siteName = trim($siteName);
+
+        if ($sectionName === '') {
+            return $siteName === '' ? null : $siteName;
+        }
+
+        return $siteName === '' ? $sectionName : $sectionName . ' (' . $siteName . ')';
     }
 
     /**
