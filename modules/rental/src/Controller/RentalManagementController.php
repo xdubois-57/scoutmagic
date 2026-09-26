@@ -1082,8 +1082,9 @@ class RentalManagementController extends AbstractController
     {
         return $this->bookingAction($request, function () use ($request): void {
             $target = $this->triageScope()[(string) $request->getBody('business_reference', '')] ?? null;
+            $messageId = (int) $request->getBody('message_id', 0);
             if ($target === null || $this->communicationService === null
-                || !$this->communicationService->detach($target, (int) $request->getBody('message_id', 0), $this->actorMemberId())
+                || !$this->communicationService->detach($target, $messageId, $this->actorMemberId())
             ) {
                 throw new RentalException("Ce message n'appartient pas à cette réservation.");
             }
@@ -1112,7 +1113,10 @@ class RentalManagementController extends AbstractController
 
             // Said in full, because the button does less than the word
             // suggests and a manager must not believe they deleted mail.
-            FlashMessage::set('success', "Courrier écarté de la liste des locations. Il reste dans le courrier de l'unité.");
+            FlashMessage::set(
+                'success',
+                "Courrier écarté de la liste des locations. Il reste dans le courrier de l'unité."
+            );
         });
     }
 
@@ -1213,7 +1217,8 @@ class RentalManagementController extends AbstractController
         $unattributed = $this->sortsUnattributed();
 
         $slugs = [];
-        foreach ($this->authorizationService->listManageableAssets(AuthSession::getEmail(), $this->scoutYearId()) as $asset) {
+        $manageable = $this->authorizationService->listManageableAssets(AuthSession::getEmail(), $this->scoutYearId());
+        foreach ($manageable as $asset) {
             $slugs[$asset->id] = $asset->slug;
         }
 
