@@ -914,7 +914,26 @@ class MassMailPageTest extends TestCase
         // Not an error page: the composer simply has no audience to show,
         // which is what the branch's own comment says it is for.
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertStringContainsString('Convocation', (string) $response->getBody());
+        $body = (string) $response->getBody();
+
+        // The import zone is OFFERED — compose.html.twig hangs `d-none` on
+        // that div when an audience is present, so an empty class attribute
+        // is the zone being shown. Asserting the draft's own subject instead
+        // would prove nothing: it is rendered whatever the audience state.
+        $this->assertStringContainsString('<div class="" id="mm-merge-upload-state">', $body);
+
+        // And nothing of the other account's file leaks into the page:
+        // `buildComposeContext()` swallows the refusal, and a swallow that
+        // kept the audience would show a filename, a row count and the
+        // column names of a file this chief may not read.
+        //
+        // The two assertions are NOT independent, and saying so is more use
+        // than implying two guards: a kept audience both prints the filename
+        // AND hangs `d-none` on the zone above, so the first assertion is
+        // the one that fires. Measured — mutating the swallow to keep the
+        // audience fails on the zone, not here. This line stays because it
+        // names what must not appear, which the class attribute does not.
+        $this->assertStringNotContainsString('invites.xlsx', $body, 'the other account\'s file leaked');
     }
 
     public function testAnUnknownAudienceIsNotFound(): void
