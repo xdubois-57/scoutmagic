@@ -3846,6 +3846,18 @@ $schedulerService->seed(
     new DateTimeImmutable()
 );
 
+// Same bootstrap for the MX reading of recipient domains (Core\Mail\
+// Feedback\Seed\Task\ResolveMailboxProvidersHandler, issue #422): which
+// provider really hosts « famille.be ». Seeded unconditionally, because
+// its other half is a retention — a domain nobody writes to any more is
+// forgotten by this task and by nothing else.
+$schedulerService->seed(
+    'core',
+    \Core\Mail\Feedback\Seed\Task\ResolveMailboxProvidersHandler::TASK_KEY,
+    \Core\Mail\Feedback\Seed\Task\ResolveMailboxProvidersHandler::REFERENCE,
+    new DateTimeImmutable()
+);
+
 // Same bootstrap for the Desk-import retention purge (Core\Import\Task\
 // PurgeImportsHandler). It must run even if nobody imports any more: a
 // retention hung off the next import would keep its RGPD promise only
@@ -7878,7 +7890,8 @@ $frontController->registerController(
                 $settingService,
                 $mailDomainPreferences,
                 new \Core\Mail\Transport\LaneChainRepository($pdo),
-                $mailProviderDirectory
+                $mailProviderDirectory,
+                new \Core\Mail\Transport\MailboxProviderRepository($pdo)
             ),
         // What this unit's own SPF authorises, as the last DNS check read
         // it — READ, never resolved here, for `KnownSenders`' reason above

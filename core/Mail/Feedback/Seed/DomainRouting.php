@@ -11,6 +11,7 @@ namespace Core\Mail\Feedback\Seed;
 use Core\Config\SettingService;
 use Core\Mail\Transport\DomainPreferences;
 use Core\Mail\Transport\LaneChainRepository;
+use Core\Mail\Transport\MailboxProviderRepository;
 use Core\Mail\Transport\MailLane;
 use Core\Mail\Transport\MailProvider;
 use Core\Mail\Transport\MailProviderDirectory;
@@ -83,8 +84,45 @@ final class DomainRouting
          */
         private ?DomainPreferences $preferences = null,
         private ?LaneChainRepository $chains = null,
-        private ?MailProviderDirectory $directory = null
+        private ?MailProviderDirectory $directory = null,
+        /**
+         * The MX cache (issue #422), for the two questions the screen asks
+         * of it: which column a box's domain is counted in, and how many
+         * domains the MX records moved. The results themselves are folded
+         * by `SeedCopyRepository` and need nothing from here.
+         */
+        private ?MailboxProviderRepository $mailboxProviders = null
     ) {
+    }
+
+    /**
+     * The column a domain is counted in: the provider its MX records name,
+     * or the domain itself when they name nobody known, have not been
+     * read yet, or cannot be read.
+     */
+    public function providerOf(string $domain): string
+    {
+        $domain = strtolower(trim($domain));
+
+        try {
+            return $this->mailboxProviders?->providerOf($domain) ?? $domain;
+        } catch (\Throwable) {
+            return $domain;
+        }
+    }
+
+    /**
+     * How many recipient domains are counted under a provider other than
+     * their own name. A count, never the list: a personal domain can name
+     * a family, and the screen needs to say « this happens », not to whom.
+     */
+    public function attributedDomains(): int
+    {
+        try {
+            return $this->mailboxProviders?->countAttributed() ?? 0;
+        } catch (\Throwable) {
+            return 0;
+        }
     }
 
     /**

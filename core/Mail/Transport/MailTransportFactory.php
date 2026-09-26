@@ -78,7 +78,10 @@ final class MailTransportFactory
         $directory = new MailProviderDirectory(new MailProviderRepository($pdo), $connections, $settings);
         $chains = new LaneChainRepository($pdo);
         $counters = new SendCounterRepository($pdo);
-        $preferences = new DomainPreferences($settings);
+        // With the MX cache (issue #422), so « famille.be » served by
+        // Google follows the decision taken for gmail.com. Read-only on
+        // the send path: the lookups belong to a scheduled task.
+        $preferences = new DomainPreferences($settings, new MailboxProviderRepository($pdo));
 
         return [
             'chain' => new MailTransportChain(

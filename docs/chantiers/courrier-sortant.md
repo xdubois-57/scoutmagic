@@ -2629,12 +2629,9 @@ sur une porte.**
 
 ### Reporté
 
-- **Rapprocher un fournisseur de messagerie d'un domaine destinataire
-  autre que le sien.** Une famille chez Gmail via un domaine personnel
-  n'est pas comptée dans « gmail.com ». Le dire serait honnête, le
-  résoudre demanderait de lire les enregistrements MX de chaque domaine
-  destinataire — une itération à soi seule, et l'écran énonce déjà la
-  limite. **Suivi en #422.**
+- ~~Rapprocher un fournisseur de messagerie d'un domaine destinataire
+  autre que le sien.~~ **Livré en #422**, voir « Suite : le vrai
+  fournisseur d'un domaine » ci-dessous.
 - **Une tendance dans le temps** (ce fournisseur se dégrade-t-il ?) :
   même raison qu'en IT-06, rien ne la réclame tant que personne n'a
   regardé la page deux fois. **Suivie en #420**, avec celle d'IT-06.
@@ -2644,3 +2641,40 @@ sur une porte.**
   qui envoie quelques fois par an n'aura jamais. **Suivi en #423**, qui
   existe surtout pour porter cette raison : sans elle, l'idée revient
   périodiquement comme une évidence.
+
+### Suite : le vrai fournisseur d'un domaine (#422)
+
+Une famille écrite à `prenom@famille.be` mais hébergée chez Google est
+désormais comptée dans « gmail.com » et suit le relais choisi pour
+gmail.com. Le vrai fournisseur se lit dans les enregistrements MX du
+domaine, et trois décisions portent tout le reste.
+
+**Aucune résolution DNS sur le chemin d'envoi.** Le transport lit un
+cache, `mail_domain_providers`, et n'y écrit qu'une chose : qu'un domaine
+existe. La lecture des MX appartient à une tâche quotidienne, bornée en
+nombre (quarante domaines) et en temps (vingt secondes d'horloge, puisque
+`dns_get_record()` n'a pas de délai propre), avec une réponse valable
+sept jours et, en cas d'échec, la dernière bonne réponse conservée et un
+recul de 1, 2, 4 puis 7 jours. Un test lit le code du chemin d'envoi et
+refuse toute fonction de résolution.
+
+**Les domaines viennent des envois eux-mêmes.** Rien n'agrégeait les
+domaines destinataires ; les déduire des adresses aurait voulu
+déchiffrer chaque jour l'adresse de chaque membre pour lire ce que le
+transport voit déjà passer en clair. Le chemin d'envoi note donc un
+domaine inconnu — une ligne, sans adresse — et la tâche l'oublie six mois
+après le dernier envoi.
+
+**Les clés restent celles de l'écran.** Google devient « gmail.com »,
+Microsoft « outlook.com » : un vocabulaire neuf aurait coupé en deux
+chaque résultat mesuré et chaque décision de routage déjà enregistrée.
+Le rattachement se fait à la lecture des résultats, pas à leur écriture,
+si bien qu'une boîte mesurée avant que son domaine soit résolu rejoint sa
+colonne avec tout son historique. Un MX que la liste ne connaît pas
+garde le nom du domaine, ce que le site faisait déjà : mieux vaut ne pas
+rattacher que rattacher au mauvais fournisseur.
+
+L'écran dit combien de domaines ont été rattachés, jamais lesquels : un
+domaine personnel peut nommer une famille. La page RGPD énonce la lecture
+DNS (seul le domaine est interrogé, aucun nouveau sous-traitant) et sa
+durée de conservation.

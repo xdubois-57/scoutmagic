@@ -82,6 +82,11 @@ final class CoreTaskHandlers
             // the results it already has to sweep and clear.
             \Core\Mail\Feedback\Seed\Task\PurgeSeedCopiesHandler::TASK_KEY =>
                 \Core\Mail\Feedback\Seed\Task\PurgeSeedCopiesHandler::class,
+            // Which provider really hosts a recipient domain, read from its
+            // MX records OFF the send path (issue #422), and the retention
+            // of what it found.
+            \Core\Mail\Feedback\Seed\Task\ResolveMailboxProvidersHandler::TASK_KEY =>
+                \Core\Mail\Feedback\Seed\Task\ResolveMailboxProvidersHandler::class,
         ];
     }
 

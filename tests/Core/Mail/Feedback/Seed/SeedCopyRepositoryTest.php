@@ -397,4 +397,53 @@ class SeedCopyRepositoryTest extends TestCase
 
         $this->assertSame(SeedVerdict::Missing, $this->copies->forRun('envoi')[0]->verdict);
     }
+
+    /**
+     * **A box on a domain Google hosts is counted under gmail.com** (issue
+     * #422), history included: the attribution is folded in when the
+     * results are READ, so copies measured before the domain was resolved
+     * move with it — and the sample is still counted in mailings, not in
+     * boxes.
+     */
+    public function testABoxOnAPersonalDomainIsCountedUnderItsMxProvider(): void
+    {
+        $sent = new \DateTimeImmutable('-1 day');
+        foreach (['envoi-1', 'envoi-2'] as $run) {
+            $this->copies->claim($run, 'temoin@gmail.com', $sent);
+            $this->copies->recordLanding($run, 'temoin@gmail.com', 'INBOX', $sent);
+            $this->copies->claim($run, 'temoin@unite-scoute.be', $sent);
+            $this->copies->recordLanding($run, 'temoin@unite-scoute.be', 'Junk', $sent);
+        }
+
+        $cache = new \Core\Mail\Transport\MailboxProviderRepository($this->pdo);
+        $cache->note('unite-scoute.be', $sent);
+        $cache->recordResolved('unite-scoute.be', 'gmail.com', $sent);
+
+        $tally = $this->copies->tallyByProviderSince(new \DateTimeImmutable('-30 days'));
+        $this->assertSame(['gmail.com'], array_column($tally, 'provider'));
+        $this->assertSame(2, $tally[0]['runs'], 'Two mailings, whatever the number of boxes.');
+        $this->assertSame(2, $tally[0]['inbox']);
+        $this->assertSame(2, $tally[0]['spam']);
+
+        foreach ($this->copies->runsSince(new \DateTimeImmutable('-30 days')) as $copies) {
+            $this->assertSame(['gmail.com', 'gmail.com'], array_map(
+                static fn(\Core\Mail\Feedback\Seed\SeedCopy $copy): string => $copy->provider,
+                $copies
+            ));
+        }
+
+        // The stored column is the question, not the answer.
+        $this->assertSame(['gmail.com', 'unite-scoute.be'], $this->copies->measuredDomains());
+    }
+
+    /** Not resolved yet, or resolved to nobody known: the domain is its own column, as before. */
+    public function testAnUnattributedDomainKeepsItsOwnColumn(): void
+    {
+        $sent = new \DateTimeImmutable('-1 day');
+        $this->copies->claim('envoi-1', 'temoin@ecole.be', $sent);
+
+        $tally = $this->copies->tallyByProviderSince(new \DateTimeImmutable('-30 days'));
+
+        $this->assertSame(['ecole.be'], array_column($tally, 'provider'));
+    }
 }

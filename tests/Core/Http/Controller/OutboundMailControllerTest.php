@@ -996,6 +996,44 @@ class OutboundMailControllerTest extends TestCase
         $this->assertStringContainsString('deux comptes Gmail', $body);
     }
 
+    /**
+     * **A box on a domain Google hosts is a Gmail box** (issue #422): one
+     * column, the worse of the two verdicts in its cell, and the page says
+     * how many domains the MX records moved — a count, never which ones.
+     */
+    public function testAPersonalDomainIsShownInItsMxProvidersColumn(): void
+    {
+        $sent = new \DateTimeImmutable('-1 day');
+        $this->seedCopies->claim('envoi-1', 'temoin@gmail.com', $sent);
+        $this->seedCopies->recordLanding('envoi-1', 'temoin@gmail.com', 'INBOX', $sent);
+        $this->seedCopies->claim('envoi-1', 'temoin@unite-scoute.be', $sent);
+        $this->seedCopies->recordLanding('envoi-1', 'temoin@unite-scoute.be', 'Junk', $sent);
+
+        $cache = new \Core\Mail\Transport\MailboxProviderRepository($this->pdo);
+        $cache->note('unite-scoute.be', $sent);
+        $cache->recordResolved('unite-scoute.be', 'gmail.com', $sent);
+
+        $inbound = $this->createStub(\Modules\InboundMail\Api\InboundMailInterface::class);
+        $inbound->method('probeAddressesFor')->willReturn(['temoin@gmail.com', 'temoin@unite-scoute.be']);
+        $this->seedMailboxes->useInboundMail($inbound);
+
+        $body = (string) $this->controllerWith(
+            'routing',
+            new \Core\Mail\Feedback\Seed\DomainRouting($this->seedCopies, $this->settings, mailboxProviders: $cache)
+        )->seeds($this->getRequest(), [])->getBody();
+
+        $this->assertStringNotContainsString('unite-scoute.be', $body, 'Neither a column nor a list of domains.');
+        $this->assertStringContainsString('<th scope="col">gmail.com</th>', $body);
+        $this->assertStringContainsString(
+            'text-bg-warning-subtle">Indésirables</span>',
+            $body,
+            'The worse verdict of the shared cell.'
+        );
+        $this->assertStringNotContainsString('text-bg-success-subtle">Boîte de réception</span>', $body);
+        $this->assertStringContainsString('enregistrements MX', $body);
+        $this->assertMatchesRegularExpression('/<strong>1<\/strong> domaine\(s\) destinataire\(s\)/', $body);
+    }
+
     /** Turning the copies on is journalled at `security`, as the roadmap asks. */
     public function testTurningTheCopiesOnIsJournalledAsASecurityDecision(): void
     {

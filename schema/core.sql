@@ -2165,6 +2165,48 @@ CREATE TABLE IF NOT EXISTS mail_seed_copies (
     INDEX idx_msc_verdict (verdict)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- mail_domain_providers: which mailbox provider really hosts a recipient
+-- domain, read from its MX records (roadmap IT-07, issue #422).
+--
+-- « famille.be » served by Google is a Gmail mailbox for every purpose the
+-- seed boxes and the routing care about, and nothing in the address says
+-- so. The MX records do — but reading them costs a DNS query, and the send
+-- path must never pay one: a resolver that hangs would hold a mailing.
+-- So this is a CACHE, written two ways and read one:
+--
+--   * the send path NOTES a domain it has not seen (a row with no
+--     provider), and reads the provider already known — never a lookup;
+--   * Core\Mail\Feedback\Seed\Task\ResolveMailboxProvidersHandler, once
+--     a day, resolves a bounded batch of the unknown and the stale.
+--
+-- **A domain, never an address** (SECURITY.md §11): the attribution is an
+-- aggregate — one row covers every family on that domain — and nothing
+-- here can tell how many there are or who. A domain nobody has been
+-- written to for RETENTION_DAYS is dropped by the same task.
+CREATE TABLE IF NOT EXISTS mail_domain_providers (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    -- The right-hand side of an address, lower-cased.
+    domain VARCHAR(253) NOT NULL,
+    -- The provider key the seed results are read by ('gmail.com',
+    -- 'outlook.com'), or NULL: not resolved yet, or resolved to MX hosts no
+    -- known provider runs. NULL always falls back to the domain itself,
+    -- which is exactly what the site did before this table existed.
+    provider VARCHAR(64) NULL,
+    -- When the send path last noted the domain, refreshed at most monthly:
+    -- what the retention is measured from.
+    noted_at DATETIME NOT NULL,
+    -- When the MX records were last read successfully. NULL is « never ».
+    resolved_at DATETIME NULL,
+    -- Consecutive failed lookups, and the code of the last one — a word
+    -- this site chose ('no_answer'), never the resolver's own text.
+    failures INT UNSIGNED NOT NULL DEFAULT 0,
+    last_error VARCHAR(32) NULL,
+    -- The back-off: not asked again before this moment.
+    retry_after DATETIME NULL,
+    UNIQUE INDEX idx_mdp_domain (domain),
+    INDEX idx_mdp_resolved (resolved_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- storage_locations: one row per declared destination for bytes — a
 -- directory on this server, an S3-compatible bucket, and the kinds the
 -- following iterations add. In the core and not in a module, for the same

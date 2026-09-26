@@ -37,6 +37,21 @@ class SeedCopyRepository
      */
     private const STAMP_PURPOSE = 'seed_run_stamp';
 
+    /**
+     * The provider a copy is COUNTED under: the one the MX records of its
+     * box's domain named (issue #422), or the domain itself.
+     *
+     * **Folded when read, never when written.** `provider` keeps the
+     * box's own domain, so a box first measured before its domain was
+     * resolved does not leave its early results in a column of their own:
+     * the day the attribution arrives, its whole history moves with it.
+     * And an attribution that later changes — a unit moving its mail to
+     * another host — moves the history too, which is right: the column
+     * says who filters that box, and the site only ever knows the latest
+     * answer.
+     */
+    private const ATTRIBUTED = 'COALESCE(d.provider, c.provider)';
+
     public function __construct(private \PDO $pdo, private EncryptionService $encryption)
     {
     }
@@ -221,8 +236,10 @@ class SeedCopyRepository
         // extra `SELECT` around it is what makes the subquery a derived
         // table, which MySQL does allow.
         $statement = $this->pdo->prepare(
-            'SELECT * FROM mail_seed_copies
-              WHERE run_reference IN (
+            'SELECT c.*, ' . self::ATTRIBUTED . ' AS attributed_provider
+               FROM mail_seed_copies c
+               LEFT JOIN mail_domain_providers d ON d.domain = c.provider
+              WHERE c.run_reference IN (
                     SELECT run_reference FROM (
                         SELECT run_reference, MAX(sent_at) AS latest_sent_at
                           FROM mail_seed_copies
@@ -232,7 +249,7 @@ class SeedCopyRepository
                          LIMIT :limit
                     ) AS recent_runs
               )
-              ORDER BY sent_at DESC, provider ASC, id ASC'
+              ORDER BY c.sent_at DESC, attributed_provider ASC, c.id ASC'
         );
         $statement->bindValue(':since', $since->format('Y-m-d H:i:s'));
         $statement->bindValue(':limit', max(1, $limit), \PDO::PARAM_INT);
@@ -267,16 +284,17 @@ class SeedCopyRepository
     public function tallyByProviderSince(\DateTimeImmutable $since): array
     {
         $statement = $this->pdo->prepare(
-            'SELECT provider,
-                    COUNT(DISTINCT CASE WHEN verdict <> \'pending\' THEN run_reference END) AS runs,
-                    SUM(CASE WHEN verdict = \'inbox\'   THEN 1 ELSE 0 END) AS inbox,
-                    SUM(CASE WHEN verdict = \'spam\'    THEN 1 ELSE 0 END) AS spam,
-                    SUM(CASE WHEN verdict = \'missing\' THEN 1 ELSE 0 END) AS missing,
-                    SUM(CASE WHEN verdict = \'elsewhere\' THEN 1 ELSE 0 END) AS elsewhere,
-                    SUM(CASE WHEN verdict = \'pending\' THEN 1 ELSE 0 END) AS pending
-               FROM mail_seed_copies
-              WHERE sent_at >= :since
-              GROUP BY provider
+            'SELECT ' . self::ATTRIBUTED . ' AS provider,
+                    COUNT(DISTINCT CASE WHEN c.verdict <> \'pending\' THEN c.run_reference END) AS runs,
+                    SUM(CASE WHEN c.verdict = \'inbox\'   THEN 1 ELSE 0 END) AS inbox,
+                    SUM(CASE WHEN c.verdict = \'spam\'    THEN 1 ELSE 0 END) AS spam,
+                    SUM(CASE WHEN c.verdict = \'missing\' THEN 1 ELSE 0 END) AS missing,
+                    SUM(CASE WHEN c.verdict = \'elsewhere\' THEN 1 ELSE 0 END) AS elsewhere,
+                    SUM(CASE WHEN c.verdict = \'pending\' THEN 1 ELSE 0 END) AS pending
+               FROM mail_seed_copies c
+               LEFT JOIN mail_domain_providers d ON d.domain = c.provider
+              WHERE c.sent_at >= :since
+              GROUP BY ' . self::ATTRIBUTED . '
               ORDER BY provider ASC'
         );
         $statement->bindValue(':since', $since->format('Y-m-d H:i:s'));
@@ -296,6 +314,20 @@ class SeedCopyRepository
         }
 
         return $tally;
+    }
+
+    /**
+     * The domains of the boxes that have been measured, so the MX task
+     * attributes them too (issue #422). The stored column, never the
+     * attributed one: this is the question, not the answer.
+     *
+     * @return list<string>
+     */
+    public function measuredDomains(): array
+    {
+        $statement = $this->pdo->query('SELECT DISTINCT provider FROM mail_seed_copies ORDER BY provider');
+
+        return $statement === false ? [] : array_map('strval', $statement->fetchAll(\PDO::FETCH_COLUMN));
     }
 
     /** Operational data, so it purges — on the send, which is its only date. */
@@ -318,7 +350,7 @@ class SeedCopyRepository
                 (int) $row['id'],
                 (string) $row['run_reference'],
                 $this->encryption->decrypt((string) $row['seed_address_encrypted'], self::CONTEXT),
-                (string) $row['provider'],
+                (string) ($row['attributed_provider'] ?? $row['provider']),
                 // **Never the raw constructor on a stored moment.** It
                 // throws on a malformed string — one bad row and the page
                 // is a 500 — and, worse, answers *now* for an empty one,

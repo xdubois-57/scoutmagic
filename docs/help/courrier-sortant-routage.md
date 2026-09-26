@@ -40,6 +40,11 @@ ailleurs donne à chacun moins de ce dont sa réputation dépend. Le remède
 peut donc coûter plus cher que le défaut : un constat répété sur
 plusieurs envois vaut qu'on agisse, un mauvais mois non.
 
+## Les domaines personnels suivent leur fournisseur
+
+Une adresse sur un domaine personnel hébergé chez Google suit le relais
+choisi pour gmail.com : le site lit ses enregistrements MX.
+
 ## Si vous n'avez qu'un seul relais
 
 C'est le cas le plus fréquent, et il n'y a alors nulle part où router.

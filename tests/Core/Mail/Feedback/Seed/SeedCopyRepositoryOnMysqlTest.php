@@ -39,7 +39,8 @@ class SeedCopyRepositoryOnMysqlTest extends TestCase
 {
     private \PDO $pdo;
     private SeedCopyRepository $copies;
-    private bool $createdTheTable = false;
+    /** @var list<string> the tables this test created, and so drops */
+    private array $createdTables = [];
 
     protected function setUp(): void
     {
@@ -55,10 +56,14 @@ class SeedCopyRepositoryOnMysqlTest extends TestCase
         // `@group database` test, and dropping a table another one left
         // behind would make this file's result depend on the order the
         // suite happens to run in.
-        $this->createdTheTable = $this->pdo
-            ->query("SHOW TABLES LIKE 'mail_seed_copies'")?->fetchColumn() === false;
-        if ($this->createdTheTable) {
-            $this->pdo->exec(self::createTableStatement());
+        // `mail_domain_providers` since issue #422: both readings of the
+        // screen now join it, so it has to exist here as it does in
+        // production.
+        foreach (['mail_seed_copies', 'mail_domain_providers'] as $table) {
+            if ($this->pdo->query("SHOW TABLES LIKE '{$table}'")?->fetchColumn() === false) {
+                $this->pdo->exec(self::createTableStatement($table));
+                $this->createdTables[] = $table;
+            }
         }
 
         $this->copies = new SeedCopyRepository(
@@ -91,22 +96,25 @@ class SeedCopyRepositoryOnMysqlTest extends TestCase
             return;
         }
 
-        if ($this->createdTheTable) {
-            $this->pdo->exec('DROP TABLE IF EXISTS mail_seed_copies');
-
-            return;
+        foreach ($this->createdTables as $table) {
+            $this->pdo->exec('DROP TABLE IF EXISTS ' . $table);
         }
 
         // Somebody else's table: leave it, but take this test's own rows
         // back out of it.
-        $this->pdo->prepare("DELETE FROM mail_seed_copies WHERE run_reference LIKE 'mysql-probe-%'")->execute();
+        if (!in_array('mail_seed_copies', $this->createdTables, true)) {
+            $this->pdo->prepare("DELETE FROM mail_seed_copies WHERE run_reference LIKE 'mysql-probe-%'")->execute();
+        }
+        if (!in_array('mail_domain_providers', $this->createdTables, true)) {
+            $this->pdo->prepare("DELETE FROM mail_domain_providers WHERE domain LIKE 'mysql-probe-%'")->execute();
+        }
     }
 
     /**
-     * The `CREATE TABLE mail_seed_copies` block of `schema/core.sql`, as
+     * The `CREATE TABLE` block of `schema/core.sql` for one table, as
      * written.
      */
-    private static function createTableStatement(): string
+    private static function createTableStatement(string $table): string
     {
         // The `--` comments are dropped BEFORE looking for the
         // statement's terminator: a comment containing a semicolon would
@@ -119,8 +127,8 @@ class SeedCopyRepositoryOnMysqlTest extends TestCase
         }
         $schema = implode("\n", $lines);
 
-        $start = strpos($schema, 'CREATE TABLE IF NOT EXISTS mail_seed_copies');
-        self::assertNotFalse($start, 'schema/core.sql no longer declares mail_seed_copies.');
+        $start = strpos($schema, 'CREATE TABLE IF NOT EXISTS ' . $table . ' (');
+        self::assertNotFalse($start, 'schema/core.sql no longer declares ' . $table . '.');
         $end = strpos($schema, ';', $start);
         self::assertNotFalse($end);
 
@@ -192,5 +200,48 @@ class SeedCopyRepositoryOnMysqlTest extends TestCase
 
         $this->assertTrue($this->copies->recordLanding('mysql-probe-e', 'temoin@gmail.com', 'INBOX', $sent));
         $this->assertFalse($this->copies->recordLanding('mysql-probe-e', 'temoin@gmail.com', 'Junk', $sent));
+    }
+
+    /**
+     * **The MX attribution folds on the real engine** (issue #422): the
+     * `COALESCE` in the GROUP BY is the shape ONLY_FULL_GROUP_BY judges,
+     * and SQLite judges nothing.
+     */
+    public function testAnAttributedDomainFoldsIntoItsProviderOnTheRealEngine(): void
+    {
+        $this->recordRun('mysql-probe-f', 'temoin@mysql-probe-famille.be', 'Junk');
+        $cache = new \Core\Mail\Transport\MailboxProviderRepository($this->pdo);
+        $cache->note('mysql-probe-famille.be', new \DateTimeImmutable());
+        $cache->recordResolved('mysql-probe-famille.be', 'mysql-probe-provider.test', new \DateTimeImmutable());
+
+        $providers = array_column(
+            $this->copies->tallyByProviderSince(new \DateTimeImmutable('-30 days')),
+            'provider'
+        );
+        $this->assertContains('mysql-probe-provider.test', $providers);
+        $this->assertNotContains('mysql-probe-famille.be', $providers);
+
+        $runs = $this->copies->runsSince(new \DateTimeImmutable('-30 days'));
+        $this->assertSame('mysql-probe-provider.test', $runs['mysql-probe-f'][0]->provider);
+    }
+
+    /**
+     * The cache's own statements on the real engine: the duplicate code a
+     * second note meets (1062, where SQLite says 19), and the back-off
+     * query's `LIMIT` placeholder and date comparisons.
+     */
+    public function testTheMxCacheRunsOnTheRealEngine(): void
+    {
+        $now = new \DateTimeImmutable();
+        $cache = new \Core\Mail\Transport\MailboxProviderRepository($this->pdo);
+        $cache->providerOf('warm.up');
+        (new \Core\Mail\Transport\MailboxProviderRepository($this->pdo))->note('mysql-probe-a.be', $now);
+
+        $this->assertTrue($cache->note('mysql-probe-a.be', $now), 'A duplicate insert is not an error.');
+
+        $cache->recordFailure('mysql-probe-a.be', 'no_answer', $now->modify('+1 day'));
+        $due = array_column($cache->due($now->modify('+2 days'), $now, 500), 'domain');
+        $this->assertContains('mysql-probe-a.be', $due);
+        $this->assertNotContains('mysql-probe-a.be', array_column($cache->due($now, $now, 500), 'domain'));
     }
 }
