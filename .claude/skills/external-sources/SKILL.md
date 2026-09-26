@@ -53,7 +53,16 @@ when the report names one, the address it redirects to.
   give the three amounts yourself — normale, couple (par personne),
   familiale (par personne) — with the scout year they are published for.
   Decimals are optional on the page (« 46 € » beside « 57,50 € »). Say
-  what the page shows word for word, and quote it.
+  what the page shows word for word, and quote it. « Changed » is measured
+  against the scale shipped with the site,
+  `modules/fees/data/federal-scale.json` (the script passes it to the
+  checker as its reference, and the `✗` line names both sides): the fix is
+  that file — the new `year`, the three `amount_cents`, and `verified_on`
+  set to the day you read the page — and every installed site's barème
+  proposes the new figures from the release that carries it. A new season
+  whose amounts did not move is not a divergence; the file's `year` still
+  needs bumping so the barème keeps proposing it, so say so in the issue
+  when you notice it.
 - **A console or legal link is dead**: find the provider's current page for
   the same thing (API keys, privacy policy, DPA…) on the provider's own
   site.
@@ -91,8 +100,8 @@ becomes a GitHub issue — the issue must be fixable from its text alone:
 3. **Ce qui a changé** : the check's `✗` lines, and what you found on the
    page — quoted.
 4. **Correctif proposé** : the new URL, or the new amounts with their
-   year, and every file to change (the register, each `usedIn` file, the
-   shipped default). Say which test pins it:
+   year (for `modules/fees/data/federal-scale.json`), and every file to
+   change (the register, each `usedIn` file, the shipped default). Say which test pins it:
    `tests/Architecture/ExternalSourcesAreRegisteredTest.php` fails until
    the register, the files and the defaults agree.
 5. The markers, last: `<!-- external-source:<id> -->`.

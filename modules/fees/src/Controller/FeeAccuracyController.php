@@ -27,6 +27,7 @@ use Modules\Fees\Service\DeskClipboardText;
 use Modules\Fees\Service\FederalScaleLookupService;
 use Modules\Fees\Service\FeeAccuracyService;
 use Modules\Fees\Service\HouseholdTariffService;
+use Modules\Fees\Service\ShippedScaleService;
 use Modules\Fees\Support\SuggestedScale;
 use Modules\Fees\Value\FeeAccuracyReport;
 use Modules\Fees\Value\HouseholdReview;
@@ -75,7 +76,14 @@ class FeeAccuracyController extends AbstractController
          * it has always been — three fields typed by hand. Same shape as
          * `Modules\News\Service\SeoKeywordService` in the article editor.
          */
-        private FederalScaleLookupService $federalScale
+        private FederalScaleLookupService $federalScale,
+        /**
+         * The federal scale shipped with the site (issue #355): proposed
+         * in the barème's fields while the unit has stored no amount and
+         * the file is for the year on screen. A proposal like the AI's,
+         * through the same `scale_suggestion` — nothing is saved from it.
+         */
+        private ShippedScaleService $shippedScale
     ) {
     }
 
@@ -92,8 +100,10 @@ class FeeAccuracyController extends AbstractController
 
         // Read once, cleared on read: the amounts a lookup just proposed
         // survive exactly the redirect that brought us here, and nothing
-        // else. They are shown in the form's own fields, unsaved.
-        $suggested = SuggestedScale::take();
+        // else. They are shown in the form's own fields, unsaved. Failing
+        // that, the shipped scale — only on an empty barème, only for the
+        // year on screen (ShippedScaleService says why).
+        $suggested = SuggestedScale::take() ?? $this->shippedScale->suggestionFor($year->label);
 
         return $this->render('@fees/accuracy.html.twig', [
             'scout_year_label' => $year->label,

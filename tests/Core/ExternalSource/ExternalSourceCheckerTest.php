@@ -84,8 +84,9 @@ final class ExternalSourceCheckerTest extends TestCase
     }
 
     /**
-     * No shipped scale yet (a later pull request of #355): the note says
-     * the amounts were not compared, rather than implying they were.
+     * A caller that passes no reference scale (the script always passes
+     * the shipped one): the note says the amounts were not compared,
+     * rather than implying they were.
      */
     public function testWithoutAReferenceScaleTheReportSaysNothingWasCompared(): void
     {

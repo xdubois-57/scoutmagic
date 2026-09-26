@@ -32,6 +32,7 @@ use Modules\Fees\Repository\IgnoredHouseholdRepository;
 use Modules\Fees\Service\FeeAccuracyService;
 use Modules\Fees\Service\FederalScaleLookupService;
 use Modules\Fees\Service\HouseholdTariffService;
+use Modules\Fees\Service\ShippedScaleService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Fees\FeesTestHelper;
@@ -140,7 +141,8 @@ class FeeAccuracyControllerTest extends TestCase
             $this->feeCategories,
             $this->scoutYearResolver,
             $this->journalService,
-            $lookup
+            $lookup,
+            new ShippedScaleService($this->tariffs)
         );
     }
 
@@ -586,6 +588,115 @@ class FeeAccuracyControllerTest extends TestCase
             0,
             (int) $this->pdo->query('SELECT COUNT(*) FROM fees_household_tariffs')->fetchColumn()
         );
+    }
+
+    // ------------------------------------------------------------------
+    // The scale shipped with the site (issue #355, 2026-2027).
+    // ------------------------------------------------------------------
+
+    /** Make the shipped file's season the year the screen is about. */
+    private function switchToTheShippedYear(): void
+    {
+        $shippedYearId = (new ScoutYearService($this->pdo))->ensureYear('2026-2027');
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $shippedYearId);
+    }
+
+    private function storedTariffRows(): int
+    {
+        return (int) $this->pdo->query('SELECT COUNT(*) FROM fees_household_tariffs')->fetchColumn();
+    }
+
+    public function testAnEmptyBaremeForTheShippedYearOpensPreFilledAndSaysWhereFrom(): void
+    {
+        $this->switchToTheShippedYear();
+        AuthSession::login(1, 'admin@test.be', 'admin');
+
+        $body = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
+
+        $this->assertStringContainsString('value="57,50"', $body);
+        $this->assertStringContainsString('value="46,00"', $body);
+        $this->assertStringContainsString('value="39,00"', $body);
+        $this->assertStringContainsString('Montants fédéraux <strong>2026-2027</strong>', $body);
+        $this->assertStringContainsString('24 septembre 2026', $body);
+        $this->assertStringContainsString('href="' . FederalScaleLookupService::DEFAULT_URL . '"', $body);
+        $this->assertStringContainsString('lesscouts.be</a>', $body);
+        $this->assertStringContainsString('vérifiez puis enregistrez', $body);
+        // A proposal on a GET: nothing reached the table.
+        $this->assertSame(0, $this->storedTariffRows());
+    }
+
+    /** The shipped file is 2026-2027; this unit's screen is about 2025-2026. */
+    public function testTheShippedScaleIsNotProposedForAnotherScoutYear(): void
+    {
+        AuthSession::login(1, 'admin@test.be', 'admin');
+
+        $body = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
+
+        $this->assertStringNotContainsString('value="57,50"', $body);
+        $this->assertStringNotContainsString('Montants fédéraux', $body);
+        $this->assertSame(0, $this->storedTariffRows());
+    }
+
+    /** One amount the unit saved and the barème is theirs: nothing shipped sits over it. */
+    public function testTheShippedScaleNeverCoversAStoredAmount(): void
+    {
+        $this->switchToTheShippedYear();
+        $this->tariffs->save(HouseholdFeeCategory::NORMAL, null, 3950);
+        AuthSession::login(1, 'admin@test.be', 'admin');
+
+        $body = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
+
+        $this->assertStringContainsString('value="39,50"', $body);
+        $this->assertStringNotContainsString('value="57,50"', $body);
+        $this->assertStringNotContainsString('Montants fédéraux', $body);
+    }
+
+    /**
+     * The only write is still « Enregistrer le barème »: the pre-filled
+     * figures are stored when, and as, the chef d'unité submits them — and
+     * once stored, the proposal is gone.
+     */
+    public function testSavingThePreFilledFiguresStoresThemThroughTheUsualPath(): void
+    {
+        $this->switchToTheShippedYear();
+        AuthSession::login(1, 'admin@test.be', 'admin');
+        $this->dispatch('GET', '/admin/fees/tarifs', 'index');
+
+        $response = $this->dispatch('POST', '/admin/fees/tarifs/bareme', 'saveTariffs', [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'amount_normal' => '57,50',
+            'amount_couple' => '46,00',
+            'amount_family' => '39,00',
+            'fee_category_normal' => '',
+            'fee_category_couple' => '',
+            'fee_category_family' => '',
+        ]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(5750, $this->tariffs->amountCentsFor(HouseholdFeeCategory::NORMAL));
+        $this->assertSame(4600, $this->tariffs->amountCentsFor(HouseholdFeeCategory::COUPLE));
+        $this->assertSame(3900, $this->tariffs->amountCentsFor(HouseholdFeeCategory::FAMILY));
+        $body = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
+        $this->assertStringNotContainsString('Montants fédéraux', $body);
+    }
+
+    /** An explicit « Chercher les montants » wins over the shipped file. */
+    public function testAnAiProposalTakesPrecedenceOverTheShippedScale(): void
+    {
+        $this->switchToTheShippedYear();
+        $this->useLookupService($this->lookupAnswering(
+            '{"annee": "2026-2027", "normale": "58", "couple": "47", "familiale": "40"}'
+        ));
+        AuthSession::login(1, 'admin@test.be', 'admin');
+        $this->dispatch('POST', '/admin/fees/tarifs/bareme/chercher', 'lookupTariffs', [
+            '_csrf_token' => CsrfGuard::generateToken(),
+        ]);
+
+        $body = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
+
+        $this->assertStringContainsString('value="58,00"', $body);
+        $this->assertStringContainsString("Montants proposés pour l'année", $body);
+        $this->assertStringNotContainsString('Montants fédéraux', $body);
     }
 
     private function lookupAnswering(string $content): FederalScaleLookupService

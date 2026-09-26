@@ -24,12 +24,16 @@ declare(strict_types=1);
  *   accepted issues.
  *
  * Everything that decides lives in Core\ExternalSource\ExternalSourceChecker,
- * tested on recorded pages; this file only wires the real network in.
+ * tested on recorded pages; this file only wires the real network in, and
+ * the scale shipped with the site (Modules\Fees\Support\ShippedFederalScale)
+ * as the reference the fees page's amounts are compared with. Exit 2 also
+ * covers a shipped scale file that cannot be read.
  */
 
 use Core\ExternalSource\ExternalSourceChecker;
 use Core\ExternalSource\ExternalSources;
 use Core\ExternalSource\StreamPageFetcher;
+use Modules\Fees\Support\ShippedFederalScale;
 
 // The in-code guard is the authority (SECURITY.md §24): scripts/ ships, and
 // .htaccess does not apply on nginx. Served over HTTP, each request would
@@ -46,12 +50,18 @@ if (!is_file($autoload)) {
 }
 require $autoload;
 
-// THE SHIPPED SCALE IS THE EXTENSION POINT. None is shipped yet: issue
-// #355 adds it in a later pull request. Until then the fees page's amounts
-// are extracted and REPORTED, not compared, and the report says so. When
-// the shipped scale lands, it is passed as the second argument here and the
-// comparison in ExternalSourceChecker switches on — nothing else changes.
-$checker = new ExternalSourceChecker(new StreamPageFetcher(), referenceScale: null);
+// The scale shipped with the site (modules/fees/data/federal-scale.json) is
+// the reference: the fees page's three amounts must equal it, or the fees
+// source diverges and the report names both. A shipped file that cannot be
+// read is a broken checkout, not a finding about the page — exit 2.
+try {
+    $referenceScale = ShippedFederalScale::load()->toFederalScale();
+} catch (\UnexpectedValueException $e) {
+    fwrite(STDERR, 'Shipped federal scale unreadable: ' . $e->getMessage() . "\n");
+    exit(2);
+}
+
+$checker = new ExternalSourceChecker(new StreamPageFetcher(), referenceScale: $referenceScale);
 $results = $checker->checkAll(ExternalSources::all());
 
 echo ExternalSourceChecker::report($results);

@@ -7,6 +7,7 @@ role_min: admin
 discovery: 1
 question: Quelles familles paient un tarif qui ne correspond pas ?
 question: Comment corriger une catégorie de cotisation mal encodée ?
+question: Où trouver les montants de cotisation de la fédération ?
 paths: /admin/fees/tarifs
 related: cotisations, import-desk, membres-admin
 ---
@@ -49,19 +50,21 @@ foyer, et le résumé ne les compte pas comme vérifiés.
 
 ## Le barème
 
-Replié en haut de la page. Trois montants, un par catégorie, saisis à la
-main, qui ne servent qu'à traduire un écart en euros. Sans eux, un écart
-s'affiche sans montant plutôt qu'avec un montant faux.
+Replié en haut de la page. Trois montants, un par catégorie, qui ne servent
+qu'à traduire un écart en euros. Sans eux, un écart s'affiche sans montant
+plutôt qu'avec un montant faux.
 
-Si un connecteur IA est configuré, un bouton **Chercher les montants** lit
-la page des cotisations de la fédération et remplit les trois champs pour
-vous. Il n'enregistre rien : le bloc affiche l'adresse consultée et l'année
-trouvée, vous vérifiez, puis vous cliquez sur « Enregistrer le barème ». Si
-la page annonce une autre année que celle de l'écran, rien n'est pré-rempli
-et le site vous le dit — la page de la fédération porte souvent deux années
-en même temps. Sans connecteur IA, le bouton n'existe pas et les montants se
-saisissent à la main. L'adresse de la page se corrige dans Configuration >
-Réglages, le jour où la fédération la déplace.
+Tant qu'aucun montant n'est enregistré, le site pré-remplit les trois
+champs avec les montants fédéraux livrés avec lui, s'ils portent sur
+l'année de l'écran. Le bloc affiche cette année, la date du relevé et un
+lien vers la page de la fédération. Vérifiez, puis cliquez sur
+« Enregistrer le barème » : rien n'est enregistré avant.
+
+Si un connecteur IA est configuré, **Chercher les montants** lit la page
+des cotisations de la fédération et remplit les champs de la même façon,
+sans rien enregistrer. Si la page annonce une autre année que celle de
+l'écran, rien n'est pré-rempli. L'adresse de la page se corrige dans
+Configuration > Réglages.
 
 Le site devine tout seul lequel de vos tarifs Desk signifie « couple » ou
 « famille » ; le sélecteur n'est là que s'il s'est trompé. Un membre sur

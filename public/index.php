@@ -11861,7 +11861,10 @@ if ($isEnabled('fees')) {
                 $llmConnectorForOthers,
                 $settingService,
                 $journalService
-            )
+            ),
+            // The federal scale shipped in modules/fees/data (issue #355),
+            // proposed on an empty barème for the year it is for.
+            new \Modules\Fees\Service\ShippedScaleService($feesTariffService)
         )
     );
 
