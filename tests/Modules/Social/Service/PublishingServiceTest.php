@@ -124,7 +124,9 @@ final class PublishingServiceTest extends TestCase
         $this->meta->answers = array_diff_key($this->meta->answers, ['/media' => true]) + ['/media' => H::ok(['id' => 'C1'])];
         $this->meta->answers = ['/media_publish' => H::ok(['id' => 'IG1'])] + $this->meta->answers;
 
-        $this->assertFalse($this->publish($this->album(), [SocialPlatform::Instagram])[0]->published, 'Not confirmed.');
+        $unconfirmed = $this->publish($this->album(), [SocialPlatform::Instagram])[0];
+        $this->assertFalse($unconfirmed->published, 'Not confirmed.');
+        $this->assertStringContainsString('Je confirme : réessayer', $unconfirmed->message, 'Says what to do, not « déjà publié ».');
         $this->assertTrue($this->publish($this->album(), [SocialPlatform::Instagram], [SocialPlatform::Instagram])[0]->published);
     }
 

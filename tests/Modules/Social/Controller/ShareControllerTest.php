@@ -127,13 +127,14 @@ final class ShareControllerTest extends TestCase
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('routes')]
-    public function testAParentIsRefused(string $method, string $path, string $action): void
+    public function testAnIntendantIsRefused(string $method, string $path, string $action): void
     {
-        AuthSession::login(8, FakeAlbumSource::MANAGER_EMAIL, 'parent');
+        // One level below role_min (AGENTS.md: the RBAC boundary).
+        AuthSession::login(8, FakeAlbumSource::MANAGER_EMAIL, 'intendant');
 
         $response = $this->route($method, $path, $action, []);
 
-        $this->assertSame(403, $response->getStatusCode(), "{$method} {$path} must refuse a parent.");
+        $this->assertSame(403, $response->getStatusCode(), "{$method} {$path} must refuse an intendant.");
         $this->assertSame([], $this->meta->requests);
     }
 

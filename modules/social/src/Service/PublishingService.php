@@ -105,11 +105,7 @@ class PublishingService
                 $now->modify('-' . self::STALE_MINUTES . ' minutes')
             );
             if (!$claimed) {
-                $outcomes[] = new PublishOutcome(
-                    $platform,
-                    false,
-                    'Déjà publié sur cette destination, ou une publication y est en cours.'
-                );
+                $outcomes[] = new PublishOutcome($platform, false, $this->whyNotClaimed($source, $platform, $now));
                 continue;
             }
 
@@ -168,6 +164,24 @@ class PublishingService
         }
 
         return $outcomes;
+    }
+
+    /**
+     * claim() refuses for three reasons, and each gets its own sentence:
+     * already published, a failure whose retry was not confirmed, or a
+     * publication in progress.
+     */
+    private function whyNotClaimed(ShareSource $source, SocialPlatform $platform, \DateTimeImmutable $now): string
+    {
+        $publication = $this->publications->forSource($source->kind, $source->id)[$platform->value] ?? null;
+
+        return match (true) {
+            $publication?->isPublished() === true => 'Déjà publié sur cette destination : un contenu n\'y part '
+                . 'qu\'une fois.',
+            $publication?->isRetryable($now->modify('-' . self::STALE_MINUTES . ' minutes')) === true
+                => 'La publication précédente a échoué : cochez « Je confirme : réessayer » pour la relancer.',
+            default => 'Une publication y est déjà en cours.',
+        };
     }
 
     private function markFailed(
