@@ -288,6 +288,11 @@ CREATE TABLE age_branches (
     -- until an admin uploads one; the page falls back to a shipped
     -- default asset (matched by canonicalSortOrder(), never by comparing
     -- the branch's free-text label), then to nothing.
+    -- explanation_url's default is the federation page registered in
+    -- Core\ExternalSource\ExternalSources, and the column is in
+    -- SchemaComparator::DEFAULT_FOLLOWING_COLUMNS: when this default
+    -- changes, the migration moves the rows still on the old one (never a
+    -- URL a unit typed) before altering the column (ARCHITECTURE.md §10).
     logo_file_id INT UNSIGNED,
     explanation_url VARCHAR(500) NOT NULL DEFAULT 'https://lesscouts.be/fr/site-parents/le-parcours-scout',
     UNIQUE INDEX idx_desk_code (desk_code),

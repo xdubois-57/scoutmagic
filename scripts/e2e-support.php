@@ -684,14 +684,20 @@ function e2eProvision(string $repoRoot, string $instanceDir, int $port): void
     // ('self_destination'), and `localhost` is not a public host either
     // (isPublicHost() names it), so no run ever emits a report.
     //
-    // Registered rather than updated because the row does not exist yet
-    // (public/index.php registers it at boot, later than this): the insert
-    // carries the value, and index.php's own register() call then only
-    // refreshes default_value, leaving this one's value alone.
+    // Registered here because the row does not exist yet (public/index.php
+    // registers it at boot, later than this) — with the DECLARED default,
+    // the one index.php registers, and the harness's value written over it
+    // afterwards. Registering the harness's value as the default is what
+    // this used to do, and it stopped being safe with issue #355: a `url`
+    // setting whose value still equals the default being replaced follows
+    // the new one (SettingRepository::updateDefaultValue()), so index.php's
+    // register() would have moved this pin to the real destination. A
+    // value that differs from its declared default is a customised one,
+    // and that is what a harness pin is.
     $settingService = new Core\Config\SettingService(new Core\Config\SettingRepository($connection->getPdo()));
     $settingService->register(
         'statistics_destination',
-        e2eBaseUrl($port),
+        'https://www.scoutmagic.be',
         'url',
         'Destination des statistiques',
         "Adresse du site qui reçoit les rapports d'utilisation. Pointée sur cette instance elle-même "
@@ -702,6 +708,7 @@ function e2eProvision(string $repoRoot, string $instanceDir, int $port): void
         true,
         281
     );
+    $settingService->setInternal('statistics_destination', e2eBaseUrl($port));
 
     e2eWarnIfNearScoutYearBoundary();
 

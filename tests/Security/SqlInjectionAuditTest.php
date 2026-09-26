@@ -143,6 +143,12 @@ class SqlInjectionAuditTest extends TestCase
             '{$fk->column}' => 'Its column, from the parsed schema.',
             '{$fk->referencedTable}' => 'Its referenced table, from the parsed schema.',
             '{$fk->referencedColumn}' => 'Its referenced column, from the parsed schema.',
+            '{$table}' => 'A table on DEFAULT_FOLLOWING_COLUMNS, a class constant naming columns the schema file '
+                . 'declares (the UPDATE letting rows on the old default follow the new one, issue #355).',
+            '{$quote($new)}' => 'The column default the repository\'s own schema file declares, as a SQL string '
+                . 'literal: quotes doubled, and a value with a backslash refused before this line.',
+            '{$quote($old)}' => 'The live column default information_schema reports, the one the schema file '
+                . 'declared before, quoted the same way.',
         ],
         'core/Database/MigrationRunner.php' => [
             '{$drop[\'table\']}' => 'An explicit drop listed in the repository\'s own drops.sql, and checked against '

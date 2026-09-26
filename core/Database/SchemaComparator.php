@@ -10,6 +10,36 @@ namespace Core\Database;
 
 class SchemaComparator
 {
+    /**
+     * Columns whose rows FOLLOW their declared default when it changes
+     * (issue #355) — `table.column`, an explicit allow-list, never every
+     * column.
+     *
+     * A column default that names something outside this site — the
+     * federation page every age branch links to — is a value nobody chose:
+     * a row still holding it was never customised, it simply got what the
+     * schema said at the time. When a release moves that default (the page
+     * moved), `ALTER … DEFAULT` alone only reaches rows created from then
+     * on, and every installed site keeps linking the dead address. For a
+     * column listed here the diff therefore emits, just BEFORE the
+     * `MODIFY COLUMN`, an `UPDATE` moving the rows still equal to the live
+     * (old) default to the declared (new) one. A row holding anything else
+     * was customised and is never touched.
+     *
+     * Only ever a column whose default is a shipped fact rather than a
+     * business value: for most columns a row equal to the default is a
+     * real decision (a `status` of 'pending', a `role_min` of 'public'),
+     * and rewriting it on a release would be data loss. Every source in
+     * Core\ExternalSource\ExternalSources whose dependent default is a
+     * column default must be listed here —
+     * Tests\Architecture\ExternalSourcesAreRegisteredTest holds that.
+     *
+     * @var list<string>
+     */
+    public const DEFAULT_FOLLOWING_COLUMNS = [
+        'age_branches.explanation_url',
+    ];
+
     /** @var array<string> */
     private array $warnings = [];
 
@@ -20,6 +50,8 @@ class SchemaComparator
      * - New table → CREATE TABLE
      * - New column → ALTER TABLE ADD COLUMN
      * - Modified column → ALTER TABLE MODIFY COLUMN
+     * - Changed default on a column in DEFAULT_FOLLOWING_COLUMNS → an
+     *   UPDATE moving the rows still on the old default, then the MODIFY
      * - Column in actual but not in declared → WARNING only (never DROP)
      * - Table in actual but not in declared → WARNING only (never DROP)
      * - New index → CREATE INDEX or ADD INDEX — matched by NAME only: an
@@ -197,7 +229,15 @@ class SchemaComparator
             } else {
                 // Compare column properties
                 $actualCol = $actualColumns[$declaredCol->name];
-                if ($this->columnDiffers($declaredCol, $actualCol)) {
+                $follows = $this->followsItsDefault($declared->name, $declaredCol->name);
+                $defaultMoved = $follows && $this->defaultMoved($declaredCol, $actualCol);
+                if ($defaultMoved || $this->columnDiffers($declaredCol, $actualCol)) {
+                    if ($defaultMoved) {
+                        $follow = $this->rowsFollowingTheDefault($declared->name, $declaredCol, $actualCol);
+                        if ($follow !== null) {
+                            $statements[] = $follow;
+                        }
+                    }
                     $statements[] = "ALTER TABLE `{$declared->name}` MODIFY COLUMN " . $this->columnToSql($declaredCol);
                 }
             }
@@ -247,6 +287,69 @@ class SchemaComparator
         }
 
         return $statements;
+    }
+
+    private function followsItsDefault(string $table, string $column): bool
+    {
+        return in_array($table . '.' . $column, self::DEFAULT_FOLLOWING_COLUMNS, true);
+    }
+
+    /**
+     * Whether a default-following column's default really changed —
+     * compared EXACTLY, where columnDiffers() compares case-insensitively
+     * (it has to: engines report keywords in either case). The allow-listed
+     * defaults are URLs, whose path is case-sensitive: a page moving from
+     * `/Le-Parcours` to `/le-parcours` is a move, and must reach the rows.
+     */
+    private function defaultMoved(ColumnDefinition $declared, ColumnDefinition $actual): bool
+    {
+        return $declared->default !== null
+            && $actual->default !== null
+            && $declared->default !== $actual->default;
+    }
+
+    /**
+     * The `UPDATE` moving the rows still on the old default to the new one,
+     * for a column in DEFAULT_FOLLOWING_COLUMNS — or null when it cannot be
+     * written safely.
+     *
+     * Emitted BEFORE the `MODIFY COLUMN`, and the order is what makes it
+     * survive an interrupted pass: the database is the checkpoint
+     * (MigrationRunner re-diffs on every pass), and the only trace of
+     * « rows still to move » is the live default being the old one. So the
+     * `MODIFY` that erases that trace must come last — a pass killed in
+     * between re-diffs, finds the old default still there, and re-emits
+     * both; the repeated `UPDATE` then matches nothing, harmlessly.
+     *
+     * Compared as bytes (`CAST … AS BINARY`): the tables' collation is
+     * case- and trailing-space-insensitive, and a URL a person typed with
+     * a different case is a different URL, hence a customised value.
+     *
+     * A value holding a backslash is refused with a warning rather than
+     * escaped: whether `\` escapes depends on the server's sql_mode
+     * (NO_BACKSLASH_ESCAPES), and a wrong guess would rewrite the wrong
+     * rows. No URL default carries one; a quote is doubled, which reads
+     * the same in every mode.
+     */
+    private function rowsFollowingTheDefault(
+        string $table,
+        ColumnDefinition $declared,
+        ColumnDefinition $actual
+    ): ?string {
+        $old = (string) $actual->default;
+        $new = (string) $declared->default;
+
+        if (str_contains($old, '\\') || str_contains($new, '\\')) {
+            $this->warnings[] = "Default of '{$table}.{$declared->name}' changed, but a backslash in it keeps the "
+                . 'rows on the old default from following. Update them by hand.';
+
+            return null;
+        }
+
+        $quote = static fn(string $value): string => "'" . str_replace("'", "''", $value) . "'";
+
+        return "UPDATE `{$table}` SET `{$declared->name}` = {$quote($new)} "
+            . "WHERE CAST(`{$declared->name}` AS BINARY) = CAST({$quote($old)} AS BINARY)";
     }
 
     private function columnToSql(ColumnDefinition $column): string
