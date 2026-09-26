@@ -127,7 +127,9 @@ class MassMailService
             ];
         }
 
-        if ((new MailIdentity($site['address'], $site['name']))->canAlignFrom($sectionAddress)) {
+        $identity = new MailIdentity($site['address'], $site['name']);
+
+        if ($identity->canAlignFrom($sectionAddress)) {
             return [
                 'address' => $sectionAddress,
                 'name' => $sectionName,
@@ -143,30 +145,10 @@ class MassMailService
             // Null, so `MailService::send()` uses the site's own address —
             // the one it can sign for.
             'address' => null,
-            'name' => self::substitutedName($sectionName, $site['name']),
+            'name' => $identity->substitutedFromName($sectionName),
             'reply_to' => $sectionAddress,
             'contact' => $sectionAddress,
         ];
-    }
-
-    /**
-     * « Baladins (Unité X) » — the name a recipient reads when the address
-     * had to be substituted.
-     *
-     * The unit's part is dropped rather than rendered empty: a site that
-     * never filled its sending name would otherwise show « Baladins () »,
-     * which reads as a bug to the one person it was meant to reassure.
-     */
-    private static function substitutedName(?string $sectionName, string $siteName): ?string
-    {
-        $sectionName = trim((string) $sectionName);
-        $siteName = trim($siteName);
-
-        if ($sectionName === '') {
-            return $siteName === '' ? null : $siteName;
-        }
-
-        return $siteName === '' ? $sectionName : $sectionName . ' (' . $siteName . ')';
     }
 
     /**

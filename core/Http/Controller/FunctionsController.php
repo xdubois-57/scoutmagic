@@ -17,6 +17,7 @@ use Core\Import\DeskMappingGap;
 use Core\Import\DeskMappingGapService;
 use Core\Import\FunctionRepository;
 use Core\Journal\JournalService;
+use Core\Mail\SectionSenderAlignment;
 use Core\Member\SectionException;
 use Core\Member\SectionService;
 use Core\Member\UnitStaffSectionService;
@@ -49,6 +50,18 @@ class FunctionsController extends AbstractController
         private ScoutYearResolver $scoutYearResolver,
         private BadgeService $badgeService,
         private AgeBranchRepository $ageBranchRepository,
+        /**
+         * What a section's address costs its mailings when this site cannot
+         * sign for it (issue #418).
+         *
+         * **Required, not defaulted**, and for the reason §8.17 records: a
+         * defaulted dependency turns the composition root somebody forgets
+         * into a warning that silently never appears, and the whole point of
+         * this one is that the operator is not told. Required makes a
+         * forgotten site a fatal at boot, which is the language itself doing
+         * the pinning — cheaper than a test, and impossible to drift.
+         */
+        private SectionSenderAlignment $senderAlignment,
         private ?HookRegistry $hooks = null,
         /**
          * What the last import could not match to anything this site
@@ -116,6 +129,13 @@ class FunctionsController extends AbstractController
         $sectionGroups = [];
         foreach ($this->sectionService->getAllWithBranches(includeHidden: true) as $section) {
             $section['effective_color'] = SectionService::colorForSection($section);
+            // On every render, not only after a save: sections were already
+            // configured when this rule arrived, so an operator who never
+            // touches the field again would otherwise never read it.
+            $section['alignment_warning'] = $this->senderAlignment->warningFor(
+                $section['email'],
+                $section['name']
+            );
             $branchName = $section['branch_name'];
             if (!isset($sectionGroups[$branchName])) {
                 $sectionGroups[$branchName] = ['branch_name' => $branchName, 'sections' => []];
@@ -385,7 +405,14 @@ class FunctionsController extends AbstractController
             AuthSession::getUserAccountId()
         );
 
-        return $this->json(['success' => true]);
+        // The warning comes back from the server rather than being worked
+        // out in the browser: the rule needs the site's sending domain, and
+        // a second copy of it in JavaScript is a second rule to keep in step
+        // with `MailIdentity` — which is the one place #418 put it.
+        return $this->json([
+            'success' => true,
+            'alignment_warning' => $this->senderAlignment->warningFor($email, $section['name']),
+        ]);
     }
 
     /**

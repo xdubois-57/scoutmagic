@@ -6690,6 +6690,7 @@ $frontController->registerController(
         $scoutYearResolver,
         $badgeService,
         $ageBranchRepo,
+        new \Core\Mail\SectionSenderAlignment($settingService, $sectionService),
         $moduleHooks,
         $deskMappingGapService
     )

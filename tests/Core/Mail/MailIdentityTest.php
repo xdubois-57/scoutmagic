@@ -351,6 +351,61 @@ class MailIdentityTest extends TestCase
         $this->assertFalse($identity->canAlignFrom(''));
     }
 
+    // ── The name a substituted From: carries (issue #418) ─────────────
+
+    /**
+     * **The name the recipient of a substituted mailing reads.** It lives on
+     * `MailIdentity` rather than in the mailing because the send and the two
+     * configuration screens all have to say the same thing — a warning that
+     * promised « Baladins (Unité Exemple) » while the message went out as
+     * something else would be worse than no warning.
+     */
+    public function testASubstitutedFromCarriesTheSectionAndTheUnit(): void
+    {
+        $identity = new MailIdentity('info@unite.be', 'Unité Exemple');
+
+        $this->assertSame('Baladins (Unité Exemple)', $identity->substitutedFromName('Baladins'));
+    }
+
+    /**
+     * The unit's part is dropped rather than rendered empty: « Baladins () »
+     * reads as a bug to the one person the name was meant to reassure.
+     */
+    public function testASiteWithNoSendingNameLeavesTheSectionAlone(): void
+    {
+        $identity = new MailIdentity('info@unite.be', '');
+
+        $this->assertSame('Baladins', $identity->substitutedFromName('Baladins'));
+    }
+
+    /**
+     * And a section with no name of its own leaves the site's, which is what
+     * `MailService` would have used had nothing been substituted at all —
+     * never the empty string, which would blank the display name.
+     */
+    public function testASectionWithoutANameLeavesTheSites(): void
+    {
+        $identity = new MailIdentity('info@unite.be', 'Unité Exemple');
+
+        $this->assertSame('Unité Exemple', $identity->substitutedFromName(null));
+        $this->assertSame('Unité Exemple', $identity->substitutedFromName('   '));
+        $this->assertNull((new MailIdentity('info@unite.be', ''))->substitutedFromName(null));
+    }
+
+    /**
+     * **Both halves are trimmed, and the site's half is the one that needs
+     * it.** This object is also built straight from
+     * `MailService::getDefaultSender()`, which hands back what is stored
+     * without tidying it, where `fromSettings()` trims — so one of the two
+     * callers would otherwise produce « Baladins ( Unité Exemple ) ».
+     */
+    public function testNeitherHalfKeepsItsSurroundingSpace(): void
+    {
+        $identity = new MailIdentity('info@unite.be', '  Unité Exemple  ');
+
+        $this->assertSame('Baladins (Unité Exemple)', $identity->substitutedFromName('  Baladins  '));
+    }
+
     private function serviceWith(MailTransportInterface $transport, string $replyAddress = ''): MailService
     {
         return new MailService(

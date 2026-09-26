@@ -239,6 +239,40 @@ final class MailIdentity
     }
 
     /**
+     * « Baladins (Unité X) » — the name a recipient reads when the address
+     * had to be substituted (issue #418).
+     *
+     * **Here rather than in the mailing** because three places now have to
+     * say the same name: the send that sets the header, and the two
+     * configuration screens that warn an operator what their mailing will
+     * look like. A screen that composed that name itself would be a second
+     * answer to a question the send already answers, and the two would drift
+     * the first time either was reworded.
+     *
+     * The unit's part is dropped rather than rendered empty: a site that
+     * never filled its sending name would otherwise show « Baladins () »,
+     * which reads as a bug to the one person it was meant to reassure. A
+     * section with no name at all leaves the site's own, which is what
+     * `MailService` would have used anyway.
+     */
+    public function substitutedFromName(?string $sectionName): ?string
+    {
+        $sectionName = trim((string) $sectionName);
+        // Trimmed here rather than trusted from the property: this object is
+        // also built straight from `MailService::getDefaultSender()`, which
+        // hands back what is stored without tidying it, where
+        // `fromSettings()` trims. One of the two callers would otherwise
+        // produce « Baladins ( Unité X ) ».
+        $siteName = trim($this->fromName);
+
+        if ($sectionName === '') {
+            return $siteName === '' ? null : $siteName;
+        }
+
+        return $siteName === '' ? $sectionName : $sectionName . ' (' . $siteName . ')';
+    }
+
+    /**
      * The four-roles table, in the order the screen reads them.
      *
      * @return list<array{role: string, label: string, address: string, source: string, explanation: string}>
