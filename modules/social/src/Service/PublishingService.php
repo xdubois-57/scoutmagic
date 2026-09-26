@@ -126,8 +126,15 @@ class PublishingService
                 $remoteId = $this->send($source, $platform, $caption, $base, $card);
             } catch (MetaException | CardException $e) {
                 $this->markFailed($source, $platform, $e->getMessage(), $now);
-                $this->log($source, $platform, 'publish_failed', 'warning', 'publication refusée : '
-                    . $e->getMessage(), $userId, $e instanceof MetaException ? $e->detail : null);
+                $this->log(
+                    $source,
+                    $platform,
+                    'publish_failed',
+                    'warning',
+                    'publication refusée : ' . $e->getMessage(),
+                    $userId,
+                    $e instanceof MetaException ? $e->detail : null
+                );
                 $outcomes[] = new PublishOutcome($platform, false, $e->getMessage());
                 continue;
             } catch (\Throwable $e) {
@@ -136,8 +143,14 @@ class PublishingService
                 // page nor the journal gets the exception's text.
                 $message = 'La publication a échoué sur le site lui-même. Réessayez plus tard.';
                 $this->markFailed($source, $platform, $message, $now);
-                $this->log($source, $platform, 'publish_failed', 'error', 'publication interrompue : '
-                    . $e::class, $userId);
+                $this->log(
+                    $source,
+                    $platform,
+                    'publish_failed',
+                    'error',
+                    'publication interrompue : ' . $e::class,
+                    $userId
+                );
                 $outcomes[] = new PublishOutcome($platform, false, $message);
                 continue;
             }

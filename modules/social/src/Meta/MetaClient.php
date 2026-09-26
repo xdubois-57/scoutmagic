@@ -268,17 +268,20 @@ class MetaClient
     public function publishInstagramImage(string $accountId, string $token, string $imageUrl, string $caption): string
     {
         $base = 'https://graph.instagram.com/' . self::GRAPH_VERSION . '/' . rawurlencode($accountId);
-        $container = self::string($this->decode($this->transport->postForm(
+        $created = $this->transport->postForm(
             $base . '/media',
             ['image_url' => $imageUrl, 'caption' => $caption, 'access_token' => $token]
-        )), 'id');
+        );
+        $container = self::string($this->decode($created), 'id');
 
         $this->awaitContainer($container, $token);
 
-        return self::string($this->decode($this->transport->postForm(
+        $published = $this->transport->postForm(
             $base . '/media_publish',
             ['creation_id' => $container, 'access_token' => $token]
-        )), 'id');
+        );
+
+        return self::string($this->decode($published), 'id');
     }
 
     /**
