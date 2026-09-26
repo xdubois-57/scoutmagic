@@ -22,13 +22,24 @@ use Core\Scheduler\TaskHandlerInterface;
  * downloadable throughout — this only ever replaces the stored file's
  * content in place (Core\File\EncryptedFileStorageService::replace(),
  * same file_id) once a strictly smaller, still-valid PDF is produced;
- * every other outcome (no backend, disabled setting, not a PDF, no size
- * win) marks the document 'skipped', never 'pending' forever.
+ * every outcome this handler REACHES (no backend, disabled setting, not a
+ * PDF, no size win) marks the document 'skipped'.
  *
- * Registered directly in both public/index.php and public/cron.php —
- * ARCHITECTURE.md §8.17 explicitly calls out that a core task handler
- * missing from the real cron entry point has caused silent production
- * failures before.
+ * It does not follow that nothing stays 'pending'. Core\Member\
+ * SectionDocumentService::upload() schedules this task only for
+ * application/pdf, and the row is inserted 'pending' whatever the type, so
+ * the eleven other accepted types are never scheduled, never reach this
+ * handler, and keep that 'pending' — with the « Compression en cours… »
+ * badge chefs/staffs.html.twig renders for it (issue #556). This docblock
+ * said the opposite until ARCHITECTURE.md §8.28 was checked against it
+ * (issue #532), and the sentence had been copied into the documentation.
+ *
+ * Declared once in Core\Scheduler\CoreTaskHandlers::all() and applied by
+ * registerAll() from public/scheduler-bootstrap.php, the single file both
+ * public/index.php and public/cron.php require. It is NOT hand-registered
+ * in either of them: doing that separately per entry point is what
+ * ARCHITECTURE.md §8.17 records a silent production failure for, and
+ * Tests\Core\CronEntryPointTest refuses it.
  */
 class CompressSectionDocumentHandler implements TaskHandlerInterface
 {
