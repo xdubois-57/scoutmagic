@@ -44,16 +44,16 @@ class ApplyRedirectHandler implements TaskHandlerInterface
         $pdo = $context->connection->getPdo();
 
         $sectionService = new SectionService(
-    new SectionRepository($context->connection),
-    new MemberProfileRepository($context->connection, $context->encryption, new MemberBadgeRepository($pdo))
-);
+            new SectionRepository($context->connection),
+            new MemberProfileRepository($context->connection, $context->encryption, new MemberBadgeRepository($pdo))
+        );
         $memberYearRepository = new MemberYearRepository($pdo);
         $memberService = new MemberService(
-    $memberYearRepository,
-    new MemberProfileRepository($context->connection, $context->encryption),
-    null,
-    new MemberEmailRepository($pdo, $context->encryption)
-);
+            $memberYearRepository,
+            new MemberProfileRepository($context->connection, $context->encryption),
+            null,
+            new MemberEmailRepository($pdo, $context->encryption)
+        );
 
         $settingsService = new SosSettingsService(
             new ExcludedSectionRepository($pdo),

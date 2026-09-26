@@ -91,7 +91,12 @@ class ContactCardRepository
         );
         $stmt->execute($memberIds);
 
-        /** @var array<int, array<string, array{label: string, functions: list<array{function: string, section: ?string}>}>> $byMember */
+        /**
+         * @var array<int, array<string, array{
+         *     label: string,
+         *     functions: list<array{function: string, section: ?string}>
+         * }>> $byMember
+         */
         $byMember = [];
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
             $memberId = (int) $row['member_id'];

@@ -686,7 +686,11 @@ class OutboundMailController extends AbstractController
      * One row per mailing, one cell per provider — the shape the roadmap
      * asks for.
      *
-     * @return list<array{reference: string, sent_at: string, cells: array<string, array{verdict: string, label: string, badge: string, folder: ?string}>}>
+     * @return list<array{
+     *     reference: string,
+     *     sent_at: string,
+     *     cells: array<string, array{verdict: string, label: string, badge: string, folder: ?string}>
+     * }>
      */
     private function seedRuns(\DateTimeImmutable $since): array
     {
