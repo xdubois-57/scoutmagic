@@ -102,6 +102,17 @@ class CardService
     }
 
     /**
+     * The card exactly as {@see issue()} would compose it, for the person
+     * about to publish — nothing is stored and no address is issued.
+     *
+     * @throws CardException when the image cannot be used
+     */
+    public function preview(string $contents, string $title, string $address, bool $fromGallery): string
+    {
+        return $this->renderer->render($contents, $title, $address, $fromGallery, $this->blurRatio());
+    }
+
+    /**
      * The file a token opens, or null — unknown, malformed, expired or gone
      * all answer the same. Every card served is journalled, with its id
      * and nothing else: the token is the key, and a journal line is no

@@ -42,8 +42,8 @@ final class SocialSubProcessorService implements SubProcessorProvider
             SubProcessorView::CATEGORY_SOCIAL_PUBLISHING,
             'Meta Platforms Ireland Limited (Irlande, UE ; transferts possibles vers Meta Platforms, Inc., '
                 . 'États-Unis)',
-            "Raccordement des comptes de l'unité au site : demandes d'autorisation et de vérification, aucune "
-                . 'publication',
+            "Raccordement des comptes de l'unité au site et publications décidées par un animateur (titre, "
+                . 'légende, image — floutée pour un album)',
             'Comptes raccordés : ' . implode(' et ', $connected)
         )];
     }

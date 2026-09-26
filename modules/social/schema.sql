@@ -42,3 +42,28 @@ CREATE TABLE IF NOT EXISTS social_cards (
     UNIQUE KEY uq_social_cards_token (token_hash),
     KEY idx_social_cards_expiry (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- social_publications: what left, where, and how it went — one row per
+-- content and destination, never more (docs/chantiers/
+-- CHANTIER-partage-social.md, « Une publication, une seule fois »). The
+-- unique key is the rule itself, enforced by the database: a second
+-- publication of the same album to the same Page is refused by the INSERT,
+-- not only hidden by the dialog. A row in `failed` can be taken again
+-- — that is a retry — and a row left in `pending` by an interrupted
+-- request becomes retryable after a quarter of an hour.
+--
+-- source_kind: 'album' | 'article' (and, from IT-04, 'communication').
+-- destination: 'facebook' | 'instagram'.
+CREATE TABLE IF NOT EXISTS social_publications (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    source_kind VARCHAR(20) NOT NULL,
+    source_id INT UNSIGNED NOT NULL,
+    destination VARCHAR(40) NOT NULL,
+    status VARCHAR(12) NOT NULL,
+    remote_id VARCHAR(100) NULL,
+    error_message VARCHAR(500) NULL,
+    attempted_at DATETIME NOT NULL,
+    published_at DATETIME NULL,
+    user_account_id INT UNSIGNED NULL,
+    UNIQUE KEY uq_social_publications (source_kind, source_id, destination)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

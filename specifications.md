@@ -3244,10 +3244,10 @@ membres ne voient jamais l'historique.
 ## 47. Réseaux sociaux (module social)
 
 Chantier « Partage vers Facebook et Instagram » (issue #528,
-`docs/chantiers/CHANTIER-partage-social.md`). Cette section décrit les deux
-premières itérations : le **connecteur** et **l'image publiée**. La
-publication depuis les actualités, les albums et l'écran Communications
-arrive avec les itérations suivantes.
+`docs/chantiers/CHANTIER-partage-social.md`). Cette section décrit les trois
+premières itérations : le **connecteur**, **l'image publiée** et **le
+partage depuis un album ou une actualité**. L'écran Communications et le
+groupe de discussion arrivent avec les itérations suivantes.
 
 ### 47.1 Ce que le module relie
 
@@ -3303,9 +3303,8 @@ pas chaque nuit.
   messages d'erreur ou les traces : le journal dit quelle plateforme et
   quel évènement ; une erreur de Meta y garde son code et son message,
   débarrassés de tout ce qui ressemble à un jeton.
-- **Rien n'est publié** par cette itération. Les autres modules voient la
-  liste des comptes connectés et en état de marche — la question que
-  toute publication posera d'abord — et rien d'autre.
+- **Rien n'est publié de lui-même.** Chaque publication est décidée par un
+  animateur, sur la page de partage (§ 47.6), après avoir vu l'image.
 - **Meta est un destinataire au sens du RGPD.** Tant qu'un compte est
   raccordé, la page Protection des données générée par IA le décrit ;
   sans compte raccordé, elle n'en dit rien.
@@ -3327,3 +3326,57 @@ parce qu'Instagram ne publie pas de lien.
   une heure. Passé ce délai, l'adresse répond « introuvable » comme une
   adresse qui n'a jamais existé, et l'image est effacée dans la journée.
   Chaque téléchargement est inscrit au journal, sans l'adresse.
+
+### 47.6 Partager un album ou une actualité
+
+**Le bouton.** « Partager » apparaît sur la page de modification d'un
+album et dans l'éditeur d'une actualité, **seulement quand au moins un
+compte est connecté** et en état de marche. Il mène à une page de
+confirmation, `/partage/album/{id}` ou `/partage/actualite/{id}`.
+
+**Qui.** Un animateur (`chief`) ou plus, et seulement sur ce qu'il peut
+déjà modifier : un album qu'il gère, une actualité qu'il peut modifier.
+Pour tout autre album ou actualité, la page répond « introuvable ». Un
+album délégué (à un camp, par exemple) ou en cours de déplacement ne se
+partage pas.
+
+**La page de confirmation** montre, dans cet ordre :
+
+- **l'image exacte qui sera publiée** — pour un album, sa photo de
+  couverture floutée (§ 47.5) avec son titre et l'adresse du site ; pour
+  une actualité, son image, non floutée puisqu'elle est déjà publique ;
+- **la légende**, proposée d'avance et modifiable (2 200 caractères au
+  plus, la limite d'Instagram) : pour un album « Les photos de « titre »
+  sont en ligne ! À voir sur adresse », pour une actualité « titre — à lire sur
+  adresse » ;
+- **les destinations connectées, chacune avec son état** : disponible
+  (cochée) ; déjà publiée (cochée, grisée, avec sa date) ; en échec (la
+  raison donnée par Meta et une case « Je confirme : réessayer sur … ») ;
+  en cours ; indisponible, avec la raison — un album sans photo de
+  couverture ou une actualité sans image pour Instagram, une actualité
+  réservée aux animateurs ou aux administrateurs, un compte dont Meta
+  n'accepte plus l'autorisation, un site sans adresse ;
+- l'avertissement : « Une fois publié, c'est public et hors du site : ni
+  vous ni ScoutMagic ne pourrez le reprendre », et la raison pour laquelle
+  l'adresse est écrite sur l'image — elle n'est pas cliquable sur
+  Instagram ;
+- « Annuler », qui revient à l'album ou à l'actualité, et « Publier »,
+  avec son mot et son icône.
+
+**Ce qui part.** Un album part en publication d'image sur la Page et sur
+Instagram. Une actualité part **en lien** sur la Page — Facebook en
+affiche l'aperçu à partir de la page de l'actualité — et en image sur
+Instagram, qui n'accepte jamais de lien. Seule une actualité publique,
+en lien direct ou réservée aux membres identifiés peut quitter le site :
+ce sont les visibilités dont l'image est déjà un fichier public.
+
+**Une seule fois par destination.** Le serveur refuse une deuxième
+publication du même album ou de la même actualité au même endroit, même
+si la page est renvoyée deux fois. Une destination en échec se retente
+seulement si la case de confirmation est cochée, et les destinations déjà
+publiées ne sont pas touchées. Après « Publier », la page se réaffiche
+avec un message qui dit, destination par destination, ce qui est parti
+et ce qui a échoué.
+
+**Le journal** inscrit chaque publication réussie ou échouée : l'album ou
+l'actualité, la plateforme, qui a publié — ni la légende, ni aucun jeton.

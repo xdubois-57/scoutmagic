@@ -345,6 +345,38 @@ class GalleryChiefControllerTest extends TestCase
         $this->assertSame(404, $response->getStatusCode());
     }
 
+    /**
+     * Another module's action ("Partager") shows on the edit page of an
+     * existing album, through the registry — never on the creation form,
+     * and not at all when nothing is registered.
+     */
+    public function testEditShowsTheActionsOtherModulesContribute(): void
+    {
+        $id = $this->createLocalAlbum();
+        $registry = new \Modules\Gallery\Service\AlbumActionRegistry();
+        $registry->register(new class implements \Modules\Gallery\Api\AlbumActionProviderInterface {
+            public function actionsFor(int $albumId): array
+            {
+                return [new \Modules\Gallery\Api\AlbumAction('Partager', '/partage/album/' . $albumId, 'bi-share')];
+            }
+        });
+        $withActions = new GalleryChiefController(
+            $this->twig, $this->albumService, $this->mediaService, $this->mediaRepository,
+            $this->createConfiguredStub(GalleryAccessService::class, ['canManageAlbum' => true, 'getManagedSectionIds' => []]),
+            $this->sectionService, $this->settingService, $this->storageLocationRepository, $this->storageLocationService,
+            $this->galleryLocationService, new \Core\File\ChunkedUploadStore($this->chunkStorageDir), albumActions: $registry
+        );
+
+        $html = $withActions->edit(new Request('GET', '/gallery/' . $id . '/edit', [], [], [], []), ['id' => (string) $id])
+            ->getBody();
+        $this->assertStringContainsString('data-album-actions', $html);
+        $this->assertStringContainsString('href="/partage/album/' . $id . '"', $html);
+
+        $plain = $this->controller->edit(new Request('GET', '/gallery/' . $id . '/edit', [], [], [], []), ['id' => (string) $id])
+            ->getBody();
+        $this->assertStringNotContainsString('data-album-actions', $plain);
+    }
+
     public function testEditIsAllowedForAManagedAlbum(): void
     {
         $id = $this->createLocalAlbum();

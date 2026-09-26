@@ -15,7 +15,8 @@ related: config-rgpd, connecteur-ia
 Ce module relie le site à **la Page Facebook** et au **compte Instagram
 professionnel** de l'unité, pour pouvoir y publier depuis le site. Il ne
 publie rien de lui-même : chaque publication est décidée par un
-administrateur.
+animateur, depuis un album ou une actualité (voir « Partager un album
+ou une actualité sur Facebook et Instagram »).
 
 > Un profil Facebook personnel et un groupe Facebook ne sont pas des
 > destinations possibles : Meta ne permet plus à une application de

@@ -1113,9 +1113,12 @@ configuré », retire entièrement la sous-section "Module Réseaux sociaux" de 
 section 4.2 et la ligne "Raccordement à Facebook et Instagram" de la section 5.2 : aucun compte n'est raccordé et rien
 ne part vers Meta. Sinon, conserve-les intégralement et sans les édulcorer, en ne citant que les comptes réellement
 raccordés, en particulier : (a) que l'unité relie **sa propre** Page Facebook et/ou **son propre** compte Instagram
-professionnel au moyen de **sa propre** application Meta ; (b) que le site **se limite à ce raccordement** : il ne
-transmet à Meta que les demandes d'autorisation et de vérification de ces comptes et **ne publie rien** — n'écris
-jamais que le site publie ou permet de publier sur Facebook ou Instagram ; (c) que les autorisations délivrées par Meta
+professionnel au moyen de **sa propre** application Meta ; (b) que le site **ne publie jamais de lui-même** :
+chaque publication est décidée par un animateur, est **publique** et ne peut pas être reprise depuis le site ; qu'elle
+contient un titre, une légende et une image — pour un album, sa photo de couverture **systématiquement floutée**, pour
+une actualité, son image déjà publique et, sur Facebook, son lien — que Meta récupère par un lien temporaire d'une
+heure ; et que l'historique des publications (quoi, où, quand, par quel compte) est conservé pour ne jamais publier deux
+fois au même endroit ; (c) que les autorisations délivrées par Meta
 sont **chiffrées en base**, que le journal ne nomme aucun compte et ne contient aucune autorisation ; (d) que Meta
 Platforms Ireland Limited peut transférer ces données vers Meta Platforms, Inc. aux États-Unis, à décrire en section 5.2
 avec le mécanisme applicable (cadre de protection des données UE–États-Unis et clauses contractuelles types). Ce module
