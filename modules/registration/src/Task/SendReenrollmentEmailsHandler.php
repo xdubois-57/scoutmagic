@@ -89,9 +89,13 @@ class SendReenrollmentEmailsHandler implements TaskHandlerInterface
                 $pdo,
                 $context->encryption,
                 new \Core\Member\SectionService(
-    new \Core\Member\Repository\SectionRepository($context->connection),
-    new \Core\Member\Repository\MemberProfileRepository($context->connection, $context->encryption, new \Core\Badge\MemberBadgeRepository($pdo))
-),
+                    new \Core\Member\Repository\SectionRepository($context->connection),
+                    new \Core\Member\Repository\MemberProfileRepository(
+                        $context->connection,
+                        $context->encryption,
+                        new \Core\Badge\MemberBadgeRepository($pdo)
+                    )
+                ),
                 new \Modules\Registration\Repository\SectionTransferRepository($pdo),
                 new \Modules\Registration\Repository\RegistrationRequestRepository($pdo, $context->encryption),
                 new \Modules\Registration\Repository\AgeBracketRepository($pdo)
