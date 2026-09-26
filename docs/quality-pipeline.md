@@ -584,6 +584,33 @@ job-level `env:` was there for;
 `tests/Architecture/WorkflowContextsAreAvailableWhereTheyAreUsedTest`
 refuses the `steps` context outside a step in every workflow here.
 
+`.github/workflows/external-sources-check.yml` watches the pages outside
+this site that it depends on (issue #355). Every Monday at 05:41 UTC it
+checks the repository out and runs `scripts/check-external-sources.php` —
+the script the sixth release gate runs, over the register
+`Core\ExternalSource\ExternalSources`. When every source conforms the job
+ends there, green, having opened nothing. On a divergence, Claude reads the
+changed pages by `.claude/skills/external-sources/SKILL.md` — what moved,
+the new address, the new fees amounts — and returns one title and body per
+divergent source as JSON; a shell step then opens an issue per source, or
+comments on the one already open for it, found by a hidden
+`<!-- external-source:<id> -->` marker. A fingerprint of the script's own
+wording stops a weekly repeat of a divergence the issue already reports.
+The split is issue-backlog-scan's: the agent holds read tools only (the
+checkout, the web, GitHub's read tools), the source ids come from the
+script and not the model, and if the agent returns nothing the issue still
+opens with the script's report as its body. Permissions are `contents:
+read`, `issues: write`, and the `id-token: write` the action's
+authentication needs. An issue opened with `github.token` starts no
+workflow, so `issue-triage.yml` never sees it: the workflow applies
+`bug:confirmed` itself, the label AGENTS.md asks for on a filed defect. And
+like the backlog scan, it is a `schedule` workflow — GitHub disables those
+after sixty days without activity on the repository, silently. `tests/Architecture/ExternalSourcesAreRegisteredTest`
+keeps the register honest: a federation or console URL in shipped code that
+it does not list, a listed file that no longer names its URL, or a
+`module.json`/`schema/core.sql` default that differs from it fails the
+build.
+
 `.github/workflows/claude-review.yml` is the AI reviewer; see below. It
 carries two jobs: `Claude review`, which reads the diff, and `Claude review
 status`, which posts the comment saying what that check's green means. They
@@ -1023,7 +1050,7 @@ acceptable only for a manual release — see the end of this section.
 security item: CodeQL alerts, Dependabot alerts, and active SonarQube Cloud
 findings. The gates below are the final check, not the fix.
 
-Five gates, all fail-closed, all run **before** any commit or tag, one
+Six gates, all fail-closed, all run **before** any commit or tag, one
 after another, and the release stops at the first one that refuses:
 
 | Gate | What it checks |
@@ -1033,6 +1060,16 @@ after another, and the release stops at the first one that refuses:
 | **Security** | `composer audit`, `npm audit`, open CodeQL findings, open Dependabot alerts |
 | **Dependency freshness** | `composer outdated --direct`, and every vendored front-end library against its upstream release |
 | **SonarQube Cloud** | `scripts/check-sonar-release.sh` — see below |
+| **External sources** | `scripts/check-external-sources.php`: every page in `Core\ExternalSource\ExternalSources` — federation pages answer 200 with their expected content and the fees page's three amounts readable; provider console and legal links alive (2xx, 3xx, 401, 403) |
+
+**The External sources gate is the one that looks outside the
+repository**, and it is last for that reason: a federation page that moved
+or a console that died says nothing about the code, but a release is when a
+shipped default holding that address reaches every installed site. The
+same script runs weekly (below, `external-sources-check.yml`), so a
+divergence this gate meets should already have its issue. It has no
+exemption for an unreachable network: no answer is a dead link, the same
+as a 404.
 
 **None of them runs a test**, and that is the design rather than a gap.
 PHPStan, both PHPUnit engines, the JavaScript analysis and tests, the
@@ -1072,7 +1109,8 @@ a *list* of impacts and is exempt only when every one of them qualifies; an
 issue with no impacts at all is not exempt.
 
 **Bypass flags** (`--skip-deployment-check`, `--skip-ci-gate`,
-`--skip-security-gate`, `--skip-dependency-check`, `--skip-sonar-gate`)
+`--skip-security-gate`, `--skip-dependency-check`, `--skip-sonar-gate`,
+`--skip-sources-gate`)
 exist for genuine emergencies. Each prints a warning naming exactly what
 was not checked. Using one to route around a real finding is how a release
 ships a known defect — and `--skip-ci-gate` is the widest of them by far,
@@ -1209,7 +1247,7 @@ change to either.
 | Secret | Used by | Without it |
 |---|---|---|
 | `SONAR_TOKEN` | the `sonarqube` job in `checks.yml`, `check-sonar-release.sh`, `release.yml`'s SonarCloud evidence job | no Quality Gate on pull requests; the release gate fails closed; a tag's Release workflow refuses for want of the analysis |
-| `CLAUDE_CODE_OAUTH_TOKEN` | `claude-review.yml`, `issue-triage.yml`, `issue-backlog-scan.yml` | the review job fails at authentication, and no issue is ever triaged — neither on arrival nor overnight |
+| `CLAUDE_CODE_OAUTH_TOKEN` | `claude-review.yml`, `issue-triage.yml`, `issue-backlog-scan.yml`, `external-sources-check.yml` | the review job fails at authentication, and no issue is ever triaged — neither on arrival nor overnight; a divergent external source still gets its issue, with the script's report and no analysis |
 | `SUPPORT_TRIAGE_TOKEN` | the `extract` step of `issue-triage.yml` and `issue-backlog-scan.yml` | no support ticket extract is ever fetched: a cited reference is reported in the step's log and the triage runs on the issue alone, green |
 
 `CLAUDE_CODE_OAUTH_TOKEN` is generated with `claude setup-token` and spends
