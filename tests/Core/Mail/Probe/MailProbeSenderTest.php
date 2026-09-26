@@ -504,9 +504,9 @@ class MailProbeSenderTest extends TestCase
      *
      * `BounceStateRepository::record()` refuses a report for an address the
      * site cannot show it wrote to, and `recordSend()` mints that proof only
-     * for an address already on file — which a probe destination is not: RGPD
-     * §2.9 says it is the administrator's own address or the witness address
-     * of an outside analysis service. So the receipt was never stamped, and
+     * for an address already on file — which a probe destination is not: the
+     * RGPD page's own section on this probe says it is the administrator's own
+     * address or the witness address of an outside analysis service. So the receipt was never stamped, and
      * the bounce tracing could only fire for a destination that happened to
      * be a member's with a recent unrelated send. The feature was dead for
      * exactly the addresses probes exist for.

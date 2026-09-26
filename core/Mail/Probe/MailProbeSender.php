@@ -90,9 +90,17 @@ final class MailProbeSender
          * away — which is what the review of #562 found. A fatal at boot
          * costs less than a diagnostic that diagnoses nothing.
          *
-         * **Before the two optional parameters below**, because both call
-         * sites build this positionally and a required parameter cannot
-         * follow an optional one anyway.
+         * **Before the two optional parameters below**, because a required
+         * parameter cannot follow an optional one — and every site that
+         * builds this class does so positionally, so inserting it here
+         * moves `$journal` and `$counters` by one.
+         *
+         * There are three such sites, not the two I first wrote down:
+         * `public/index.php`, this feature's own test, and
+         * `OutboundMailControllerTest`, which builds a real probe sender
+         * rather than a null one. The full suite is what named the third —
+         * after I had already written a note about the hazard, in the same
+         * change that walked into it.
          */
         private \Core\Mail\Feedback\Bounce\BounceStateRepository $sendReceipts,
         private ?JournalService $journal = null,
@@ -172,8 +180,12 @@ final class MailProbeSender
         // `BounceStateRepository::record()` refuses a report for an address
         // the site cannot show it wrote to, and `recordSend()` mints that
         // proof only for an address the site already holds — which a probe
-        // destination is not: RGPD §2.9 says it is the administrator's own
-        // address, or the witness address of an outside analysis service.
+        // destination is not: the RGPD page's own section on this probe
+        // says it is the administrator's own address, or the witness
+        // address of an outside analysis service. (Said without a `§`
+        // deliberately: that page is numbered for its readers, not with
+        // this repository's sections, and `CrossReferenceResolutionRatchet`
+        // is right to refuse a sigil it cannot resolve.)
         // So nothing stamped it, `record()` answered null for the probe's
         // own bounce, and #419's tracing could only fire for a destination
         // that happened to be a member's with a recent unrelated send. The

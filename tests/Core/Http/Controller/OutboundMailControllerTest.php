@@ -207,6 +207,11 @@ class OutboundMailControllerTest extends TestCase
                 $probeTransport,
                 $this->mailProbes = new \Core\Mail\Probe\MailProbeRepository($this->pdo, $encryption),
                 $twig,
+                // The send receipts. A probe stamps its own, because its
+                // destination is never an address the site holds on file —
+                // and without one, its own bounce is refused and #419's
+                // tracing never runs.
+                new \Core\Mail\Feedback\Bounce\BounceStateRepository($this->pdo, $encryption),
                 new JournalService(new JournalRepository($this->pdo))
             ),
             $this->mailProbes,
