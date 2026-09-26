@@ -290,10 +290,19 @@ class PublishingService
             'social',
             $event,
             $level,
-            $platform->label() . ' : ' . ($source->kind === ShareSource::KIND_ALBUM ? 'album' : 'actualité')
-                . ' n° ' . $source->id . ', ' . $message,
+            $platform->label() . ' : ' . self::kindLabel($source->kind) . ' n° ' . $source->id . ', ' . $message,
             $context,
             $userId
         );
+    }
+
+    /** How the journal names a kind of content. */
+    public static function kindLabel(string $kind): string
+    {
+        return match ($kind) {
+            ShareSource::KIND_ALBUM => 'album',
+            ShareSource::KIND_ARTICLE => 'actualité',
+            default => 'communication',
+        };
     }
 }

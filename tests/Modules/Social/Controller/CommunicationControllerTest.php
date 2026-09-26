@@ -59,6 +59,7 @@ final class CommunicationControllerTest extends TestCase
     private FakeMetaTransport $meta;
     private FakePhotoPicker $picker;
     private string $storage;
+    private RecordingJournalRepository $journal;
 
     protected function setUp(): void
     {
@@ -76,6 +77,7 @@ final class CommunicationControllerTest extends TestCase
         $this->connections = new ConnectionRepository($this->pdo, H::encryption());
         $this->publications = new PublicationRepository($this->pdo);
         $this->communications = new CommunicationRepository($this->pdo);
+        $this->journal = new RecordingJournalRepository();
         $this->meta = H::transport([
             '/photos' => H::ok(['id' => 'P', 'post_id' => '42_1']),
             '/feed' => H::ok(['id' => '42_2']),
@@ -270,6 +272,7 @@ final class CommunicationControllerTest extends TestCase
         );
 
         $this->assertSame('success', FlashMessage::get()['type'] ?? null);
+        $this->assertStringContainsString('communication n° ' . $id, $this->journal->textOf('published'));
         $this->assertSame(1, (int) $this->pdo->query('SELECT blurred FROM social_cards')->fetchColumn(), 'Blurred.');
         $photo = $this->request('/photos');
         $this->assertSame('Inscriptions ouvertes', $photo['fields']['caption'] ?? null);
@@ -425,7 +428,7 @@ final class CommunicationControllerTest extends TestCase
     private function controller(): CommunicationController
     {
         $settings = new RemoteBackupSettingsDouble(['base_url' => 'https://unite.example']);
-        $journal = new JournalService(new RecordingJournalRepository());
+        $journal = new JournalService($this->journal);
         $cards = new CardService(new CardRepository($this->pdo), new CardRenderer(), $settings, $journal, $this->storage . '/cards');
         $files = new FileRepository($this->pdo);
         $reader = new StoredFileReader($files, new EncryptedFileStorageService($files, H::encryption(), $this->storage), $this->storage);
