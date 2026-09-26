@@ -13,6 +13,7 @@ use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Member\SectionDocument;
 use Core\Member\SectionDocumentException;
 use Core\Member\SectionDocumentRepository;
 use Core\Member\SectionDocumentService;
@@ -35,6 +36,16 @@ class SectionDocumentServiceTest extends TestCase
 {
     private \PDO $pdo;
     private SectionDocumentService $service;
+    /**
+     * The very instance the service under test reads from.
+     *
+     * `SettingService` caches what it has loaded, per instance, which is
+     * what a real request does too. A test that wrote through a second
+     * instance changed the row and nothing else: the service went on
+     * reading its own cache, and the assertion failed for a reason that
+     * had nothing to do with the code under test.
+     */
+    private SettingService $settingService;
     private SectionDocumentRepository $repository;
     private SectionMembershipRepository $membershipRepository;
     private FileRepository $fileRepository;
@@ -58,7 +69,7 @@ class SectionDocumentServiceTest extends TestCase
     new MemberProfileRepository($connection, $encryption, new MemberBadgeRepository($this->pdo))
 );
 
-        $settingService = new SettingService(new SettingRepository($this->pdo));
+        $settingService = $this->settingService = new SettingService(new SettingRepository($this->pdo));
         $settingService->register('section_document_compression_enabled', '1', 'boolean', 'x', 'x');
         $settingService->register('section_document_compression_quality', PdfCompressor::QUALITY_BALANCED, 'select', 'x', 'x');
         $settingService->register('section_document_compression_backend', PdfCompressor::BACKEND_NONE, 'text', 'x', 'x', null, null, null, false);
@@ -112,6 +123,92 @@ class SectionDocumentServiceTest extends TestCase
         $this->assertSame('section_document', $file->ownerType);
         $this->assertSame($document->id, $file->ownerId);
         $this->assertTrue($file->encrypted);
+    }
+
+    /**
+     * **A document nobody will compress says so, instead of saying « soon ».**
+     *
+     * The row is inserted 'pending' whatever the type, and 'pending' is what
+     * `chefs/staffs.html.twig` renders as « Compression en cours… ». Only a
+     * PDF is ever scheduled, and `markSkipped()` lives inside the handler, so
+     * eleven of the twelve accepted types reached neither: their badge said a
+     * treatment was running, for ever, for a treatment that was never going
+     * to exist (issue #556).
+     *
+     * A spreadsheet stands in for the other ten here; the MIME whitelist is
+     * pinned on its own by testUploadRejectsAnUnsupportedMimeType() and its
+     * two neighbours, so repeating all eleven would assert the list twice and
+     * the behaviour once.
+     */
+    public function testANonPdfIsMarkedSkippedRatherThanLeftPending(): void
+    {
+        $document = $this->service->upload(
+            $this->sectionId,
+            $this->scoutYearId,
+            'colonne;valeur',
+            'text/csv',
+            'materiel.csv',
+            'Liste de matériel',
+            null,
+            null
+        );
+
+        $this->assertSame(SectionDocument::COMPRESSION_SKIPPED, $document->compressionStatus);
+        // Read back, not just returned: the badge is rendered from the row.
+        $stored = $this->repository->findById($document->id);
+        $this->assertNotNull($stored);
+        $this->assertSame(SectionDocument::COMPRESSION_SKIPPED, $stored->compressionStatus);
+    }
+
+    /**
+     * The other half of the same branch, and the half that says the fix did
+     * not simply switch everything off: a PDF is still scheduled, and still
+     * waits.
+     */
+    public function testAPdfStaysPendingAndIsScheduled(): void
+    {
+        $document = $this->service->upload(
+            $this->sectionId,
+            $this->scoutYearId,
+            '%PDF-1.4 fake content',
+            'application/pdf',
+            'camp.pdf',
+            'Carnet de camp',
+            null,
+            null
+        );
+
+        $this->assertSame(SectionDocument::COMPRESSION_PENDING, $document->compressionStatus);
+        $scheduled = (new SchedulerRepository($this->pdo))
+            ->findByModuleAndTaskKey('core', 'compress_section_document');
+        $this->assertNotEmpty($scheduled, 'a PDF upload must still schedule the background pass');
+    }
+
+    /**
+     * A PDF uploaded while compression is switched off is the same trap as a
+     * spreadsheet: nothing is scheduled, so nothing would ever clear the
+     * badge. The setting is read at upload time, once — this is what says so.
+     */
+    public function testAPdfUploadedWithCompressionOffIsSkippedToo(): void
+    {
+        $this->settingService->set('section_document_compression_enabled', '0');
+
+        $document = $this->service->upload(
+            $this->sectionId,
+            $this->scoutYearId,
+            '%PDF-1.4 fake content',
+            'application/pdf',
+            'camp.pdf',
+            'Carnet de camp',
+            null,
+            null
+        );
+
+        $this->assertSame(SectionDocument::COMPRESSION_SKIPPED, $document->compressionStatus);
+        $this->assertEmpty(
+            (new SchedulerRepository($this->pdo))->findByModuleAndTaskKey('core', 'compress_section_document'),
+            'nothing should be scheduled when compression is off'
+        );
     }
 
     /**
