@@ -58,6 +58,14 @@ FORM_DIR="${ISSUE_TEMPLATE_DIR:-${SCRIPT_DIR}/../.github/ISSUE_TEMPLATE}"
 # and it is created here so that the one hand-applied label in the set is
 # still described, coloured and reproducible like the rest.
 #
+# `status:in-progress` is the mirror of it: applied by an AGENT and never by
+# a human, and read by no automation either. It says a ticket has been taken
+# (AGENTS.md § "Fix the backlog", step 3) so that a glance at the issue list
+# shows what is in flight. It is a SIGNAL and not a lock — the lock is the
+# `claude/issue-<n>` ref, because creating one is atomic where applying a
+# label is not — so nothing breaks when this label is missing, and an agent
+# that cannot apply it carries on.
+#
 # The colours are not arbitrary in one respect: `bug:confirmed` is a
 # darker red than the repository's older `bug` label rather than the same
 # one, so a glance at an issue list tells a confirmed defect apart from a
@@ -69,6 +77,7 @@ LABELS=(
     "bug:not-a-bug|cfd3d7|Works as designed, or user error"
     "bug:needs-info|d876e3|Blocked on an answer from the reporter"
     "status:accepted|0e8a16|The maintainer will do it — applied by hand, read by no automation"
+    "status:in-progress|1d76db|An agent has claimed it — applied by an agent, cleared when its pull request merges"
 )
 
 command -v gh &> /dev/null || {
