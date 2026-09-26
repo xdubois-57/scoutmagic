@@ -10308,6 +10308,43 @@ if ($isEnabled('covoiturage')) {
     $mapTileOrigin = \Core\Geo\MapTiles::ORIGIN;
 }
 
+// Social networks (ARCHITECTURE.md §8.122): the unit's own Facebook Page
+// and Instagram account. The Api is built for the modules that will
+// publish through it (news and gallery, docs/chantiers/
+// CHANTIER-partage-social.md) — null when the module is disabled, per
+// §7.5, and nothing consumes it yet.
+$socialSharingForOthers = null;
+if ($isEnabled('social')) {
+    \Core\Debug\RequestTimeline::mark('module_social');
+    $socialConnectionRepo = new \Modules\Social\Repository\ConnectionRepository($pdo, $encryptionService);
+    $socialSharingForOthers = new \Modules\Social\Service\SocialSharingService($socialConnectionRepo);
+
+    $frontController->registerController(
+        \Modules\Social\Controller\ConfigController::class,
+        new \Modules\Social\Controller\ConfigController(
+            $twig,
+            $socialConnectionRepo,
+            new \Modules\Social\Service\ConnectionService($socialConnectionRepo, $journalService),
+            $settingService
+        )
+    );
+
+    // Meta is declared on the RGPD page while an account is connected,
+    // and only then (§7.4).
+    $rgpdContentService->addSubProcessorProvider(
+        new \Modules\Social\Service\SocialSubProcessorService($socialConnectionRepo)
+    );
+
+    // Daily: renew the Instagram token, check both connections; re-armed
+    // by the handler, seeded here for the reason §8.5 gives.
+    $schedulerService->seed(
+        'social',
+        \Modules\Social\Task\CheckConnectionsHandler::TASK_KEY,
+        \Modules\Social\Task\CheckConnectionsHandler::REFERENCE,
+        'tomorrow 04:20'
+    );
+}
+
 if ($isEnabled('retro')) {
     \Core\Debug\RequestTimeline::mark('module_retro');
     $retroBoardRepo = new \Modules\Retro\Repository\BoardRepository($pdo, $encryptionService);

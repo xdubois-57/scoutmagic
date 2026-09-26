@@ -40,6 +40,13 @@ final class SubProcessorView
     public const CATEGORY_ISSUE_TRIAGE = 'issue_triage';
 
     /**
+     * Publishing to the unit's own Facebook Page or Instagram account
+     * (module `social`, ARCHITECTURE.md §8.122): Meta receives what an
+     * administrator chose to publish, and nothing else.
+     */
+    public const CATEGORY_SOCIAL_PUBLISHING = 'social_publishing';
+
+    /**
      * @param string $category one of the CATEGORY_* constants
      * @param string $name     the processor and its data location, worded
      *        for the RGPD document — « Hetzner Object Storage

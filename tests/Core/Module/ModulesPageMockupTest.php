@@ -46,6 +46,7 @@ final class ModulesPageMockupTest extends TestCase
     private const ARRIVED_AFTER_THE_MOCKUP = [
         'covoiturage' => 'activites',
         'documents' => 'communication',
+        'social' => 'communication',
     ];
 
     /** @return array<string, ModuleManifest> */

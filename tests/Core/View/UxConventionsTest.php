@@ -596,6 +596,10 @@ final class UxConventionsTest extends TestCase
         // picker's endpoint) and the places of the events it retained.
         '/covoiturage/organiser/evenements',
         '/covoiturage/organiser/lieux',
+        // Redirects: leaving for Meta's consent screen, and Meta's return,
+        // which always lands back on « Réseaux sociaux ».
+        '/config/reseaux-sociaux/{platform}/connecter',
+        '/config/reseaux-sociaux/{platform}/retour',
         // XLSX download of the fee-accuracy screen, never a page.
         '/admin/fees/tarifs/export',
         // XLSX download of one invoice's verification report, likewise.

@@ -132,6 +132,7 @@ class RgpdContentService
         $phoneProvider = $this->getPhoneProviderInfo();
         $galleryStorage = $this->galleryStorageInfo($subProcessors);
         $issueTriage = $this->issueTriageInfo($subProcessors);
+        $socialPublishing = $this->socialPublishingInfo($subProcessors);
 
         $systemPrompt = $this->buildSystemPrompt(
             $baseContent,
@@ -141,7 +142,8 @@ class RgpdContentService
             $phoneProvider,
             $galleryStorage,
             $userPrompt,
-            $issueTriage
+            $issueTriage,
+            $socialPublishing
         );
 
         $request = new LlmRequest(
@@ -300,7 +302,8 @@ class RgpdContentService
         string $phoneProvider,
         string $galleryStorage,
         string $userPrompt,
-        string $issueTriage = 'Non configuré'
+        string $issueTriage = 'Non configuré',
+        string $socialPublishing = 'Non configuré'
     ): string {
         $modulesText = implode(', ', $activeModules);
         $unitName = $this->settingService->get('site_name') ?: 'Unité scoute';
@@ -320,6 +323,7 @@ https://www.lesscouts.be/fr/ressources-scouts/administratif-1/web-et-vie-privee/
 - Modèles IA : {$modelsInfo}
 - Fournisseur téléphonie : {$phoneProvider}
 - Stockage galerie : {$galleryStorage}
+- Réseaux sociaux raccordés : {$socialPublishing}
 
 Contenu RGPD de référence (couvre TOUS les modules possibles, version la plus complète) :
 {$baseContent}
@@ -1103,6 +1107,20 @@ contient. Le géocodage du lieu d'une sortie relève du paragraphe "Fond de cart
 jamais une donnée personnelle qui part. Ce module ne fait **aucun appel à une IA** et n'introduit aucun autre
 sous-traitant.
 
+33quater. **Module Réseaux sociaux (module social)** : Si "social" ne figure PAS dans la liste des modules actifs
+({$modulesText}), ou si les réseaux sociaux raccordés indiquent « {$socialPublishing} » et que cette valeur est « Non
+configuré », retire entièrement la sous-section "Module Réseaux sociaux" de la section 2.4, le paragraphe "Meta" de la
+section 4.2 et la ligne "Raccordement à Facebook et Instagram" de la section 5.2 : aucun compte n'est raccordé et rien
+ne part vers Meta. Sinon, conserve-les intégralement et sans les édulcorer, en ne citant que les comptes réellement
+raccordés, en particulier : (a) que l'unité relie **sa propre** Page Facebook et/ou **son propre** compte Instagram
+professionnel au moyen de **sa propre** application Meta ; (b) que le site **se limite à ce raccordement** : il ne
+transmet à Meta que les demandes d'autorisation et de vérification de ces comptes et **ne publie rien** — n'écris
+jamais que le site publie ou permet de publier sur Facebook ou Instagram ; (c) que les autorisations délivrées par Meta
+sont **chiffrées en base**, que le journal ne nomme aucun compte et ne contient aucune autorisation ; (d) que Meta
+Platforms Ireland Limited peut transférer ces données vers Meta Platforms, Inc. aux États-Unis, à décrire en section 5.2
+avec le mécanisme applicable (cadre de protection des données UE–États-Unis et clauses contractuelles types). Ce module
+ne fait **aucun appel à une IA**.
+
 34. **Assistant d'aide (fonctionnalité du cœur du site, section 2.8)** : Cette section ne dépend d'aucun module — elle
 dépend uniquement de la présence d'un connecteur IA actif. Si "llm_connector" ne figure PAS dans la liste des modules
 actifs ({$modulesText}), ou si {$providerInfo} n'indique aucun fournisseur actif, retire entièrement la sous-section «
@@ -1235,6 +1253,25 @@ PROMPT;
     {
         foreach ($views as $view) {
             if ($view->category === SubProcessorView::CATEGORY_ISSUE_TRIAGE) {
+                return $view->name . ' — ' . $view->purpose
+                    . ($view->details !== null ? ' — ' . $view->details : '');
+            }
+        }
+
+        return 'Non configuré';
+    }
+
+    /**
+     * The Meta accounts `social` declares while one is connected —
+     * processor and accounts in one sentence for rule 33quater, or « Non
+     * configuré », which that rule reads as "say nothing".
+     *
+     * @param list<SubProcessorView> $views
+     */
+    private function socialPublishingInfo(array $views): string
+    {
+        foreach ($views as $view) {
+            if ($view->category === SubProcessorView::CATEGORY_SOCIAL_PUBLISHING) {
                 return $view->name . ' — ' . $view->purpose
                     . ($view->details !== null ? ' — ' . $view->details : '');
             }

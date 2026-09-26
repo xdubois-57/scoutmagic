@@ -1,0 +1,91 @@
+{
+  "id": "social",
+  "name": "Réseaux sociaux",
+  "description": "Relie la Page Facebook et le compte Instagram de l'unité, pour y publier depuis le site.",
+  "version": "1.0.0",
+  "enabled_by_default": false,
+  "routes": [
+    {
+      "path": "/config/reseaux-sociaux",
+      "method": "GET",
+      "controller": "Modules\\Social\\Controller\\ConfigController",
+      "action": "index",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": "Réseaux sociaux",
+      "menu_icon": "bi-share",
+      "menu_group": "modules",
+      "menu_order": 245,
+      "breadcrumb": {
+        "label": "Réseaux sociaux",
+        "parents": [
+          "Configuration"
+        ]
+      }
+    },
+    {
+      "path": "/config/reseaux-sociaux/{platform}/identifiants",
+      "method": "POST",
+      "controller": "Modules\\Social\\Controller\\ConfigController",
+      "action": "saveCredentials",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/reseaux-sociaux/{platform}/connecter",
+      "method": "GET",
+      "controller": "Modules\\Social\\Controller\\ConfigController",
+      "action": "connect",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/reseaux-sociaux/{platform}/retour",
+      "method": "GET",
+      "controller": "Modules\\Social\\Controller\\ConfigController",
+      "action": "callback",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/reseaux-sociaux/facebook/page",
+      "method": "POST",
+      "controller": "Modules\\Social\\Controller\\ConfigController",
+      "action": "choosePage",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/reseaux-sociaux/{platform}/tester",
+      "method": "POST",
+      "controller": "Modules\\Social\\Controller\\ConfigController",
+      "action": "test",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/reseaux-sociaux/{platform}/deconnecter",
+      "method": "POST",
+      "controller": "Modules\\Social\\Controller\\ConfigController",
+      "action": "disconnect",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    }
+  ],
+  "settings": [],
+  "cookies": [],
+  "scheduled_tasks": [
+    {
+      "key": "check_connections",
+      "handler": "Modules\\Social\\Task\\CheckConnectionsHandler"
+    }
+  ],
+  "storage": {},
+  "category": "communication"
+}

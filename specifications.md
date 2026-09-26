@@ -31,6 +31,7 @@ Everything beyond the core site is a module (`modules/<id>/`, ARCHITECTURE.md §
 | `registration` | Inscriptions | §17, §18, §19 |
 | `rental` | Locations | §22 |
 | `retro` | Rétrospectives | §37 |
+| `social` | Réseaux sociaux | §47 |
 | `sos_staff` | Téléphone d'urgence | §38 |
 | `support_dashboard` | Tableau de bord support | §21.3 |
 | `test_tools` | Outils de test | §40 |
@@ -287,6 +288,7 @@ All pages in this menu require the `superadmin` role, except Maintenance (`admin
 | Camps (module) | Default country for a new place; how many past stays a place sheet shows. The dedicated camps mailboxes (empty by default, with the warning that any mailbox listed there must be excluded from the other modules that read mail); automatic creation of a stay from a message; unsorted-mail retention in months. Automatic geocoding of a place's address through OpenStreetMap; AI summaries of what a place's stays and reviews add up to. |
 | Téléphone d'urgence (module) | Telephony provider credentials (OVH: application key/secret, consumer key, line selection), excluded sections |
 | Intelligence artificielle (module) | The AI provider and its API key — one provider active at a time, key stored encrypted and never redisplayed. Saving tests the connection and discovers the provider's models; the three capability tiers are assigned automatically, with no model to pick by hand. Consumed optionally by other modules (RGPD text, retro moderation and summaries, finance receipt extraction and categorization, news keywords/summaries, group moderation, camps summaries) — see §39 |
+| Réseaux sociaux (module social) | La Page Facebook et le compte Instagram professionnel de l'unité, reliés par **sa propre** application Meta : une carte par plateforme avec le compte connecté, l'état de l'autorisation (sans expiration pour la Page ; renouvelée chaque semaine pour Instagram, avec sa date de fin), la date de la dernière vérification, « Tester la connexion » et « Reconnecter » ; sous chaque carte, l'identifiant et la clé secrète de l'application (conservée chiffrée, jamais réaffichée) et l'adresse de redirection à déclarer chez Meta. Voir §47 |
 
 ### 4.6 Pages outside menus
 
@@ -3238,3 +3240,72 @@ membres ne voient jamais l'historique.
   suppression d'une version, suppression — identifiants seulement,
   jamais un titre.
 
+
+## 47. Réseaux sociaux (module social)
+
+Chantier « Partage vers Facebook et Instagram » (issue #528,
+`docs/chantiers/CHANTIER-partage-social.md`). Cette section décrit la
+première itération : le **connecteur**. La publication depuis les
+actualités, les albums et l'écran Communications arrive avec les
+itérations suivantes.
+
+### 47.1 Ce que le module relie
+
+- **La Page Facebook de l'unité** — jamais un profil personnel, jamais un
+  groupe : Meta a retiré la publication dans les groupes le 22 avril 2024.
+- **Le compte Instagram professionnel de l'unité** — un compte personnel
+  n'a pas d'API de publication ; il est refusé à la connexion avec une
+  phrase qui dit comment le passer en compte professionnel.
+
+L'unité crée **sa propre** application Meta : tant que seuls ses propres
+comptes s'y connectent, aucune revue par Meta n'est nécessaire.
+
+### 47.2 L'écran « Configuration › Réseaux sociaux »
+
+`superadmin`. Une phrase d'introduction, puis une carte par plateforme :
+
+- le compte connecté (le nom de la Page, ou `@` et le nom du compte
+  Instagram) et son état — « Connectée », « Connecté », « Autorisation
+  refusée », « Autorisation expirée » ou « Non connecté » ;
+- l'état de l'autorisation : « Jeton de page sans expiration » pour
+  Facebook ; pour Instagram, la date du dernier renouvellement et la date
+  jusqu'à laquelle elle vaut ; puis la dernière vérification ;
+- « Tester la connexion » (un appel réel à Meta) et « Reconnecter » (un
+  nouveau passage par l'écran de consentement de Meta), **sur chaque
+  carte** : Facebook et Instagram sont deux connexions distinctes chez
+  Meta, et l'une peut échouer quand l'autre fonctionne ;
+- dans un volet « Application Meta », ouvert tant qu'aucune clé n'est
+  enregistrée : l'adresse de redirection à déclarer dans l'application,
+  au caractère près ; l'identifiant (une suite de chiffres, refusé sinon)
+  et la clé secrète de l'application, conservée chiffrée et jamais
+  réaffichée — laisser le champ vide conserve la clé actuelle ; et
+  « Déconnecter », qui efface le compte et la clé. Changer d'identifiant
+  d'application déconnecte le compte : une autorisation appartient à
+  l'application qui l'a obtenue.
+
+Sans adresse du site (Configuration › Réglages), la page le dit et ne
+propose pas de connexion : c'est elle qui compose l'adresse de
+redirection. Quand le compte Facebook gère plusieurs Pages, le site
+demande laquelle est celle de l'unité ; seule une Page proposée par ce
+consentement-là peut être choisie.
+
+### 47.3 Garder la connexion en vie
+
+Une tâche quotidienne renouvelle l'autorisation Instagram quand elle a une
+semaine (elle en vaut soixante) et vérifie les deux connexions. Une
+autorisation expirée n'est plus envoyée ; il faut reconnecter. Une
+connexion qui cesse de fonctionner est inscrite **une fois** au journal,
+pas chaque nuit.
+
+### 47.4 Ce qu'il ne fait jamais
+
+- **Aucun secret, aucun jeton, aucun nom de compte dans le journal**, les
+  messages d'erreur ou les traces : le journal dit quelle plateforme et
+  quel évènement ; une erreur de Meta y garde son code et son message,
+  débarrassés de tout ce qui ressemble à un jeton.
+- **Rien n'est publié** par cette itération. Les autres modules voient la
+  liste des comptes connectés et en état de marche — la question que
+  toute publication posera d'abord — et rien d'autre.
+- **Meta est un destinataire au sens du RGPD.** Tant qu'un compte est
+  raccordé, la page Protection des données générée par IA le décrit ;
+  sans compte raccordé, elle n'en dit rien.

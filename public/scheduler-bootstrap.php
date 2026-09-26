@@ -353,6 +353,14 @@ function scoutmagicBootstrapScheduler(
                             );
                         }
 
+                        if (in_array('social', $enabledModuleIds, true)) {
+                            $service->addSubProcessorProvider(
+                                new \Modules\Social\Service\SocialSubProcessorService(
+                                    new \Modules\Social\Repository\ConnectionRepository($pdo, $encryptionService)
+                                )
+                            );
+                        }
+
                         return $service;
                     },
                     $settingService,
