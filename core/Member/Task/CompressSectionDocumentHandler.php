@@ -25,14 +25,19 @@ use Core\Scheduler\TaskHandlerInterface;
  * every outcome this handler REACHES (no backend, disabled setting, not a
  * PDF, no size win) marks the document 'skipped'.
  *
- * It does not follow that nothing stays 'pending'. Core\Member\
- * SectionDocumentService::upload() schedules this task only for
- * application/pdf, and the row is inserted 'pending' whatever the type, so
- * the eleven other accepted types are never scheduled, never reach this
- * handler, and keep that 'pending' — with the « Compression en cours… »
- * badge chefs/staffs.html.twig renders for it (issue #556). This docblock
- * said the opposite until ARCHITECTURE.md §8.28 was checked against it
- * (issue #532), and the sentence had been copied into the documentation.
+ * The outcomes it never reaches are marked by the caller instead:
+ * Core\Member\SectionDocumentService::upload() schedules this task only for
+ * application/pdf with compression on, and marks the row 'skipped' itself in
+ * the other branch. Until issue #556 it did not, and since a row is inserted
+ * 'pending' whatever the type, the eleven other accepted types kept that
+ * 'pending' for ever — wearing the « Compression en cours… » badge
+ * chefs/staffs.html.twig renders for it. This docblock claimed « never
+ * 'pending' forever » throughout, which is how the claim reached
+ * ARCHITECTURE.md §8.28 as well (issue #532): it was copied from here.
+ *
+ * So 'pending' now means what it says, and this handler is the only thing
+ * that clears it. Rows uploaded before #556 keep theirs: not migrated, on
+ * purpose.
  *
  * Declared once in Core\Scheduler\CoreTaskHandlers::all() and applied by
  * registerAll() from public/scheduler-bootstrap.php, the single file both
