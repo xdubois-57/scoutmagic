@@ -1,0 +1,38 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Modules\Social;
+
+use PHPUnit\Framework\TestCase;
+
+/**
+ * A new recipient of data: the RGPD page and the prompt that regenerates
+ * it say so (AGENTS.md § RGPD page maintenance) — in the same change.
+ */
+final class RgpdCoverageTest extends TestCase
+{
+    private static function read(string $path): string
+    {
+        return (string) preg_replace('/\s+/u', ' ', (string) file_get_contents(dirname(__DIR__, 3) . '/' . $path));
+    }
+
+    public function testTheDefaultPageDescribesTheModuleAndMeta(): void
+    {
+        $page = self::read('core/View/rgpd_default.html');
+
+        $this->assertStringContainsString('<h4>Module Réseaux sociaux</h4>', $page);
+        $this->assertStringContainsString('Aucune publication ne part sans qu\'un administrateur l\'ait décidée', $page);
+        $this->assertStringContainsString('<strong>Meta Platforms Ireland Limited</strong>', $page);
+        $this->assertStringContainsString('<li><strong>Publication sur Facebook et Instagram</strong>', $page);
+    }
+
+    public function testThePromptTellsTheModelWhenToKeepItAndWhenToRemoveIt(): void
+    {
+        $prompt = self::read('core/View/RgpdContentService.php');
+
+        $this->assertStringContainsString('**Module Réseaux sociaux (module social)**', $prompt);
+        $this->assertStringContainsString('retire entièrement la sous-section "Module Réseaux sociaux"', $prompt);
+        $this->assertStringContainsString('- Réseaux sociaux raccordés : {$socialPublishing}', $prompt);
+    }
+}

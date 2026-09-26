@@ -1,0 +1,129 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Réseaux sociaux — {{ site_name }}{% endblock %}
+
+{# One card per platform: Meta has two logins, so each connection is
+   tested and reconnected on its own (ConfigController's docblock). #}
+{% macro card(connection, platform, title, redirect_uri, page_choices, now) %}
+    {% set connected = connection and connection.isConnected() %}
+    {% set expired = connected and connection.isExpired(now) %}
+    {% set refused = connected and connection.checkOk is same as(false) %}
+    <div class="card mb-4" data-platform="{{ platform }}">
+        <div class="card-body">
+            <h2 class="h5 mb-3">{{ title }}</h2>
+
+            {% if connected %}
+                <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                    <strong data-account>{{ platform == 'instagram' ? '@' : '' }}{{ connection.accountName }}</strong>
+                    {% if expired %}
+                        {% include 'partials/status_badge.html.twig' with { status: 'error', label: 'Autorisation expirée' } only %}
+                    {% elseif refused %}
+                        {% include 'partials/status_badge.html.twig' with { status: 'error', label: 'Autorisation refusée' } only %}
+                    {% else %}
+                        {% include 'partials/status_badge.html.twig' with { status: 'active', label: platform == 'facebook' ? 'Connectée' : 'Connecté' } only %}
+                    {% endif %}
+                </div>
+                <p class="text-body-secondary small mb-3" data-token-state>
+                    {% if platform == 'facebook' %}
+                        Jeton de page sans expiration.
+                    {% else %}
+                        Compte professionnel.
+                        {% if connection.tokenRefreshedAt %}Jeton renouvelé le {{ connection.tokenRefreshedAt|french_date }}{% if connection.tokenExpiresAt %}, valable jusqu'au {{ connection.tokenExpiresAt|french_date }}{% endif %}.{% endif %}
+                    {% endif %}
+                    {% if connection.checkedAt %}Dernière vérification {{ connection.checkedAt|relative_date }}.{% endif %}
+                </p>
+                {% if expired or refused %}
+                    <div class="alert alert-warning small">
+                        Meta n'accepte plus l'autorisation de ce site : rien ne pourra y être publié.
+                        « Reconnecter » la redonne.
+                    </div>
+                {% endif %}
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    <form method="post" action="/config/reseaux-sociaux/{{ platform }}/tester">
+                        {{ csrf_field()|raw }}
+                        <button type="submit" class="btn btn-outline-primary">Tester la connexion</button>
+                    </form>
+                    <a class="btn btn-outline-secondary" href="/config/reseaux-sociaux/{{ platform }}/connecter">Reconnecter</a>
+                </div>
+            {% elseif platform == 'facebook' and page_choices %}
+                <form method="post" action="/config/reseaux-sociaux/facebook/page" class="mb-3">
+                    {{ csrf_field()|raw }}
+                    <fieldset>
+                        <legend class="h6">Quelle Page est celle de l'unité ?</legend>
+                        {% for page in page_choices %}
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="page_id" id="page-{{ page.id }}" value="{{ page.id }}" required>
+                                <label class="form-check-label" for="page-{{ page.id }}">{{ page.name }}</label>
+                            </div>
+                        {% endfor %}
+                    </fieldset>
+                    <button type="submit" class="btn btn-primary mt-2">Choisir cette Page</button>
+                </form>
+            {% else %}
+                <p class="mb-3">
+                    {% include 'partials/status_badge.html.twig' with { status: 'neutral', label: 'Non connecté' } only %}
+                </p>
+                {% if connection and connection.appId and connection.hasAppSecret %}
+                    {% if redirect_uri %}
+                        <a class="btn btn-primary mb-3" href="/config/reseaux-sociaux/{{ platform }}/connecter">Connecter</a>
+                    {% else %}
+                        <p class="text-body-secondary">
+                            Renseignez d'abord l'adresse du site dans
+                            <a href="/config/settings">Configuration &gt; Réglages</a>.
+                        </p>
+                    {% endif %}
+                {% endif %}
+            {% endif %}
+
+            <details {{ connection and connection.hasAppSecret ? '' : 'open' }}>
+                <summary class="mb-2">Application Meta</summary>
+                <p class="small text-body-secondary">
+                    Adresse de redirection à déclarer dans votre application, au caractère près :
+                    {% if redirect_uri %}
+                        <code class="user-select-all" data-redirect-uri>{{ redirect_uri }}</code>
+                    {% else %}
+                        disponible dès que l'adresse du site est renseignée dans
+                        <a href="/config/settings">Configuration &gt; Réglages</a>.
+                    {% endif %}
+                </p>
+                <form method="post" action="/config/reseaux-sociaux/{{ platform }}/identifiants">
+                    {{ csrf_field()|raw }}
+                    <div class="mb-3">
+                        <label class="form-label" for="{{ platform }}-app-id">Identifiant de l'application</label>
+                        <input class="form-control" type="text" inputmode="numeric" id="{{ platform }}-app-id" name="app_id"
+                               value="{{ connection ? connection.appId : '' }}" required autocomplete="off">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="{{ platform }}-app-secret">Clé secrète de l'application</label>
+                        <input class="form-control" type="password" id="{{ platform }}-app-secret" name="app_secret" autocomplete="new-password"
+                               {{ connection and connection.hasAppSecret ? '' : 'required' }}>
+                        {% if connection and connection.hasAppSecret %}
+                            <div class="form-text">Laisser vide pour conserver la clé actuelle.</div>
+                        {% endif %}
+                    </div>
+                    <button type="submit" class="btn btn-outline-primary">Enregistrer</button>
+                </form>
+                {% if connection %}
+                    <form method="post" action="/config/reseaux-sociaux/{{ platform }}/deconnecter" class="mt-3"
+                          data-confirm="Déconnecter ce compte ? Ce site ne pourra plus y publier, et la clé secrète de l'application sera effacée. Rien n'est supprimé chez Meta.">
+                        {{ csrf_field()|raw }}
+                        <button type="submit" class="btn btn-link btn-sm p-0 text-danger">Déconnecter</button>
+                    </form>
+                {% endif %}
+            </details>
+        </div>
+    </div>
+{% endmacro %}
+
+{% block content %}
+{% import _self as social %}
+{% include 'partials/page_header.html.twig' with { title: 'Réseaux sociaux' } only %}
+
+<p class="mb-4">
+    Votre unité crée sa propre application Meta et la relie ici. Aucune revue par Meta n'est
+    nécessaire tant que seuls vos propres comptes s'y connectent.
+</p>
+
+{{ social.card(facebook, 'facebook', 'Page Facebook', facebook_redirect_uri, page_choices, now) }}
+{{ social.card(instagram, 'instagram', 'Instagram', instagram_redirect_uri, [], now) }}
+{% endblock %}
