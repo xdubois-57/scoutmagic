@@ -781,9 +781,19 @@ class MassMailPageTest extends TestCase
 
         // Before the fix this threw MailingListException out of the
         // controller: the page a chief clicks to check who a mail is going
-        // to answered a 500 instead of saying it could not count.
+        // to answered a 500.
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertStringContainsString('Destinataires', (string) $response->getBody());
+        // Asserted on the REASON, not on the breadcrumb: « Destinataires » is
+        // passed unconditionally on the only path that renders a 200, so an
+        // assertion on it cannot fail and says nothing (chantier §1). The
+        // count section itself renders empty for a null estimate — the
+        // template's `{% elseif estimate %}` chain has no `{% else %}` — so
+        // the flash is the only thing that tells the chief why.
+        $this->assertStringContainsString(
+            'Liste externe indisponible',
+            (string) $response->getBody(),
+            'the page opened without telling the chief why it shows no count'
+        );
     }
 
     public function testTheRecipientCountSaysWhyRatherThanCrashing(): void

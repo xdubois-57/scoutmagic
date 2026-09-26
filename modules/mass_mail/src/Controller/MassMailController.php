@@ -242,7 +242,7 @@ class MassMailController extends AbstractController
 
         try {
             $estimate = $this->massMailService->estimateRecipientCount($id);
-        } catch (MassMailException|MailingListException) {
+        } catch (MassMailException|MailingListException $e) {
             // Both families, because the one that can actually arrive here
             // is MailingListException: estimateRecipientCount() resolves
             // the list, and MailingListService raises its own exception for
@@ -252,6 +252,14 @@ class MassMailController extends AbstractController
             // siblings (\RuntimeException + Core\Exception\UserFacingException),
             // so naming only MassMailException here sent that case to a 500
             // instead of the page below, and left this branch unreachable.
+            //
+            // The reason is SAID, like the audience catch above and like the
+            // two sibling call sites: recipients.html.twig's `{% elseif
+            // estimate %}` chain has no `{% else %}`, so a null estimate
+            // renders the count section empty. Without this the page went
+            // silent — better than a 500 and useless to the chief, who came
+            // to this page precisely to learn who the mail reaches.
+            FlashMessage::set('error', $e->getMessage());
             $estimate = null;
         }
 

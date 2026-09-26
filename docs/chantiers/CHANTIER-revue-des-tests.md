@@ -1731,9 +1731,25 @@ liste après. Mesuré : sans le correctif, les trois tests **erreurent** sur un
 
 | Page | Ce qu'un chef obtenait | Ce qu'il obtient |
 |---|---|---|
-| « Destinataires » | 500 | la page, sans le décompte |
+| « Destinataires » | 500 | la page, et la raison affichée |
 | le décompte avant envoi | 500 | `404` et « Liste externe indisponible. » |
 | « Lancer l'envoi » | 500 | l'envoi refusé, l'email intact en mode test |
+
+La première ligne a demandé une seconde passe, sur un autre finding de revue.
+Élargir le `catch` suffisait à ne plus rendre 500, mais il n'annonçait rien :
+il ne capturait même pas `$e`, et `recipients.html.twig` n'a pas de
+`{% else %}` après son `{% elseif estimate %}` — donc la section du décompte
+se rendait **vide**. Mieux qu'un 500 et inutile pour le chef, venu justement
+savoir qui le courrier atteint. La raison est désormais posée en message,
+comme le fait le `catch` de l'audience dix lignes plus haut et comme le font
+les deux autres sites corrigés.
+
+Le test de cette page souffrait du défaut jumeau, relevé par la même revue :
+il affirmait la présence de « Destinataires », que le contrôleur passe
+**inconditionnellement** sur le seul chemin rendant un 200. Un test qui ne
+peut pas échouer, c'est-à-dire le §1 de ce chantier, dans l'itération qui
+prétend le corriger. Il affirme maintenant la raison elle-même, et rougit
+quand le message est retiré.
 
 La cause de la cause est une déclaration fausse : `estimateRecipientCount()`
 ne déclarait que `@throws MassMailException`, et `startSending()` pareil, alors
