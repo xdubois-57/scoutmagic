@@ -244,6 +244,10 @@ class OutboundMailControllerTest extends TestCase
             // assertion about what it offers would hold whatever the code
             // does.
             $this->seedRouting($directory),
+            // The SPF reading, stored the way « Vérifier les
+            // enregistrements » stores it, and for `rememberedRelays()`'s
+            // reason: the page reads what that action left behind.
+            self::rememberedSpfCoverage($settings),
         ];
         $this->controller = new OutboundMailController(...$this->controllerArguments);
 
@@ -307,6 +311,73 @@ class OutboundMailControllerTest extends TestCase
         );
 
         return \Core\Mail\Feedback\Dmarc\KnownSenders::remembered($settings);
+    }
+
+    /**
+     * An SPF reading, stored as the DNS check stores it (issue #421).
+     *
+     * **The range is `192.0.2.0/24` and nothing wider, deliberately.** The
+     * fixtures of every other test on this page live in `198.51.100.0/24`
+     * and `203.0.113.0/24`, and a default reading that covered those would
+     * quietly retitle rows the tests around it were written to read as
+     * « Autre » — a fixture changing other tests' meaning without
+     * changing a line of them.
+     */
+    public const SPF_ZONE = [
+        'unite.be' => 'v=spf1 include:_spf.google.test -all',
+        '_spf.google.test' => 'v=spf1 ip4:192.0.2.0/24 -all',
+    ];
+
+    /**
+     * @param ?array<string, string> $zone host => its TXT record
+     */
+    private static function rememberedSpfCoverage(
+        SettingService $settings,
+        ?array $zone = null,
+        ?\DateTimeImmutable $at = null
+    ): \Core\Mail\Feedback\Dmarc\SpfCoverage {
+        $zone ??= self::SPF_ZONE;
+        $settings->register(
+            \Core\Mail\Feedback\Dmarc\SpfCoverage::SETTING_KEY,
+            '',
+            'text',
+            'Plages autorisées par le SPF',
+            '',
+            null,
+            null,
+            null,
+            false,
+            58
+        );
+
+        \Core\Mail\Feedback\Dmarc\SpfCoverage::refresh(
+            $settings,
+            'unite.be',
+            static fn(string $host): array => isset($zone[$host]) ? [$zone[$host]] : [],
+            $at
+        );
+
+        return \Core\Mail\Feedback\Dmarc\SpfCoverage::remembered($settings);
+    }
+
+    /**
+     * The same controller with one dependency replaced rather than
+     * removed. Positions come from the constructor, for the reason
+     * {@see controllerWithout()} writes down.
+     */
+    private function controllerWith(string $name, mixed $dependency): OutboundMailController
+    {
+        $positions = [];
+        foreach ((new \ReflectionMethod(OutboundMailController::class, '__construct'))->getParameters() as $p) {
+            $positions[$p->getName()] = $p->getPosition();
+        }
+
+        self::assertArrayHasKey($name, $positions, "Unknown constructor dependency '{$name}'.");
+
+        return new OutboundMailController(...array_replace(
+            $this->controllerArguments,
+            [$positions[$name] => $dependency]
+        ));
     }
 
     private static function removeDirectory(string $directory): void
@@ -1352,10 +1423,13 @@ class OutboundMailControllerTest extends TestCase
     public function testAPageWithoutAResolvedRelayReadingSaysWhereToTakeOne(): void
     {
         $this->settings->setInternal(\Core\Mail\Feedback\Dmarc\KnownSenders::SETTING_KEY, '');
-        $controller = new OutboundMailController(...array_replace(
-            $this->controllerArguments,
-            [19 => \Core\Mail\Feedback\Dmarc\KnownSenders::remembered($this->settings)]
-        ));
+        // By name, not by the literal `19` this line used to carry: that
+        // offset is exactly what `controllerWithout()` above explains
+        // cannot be written down, and appending the SPF reading moved it.
+        $controller = $this->controllerWith(
+            'knownSenders',
+            \Core\Mail\Feedback\Dmarc\KnownSenders::remembered($this->settings)
+        );
 
         $this->recordDmarcReport('google.com', 'r-1', [['198.51.100.7', 120, true]]);
 
@@ -1363,6 +1437,137 @@ class OutboundMailControllerTest extends TestCase
 
         $this->assertStringContainsString('n\'ont pas encore été résolus', $body);
         $this->assertStringNotContainsString('Brevo', $body, 'Nothing may be claimed from a reading never taken.');
+    }
+
+    // ── Nommer une source depuis le SPF de l'unité (issue #421) ───────
+
+    /**
+     * **The one case where this page had something important to say and
+     * could not say it.** A source no declared relay places is an address
+     * and nothing else; the unit's own SPF usually explains it, because
+     * somebody had to put it there for that mail to pass.
+     */
+    public function testASourceNoRelayPlacesIsNamedByTheIncludeThatCoversIt(): void
+    {
+        $this->recordDmarcReport('google.com', 'r-spf', [['192.0.2.10', 60, true]]);
+
+        $body = (string) $this->controller->dmarc($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('Déclarée dans votre SPF, via', $body);
+        $this->assertStringContainsString('_spf.google.test', $body);
+    }
+
+    /**
+     * **Named is not cleared**, which is the trap the issue names and a
+     * trap because the truthful reading is the reassuring one. « Je l'ai
+     * mis dans le SPF il y a trois ans » is the commonest way a forgotten
+     * tool got there, so the warning and the badge both stay.
+     */
+    public function testNamingASourceFromTheSpfDoesNotClearIt(): void
+    {
+        $this->recordDmarcReport('google.com', 'r-spf', [['192.0.2.10', 60, true]]);
+
+        $body = (string) $this->controller->dmarc($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('Déclarée dans votre SPF, via', $body);
+        $this->assertStringContainsString('À identifier', $body);
+        $this->assertStringContainsString('Un outil oublié', $body);
+    }
+
+    /**
+     * A relay of the unit's own is in its SPF too — that is how its mail
+     * passes. Saying both would put « Brevo » and « déclarée dans votre
+     * SPF » on one row and leave the volunteer to work out that they are
+     * the same fact.
+     */
+    public function testASourceOneOfTheUnitsRelaysPlacesIsNotAlsoLabelledFromTheSpf(): void
+    {
+        $controller = $this->controllerWith('spfCoverage', self::rememberedSpfCoverage(
+            $this->settings,
+            ['unite.be' => 'v=spf1 ip4:198.51.100.0/24 -all']
+        ));
+
+        $this->recordDmarcReport('google.com', 'r-relay', [['198.51.100.7', 120, true]]);
+
+        $body = (string) $controller->dmarc($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('Brevo', $body);
+        $this->assertStringNotContainsString('Déclarée dans votre SPF, via', $body);
+        $this->assertStringNotContainsString('Déclarée directement', $body);
+    }
+
+    public function testARangeTheRecordStatesItselfIsShownAsDirectRatherThanViaSomething(): void
+    {
+        $controller = $this->controllerWith('spfCoverage', self::rememberedSpfCoverage(
+            $this->settings,
+            ['unite.be' => 'v=spf1 ip4:192.0.2.0/24 -all']
+        ));
+
+        $this->recordDmarcReport('google.com', 'r-direct', [['192.0.2.10', 60, true]]);
+
+        $body = (string) $controller->dmarc($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('Déclarée directement dans votre enregistrement SPF', $body);
+        $this->assertStringNotContainsString('Déclarée dans votre SPF, via', $body);
+    }
+
+    /**
+     * A provider's published ranges move without anybody at the unit
+     * touching anything, so an old reading would name an address that
+     * provider may have handed back. It names nobody, and the page says
+     * which of the three reasons it is.
+     */
+    public function testAnSpfReadingPastItsAgeNamesNobodyAndSaysWhy(): void
+    {
+        $long = \Core\Mail\Feedback\Dmarc\SpfCoverage::MAX_AGE_DAYS + 5;
+        $controller = $this->controllerWith('spfCoverage', self::rememberedSpfCoverage(
+            $this->settings,
+            null,
+            (new \DateTimeImmutable())->sub(new \DateInterval('P' . $long . 'D'))
+        ));
+
+        $this->recordDmarcReport('google.com', 'r-spf', [['192.0.2.10', 60, true]]);
+
+        $body = (string) $controller->dmarc($this->getRequest(), [])->getBody();
+
+        $this->assertStringNotContainsString('Déclarée dans votre SPF, via', $body);
+        $this->assertStringContainsString('a plus de ' . \Core\Mail\Feedback\Dmarc\SpfCoverage::MAX_AGE_DAYS
+            . ' jours', $body);
+    }
+
+    public function testAPageWithNoSpfReadingSaysThatRatherThanNothing(): void
+    {
+        $this->recordDmarcReport('google.com', 'r-spf', [['192.0.2.10', 60, true]]);
+
+        $body = (string) $this->controllerWithout('spfCoverage')->dmarc($this->getRequest(), [])->getBody();
+
+        $this->assertStringNotContainsString('Déclarée dans votre SPF, via', $body);
+        $this->assertStringContainsString('n\'a pas encore été lu', $body);
+    }
+
+    /**
+     * **Past ten lookups the record is the problem, not this page.** A
+     * receiver abandons the chain there too, so the ranges hiding behind
+     * it authorise nothing in practice — which is a different action from
+     * « nous n'en conservons pas tant », and the page says which.
+     */
+    public function testAChainOverTheProtocolsLookupLimitIsReportedAsTheRecordsProblem(): void
+    {
+        $zone = ['unite.be' => 'v=spf1 include:h1.test -all'];
+        for ($i = 1; $i <= 11; $i++) {
+            $zone['h' . $i . '.test'] = 'v=spf1 include:h' . ($i + 1) . '.test -all';
+        }
+        $zone['h12.test'] = 'v=spf1 ip4:192.0.2.0/24 -all';
+
+        $controller = $this->controllerWith('spfCoverage', self::rememberedSpfCoverage($this->settings, $zone));
+
+        $this->recordDmarcReport('google.com', 'r-spf', [['192.0.2.10', 60, true]]);
+
+        $body = (string) $controller->dmarc($this->getRequest(), [])->getBody();
+
+        $this->assertStringNotContainsString('Déclarée dans votre SPF, via', $body);
+        $this->assertStringContainsString('résolutions que le protocole accorde', $body);
+        $this->assertStringNotContainsString('plus de plages que nous n\'en conservons', $body);
     }
 
     public function testAnInstallationWithoutTheDmarcTablesSaysSoRatherThanShowingAnEmptyPage(): void
@@ -2040,6 +2245,36 @@ class OutboundMailControllerTest extends TestCase
         $this->assertNull($memory->state(\Core\Mail\DnsCheckMemory::DKIM));
         // And no report address was asked for.
         $this->assertNull($memory->state(\Core\Mail\DnsCheckMemory::DMARC));
+    }
+
+    /**
+     * **The reading has to be taken somewhere, and this is the only
+     * somewhere** (issue #421). Nothing else on the site resolves an
+     * `include:` chain, so a wiring that forgot this call would leave the
+     * « Rapports DMARC » page saying « votre enregistrement SPF n'a pas
+     * encore été lu » for ever, with no way for anybody to change that and
+     * nothing failing.
+     *
+     * The domain is `.test`, reserved by RFC 6761 and so guaranteed not to
+     * resolve: what this asserts is that the reading was TAKEN and dated,
+     * which is the wiring. What it found is `SpfCoverageTest`'s subject,
+     * and asking a real resolver for it here would make the suite depend
+     * on somebody else's zone.
+     */
+    public function testTheDnsCheckAlsoTakesTheSpfCoverageReading(): void
+    {
+        $this->settings->setInternal(\Core\Mail\Feedback\Dmarc\SpfCoverage::SETTING_KEY, '');
+        $this->assertTrue(\Core\Mail\Feedback\Dmarc\SpfCoverage::remembered($this->settings)->isEmpty());
+
+        $this->settings->set('mail_from_address', 'info@unite.test');
+        $this->settings->set('dkim_selector', 's2026');
+        $this->controller->checkDns($this->formRequest([]), []);
+
+        $taken = \Core\Mail\Feedback\Dmarc\SpfCoverage::remembered($this->settings);
+
+        $this->assertFalse($taken->isEmpty(), 'The DNS check must have taken the SPF chain reading.');
+        $this->assertSame('unite.test', $taken->domain);
+        $this->assertFalse($taken->isStale());
     }
 
     public function testTheRememberedRecordsSurviveAReopeningOfThePage(): void
