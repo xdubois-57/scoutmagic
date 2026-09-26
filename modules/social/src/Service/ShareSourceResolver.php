@@ -10,8 +10,12 @@ namespace Modules\Social\Service;
 
 use Core\Config\SettingService;
 use Core\File\StoredFileReader;
+use Core\Security\Role;
 use Modules\Gallery\Api\AlbumShareSourceInterface;
+use Modules\Gallery\Api\PhotoPickerInterface;
 use Modules\News\Api\ArticleShareSourceInterface;
+use Modules\Social\Repository\Communication;
+use Modules\Social\Repository\CommunicationRepository;
 
 /**
  * Turns an album or an article into a {@see ShareSource}, through the
@@ -28,8 +32,64 @@ final class ShareSourceResolver
         private readonly SettingService $settings,
         private readonly StoredFileReader $files,
         private readonly ?AlbumShareSourceInterface $albums = null,
-        private readonly ?ArticleShareSourceInterface $articles = null
+        private readonly ?ArticleShareSourceInterface $articles = null,
+        private readonly ?CommunicationRepository $communications = null,
+        private readonly ?PhotoPickerInterface $photos = null,
+        /** @var array<int, int> the members this session is linked to, for the gallery's rule */
+        private readonly array $linkedMemberIds = []
     ) {
+    }
+
+    /**
+     * A free communication, to its author or an administrator. A gallery
+     * photo is read through the gallery's Api at every use — its
+     * visibility is asked again then — and published blurred; an uploaded
+     * image goes as it is.
+     */
+    public function communication(int $communicationId, string $role, int $accountId): ?ShareSource
+    {
+        $communication = $this->editableCommunication($communicationId, $role, $accountId);
+        if ($communication === null) {
+            return null;
+        }
+
+        return new ShareSource(
+            ShareSource::KIND_COMMUNICATION,
+            $communication->id,
+            $communication->title,
+            $this->communicationImage($communication, $role),
+            $communication->galleryMediaId !== null,
+            null,
+            $this->address(''),
+            $communication->body,
+            '/communications/' . $communication->id,
+            trim($communication->title) === '' ? 'Donnez d\'abord un titre à l\'image.' : null
+        );
+    }
+
+    /**
+     * The communication itself, when this caller may change and publish
+     * it: its author, or an administrator.
+     */
+    public function editableCommunication(int $communicationId, string $role, int $accountId): ?Communication
+    {
+        $communication = $this->communications?->find($communicationId);
+        if ($communication === null) {
+            return null;
+        }
+
+        return Role::fromString($role)->hasAccess(Role::ADMIN) || $communication->createdBy === $accountId
+            ? $communication
+            : null;
+    }
+
+    private function communicationImage(Communication $communication, string $role): ?string
+    {
+        if ($communication->galleryMediaId !== null) {
+            return $this->photos?->photoContents($communication->galleryMediaId, $role, $this->linkedMemberIds);
+        }
+
+        return $communication->fileId !== null ? $this->files->read($communication->fileId) : null;
     }
 
     public function album(int $albumId, string $role, string $email): ?ShareSource

@@ -1,0 +1,35 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Choisir une photo — {{ site_name }}{% endblock %}
+
+{% block content %}
+{% include 'partials/page_header.html.twig' with {
+    title: 'Choisir une photo',
+    subtitle: 'Les couvertures de vos 15 derniers albums, complétées par les photos les plus récentes, de la plus récente à la plus ancienne.',
+} only %}
+
+{% if photos is empty %}
+    <div class="alert alert-secondary">Aucune photo de la galerie à proposer pour l'instant.</div>
+{% else %}
+    <form method="post" action="/communications/{{ communication.id }}/photo">
+        {{ csrf_field()|raw }}
+        {# Real buttons: a grid that cannot be tabbed through is unusable without a mouse. #}
+        <div class="row row-cols-3 row-cols-md-5 g-2 mb-3" data-photo-picker>
+            {% for photo in photos %}
+                <div class="col">
+                    <button type="submit" name="media_id" value="{{ photo.mediaId }}"
+                            class="btn p-0 border rounded overflow-hidden w-100 ratio ratio-1x1{{ communication.galleryMediaId == photo.mediaId ? ' border-primary border-3' : '' }}"
+                            aria-label="Photo {{ loop.index }}, {{ photo.albumTitle }}{{ communication.galleryMediaId == photo.mediaId ? ', sélectionnée' : '' }}">
+                        <img src="{{ photo.thumbUrl }}" alt="" loading="lazy" class="object-fit-cover w-100 h-100">
+                    </button>
+                </div>
+            {% endfor %}
+        </div>
+    </form>
+{% endif %}
+
+<p class="small text-body-secondary">
+    Les vignettes sont nettes : le flou est appliqué au moment de fabriquer l'image publiée.
+</p>
+<a class="btn btn-outline-secondary" href="/communications/{{ communication.id }}">Annuler</a>
+{% endblock %}

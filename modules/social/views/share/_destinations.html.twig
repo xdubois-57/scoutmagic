@@ -1,0 +1,37 @@
+{# The destinations of a publishing form, each with its state
+   (Service\DestinationStates) — shared by the share page and a free
+   communication. #}
+<fieldset class="mb-3">
+    <legend class="h6">Publier sur</legend>
+    {% for d in destinations %}
+        <div class="form-check mb-2" data-destination="{{ d.value }}" data-state="{{ d.state }}">
+            <input class="form-check-input" type="checkbox" name="destinations[]" value="{{ d.value }}"
+                   id="dest-{{ d.value }}"
+                   {{ d.state in ['available', 'failed'] ? '' : 'disabled' }}
+                   {{ d.state in ['available', 'published'] ? 'checked' : '' }}>
+            <label class="form-check-label" for="dest-{{ d.value }}">
+                <i class="bi {{ d.value == 'facebook' ? 'bi-facebook' : 'bi-instagram' }}" aria-hidden="true"></i>
+                {{ d.label }} — {{ d.account }}
+                {% if d.state == 'published' %}
+                    <br><span class="small text-body-secondary">Déjà publié le {{ d.date|french_date }}</span>
+                {% elseif d.state == 'pending' %}
+                    <br><span class="small text-body-secondary">Publication en cours…</span>
+                {% elseif d.state == 'failed' %}
+                    <br><span class="small text-danger">Échec le {{ d.date|french_date }} : {{ d.reason }}</span>
+                {% elseif d.state == 'blocked' %}
+                    <br><span class="small text-body-secondary">{{ d.reason }}</span>
+                {% endif %}
+            </label>
+            {% if d.state == 'failed' %}
+                <div class="form-check mt-1">
+                    <input class="form-check-input" type="checkbox" name="retry[]" value="{{ d.value }}" id="retry-{{ d.value }}">
+                    <label class="form-check-label small" for="retry-{{ d.value }}">
+                        Je confirme : réessayer sur {{ d.label }}. Les destinations déjà publiées ne sont pas touchées.
+                    </label>
+                </div>
+            {% endif %}
+        </div>
+    {% else %}
+        <p class="text-body-secondary">Aucun compte n'est connecté.</p>
+    {% endfor %}
+</fieldset>

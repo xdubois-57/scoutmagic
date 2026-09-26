@@ -192,3 +192,42 @@ specifications.md §47.6.
    toujours.
 8. **La légende est limitée à 2 200 caractères**, la limite d'Instagram,
    pour toutes les destinations : une seule légende pour toutes.
+
+## IT-04 — L'écran Communications
+
+« Communications » dans l'espace animateurs : une communication libre
+(image de la galerie ou téléversée, titre sur l'image, texte) publiée par
+le même service qu'un album, et « Ce qui est parti », l'historique de
+tout ce qui est parti, destination par destination, avec son réessai.
+Le sélecteur de photo est une `Api` de la galerie
+(`PhotoPickerInterface`). Voir ARCHITECTURE.md §8.122, SECURITY.md §38 et
+specifications.md §47.7.
+
+### Décisions prises en autonomie
+
+1. **Une vignette choisie d'un clic**, sans bouton « Utiliser cette
+   photo » : chaque vignette est un vrai bouton d'envoi. La maquette montre
+   une sélection puis une confirmation ; sans script, un clic qui choisit
+   et revient à la communication fait la même chose en un geste, et la
+   photo retenue se juge aussitôt sur l'image publiée.
+2. **« Téléverser » demande d'abord le fichier**, dans un champ visible
+   sous les deux boutons : sans script, un bouton ne peut pas ouvrir le
+   sélecteur de fichiers et envoyer le formulaire à la fois.
+3. **Une communication se fige dès qu'une destination a été tentée.** Le
+   document dit qu'un réessai renvoie « la même image et le même texte » ;
+   figer la communication est la façon la plus simple de le garantir pour
+   toutes les destinations, pas seulement pour le réessai.
+4. **Une communication est à son auteur et aux administrateurs**, comme
+   une actualité ; l'historique, lui, est lisible par tous les animateurs.
+5. **Le titre sur l'image est obligatoire pour publier** : la carte sans
+   titre ne dit pas ce qu'elle annonce.
+6. **L'historique couvre albums et actualités**, pas seulement les
+   communications : c'est « ce qui est parti ». Il garde, avec chaque
+   publication, le titre, le texte envoyé et l'adresse de la publication
+   (celle d'Instagram demandée après coup, sans jamais transformer une
+   publication réussie en échec si Meta ne la donne pas).
+7. **« Réessayer » passe par une page de confirmation**, comme le partage
+   d'IT-03, plutôt que par une fenêtre.
+8. **Le sélecteur voit les albums délégués** à travers les contrôles que
+   les modules Groupes et Camps ajoutent après la galerie : le registre est
+   construit à la première utilisation, sur la liste prise par référence.

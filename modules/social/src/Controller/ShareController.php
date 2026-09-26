@@ -8,17 +8,14 @@ declare(strict_types=1);
 
 namespace Modules\Social\Controller;
 
-use Core\Config\SettingService;
 use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Security\AuthSession;
-use Modules\Social\Api\SocialPlatform;
 use Modules\Social\Card\CardException;
 use Modules\Social\Card\CardService;
-use Modules\Social\Repository\ConnectionRepository;
-use Modules\Social\Repository\PublicationRepository;
+use Modules\Social\Service\DestinationStates;
 use Modules\Social\Service\PublishingService;
 use Modules\Social\Service\ShareSource;
 use Modules\Social\Service\ShareSourceResolver;
@@ -50,10 +47,8 @@ final class ShareController extends AbstractController
         Environment $twig,
         private readonly ShareSourceResolver $sources,
         private readonly PublishingService $publishing,
-        private readonly PublicationRepository $publications,
-        private readonly ConnectionRepository $connections,
-        private readonly CardService $cards,
-        private readonly SettingService $settings
+        private readonly DestinationStates $states,
+        private readonly CardService $cards
     ) {
         parent::__construct($twig);
     }
@@ -103,7 +98,7 @@ final class ShareController extends AbstractController
         return $this->render('@social/share/index.html.twig', [
             'source' => $source,
             'self_path' => $this->selfPath($source),
-            'destinations' => $this->destinations($source),
+            'destinations' => $this->states->forSource($source),
             'facebook_link' => $source->link !== null,
             'max_caption' => PublishingService::CAPTION_MAX_LENGTH,
         ]);
@@ -135,13 +130,10 @@ final class ShareController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        // A confirmed retry is a destination in its own right: the retry
-        // box stands under its destination and can be ticked alone.
-        $retries = self::platforms($request->getBody('retry', []));
-        $destinations = self::platforms(array_merge(
-            (array) $request->getBody('destinations', []),
-            array_map(static fn (SocialPlatform $p): string => $p->value, $retries)
-        ));
+        [$destinations, $retries] = DestinationStates::requested(
+            $request->getBody('destinations', []),
+            $request->getBody('retry', [])
+        );
         if ($destinations === []) {
             FlashMessage::set('error', 'Cochez au moins une destination.');
 
@@ -157,68 +149,12 @@ final class ShareController extends AbstractController
             new \DateTimeImmutable()
         );
 
-        $lines = [];
-        $published = 0;
-        foreach ($outcomes as $outcome) {
-            $published += $outcome->published ? 1 : 0;
-            $lines[] = $outcome->published
-                ? 'Publié sur ' . $outcome->platform->label() . '.'
-                : $outcome->platform->label() . ' : ' . $outcome->message;
-        }
-        FlashMessage::set(
-            $published === count($outcomes) ? 'success' : ($published === 0 ? 'error' : 'warning'),
-            implode(' ', $lines)
-        );
+        [$type, $message] = DestinationStates::summary($outcomes);
+        FlashMessage::set($type, $message);
 
         return $this->redirect($selfPath);
     }
 
-    /**
-     * Each connected destination and what the page may offer for it.
-     *
-     * @return list<array{
-     *     value: string, label: string, account: string, state: string,
-     *     date: ?\DateTimeImmutable, reason: ?string
-     * }>
-     */
-    private function destinations(ShareSource $source): array
-    {
-        $now = new \DateTimeImmutable();
-        $base = rtrim((string) ($this->settings->get('base_url') ?: ''), '/');
-        $done = $this->publications->forSource($source->kind, $source->id);
-        $staleBefore = $now->modify('-' . PublishingService::STALE_MINUTES . ' minutes');
-        $rows = [];
-
-        foreach (SocialPlatform::cases() as $platform) {
-            $connection = $this->connections->find($platform);
-            if ($connection === null || !$connection->isConnected()) {
-                continue;
-            }
-
-            $publication = $done[$platform->value] ?? null;
-            $refusal = $this->publishing->refusal($source, $platform, $base, $now) ?? $source->blockedReason;
-            [$state, $date, $reason] = match (true) {
-                $publication?->isPublished() === true => ['published', $publication->publishedAt, null],
-                $publication?->isRetryable($staleBefore) === true && $refusal === null
-                    => ['failed', $publication->attemptedAt, $publication->errorMessage
-                        ?? 'La publication a été interrompue.'],
-                $publication !== null && $refusal === null => ['pending', $publication->attemptedAt, null],
-                $refusal !== null => ['blocked', null, $refusal],
-                default => ['available', null, null],
-            };
-
-            $rows[] = [
-                'value' => $platform->value,
-                'label' => $platform->label(),
-                'account' => ($platform === SocialPlatform::Instagram ? '@' : '') . (string) $connection->accountName,
-                'state' => $state,
-                'date' => $date,
-                'reason' => $reason,
-            ];
-        }
-
-        return $rows;
-    }
 
     /**
      * @param array<string, string> $params
@@ -249,19 +185,4 @@ final class ShareController extends AbstractController
         return ($source->kind === ShareSource::KIND_ALBUM ? '/partage/album/' : '/partage/actualite/') . $source->id;
     }
 
-    /**
-     * @return list<SocialPlatform>
-     */
-    private static function platforms(mixed $values): array
-    {
-        $platforms = [];
-        foreach (is_array($values) ? $values : [] as $value) {
-            $platform = is_string($value) ? SocialPlatform::tryFrom($value) : null;
-            if ($platform !== null && !in_array($platform, $platforms, true)) {
-                $platforms[] = $platform;
-            }
-        }
-
-        return $platforms;
-    }
 }

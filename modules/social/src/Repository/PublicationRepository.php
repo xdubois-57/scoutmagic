@@ -29,26 +29,62 @@ class PublicationRepository
      */
     public function forSource(string $kind, int $sourceId): array
     {
-        $stmt = $this->pdo->prepare(
-            'SELECT source_kind, source_id, destination, status, error_message, attempted_at, published_at'
-            . ' FROM social_publications WHERE source_kind = ? AND source_id = ?'
-        );
+        $stmt = $this->pdo->prepare(self::SELECT . ' WHERE source_kind = ? AND source_id = ?');
         $stmt->execute([$kind, $sourceId]);
 
         $publications = [];
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $publications[(string) $row['destination']] = new Publication(
-                (string) $row['source_kind'],
-                (int) $row['source_id'],
-                (string) $row['destination'],
-                (string) $row['status'],
-                $row['error_message'] === null ? null : (string) $row['error_message'],
-                DateInput::fromStorage((string) $row['attempted_at']) ?? new \DateTimeImmutable(),
-                DateInput::fromStorage($row['published_at'] === null ? null : (string) $row['published_at'])
-            );
+            $publications[(string) $row['destination']] = self::hydrate($row);
         }
 
         return $publications;
+    }
+
+    /**
+     * The publications of the most recently tried contents — « Ce qui est
+     * parti » — grouped by content, newest content first; each group keyed
+     * by destination.
+     *
+     * @return list<array{kind: string, id: int, publications: array<string, Publication>}>
+     */
+    public function recentSources(int $limit): array
+    {
+        $sources = $this->pdo->query(
+            'SELECT source_kind, source_id, MAX(attempted_at) AS last_attempt FROM social_publications'
+            . ' GROUP BY source_kind, source_id ORDER BY last_attempt DESC, source_kind, source_id DESC'
+            . ' LIMIT ' . max(1, $limit)
+        );
+        $groups = [];
+        foreach ($sources === false ? [] : $sources->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $kind = (string) $row['source_kind'];
+            $id = (int) $row['source_id'];
+            $groups[] = ['kind' => $kind, 'id' => $id, 'publications' => $this->forSource($kind, $id)];
+        }
+
+        return $groups;
+    }
+
+    private const SELECT = 'SELECT source_kind, source_id, destination, status, error_message, attempted_at,'
+        . ' published_at, source_title, caption, remote_url, user_account_id FROM social_publications';
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    private static function hydrate(array $row): Publication
+    {
+        return new Publication(
+            (string) $row['source_kind'],
+            (int) $row['source_id'],
+            (string) $row['destination'],
+            (string) $row['status'],
+            $row['error_message'] === null ? null : (string) $row['error_message'],
+            DateInput::fromStorage((string) $row['attempted_at']) ?? new \DateTimeImmutable(),
+            DateInput::fromStorage($row['published_at'] === null ? null : (string) $row['published_at']),
+            (string) ($row['source_title'] ?? ''),
+            (string) ($row['caption'] ?? ''),
+            $row['remote_url'] === null ? null : (string) $row['remote_url'],
+            $row['user_account_id'] === null ? null : (int) $row['user_account_id']
+        );
     }
 
     /**
@@ -68,15 +104,27 @@ class PublicationRepository
         bool $retry,
         ?int $userId,
         \DateTimeImmutable $now,
-        \DateTimeImmutable $staleBefore
+        \DateTimeImmutable $staleBefore,
+        string $title = '',
+        string $caption = ''
     ): bool {
         $stamp = $now->format('Y-m-d H:i:s');
+        $title = mb_substr($title, 0, 200);
 
         try {
             $this->pdo->prepare(
                 'INSERT INTO social_publications (source_kind, source_id, destination, status, attempted_at,'
-                . ' user_account_id) VALUES (?, ?, ?, ?, ?, ?)'
-            )->execute([$kind, $sourceId, $destination, Publication::STATUS_PENDING, $stamp, $userId]);
+                . ' user_account_id, source_title, caption) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+            )->execute([
+                $kind,
+                $sourceId,
+                $destination,
+                Publication::STATUS_PENDING,
+                $stamp,
+                $userId,
+                $title,
+                $caption,
+            ]);
 
             return true;
         } catch (\PDOException $e) {
@@ -90,7 +138,8 @@ class PublicationRepository
         }
 
         $stmt = $this->pdo->prepare(
-            'UPDATE social_publications SET status = ?, attempted_at = ?, error_message = NULL, user_account_id = ?'
+            'UPDATE social_publications SET status = ?, attempted_at = ?, error_message = NULL, user_account_id = ?,'
+            . ' source_title = ?, caption = ?'
             . ' WHERE source_kind = ? AND source_id = ? AND destination = ?'
             . ' AND (status = ? OR (status = ? AND attempted_at <= ?))'
         );
@@ -98,6 +147,8 @@ class PublicationRepository
             Publication::STATUS_PENDING,
             $stamp,
             $userId,
+            $title,
+            $caption,
             $kind,
             $sourceId,
             $destination,
@@ -121,14 +172,16 @@ class PublicationRepository
         string $destination,
         string $remoteId,
         \DateTimeImmutable $claimedAt,
-        \DateTimeImmutable $now
+        \DateTimeImmutable $now,
+        ?string $remoteUrl = null
     ): void {
         $this->pdo->prepare(
-            'UPDATE social_publications SET status = ?, remote_id = ?, published_at = ?, error_message = NULL'
-            . self::CLAIM_FENCE
+            'UPDATE social_publications SET status = ?, remote_id = ?, remote_url = ?, published_at = ?,'
+            . ' error_message = NULL' . self::CLAIM_FENCE
         )->execute([
             Publication::STATUS_PUBLISHED,
             mb_substr($remoteId, 0, 100),
+            $remoteUrl === null ? null : mb_substr($remoteUrl, 0, 500),
             $now->format('Y-m-d H:i:s'),
             $kind,
             $sourceId,

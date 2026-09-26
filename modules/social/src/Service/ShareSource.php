@@ -24,6 +24,7 @@ final class ShareSource
 {
     public const KIND_ALBUM = 'album';
     public const KIND_ARTICLE = 'article';
+    public const KIND_COMMUNICATION = 'communication';
 
     public function __construct(
         public readonly string $kind,

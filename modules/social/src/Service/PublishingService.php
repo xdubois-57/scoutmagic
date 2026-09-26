@@ -102,7 +102,9 @@ class PublishingService
                 in_array($platform, $retries, true),
                 $userId,
                 $now,
-                $now->modify('-' . self::STALE_MINUTES . ' minutes')
+                $now->modify('-' . self::STALE_MINUTES . ' minutes'),
+                $source->title,
+                $caption
             );
             if (!$claimed) {
                 $outcomes[] = new PublishOutcome($platform, false, $this->whyNotClaimed($source, $platform, $now));
@@ -157,7 +159,8 @@ class PublishingService
                 $platform->value,
                 $remoteId,
                 $now,
-                $now
+                $now,
+                $this->remoteUrl($platform, $remoteId)
             );
             $this->log($source, $platform, 'published', 'info', 'publication faite', $userId);
             $outcomes[] = new PublishOutcome($platform, true, 'Publié.');
@@ -182,6 +185,24 @@ class PublishingService
                 => 'La publication précédente a échoué : cochez « Je confirme : réessayer » pour la relancer.',
             default => 'Une publication y est déjà en cours.',
         };
+    }
+
+    /**
+     * Where the post can be seen, for « Voir » in the history. Facebook's
+     * address is the post's id; Instagram's has to be asked, and not
+     * getting it never turns a published post into a failure.
+     */
+    private function remoteUrl(SocialPlatform $platform, string $remoteId): ?string
+    {
+        if ($platform === SocialPlatform::Facebook) {
+            return 'https://www.facebook.com/' . rawurlencode($remoteId);
+        }
+
+        try {
+            return $this->meta->instagramPermalink($remoteId, $this->connections->secretsOf($platform)->accessToken);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function markFailed(
@@ -219,9 +240,12 @@ class PublishingService
             return 'Renseignez d\'abord l\'adresse du site dans Configuration > Réglages.';
         }
         if ($this->needsImage($source, $platform) && ($source->image === null || $source->image === '')) {
-            return $source->kind === ShareSource::KIND_ALBUM
-                ? 'Cet album n\'a pas encore de photo de couverture.'
-                : 'Cette actualité n\'a pas d\'image : Instagram n\'accepte que des images.';
+            return match ($source->kind) {
+                ShareSource::KIND_ALBUM => 'Cet album n\'a pas encore de photo de couverture.',
+                ShareSource::KIND_ARTICLE
+                    => 'Cette actualité n\'a pas d\'image : Instagram n\'accepte que des images.',
+                default => 'Choisissez d\'abord une image : aucune publication ne part sans image.',
+            };
         }
 
         return null;
@@ -266,10 +290,19 @@ class PublishingService
             'social',
             $event,
             $level,
-            $platform->label() . ' : ' . ($source->kind === ShareSource::KIND_ALBUM ? 'album' : 'actualité')
-                . ' n° ' . $source->id . ', ' . $message,
+            $platform->label() . ' : ' . self::kindLabel($source->kind) . ' n° ' . $source->id . ', ' . $message,
             $context,
             $userId
         );
+    }
+
+    /** How the journal names a kind of content. */
+    public static function kindLabel(string $kind): string
+    {
+        return match ($kind) {
+            ShareSource::KIND_ALBUM => 'album',
+            ShareSource::KIND_ARTICLE => 'actualité',
+            default => 'communication',
+        };
     }
 }

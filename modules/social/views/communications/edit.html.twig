@@ -1,0 +1,101 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Nouvelle communication — {{ site_name }}{% endblock %}
+
+{% block content %}
+{% include 'partials/page_header.html.twig' with { title: 'Nouvelle communication' } only %}
+
+<div class="row"><div class="col-12 col-lg-8">
+<form method="post" action="{{ form_action }}" enctype="multipart/form-data">
+    {{ csrf_field()|raw }}
+
+    {# 1. The image, as it will be published — it is what is judged. #}
+    <div class="mb-3" data-communication-image>
+        {% if has_image %}
+            <img src="{{ form_action }}/apercu" alt="Carte qui sera publiée : {{ source.title }}"
+                 class="img-fluid rounded border" width="1080" height="1080" loading="lazy" data-card-preview>
+            <p class="small text-body-secondary mt-2 mb-0">
+                Voici exactement ce qui sera publié.
+                {% if from_gallery %}Cette photo vient de la galerie : elle est floutée, sans exception.{% endif %}
+            </p>
+        {% else %}
+            <div class="alert alert-secondary mb-0">Choisissez une image : aucune publication ne part sans image.</div>
+        {% endif %}
+    </div>
+
+    {# 2. The two buttons that change it, side by side, and what differs between them. #}
+    {% if not frozen %}
+        <div class="row g-2 mb-2">
+            {% if gallery_available %}
+                <div class="col-6">
+                    <button type="submit" name="action" value="gallery" class="btn btn-outline-secondary w-100">
+                        <i class="bi bi-images" aria-hidden="true"></i> Galerie
+                    </button>
+                </div>
+            {% endif %}
+            <div class="{{ gallery_available ? 'col-6' : 'col-12' }}">
+                <button type="submit" name="action" value="upload" class="btn btn-outline-secondary w-100">
+                    <i class="bi bi-upload" aria-hidden="true"></i> Téléverser
+                </button>
+            </div>
+        </div>
+        <div class="mb-2">
+            <label for="communication-image" class="form-label small">Image à téléverser</label>
+            <input type="file" class="form-control form-control-sm" id="communication-image" name="image"
+                   accept="image/jpeg,image/png,image/webp">
+        </div>
+        <p class="small text-body-secondary mb-4">
+            Une image téléversée part telle quelle. Une image de la galerie est toujours floutée.
+        </p>
+    {% else %}
+        <div class="alert alert-info small mb-4">
+            Cette communication est déjà partie vers une destination : l'image et le texte ne changent plus,
+            pour que chaque destination reçoive la même chose.
+        </div>
+    {% endif %}
+
+    {# 3. The title written on the image — right after it, since it changes it. #}
+    {% include 'partials/form_field.html.twig' with {
+        field_id: 'communication-title',
+        field_name: 'title',
+        label: 'Titre sur l\'image',
+        value: communication.title|default(''),
+        maxlength: title_max,
+        readonly: frozen,
+    } only %}
+
+    {# 4. The text of the post. #}
+    {% include 'partials/form_field.html.twig' with {
+        field_id: 'communication-body',
+        field_name: 'body',
+        label: 'Texte de la publication',
+        type: 'textarea',
+        rows: 4,
+        value: communication.body|default(''),
+        maxlength: body_max,
+        readonly: frozen,
+        help: 'Sur Instagram, une adresse en légende n\'est pas cliquable : c\'est pour ça qu\'elle figure sur l\'image.',
+    } only %}
+
+    {# 5. The destinations, then publishing. #}
+    {% if source and source.blockedReason %}
+        <div class="alert alert-warning">{{ source.blockedReason }}</div>
+    {% endif %}
+    {% include '@social/share/_destinations.html.twig' with { destinations: destinations } only %}
+
+    <div class="alert alert-warning small" data-publish-warning>
+        Une fois publié, c'est <strong>public</strong> et hors du site : personne ne pourra le reprendre d'ici.
+    </div>
+
+    <div class="d-flex flex-wrap gap-2 justify-content-end align-items-center">
+        <a class="btn btn-link" href="/communications">Voir l'historique</a>
+        {% if not frozen %}
+            <button type="submit" name="action" value="save" class="btn btn-outline-secondary">Enregistrer</button>
+        {% endif %}
+        <button type="submit" name="action" value="publish" class="btn btn-primary">
+            <i class="bi bi-share" aria-hidden="true"></i> Publier
+        </button>
+    </div>
+</form>
+</div></div>
+{% endblock %}

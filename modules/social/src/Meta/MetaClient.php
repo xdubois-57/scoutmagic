@@ -285,6 +285,19 @@ class MetaClient
     }
 
     /**
+     * The public address of a published Instagram post, or null when Meta
+     * does not give one.
+     */
+    public function instagramPermalink(string $mediaId, string $token): ?string
+    {
+        $answer = $this->getJson('https://graph.instagram.com/' . self::GRAPH_VERSION . '/'
+            . rawurlencode($mediaId) . '?' . http_build_query(['fields' => 'permalink', 'access_token' => $token]));
+        $permalink = $answer['permalink'] ?? null;
+
+        return is_string($permalink) && str_starts_with($permalink, 'https://') ? $permalink : null;
+    }
+
+    /**
      * An image container is usually ready at once; when Meta says it is
      * still working, it is asked again a few times, and a container that
      * failed — an image Meta could not fetch, a format it refuses — says

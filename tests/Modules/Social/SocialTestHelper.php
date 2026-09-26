@@ -47,7 +47,20 @@ final class SocialTestHelper
             attempted_at TEXT NOT NULL,
             published_at TEXT NULL,
             user_account_id INTEGER NULL,
+            source_title TEXT NULL,
+            caption TEXT NULL,
+            remote_url TEXT NULL,
             UNIQUE (source_kind, source_id, destination)
+        )');
+        $pdo->exec('CREATE TABLE social_communications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL DEFAULT \'\',
+            body TEXT NOT NULL DEFAULT \'\',
+            gallery_media_id INTEGER NULL,
+            file_id INTEGER NULL,
+            created_by INTEGER NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
         )');
     }
 

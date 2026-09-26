@@ -1,0 +1,66 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Ce qui est parti — {{ site_name }}{% endblock %}
+
+{% block content %}
+{% include 'partials/page_header.html.twig' with {
+    title: 'Ce qui est parti',
+    action_label: 'Nouvelle communication',
+    action_url: '/communications/nouvelle',
+} only %}
+
+{% for entry in entries %}
+    <div class="card mb-3" data-history-entry="{{ entry.kind }}">
+        <div class="card-body">
+            <h2 class="h6 mb-1">{{ entry.title }}</h2>
+            {% if entry.caption %}
+                <p class="small text-body-secondary mb-1">{{ entry.caption }}</p>
+            {% endif %}
+            <p class="small text-body-secondary mb-2">
+                {{ entry.date|french_date }}{% if entry.author %}, par {{ entry.author }}{% endif %}
+            </p>
+            <ul class="list-unstyled mb-0">
+                {% for row in entry.rows %}
+                    <li class="d-flex align-items-center gap-2 py-1 border-top" data-platform="{{ row.platform.value }}" data-state="{{ row.state }}">
+                        <i class="bi {{ row.platform.value == 'facebook' ? 'bi-facebook' : 'bi-instagram' }}" aria-hidden="true"></i>
+                        <span class="flex-grow-1">
+                            {{ row.platform.value == 'facebook' ? 'Facebook' : 'Instagram' }}
+                            <br>
+                            {% if row.state == 'published' %}
+                                <span class="small text-body-secondary">Publié le {{ row.publication.publishedAt|french_date }} à {{ row.publication.publishedAt|time_fr }}</span>
+                            {% elseif row.state == 'failed' %}
+                                <span class="small text-danger">Échec : {{ row.publication.errorMessage|default('la publication a été interrompue.') }}</span>
+                            {% elseif row.state == 'pending' %}
+                                <span class="small text-body-secondary">En cours</span>
+                            {% else %}
+                                <span class="small text-body-secondary">Non demandé</span>
+                            {% endif %}
+                        </span>
+                        {# « Voir » and « Réessayer » share one column; an empty cell keeps the width. #}
+                        <span class="flex-shrink-0">
+                            {% if row.state == 'published' and row.publication.remoteUrl %}
+                                <a href="{{ row.publication.remoteUrl }}" class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener"
+                                   aria-label="Voir la publication {{ row.platform.value == 'facebook' ? 'Facebook' : 'Instagram' }} du {{ row.publication.publishedAt|french_date }}"
+                                   title="Voir"><i class="bi bi-box-arrow-up-right" aria-hidden="true"></i></a>
+                            {% elseif row.state == 'failed' %}
+                                <a href="{{ row.retry_path }}" class="btn btn-sm btn-outline-secondary"
+                                   aria-label="Réessayer la publication sur {{ row.platform.value == 'facebook' ? 'Facebook' : 'Instagram' }}"
+                                   title="Réessayer"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i></a>
+                            {% else %}
+                                <span class="btn btn-sm invisible" aria-hidden="true"><i class="bi bi-arrow-clockwise"></i></span>
+                            {% endif %}
+                        </span>
+                    </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+{% else %}
+    <div class="alert alert-secondary">Rien n'est encore parti vers Facebook ou Instagram.</div>
+{% endfor %}
+
+<p class="small text-body-secondary">
+    Un contenu ne part qu'une fois vers une destination donnée. Seule une destination en échec peut être
+    relancée ; retirer une publication se fait sur Facebook ou Instagram.
+</p>
+{% endblock %}
