@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Architecture;
 
 use Core\ExternalSource\ExternalSourceKind;
+use Core\Database\SchemaComparator;
 use Core\ExternalSource\ExternalSources;
 use PHPUnit\Framework\TestCase;
 
@@ -314,6 +315,85 @@ final class ExternalSourcesAreRegisteredTest extends TestCase
             $matches[1],
             'schema/core.sql and the register disagree on the scout path page.'
         );
+    }
+
+    // ── A moved URL reaches installed sites ────────────────────────────
+
+    /**
+     * Shipped files the application reads at request time, so a release
+     * that edits them reaches every installed site as it is deployed.
+     */
+    private const DEFAULTS_READ_LIVE = ['core/View/rgpd_default.html'];
+
+    /**
+     * Fixing a moved page in the register and in its shipped default is
+     * only half the fix if installed sites keep the old address (#355).
+     * Each kind of dependent default has its own way of reaching them, and
+     * this pins every registered one to it:
+     *
+     * - a column default: rows still on the old default follow the new one
+     *   only for a column in SchemaComparator::DEFAULT_FOLLOWING_COLUMNS;
+     * - a setting: a never-customised value follows its declared default
+     *   (SettingRepository::updateDefaultValue()) — except a `secret`
+     *   setting, which never moves, so none may hold a URL of the register;
+     * - a shipped file: only one the application reads at request time.
+     */
+    public function testEveryDependentDefaultReachesInstalledSites(): void
+    {
+        $checked = 0;
+        foreach (ExternalSources::all() as $source) {
+            $default = $source->dependentDefault;
+            if ($default === null) {
+                continue;
+            }
+            $checked++;
+
+            if (preg_match('/^column default ([a-z_]+\.[a-z_]+) \(/', $default, $m) === 1) {
+                $this->assertContains(
+                    $m[1],
+                    SchemaComparator::DEFAULT_FOLLOWING_COLUMNS,
+                    "{$source->id}: rows on the old default of {$m[1]} would never follow a moved URL"
+                );
+            } elseif (preg_match('/^setting ([a-z_]+) \(([^)]+)\)$/', $default, $m) === 1) {
+                $this->assertSame(
+                    'url',
+                    $this->declaredSettingType($m[2], $m[1]),
+                    "{$source->id}: {$m[1]} is not declared as a url setting in {$m[2]}"
+                );
+            } elseif (preg_match('/\(([^)]+)\)$/', $default, $m) === 1) {
+                $this->assertContains(
+                    $m[1],
+                    self::DEFAULTS_READ_LIVE,
+                    "{$source->id}: nothing says {$m[1]} reaches installed sites"
+                );
+            } else {
+                $this->fail("{$source->id}: unreadable dependent default « {$default} »");
+            }
+        }
+
+        $this->assertGreaterThanOrEqual(3, $checked);
+        $this->assertSame(
+            'column default age_branches.explanation_url (schema/core.sql)',
+            ExternalSources::byUrl(ExternalSources::SCOUT_PATH_PAGE)?->dependentDefault
+        );
+        $this->assertSame(
+            'setting fees_federal_scale_url (modules/fees/module.json)',
+            ExternalSources::byId(ExternalSources::FEES_PAGE_ID)?->dependentDefault
+        );
+    }
+
+    private function declaredSettingType(string $manifest, string $key): ?string
+    {
+        $decoded = json_decode((string) file_get_contents(self::root() . '/' . $manifest), true);
+        $this->assertIsArray($decoded, "{$manifest} is not a readable manifest");
+
+        foreach ($decoded['settings'] ?? [] as $setting) {
+            if (($setting['key'] ?? null) === $key) {
+                return $setting['type'] ?? null;
+            }
+        }
+
+        return null;
     }
 
     // ── The scanner itself ─────────────────────────────────────────────

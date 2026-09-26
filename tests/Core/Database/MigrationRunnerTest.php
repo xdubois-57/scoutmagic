@@ -165,6 +165,86 @@ class MigrationRunnerTest extends TestCase
         }
     }
 
+    /**
+     * A moved column default reaches the rows that never chose anything
+     * (issue #355) — against a real server, because the byte comparison and
+     * the old default both come from it: MariaDB reports a string default
+     * quoted, MySQL bare, and the collation would otherwise match a URL
+     * typed in another case.
+     */
+    public function testRowsStillOnAMovedFollowingDefaultFollowItAndCustomisedRowsStay(): void
+    {
+        $tmpDir = sys_get_temp_dir() . '/migration_follow_test_' . uniqid();
+        mkdir($tmpDir);
+        $schemaPath = $tmpDir . '/schema.sql';
+        $old = 'https://lesscouts.be/fr/site-parents/le-parcours-scout';
+        $new = 'https://lesscouts.be/fr/parents/le-parcours';
+
+        $declare = static function (string $default) use ($schemaPath): void {
+            file_put_contents(
+                $schemaPath,
+                "CREATE TABLE age_branches (\n"
+                . "    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,\n"
+                . "    desk_code VARCHAR(50) NOT NULL,\n"
+                . "    explanation_url VARCHAR(500) NOT NULL DEFAULT '{$default}'\n"
+                . ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;'
+            );
+        };
+
+        try {
+            $runner = new MigrationRunner(
+                $this->connection,
+                $this->introspector,
+                new SchemaComparator(),
+                new SqlParser()
+            );
+            $pdo = $this->connection->getPdo();
+
+            $declare($old);
+            $runner->migrate([$schemaPath]);
+
+            $pdo->exec("INSERT INTO age_branches (desk_code) VALUES ('never-customised')");
+            $insert = $pdo->prepare('INSERT INTO age_branches (desk_code, explanation_url) VALUES (?, ?)');
+            $insert->execute(['customised', 'https://unite.example/parcours']);
+            $insert->execute(['other-case', strtoupper($old)]);
+
+            $declare($new);
+            $result = $runner->migrate([$schemaPath]);
+
+            $this->assertTrue($result->converged);
+            $this->assertStringStartsWith('UPDATE `age_branches`', $result->executedStatements[0]);
+
+            $urls = $pdo->query('SELECT desk_code, explanation_url FROM age_branches')
+                ->fetchAll(\PDO::FETCH_KEY_PAIR);
+            $this->assertSame(
+                [
+                    'never-customised' => $new,
+                    'customised' => 'https://unite.example/parcours',
+                    'other-case' => strtoupper($old),
+                ],
+                $urls
+            );
+
+            $pdo->exec("INSERT INTO age_branches (desk_code) VALUES ('after')");
+            $this->assertSame(
+                $new,
+                $pdo->query("SELECT explanation_url FROM age_branches WHERE desk_code = 'after'")->fetchColumn()
+            );
+
+            // Converged: the next full diff has nothing left to say.
+            $this->assertSame(
+                [],
+                (new SchemaComparator())->compare(
+                    (new SqlParser())->parseFile($schemaPath),
+                    $this->introspector->getTableDefinitions(['age_branches'])
+                )
+            );
+        } finally {
+            @unlink($schemaPath);
+            @rmdir($tmpDir);
+        }
+    }
+
     public function testMigrateCreatesTablesFromCoreSql(): void
     {
         $runner = new MigrationRunner(

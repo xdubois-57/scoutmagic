@@ -684,14 +684,20 @@ function e2eProvision(string $repoRoot, string $instanceDir, int $port): void
     // ('self_destination'), and `localhost` is not a public host either
     // (isPublicHost() names it), so no run ever emits a report.
     //
-    // Registered rather than updated because the row does not exist yet
-    // (public/index.php registers it at boot, later than this): the insert
-    // carries the value, and index.php's own register() call then only
-    // refreshes default_value, leaving this one's value alone.
+    // Registered here because the row does not exist yet (public/index.php
+    // registers it at boot, later than this) — with the DECLARED default,
+    // the one index.php registers, and the harness's value written over it
+    // afterwards. Registering the harness's value as the default is what
+    // this used to do, and it stopped being safe with issue #355: index.php's
+    // register() then sees the default move, finds the value still equal to
+    // the « old default », takes it for never customised and moves it to
+    // the real destination (SettingRepository::updateDefaultValue()). A
+    // value that differs from its declared default is a customised one, and
+    // that is what a harness pin is.
     $settingService = new Core\Config\SettingService(new Core\Config\SettingRepository($connection->getPdo()));
     $settingService->register(
         'statistics_destination',
-        e2eBaseUrl($port),
+        'https://www.scoutmagic.be',
         'url',
         'Destination des statistiques',
         "Adresse du site qui reçoit les rapports d'utilisation. Pointée sur cette instance elle-même "
@@ -702,6 +708,7 @@ function e2eProvision(string $repoRoot, string $instanceDir, int $port): void
         true,
         281
     );
+    $settingService->setInternal('statistics_destination', e2eBaseUrl($port));
 
     e2eWarnIfNearScoutYearBoundary();
 
@@ -728,10 +735,10 @@ function e2eProvision(string $repoRoot, string $instanceDir, int $port): void
     // failing specs interleaved, so nothing was wedged and nothing was
     // slow: the ground had moved.
     //
-    // Registered rather than set, for the same reason as
-    // statistics_destination above: public/index.php registers this key at
-    // boot, later than this, so the insert here carries the value and
-    // index.php's own register() then only refreshes default_value.
+    // Registered with its declared default and then set, for the same
+    // reason as statistics_destination above: public/index.php registers
+    // this key at boot, later than this, and a pin registered AS the
+    // default would be taken for a never-customised value and moved.
     //
     // specs/scout-year-transition.spec.js still moves this year forward on
     // purpose, through the real admin page (Core\ScoutYear\
@@ -739,7 +746,7 @@ function e2eProvision(string $repoRoot, string $instanceDir, int $port): void
     // the STARTING state that scenario expects, not a lock on it.
     $settingService->register(
         Core\ScoutYear\ScoutYearResolver::SETTING_PUBLIC_YEAR,
-        (string) (new Core\Config\ScoutYearService($connection->getPdo()))->getCurrentYear()['id'],
+        '0',
         'number',
         'Année scoute publique (ID)',
         'Identifiant de l\'année scoute vue par tout le monde. Épinglée par le harnais E2E sur '
@@ -750,6 +757,10 @@ function e2eProvision(string $repoRoot, string $instanceDir, int $port): void
         null,
         false,
         210
+    );
+    $settingService->setInternal(
+        Core\ScoutYear\ScoutYearResolver::SETTING_PUBLIC_YEAR,
+        (string) (new Core\Config\ScoutYearService($connection->getPdo()))->getCurrentYear()['id']
     );
 
     // « Le saviez-vous ? » OFF in the fixture, and this is a decision about
@@ -770,11 +781,11 @@ function e2eProvision(string $repoRoot, string $instanceDir, int $port): void
     // fixture pins the scout year rather than letting the calendar move
     // under a run.
     //
-    // Registered rather than set, for the same reason as the two keys
-    // above: public/index.php registers this one at boot, later than this.
+    // Registered with its declared default and then set, for the same
+    // reason as the two keys above.
     $settingService->register(
         Core\Help\Discovery\DiscoveryService::SETTING_ENABLED,
-        '0',
+        '1',
         'boolean',
         'Astuces de découverte',
         "Éteintes par le harnais E2E : la fenêtre s'ouvre sur chaque page tant qu'elle n'a pas été "
@@ -786,6 +797,7 @@ function e2eProvision(string $repoRoot, string $instanceDir, int $port): void
         true,
         297
     );
+    $settingService->setInternal(Core\Help\Discovery\DiscoveryService::SETTING_ENABLED, '0');
 
     $activated = e2eActivateAllModules(
         $repoRoot,

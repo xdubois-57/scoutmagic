@@ -224,6 +224,109 @@ class SettingServiceTest extends TestCase
         $this->assertSame('declared', $stmt->fetchColumn());
     }
 
+    // --- A moved default reaches the values nobody customised (#355) ---
+
+    public function testANeverCustomisedValueFollowsANewDeclaredDefault(): void
+    {
+        $this->service->register('page_url', 'https://old.example/page', 'url', 'Page', 'Desc', 'fees');
+
+        (new SettingService($this->repo))
+            ->register('page_url', 'https://new.example/page', 'url', 'Page', 'Desc', 'fees');
+
+        $row = $this->repo->findByModuleAndKey('fees', 'page_url');
+        $this->assertSame('https://new.example/page', $row['setting_value'] ?? null);
+        $this->assertSame('https://new.example/page', $row['default_value'] ?? null);
+    }
+
+    public function testACustomisedValueStaysWhenTheDefaultMoves(): void
+    {
+        $this->service->register('page_url', 'https://old.example/page', 'url', 'Page', 'Desc', 'fees');
+        $this->repo->updateValue('fees', 'page_url', 'https://unit.example/page');
+
+        (new SettingService($this->repo))
+            ->register('page_url', 'https://new.example/page', 'url', 'Page', 'Desc', 'fees');
+
+        $row = $this->repo->findByModuleAndKey('fees', 'page_url');
+        $this->assertSame('https://unit.example/page', $row['setting_value'] ?? null);
+        $this->assertSame('https://new.example/page', $row['default_value'] ?? null);
+    }
+
+    /** Case matters: a value typed with other capitals is somebody's value. */
+    public function testAValueDifferingFromTheOldDefaultOnlyByCaseIsCustomised(): void
+    {
+        $this->service->register('page_url', 'https://old.example/page', 'url', 'Page', 'Desc');
+        $this->repo->updateValue(null, 'page_url', 'https://old.example/PAGE');
+
+        (new SettingService($this->repo))->register('page_url', 'https://new.example/page', 'url', 'Page', 'Desc');
+
+        $this->assertSame(
+            'https://old.example/PAGE',
+            $this->repo->findByModuleAndKey(null, 'page_url')['setting_value'] ?? null
+        );
+    }
+
+    public function testASecretSettingIsNeverMovedEvenWhenItHoldsTheOldDefault(): void
+    {
+        $this->service->register('token_hash', '', 'secret', 'Jeton', 'Desc', 'support_dashboard', null, null, false);
+
+        (new SettingService($this->repo))
+            ->register('token_hash', 'changed', 'secret', 'Jeton', 'Desc', 'support_dashboard', null, null, false);
+
+        $row = $this->repo->findByModuleAndKey('support_dashboard', 'token_hash');
+        $this->assertSame('', $row['setting_value'] ?? null);
+        $this->assertSame('changed', $row['default_value'] ?? null);
+    }
+
+    public function testAnEmptyOldDefaultAlsoMatchesANullValue(): void
+    {
+        $this->service->register('optional', '', 'text', 'Optionnel', 'Desc');
+        $this->pdo->exec("UPDATE settings SET setting_value = NULL WHERE setting_key = 'optional'");
+
+        (new SettingService($this->repo))->register('optional', 'filled', 'text', 'Optionnel', 'Desc');
+
+        $this->assertSame('filled', $this->repo->findByModuleAndKey(null, 'optional')['setting_value'] ?? null);
+    }
+
+    /** No old default on record: nothing says the value was never chosen. */
+    public function testAValueIsNotMovedWhenTheOldDefaultWasNeverRecorded(): void
+    {
+        $this->service->register('legacy', 'declared', 'text', 'Label', 'Desc');
+        $this->pdo->exec("UPDATE settings SET default_value = NULL WHERE setting_key = 'legacy'");
+
+        (new SettingService($this->repo))->register('legacy', 'redeclared', 'text', 'Label', 'Desc');
+
+        $this->assertSame('declared', $this->repo->findByModuleAndKey(null, 'legacy')['setting_value'] ?? null);
+    }
+
+    /** The same service instance must not keep serving the value it moved. */
+    public function testAFollowedValueIsReadBackWithoutAStaleCache(): void
+    {
+        $this->service->register('page_url', 'https://old.example/page', 'url', 'Page', 'Desc');
+        $this->assertSame('https://old.example/page', $this->service->get('page_url'));
+
+        $this->service->register('page_url', 'https://new.example/page', 'url', 'Page', 'Desc');
+
+        $this->assertSame('https://new.example/page', $this->service->get('page_url'));
+    }
+
+    public function testMovingOneSettingsDefaultLeavesTheSameKeyInAnotherScopeAlone(): void
+    {
+        $this->service->register('page_url', 'https://old.example/page', 'url', 'Page', 'Desc');
+        $this->service->register('page_url', 'https://old.example/page', 'url', 'Page', 'Desc', 'fees');
+
+        (new SettingService($this->repo))
+            ->register('page_url', 'https://new.example/page', 'url', 'Page', 'Desc', 'fees');
+
+        $this->assertSame(
+            'https://old.example/page',
+            $this->repo->findByModuleAndKey(null, 'page_url')['setting_value'] ?? null
+        );
+        $this->assertSame(
+            'https://new.example/page',
+            $this->repo->findByModuleAndKey('fees', 'page_url')['setting_value'] ?? null
+        );
+    }
+
     public function testRegisteredSettingIsReadableWithoutClearingTheCache(): void
     {
         // Module settings register after the boot has already primed the
