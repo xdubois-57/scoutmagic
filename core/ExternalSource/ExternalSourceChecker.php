@@ -179,6 +179,16 @@ final class ExternalSourceChecker
                 } elseif (!$scale->sameAmountsAs($this->referenceScale)) {
                     $divergences[] = 'amounts changed: the page says ' . $scale->describe()
                         . '; the shipped scale says ' . $this->referenceScale->describe();
+                } elseif (
+                    $scale->year !== null
+                    && $this->referenceScale->year !== null
+                    && $scale->year !== $this->referenceScale->year
+                ) {
+                    // Same amounts, new season: the pre-fill only offers the
+                    // shipped scale for its own year, so it would go quiet.
+                    $divergences[] = 'season changed: the page is about ' . $scale->year
+                        . ', the shipped scale about ' . $this->referenceScale->year
+                        . ' — same amounts, but its year must follow';
                 }
             }
         }

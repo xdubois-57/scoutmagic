@@ -125,6 +125,20 @@ final class ExternalSourceCheckerTest extends TestCase
         $this->assertTrue($result->isConform(), implode("\n", $result->divergences));
     }
 
+    public function testANewSeasonWithTheSameAmountsDivergesOnItsYear(): void
+    {
+        $reference = new FederalScale(5750, 4600, 3900, '2025-2026');
+
+        $result = self::checker(new FetchedPage(200, self::fixture('fees-conform.html')), $reference)
+            ->check(self::feesSource());
+
+        $this->assertSame(
+            ['season changed: the page is about 2026-2027, the shipped scale about 2025-2026 '
+                . '— same amounts, but its year must follow'],
+            $result->divergences
+        );
+    }
+
     public function testAMovedPageAnswering404Diverges(): void
     {
         $result = self::checker(new FetchedPage(404, self::fixture('page-moved.html')))

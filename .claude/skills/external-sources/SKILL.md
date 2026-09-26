@@ -60,9 +60,9 @@ when the report names one, the address it redirects to.
   that file — the new `year`, the three `amount_cents`, and `verified_on`
   set to the day you read the page — and every installed site's barème
   proposes the new figures from the release that carries it. A new season
-  whose amounts did not move is not a divergence; the file's `year` still
-  needs bumping so the barème keeps proposing it, so say so in the issue
-  when you notice it.
+  whose amounts did not move is a divergence too (« season changed »): the
+  barème only proposes the file for its own year, so the fix is the file's
+  `year` and `verified_on`, amounts untouched.
 - **A console or legal link is dead**: find the provider's current page for
   the same thing (API keys, privacy policy, DPA…) on the provider's own
   site.
