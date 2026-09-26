@@ -7,7 +7,7 @@ namespace Tests\Core\System;
 use PHPUnit\Framework\TestCase;
 
 /**
- * `scripts/release.sh` runs five gates, and adding one means touching six
+ * `scripts/release.sh` runs six gates, and adding one means touching six
  * places that no compiler connects: the skip flag's variable, its
  * argument case, its documentation in the header, the `run_gate` call,
  * the line that reads the gate's report file, and the assembled Markdown
@@ -54,16 +54,16 @@ class ReleaseGatesTest extends TestCase
     }
 
     /**
-     * The five, by key and in order. Written out rather than counted:
+     * The six, by key and in order. Written out rather than counted:
      * the order is the documented one (a precondition about production,
      * then the verdict on the code, then what ships), and a gate silently
      * dropped from the sequence is exactly what this file exists to
      * catch.
      */
-    public function testTheFiveGatesRunInTheDocumentedOrder(): void
+    public function testTheSixGatesRunInTheDocumentedOrder(): void
     {
         $this->assertSame(
-            ['deployment', 'ci', 'security', 'dependency', 'sonar'],
+            ['deployment', 'ci', 'security', 'dependency', 'sonar', 'sources'],
             self::launchedKeys()
         );
     }
@@ -151,6 +151,33 @@ class ReleaseGatesTest extends TestCase
                 $usage,
                 "{$flag[1]} exists but is not documented in the header block a releaser reads"
             );
+        }
+
+        $this->assertSame([], $missing);
+    }
+
+    /**
+     * The same flags, in the two documents an agent and a maintainer read
+     * before releasing: AGENTS.md § Releases, which says when a bypass is
+     * allowed, and docs/quality-pipeline.md § Releases, the map. A sixth
+     * gate (external sources, issue #355) is where this was last at risk:
+     * a flag in the script that neither document names is a bypass nobody
+     * has been told the rules for.
+     */
+    public function testEverySkipFlagIsInTheReleaseDocumentation(): void
+    {
+        preg_match_all('/^\s*(--skip-[a-z-]+)\)\s*SKIP_/m', self::script(), $flags);
+        $this->assertCount(6, $flags[1], 'one bypass flag per gate');
+
+        $root = dirname(__DIR__, 3);
+        $missing = [];
+        foreach (['AGENTS.md', 'docs/quality-pipeline.md'] as $document) {
+            $contents = (string) file_get_contents($root . '/' . $document);
+            foreach ($flags[1] as $flag) {
+                if (!str_contains($contents, '`' . $flag . '`')) {
+                    $missing[] = "{$document} does not name {$flag}";
+                }
+            }
         }
 
         $this->assertSame([], $missing);

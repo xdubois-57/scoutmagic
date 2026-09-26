@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Fees\Service;
 
 use Core\Config\SettingService;
+use Core\ExternalSource\ExternalSources;
 use Core\Http\StreamResponseHeaders;
 use Core\Journal\JournalService;
 use Core\Member\HouseholdFeeCategory;
@@ -81,8 +82,12 @@ class FederalScaleLookupService
     /** The federal cotisations page, overridable per installation. */
     public const SETTING_URL = 'fees_federal_scale_url';
 
-    public const DEFAULT_URL = 'https://www.lesscouts.be/fr/ressources-scouts/administratif-1/'
-        . 'inscriptions-et-cotisations/inscriptions-et-cotisations';
+    /**
+     * Read from the register of external sources (issue #355), which the
+     * weekly check and the release gate watch; `module.json`'s default for
+     * the setting above is pinned to the same value by a test.
+     */
+    public const DEFAULT_URL = ExternalSources::FEES_PAGE;
 
     /** A cotisation is tens of euros; anything outside this is not one. */
     private const MIN_AMOUNT_CENTS = 100;

@@ -239,6 +239,46 @@ final class BacklogIsOneTicketAtATimeTest extends TestCase
     }
 
     /**
+     * The external sources check (issue #355): asked for in the
+     * maintainer's words — « une vérification explicite quand je demande
+     * "fix the backlog" ». Pinned inside the section, because a sentence
+     * that drifted elsewhere in AGENTS.md is one the agent working the
+     * backlog never reads; and pinned with what it produces, because a
+     * check whose findings go nowhere is the silence #355 was opened
+     * about.
+     */
+    public function testFixingTheBacklogStartsWithTheExternalSourcesCheck(): void
+    {
+        $section = self::backlogSection();
+
+        $this->assertStringContainsString(
+            '**First, run the external sources check**',
+            $section,
+            'AGENTS.md § "Fix the backlog" no longer runs the external sources check. The maintainer asked '
+            . 'for it explicitly (issue #355), and nothing else runs it between the weekly workflow and a '
+            . 'release.',
+        );
+        $this->assertStringContainsString('php scripts/check-external-sources.php', $section);
+        $this->assertStringContainsString(
+            '.claude/skills/external-sources/SKILL.md',
+            $section,
+            'AGENTS.md no longer says how a divergence becomes an issue, so the check can find one and '
+            . 'leave no trace — or open a duplicate every time the backlog is fixed.',
+        );
+        $this->assertFileExists(dirname(__DIR__, 2) . '/.claude/skills/external-sources/SKILL.md');
+    }
+
+    private static function backlogSection(): string
+    {
+        $rules = self::agentRules();
+        $start = strpos($rules, '## "Fix the backlog"');
+        self::assertIsInt($start, 'AGENTS.md § "Fix the backlog" is missing.');
+        $end = strpos($rules, "\n## ", $start + 1);
+
+        return substr($rules, $start, $end === false ? null : $end - $start);
+    }
+
+    /**
      * The separation, which is the thing a tidying edit undoes: the release
      * gates read like part of the same job and are not, and folding them
      * back puts a dependency bump in a pull request opened for a ticket.
