@@ -443,19 +443,22 @@
             var submitter = /** @type {HTMLElement|null} */ (
                 /** @type {any} */ (e).submitter || null
             );
-            var askingForm = /** @type {HTMLFormElement|null} */ (
-                target === null ? null : target.closest('form[data-confirm]')
-            );
-            var form = askingForm !== null ? askingForm : /** @type {HTMLFormElement|null} */ (
-                submitter !== null && submitter.hasAttribute('data-confirm')
-                    ? (target === null ? null : target.closest('form'))
-                    : null
-            );
-            if (form === null || form.dataset.confirmed === '1') {
+            if (target === null) {
                 return;
             }
-            // Where the question is written: the form, else the button.
-            var host = askingForm !== null ? askingForm : /** @type {HTMLElement} */ (submitter);
+            // Where the question is written: the form, else the button
+            // that was pressed.
+            /** @type {HTMLFormElement|null} */
+            var form = target.closest('form[data-confirm]');
+            /** @type {HTMLElement|null} */
+            var host = form;
+            if (form === null && submitter?.dataset.confirm !== undefined) {
+                form = target.closest('form');
+                host = submitter;
+            }
+            if (form === null || host === null || form.dataset.confirmed === '1') {
+                return;
+            }
             e.preventDefault();
 
             var replay = function () {

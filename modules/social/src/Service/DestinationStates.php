@@ -67,7 +67,7 @@ final class DestinationStates
                 'Groupe de discussion'
             );
         } elseif ($request->groupIds !== []) {
-            $outcomes = array_merge($outcomes, $this->groups->publish(
+            $groupOutcomes = $this->groups->publish(
                 $source,
                 $request->groupIds,
                 $caption,
@@ -76,7 +76,8 @@ final class DestinationStates
                 $role,
                 $userId,
                 $now
-            ));
+            );
+            $outcomes = array_merge($outcomes, $groupOutcomes);
         }
 
         return $outcomes;

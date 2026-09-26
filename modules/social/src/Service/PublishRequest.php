@@ -49,11 +49,10 @@ final class PublishRequest
             ? array_values(array_unique(array_merge(self::ids($groups), $groupRetries)))
             : $groupRetries;
 
+        $retriedPlatforms = array_map(static fn (SocialPlatform $p): string => $p->value, $platformRetries);
+
         return new self(
-            self::platforms(array_merge($destinations, array_map(
-                static fn (SocialPlatform $p): string => $p->value,
-                $platformRetries
-            ))),
+            self::platforms(array_merge($destinations, $retriedPlatforms)),
             $platformRetries,
             $groupIds,
             $groupRetries
