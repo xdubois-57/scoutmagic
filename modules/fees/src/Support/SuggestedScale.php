@@ -28,6 +28,27 @@ use Modules\Fees\Value\FederalScaleLookup;
 final class SuggestedScale
 {
     private const SESSION_KEY = '_fees_suggested_scale';
+    private const DECLINED_KEY = '_fees_suggested_scale_declined';
+
+    /**
+     * A lookup that failed says « rien n'a été pré-rempli » on the page it
+     * redirects to: that one render must not open pre-filled from the
+     * shipped scale either, or the screen would contradict its own message.
+     */
+    public static function decline(): void
+    {
+        SessionStore::remove(self::SESSION_KEY);
+        SessionStore::set(self::DECLINED_KEY, true);
+    }
+
+    /** Whether the render at hand follows a failed lookup; cleared on read. */
+    public static function takeDeclined(): bool
+    {
+        $declined = SessionStore::get(self::DECLINED_KEY) === true;
+        SessionStore::remove(self::DECLINED_KEY);
+
+        return $declined;
+    }
 
     public static function set(FederalScaleLookup $lookup): void
     {

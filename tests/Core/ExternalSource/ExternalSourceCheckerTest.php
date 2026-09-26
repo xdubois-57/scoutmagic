@@ -84,8 +84,9 @@ final class ExternalSourceCheckerTest extends TestCase
     }
 
     /**
-     * No shipped scale yet (a later pull request of #355): the note says
-     * the amounts were not compared, rather than implying they were.
+     * A caller that passes no reference scale (the script always passes
+     * the shipped one): the note says the amounts were not compared,
+     * rather than implying they were.
      */
     public function testWithoutAReferenceScaleTheReportSaysNothingWasCompared(): void
     {
@@ -122,6 +123,20 @@ final class ExternalSourceCheckerTest extends TestCase
             ->check(self::feesSource());
 
         $this->assertTrue($result->isConform(), implode("\n", $result->divergences));
+    }
+
+    public function testANewSeasonWithTheSameAmountsDivergesOnItsYear(): void
+    {
+        $reference = new FederalScale(5750, 4600, 3900, '2025-2026');
+
+        $result = self::checker(new FetchedPage(200, self::fixture('fees-conform.html')), $reference)
+            ->check(self::feesSource());
+
+        $this->assertSame(
+            ['season changed: the page is about 2026-2027, the shipped scale about 2025-2026 '
+                . '— same amounts, but its year must follow'],
+            $result->divergences
+        );
     }
 
     public function testAMovedPageAnswering404Diverges(): void
