@@ -9123,7 +9123,9 @@ if ($isEnabled('gallery')) {
         $galleryMediaService,
         $galleryLocationService,
         $storageBackendFactory,
-        static function () use (&$galleryDelegatedAlbumAccessCheckers): \Modules\Gallery\Service\DelegatedAlbumAccessRegistry {
+        static function () use (
+            &$galleryDelegatedAlbumAccessCheckers
+        ): \Modules\Gallery\Service\DelegatedAlbumAccessRegistry {
             return new \Modules\Gallery\Service\DelegatedAlbumAccessRegistry($galleryDelegatedAlbumAccessCheckers);
         }
     );

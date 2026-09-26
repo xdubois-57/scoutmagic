@@ -439,312 +439,299 @@ Use `SchedulerService` for any delayed or timed action. Never use `sleep()`, cro
 ## "Fix the backlog" — what that instruction asks for, exactly
 
 The maintainer asks for this in French — « fixe le backlog », « répare le
-backlog » — and it is a standing instruction, not a one-off. It means:
+backlog » — and it is a standing instruction, not a one-off. It means
+**one accepted ticket at a time, carried from end to end**, and then the
+next.
 
-1. **Go through the issues reported on GitHub** in `xdubois-57/scoutmagic`.
-2. **Take every OPEN issue carrying `status:accepted`.** That label, and
-   only that label, selects the work. It is applied by hand and means the
-   maintainer has decided the work is to be done; nothing automatic ever
-   applies it (`.claude/skills/triage/SKILL.md` § 6 forbids it), which is
-   what makes it a decision rather than an opinion. `bug:confirmed` alone
-   selects nothing — a confirmed defect nobody has accepted is still a
-   backlog item, not an instruction.
-3. **Read them all first, and ask your questions THEN** — in one go,
-   before writing anything. The maintainer asks for this explicitly: « first
-   have a look and ask any question that you may have to support
-   development, then when all is clear do implement ». There is exactly one
-   moment in the whole sequence where a question is welcome, and it is this
-   one, before the first line of code. Ask about what changes the work:
-   which of the options an issue lists to take, a number the issue leaves to
-   you, a criterion the code cannot satisfy as written. Do not ask for
-   permission to start, and do not save a question for later — see the rule
-   at the bottom of this section.
-4. **Cut the work into blocks, and one block is one pull request.** This
-   comes straight after the questions and before the first line of code.
-   A block is a set of accepted issues that belong together: the same
-   subject, or the same files. Group them so a reviewer can hold one pull
-   request in their head, and so that its title is a sentence rather than
-   a list — "if I cannot say what this changes in one sentence, it is two
-   blocks" is the test. Say what the blocks are before you start, in the
-   same message as your questions if you have them, so the maintainer sees
-   the shape of the work rather than discovering it at the end.
+It can be given to several agents at once, and they will not pick the same
+ticket without being told about each other: **step 2 is the whole of the
+coordination**, and it works because creating a git ref is atomic
+server-side where applying a label or an assignee is not. Step 6 says why
+there is nothing equivalent for merging, and why this repository already
+decided it does not need one.
 
-   **Ceiling: no more than 10 issues and about 50 changed files in one
-   pull request.** Split a theme that outgrows it by sub-theme rather than
-   arbitrarily. The number is not a style preference. On #257 — 40 issues,
-   185 files, 7 000 lines — `Claude review` was cancelled twice on its own
-   timeout with the reviewer still working, and because that check is
-   REQUIRED on `main` the pull request was simply unmergeable; the
-   reviewer's ceiling is 60 minutes now, but a diff nobody can read in an
-   hour is a diff nobody reads. The same size produced the other two
-   defects of that day: a silent semantic conflict with `main` (both sides
-   had fixed the same issue, differently, and `git merge` reported
-   nothing), and a test-harness leak that only showed up under load. All
-   three are size, not content. The measured point of comparison is #217:
-   25 files, reviewed end to end in 10 min 47 s, sixteen agents, five real
-   findings.
+1. **List the OPEN issues carrying `status:accepted`, lowest number
+   first.** That label, and only that label, selects the work. Nothing
+   automatic ever applies it (`.claude/skills/triage/SKILL.md` § 6 forbids
+   it), which is what makes it a decision rather than an opinion.
+   `bug:confirmed` alone selects nothing: a confirmed defect nobody has
+   accepted is a backlog item, not an instruction.
 
-5. **Run the blocks in parallel where they do not touch each other — and
-   merge them one at a time, always.** Blocks whose files are disjoint may
-   be *in flight* at once, each on its own branch off `main`.
-   Blocks that touch the same files are **serialised**: the later one
-   branches from `main` *after* the earlier has merged. Overlapping
-   branches are exactly how the same file gets fixed twice, differently,
-   and merged without a conflict marker.
+   **`status:accepted` also means the analysis is done.** The maintainer
+   said so on 2026-09-25: « si le label accepted est dessus c'est que j'ai
+   déjà fait l'analyse et que l'agent peut l'implémenter directement ». So
+   an accepted ticket is implemented as it stands — a feature as readily as
+   a defect — and does not go back for a design, a roadmap or a
+   confirmation first.
 
-   **Development is parallel; merging never is.** The maintainer asks for
-   both halves in one breath — « Travaille en parallèle, mais fusionne les
-   PR une par une, jamais en même temps », and again « Parallélise ce que
-   tu peux, mais sérialise les merge de PR pour éviter de perdre du
-   temps ». Two merges at once is not faster, it is the failure this whole
-   step exists to stop, arriving by a different door: `main` moves under
-   the second one, and « require branches up to date » is off here, so
-   GitHub merges it happily against a base that no longer exists — the
-   required checks that went green were computed against something else.
-   One merge at a time, carried to completion, before the next begins.
+   **An accepted ticket that is not clear enough to implement is skipped.**
+   Same instruction: « si pas clair alors ignore le ticket et continue ».
+   Leave it untouched, take the next one, and name it in what you report at
+   the end. A ticket left for the maintainer costs them a sentence; a
+   ticket taken and guessed wrong costs a pull request, a review round and
+   a revert.
 
-   **Hold the open pull requests as a queue, and cap it at six.**
-   Measured rather than chosen, and the number MOVED once for a reason worth
-   keeping. It was four while every merge obliged a re-merge of `main` into
-   everything still open, each costing a full CI round — `Checks / test`
-   alone runs about 19 minutes, and the `Claude review` beside it prices
-   itself at roughly 10 USD in its own status comment. That re-merge is now
-   required only where the files overlap, so the cost that set the ceiling
-   fell and the maintainer asked for the ceiling to follow. Below it the
-   reviewers idle between merges and the queue starves; above it the
-   overlapping re-merges cost more than the work they carry. So a finished
-   block whose pull request would be the seventh **waits on its branch —
-   pushed, green, with its body already written** — and is opened the moment
-   one merges.
+2. **Claim the first one by creating the branch `claude/issue-<n>` off
+   `main` through the GitHub API**, not with a local `git push`. The call
+   fails with **« Reference already exists »** — verified against the tool
+   rather than assumed, and an HTTP 422 underneath — when another agent
+   already holds that issue, and that refusal is the whole mechanism. It has to be
+   a ref: two agents can apply the same label or assignee in the same
+   second and both believe they won, and a push can succeed against a
+   branch another agent created a moment ago and has not committed to yet.
 
-   **And the cap is on OPEN PULL REQUESTS, not on work in progress.**
-   Nothing limits how many blocks are being written at once, and reading one
-   as the other is how an agent ends up watching CI with its hands in its
-   pockets while twenty accepted issues sit untouched — which happened here,
-   and the maintainer had to say so. Keep starting new blocks while the queue
-   drains: a queue that empties with nothing entering it is the failure this
-   paragraph exists to prevent, not its ceiling.
+   On 422, move to the next issue and say nothing **as you pass** — a claim
+   you lost is not an event, and a running commentary on normal operation is
+   not a report. Step 8 is where they are named, once, at the end. The claim
+   itself costs nothing, because the branch is the first thing the work
+   needed anyway.
 
-   Land the block others build on first, and after **each** merge bring
-   `main` into every branch still open, then re-run the checks locally on
-   the merged state — `vendor/bin/phpstan analyse` above all, which is
-   what catches a semantic conflict that compiles on each side and not
-   together. « Require branches up to date » is deliberately off on this
-   repository (docs/quality-pipeline.md § Branch ruleset), so nothing does
-   this for you.
+3. **Put `status:in-progress` on the issue if that label exists**, so the
+   issue list says what is being worked on. It is a signal for whoever is
+   reading, never a lock — step 2 is the lock, and the work proceeds
+   identically without the label. **If it does not exist, do not create it,
+   and do not let the API create it for you** — adding an unknown label to an
+   issue mints it with an arbitrary colour and no description, which is the
+   hand-made GitHub configuration `scripts/sync-issue-labels.sh` exists to
+   replace (docs/quality-pipeline.md § Labels). Read the
+   label first; if it is missing, say so in your report and carry on without
+   it. The script owns it, and it needs `gh`, which a remote session has not
+   got.
+   Take it off when the pull request merges, or when you give the ticket up.
 
-   **Locally on all of them; then push the next two or three side by side.**
-   The local run is what catches the semantic conflict and it costs seconds;
-   the push is what spends the CI round. Pushing several DIFFERENT pull
-   requests at once costs no more than pushing them one after another —
-   each needs one review on its final head either way — so the total is
-   unchanged and only the waiting divides. Push them, let their rounds run
-   beside each other, then merge in order **without re-merging `main` in
-   between where their files are disjoint**, which a dry-run merge and one
-   local run of the combined state establish. Re-merge `main` only where
-   the files overlap, or where that combined run shows a conflict.
+4. **Fix it**, under the rules in this file: a test alongside the fix,
+   `vendor/bin/phpstan analyse` before committing PHP, `npm run typecheck`
+   before committing `public/assets/js/`, French interface and English code.
+   Reproduce the CI job rather than its neighbour — `npm run test:coverage`
+   is what `javascript-tests` runs, where `npm test` passes over failures it
+   would catch.
 
-   **The first version of this rule serialised the pushes too, and its
-   arithmetic was wrong.** It claimed that pushing several branches at once
-   multiplies the review spend by the number in flight. It does not: each
-   pull request needs one review on its final head whichever way the rounds
-   are ordered, so **the total is the same and only the rate changes** — the
-   same money, sooner, for a third of the waiting. The maintainer asked
-   whether two at a time would save time, the numbers were redone, and the
-   rule was relaxed to what stands above.
+   **A choice the ticket genuinely leaves open is asked in the
+   conversation**, and you take the NEXT ticket while you wait rather than
+   idling on this one. Keep the claim and the label: the ticket is still
+   yours, it is waiting for an answer. This is the one question the
+   instruction allows, and it is a question about the work, never a request
+   for permission to do it.
 
-   Two things it did NOT relax, because they were the real dangers all
-   along. **Two merges at the same instant** stays forbidden, for the reason
-   the paragraph above gives. And the window this opens — a combination
-   tested on `main` after it lands rather than before — is not something
-   this rule gets to decide: `docs/quality-pipeline.md` § Branch ruleset
-   already accepts it, names the maintainer as the one who answers for it on
-   the red-`main` notification, and says the fix goes forward rather than by
-   revert. Relaxing the pushes changes how often that window opens, not who
-   owns it.
+5. **Open one pull request and name the issue in its body with
+   `Corrige #158`** — that word, when the pull request is opened rather than
+   afterwards. `Corrige` is deliberately **not** one of GitHub's closing
+   keywords (`Closes`, `Fixes`, `Resolves` and their inflections): a keyword
+   makes GitHub close the issue itself, server-side, at the instant of the
+   merge, which is seconds *before* `issue-fixed-comment.yml` can say
+   anything — so the reporter's first notification is a bare closure.
+   Leaving the closing to that workflow is what buys the
+   sentence-then-closure order. The cost is the issue's *Development*
+   sidebar link, which only a closing keyword creates; `Corrige #158` still
+   cross-references the pull request on the issue's timeline, and the
+   workflow's comment names the pull request and the merge commit outright.
+   **Do not "fix" a body by putting a closing keyword back** — that is the
+   bug, not the convention.
 
-   **Do not run those local checks in a `git worktree`.** `vendor/` there
-   is a symlink, so Composer's autoloader resolves `$baseDir` to the main
-   checkout and loads `Core\` and `Tests\` from the OTHER working tree:
-   the branch you believe you are testing is never read. A mutation proof
-   taken that way is worth nothing and looks green — this was found by
-   `Tests\Core\View\TwigCacheVersioningTest` failing with the main
-   checkout's path in it, not by suspecting the setup. Use one checkout and
-   switch branches in it; keep worktrees for pure git plumbing, where no
-   autoloader runs.
+6. **Bring `main` in if it moved into your files, then arm auto-merge.** If
+   `main` has moved into files your branch touches, merge `main` in, re-run
+   the checks locally — `vendor/bin/phpstan analyse` above all, which catches
+   a semantic conflict that compiles on each side and not together — push,
+   and wait for green. Where the files are disjoint, nothing is needed.
 
-   **Never re-merge into a local branch that merely shares a name with the
-   remote one.** `git checkout claude/some-branch` picks a LOCAL ref of that
-   name when one exists, silently, however far behind it is — and a queue
-   that has been running for hours accumulates exactly such refs. Merging
-   `main` into one produces a plausible merge commit whose first parent is
-   the branch as it was hours ago, missing every push since. Pushing it
-   would revert the pull request, review fixes included; only the
-   non-fast-forward rejection stops that, and a `--force` would not be
-   stopped at all. So re-merge from the remote ref by name
-   (`git merge origin/main` onto a branch created with
-   `git checkout -B work origin/claude/some-branch`), and afterwards assert
-   the head you meant to build on is an ancestor:
-   `git merge-base --is-ancestor <pushed head> HEAD`. Delete stale local
-   branches that shadow a remote — including `main` itself, which goes stale
-   the same way and is the one nobody thinks to check.
+   Then **arm auto-merge**: § Merging a pull request has the command and the
+   reason, and says why `merge_pull_request` is not a fallback there. The
+   instruction to fix the backlog IS the authorization that section requires,
+   for every ticket in the set and not for the first one, and everything it
+   requires *before* arming still holds without exception.
 
-   **Keep a self check-in armed until the queue is empty**, re-armed after
-   each merge. Webhook events for CI success and for a merge conflict
-   arrive late or not at all, and a queue whose head went green an hour ago
-   while nobody looked is precisely the time this step is meant to save.
+   **There is no merge lock, and « fusionne les PR une par une » cannot be
+   obeyed as worded.** The maintainer asked for it twice — « Travaille en
+   parallèle, mais fusionne les PR une par une, jamais en même temps » — and
+   it was written when one agent cut the work into blocks and merged each of
+   them itself. An agent here does not merge: it **arms**, and GitHub merges
+   once the ruleset on `main` is satisfied, at a moment no agent chooses. Two
+   agents that armed seconds apart cannot serialise what neither of them
+   performs. A git ref cannot bridge that: an earlier version of this section
+   tried, and every attempt produced a new hole instead of a mutex — a
+   creation date refs do not have, a threshold the work itself exceeded, an
+   unconditional delete that destroyed a peer's fresh lock.
 
-6. **Fix them** — every one of them, under the rules in this file: a test
-   alongside each fix, `vendor/bin/phpstan analyse` before committing PHP,
-   `npm run typecheck` before committing `public/assets/js/`, French
-   interface and English code. Reproduce the CI job rather than its
-   neighbour: `npm run test:coverage`, which is what `javascript-tests`
-   runs, and not `npm test`, which passes over failures it would catch.
-7. **Open each block's pull request and merge it.** The instruction to fix
-   the backlog IS the authorization to merge that § Merging a pull request
-   requires — for every pull request in the set, not for one of them. It
-   is the maintainer saying "do the work and land it", and coming back to
-   ask again is not diligence. Everything that section requires *before*
-   arming auto-merge still holds without exception, on each: every check
-   green on the current head, every review thread answered, the template's
-   checklist honestly filled.
+   **What that rule protects against is answered one step later, and this
+   repository decided so deliberately.** `docs/quality-pipeline.md` § Branch
+   ruleset keeps « require branches to be up to date » **off** for a measured
+   reason — with it on, every push to `main` invalidates every open pull
+   request, and on 2026-09-05 that cost #152 four consecutive CI cycles, each
+   green and stale again before the merge call. It then names exactly what
+   pays for it: two pull requests each green alone whose combination is not,
+   caught by `ci.yml` on `main` **after** they land, with **the maintainer**
+   answering the red-`main` notification and the fix going forward rather
+   than by revert. The window is accepted, owned, and small by construction.
 
-   **A review round is expensive, so spend as few as possible.** One round
-   of `Claude review` costs between 5 and 9 USD and takes 8 to 25 minutes,
-   CI takes another 20, and every push cancels a review in flight and
-   starts it again — the cancelled one is paid for and thrown away. On one
-   pull request in this repository that arithmetic came to seven rounds and
-   some 45 USD, and the reason was not the reviewer: **five of its ten
-   findings were in the code pushed to fix the four before them.** Each
-   round opened a new one instead of closing the last.
+   Your share of it is the first paragraph, and it is the half a branch can
+   actually see: never arm against a `main` that has moved into **your**
+   files.
 
-   So, before pushing a fix for review findings:
+7. **Verify the comment and the closure, then take `status:in-progress`
+   off** — this step and the next apply to the pull request that carries
+   `Corrige #<n>`, which for a ticket delivered in several is the **last**
+   one. Between the others, go back to step 4 and **keep the claim and the
+   label**: the ticket is still yours and still open. Following this step
+   after a sub-pull-request would strip the label from a ticket still in
+   flight and send you back to step 1, where your own surviving branch
+   answers « Reference already exists » and you would walk away from your own
+   half-delivered work, reporting it as one somebody else held. `issue-fixed-comment.yml` does both on merge: one comment naming
+   the pull request, the commit and the branch, and *then* the closure as
+   `completed`. An issue it could not comment on is left open on purpose and
+   the run goes red, so finish by hand any it left open — comment first,
+   then `state_reason: completed`. An accepted issue whose fix is merged and
+   which is still open is the backlog lying about itself; one closed with
+   nothing written on it is the backlog being rude.
 
-   - **Fix everything that round reported, then push ONCE.** Two pushes for
-     one round pays twice for the same reading.
-   - **Never push while a review is in flight**, unless CI is red. The run
-     is cancelled and restarted from zero.
-   - **Run the local reviewer first** — the `code-review` skill over the
-     diff. It costs minutes and no dollars, and it reads the same way the
-     CI reviewer does.
-   - **Run the whole suite, not the suites you think are affected.**
-     `vendor/bin/phpunit` entire takes about eleven minutes here, which is
-     less than one wasted round.
-   - **Prove every new assertion can FAIL**, not merely that it passes.
-     This is the rule that was missing when those five findings landed: the
-     mutation proof was done for the production code and skipped for the
-     guards' own fixtures, and two of them turned out to be assertions that
-     could not fail at all. A fixture copied from a neighbouring assertion
-     has to be re-checked against the pattern it is now applied to — that
-     is exactly how both of them got in.
-   - **Never restore a file with `git checkout` to undo a mutation.** It
-     restores from `HEAD`, so it deletes the uncommitted work the mutation
-     was testing, and every assertion after that fails for the wrong
-     reason. Undo a mutation by replacing the string back.
-   - **One full suite at a time, and do not touch the working tree while it
-     runs.** Both halves were learnt the same afternoon. A second
-     `vendor/bin/phpunit` shares the one `test_db` this container has, so
-     the two runs write over each other's fixtures and either verdict can
-     be wrong in either direction. And a run whose tree changes under it —
-     a branch switched, a file edited — is reading something that no longer
-     exists: three failures were reported that way in one session, and one
-     green was reported that had no right to be. Both are silent. If a
-     suite is running and something else needs doing, the something else
-     waits, or the suite is killed and started again afterwards.
+   **And delete `claude/issue-<n>`.** Nothing here deletes a head branch on
+   merge — this repository carries hundreds of them — so the claim would
+   outlive the work it stood for, and a ticket reopened later would answer
+   « Reference already exists » to every agent for ever, reported at step 8
+   as held by somebody who finished months ago.
 
-   **And put the flake fixes at the FRONT of the queue.** A test that fails
-   for a reason that is not the defect it watches costs a round to every
-   pull request that follows, not just its own: two of those seven rounds
-   went to instabilities that had nothing to do with the diff. What makes
-   every other block cheaper goes first.
-8. **Name each issue in the pull request body with `Corrige #158`** — that
-   word, one line per issue, when the PR is opened rather than afterwards.
-   `Corrige` is deliberately **not** one of GitHub's closing keywords
-   (`Closes`, `Fixes`, `Resolves` and their inflections): a keyword makes
-   GitHub close the issue itself, server-side, at the instant of the merge,
-   which is seconds *before* `issue-fixed-comment.yml` can say anything —
-   so the reporter's first notification is a bare closure. Leaving the
-   closing to that workflow is what buys the sentence-then-closure order.
-   The cost is the issue's *Development* sidebar link, which only a closing
-   keyword creates; `Corrige #158` still cross-references the pull request
-   on the issue's timeline, and the workflow's comment names the pull
-   request and the merge commit outright. **Do not "fix" a body by putting
-   a closing keyword back** — that is the bug, not the convention.
-9. **Close the issue once the fix is on `main`.** `issue-fixed-comment.yml`
-   does it on merge: one comment per issue naming the pull request, the
-   commit and the branch, and *then* the closure as `completed`. An issue
-   it could not comment on is left open on purpose and the run goes red.
-   Your job is to *verify* both happened, on each issue, and to finish by
-   hand any it left open (comment first, then `state_reason: completed` —
-   the fix shipped). An accepted issue whose fix is merged and which is
-   still open is the backlog lying about itself; one closed with nothing
-   written on it is the backlog being rude. Verify per block, as each one
-   lands, rather than saving it all for the last merge.
+8. **Back to step 1.** When no accepted issue is left that you can take,
+   **stop and report**: what you delivered, which tickets you skipped as
+   unclear, **which one you are still waiting on an answer for** — it keeps
+   its claim and its label, so no other agent can take it and only this
+   report makes it visible — and which ones another agent held — that last list is where a
+   branch nobody is working on any more becomes visible, and it is the only
+   place any of this is mentioned. Do not idle waiting for the label to
+   appear on something new.
 
-10. **Leave every release gate green — and do not cut a release.** Asked
-    for on 2026-09-19, in the same breath as the rest: « souviens-toi en
-    plus de faire tout ce qui est prévu de t'assurer que toutes les
-    dépendances soient à jour, que toutes les issues SonarCloud soient
-    fixées, et en général que toutes les gates nécessaires pour faire une
-    release soient vertes. Sans pour cela lancer une release. » So « fixe
-    le backlog » is not only the accepted issues. It is also leaving the
-    repository in a state where `scripts/release.sh` would pass every one
-    of its gates on the first try — because the alternative is what this
-    step exists to stop: a release that aborts on a finding nobody had
-    looked at since the last one, at the moment somebody wanted to ship.
+**A ticket bigger than one reviewable pull request is delivered in
+several.** No pull request carries more than about **50 changed files**; a
+ticket needing more is cut by sub-theme into successive pull requests off
+`main`, each merged before the next begins. `Corrige #<n>` goes on the
+**last** one only, so the issue stays open — correctly — until all of it
+has shipped.
 
-    Cut the same way as everything else — **dependency work and
-    SonarQube Cloud work are each their own block**, never smuggled into
-    an issue's pull request, whose diff a reviewer is holding for a
-    different reason.
+The number is not a style preference. On #257 — 40 issues, 188 files,
+7 000 lines — `Claude review` was cancelled at 20m20s and again at 20m21s
+with the reviewer still working, and because that check is REQUIRED on
+`main` the pull request was simply unmergeable. The same size produced that
+day's other two defects: a silent semantic conflict with `main` (both sides
+had fixed issue #226, differently, and `git merge` reported nothing — 16 000
+tests green on the branch, twelve failing after the merge, and only
+`phpstan` on the merge result saw it), and a debounce that became a
+`ReferenceError` only once a sibling fix made it read `document.cookie`. The
+reviewer's ceiling is 60 minutes now, which buys room and does not buy a
+reader. The measured point of comparison is #217: 25 files, reviewed end to
+end in 10 min 47 s.
 
-    - **Dependencies up to date.** Every outdated direct Composer package
-      (`composer outdated --direct`) and every vendored front-end library
-      against its latest upstream release. That pair is exactly what
-      § Releases' dependency freshness gate checks, so run that gate's own
-      commands rather than something that resembles them. `composer audit`
-      and `npm audit` come back clean too.
-    - **SonarQube Cloud at zero.** Every unresolved finding on `main` that
-      survives the one exemption in § SonarQube Cloud release gate, every
-      Security Hotspot still `TO_REVIEW`, and a Quality Gate that is `OK`.
-      Fix them. Resolving one in SonarQube Cloud with a written
-      justification is the second-best answer and carries the same
-      standard as dismissing a Dependabot alert.
-    - **The rest of the gates, read rather than assumed**: open CodeQL
-      alerts, open Dependabot alerts, `All checks` green on `main`.
+**Never take a ticket somebody else has claimed, even when the claim looks
+abandoned.** A branch `claude/issue-<n>` with no commit and no pull request
+is what a claim looks like for as long as step 4 lasts — reading the issue,
+writing the fix — and longer still when the ticket is parked on a question.
+From outside there is nothing that distinguishes it from a claim whose agent
+died, which is the same point step 2 makes to explain why a push is not a
+lock. So do not delete another agent's branch: skip that ticket, and name it
+in **step 8's report** rather than as you pass it — the same rule step 2
+gives, because it is the same observation. A human reading that report clears
+a genuinely dead branch in seconds. A ticket that waits costs a sentence; a
+ticket taken from an agent still working on it costs two pull requests that
+fix the same thing differently.
 
-    **Never run `scripts/release.sh` for this.** The instruction is to
-    leave the gates green, not to ship — releasing is its own instruction
-    and the maintainer gives it separately, with its own notes file and
-    its own hour of runner time. An agent that releases because the gates
-    happened to go green has done something nobody asked for, to a
-    production site.
 
-    A gate you cannot make green is what this step sends back, the same
-    way an accepted issue you did not fix goes back on its issue: a major
-    version bump that takes the suite red, a finding whose fix is a design
-    decision. Finish the others, then say which one and why.
+**Do not wait for the maintainer at any other point.** Not to start, not to
+merge, not to close, not between tickets. Report what you did afterwards; do
+not ask for permission during. A red pipeline is work, never a question to
+bring back. This overrides nothing in § Merging a pull request about what
+must be TRUE before you merge — it settles only who decides, and that was
+settled when the instruction was given.
 
-**Do not wait for the maintainer at any point of this**, once step 3 is
-behind you. Not to start, not to cut the blocks, not to merge, not to
-close. The instruction covers the whole sequence — plan, fix,
-open, merge to `main`, close the issue — for every block, and asking for a
-confirmation already given is how a backlog stays a backlog. Announcing
-the blocks in step 4 is telling, not asking: you say what you are about to
-do and then do it, and you do not stop for an answer. Report what you did
-afterwards; do not ask for permission during. This overrides nothing in
-§ Merging a pull request about what must be TRUE before you merge (every
-check green on the current head, every review thread answered, the
-checklist honestly filled) — it settles only who decides, and that was
-settled when the instruction was given. A red pipeline is still work, never
-a question to bring back.
+**A ticket you take and then abandon is not silently dropped**: say on that
+issue what stopped you, take `status:in-progress` off, delete the branch,
+and go to the next one. Scaling the work down is the maintainer's call and
+they can only make it if they know.
 
-An accepted issue you end up **not** fixing is not silently dropped:
-finish the others, and say on that issue what stopped you — the same
-standard as § A problem you decide not to fix now becomes a GitHub issue.
-Scaling the work down is the maintainer's call, and they can only make it
-if they know. That is the one thing this instruction sends back to them,
-and it goes on the issue, after the rest has shipped.
+**The release gates are not part of this.** Dependencies, SonarQube Cloud,
+CodeQL and Dependabot have their own section below and their own
+instruction; they are never smuggled into a pull request whose diff a
+reviewer is holding for a ticket.
+
+## Leaving the release gates green
+
+Asked for on 2026-09-19: « souviens-toi en plus de faire tout ce qui est
+prévu de t'assurer que toutes les dépendances soient à jour, que toutes les
+issues SonarCloud soient fixées, et en général que toutes les gates
+nécessaires pour faire une release soient vertes. Sans pour cela lancer une
+release. »
+
+This is its own instruction, given in the maintainer's own words when they
+want it. **It is not covered by « fixe le backlog »** — it was, and it made
+that instruction two jobs at once, with dependency bumps landing in pull
+requests opened for a ticket.
+
+The goal is a repository where `scripts/release.sh` would pass every one of
+its gates on the first try, because the alternative is what this exists to
+stop: a release that aborts on a finding nobody had looked at since the last
+one, at the moment somebody wanted to ship.
+
+**Dependency work and SonarQube Cloud work are each their own pull
+request.**
+
+- **Dependencies up to date.** Every outdated direct Composer package
+  (`composer outdated --direct`) and every vendored front-end library
+  against its latest upstream release. That pair is exactly what
+  § Releases' dependency freshness gate checks, so run that gate's own
+  commands rather than something that resembles them. `composer audit` and
+  `npm audit` come back clean too.
+- **SonarQube Cloud at zero.** Every unresolved finding on `main` that
+  survives the one exemption in § SonarQube Cloud release gate, every
+  Security Hotspot still `TO_REVIEW`, and a Quality Gate that is `OK`. Fix
+  them. Resolving one in SonarQube Cloud with a written justification is the
+  second-best answer and carries the same standard as dismissing a
+  Dependabot alert.
+- **The rest of the gates, read rather than assumed**: open CodeQL alerts,
+  open Dependabot alerts, `All checks` green on `main`.
+
+**Never run `scripts/release.sh` for this.** The instruction is to leave the
+gates green, not to ship — releasing is its own instruction, with its own
+notes file and its own hour of runner time. An agent that releases because
+the gates happened to go green has done something nobody asked for, to a
+production site.
+
+A gate you cannot make green is what this sends back: a major version bump
+that takes the suite red, a finding whose fix is a design decision. Finish
+the others, then say which one and why.
+
+## The working tree, and three ways it reports green while lying
+
+All three were learnt here, all three are silent, and none of them
+announces itself as a setup problem.
+
+**Do not run the local checks in a `git worktree`.** `vendor/` there is a
+symlink, so Composer's autoloader resolves `$baseDir` to the main checkout
+and loads `Core\` and `Tests\` from the OTHER working tree: the branch you
+believe you are testing is never read. A mutation proof taken that way is
+worth nothing and looks green — this was found by
+`Tests\Core\View\TwigCacheVersioningTest` failing with the main checkout's
+path in it, not by suspecting the setup. Use one checkout and switch
+branches in it; keep worktrees for pure git plumbing, where no autoloader
+runs.
+
+**Never merge into a local branch that merely shares a name with the remote
+one.** `git checkout claude/some-branch` picks a LOCAL ref of that name when
+one exists, silently, however far behind it is. Merging `main` into one
+produces a plausible merge commit whose first parent is the branch as it was
+hours ago, missing every push since; pushing it would revert the pull
+request, review fixes included. Only the non-fast-forward rejection stops
+that, and a `--force` would not be stopped at all. So build from the remote
+ref by name (`git checkout -B work origin/claude/some-branch`, then
+`git merge origin/main`), and afterwards assert that the head you meant to
+build on is an ancestor: `git merge-base --is-ancestor <pushed head> HEAD`.
+Delete stale local branches that shadow a remote — including `main` itself,
+which goes stale the same way and is the one nobody thinks to check.
+
+**One full suite at a time, and do not touch the working tree while it
+runs.** A second `vendor/bin/phpunit` shares the one `test_db` this
+container has, so the two runs write over each other's fixtures and either
+verdict can be wrong in either direction. And a run whose tree changes under
+it — a branch switched, a file edited — is reading something that no longer
+exists: three failures were reported that way in one session, and one green
+that had no right to be. Both are silent. If a suite is running and
+something else needs doing, the something else waits, or the suite is killed
+and started again afterwards.
 
 ## Merging a pull request
 
@@ -754,9 +741,9 @@ reading of what they would probably want. Without it, green and
 merge-ready is where your work stops and you say so.
 
 « Fixe le backlog » **is** that instruction, standing, for **every** pull
-request that fixes accepted issues — the work is cut into one pull request
-per block of issues, and the authorization covers the set, not the first
-of them. See § "Fix the backlog" above, which also says not to come back
+request that fixes accepted issues — the work is one pull request per
+accepted ticket, and the authorization covers every one of them, not the
+first. See § "Fix the backlog" above, which also says not to come back
 for a second confirmation of it. Everything below still applies to each of
 those pull requests unchanged.
 
@@ -780,7 +767,7 @@ answered threads, an honest checklist — and so does the test discipline:
 a rule worth writing into `AGENTS.md` is worth an assertion in
 `tests/Architecture/` pinning it against the edit that would undo it,
 in the manner of `AutoMergeRuleIsWrittenDownTest` and
-`BacklogIsCutIntoBlocksTest`.
+`BacklogIsOneTicketAtATimeTest`.
 
 With it, arm **auto-merge** rather than watching the pull request:
 

@@ -93,9 +93,13 @@ class RefreshPlaceSummariesHandler implements TaskHandlerInterface
             new ReviewRepository($pdo),
             new EditableContentService(new EditableContentRepository($pdo)),
             new SectionDescriber(new SectionService(
-    new SectionRepository(Connection::withPdo($pdo)),
-    new MemberProfileRepository(Connection::withPdo($pdo), $context->encryption, new MemberBadgeRepository($pdo))
-)),
+                new SectionRepository(Connection::withPdo($pdo)),
+                new MemberProfileRepository(
+                    Connection::withPdo($pdo),
+                    $context->encryption,
+                    new MemberBadgeRepository($pdo)
+                )
+            )),
             $this->llm ?? $context->getOptional(LlmConnectorInterface::class)
         );
 

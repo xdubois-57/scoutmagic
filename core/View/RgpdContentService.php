@@ -883,7 +883,8 @@ le décris jamais comme anonyme ou anonymisé ; (c) qu'il ne contient aucune don
 photo, ni contenu), mais des compteurs agrégés, des informations techniques sur le logiciel et l'hébergement, et le
 vocabulaire Desk décrit en (c quater) ; (c quater) que le rapport porte les **libellés fédéraux** que l'unité a
 importés de Desk — fonctions, branches et catégories de tarif — ainsi que, parmi les fonctions et les branches, ceux
-que le site n'a pas su rattacher à ses propres tables, pour que le mainteneur puisse les ajouter dans une version suivante ; que ce sont des mots de la
+que le site n'a pas su rattacher à ses propres tables, pour que le mainteneur puisse les ajouter dans une version
+suivante ; que ce sont des mots de la
 fédération et jamais une donnée de personne ; qu'aucun **nom de section** n'est transmis, parce qu'il est choisi par
 l'unité et l'identifie bien plus qu'un libellé fédéral ; et qu'aucun dénombrement de personnes n'accompagne ces
 libellés — le receveur compte des installations, jamais des membres ;
@@ -1094,7 +1095,8 @@ n'invente pas de notification de conservation ; (d) que le PDF produit
 **ne touche jamais le disque** et n'est conservé en aucune copie ;
 (e) que l'accès est réservé aux comptes liés à ce membre, revérifié à chaque action, **sans exception pour un chef
 d'unité ni pour un administrateur**, la seule voie pour un administrateur étant la substitution temporaire de membre,
-visible à l'écran tant qu'elle dure ; (f) que le journal ne porte ni valeur saisie, ni nom, ni contenu de document — l'effacement d'une fiche santé y est
+visible à l'écran tant qu'elle dure ; (f) que le journal ne porte ni valeur saisie, ni nom, ni contenu de document —
+l'effacement d'une fiche santé y est
 noté, qu'il vienne du bouton ou de la conservation, avec le seul identifiant du membre. Ce
 module n'introduit **aucun sous-traitant** et ne fait **aucun appel à une IA** : ne l'ajoute ni en section 4 ni en
 section 5.2.
@@ -1124,7 +1126,8 @@ chaque publication est décidée par un animateur, est **publique** et ne peut p
 contient un titre, une légende et une image — pour un album, sa photo de couverture **systématiquement floutée**, pour
 une actualité, son image déjà publique et, sur Facebook, son lien, pour une communication libre, une photo de la galerie
 (floutée elle aussi) ou une image téléversée par l'animateur, qui part telle quelle — que Meta récupère par un lien
-temporaire d'une heure ; et que l'historique des publications (quoi, où, quand, par quel compte) est conservé pour ne jamais publier deux
+temporaire d'une heure ; et que l'historique des publications (quoi, où, quand, par quel compte) est conservé pour ne
+jamais publier deux
 fois au même endroit ; (c) que les autorisations délivrées par Meta
 sont **chiffrées en base**, que le journal ne nomme aucun compte et ne contient aucune autorisation ; (d) que Meta
 Platforms Ireland Limited peut transférer ces données vers Meta Platforms, Inc. aux États-Unis, à décrire en section 5.2

@@ -89,7 +89,11 @@ class ConfigModulesController extends AbstractController
      * belongs under E, and `sort()` alone would file it after Z.
      *
      * @param list<array{id: string, info: ModuleInfo, requirements_met: bool}> $items
-     * @return list<array{id: string, label: string, modules: list<array{id: string, info: ModuleInfo, requirements_met: bool}>}>
+     * @return list<array{
+     *     id: string,
+     *     label: string,
+     *     modules: list<array{id: string, info: ModuleInfo, requirements_met: bool}>
+     * }>
      */
     private static function shelve(array $items): array
     {
