@@ -78,7 +78,7 @@
      * @returns {number|null}
      */
     function coordinate(value) {
-        var number = parseFloat(String(value).replace(',', '.'));
+        var number = Number.parseFloat(String(value).replace(',', '.'));
         return Number.isFinite(number) ? number : null;
     }
 

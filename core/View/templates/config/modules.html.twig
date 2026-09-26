@@ -38,14 +38,14 @@
        bind them, find no row, and add its « aucun module ne correspond »
        under the « aucun module disponible » already on the page. #}
     {% if categories is not empty %}
-    <div class="btn-group btn-group-sm mb-4" role="group" aria-label="Filtrer les modules">
+    <fieldset class="btn-group btn-group-sm mb-4" aria-label="Filtrer les modules">
         <button type="button" class="btn btn-outline-secondary active" data-module-filter="all"
                 aria-pressed="true">Tous ({{ modules|length }})</button>
         <button type="button" class="btn btn-outline-secondary" data-module-filter="on"
                 aria-pressed="false">Actifs ({{ active_count }})</button>
         <button type="button" class="btn btn-outline-secondary" data-module-filter="off"
                 aria-pressed="false">Inactifs ({{ modules|length - active_count }})</button>
-    </div>
+    </fieldset>
     {% endif %}
 
     <div id="module-list">
