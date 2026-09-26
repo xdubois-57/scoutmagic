@@ -12,6 +12,7 @@ use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\File\FileRepository;
 use Core\File\UploadHandler;
+use Core\Http\FlashMessage;
 use Core\Http\FrontController;
 use Core\Http\Request;
 use Core\Http\Router;
@@ -183,7 +184,17 @@ class MassMailPageTest extends TestCase
             new SettingService(new SettingRepository($this->pdo)),
             new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir()),
             new FileRepository($this->pdo),
-            $this->createMock(AudienceImportService::class)
+            // The REAL importer, not a double. The refusal tested below is
+            // the importer's own — a spreadsheet it will not accept — and a
+            // mock told to throw would assert that the controller forwards
+            // an exception somebody wrote by hand (chantier §3). Only
+            // CsrfTest keeps a double here, rightly: it asserts the guard
+            // runs BEFORE this service is ever reached.
+            new AudienceImportService(
+                $this->audienceRepository,
+                new MemberResolutionRepository($this->pdo, $encryption),
+                new JournalService(new JournalRepository($this->pdo))
+            )
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -196,6 +207,15 @@ class MassMailPageTest extends TestCase
     protected function tearDown(): void
     {
         AuthSession::logout();
+        // $_FILES is global and Request::getFile() reads it directly, so an
+        // upload left behind here is an upload the NEXT test believes it
+        // received. Cleared with the temporary files it pointed at.
+        foreach ($_FILES as $file) {
+            if (is_array($file) && is_string($file['tmp_name'] ?? null) && is_file($file['tmp_name'])) {
+                @unlink($file['tmp_name']);
+            }
+        }
+        $_FILES = [];
     }
 
     // -----------------------------------------------------------------
@@ -728,6 +748,509 @@ class MassMailPageTest extends TestCase
     private function post(array $body): Request
     {
         return new Request('POST', '/mass-mail', [], $body, [], []);
+    }
+
+
+    // -----------------------------------------------------------------
+    // What a chief sees when it FAILS (issue #449)
+    //
+    // Twelve of this controller's catch bodies had never been executed by
+    // the suite. Three of them turned out never to have been reachable at
+    // all, and that is the first half of this section: they name
+    // MassMailException while the call inside them raises
+    // MailingListException, a SIBLING class (both \RuntimeException +
+    // Core\Exception\UserFacingException, neither one's parent). The
+    // failure they were written for therefore walked past them into a 500.
+    //
+    // The scenario is an ordinary one and needs no doubles: the « external »
+    // list is contributed by the registration module (ARCHITECTURE.md
+    // §7.5), and MailingListService's own docblock says the provider is
+    // null « whenever that module is disabled ». An email written while it
+    // was enabled still points at that list afterwards. The harness here
+    // builds MailingListService without a provider, which IS that state.
+    // -----------------------------------------------------------------
+
+    public function testTheRecipientsPageStillOpensWhenItsListCannotBeResolved(): void
+    {
+        $email = $this->createExternalListDraft('Invitation aux inscriptions');
+
+        $response = $this->controller->recipients(
+            $this->get('/mass-mail/' . $email->id . '/recipients'),
+            ['id' => (string) $email->id]
+        );
+
+        // Before the fix this threw MailingListException out of the
+        // controller: the page a chief clicks to check who a mail is going
+        // to answered a 500 instead of saying it could not count.
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('Destinataires', (string) $response->getBody());
+    }
+
+    public function testTheRecipientCountSaysWhyRatherThanCrashing(): void
+    {
+        $email = $this->createExternalListDraft('Invitation aux inscriptions');
+
+        $response = $this->controller->recipientCount(
+            $this->get('/mass-mail/' . $email->id . '/recipient-count'),
+            ['id' => (string) $email->id]
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+        $payload = json_decode((string) $response->getBody(), true);
+        $this->assertIsArray($payload);
+        $this->assertFalse($payload['success']);
+        // The service's own words, carried through — the count dialog is
+        // where a chief finds out, and « Liste externe indisponible. » is
+        // actionable where a blank number is not.
+        $this->assertSame('Liste externe indisponible.', $payload['error']);
+    }
+
+    public function testLaunchingASendIsRefusedWhenItsListCannotBeResolved(): void
+    {
+        $email = $this->createExternalListDraft('Invitation aux inscriptions');
+        $this->massMailService->moveToTest($email->id, $this->accountId);
+
+        $response = $this->controller->changeStatus(
+            $this->post(['action' => 'start_sending', '_csrf_token' => CsrfGuard::generateToken()]),
+            ['id' => (string) $email->id]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('Liste externe indisponible.', FlashMessage::get()['message'] ?? null);
+        // The state matters more than the message: the freeze must not have
+        // half-happened, and the email must still be re-sendable once the
+        // module is back.
+        $this->assertSame(Email::STATUS_TEST, $this->massMailService->findById($email->id)?->status);
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM mass_mail_recipients')->fetchColumn(),
+            'the freeze wrote recipients despite refusing the send'
+        );
+    }
+
+    public function testAnUnknownStatusActionIsRefusedAndChangesNothing(): void
+    {
+        $email = $this->createDraft('Fête de section');
+
+        $response = $this->controller->changeStatus(
+            $this->post(['action' => 'to_the_moon', '_csrf_token' => CsrfGuard::generateToken()]),
+            ['id' => (string) $email->id]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('Action inconnue.', FlashMessage::get()['message'] ?? null);
+        $this->assertSame(Email::STATUS_DRAFT, $this->massMailService->findById($email->id)?->status);
+    }
+
+    // -----------------------------------------------------------------
+    // A mail merge whose audience the viewer may not read
+    //
+    // NOT a purged audience, and the distinction cost this section a
+    // rewrite. A real purge goes through AudienceRepository::deleteById(),
+    // whose FIRST statement sets mass_mail_emails.audience_id to NULL —
+    // matching the schema's own `ON DELETE SET NULL` and the comment beside
+    // it («  the sent email itself lives on, merely unlinked »). So a purge
+    // never leaves an email pointing at an audience that is gone, and the
+    // branch below is gated on exactly that pointer being non-null.
+    //
+    // The first version of these tests raw-DELETEd the audience row, which
+    // the SQLite test schema permits because it declares the foreign key
+    // without an action. That fabricated a state production cannot reach —
+    // which is the very defect issue #449 is about, reintroduced in the
+    // tests written to close it. A reviewer caught it.
+    //
+    // The reachable half is the other one the branch's own comment names:
+    // « a purged OR SOMEONE ELSE'S audience ». A unit chief prepares a mail
+    // merge for a section with the file they imported; a chief of that
+    // section opens « Destinataires ». The audience is there, and not
+    // theirs to read.
+    // -----------------------------------------------------------------
+
+    public function testAnAudienceImportedBySomebodyElseIsReportedOnTheRecipientsPage(): void
+    {
+        $email = $this->createMergeDraftOwnedBySomebodyElse('Convocation');
+        $this->makeCurrentAccountAChiefOfItsSection();
+        AuthSession::login($this->accountId, 'chief@test.com', 'chief');
+
+        $response = $this->controller->recipients(
+            $this->get('/mass-mail/' . $email->id . '/recipients'),
+            ['id' => (string) $email->id]
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        // Asserted on the rendered page rather than on FlashMessage::get():
+        // the base template DISPLAYS the flash, which consumes it, so by the
+        // time a test could read it the page has already shown it. Reading
+        // the body is also the stronger question — whether the chief sees
+        // it, not whether something was set.
+        // The fragment deliberately carries NO apostrophe: Twig escapes « ' »
+        // to « &#039; », so asserting the service's « quelqu'un d'autre »
+        // verbatim fails against a page that does show it.
+        $this->assertStringContainsString(
+            'réimportez votre propre fichier',
+            (string) $response->getBody(),
+            'the page opened without telling the chief why it shows no audience'
+        );
+    }
+
+    public function testTheComposerOffersTheImportZoneAgainForAnAudienceNotYours(): void
+    {
+        $email = $this->createMergeDraftOwnedBySomebodyElse('Convocation');
+        $this->makeCurrentAccountAChiefOfItsSection();
+        AuthSession::login($this->accountId, 'chief@test.com', 'chief');
+
+        $response = $this->controller->show($this->get('/mass-mail/' . $email->id), ['id' => (string) $email->id]);
+
+        // Not an error page: the composer simply has no audience to show,
+        // which is what the branch's own comment says it is for.
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('Convocation', (string) $response->getBody());
+    }
+
+    public function testAnUnknownAudienceIsNotFound(): void
+    {
+        $response = $this->controller->showAudience($this->get('/mass-mail/audiences/999'), ['id' => '999']);
+
+        $this->assertSame(404, $response->getStatusCode());
+        $payload = json_decode((string) $response->getBody(), true);
+        $this->assertIsArray($payload);
+        $this->assertFalse($payload['success']);
+        $this->assertStringContainsString('introuvable', (string) $payload['error']);
+    }
+
+    public function testAMergePreviewOnAnEmailThatIsNotAMergeIsRefused(): void
+    {
+        $email = $this->createDraft('Fête de section');
+
+        $response = $this->controller->mergePreview(
+            $this->get('/mass-mail/' . $email->id . '/merge-preview'),
+            ['id' => (string) $email->id]
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $payload = json_decode((string) $response->getBody(), true);
+        $this->assertIsArray($payload);
+        $this->assertSame("Cet email n'est pas un publipostage.", $payload['error']);
+    }
+
+    // -----------------------------------------------------------------
+    // Attachments, once the email has left the draft
+    // -----------------------------------------------------------------
+
+    public function testAnAttachmentCannotBeAddedOnceTheEmailLeftDraft(): void
+    {
+        $email = $this->createDraft('Fête de section');
+        $this->massMailService->moveToTest($email->id, $this->accountId);
+
+        $_FILES['file'] = $this->uploadablePdf();
+        $response = $this->controller->uploadAttachment(
+            $this->post(['_csrf_token' => CsrfGuard::generateToken()]),
+            ['id' => (string) $email->id]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertStringContainsString(
+            'brouillon',
+            (string) (FlashMessage::get()['message'] ?? '')
+        );
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM mass_mail_attachments')->fetchColumn()
+        );
+        // And the upload itself SURVIVES — pinned rather than wished away.
+        // UploadHandler::handle() writes the bytes and inserts the `files`
+        // row before MassMailService::addAttachment() refuses, and this
+        // controller's catch does no cleanup. Keeping the row is the
+        // project-wide convention, stated in
+        // Modules\Gallery\Service\StoredFileCleaner: `files` rows are an
+        // audit trail, and only derived/staging assets are dropped. So this
+        // asserts what the convention implies rather than a deletion that
+        // would quietly contradict it.
+        //
+        // What no convention covers is that the upload was ACCEPTED at all
+        // for an email that cannot take attachments, leaving bytes no screen
+        // will ever show. That is #578, not this test's business.
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn(),
+            'the upload no longer survives the refusal — if that is deliberate, '
+            . 'the convention in StoredFileCleaner and issue #578 both need revisiting'
+        );
+    }
+
+    public function testAnAttachmentCannotBeRemovedOnceTheEmailLeftDraft(): void
+    {
+        $email = $this->createDraft('Fête de section');
+        $attachmentId = $this->attachPdf($email->id);
+        $this->massMailService->moveToTest($email->id, $this->accountId);
+
+        $response = $this->controller->deleteAttachment(
+            $this->post([
+                'email_id' => (string) $email->id,
+                '_csrf_token' => CsrfGuard::generateToken(),
+            ]),
+            ['id' => (string) $attachmentId]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertStringContainsString(
+            'brouillon',
+            (string) (FlashMessage::get()['message'] ?? '')
+        );
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM mass_mail_attachments')->fetchColumn(),
+            'the attachment went away despite the refusal'
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // Helpers for the failure paths above
+    // -----------------------------------------------------------------
+
+    /**
+     * An email on the « external » list — the one the registration module
+     * contributes. Nothing here configures a provider, which is exactly
+     * the state MailingListService documents for that module being
+     * disabled, and creation does not require one.
+     */
+    private function createExternalListDraft(string $subject): Email
+    {
+        return $this->massMailService->createDraft(
+            $subject,
+            '<p>Message</p>',
+            $this->sectionId,
+            Email::LIST_TYPE_EXTERNAL,
+            null,
+            null,
+            [$this->scoutYearId],
+            $this->accountId,
+            new SenderAuthorization(true, [], null),
+            null
+        );
+    }
+
+    /**
+     * A mail merge belonging to another account, with the audience that
+     * account imported — the legitimate state a unit chief leaves behind
+     * after preparing a section's mail merge.
+     */
+    private function createMergeDraftOwnedBySomebodyElse(string $subject): Email
+    {
+        $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)')
+            ->execute(['x', 'blind-importer-' . uniqid()]);
+        $otherAccountId = (int) $this->pdo->lastInsertId();
+
+        $audienceId = $this->audienceRepository->createAudience(
+            'invites.xlsx',
+            'Feuille1',
+            ['Prénom', 'Email'],
+            1,
+            $otherAccountId
+        );
+
+        return $this->massMailService->createDraft(
+            $subject,
+            '<p>Bonjour {{Prénom}}</p>',
+            $this->sectionId,
+            Email::LIST_TYPE_MAIL_MERGE,
+            null,
+            null,
+            [],
+            $otherAccountId,
+            new SenderAuthorization(true, [], null),
+            $audienceId
+        );
+    }
+
+    /**
+     * Makes the signed-in account a chief OF THE EMAIL'S SECTION, which is
+     * how it can see somebody else's email at all: Controller\MassMail
+     * Controller::findVisibleEmail() admits a non-unit-chief either as the
+     * email's creator or through allowedListSectionIds, and those come from
+     * MassMailAccessService::getUserSectionIds() — a linked member with a
+     * function carrying that section's desk code. Built here rather than
+     * asserted, because without it the page under test answers 404 and the
+     * branch is never reached.
+     */
+    private function makeCurrentAccountAChiefOfItsSection(): void
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $blindIndex = $encryption->blindIndex(
+            EncryptionService::normalizeEmailForIndex('chief@test.com'),
+            'email'
+        );
+
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK-CHIEF-1')");
+        $memberId = (int) $this->pdo->lastInsertId();
+
+        $this->pdo->prepare(
+            'INSERT INTO member_years
+                (member_id, scout_year_id, first_name_encrypted, last_name_encrypted,
+                 email_encrypted, email_blind_index)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        )->execute([
+            $memberId,
+            $this->scoutYearId,
+            // Each column has its OWN encryption context, and a mismatch
+            // surfaces as « Decryption failed » from deep inside
+            // MemberProfileRepository rather than as a wrong value.
+            $encryption->encrypt('Chef', 'member_years.first_name'),
+            $encryption->encrypt('Exemple', 'member_years.last_name'),
+            $encryption->encrypt('chief@test.com', 'member_years.email'),
+            $blindIndex,
+        ]);
+        $memberYearId = (int) $this->pdo->lastInsertId();
+
+        $this->pdo->exec(
+            "INSERT INTO functions (desk_code, label, role, confirmed) VALUES ('Animateur', 'Animateur', 'chief', 1)"
+        );
+        $functionId = (int) $this->pdo->lastInsertId();
+
+        $sectionCode = (string) $this->pdo->query(
+            'SELECT desk_code FROM sections WHERE id = ' . $this->sectionId
+        )->fetchColumn();
+        self::assertSame('LOU01', $sectionCode, 'the fixture no longer matches the section it targets');
+
+        $this->pdo->prepare(
+            'INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function)
+             VALUES (?, ?, ?, 1)'
+        )->execute([$memberYearId, $functionId, $this->sectionId]);
+    }
+
+    /**
+     * A real PDF on disk, in the shape PHP hands an upload over. Real
+     * because UploadHandler reads the file with finfo and refuses anything
+     * whose bytes do not match the allowed types — a fabricated array with
+     * type: application/pdf would be refused for the wrong reason and prove
+     * nothing about the branch under test.
+     *
+     * @return array{name: string, tmp_name: string, error: int, size: int, type: string}
+     */
+    private function uploadablePdf(): array
+    {
+        $path = tempnam(sys_get_temp_dir(), 'mm_attach_') ?: sys_get_temp_dir() . '/mm_attach';
+        file_put_contents(
+            $path,
+            "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+            . "2 0 obj<</Type/Pages/Kids[]/Count 0>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n"
+        );
+
+        return [
+            'name' => 'programme.pdf',
+            'tmp_name' => $path,
+            'error' => UPLOAD_ERR_OK,
+            'size' => (int) filesize($path),
+            'type' => 'application/pdf',
+        ];
+    }
+
+    /**
+     * Attaches a PDF through the controller's own success path, so the
+     * refusal tested afterwards is refusing something that really exists.
+     */
+    private function attachPdf(int $emailId): int
+    {
+        $_FILES['file'] = $this->uploadablePdf();
+        $response = $this->controller->uploadAttachment(
+            $this->post(['_csrf_token' => CsrfGuard::generateToken()]),
+            ['id' => (string) $emailId]
+        );
+        $_FILES = [];
+        self::assertSame(302, $response->getStatusCode());
+        self::assertSame(
+            'Pièce jointe ajoutée.',
+            FlashMessage::get()['message'] ?? null,
+            'the fixture could not attach anything, so the refusal below would prove nothing'
+        );
+
+        $stmt = $this->pdo->prepare('SELECT id FROM mass_mail_attachments WHERE email_id = ?');
+        $stmt->execute([$emailId]);
+        $id = $stmt->fetchColumn();
+        // fetchColumn() answers false with no row, and (int) false is 0 — an
+        // id no attachment has. Asserted rather than cast, so a fixture that
+        // silently attached nothing fails here instead of making the refusal
+        // test below refuse something that never existed.
+        self::assertIsNumeric($id, 'no attachment row was created for this email');
+
+        return (int) $id;
+    }
+
+
+    // -----------------------------------------------------------------
+    // A spreadsheet the importer refuses
+    // -----------------------------------------------------------------
+
+    /**
+     * The import contract is all-or-nothing and says so
+     * (`AudienceImportService`: « Validation is all-or-nothing: any error
+     * refuses the WHOLE file, and the AudienceImportException lists every
+     * offending line at once »). Both halves are asserted here, because
+     * the interesting failure is the one that refuses the file and keeps
+     * half of it.
+     */
+    public function testARefusedSpreadsheetIsReportedLineByLineAndStoresNothing(): void
+    {
+        $path = $this->xlsxWithTwoBadAddresses();
+
+        // getFile() reads $_FILES, so the upload is placed there rather
+        // than in the Request — the same route PHP itself uses.
+        $_FILES['file'] = [
+            'name' => 'invites.xlsx',
+            'tmp_name' => $path,
+            'error' => UPLOAD_ERR_OK,
+            'size' => (int) filesize($path),
+            'type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ];
+        $response = $this->controller->importAudience(
+            new Request('POST', '/mass-mail/audiences', [], [
+                '_csrf_token' => CsrfGuard::generateToken(),
+            ], [], []),
+            []
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $payload = json_decode((string) $response->getBody(), true);
+        $this->assertIsArray($payload);
+        $this->assertFalse($payload['success']);
+        // Every offending line at once, not the first one: a chief fixing
+        // a file one error per upload is the failure this contract exists
+        // to prevent.
+        $this->assertCount(2, $payload['errors']);
+        $this->assertStringContainsString('Ligne 2', (string) $payload['errors'][0]);
+        $this->assertStringContainsString('Ligne 4', (string) $payload['errors'][1]);
+
+        // Nothing stored — neither the audience nor the good rows.
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM mass_mail_audiences')->fetchColumn()
+        );
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM mass_mail_audience_rows')->fetchColumn()
+        );
+    }
+
+    /**
+     * A genuine .xlsx — written with the library that reads it — holding
+     * two rows the importer must refuse and one it would accept.
+     */
+    private function xlsxWithTwoBadAddresses(): string
+    {
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->fromArray([
+            ['Prénom', 'Email'],
+            ['Alice', 'pas-une-adresse'],
+            ['Bob', 'bob@test.be'],
+            ['Chloé', 'chloe@@test.be'],
+        ], null, 'A1');
+
+        $path = tempnam(sys_get_temp_dir(), 'mm_audience_') ?: sys_get_temp_dir() . '/mm_audience';
+        $path .= '.xlsx';
+        (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet))->save($path);
+
+        return $path;
     }
 
 }

@@ -1690,3 +1690,132 @@ CI définit ses jobs, l'inventaire compte les routes, et le document seul
   et déplacer le bloc (les numéros restent justes, le texte bouge). Déposé
   en **#488**, la revue ayant relevé qu'un constat différé sans issue est
   précisément ce qu'`AGENTS.md` interdit.
+
+### Itération 9 — Les chemins d'échec, lot 1 : `MassMailController` — 2026-09-26
+
+**Périmètre parcouru** : la suite de l'itération 6, sur le premier fichier de
+son tableau. Issue #449 avait laissé 327 branches d'erreur jamais exécutées ;
+`modules/mass_mail/src/Controller/MassMailController.php` en portait le plus
+gros lot, **douze**.
+
+**La mesure, refaite plutôt que reprise.** Les chiffres de l'itération 6
+datent du 2026-09-21 et `main` a bougé depuis. La même méthode, réappliquée
+sur `578f4c9e` — `vendor/bin/phpunit --coverage-php`, 21 512 tests, puis la
+première ligne exécutable de chaque corps de `catch` — redonne
+**42,3 %**, et le haut du tableau à l'identique : MassMail 12, Campaign 8,
+MemberEmailAddress 7, OutboundMail 7, GalleryChief 7. La méthode du ticket est
+donc corroborée indépendamment.
+
+> Deux pièges dans la lecture du rapport, tous deux rencontrés ici.
+> `$payload['codeCoverage']` **est** le `ProcessedCodeCoverageData`, pas un
+> `CodeCoverage` à qui demander `getData()`. Et le rapport indexe ses fichiers
+> par chemin **relatif** — d'où sa clé `basePath`. Chercher par chemin absolu
+> ne trouve rien et rapporte 97,8 % de branches jamais exécutées, chiffre si
+> gros qu'il se dénonce lui-même : `MailTransportChain` y figurait, que
+> l'itération 6 avait justement couvert.
+
+**Le vrai défaut, trouvé en demandant *pourquoi* une branche n'est jamais
+exécutée.** Trois des douze ne l'étaient pas faute de test : elles étaient
+**inatteignables**. Elles nomment `MassMailException`, alors que l'appel
+qu'elles entourent lève `MailingListException` — une classe **sœur**, non
+parente (toutes deux `\RuntimeException` + `Core\Exception\UserFacingException`).
+La panne pour laquelle elles ont été écrites passait donc à côté d'elles, et
+finissait en 500.
+
+Le scénario ne demande aucune doublure : la liste « externe » est fournie par
+le module `registration` (ARCHITECTURE.md §7.5), et le docblock de
+`MailingListService` dit que le fournisseur est nul « whenever that module is
+disabled ». Un email écrit quand il était actif pointe toujours sur cette
+liste après. Mesuré : sans le correctif, les trois tests **erreurent** sur un
+`MailingListException: Liste externe indisponible.` sorti du contrôleur.
+
+| Page | Ce qu'un chef obtenait | Ce qu'il obtient |
+|---|---|---|
+| « Destinataires » | 500 | la page, sans le décompte |
+| le décompte avant envoi | 500 | `404` et « Liste externe indisponible. » |
+| « Lancer l'envoi » | 500 | l'envoi refusé, l'email intact en mode test |
+
+La cause de la cause est une déclaration fausse : `estimateRecipientCount()`
+ne déclarait que `@throws MassMailException`, et `startSending()` pareil, alors
+que `resolveMembersForYears()` déclare bien la sienne. PHPStan a refusé le
+correctif d'abord — « Dead catch … is never thrown in the try block » — et il
+avait raison sur les `@throws`, faux sur le code. Les deux déclarations sont
+complétées ; PHPStan est propre sans annotation de contournement.
+
+**Mutations tentées** :
+
+| Mutation | Tests exécutés | Verdict |
+|---|---|---|
+| le correctif retiré (les trois `catch` re-rétrécis) | 3 | **3 erreurs**, exception non attrapée |
+| `default => ` de `changeStatus` ne lève plus | 1 | **rouge** |
+| `showAudience` répond 200 au lieu de 404 | 1 | **rouge** |
+| la raison du service remplacée dans `mergePreview` | 1 | **rouge** |
+| idem dans `uploadAttachment`, `deleteAttachment`, `recipients` | 3 | **3 rouges** |
+| le `catch` de `buildComposeContext` ne correspond plus | 1 | **erreur** |
+| `importAudience` ne rapporte que la première ligne fautive | 1 | **rouge** |
+
+**Corrigé dans cette PR** :
+
+- `MassMailController` — trois `catch` élargis à
+  `MassMailException|MailingListException`, chacun avec la raison écrite à
+  côté de lui.
+- `MassMailService` — `@throws MailingListException` sur
+  `estimateRecipientCount()` et `startSending()`.
+- `MassMailPageTest` — dix tests, et la doublure de `AudienceImportService`
+  remplacée par le **vrai** service : la branche testée est le refus de
+  l'importeur, et une doublure à qui l'on dit de lever n'affirmerait que le
+  transport d'une exception écrite à la main (§3). `CsrfTest` garde la
+  sienne, à raison : il vérifie que la garde passe *avant* ce service.
+  Le fichier Excel est réel, écrit avec la bibliothèque qui le relit, et
+  porte deux lignes refusables sur trois — le contrat « tout ou rien, et
+  toutes les lignes d'un coup » est affirmé dans ses deux moitiés.
+
+**Résultat mesuré** : de **12** branches jamais exécutées dans ce fichier à
+**2**.
+
+**Une erreur de cette itération, relevée en revue et corrigée ici** :
+
+Les deux tests de l'audience indisponible fabriquaient d'abord un état que
+la production ne peut pas atteindre. Ils supprimaient la ligne d'audience par
+un `DELETE` direct, laissant `mass_mail_emails.audience_id` pointer dans le
+vide — or une vraie purge passe par `AudienceRepository::deleteById()`, dont
+la **première** instruction met cette colonne à `NULL`, conformément au
+`ON DELETE SET NULL` du schéma et au commentaire qui l'accompagne
+(« the sent email itself lives on, merely unlinked »). Le schéma SQLite des
+tests déclare cette clé étrangère **sans action**, ce qui a rendu la
+fabrication possible et silencieuse.
+
+C'était donc un test qui certifiait la couverture d'un état impossible —
+exactement le défaut que cette itération corrige, réintroduit dans les tests
+écrits pour le fermer. Le commentaire de la branche nommait pourtant les deux
+cas : « a purged **or someone else's** audience ». Le second est atteignable,
+et c'est lui qui est testé maintenant : un chef d'unité prépare un
+publipostage pour une section avec le fichier qu'il a importé, un chef de
+cette section ouvre « Destinataires ». Le fixture construit donc un membre
+lié portant une fonction de section, puisque c'est par là que
+`findVisibleEmail()` admet un non-chef d'unité.
+
+Deux pièges rencontrés en le construisant, consignés pour la suite : chaque
+colonne chiffrée a son **propre** contexte (`member_years.first_name` et les
+autres), une erreur de contexte se manifestant par « Decryption failed » depuis
+les profondeurs du dépôt ; et Twig échappe « ' » en « &#039; », donc un
+fragment assertionné dans une page rendue ne doit pas porter d'apostrophe —
+le message du service en contient deux.
+
+**Non vérifiable, et pourquoi** :
+
+- **Les deux dernières branches ne sont pas atteignables par un test
+  mono-thread, et ne sont pas pour autant du code mort.** `tracking()`
+  attrape ce que `getTrackingData()` lève quand l'email n'existe pas — mais
+  le contrôleur vient de le résoudre par le même dépôt, deux lignes plus
+  haut. `resend()` a la même forme : `findEmailIdForRecipient()` et
+  `resendToRecipient()` posent la **même** requête sur le même id. Ce sont
+  des fenêtres TOCTOU : une suppression concurrente entre les deux requêtes
+  les ouvre, et la garde transforme alors un 500 en réponse propre. Les
+  atteindre demanderait une doublure qui mente sur le dépôt, c'est-à-dire
+  exactement ce que §3 reproche. Elles restent, documentées ici.
+- **La mesure porte toujours sur l'exécution, pas sur la vérification.** Les
+  dix branches closes ici le sont avec une assertion d'état en plus du
+  message — rien n'écrit, le statut inchangé, la pièce jointe encore là —
+  mais ce renforcement n'est pas ce que le chiffre de 42,3 % mesure, et le
+  reste du dépôt n'en bénéficie pas.

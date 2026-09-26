@@ -29,6 +29,7 @@ use Core\View\SectionPickerHelper;
 use Modules\MassMail\Repository\Email;
 use Modules\MassMail\Service\AudienceImportException;
 use Modules\MassMail\Service\AudienceImportService;
+use Modules\MassMail\Service\MailingListException;
 use Modules\MassMail\Service\MailingListService;
 use Modules\MassMail\Service\MassMailAccessService;
 use Modules\MassMail\Api\MassMailException;
@@ -241,7 +242,16 @@ class MassMailController extends AbstractController
 
         try {
             $estimate = $this->massMailService->estimateRecipientCount($id);
-        } catch (MassMailException) {
+        } catch (MassMailException|MailingListException) {
+            // Both families, because the one that can actually arrive here
+            // is MailingListException: estimateRecipientCount() resolves
+            // the list, and MailingListService raises its own exception for
+            // a list it cannot resolve — « Liste externe indisponible. »
+            // once the registration module that publishes that list is
+            // disabled, with emails still pointing at it. The two are
+            // siblings (\RuntimeException + Core\Exception\UserFacingException),
+            // so naming only MassMailException here sent that case to a 500
+            // instead of the page below, and left this branch unreachable.
             $estimate = null;
         }
 
@@ -277,7 +287,9 @@ class MassMailController extends AbstractController
 
         try {
             $estimate = $this->massMailService->estimateRecipientCount((int) $params['id']);
-        } catch (MassMailException $e) {
+        } catch (MassMailException|MailingListException $e) {
+            // Same reason as recipients(): the list resolution behind the
+            // count raises MailingListException, not MassMailException.
             return $this->json(['success' => false, 'error' => $e->getMessage()], 404);
         }
 
@@ -483,7 +495,12 @@ class MassMailController extends AbstractController
                 'start_sending' => $this->massMailService->startSending($id, AuthSession::getUserAccountId()),
                 default => throw new MassMailException('Action inconnue.'),
             };
-        } catch (MassMailException $e) {
+        } catch (MassMailException|MailingListException $e) {
+            // MailingListException for the same reason as recipients():
+            // start_sending freezes the recipient list, which resolves it,
+            // and a list that can no longer be resolved must refuse the
+            // send with a message rather than crash the page the chief
+            // just clicked « Lancer l'envoi » on.
             FlashMessage::set('error', $e->getMessage());
 
             return $this->redirect('/mass-mail/' . $id);
