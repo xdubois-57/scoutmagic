@@ -56,7 +56,8 @@ final class MetaException extends \RuntimeException implements UserFacingExcepti
 
         if ($code === self::INVALID_TOKEN_CODE || $status === 401) {
             return new self(
-                'Meta a refusé l\'autorisation de ce site : elle a expiré ou a été retirée. Reconnectez le compte.',
+                'Meta a refusé l\'autorisation de ce site : elle a expiré ou a été retirée. '
+                    . 'Reconnectez le compte.',
                 $detail,
                 true
             );

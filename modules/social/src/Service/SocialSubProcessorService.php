@@ -40,7 +40,8 @@ final class SocialSubProcessorService implements SubProcessorProvider
 
         return [new SubProcessorView(
             SubProcessorView::CATEGORY_SOCIAL_PUBLISHING,
-            'Meta Platforms Ireland Limited (Irlande, UE ; transferts possibles vers Meta Platforms, Inc., États-Unis)',
+            'Meta Platforms Ireland Limited (Irlande, UE ; transferts possibles vers Meta Platforms, Inc., '
+                . 'États-Unis)',
             "Raccordement des comptes de l'unité au site : demandes d'autorisation et de vérification, aucune "
                 . 'publication',
             'Comptes raccordés : ' . implode(' et ', $connected)

@@ -106,10 +106,11 @@ final class ConfigController extends AbstractController
         // Meta's app ids are numbers; anything else is a paste of the
         // wrong field, and saying so now beats Meta's error page later.
         if (preg_match('/^\d{5,25}$/', $appId) !== 1) {
-            FlashMessage::set('error', 'L\'identifiant de l\'application est une suite de chiffres. Copiez-le depuis '
-                . 'le tableau de bord de votre application Meta.');
-
-            return $this->redirect(self::PAGE_URL);
+            return $this->back(
+                'error',
+                'L\'identifiant de l\'application est une suite de chiffres. Copiez-le depuis le tableau de bord '
+                    . 'de votre application Meta.'
+            );
         }
         if ($appSecret === '' && ($current === null || !$current->hasAppSecret || $current->appId !== $appId)) {
             FlashMessage::set('error', 'Renseignez la clé secrète de l\'application.');

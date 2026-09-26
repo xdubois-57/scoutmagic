@@ -50,7 +50,13 @@ class ConnectionService
     public function saveCredentials(SocialPlatform $platform, string $appId, ?string $appSecret, ?int $userId): void
     {
         $this->connections->saveCredentials($platform, $appId, $appSecret);
-        $this->log($platform, 'credentials_saved', 'security', 'Identifiants de l\'application Meta enregistrés', $userId);
+        $this->log(
+            $platform,
+            'credentials_saved',
+            'security',
+            'Identifiants de l\'application Meta enregistrés',
+            $userId
+        );
     }
 
     /**
@@ -101,8 +107,10 @@ class ConnectionService
         }
 
         if ($pages === []) {
-            throw new MetaException('Ce compte Facebook ne gère aucune Page, ou n\'en a partagé aucune avec '
-                . 'l\'application. Reconnectez-vous et cochez la Page de l\'unité.');
+            throw new MetaException(
+                'Ce compte Facebook ne gère aucune Page, ou n\'en a partagé aucune avec l\'application. '
+                    . 'Reconnectez-vous et cochez la Page de l\'unité.'
+            );
         }
 
         if (count($pages) === 1) {
@@ -174,8 +182,13 @@ class ConnectionService
         if ($connection->isExpired($now)) {
             $this->connections->recordCheck($platform, false, $now);
             if ($wasWorking) {
-                $this->log($platform, 'token_expired', 'warning', 'L\'autorisation a expiré. '
-                    . 'Reconnectez le compte dans Configuration > Réseaux sociaux.', $userId);
+                $this->log(
+                    $platform,
+                    'token_expired',
+                    'warning',
+                    'L\'autorisation a expiré. Reconnectez le compte dans Configuration > Réseaux sociaux.',
+                    $userId
+                );
             }
 
             return [CheckOutcome::Expired, new MetaException(
@@ -188,7 +201,9 @@ class ConnectionService
         $token = $this->connections->secretsOf($platform)->accessToken;
 
         try {
-            if ($refresh && $platform === SocialPlatform::Instagram && $this->dueForRefresh($connection->tokenRefreshedAt, $now)) {
+            $due = $refresh && $platform === SocialPlatform::Instagram
+                && $this->dueForRefresh($connection->tokenRefreshedAt, $now);
+            if ($due) {
                 $renewed = $this->meta->refreshInstagramToken($token);
                 $token = $renewed['token'];
                 $this->connections->recordRefresh(
@@ -249,7 +264,14 @@ class ConnectionService
     private function attachPage(array $page, bool $wasConnected, \DateTimeImmutable $now, ?int $userId): void
     {
         // A Page token obtained from a long-lived user token has no end.
-        $this->connections->connect(SocialPlatform::Facebook, $page['id'], $page['name'], $page['access_token'], null, $now);
+        $this->connections->connect(
+            SocialPlatform::Facebook,
+            $page['id'],
+            $page['name'],
+            $page['access_token'],
+            null,
+            $now
+        );
         $this->connected(SocialPlatform::Facebook, $wasConnected, $userId);
     }
 
