@@ -195,8 +195,9 @@ final class CovoiturageRbacTest extends TestCase
         $this->assertStringContainsString('Sophie Martin (vous)', $page);
         $this->assertStringContainsString('Demandes (1)', $page);
         $this->assertStringContainsString('Accepter la place', $page);
-        // Pending: no phone for the driver yet.
-        $this->assertStringNotContainsString('0495', $page);
+        // Pending: no phone for the driver yet. The whole number, not a
+        // prefix: four hex digits of the page's CSRF token once read 0495.
+        $this->assertStringNotContainsString('0495 88 77 66', $page);
 
         $form = $this->frontController('GET', '/covoiturage/{id}/proposer', 'offerForm', 'identified')
             ->handle(new Request('GET', '/covoiturage/' . $this->carpoolId . '/proposer', [], [], [], []))->getBody();

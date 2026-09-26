@@ -3257,7 +3257,9 @@ The encoded fee category against the number of people at the same address, and t
 
 **The barème prices a discrepancy and nothing else.** Three hand-entered amounts in the same table, folded away, read from the invoices themselves from IT-05 on. Absent, a discrepancy is shown **without a figure** rather than as `0,00 €`. The sign is never hidden: positive means the unit is declaring less than it owes, which comes back in the regularisation invoice and is the more urgent of the two directions. `fee_categories` is a core table and is not extended for this (AGENTS.md § Architecture) — hence a module table pointing at it.
 
-**« Chercher les montants » proposes the barème, and proposes it only** (`Service\FederalScaleLookupService`). An optional dependency on `llm_connector` (§7.5) in its ordinary shape — a nullable `Api\LlmConnectorInterface` inside the service, an `isAvailable()` the controller asks before rendering anything, the button simply absent otherwise — reading the federation's own cotisations page (`fees_federal_scale_url`, a setting, defaulting to the federal page) and asking a CHEAP-tier model for four values: the scout year and the three per-person amounts. **There is deliberately no search step**: this project has no search API, scraping a result page is against the search engines' terms and breaks on their anti-bot protections, and a page that moves is one field to edit. **The year is the guardrail that matters**, because the real page carries two sections at once («COTISATIONS 2025-2026» and «COTISATIONS 2026-2027»): a year that does not normalise to the scout year the screen is about refuses the whole answer rather than pre-filling three plausible-looking numbers from the wrong season. Two further traps live in the prompt — last year's amount printed in parentheses right after this year's, and half a dozen amounts (invités, demi-année, IAmA, solidarité) that are not household tariffs. **Nothing is written**: the service holds no repository, the proposal crosses one redirect in the asker's session (`Support\SuggestedScale`) to fill the three fields, and the only write is still the treasurer's own « Enregistrer le barème ». The block says which URL was read and which year was found, because a figure nobody can trace is worse than an empty field. The injection contract for a page this project does not control is SECURITY.md §18bis; the outbound fetch itself is §17's "configured endpoints" family.
+**« Chercher les montants » proposes the barème, and proposes it only** (`Service\FederalScaleLookupService`). An optional dependency on `llm_connector` (§7.5) in its ordinary shape — a nullable `Api\LlmConnectorInterface` inside the service, an `isAvailable()` the controller asks before rendering anything, the button simply absent otherwise — reading the federation's own cotisations page (`fees_federal_scale_url`, a setting, defaulting to the federal page) and asking a CHEAP-tier model for four values: the scout year and the three per-person amounts. **There is deliberately no search step**: this project has no search API, scraping a result page is against the search engines' terms and breaks on their anti-bot protections, and a page that moves is one field to edit. **The year is the guardrail that matters**, because the real page carries two sections at once («COTISATIONS 2025-2026» and «COTISATIONS 2026-2027»): a year that does not normalise to the scout year the screen is about refuses the whole answer rather than pre-filling three plausible-looking numbers from the wrong season. Further traps live in the prompt — last year's amount printed in parentheses right after this year's (seen in August 2026, gone by September), amounts written without decimals (« 46 € » beside « 57,50 € »), and half a dozen amounts (invités, demi-année, IAmA, solidarité) that are not household tariffs. **Nothing is written**: the service holds no repository, the proposal crosses one redirect in the asker's session (`Support\SuggestedScale`) to fill the three fields, and the only write is still the treasurer's own « Enregistrer le barème ». The block says which URL was read and which year was found, because a figure nobody can trace is worse than an empty field. The injection contract for a page this project does not control is SECURITY.md §18bis; the outbound fetch itself is §17's "configured endpoints" family.
+
+**The barème also opens pre-filled from the scale shipped with the site** (`data/federal-scale.json`, issue #355: the scout year, the federal page, the day it was read, the three amounts in cents). `Service\ShippedScaleService` proposes it only while the barème was **never saved** — one save, even with its amounts left empty on purpose, and the barème is the unit's own; offered again on every visit, the figures would be saved by the next unrelated change to the panel — **and** the file's year is the effective scout year of the screen, the same year « Chercher les montants » checks its answer against; last season's figures in this season's fields are what both refuse. It travels through the same `scale_suggestion` as an AI proposal (which wins when both exist, being the more recent act), with a banner naming the year, the verification date and the page, except on the render right after a failed lookup, whose message says nothing was pre-filled (`SuggestedScale::decline()`). Nothing is written on the GET; « Enregistrer le barème » is still the only write. The same file is the external sources check's reference (§8.123), so the week the federal page changes, the check says so.
 
 **A household with no usable address is neither compliant nor in breach.** `HouseholdService::memberYearIdsWithoutUsableAddress()` (§8.34) feeds a tab of its own and a line in the summary, so the page never reads as "everybody was checked".
 
@@ -4687,6 +4689,52 @@ and AAAA both, because a relay reached over IPv6 would otherwise be
 has no reason to write it the way a resolver does. The host itself never
 reaches a screen (SECURITY.md §11); the provider's name does.
 
+*`SpfCoverage` names what `KnownSenders` cannot* (issue #421). A source no
+declared relay places is an address and nothing else — and almost always a
+mail service the unit really uses and never told the site about, whose
+ranges are in the unit's own SPF record behind an `include:`, because
+somebody had to put them there for that mail to pass. So the same
+« Vérifier les enregistrements » action walks that chain and stores what it
+authorises, and the page says « déclarée dans votre SPF, via
+`_spf.google.com` ». **The attribution is the top-level `include:`, however
+deep the range was found**: `_netblocks3.google.com` is where the addresses
+actually are and appears nowhere in the operator's zone, so naming it would
+send them hunting for a string they cannot find. **Naming is not
+clearing** — a source this places keeps its « À identifier » and stays in
+the warning's count, because « je l'ai mis dans le SPF il y a trois ans » is
+the commonest way a forgotten tool got there. Three of its bounds are
+borrowed rather than chosen: ten lookups, the number RFC 7208 §4.6.4 gives
+receivers, past which a real receiver abandons the chain too; 256 ranges,
+a COUNT whose stored size is bounded separately — each attribution is
+written once and referred to by index, so at most `MAX_LOOKUPS + 1` names
+of 253 characters plus 256 hex addresses, under 12 KB in the setting's
+`TEXT` column (the first version repeated the name per range and could
+reach 80 KB, which review of #571 caught); thirty days before the reading
+stops naming anybody, since a provider's published ranges are the one input
+here that moves without anybody at the unit touching it. **A `redirect=` is
+ignored when the record carries an `all`**, as RFC 7208 §6.1 requires, so
+the page cannot name a target no receiver read; a host in the chain that
+does not answer marks the reading incomplete rather than passing for a
+record that publishes nothing — which needed a nullable seam to be true and
+not merely written: the walk is handed
+`Core\Mail\DnsVerifier::txtRecordsFor()`, which returns `null` for « the
+resolver could not be asked », where the three record checks keep reading
+that same failure as « the record is absent ». **The first version of this
+claim was false in production and every test passed**, because the closure
+was declared `: array` over a verifier that mapped a failed lookup to `[]`;
+the branch the page's warning hangs on was dead outside the unit test that
+injected its own `?array` closure. `DnsVerifier` now reaches a resolver in
+exactly one method, and it is the only one a fake replaces — two
+overridable methods over one lookup is how the chain walk came to ask the
+real network from a test that thought it had substituted a zone. A reading
+taken for a domain the site no longer sends from places nothing at all, which is asked on the read side so
+that a restore or an edit made anywhere else is covered too. `a`, `mx`, `exists:`, `ptr` and any
+mechanism carrying a `-`, `~` or `?` qualifier are deliberately not read —
+`-ip4:` names a range the record REFUSES — each leaving its addresses
+**unplaced** rather than misplaced. Unlike a relay hostname, an `include:`
+target is public DNS the operator published themselves and has to find again
+in their own zone, which is why this one name does reach the screen.
+
 *The caps are on the DRAWING, and on nothing else.* `sourcesSince()` and
 `reportsSince()` feed tables and are limited; every count and the one
 warning come from uncapped queries (`totalsSince()`, and
@@ -5543,7 +5591,7 @@ An optional module, off by default (docs/chantiers/CHANTIER-partage-social.md, i
 
 The site depends on pages it does not control: the federal fees page « Chercher les montants » reads (`Modules\Fees\Service\FederalScaleLookupService`), the scout path page every age branch links to by default (`age_branches.explanation_url`), the federation's data protection policy the RGPD page and its AI prompt cite, the federation page the contact page links, and the provider consoles and legal pages the configuration help texts send an administrator to. **`ExternalSources` is their one register**: for each, the URL, what it is for, the files that name it (`usedIn`), what the page must still say, whether it is checked for content or only for being alive, and the shipped default that holds it. Code reads the federal URLs from its constants (`FederalScaleLookupService::DEFAULT_URL`, the RGPD prompt, `PageController::contact()`); the two defaults that cannot read PHP — `modules/fees/module.json` and `schema/core.sql` — are pinned to it by `Tests\Architecture\ExternalSourcesAreRegisteredTest`, which also refuses any lesscouts.be or provider-console URL in shipped code that the register does not list for that file.
 
-`ExternalSourceChecker` is the deterministic check over it, behind `PageFetcherInterface` (`StreamPageFetcher` in production, recorded pages in its tests): a content source must answer 200 and still carry its expected strings, and on the fees page `FederalScaleExtractor` must read the normal, couple and family amounts (decimals optional); a link is alive on 2xx, 3xx, 401 and 403 and dead otherwise. A redirect is a note, except on the fees page, whose reader refuses redirects. `scripts/check-external-sources.php` runs it and exits non-zero on any divergence — for the sixth release gate, the weekly `.github/workflows/external-sources-check.yml`, and « fixe le backlog » (AGENTS.md). The comparison of the extracted amounts with a scale shipped with the site is wired (the checker's `referenceScale`) but fed nothing until that scale exists.
+`ExternalSourceChecker` is the deterministic check over it, behind `PageFetcherInterface` (`StreamPageFetcher` in production, recorded pages in its tests): a content source must answer 200 and still carry its expected strings, and on the fees page `FederalScaleExtractor` must read the normal, couple and family amounts (decimals optional) of the most recent season the page names — around a rollover it carries two; a link is alive on 2xx, 3xx, 401 and 403 and dead otherwise. A redirect is a note, except on the fees page, whose reader refuses redirects. `scripts/check-external-sources.php` runs it and exits non-zero on any divergence — for the sixth release gate, the weekly `.github/workflows/external-sources-check.yml`, and « fixe le backlog » (AGENTS.md). The extracted amounts are compared with the scale shipped with the site (`modules/fees/data/federal-scale.json`, read strictly by `Modules\Fees\Support\ShippedFederalScale`), which the script passes as the checker's `referenceScale`: amounts that differ are a divergence naming both, and the fix is a new season in that file — year, amounts, verification date. A shipped file the script cannot read exits 2, like a missing `vendor/`: a broken checkout, not a finding about the page.
 
 ## 9. Installation / bootstrap
 

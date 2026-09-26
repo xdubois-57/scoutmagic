@@ -2354,12 +2354,41 @@ rien dire. C'est le test à deux relais qui l'a attrapé.
   demanderait une agrégation que rien ne réclame tant que personne n'a
   regardé la page une deuxième fois. **Suivie en #420**, avec celle
   d'IT-07 : même question, même justification, un seul ticket.
-- Le **rapprochement d'une source avec un fournisseur connu par plages
-  d'adresses publiées** (les `include:` du SPF) ferait reconnaître un relais
-  jamais déclaré. Utile, plus grand que cette itération, et sans intérêt
-  tant que les relais déclarés couvrent le cas courant. **Suivi en #421**
-  — le seul report de ce chantier écrit comme souhaitable plutôt que
-  comme délibérément écarté.
+- ~~Le **rapprochement d'une source avec un fournisseur connu par plages
+  d'adresses publiées** (les `include:` du SPF).~~ **Livré, #421** — le seul
+  report de ce chantier qui était écrit comme souhaitable plutôt que comme
+  délibérément écarté.
+
+  Ce n'est pas un annuaire de fournisseurs qui a été construit, mais la
+  lecture de la chaîne d'`include:` de l'unité elle-même : `SpfCoverage`
+  parcourt son propre enregistrement SPF et rend, pour une source que
+  `KnownSenders` ne place pas, **le jeton que l'opérateur peut retrouver
+  dans sa propre zone** — « déclarée dans votre SPF, via
+  `_spf.google.com` ». Un annuaire tenu ici aurait vieilli sans que
+  personne le sache ; la zone de l'unité, elle, est la vérité du jour.
+
+  **Les trois points d'attention du ticket, chacun avec sa réponse.** Une
+  résolution qui échoue est « Autre », jamais une page en erreur, et la
+  lecture se prend derrière le bouton « Vérifier les enregistrements » comme
+  celle des relais — la page ne résout rien. « Reconnu » n'est pas
+  « autorisé » : une source que le SPF nomme **garde** son « À identifier »
+  et reste dans le compte qui avertit avant `p=reject`, parce que « je l'ai
+  mis dans le SPF il y a trois ans » est la façon la plus courante dont un
+  outil oublié s'y trouve. Et le relevé **expire** au bout de trente jours,
+  parce que les plages publiées d'un fournisseur bougent sans que personne à
+  l'unité y touche : au-delà, la page ne nomme plus personne et dit
+  pourquoi.
+
+  Trois bornes sont empruntées plutôt que choisies : dix résolutions, le
+  nombre que RFC 7208 §4.6.4 donne aux destinataires ; 256 plages, un
+  **compte** dont la taille stockée est bornée à part — chaque attribution
+  est écrite une fois et désignée par son rang, donc au plus une douzaine de
+  noms et 256 adresses en hexadécimal, moins de 12 Ko ; trente jours, la
+  fenêtre de rapports que la page montre déjà. La première version répétait
+  le nom dans chaque plage et pouvait dépasser les 65 535 octets de la
+  colonne, ce que la revue a relevé. Ce qui n'est pas lu — `a`,
+  `mx`, `exists:`, `ptr`, et tout mécanisme portant un qualificateur `-`,
+  `~` ou `?` — laisse ses adresses **non placées** plutôt que mal placées.
 
 ---
 

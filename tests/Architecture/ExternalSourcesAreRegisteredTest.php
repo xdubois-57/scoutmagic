@@ -26,8 +26,9 @@ use PHPUnit\Framework\TestCase;
  * - backwards: a file listed in `usedIn` must still name its URL (or the
  *   registry constant carrying it), and every content source that is not
  *   marked upcoming must be used somewhere;
- * - the two shipped defaults that cannot reference PHP — `module.json`
- *   and `schema/core.sql` — must equal the registry value.
+ * - the shipped defaults that cannot reference PHP — `module.json`,
+ *   `schema/core.sql` and the shipped federal scale's `source_url` — must
+ *   equal the registry value.
  */
 final class ExternalSourcesAreRegisteredTest extends TestCase
 {
@@ -276,6 +277,26 @@ final class ExternalSourcesAreRegisteredTest extends TestCase
             ExternalSources::FEES_PAGE,
             $defaults['fees_federal_scale_url'] ?? null,
             'modules/fees/module.json and the register disagree on the federal fees page.'
+        );
+    }
+
+    /**
+     * The scale shipped with the site names the page its amounts were read
+     * on, and the screen links it. It is the page the weekly check compares
+     * against that scale, so the two must be the same address.
+     */
+    public function testTheShippedFederalScaleSourceIsTheRegisteredFeesPage(): void
+    {
+        $scale = json_decode(
+            (string) file_get_contents(self::root() . '/modules/fees/data/federal-scale.json'),
+            true
+        );
+        $this->assertIsArray($scale);
+
+        $this->assertSame(
+            ExternalSources::FEES_PAGE,
+            $scale['source_url'] ?? null,
+            'modules/fees/data/federal-scale.json and the register disagree on the federal fees page.'
         );
     }
 

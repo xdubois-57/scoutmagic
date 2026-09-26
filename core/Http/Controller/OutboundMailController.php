@@ -196,7 +196,17 @@ class OutboundMailController extends AbstractController
         private ?\Core\Mail\Feedback\Seed\SeedMailboxes $seedMailboxes = null,
         private ?\Core\Mail\Feedback\Seed\SeedCopyRepository $seedCopies = null,
         /** What the results recommend, and whether it is applied (D13). */
-        private ?\Core\Mail\Feedback\Seed\DomainRouting $routing = null
+        private ?\Core\Mail\Feedback\Seed\DomainRouting $routing = null,
+        /**
+         * What this unit's own SPF record authorises, as the last DNS check
+         * read it (roadmap IT-06, issue #421).
+         *
+         * Last in the list rather than beside `$knownSenders`, where it
+         * belongs by subject: every parameter here is positional, and
+         * slipping one into the middle would silently hand each of the
+         * five below somebody else's dependency.
+         */
+        private ?\Core\Mail\Feedback\Dmarc\SpfCoverage $spfCoverage = null
     ) {
     }
 
@@ -208,13 +218,32 @@ class OutboundMailController extends AbstractController
      */
     public function dmarc(Request $request, array $params): Response
     {
-        $since = (new \DateTimeImmutable())->sub(new \DateInterval(self::DMARC_WINDOW));
+        // **One clock for the whole page.** The staleness of the SPF
+        // reading is asked once per source line, and a page reading the
+        // wall clock each time could place a source just inside the
+        // boundary and refuse the next one just outside it — a table
+        // disagreeing with itself about what it said one row earlier. No
+        // test here can show that: it needs the thirty-day boundary to
+        // fall between two rows of the same render. It is written down
+        // because it is a reason, not because it is guarded.
+        $now = new \DateTimeImmutable();
+        $since = $now->sub(new \DateInterval(self::DMARC_WINDOW));
+        // **The reading has to be about the domain the site signs for
+        // today** (found in review on #571): changing the sending address
+        // leaves the stored ranges belonging to the old domain, and for up to
+        // thirty days the page would keep calling them « déclarée dans votre
+        // SPF ». Asked once here and handed to both the rows and the page's
+        // own sentence, so the two cannot disagree.
+        $spfDomain = MailIdentity::fromSettings($this->settings)->spfDomain();
+        $spfApplies = $this->spfCoverage !== null
+            && !$this->spfCoverage->isEmpty()
+            && $this->spfCoverage->isFor($spfDomain);
         $totals = $this->dmarc?->totalsSince($since) ?? [];
 
         return $this->render('config/outbound_mail/dmarc.html.twig', [
             'available' => $this->dmarc !== null,
             'unavailable_reason' => self::DMARC_UNAVAILABLE,
-            'sources' => $this->dmarcSources($since),
+            'sources' => $this->dmarcSources($since, $now, $spfApplies),
             'reports' => $this->dmarc?->reportsSince($since, self::DMARC_REPORTS_SHOWN) ?? [],
             // **The counts come from the database, never from the rows
             // above**, which are capped for the table's sake. A page that
@@ -228,6 +257,29 @@ class OutboundMailController extends AbstractController
             // source, not over the ones that fit.
             'unknown_authenticating' => $this->unknownAuthenticatingCount($since),
             'relays_resolved' => $this->knownSenders !== null && !$this->knownSenders->isEmpty(),
+            // The SPF reading says three separate things, and the page owes
+            // the operator all three (issue #421): never taken, taken but
+            // too old to name anything, and taken but incomplete — with
+            // which ceiling it ran into, because « votre chaîne dépasse la
+            // limite du protocole » and « nous n'en gardons pas tant » are
+            // different actions.
+            'spf_resolved' => $this->spfCoverage !== null && !$this->spfCoverage->isEmpty(),
+            // Named apart from « never taken », because the reading exists
+            // and says so — it is simply about another domain, and the
+            // operator's next step is the same button for a different reason.
+            'spf_other_domain' => $this->spfCoverage !== null
+                && !$this->spfCoverage->isEmpty()
+                && !$this->spfCoverage->isFor($spfDomain)
+                    ? $this->spfCoverage->domain
+                    : null,
+            'spf_stale' => $this->spfCoverage?->isStale($now) ?? false,
+            // `->` and not `?->`: `$spfApplies` is only true when the
+            // reading exists, which PHPStan reads off its definition above.
+            'spf_partial' => $spfApplies ? $this->spfCoverage->partial : null,
+            'spf_partial_lookups' => \Core\Mail\Feedback\Dmarc\SpfCoverage::PARTIAL_LOOKUPS,
+            'spf_partial_unreadable' => \Core\Mail\Feedback\Dmarc\SpfCoverage::PARTIAL_UNREADABLE,
+            'spf_max_lookups' => \Core\Mail\Feedback\Dmarc\SpfCoverage::MAX_LOOKUPS,
+            'spf_max_age_days' => \Core\Mail\Feedback\Dmarc\SpfCoverage::MAX_AGE_DAYS,
             'window_days' => 30,
             'current_path' => self::DMARC_URL,
         ]);
@@ -265,7 +317,7 @@ class OutboundMailController extends AbstractController
      *
      * @return list<array<string, mixed>>
      */
-    private function dmarcSources(\DateTimeImmutable $since): array
+    private function dmarcSources(\DateTimeImmutable $since, \DateTimeImmutable $now, bool $spfApplies): array
     {
         $lines = [];
 
@@ -273,6 +325,17 @@ class OutboundMailController extends AbstractController
             $messages = $source['messages'];
             $authenticated = $source['authenticated'];
             $provider = $this->knownSenders?->nameFor($source['source_ip']);
+            // **Only asked when no declared relay placed it**, which is
+            // not a saving: a relay of the unit's own is also in its SPF,
+            // so asking both would put « votre relais Brevo » and
+            // « déclarée dans votre SPF » on the same row and leave the
+            // volunteer to work out that they are the same fact.
+            $spfVia = null;
+            $spfIsOwnRecord = false;
+            if ($provider === null && $spfApplies && $this->spfCoverage !== null) {
+                $spfVia = $this->spfCoverage->viaFor($source['source_ip'], $now);
+                $spfIsOwnRecord = $spfVia !== null && $this->spfCoverage->isOwnDomain($spfVia);
+            }
 
             $lines[] = [
                 // The sending SERVER's address, which is infrastructure
@@ -281,6 +344,11 @@ class OutboundMailController extends AbstractController
                 'source_ip' => $source['source_ip'],
                 'provider' => $provider,
                 'is_own' => $provider !== null,
+                // The token the operator will find in their own zone, and
+                // whether it is their own record stating a range itself
+                // rather than something it delegates (issue #421).
+                'spf_via' => $spfVia,
+                'spf_is_own_record' => $spfIsOwnRecord,
                 'messages' => $messages,
                 'authenticated' => $authenticated,
                 'failed' => $messages - $authenticated,
@@ -292,6 +360,14 @@ class OutboundMailController extends AbstractController
                 // the unit's address — far more often than a spoof. It has
                 // to be identified BEFORE moving to `p=reject`, or those
                 // messages are rejected too.
+                //
+                // **An SPF match does not clear it** (issue #421). A range
+                // in the unit's own record is a range somebody authorised,
+                // which says nothing about whether they still want to —
+                // and « je l'ai mis dans le SPF il y a trois ans » is the
+                // commonest way a forgotten tool got there. Naming it
+                // tells the volunteer where to look, not that the answer
+                // is fine.
                 'needs_attention' => $provider === null && $authenticated > 0,
             ];
         }
@@ -1927,6 +2003,37 @@ class OutboundMailController extends AbstractController
             // mislabelling that matters. The SPF/DKIM/DMARC reading above
             // is what the operator pressed the button for; this rides
             // along with it and must not be able to spoil it.
+        }
+
+        // **The unit's own SPF chain, in a try of its own** (issue #421).
+        // Sharing the one above would let a resolver that fails on a relay
+        // hostname cost the include: reading as well, and the two answer
+        // different questions from different records — one would be lost
+        // for the other's bad minute.
+        try {
+            \Core\Mail\Feedback\Dmarc\SpfCoverage::refresh(
+                $this->settings,
+                $spfDomain,
+                // **Through the verifier, which is this screen's one
+                // resolver** (found in review on #571). Reading TXT records
+                // from inside `SpfCoverage` gave the outbound-mail screens a
+                // second way to reach the network, and left this action's own
+                // test asking a real resolver for a domain its canned zone
+                // already answers for.
+                //
+                // **`?array`, and the question mark is load-bearing.** The
+                // walk distinguishes « this host publishes nothing » from
+                // « nobody answered » and marks the reading incomplete for the
+                // second; a closure declared `: array` could never hand back
+                // the null that says so, which made that branch — and the
+                // warning the page had just gained — dead in production while
+                // the unit test that injects its own closure kept passing.
+                fn(string $host): ?array => $this->dns->txtRecordsFor($host)
+            );
+        } catch (\Throwable) {
+            // As above: the previous reading still places what it placed,
+            // and dropping it would turn « déclarée dans votre SPF » into
+            // « Autre » on the next page.
         }
 
         return $this->redirect(self::AUTHENTICATION_URL);

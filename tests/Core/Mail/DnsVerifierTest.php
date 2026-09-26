@@ -332,12 +332,67 @@ class DnsVerifierTest extends TestCase
         $this->assertFalse($result['exists']);
         $this->assertSame('v=spf1 -a:relais.example a:relais.example ~all', $result['expected']);
     }
+
+    /**
+     * **The mapping this class makes of a lookup it could not make**, pinned
+     * on the real resolver rather than on a fixture (issue #421, found in
+     * review twice).
+     *
+     * A fixture cannot prove this: every fake here replaces the very method
+     * that does the mapping, so a test built on one passes whether
+     * `dns_get_record() === false` becomes `null` or `[]` — which is exactly
+     * how the first version shipped with the distinction working in the unit
+     * tests and collapsed in production.
+     *
+     * An empty host fails `dns_get_record()`'s own argument check and returns
+     * `false` without a packet leaving the machine, so this reaches no
+     * resolver and cannot hang.
+     */
+    public function testALookupThatCouldNotBeMadeIsNullRatherThanNoRecords(): void
+    {
+        $this->assertNull(
+            (new DnsVerifier())->txtRecordsFor(''),
+            'null is « the resolver could not be asked »; [] would say « this host publishes nothing ».'
+        );
+    }
+
+    /**
+     * And the three record checks read that same failure as « the record is
+     * absent », which is the conservative answer for them: they ask whether
+     * the record they expect is present, and a resolver that did not answer
+     * has not shown them one.
+     */
+    public function testTheRecordChecksReadAFailedLookupAsAnAbsentRecord(): void
+    {
+        $down = new class extends DnsVerifier {
+            protected function readTxtRecords(string $host): ?array
+            {
+                return null;
+            }
+        };
+
+        $spf = $down->checkSpfForHosts('unite.be', ['mail.unite.be']);
+
+        $this->assertFalse($spf['exists'], 'a resolver that did not answer is not a record that is there.');
+        $this->assertNull($spf['actual'], 'and nothing may be reported as what the zone publishes.');
+    }
+
 }
 
 /**
- * getTxtRecords() is explicitly documented as "overridable for testing" —
+ * `readTxtRecords()` is the one seam this class documents as overridable —
  * this fixture stubs it with canned per-host records instead of a real
- * dns_get_record() call, so the merge logic above is deterministic.
+ * `dns_get_record()` call, so the merge logic above is deterministic.
+ *
+ * **One seam rather than the two there used to be.** A fake that replaced the
+ * outer of the pair left the inner reaching a real resolver, which is exactly
+ * how the SPF chain walk came to ask the network from a test that thought it
+ * had substituted a zone (issue #421, found in review).
+ *
+ * An unknown host answers `[]` — « publishes nothing » — rather than `null`:
+ * these fixtures are about merging records that exist, and `null` is the
+ * separate answer « the resolver could not be asked », which
+ * `OutboundMailControllerTest` exercises where it matters.
  */
 final class FakeDnsVerifier extends DnsVerifier
 {
@@ -348,7 +403,7 @@ final class FakeDnsVerifier extends DnsVerifier
     {
     }
 
-    protected function getTxtRecords(string $host): array
+    protected function readTxtRecords(string $host): ?array
     {
         return $this->recordsByHost[$host] ?? [];
     }

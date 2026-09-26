@@ -23,7 +23,7 @@ final class FederalScale
     ) {
     }
 
-    /** Same three amounts; the year is a label, not part of the tariff. */
+    /** Same three amounts; the checker compares the year on its own. */
     public function sameAmountsAs(self $other): bool
     {
         return $this->normalCents === $other->normalCents
