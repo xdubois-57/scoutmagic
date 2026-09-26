@@ -9,9 +9,11 @@ declare(strict_types=1);
 namespace Tests\Core\Mail\Transport;
 
 use Core\Mail\Transport\MailboxProviderRepository;
+use Core\Security\EncryptionService;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\NothingInClear;
 
 /**
  * The cache of which provider hosts a recipient domain (issue #422): what
@@ -22,12 +24,17 @@ class MailboxProviderRepositoryTest extends TestCase
 {
     private \PDO $pdo;
     private MailboxProviderRepository $repository;
+    private EncryptionService $encryption;
     private \DateTimeImmutable $now;
 
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
-        $this->repository = new MailboxProviderRepository($this->pdo);
+        $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->repository = new MailboxProviderRepository(
+            $this->pdo,
+            $this->encryption
+        );
         $this->now = new \DateTimeImmutable('2026-09-26 10:00:00');
     }
 
@@ -36,15 +43,64 @@ class MailboxProviderRepositoryTest extends TestCase
         return $this->pdo->query($sql)?->fetchColumn();
     }
 
+    /** The one stored domain, decrypted the way only this site can. */
+    private function storedDomain(): string
+    {
+        return $this->encryption->decrypt(
+            (string) $this->column('SELECT domain_encrypted FROM mail_domain_providers'),
+            'mail_domain_providers.domain'
+        );
+    }
+
     public function testANewDomainIsNotedOnceWithNoProvider(): void
     {
         $this->assertTrue($this->repository->note('Famille.BE', $this->now));
         $this->assertFalse($this->repository->note('famille.be', $this->now));
 
         $this->assertSame(1, (int) $this->column('SELECT COUNT(*) FROM mail_domain_providers'));
-        $this->assertSame('famille.be', $this->column('SELECT domain FROM mail_domain_providers'));
+        $this->assertSame('famille.be', $this->storedDomain());
         $this->assertNull($this->column('SELECT provider FROM mail_domain_providers'));
         $this->assertNull($this->repository->providerOf('famille.be'));
+    }
+
+    /**
+     * **Never in clear** (SECURITY.md §5): a personal domain can name a
+     * family. Encrypted under its own context, and looked up by a blind
+     * index that is neither the domain nor the index of anything else.
+     */
+    public function testTheDomainIsStoredEncryptedAndLookedUpByItsBlindIndex(): void
+    {
+        $this->repository->note('Famille-Dupont.BE', $this->now);
+
+        NothingInClear::inTables($this->pdo, 'mail_domain_providers')->assertAbsent('dupont', 'Dupont');
+        $row = $this->pdo->query('SELECT * FROM mail_domain_providers')?->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($row);
+        $this->assertArrayNotHasKey('domain', $row);
+        $this->assertSame('famille-dupont.be', $this->storedDomain());
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', (string) $row['domain_blind_index']);
+        $this->assertNotSame(
+            $this->encryption->blindIndex('famille-dupont.be'),
+            $row['domain_blind_index'],
+            'Its own purpose, never the unkeyed default.'
+        );
+
+        // Every WHERE finds it through the index, whatever the case asked.
+        $this->repository->recordResolved('FAMILLE-dupont.be', 'gmail.com', $this->now);
+        $this->assertSame('gmail.com', $this->column('SELECT provider FROM mail_domain_providers'));
+        $this->assertSame('gmail.com', (new MailboxProviderRepository($this->pdo, $this->encryption))
+            ->providerOf('famille-DUPONT.be'));
+    }
+
+    /** Another installation's key reads nothing: the attribution is only this site's. */
+    public function testAnotherKeyCannotReadTheDomain(): void
+    {
+        $this->repository->note('famille.be', $this->now);
+
+        $this->expectException(\Core\Security\DecryptionException::class);
+        (new MailboxProviderRepository(
+            $this->pdo,
+            new EncryptionService(str_repeat('c', 32), str_repeat('d', 32))
+        ))->providerOf('famille.be');
     }
 
     /** A malformed address yields '' or junk; neither is a domain to ask about. */
@@ -60,7 +116,10 @@ class MailboxProviderRepositoryTest extends TestCase
     public function testADomainAnotherProcessNotedFirstIsNotAnError(): void
     {
         $this->repository->providerOf('warm.up'); // loads the (empty) cache
-        (new MailboxProviderRepository($this->pdo))->note('famille.be', $this->now);
+        (new MailboxProviderRepository(
+            $this->pdo,
+            $this->encryption
+        ))->note('famille.be', $this->now);
 
         $this->assertTrue($this->repository->note('famille.be', $this->now));
         $this->assertSame(1, (int) $this->column('SELECT COUNT(*) FROM mail_domain_providers'));
@@ -71,7 +130,10 @@ class MailboxProviderRepositoryTest extends TestCase
         $this->repository->note('famille.be', $this->now);
         $this->repository->recordResolved('famille.be', 'gmail.com', $this->now);
 
-        $this->assertSame('gmail.com', (new MailboxProviderRepository($this->pdo))->providerOf('famille.be'));
+        $this->assertSame('gmail.com', (new MailboxProviderRepository(
+            $this->pdo,
+            $this->encryption
+        ))->providerOf('famille.be'));
         $this->assertSame(1, $this->repository->countAttributed());
     }
 
@@ -109,7 +171,10 @@ class MailboxProviderRepositoryTest extends TestCase
         $this->repository->recordResolved('famille.be', 'gmail.com', $this->now->modify('-10 days'));
         $this->repository->recordFailure('famille.be', 'no_answer', $this->now->modify('+1 day'));
 
-        $this->assertSame('gmail.com', (new MailboxProviderRepository($this->pdo))->providerOf('famille.be'));
+        $this->assertSame('gmail.com', (new MailboxProviderRepository(
+            $this->pdo,
+            $this->encryption
+        ))->providerOf('famille.be'));
         $this->assertSame([], $this->repository->due($this->now, $this->now->modify('-7 days'), 10));
         $this->assertSame(
             [['domain' => 'famille.be', 'failures' => 1]],
@@ -137,17 +202,23 @@ class MailboxProviderRepositoryTest extends TestCase
         $this->repository->note('actif.be', $this->now->modify('-200 days'));
         $this->repository->note('parti.be', $this->now->modify('-200 days'));
 
-        $fresh = new MailboxProviderRepository($this->pdo);
+        $fresh = new MailboxProviderRepository(
+            $this->pdo,
+            $this->encryption
+        );
         $fresh->note('actif.be', $this->now);
 
         $this->assertSame(1, $fresh->purgeNotedBefore($this->now->modify('-180 days')));
-        $this->assertSame('actif.be', $this->column('SELECT domain FROM mail_domain_providers'));
+        $this->assertSame('actif.be', $this->storedDomain());
     }
 
     public function testARecentNoteIsNotRewritten(): void
     {
         $this->repository->note('famille.be', $this->now->modify('-3 days'));
-        (new MailboxProviderRepository($this->pdo))->note('famille.be', $this->now);
+        (new MailboxProviderRepository(
+            $this->pdo,
+            $this->encryption
+        ))->note('famille.be', $this->now);
 
         $this->assertSame(
             $this->now->modify('-3 days')->format('Y-m-d H:i:s'),

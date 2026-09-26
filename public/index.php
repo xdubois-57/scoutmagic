@@ -2300,6 +2300,7 @@ $mailTransport = \Core\Mail\Transport\MailTransportFactory::build(
     $pdo,
     $secrets,
     $settingService,
+    $encryptionService,
     $mailCaptureTransport,
     $journalService,
     $secretManager
@@ -7891,7 +7892,7 @@ $frontController->registerController(
                 $mailDomainPreferences,
                 new \Core\Mail\Transport\LaneChainRepository($pdo),
                 $mailProviderDirectory,
-                new \Core\Mail\Transport\MailboxProviderRepository($pdo)
+                new \Core\Mail\Transport\MailboxProviderRepository($pdo, $encryptionService)
             ),
         // What this unit's own SPF authorises, as the last DNS check read
         // it — READ, never resolved here, for `KnownSenders`' reason above

@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Mail\Feedback\Seed;
 
+use Core\Mail\Transport\MailboxProviderRepository;
 use Core\Security\EncryptionService;
 use Core\Service\DateInput;
 
@@ -38,6 +39,26 @@ class SeedCopyRepository
     private const STAMP_PURPOSE = 'seed_run_stamp';
 
     /**
+     * The verdicts `tallyByProviderSince()` counts, in the order it
+     * returns them.
+     */
+    private const TALLIED = ['inbox', 'spam', 'missing', 'elsewhere', 'pending'];
+
+    /**
+     * @param MailboxProviderRepository|null $mailboxProviders The MX cache
+     *        (issue #422) the results are folded through. Null builds one
+     *        on this connection and key, which is what every caller wants;
+     *        the parameter is there for a test that needs to hold the same
+     *        instance.
+     */
+    public function __construct(
+        private \PDO $pdo,
+        private EncryptionService $encryption,
+        private ?MailboxProviderRepository $mailboxProviders = null
+    ) {
+    }
+
+    /**
      * The provider a copy is COUNTED under: the one the MX records of its
      * box's domain named (issue #422), or the domain itself.
      *
@@ -49,11 +70,18 @@ class SeedCopyRepository
      * another host — moves the history too, which is right: the column
      * says who filters that box, and the site only ever knows the latest
      * answer.
+     *
+     * **In PHP, not in a SQL join**, and not by choice: the cache's
+     * domains are encrypted (SECURITY.md §5), so `mail_domain_providers`
+     * has no column `mail_seed_copies.provider` could be compared with.
+     * The cache is read whole into memory once per instance, so this is
+     * an array lookup per row, never a query.
      */
-    private const ATTRIBUTED = 'COALESCE(d.provider, c.provider)';
-
-    public function __construct(private \PDO $pdo, private EncryptionService $encryption)
+    private function attributed(string $storedProvider): string
     {
+        $this->mailboxProviders ??= new MailboxProviderRepository($this->pdo, $this->encryption);
+
+        return $this->mailboxProviders->providerOf($storedProvider) ?? $storedProvider;
     }
 
     /**
@@ -236,9 +264,8 @@ class SeedCopyRepository
         // extra `SELECT` around it is what makes the subquery a derived
         // table, which MySQL does allow.
         $statement = $this->pdo->prepare(
-            'SELECT c.*, ' . self::ATTRIBUTED . ' AS attributed_provider
+            'SELECT c.*
                FROM mail_seed_copies c
-               LEFT JOIN mail_domain_providers d ON d.domain = c.provider
               WHERE c.run_reference IN (
                     SELECT run_reference FROM (
                         SELECT run_reference, MAX(sent_at) AS latest_sent_at
@@ -249,14 +276,25 @@ class SeedCopyRepository
                          LIMIT :limit
                     ) AS recent_runs
               )
-              ORDER BY c.sent_at DESC, attributed_provider ASC, c.id ASC'
+              ORDER BY c.sent_at DESC, c.id ASC'
         );
         $statement->bindValue(':since', $since->format('Y-m-d H:i:s'));
         $statement->bindValue(':limit', max(1, $limit), \PDO::PARAM_INT);
         $statement->execute();
 
+        // Sorted again once each copy carries its attributed provider:
+        // the column order the screen draws follows the provider the copy
+        // is COUNTED under, which the database can no longer see. Same
+        // keys as the SQL had — sent_at, then provider, then id.
+        $copies = $this->hydrateAll($statement, attributed: true);
+        usort(
+            $copies,
+            static fn(SeedCopy $a, SeedCopy $b): int => [$b->sentAt, $a->provider, $a->id]
+                <=> [$a->sentAt, $b->provider, $b->id]
+        );
+
         $runs = [];
-        foreach ($this->hydrateAll($statement) as $copy) {
+        foreach ($copies as $copy) {
             $runs[$copy->runReference][] = $copy;
         }
 
@@ -283,33 +321,61 @@ class SeedCopyRepository
      */
     public function tallyByProviderSince(\DateTimeImmutable $since): array
     {
-        $statement = $this->pdo->prepare(
-            'SELECT ' . self::ATTRIBUTED . ' AS provider,
-                    COUNT(DISTINCT CASE WHEN c.verdict <> \'pending\' THEN c.run_reference END) AS runs,
-                    SUM(CASE WHEN c.verdict = \'inbox\'   THEN 1 ELSE 0 END) AS inbox,
-                    SUM(CASE WHEN c.verdict = \'spam\'    THEN 1 ELSE 0 END) AS spam,
-                    SUM(CASE WHEN c.verdict = \'missing\' THEN 1 ELSE 0 END) AS missing,
-                    SUM(CASE WHEN c.verdict = \'elsewhere\' THEN 1 ELSE 0 END) AS elsewhere,
-                    SUM(CASE WHEN c.verdict = \'pending\' THEN 1 ELSE 0 END) AS pending
-               FROM mail_seed_copies c
-               LEFT JOIN mail_domain_providers d ON d.domain = c.provider
-              WHERE c.sent_at >= :since
-              GROUP BY ' . self::ATTRIBUTED . '
-              ORDER BY provider ASC'
+        // Two aggregates rather than the rows, so the memory this costs
+        // follows the number of domains and mailings, never of copies:
+        // the counts per stored domain and verdict, and which mailings
+        // each stored domain answered in. Both are then folded under the
+        // attributed provider (see `attributed()`), and the second is what
+        // keeps `runs` distinct ACROSS the domains folded together — a
+        // gmail.com box and a box Google hosts answering the same mailing
+        // are still one mailing.
+        $counts = $this->pdo->prepare(
+            'SELECT provider, verdict, COUNT(*) AS copies
+               FROM mail_seed_copies
+              WHERE sent_at >= :since
+              GROUP BY provider, verdict'
         );
-        $statement->bindValue(':since', $since->format('Y-m-d H:i:s'));
-        $statement->execute();
+        $counts->bindValue(':since', $since->format('Y-m-d H:i:s'));
+        $counts->execute();
+
+        $answeredRuns = $this->pdo->prepare(
+            'SELECT DISTINCT provider, run_reference
+               FROM mail_seed_copies
+              WHERE sent_at >= :since AND verdict <> :pending'
+        );
+        $answeredRuns->bindValue(':since', $since->format('Y-m-d H:i:s'));
+        $answeredRuns->bindValue(':pending', SeedVerdict::Pending->value);
+        $answeredRuns->execute();
+
+        /** @var array<string, array<string, int>> $verdicts */
+        $verdicts = [];
+        foreach ($counts->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $provider = $this->attributed((string) $row['provider']);
+            $verdicts[$provider] ??= array_fill_keys(self::TALLIED, 0);
+            $verdict = (string) $row['verdict'];
+            if (isset($verdicts[$provider][$verdict])) {
+                $verdicts[$provider][$verdict] += (int) $row['copies'];
+            }
+        }
+
+        /** @var array<string, array<string, true>> $runs */
+        $runs = [];
+        foreach ($answeredRuns->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $runs[$this->attributed((string) $row['provider'])][(string) $row['run_reference']] = true;
+        }
+
+        ksort($verdicts, SORT_STRING);
 
         $tally = [];
-        foreach ($statement->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+        foreach ($verdicts as $provider => $counted) {
             $tally[] = [
-                'provider' => (string) $row['provider'],
-                'runs' => (int) $row['runs'],
-                'inbox' => (int) $row['inbox'],
-                'spam' => (int) $row['spam'],
-                'missing' => (int) $row['missing'],
-                'elsewhere' => (int) $row['elsewhere'],
-                'pending' => (int) $row['pending'],
+                'provider' => (string) $provider,
+                'runs' => count($runs[$provider] ?? []),
+                'inbox' => $counted['inbox'],
+                'spam' => $counted['spam'],
+                'missing' => $counted['missing'],
+                'elsewhere' => $counted['elsewhere'],
+                'pending' => $counted['pending'],
             ];
         }
 
@@ -356,7 +422,7 @@ class SeedCopyRepository
     /**
      * @return list<SeedCopy>
      */
-    private function hydrateAll(\PDOStatement $statement): array
+    private function hydrateAll(\PDOStatement $statement, bool $attributed = false): array
     {
         $copies = [];
         foreach ($statement->fetchAll(\PDO::FETCH_ASSOC) as $row) {
@@ -364,7 +430,7 @@ class SeedCopyRepository
                 (int) $row['id'],
                 (string) $row['run_reference'],
                 $this->encryption->decrypt((string) $row['seed_address_encrypted'], self::CONTEXT),
-                (string) ($row['attributed_provider'] ?? $row['provider']),
+                $attributed ? $this->attributed((string) $row['provider']) : (string) $row['provider'],
                 // **Never the raw constructor on a stored moment.** It
                 // throws on a malformed string — one bad row and the page
                 // is a 500 — and, worse, answers *now* for an empty one,

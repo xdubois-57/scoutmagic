@@ -39,6 +39,7 @@ class SeedCopyRepositoryOnMysqlTest extends TestCase
 {
     private \PDO $pdo;
     private SeedCopyRepository $copies;
+    private EncryptionService $encryption;
     /** @var list<string> the tables this test created, and so drops */
     private array $createdTables = [];
 
@@ -57,8 +58,8 @@ class SeedCopyRepositoryOnMysqlTest extends TestCase
         // behind would make this file's result depend on the order the
         // suite happens to run in.
         // `mail_domain_providers` since issue #422: both readings of the
-        // screen now join it, so it has to exist here as it does in
-        // production.
+        // screen now fold through it, so it has to exist here as it does
+        // in production.
         foreach (['mail_seed_copies', 'mail_domain_providers'] as $table) {
             if ($this->pdo->query("SHOW TABLES LIKE '{$table}'")?->fetchColumn() === false) {
                 $this->pdo->exec(self::createTableStatement($table));
@@ -66,10 +67,8 @@ class SeedCopyRepositoryOnMysqlTest extends TestCase
             }
         }
 
-        $this->copies = new SeedCopyRepository(
-            $this->pdo,
-            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
-        );
+        $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->copies = new SeedCopyRepository($this->pdo, $this->encryption);
     }
 
     private function connect(): \PDO
@@ -105,8 +104,25 @@ class SeedCopyRepositoryOnMysqlTest extends TestCase
         if (!in_array('mail_seed_copies', $this->createdTables, true)) {
             $this->pdo->prepare("DELETE FROM mail_seed_copies WHERE run_reference LIKE 'mysql-probe-%'")->execute();
         }
+        // The domain is encrypted there (SECURITY.md §5), so this test's
+        // rows are recognised by decrypting them, never by a `LIKE`. A row
+        // another key wrote is not this test's to judge.
         if (!in_array('mail_domain_providers', $this->createdTables, true)) {
-            $this->pdo->prepare("DELETE FROM mail_domain_providers WHERE domain LIKE 'mysql-probe-%'")->execute();
+            $rows = $this->pdo->query('SELECT id, domain_encrypted FROM mail_domain_providers');
+            $delete = $this->pdo->prepare('DELETE FROM mail_domain_providers WHERE id = ?');
+            foreach ($rows === false ? [] : $rows->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+                try {
+                    $domain = $this->encryption->decrypt(
+                        (string) $row['domain_encrypted'],
+                        'mail_domain_providers.domain'
+                    );
+                } catch (\Throwable) {
+                    continue;
+                }
+                if (str_starts_with($domain, 'mysql-probe-')) {
+                    $delete->execute([$row['id']]);
+                }
+            }
         }
     }
 
@@ -204,13 +220,13 @@ class SeedCopyRepositoryOnMysqlTest extends TestCase
 
     /**
      * **The MX attribution folds on the real engine** (issue #422): the
-     * `COALESCE` in the GROUP BY is the shape ONLY_FULL_GROUP_BY judges,
-     * and SQLite judges nothing.
+     * two aggregates the fold reads are grouped queries, the shape
+     * ONLY_FULL_GROUP_BY judges, and SQLite judges nothing.
      */
     public function testAnAttributedDomainFoldsIntoItsProviderOnTheRealEngine(): void
     {
         $this->recordRun('mysql-probe-f', 'temoin@mysql-probe-famille.be', 'Junk');
-        $cache = new \Core\Mail\Transport\MailboxProviderRepository($this->pdo);
+        $cache = new \Core\Mail\Transport\MailboxProviderRepository($this->pdo, $this->encryption);
         $cache->note('mysql-probe-famille.be', new \DateTimeImmutable());
         $cache->recordResolved('mysql-probe-famille.be', 'mysql-probe-provider.test', new \DateTimeImmutable());
 
@@ -233,9 +249,10 @@ class SeedCopyRepositoryOnMysqlTest extends TestCase
     public function testTheMxCacheRunsOnTheRealEngine(): void
     {
         $now = new \DateTimeImmutable();
-        $cache = new \Core\Mail\Transport\MailboxProviderRepository($this->pdo);
+        $cache = new \Core\Mail\Transport\MailboxProviderRepository($this->pdo, $this->encryption);
         $cache->providerOf('warm.up');
-        (new \Core\Mail\Transport\MailboxProviderRepository($this->pdo))->note('mysql-probe-a.be', $now);
+        (new \Core\Mail\Transport\MailboxProviderRepository($this->pdo, $this->encryption))
+            ->note('mysql-probe-a.be', $now);
 
         $this->assertTrue($cache->note('mysql-probe-a.be', $now), 'A duplicate insert is not an error.');
 

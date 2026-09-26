@@ -2676,6 +2676,13 @@ garde le nom du domaine, ce que le site faisait déjà : mieux vaut ne pas
 rattacher que rattacher au mauvais fournisseur.
 
 L'écran dit combien de domaines ont été rattachés, jamais lesquels : un
-domaine personnel peut nommer une famille. La page RGPD énonce la lecture
+domaine personnel peut nommer une famille. C'est aussi pourquoi le
+domaine est **chiffré** dans `mail_domain_providers` (SECURITY.md §5),
+avec un index aveugle pour l'unicité et chaque recherche exacte ; seule
+la clé du fournisseur reste en clair. Conséquence : plus aucune jointure
+SQL n'est possible sur le domaine, et `SeedCopyRepository` regroupe ses
+résultats en PHP, à travers le cache lu une fois en mémoire — les envois
+toujours comptés une seule fois par fournisseur, et la case partagée par
+deux boîtes gardant le pire verdict. La page RGPD énonce la lecture
 DNS (seul le domaine est interrogé, aucun nouveau sous-traitant) et sa
 durée de conservation.

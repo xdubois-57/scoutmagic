@@ -485,7 +485,10 @@ class DomainRoutingTest extends TestCase
      */
     public function testAPersonalDomainIsShownUnderItsMxProvider(): void
     {
-        $cache = new \Core\Mail\Transport\MailboxProviderRepository($this->pdo);
+        $cache = new \Core\Mail\Transport\MailboxProviderRepository(
+            $this->pdo,
+            new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
         $now = new \DateTimeImmutable();
         $known = ['famille.be' => 'gmail.com', 'gmail.com' => 'gmail.com', 'ecole.be' => null];
         foreach ($known as $domain => $provider) {

@@ -39,11 +39,13 @@ class MailTransportFactoryTest extends TestCase
 {
     private \PDO $pdo;
     private SettingService $settings;
+    private \Core\Security\EncryptionService $encryption;
 
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         $this->settings = new SettingService(new SettingRepository($this->pdo));
+        $this->encryption = new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
     }
 
     public function testItBuildsAChainThatRoutesOnTheLane(): void
@@ -59,6 +61,7 @@ class MailTransportFactoryTest extends TestCase
             $this->pdo,
             [ProviderConnections::prefixFor($relay) . '_host' => 'smtp.relais.test'],
             $this->settings,
+            $this->encryption,
             $delivery
         );
 
@@ -82,7 +85,8 @@ class MailTransportFactoryTest extends TestCase
         $built = MailTransportFactory::build(
             $this->pdo,
             [ProviderConnections::prefixFor($relay) . '_host' => 'smtp-relay.brevo.test'],
-            $this->settings
+            $this->settings,
+            $this->encryption
         );
 
         $provider = $built['directory']->find($relay);
@@ -97,7 +101,7 @@ class MailTransportFactoryTest extends TestCase
      */
     public function testWithNoDeliveryTransportItFallsBackToTheOrdinaryOne(): void
     {
-        $built = MailTransportFactory::build($this->pdo, [], $this->settings);
+        $built = MailTransportFactory::build($this->pdo, [], $this->settings, $this->encryption);
 
         $this->assertInstanceOf(MailTransportChain::class, $built['chain']);
 
@@ -110,7 +114,7 @@ class MailTransportFactoryTest extends TestCase
         $this->assertInstanceOf(PhpMailerTransport::class, $this->deliveryOf($built['chain']));
 
         $supplied = new PhpMailerTransport();
-        $explicit = MailTransportFactory::build($this->pdo, [], $this->settings, $supplied);
+        $explicit = MailTransportFactory::build($this->pdo, [], $this->settings, $this->encryption, $supplied);
         $this->assertSame(
             $supplied,
             $this->deliveryOf($explicit['chain']),
@@ -139,7 +143,7 @@ class MailTransportFactoryTest extends TestCase
      */
     public function testTheBreakerAndTheReserveAreWiredIn(): void
     {
-        $built = MailTransportFactory::build($this->pdo, [], $this->settings);
+        $built = MailTransportFactory::build($this->pdo, [], $this->settings, $this->encryption);
 
         $this->assertInstanceOf(
             ProviderHealthRepository::class,

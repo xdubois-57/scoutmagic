@@ -2185,8 +2185,14 @@ CREATE TABLE IF NOT EXISTS mail_seed_copies (
 -- written to for RETENTION_DAYS is dropped by the same task.
 CREATE TABLE IF NOT EXISTS mail_domain_providers (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    -- The right-hand side of an address, lower-cased.
-    domain VARCHAR(253) NOT NULL,
+    -- The right-hand side of an address, lower-cased, ENCRYPTED
+    -- (SECURITY.md §5): a personal domain can name a family, so it is
+    -- stored like any other field that identifies one. Context
+    -- 'mail_domain_providers.domain'.
+    domain_encrypted BLOB NOT NULL,
+    -- HMAC-SHA256 of the lower-cased domain, purpose 'mail_domain': what
+    -- every exact-match lookup and the uniqueness read, never the domain.
+    domain_blind_index CHAR(64) NOT NULL,
     -- The provider key the seed results are read by ('gmail.com',
     -- 'outlook.com'), or NULL: not resolved yet, or resolved to MX hosts no
     -- known provider runs. NULL always falls back to the domain itself,
@@ -2203,7 +2209,7 @@ CREATE TABLE IF NOT EXISTS mail_domain_providers (
     last_error VARCHAR(32) NULL,
     -- The back-off: not asked again before this moment.
     retry_after DATETIME NULL,
-    UNIQUE INDEX idx_mdp_domain (domain),
+    UNIQUE INDEX idx_mdp_domain_blind_index (domain_blind_index),
     INDEX idx_mdp_resolved (resolved_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

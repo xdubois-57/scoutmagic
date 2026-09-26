@@ -4877,7 +4877,13 @@ process; `DomainPreferences::reorder()` notes a domain it has not seen
 (a row with no provider) and looks up the provider already known, the
 domain's own decision taking precedence over its provider's;
 `SeedCopyRepository` folds `provider` through the cache **when it reads**
-— `COALESCE(d.provider, c.provider)` — so a box measured before its
+— in PHP, through `MailboxProviderRepository::providerOf()`, because the
+cache's domain is encrypted with a blind index (SECURITY.md §5: a
+personal domain can name a family) and so offers SQL nothing to join
+on: the tally reads two aggregates (counts per stored domain and
+verdict, and the distinct mailings each answered in) and regroups them
+under the attributed provider, `runs` still distinct across the domains
+folded together — so a box measured before its
 domain was resolved moves with its whole history the day the answer
 arrives. The DNS is read by `Seed\Task\ResolveMailboxProvidersHandler`
 alone: forty domains a day inside a twenty-second wall clock (checked

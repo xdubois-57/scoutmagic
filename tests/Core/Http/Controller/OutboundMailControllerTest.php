@@ -1009,7 +1009,10 @@ class OutboundMailControllerTest extends TestCase
         $this->seedCopies->claim('envoi-1', 'temoin@unite-scoute.be', $sent);
         $this->seedCopies->recordLanding('envoi-1', 'temoin@unite-scoute.be', 'Junk', $sent);
 
-        $cache = new \Core\Mail\Transport\MailboxProviderRepository($this->pdo);
+        $cache = new \Core\Mail\Transport\MailboxProviderRepository(
+            $this->pdo,
+            new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
         $cache->note('unite-scoute.be', $sent);
         $cache->recordResolved('unite-scoute.be', 'gmail.com', $sent);
 

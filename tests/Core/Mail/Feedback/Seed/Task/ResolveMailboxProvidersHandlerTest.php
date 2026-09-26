@@ -42,7 +42,10 @@ class ResolveMailboxProvidersHandlerTest extends TestCase
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $this->cache = new MailboxProviderRepository($this->pdo);
+        $this->cache = new MailboxProviderRepository(
+            $this->pdo,
+            $this->encryption
+        );
 
         $this->context = new TaskContext(
             Connection::withPdo($this->pdo),
@@ -87,10 +90,18 @@ class ResolveMailboxProvidersHandlerTest extends TestCase
     /** @return array<string, mixed>|false */
     private function row(string $domain): array|false
     {
-        $statement = $this->pdo->prepare('SELECT * FROM mail_domain_providers WHERE domain = ?');
-        $statement->execute([$domain]);
+        // Found by decrypting, the way a reader of the table would have
+        // to: the domain is not stored in clear (SECURITY.md §5).
+        $statement = $this->pdo->prepare('SELECT * FROM mail_domain_providers');
+        $statement->execute();
+        foreach ($statement->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $stored = $this->encryption->decrypt((string) $row['domain_encrypted'], 'mail_domain_providers.domain');
+            if ($stored === $domain) {
+                return $row;
+            }
+        }
 
-        return $statement->fetch(\PDO::FETCH_ASSOC);
+        return false;
     }
 
     public function testAPersonalDomainServedByGoogleIsAttributedToGmail(): void
@@ -100,7 +111,10 @@ class ResolveMailboxProvidersHandlerTest extends TestCase
         (new ResolveMailboxProvidersHandler($this->lookup(['famille.be' => ['aspmx.l.google.com']])))
             ->handle([], $this->context);
 
-        $this->assertSame('gmail.com', (new MailboxProviderRepository($this->pdo))->providerOf('famille.be'));
+        $this->assertSame('gmail.com', (new MailboxProviderRepository(
+            $this->pdo,
+            $this->encryption
+        ))->providerOf('famille.be'));
         $this->assertNotNull(($this->row('famille.be') ?: [])['resolved_at'] ?? null);
     }
 
@@ -207,7 +221,10 @@ class ResolveMailboxProvidersHandlerTest extends TestCase
         (new ResolveMailboxProvidersHandler($lookup))->handle([], $this->context);
 
         $this->assertSame(['unite-scoute.be'], $lookup->asked);
-        $this->assertSame('gmail.com', (new MailboxProviderRepository($this->pdo))->providerOf('unite-scoute.be'));
+        $this->assertSame('gmail.com', (new MailboxProviderRepository(
+            $this->pdo,
+            $this->encryption
+        ))->providerOf('unite-scoute.be'));
     }
 
     /**

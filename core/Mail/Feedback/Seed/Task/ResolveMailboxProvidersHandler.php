@@ -93,7 +93,7 @@ class ResolveMailboxProvidersHandler implements TaskHandlerInterface
 
         try {
             $this->resolve(
-                new MailboxProviderRepository($pdo),
+                new MailboxProviderRepository($pdo, $context->encryption),
                 new SeedCopyRepository($pdo, $context->encryption),
                 $context
             );

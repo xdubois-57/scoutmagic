@@ -12,6 +12,7 @@ use Core\Config\SettingService;
 use Core\Journal\JournalService;
 use Core\Mail\MailTransportInterface;
 use Core\Mail\PhpMailerTransport;
+use Core\Security\EncryptionService;
 use Core\Security\SecretManager;
 use PDO;
 
@@ -52,6 +53,8 @@ final class MailTransportFactory
      * and memoising nothing.
      *
      * @param array<string, mixed> $secrets Already decrypted by the caller.
+     * @param EncryptionService $encryption For the MX cache (issue #422),
+     *        whose recipient domains are stored encrypted (SECURITY.md §5).
      * @param MailTransportInterface|null $delivery The transport underneath
      *        — null keeps the ordinary `PhpMailerTransport`.
      * @return array{chain: MailTransportChain, directory: MailProviderDirectory,
@@ -62,6 +65,7 @@ final class MailTransportFactory
         PDO $pdo,
         array $secrets,
         SettingService $settings,
+        EncryptionService $encryption,
         ?MailTransportInterface $delivery = null,
         ?JournalService $journal = null,
         ?SecretManager $secretManager = null
@@ -81,7 +85,7 @@ final class MailTransportFactory
         // With the MX cache (issue #422), so « famille.be » served by
         // Google follows the decision taken for gmail.com. Read-only on
         // the send path: the lookups belong to a scheduled task.
-        $preferences = new DomainPreferences($settings, new MailboxProviderRepository($pdo));
+        $preferences = new DomainPreferences($settings, new MailboxProviderRepository($pdo, $encryption));
 
         return [
             'chain' => new MailTransportChain(

@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Mail\Transport;
 
+use Core\Security\EncryptionService;
+
 /**
  * Which mailbox provider really hosts a recipient domain — the cache
  * behind `mail_domain_providers` (roadmap IT-07, issue #422).
@@ -22,6 +24,15 @@ namespace Core\Mail\Transport;
  *
  * **Domains, never addresses** (SECURITY.md §11). One row stands for every
  * family on that domain, and nothing here counts them or names them.
+ *
+ * **And the domain is encrypted, with a blind index** (SECURITY.md §5).
+ * « dupont-famille.be » names a family as plainly as an address does, so
+ * it is stored the way every field that identifies a person is: AES-256-GCM
+ * in `domain_encrypted`, and every exact-match question — the uniqueness,
+ * each `WHERE` — asked of `domain_blind_index` instead. Nothing can join on
+ * it in SQL any more, which is why `SeedCopyRepository` folds its results
+ * in PHP through {@see providerOf()}. `provider` stays in clear: it is a
+ * provider key (`gmail.com`), never a family's.
  */
 class MailboxProviderRepository
 {
@@ -45,6 +56,14 @@ class MailboxProviderRepository
      */
     public const NOTE_REFRESH_DAYS = 30;
 
+    private const CONTEXT = 'mail_domain_providers.domain';
+
+    /**
+     * Its own purpose: a domain is never compared with an address, a seed
+     * box or a run stamp, so it shares a key with none of them.
+     */
+    private const BLIND_INDEX_PURPOSE = 'mail_domain';
+
     /**
      * The whole cache, read once per instance: domain => [provider, noted_at].
      *
@@ -56,7 +75,7 @@ class MailboxProviderRepository
      */
     private ?array $known = null;
 
-    public function __construct(private \PDO $pdo)
+    public function __construct(private \PDO $pdo, private EncryptionService $encryption)
     {
     }
 
@@ -68,7 +87,7 @@ class MailboxProviderRepository
      */
     public function providerOf(string $domain): ?string
     {
-        return $this->known()[strtolower(trim($domain))]['provider'] ?? null;
+        return $this->known()[self::normalize($domain)]['provider'] ?? null;
     }
 
     /**
@@ -80,7 +99,7 @@ class MailboxProviderRepository
      */
     public function note(string $domain, \DateTimeImmutable $now): bool
     {
-        $domain = strtolower(trim($domain));
+        $domain = self::normalize($domain);
         if (!DomainPreferences::isPlausibleDomain($domain)) {
             return false;
         }
@@ -89,8 +108,10 @@ class MailboxProviderRepository
         if (isset($known[$domain])) {
             $refreshBefore = $now->modify('-' . self::NOTE_REFRESH_DAYS . ' days')->format('Y-m-d H:i:s');
             if ($known[$domain]['noted_at'] < $refreshBefore) {
-                $statement = $this->pdo->prepare('UPDATE mail_domain_providers SET noted_at = ? WHERE domain = ?');
-                $statement->execute([$now->format('Y-m-d H:i:s'), $domain]);
+                $statement = $this->pdo->prepare(
+                    'UPDATE mail_domain_providers SET noted_at = ? WHERE domain_blind_index = ?'
+                );
+                $statement->execute([$now->format('Y-m-d H:i:s'), $this->blindIndex($domain)]);
                 $this->known[$domain]['noted_at'] = $now->format('Y-m-d H:i:s');
             }
 
@@ -101,9 +122,15 @@ class MailboxProviderRepository
             return false;
         }
 
-        $statement = $this->pdo->prepare('INSERT INTO mail_domain_providers (domain, noted_at) VALUES (?, ?)');
+        $statement = $this->pdo->prepare(
+            'INSERT INTO mail_domain_providers (domain_encrypted, domain_blind_index, noted_at) VALUES (?, ?, ?)'
+        );
         try {
-            $statement->execute([$domain, $now->format('Y-m-d H:i:s')]);
+            $statement->execute([
+                $this->encryption->encrypt($domain, self::CONTEXT),
+                $this->blindIndex($domain),
+                $now->format('Y-m-d H:i:s'),
+            ]);
         } catch (\PDOException $failure) {
             // Another process noted it between our read and our write:
             // that is the outcome we wanted. Anything else is a real
@@ -127,7 +154,7 @@ class MailboxProviderRepository
     public function due(\DateTimeImmutable $now, \DateTimeImmutable $staleBefore, int $limit): array
     {
         $statement = $this->pdo->prepare(
-            'SELECT domain, failures FROM mail_domain_providers
+            'SELECT domain_encrypted, failures FROM mail_domain_providers
               WHERE (resolved_at IS NULL OR resolved_at < :stale)
                 AND (retry_after IS NULL OR retry_after <= :now)
               ORDER BY CASE WHEN resolved_at IS NULL THEN 0 ELSE 1 END, resolved_at ASC, noted_at ASC, id ASC
@@ -140,7 +167,10 @@ class MailboxProviderRepository
 
         $due = [];
         foreach ($statement->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $due[] = ['domain' => (string) $row['domain'], 'failures' => (int) $row['failures']];
+            $due[] = [
+                'domain' => $this->encryption->decrypt((string) $row['domain_encrypted'], self::CONTEXT),
+                'failures' => (int) $row['failures'],
+            ];
         }
 
         return $due;
@@ -152,9 +182,9 @@ class MailboxProviderRepository
         $statement = $this->pdo->prepare(
             'UPDATE mail_domain_providers
                 SET provider = ?, resolved_at = ?, failures = 0, last_error = NULL, retry_after = NULL
-              WHERE domain = ?'
+              WHERE domain_blind_index = ?'
         );
-        $statement->execute([$provider, $now->format('Y-m-d H:i:s'), $domain]);
+        $statement->execute([$provider, $now->format('Y-m-d H:i:s'), $this->blindIndex($domain)]);
         $this->known = null;
     }
 
@@ -172,9 +202,13 @@ class MailboxProviderRepository
         $statement = $this->pdo->prepare(
             'UPDATE mail_domain_providers
                 SET failures = failures + 1, last_error = ?, retry_after = ?
-              WHERE domain = ?'
+              WHERE domain_blind_index = ?'
         );
-        $statement->execute([substr($code, 0, 32), $retryAfter->format('Y-m-d H:i:s'), $domain]);
+        $statement->execute([
+            substr($code, 0, 32),
+            $retryAfter->format('Y-m-d H:i:s'),
+            $this->blindIndex($domain),
+        ]);
     }
 
     /**
@@ -182,14 +216,26 @@ class MailboxProviderRepository
      * name — the personal domains the MX records moved. A count, for a
      * screen: which domains they are is nobody's business but the send
      * path's.
+     *
+     * « Other than their own name » is asked of the blind indexes, not of
+     * the domains: the provider key is indexed the way the domain was, so
+     * the comparison needs no decryption and says nothing more than the
+     * SQL `provider <> domain` it replaces.
      */
     public function countAttributed(): int
     {
         $statement = $this->pdo->query(
-            'SELECT COUNT(*) FROM mail_domain_providers WHERE provider IS NOT NULL AND provider <> domain'
+            'SELECT provider, domain_blind_index FROM mail_domain_providers WHERE provider IS NOT NULL'
         );
 
-        return $statement === false ? 0 : (int) $statement->fetchColumn();
+        $count = 0;
+        foreach ($statement === false ? [] : $statement->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            if (!hash_equals((string) $row['domain_blind_index'], $this->blindIndex((string) $row['provider']))) {
+                $count++;
+            }
+        }
+
+        return $count;
     }
 
     /** A domain nobody has written to since the cut is forgotten. */
@@ -209,16 +255,35 @@ class MailboxProviderRepository
             return $this->known;
         }
 
+        // Decrypted whole, once: the table holds at most MAXIMUM rows —
+        // `note()` refuses past it — and the LIMIT says so to anybody
+        // reading this query without that method beside it.
         $known = [];
-        $statement = $this->pdo->query('SELECT domain, provider, noted_at FROM mail_domain_providers');
-        foreach ($statement === false ? [] : $statement->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $known[(string) $row['domain']] = [
+        $statement = $this->pdo->prepare(
+            'SELECT domain_encrypted, provider, noted_at FROM mail_domain_providers ORDER BY id ASC LIMIT :limit'
+        );
+        $statement->bindValue(':limit', self::MAXIMUM, \PDO::PARAM_INT);
+        $statement->execute();
+        foreach ($statement->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $domain = $this->encryption->decrypt((string) $row['domain_encrypted'], self::CONTEXT);
+            $known[$domain] = [
                 'provider' => $row['provider'] === null ? null : (string) $row['provider'],
                 'noted_at' => (string) $row['noted_at'],
             ];
         }
 
         return $this->known = $known;
+    }
+
+    /** Trimmed and lower-cased: a blind index is an exact match and nothing else. */
+    private static function normalize(string $domain): string
+    {
+        return strtolower(trim($domain));
+    }
+
+    private function blindIndex(string $domain): string
+    {
+        return $this->encryption->blindIndex(self::normalize($domain), self::BLIND_INDEX_PURPOSE);
     }
 
     /** MySQL/MariaDB 1062, SQLite 19 — the same test `SeedCopyRepository` uses. */

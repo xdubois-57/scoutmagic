@@ -373,7 +373,10 @@ class MailTransportChainTest extends TestCase
         $second = $this->addRelay('Second', 'smtp.second.test');
         $this->enable(MailLane::Bulk, [$first, $second]);
 
-        $cache = new \Core\Mail\Transport\MailboxProviderRepository($this->pdo);
+        $cache = new \Core\Mail\Transport\MailboxProviderRepository(
+            $this->pdo,
+            new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
         $cache->note('famille-dupont.be', new \DateTimeImmutable());
         $cache->recordResolved('famille-dupont.be', 'gmail.com', new \DateTimeImmutable());
 
@@ -395,17 +398,25 @@ class MailTransportChainTest extends TestCase
         $second = $this->addRelay('Second', 'smtp.second.test');
         $this->enable(MailLane::Bulk, [$first, $second]);
 
-        $cache = new \Core\Mail\Transport\MailboxProviderRepository($this->pdo);
+        $cache = new \Core\Mail\Transport\MailboxProviderRepository(
+            $this->pdo,
+            new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
         $delivery = $this->recordingTransport();
         $this->chain($delivery, preferences: $this->preferring('gmail.com', $second, $cache))
             ->deliver($this->message('prenom@nouveau-domaine.be'), MailPurpose::Bulk);
 
         $this->assertSame(['smtp.premier.test'], $delivery->attemptedHosts);
-        $statement = $this->pdo->prepare('SELECT domain, provider, resolved_at FROM mail_domain_providers');
+        $statement = $this->pdo->prepare('SELECT domain_encrypted, provider, resolved_at FROM mail_domain_providers');
         $statement->execute();
         $row = $statement->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($row);
+        // Noted encrypted (SECURITY.md §5): a personal domain can name a family.
+        $this->assertStringNotContainsString('nouveau-domaine.be', (string) $row['domain_encrypted']);
+        $row['domain_encrypted'] = (new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)))
+            ->decrypt((string) $row['domain_encrypted'], 'mail_domain_providers.domain');
         $this->assertSame(
-            ['domain' => 'nouveau-domaine.be', 'provider' => null, 'resolved_at' => null],
+            ['domain_encrypted' => 'nouveau-domaine.be', 'provider' => null, 'resolved_at' => null],
             $row
         );
     }
@@ -416,7 +427,10 @@ class MailTransportChainTest extends TestCase
         $first = $this->addRelay('Premier', 'smtp.premier.test');
         $this->enable(MailLane::Authentication, [$first]);
 
-        $cache = new \Core\Mail\Transport\MailboxProviderRepository($this->pdo);
+        $cache = new \Core\Mail\Transport\MailboxProviderRepository(
+            $this->pdo,
+            new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
         $this->chain($this->recordingTransport(), preferences: $this->preferring('gmail.com', $first, $cache))
             ->deliver($this->message('prenom@nouveau-domaine.be'), MailPurpose::MagicLink);
 
@@ -437,7 +451,10 @@ class MailTransportChainTest extends TestCase
         $this->pdo->prepare('DROP TABLE mail_domain_providers')->execute();
 
         $delivery = $this->recordingTransport();
-        $cache = new \Core\Mail\Transport\MailboxProviderRepository($this->pdo);
+        $cache = new \Core\Mail\Transport\MailboxProviderRepository(
+            $this->pdo,
+            new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
         $this->chain($delivery, preferences: $this->preferring('gmail.com', $second, $cache))
             ->deliver($this->message('famille@gmail.com'), MailPurpose::Bulk);
 

@@ -920,7 +920,8 @@ class DatabaseTestHelper
 
         $pdo->exec('CREATE TABLE mail_domain_providers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            domain TEXT NOT NULL UNIQUE,
+            domain_encrypted BLOB NOT NULL,
+            domain_blind_index TEXT NOT NULL UNIQUE,
             provider TEXT NULL,
             noted_at TEXT NOT NULL,
             resolved_at TEXT NULL,
