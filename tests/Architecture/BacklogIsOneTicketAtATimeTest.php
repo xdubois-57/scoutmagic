@@ -154,19 +154,18 @@ final class BacklogIsOneTicketAtATimeTest extends TestCase
         );
 
         $this->assertStringContainsString(
-            'a lock you have held for more than those ten',
+            '**Create the lock from YOUR OWN branch, so the ref names its holder.**',
             $rules,
-            'AGENTS.md no longer tells a STALLED HOLDER to give up its lock. A ref records no owner, '
-            . 'so a holder whose lock was broken cannot be told — it merges believing it still holds '
-            . 'one, beside the agent that broke it.',
+            'AGENTS.md no longer creates the lock from the holder\'s own branch, so the ref no longer '
+            . 'names who holds it — and the read below has nothing to compare against.',
         );
 
         $this->assertStringContainsString(
-            '**Breaking it is a delete AND a create, and the create decides.**',
+            'before merging, read the ref again — if it no longer points at your head',
             $rules,
-            'AGENTS.md no longer says that breaking the lock ends with a create whose refusal is '
-            . 'honoured. Delete-then-take is not atomic, so two agents reaching the threshold together '
-            . 'would both believe they won.',
+            'AGENTS.md no longer makes a holder re-read the lock before merging. That read is the ONLY '
+            . 'fencing available here: GitHub\'s ref delete takes no precondition, so two agents past '
+            . 'the threshold can each destroy the other\'s fresh lock and both get a 201.',
         );
     }
 
@@ -219,6 +218,25 @@ final class BacklogIsOneTicketAtATimeTest extends TestCase
             self::agentRules(),
             'the size ceiling on a backlog pull request is no longer stated as a number, so nothing '
             . 'distinguishes a pull request that is too big from one that merely feels big.',
+        );
+    }
+
+    /**
+     * And the branch of the loop that a ticket delivered in several pull
+     * requests needs, which the eight steps did not have.
+     *
+     * Read without it, step 7 strips the label from a ticket still in flight
+     * and step 8 sends the agent back to step 1, where its OWN surviving
+     * branch answers « Reference already exists » — so it walks away from its
+     * own half-delivered work and reports it as one somebody else held.
+     */
+    public function testTheLoopHasABranchForATicketDeliveredInSeveralPullRequests(): void
+    {
+        $this->assertStringContainsString(
+            'Between the others, go back to step 4 and **keep the claim and the',
+            self::agentRules(),
+            'AGENTS.md no longer says what to do between the pull requests of one oversized ticket. '
+            . 'Following steps 7 and 8 after a sub-pull-request makes an agent abandon its own work.',
         );
     }
 

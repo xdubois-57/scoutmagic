@@ -538,9 +538,9 @@ server-side where a label or an assignee is not.
    the failure this lock exists to prevent, arriving through the lock
    itself.
 
-   Then create the ref `claude/merge-lock` through the API: **« Reference
-   already exists »** means another agent is merging, so wait and try again;
-   created means it is your turn. Under it, do exactly two things — check
+   Then create the ref `claude/merge-lock` through the API, **from your own
+   branch** (see below): **« Reference already exists »** means another agent
+   is merging, so wait and try again; created means it is your turn. Under it, do exactly two things — check
    that `main` has not moved into your files since (if it has, delete the
    ref and go back to the first paragraph), and merge. Delete the ref as
    soon as the merge has landed. **The hold is seconds**, which is what
@@ -558,30 +558,36 @@ server-side where a label or an assignee is not.
 
    **Time your OWN wait, never the lock's age.** A git ref carries no
    creation date — the only date reachable from it is that of the commit it
-   points at, which for a lock created off `main` says when `main` last
-   moved. A lock taken ten seconds ago after a quiet afternoon would read as
-   hours old, and the agent that believed it would delete it and merge on
-   top of the holder: the exact failure the lock exists to prevent. So the
+   points at, which says when its holder last committed and nothing about
+   when the lock was taken. A lock taken ten seconds ago on a branch nobody
+   has touched since this morning would read as hours old, and the agent that
+   believed it would delete it and merge on top of the holder: the exact
+   failure the lock exists to prevent. So the
    clock is the one thing a waiting agent can trust, its own: **if the lock
    is still held after ten minutes of your waiting, it is stuck** — a hold
    that only spans a check and a merge is a matter of seconds, and ten
    minutes of it is not a merge in progress.
 
-   **Breaking it is a delete AND a create, and the create decides.** The
-   pair is not one atomic operation, so two agents reaching the threshold
-   together would both delete and both believe they had won. After deleting,
-   create `claude/merge-lock` again and honour a « Reference already exists »
-   on that attempt exactly as on the first: the ref decides which of the two
-   breakers merges, the same way it decides everything else here.
+   **Create the lock from YOUR OWN branch, so the ref names its holder.**
+   `from_branch: claude/issue-<n>` rather than `main`: the ref's target is
+   then your head's SHA, which no other agent shares. Then, **immediately
+   before merging, read the ref again — if it no longer points at your head,
+   you do not hold the lock** and you start step 6 over. That one read is
+   what makes everything below safe, and it is the only fencing available
+   here.
 
-   **And from the holder's side: a lock you have held for more than those ten
-   minutes is no longer yours.** Nothing in a ref records who created it, so
-   a holder that stalled cannot be told its lock was broken — it would merge
-   believing it still held one. So if anything delays you between taking the
-   lock and merging for that long, do not merge: start step 6 over from the
-   first paragraph. This is the one rule here that protects against your own
-   slowness rather than somebody else's, and a hold that spans only a check
-   and a merge makes it a rule you will never need.
+   **Because breaking a stuck lock is a delete and a create, and neither can
+   be made conditional.** GitHub's ref delete takes no precondition, so two
+   agents past the threshold can interleave in a way no ordering rule
+   catches: A deletes the stuck ref, A creates it again and gets 201, B
+   deletes — destroying **A's fresh lock**, not the stuck one — and B creates
+   it again and also gets 201. Both hold a 201 and both would merge. Nothing
+   in the create tells A it lost.
+
+   The read above tells it: A finds the ref pointing at B's head and stands
+   down. So the protocol is not race-free at the delete, and cannot be made
+   so with these tools; it is made **safe at the point of use** instead,
+   which is the only place a holder can still act on the answer.
 
    The instruction to fix the backlog IS the authorization § Merging a pull
    request requires, for every ticket in the set and not for the first one.
@@ -589,7 +595,14 @@ server-side where a label or an assignee is not.
    without exception.
 
 7. **Verify the comment and the closure, then take `status:in-progress`
-   off.** `issue-fixed-comment.yml` does both on merge: one comment naming
+   off** — this step and the next apply to the pull request that carries
+   `Corrige #<n>`, which for a ticket delivered in several is the **last**
+   one. Between the others, go back to step 4 and **keep the claim and the
+   label**: the ticket is still yours and still open. Following this step
+   after a sub-pull-request would strip the label from a ticket still in
+   flight and send you back to step 1, where your own surviving branch
+   answers « Reference already exists » and you would walk away from your own
+   half-delivered work, reporting it as one somebody else held. `issue-fixed-comment.yml` does both on merge: one comment naming
    the pull request, the commit and the branch, and *then* the closure as
    `completed`. An issue it could not comment on is left open on purpose and
    the run goes red, so finish by hand any it left open — comment first,
