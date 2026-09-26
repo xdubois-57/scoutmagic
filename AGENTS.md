@@ -519,11 +519,30 @@ server-side where a label or an assignee is not.
    **Do not "fix" a body by putting a closing keyword back** — that is the
    bug, not the convention.
 
-6. **Take the merge lock, merge, release it.** Create the ref
-   `claude/merge-lock` through the API: the same **« Reference already
-   exists »** means another agent is merging, so wait and try again; created
-   means it is your turn. Delete it
-   as soon as your merge has landed.
+6. **Get green first; the lock covers the merge alone.** Before reaching for
+   it: if `main` has moved into files your branch touches, merge `main` in,
+   re-run the checks locally — `vendor/bin/phpstan analyse` above all, which
+   catches a semantic conflict that compiles on each side and not together —
+   push, and wait for green. Where the files are disjoint, nothing is
+   needed.
+
+   **None of that happens under the lock, and the reason is arithmetic.** A
+   push re-arms the required checks, and by this repository's own numbers
+   (`.claude/skills/steward/SKILL.md`: a push waits twelve minutes before
+   the review begins, a review round is 8 to 25 minutes, CI another 20) a
+   lock held across one would be held for thirty to forty-five minutes — so
+   no threshold could tell it from a lock whose agent had died, and a
+   waiting agent would break a valid one to merge beside its holder. That is
+   the failure this lock exists to prevent, arriving through the lock
+   itself.
+
+   Then create the ref `claude/merge-lock` through the API: **« Reference
+   already exists »** means another agent is merging, so wait and try again;
+   created means it is your turn. Under it, do exactly two things — check
+   that `main` has not moved into your files since (if it has, delete the
+   ref and go back to the first paragraph), and merge. Delete the ref as
+   soon as the merge has landed. **The hold is seconds**, which is what
+   makes the threshold below mean something.
 
    **Development is parallel; merging never is.** The maintainer asks for
    both halves in one breath — « Travaille en parallèle, mais fusionne les
@@ -542,15 +561,16 @@ server-side where a label or an assignee is not.
    hours old, and the agent that believed it would delete it and merge on
    top of the holder: the exact failure the lock exists to prevent. So the
    clock is the one thing a waiting agent can trust, its own: **if the lock
-   is still held after thirty minutes of your waiting, it is stuck** —
-   delete it and take it. No merge here takes that long, and thirty minutes
-   of continuous holding is not a merge in progress.
+   is still held after ten minutes of your waiting, it is stuck** — a hold
+   that only spans a check and a merge is a matter of seconds, and ten
+   minutes of it is not a merge in progress.
 
-   **While you hold it, check whether `main` has moved into the files your
-   branch touches.** If it has, merge `main` in, re-run the checks locally —
-   `vendor/bin/phpstan analyse` above all, which is what catches a semantic
-   conflict that compiles on each side and not together — and push before
-   merging. Where the files are disjoint, nothing is needed.
+   **Breaking it is a delete AND a create, and the create decides.** The
+   pair is not one atomic operation, so two agents reaching the threshold
+   together would both delete and both believe they had won. After deleting,
+   create `claude/merge-lock` again and honour a « Reference already exists »
+   on that attempt exactly as on the first: the ref decides which of the two
+   breakers merges, the same way it decides everything else here.
 
    The instruction to fix the backlog IS the authorization § Merging a pull
    request requires, for every ticket in the set and not for the first one.

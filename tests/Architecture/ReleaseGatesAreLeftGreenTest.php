@@ -56,11 +56,17 @@ final class ReleaseGatesAreLeftGreenTest extends TestCase
     }
 
     /**
-     * THE STEP ITSELF. Without it the backlog is the issue list again,
-     * and the gates go back to being nobody's job until a release needs
-     * them.
+     * THE SECTION ITSELF. Without it the gates go back to being nobody's
+     * job until somebody types `scripts/release.sh` and the first of them
+     * refuses.
+     *
+     * They were a STEP of « fixe le backlog » until 2026-09-25 and are now
+     * their own instruction, which is why neither this name nor the
+     * assertion below speaks of the backlog any more. A test that still
+     * called them part of it would invite the next edit to fold back the
+     * coupling this was split out of.
      */
-    public function testTheReleaseGatesArePartOfWhatFixingTheBacklogMeans(): void
+    public function testTheReleaseGatesHaveTheirOwnSection(): void
     {
         $this->assertStringContainsString(
             '## Leaving the release gates green',

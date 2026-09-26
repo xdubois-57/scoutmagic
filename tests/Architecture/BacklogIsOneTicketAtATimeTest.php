@@ -138,10 +138,45 @@ final class BacklogIsOneTicketAtATimeTest extends TestCase
         );
 
         $this->assertStringContainsString(
-            'is still held after thirty minutes of your waiting, it is stuck',
+            'is still held after ten minutes of your waiting, it is stuck',
             $rules,
             'AGENTS.md no longer bounds how long an agent waits on a stuck lock, so one agent dying '
             . 'mid-merge stops every other one for good.',
+        );
+
+        $this->assertStringContainsString(
+            '**None of that happens under the lock, and the reason is arithmetic.**',
+            $rules,
+            'AGENTS.md no longer keeps the re-merge and its push OUTSIDE the lock. Held across a push, '
+            . 'the lock lasts thirty to forty-five minutes by this repository\'s own review and CI '
+            . 'numbers — longer than any threshold can tell from an agent that died — so a waiting '
+            . 'agent breaks a valid lock and merges beside its holder.',
+        );
+
+        $this->assertStringContainsString(
+            '**Breaking it is a delete AND a create, and the create decides.**',
+            $rules,
+            'AGENTS.md no longer says that breaking the lock ends with a create whose refusal is '
+            . 'honoured. Delete-then-take is not atomic, so two agents reaching the threshold together '
+            . 'would both believe they won.',
+        );
+    }
+
+    /**
+     * The authorization, which this PR nearly dropped a guard for: the
+     * sentence was pinned by the deleted blocks test and by nothing else.
+     * Read literally without « not the first », every ticket after the first
+     * waits for a permission the maintainer has already given — which is how
+     * a backlog stays a backlog.
+     */
+    public function testTheMergeAuthorizationCoversEveryTicketRatherThanTheFirst(): void
+    {
+        $this->assertStringContainsString(
+            '**is** that instruction, standing, for **every** pull',
+            self::agentRules(),
+            '§ Merging a pull request no longer says that « fixe le backlog » authorises every pull '
+            . 'request in the set. One ticket per pull request and read literally, that leaves every '
+            . 'ticket after the first waiting for an authorization already given.',
         );
     }
 
