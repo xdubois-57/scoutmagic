@@ -80,8 +80,10 @@ final class HealthSheetPdfService
         // printed line, so the writing loop below does not care which
         // answer a line came from.
         foreach (HealthSheetLayout::paragraphLines() as $answer => $names) {
-            $lines = array_map(static fn(string $name): \Modules\OfficialDocuments\Pdf\TextField
-                => $fields[$name], $names);
+            $lines = array_map(
+                static fn(string $name): \Modules\OfficialDocuments\Pdf\TextField => $fields[$name],
+                $names
+            );
             $wrapped = $pdf->wrapInto(HealthSheetFilling::paragraphs($sheet)[$answer] ?? '', $lines);
 
             foreach ($names as $index => $name) {

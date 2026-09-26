@@ -165,8 +165,30 @@ else
     fail "errexit is on inside run_gate — gate functions written for set +e will abort early"
 fi
 
+# The external sources gate (issue #355) refuses on the checker's exit
+# code. The real function is lifted out of the script, and `php` is
+# replaced by a function answering what the checker would: 1 on a
+# divergence, 0 when everything conforms. No page is fetched.
+eval "$(sed -n '/^check_sources_gate() {/,/^}/p' "${RELEASE_SH}")"
+
+php() { echo "[DIVERGENT] federal-fees"; return 1; }
+if ( run_gate s1 "External sources" check_sources_gate ) > /dev/null 2>&1; then
+    fail "a divergence in the external sources did NOT stop the release"
+else
+    ok "a divergence in the external sources stops the release"
+fi
+
+php() { return 0; }
+if ( run_gate s2 "External sources" check_sources_gate ) > /dev/null 2>&1 \
+    && grep -q '^vérifié' "${GATE_TMP_DIR}/s2.report" 2>/dev/null; then
+    ok "conforming external sources pass, and say so in the release notes"
+else
+    fail "conforming external sources did not pass the gate, or wrote no report"
+fi
+unset -f php
+
 # The order is the documented one, and it is the order of the file.
-expected_order="deployment ci security dependency deprecated_api sonar"
+expected_order="deployment ci security dependency deprecated_api sonar sources"
 # [[:space:]], not \s: BSD grep — the one a macOS releaser runs, and this
 # script is written for the same machine scripts/release.sh caffeinates —
 # does not know \s in an ERE. It would match nothing, actual_order would be
@@ -177,7 +199,7 @@ expected_order="deployment ci security dependency deprecated_api sonar"
 # wrong defect, which is worse than none.
 actual_order="$(grep -oE '^[[:space:]]*run_gate [a-z_]+' "${RELEASE_SH}" | awk '{print $2}' | tr '\n' ' ' | sed 's/ $//')"
 if [[ "${actual_order}" == "${expected_order}" ]]; then
-    ok "the six gates run in the documented order (${actual_order})"
+    ok "the seven gates run in the documented order (${actual_order})"
 else
     fail "gate order is '${actual_order}', expected '${expected_order}'"
 fi

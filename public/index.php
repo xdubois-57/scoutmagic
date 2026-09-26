@@ -7491,7 +7491,12 @@ if ($isEnabled('inbound_mail')) {
                         new \Core\Security\UserAccountRepository($pdo, $encryptionService),
                         $encryptionService
                     )
-                )
+                ),
+                // Built here rather than reusing $mailProbeRepository: this
+                // factory is an arrow function, so it captures by value at
+                // the line above — and that variable is assigned two
+                // hundred lines further down (issue #419).
+                new \Core\Mail\Probe\MailProbeRepository($pdo, $encryptionService)
             )
     );
 
@@ -7799,6 +7804,11 @@ $frontController->registerController(
             $mailTransport['delivery'],
             $mailProbeRepository,
             $twig,
+            // The send receipts (roadmap IT-05). A probe stamps its own,
+            // because its destination is never an address the site holds
+            // on file and `recordSend()` would otherwise refuse — leaving
+            // the probe's own bounce unbelieved and #419's tracing dead.
+            new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService),
             $journalService,
             $sendCounterRepository
         ),
@@ -9113,7 +9123,9 @@ if ($isEnabled('gallery')) {
         $galleryMediaService,
         $galleryLocationService,
         $storageBackendFactory,
-        static function () use (&$galleryDelegatedAlbumAccessCheckers): \Modules\Gallery\Service\DelegatedAlbumAccessRegistry {
+        static function () use (
+            &$galleryDelegatedAlbumAccessCheckers
+        ): \Modules\Gallery\Service\DelegatedAlbumAccessRegistry {
             return new \Modules\Gallery\Service\DelegatedAlbumAccessRegistry($galleryDelegatedAlbumAccessCheckers);
         }
     );

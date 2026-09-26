@@ -856,7 +856,10 @@ class DatabaseTestHelper
             lane TEXT NOT NULL,
             sent_at TEXT NOT NULL,
             verdict TEXT,
-            verdict_at TEXT
+            verdict_at TEXT,
+            bounce_category TEXT,
+            bounce_status_code TEXT,
+            bounce_at TEXT
         )');
 
         $pdo->exec('CREATE TABLE mail_bounce_states (

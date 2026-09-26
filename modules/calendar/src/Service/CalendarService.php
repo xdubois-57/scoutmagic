@@ -366,7 +366,10 @@ class CalendarService implements
         $sections = [];
         foreach ($this->calendarRepository->findAll() as $calendar) {
             if ($calendar->sectionId !== null) {
-                $sections[$calendar->id] = ['id' => $calendar->sectionId, 'name' => $labels[$calendar->id] ?? 'Section'];
+                $sections[$calendar->id] = [
+                    'id' => $calendar->sectionId,
+                    'name' => $labels[$calendar->id] ?? 'Section',
+                ];
             }
         }
 

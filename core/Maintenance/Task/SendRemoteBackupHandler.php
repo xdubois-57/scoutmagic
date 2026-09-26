@@ -129,13 +129,31 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
         // photographs in an archive that no longer holds any. What
         // protects a location is its own copy (IT-04), which is
         // configured on the location and not on the send.
-        $settings->register(self::MAX_FAILURES_SETTING, (string) self::DEFAULT_MAX_FAILURES, 'number',
+        $settings->register(
+            self::MAX_FAILURES_SETTING,
+            (string) self::DEFAULT_MAX_FAILURES,
+            'number',
             'Échecs consécutifs avant abandon',
             'Après ce nombre d\'échecs de suite, l\'envoi en cours est abandonné et le suivant repart d\'une '
-            . 'session neuve.', null, null, null, true, 323);
-        $settings->register(self::LAST_SUCCESS_SETTING, '', 'text',
-            'Dernier envoi hors site réussi', 'La date du dernier envoi arrivé à son terme.',
-            null, null, null, false, 324);
+            . 'session neuve.',
+            null,
+            null,
+            null,
+            true,
+            323
+        );
+        $settings->register(
+            self::LAST_SUCCESS_SETTING,
+            '',
+            'text',
+            'Dernier envoi hors site réussi',
+            'La date du dernier envoi arrivé à son terme.',
+            null,
+            null,
+            null,
+            false,
+            324
+        );
     }
 
     /**
@@ -588,8 +606,13 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
                 $retention = new RemoteRetention($context->settings);
                 $report = $retention->purge($backend, $retention->listArchives($backend));
                 if ($report['deleted'] > 0 || $report['failed'] > 0) {
-                    $context->journal->log('core', 'remote_backup_purged', 'info',
-                        'Archives distantes supprimées au-delà des bornes de conservation', $report);
+                    $context->journal->log(
+                        'core',
+                        'remote_backup_purged',
+                        'info',
+                        'Archives distantes supprimées au-delà des bornes de conservation',
+                        $report
+                    );
                 }
             },
             'remote_backup_purge_failed',
@@ -616,8 +639,8 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
         ?ResumableUploadBackend $backend = null
     ): void {
         $failures = (int) ($payload['failures'] ?? 0) + 1;
-        $ceiling = max(1, (int) ($context->settings->get(self::MAX_FAILURES_SETTING)
-            ?: self::DEFAULT_MAX_FAILURES));
+        $configured = (int) ($context->settings->get(self::MAX_FAILURES_SETTING) ?: self::DEFAULT_MAX_FAILURES);
+        $ceiling = max(1, $configured);
 
         $this->cancelPending($context);
 
@@ -655,8 +678,13 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
             return;
         }
 
-        $context->journal->log('core', 'remote_backup_failed', 'info',
-            'Un envoi hors site a échoué et sera repris', ['failures' => $failures, 'error' => $reason]);
+        $context->journal->log(
+            'core',
+            'remote_backup_failed',
+            'info',
+            'Un envoi hors site a échoué et sera repris',
+            ['failures' => $failures, 'error' => $reason]
+        );
 
         // What is carried forward is the archive and the count, and
         // nothing about how far the transfer got: the destination is asked
@@ -776,9 +804,13 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
         }
 
         $this->quietly($context, static function () use ($context, $archivePath): void {
-            $context->journal->log('core', 'remote_backup_archive_undeletable', 'warning',
+            $context->journal->log(
+                'core',
+                'remote_backup_archive_undeletable',
+                'warning',
                 'Une archive hors site contenant les clés du site n\'a pas pu être supprimée du serveur',
-                ['path' => $archivePath]);
+                ['path' => $archivePath]
+            );
         });
 
         return false;

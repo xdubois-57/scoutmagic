@@ -7,11 +7,17 @@ namespace Tests\Core\System;
 use PHPUnit\Framework\TestCase;
 
 /**
- * `scripts/release.sh` runs six gates, and adding one means touching six
- * places that no compiler connects: the skip flag's variable, its
- * argument case, its documentation in the header, the `run_gate` call,
- * the line that reads the gate's report file, and the assembled Markdown
- * report.
+ * `scripts/release.sh` runs seven gates, and adding one means touching NINE
+ * places that no compiler connects: the skip flag's variable, its argument
+ * case, its documentation in the header, the `run_gate` call, the line that
+ * reads the gate's report file, the assembled Markdown report — and then
+ * three documents, `README.md`, `docs/quality-pipeline.md` and
+ * `scripts/release.test.sh`, each of which drifted once before a test
+ * covered it.
+ *
+ * Six was this docblock's own count until issue #379 added a gate and the
+ * last three were found one at a time, each by a reviewer, each already
+ * wrong. They are tested below rather than remembered.
  *
  * Miss one and the release still works, which is the problem. Forget the
  * report line and the release notes silently omit a gate that ran.
@@ -54,7 +60,7 @@ class ReleaseGatesTest extends TestCase
     }
 
     /**
-     * The six, by key and in order. Written out rather than counted:
+     * The seven, by key and in order. Written out rather than counted:
      * the order is the documented one (a precondition about production,
      * then the verdict on the code, then what ships), and a gate silently
      * dropped from the sequence is exactly what this file exists to
@@ -62,12 +68,14 @@ class ReleaseGatesTest extends TestCase
      *
      * `deprecated_api` sits beside `dependency` because it asks the same
      * kind of question — has the ground moved under us upstream — rather
-     * than anything about this commit. It was added for issue #379.
+     * than anything about this commit. It was added for issue #379, in a
+     * pull request that crossed the one adding `sources` (issue #355): two
+     * gates, added independently, each touching the same nine places.
      */
-    public function testTheSixGatesRunInTheDocumentedOrder(): void
+    public function testTheSevenGatesRunInTheDocumentedOrder(): void
     {
         $this->assertSame(
-            ['deployment', 'ci', 'security', 'dependency', 'deprecated_api', 'sonar'],
+            ['deployment', 'ci', 'security', 'dependency', 'deprecated_api', 'sonar', 'sources'],
             self::launchedKeys()
         );
     }
@@ -155,6 +163,33 @@ class ReleaseGatesTest extends TestCase
                 $usage,
                 "{$flag[1]} exists but is not documented in the header block a releaser reads"
             );
+        }
+
+        $this->assertSame([], $missing);
+    }
+
+    /**
+     * The same flags, in the two documents an agent and a maintainer read
+     * before releasing: AGENTS.md § Releases, which says when a bypass is
+     * allowed, and docs/quality-pipeline.md § Releases, the map. A sixth
+     * gate (external sources, issue #355) is where this was last at risk:
+     * a flag in the script that neither document names is a bypass nobody
+     * has been told the rules for.
+     */
+    public function testEverySkipFlagIsInTheReleaseDocumentation(): void
+    {
+        preg_match_all('/^\s*(--skip-[a-z-]+)\)\s*SKIP_/m', self::script(), $flags);
+        $this->assertCount(7, $flags[1], 'one bypass flag per gate');
+
+        $root = dirname(__DIR__, 3);
+        $missing = [];
+        foreach (['AGENTS.md', 'docs/quality-pipeline.md'] as $document) {
+            $contents = (string) file_get_contents($root . '/' . $document);
+            foreach ($flags[1] as $flag) {
+                if (!str_contains($contents, '`' . $flag . '`')) {
+                    $missing[] = "{$document} does not name {$flag}";
+                }
+            }
         }
 
         $this->assertSame([], $missing);
@@ -306,6 +341,79 @@ class ReleaseGatesTest extends TestCase
                 . ' must accept one'
             );
         }
+    }
+
+    /**
+     * NO FILE STATES A GATE COUNT OTHER THAN THE REAL ONE — the general
+     * form of the three tests above, and the one that should have been
+     * written first.
+     *
+     * Each of those came from a reviewer finding a count this PR had left
+     * stale, in a place the previous test did not cover: the README, then
+     * `docs/quality-pipeline.md`, then `scripts/release.test.sh`. Bespoke
+     * guards kept missing the next instance, and merging the branch that
+     * added the `sources` gate surfaced three more at once — two comments
+     * in `release.sh` itself and one in a sibling test's docblock. A count
+     * written in words is a claim about `run_gate`, wherever it sits, so
+     * this asserts all of them at once.
+     *
+     * Numerals in words, English and French, because that is how these
+     * files write it; a bare digit is too common to scan for.
+     */
+    public function testNoFileStatesAGateCountOtherThanTheRealOne(): void
+    {
+        $numerals = [
+            'four' => 4, 'five' => 5, 'six' => 6, 'seven' => 7, 'eight' => 8, 'nine' => 9,
+            'quatre' => 4, 'cinq' => 5, 'sept' => 7, 'huit' => 8, 'neuf' => 9,
+        ];
+        // « six » is the same word in both languages, so it is in the map once.
+        $expected = count(self::launchedKeys());
+        $root = dirname(__DIR__, 3);
+
+        // One sentence is exempt, and it is prose about the PAST: release.sh
+        // records that gate execution "used to be a parallel scheduler:
+        // seven gates in background subshells". It happens to say seven and
+        // means something else entirely. Matched on its own words so that
+        // the exemption cannot quietly cover a real claim.
+        $historical = 'used to be a parallel scheduler';
+
+        $wrong = [];
+        foreach ([
+            'AGENTS.md',
+            'README.md',
+            'docs/quality-pipeline.md',
+            'scripts/release.sh',
+            'scripts/release.test.sh',
+            'tests/Core/System/ReleaseGatesTest.php',
+            'tests/Architecture/ReleaseGatesAreLeftGreenTest.php',
+        ] as $file) {
+            $text = (string) file_get_contents($root . '/' . $file);
+
+            preg_match_all(
+                '/\b(' . implode('|', array_keys($numerals)) . ')\s+(gates|verrous)\b/iu',
+                $text,
+                $claims,
+                PREG_OFFSET_CAPTURE
+            );
+
+            foreach ($claims[0] as $index => [$phrase, $offset]) {
+                $sentence = substr($text, max(0, $offset - 400), 400);
+                if (str_contains($sentence, $historical)) {
+                    continue;
+                }
+                $stated = $numerals[strtolower($claims[1][$index][0])];
+                if ($stated !== $expected) {
+                    $wrong[] = "{$file}: « {$phrase} » while scripts/release.sh launches {$expected}";
+                }
+            }
+        }
+
+        $this->assertSame(
+            [],
+            $wrong,
+            "A gate count written in words is a claim about run_gate, and these disagree with it:\n  "
+            . implode("\n  ", $wrong)
+        );
     }
 
     /**

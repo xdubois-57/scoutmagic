@@ -44,9 +44,9 @@ class ReviewReminderHandler implements TaskHandlerInterface
         $service = new ReviewNotificationService(
             new CampRepository($pdo, $context->encryption),
             new SectionService(
-    new SectionRepository($context->connection),
-    new MemberProfileRepository($context->connection, $context->encryption, new MemberBadgeRepository($pdo))
-),
+                new SectionRepository($context->connection),
+                new MemberProfileRepository($context->connection, $context->encryption, new MemberBadgeRepository($pdo))
+            ),
             $context->userAccounts,
             $context->encryption,
             $pdo,

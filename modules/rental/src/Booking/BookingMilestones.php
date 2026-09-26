@@ -121,7 +121,13 @@ final class BookingMilestones
         );
 
         $milestones[] = self::extra($extras, $abandoned, self::CONTRACT_SENT, 'Contrat envoyé', $details);
-        $milestones[] = self::extra($extras, $abandoned, self::CONTRACT_ACCEPTED, 'Conditions et contrat acceptés', $details);
+        $milestones[] = self::extra(
+            $extras,
+            $abandoned,
+            self::CONTRACT_ACCEPTED,
+            'Conditions et contrat acceptés',
+            $details
+        );
         $milestones[] = self::extra($extras, $abandoned, self::DEPOSIT_RECEIVED, 'Acompte reçu', $details);
 
         $milestones[] = new BookingMilestone(
@@ -138,9 +144,21 @@ final class BookingMilestones
         $milestones[] = self::extra($extras, $abandoned, self::SECURITY_DEPOSIT_RECEIVED, 'Caution reçue', $details);
         $milestones[] = self::extra($extras, $abandoned, self::ARRIVAL_INVENTORY, "État des lieux d'entrée", $details);
         $milestones[] = self::extra($extras, $abandoned, self::METER_READINGS, 'Relevés de compteurs', $details);
-        $milestones[] = self::extra($extras, $abandoned, self::DEPARTURE_INVENTORY, 'État des lieux de sortie', $details);
+        $milestones[] = self::extra(
+            $extras,
+            $abandoned,
+            self::DEPARTURE_INVENTORY,
+            'État des lieux de sortie',
+            $details
+        );
         $milestones[] = self::extra($extras, $abandoned, self::FINAL_SETTLEMENT, 'Décompte final réglé', $details);
-        $milestones[] = self::extra($extras, $abandoned, self::SECURITY_DEPOSIT_RETURNED, 'Caution restituée', $details);
+        $milestones[] = self::extra(
+            $extras,
+            $abandoned,
+            self::SECURITY_DEPOSIT_RETURNED,
+            'Caution restituée',
+            $details
+        );
 
         $milestones[] = new BookingMilestone(
             'closed',

@@ -4,12 +4,13 @@ set -euo pipefail
 # Usage: ./scripts/release.sh [--minor|--major] [--notes-file <path>]
 #                             [--skip-deployment-check] [--skip-ci-gate]
 #                             [--skip-security-gate] [--skip-dependency-check]
-#                             [--skip-sonar-gate]
+#                             [--skip-sonar-gate] [--skip-sources-gate]
 # Default: increments patch level, computes release notes from the commit
 # list (fetched via the same GitHub API `--generate-notes` itself calls),
-# and requires five gates to pass, in order, before anything is committed
+# and requires seven gates to pass, in order, before anything is committed
 # or tagged: deployment, continuous integration, security, dependency
-# freshness, SonarQube Cloud. Each finishes in seconds, each is a
+# freshness, deprecated browser API, SonarQube Cloud, external sources. Each finishes in seconds
+# (the last in under a minute), each is a
 # PRECONDITION rather than a statement about the code, and the release
 # stops at the first one that refuses.
 #
@@ -125,6 +126,11 @@ set -euo pipefail
 #                               needed: that gate already reports rather
 #                               than blocks when it cannot read the data.
 #                               See check_deprecated_api_gate.
+#   --skip-sources-gate        Bypass the external sources check (the
+#                               federation pages the site reads or links,
+#                               the provider consoles its help texts send
+#                               administrators to). Emergency use only —
+#                               prints a warning. See check_sources_gate.
 
 # Keep the machine awake for the whole run. The gates take about a minute
 # now, but the wait for the tag's Release workflow is the better part of
@@ -155,6 +161,7 @@ SKIP_DEPENDENCY_CHECK=0
 SKIP_DEPLOYMENT_CHECK=0
 SKIP_SONAR_GATE=0
 SKIP_DEPRECATED_API_GATE=0
+SKIP_SOURCES_GATE=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -172,9 +179,10 @@ while [[ $# -gt 0 ]]; do
         --skip-deployment-check) SKIP_DEPLOYMENT_CHECK=1; shift ;;
         --skip-sonar-gate) SKIP_SONAR_GATE=1; shift ;;
         --skip-deprecated-api-gate) SKIP_DEPRECATED_API_GATE=1; shift ;;
+        --skip-sources-gate) SKIP_SOURCES_GATE=1; shift ;;
         *)
             echo "ERROR: unknown argument: $1" >&2
-            echo "Usage: $0 [--minor|--major] [--notes-file <path>] [--skip-deployment-check] [--skip-ci-gate] [--skip-security-gate] [--skip-dependency-check] [--skip-sonar-gate] [--skip-deprecated-api-gate]" >&2
+            echo "Usage: $0 [--minor|--major] [--notes-file <path>] [--skip-deployment-check] [--skip-ci-gate] [--skip-security-gate] [--skip-dependency-check] [--skip-sonar-gate] [--skip-deprecated-api-gate] [--skip-sources-gate]" >&2
             exit 1
             ;;
     esac
@@ -708,14 +716,47 @@ check_sonar_gate() {
 }
 
 # ---------------------------------------------------------------
-# Gate execution — five gates, in this order, one after another, and
+# External sources gate (issue #355) — delegates to
+# scripts/check-external-sources.php, which fetches every page registered
+# in Core\ExternalSource\ExternalSources: the federation pages the site
+# reads or links (the fees page « Chercher les montants » reads, the
+# default age branch link, the RGPD policy, the contact page's link) and
+# the provider consoles and legal pages its help texts point to. It
+# refuses on any divergence — a page gone, a page that no longer says
+# what it must, the fees page's amounts no longer readable — because a
+# release is the moment a shipped default reaches every installed site.
+# The same script runs weekly (.github/workflows/external-sources-check.yml),
+# so a divergence found here should already have its issue.
+#
+# Last, because it is the one gate that depends on third parties'
+# websites rather than on this repository: whatever it says, the five
+# before it have already said everything about the code.
+# ---------------------------------------------------------------
+check_sources_gate() {
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    command -v php &> /dev/null || { echo "ERROR: php is required for the external sources gate." >&2; exit 1; }
+    # errexit is off here (see run_gate), so the failure is propagated by
+    # hand, exactly as check_sonar_gate does. The script prints its own
+    # report, divergences first.
+    php "${script_dir}/check-external-sources.php" || {
+        echo "ERROR: release blocked by the external sources gate — see the divergences above." >&2
+        echo "Fix the register or the code that depends on the page (the weekly check's issue says how), or re-run with --skip-sources-gate to bypass (emergency use only)." >&2
+        exit 1
+    }
+    echo "vérifié — pages fédérales disponibles et conformes (contenu attendu, montants de la page des cotisations lisibles), liens vers les consoles et pages légales des fournisseurs vivants." > "${GATE_REPORT_FILE}"
+}
+
+# ---------------------------------------------------------------
+# Gate execution — seven gates, in this order, one after another, and
 # the release stops at the first one that refuses.
 #
 # They are ordered by what they are about rather than by cost, because
 # each one costs seconds: is production ready for a new version, has
 # this commit been judged, is anything shipped known-vulnerable, is
-# anything shipped out of date, is the analysis clean. Nothing here
-# runs a test — see the header for where the tests run and why that is
+# anything shipped out of date, is the analysis clean, do the pages
+# outside this site still say what it assumes. Nothing here runs a
+# test — see the header for where the tests run and why that is
 # the more trustworthy answer.
 #
 # This used to be a parallel scheduler: seven gates in background
@@ -723,7 +764,7 @@ check_sonar_gate() {
 # fought over the same local MySQL server, and a collection loop that
 # reported every failure together. All of it existed to overlap runs
 # measured in tens of minutes. With none of those left, the machinery
-# would be a page of orchestration for five checks that finish before
+# would be a page of orchestration for six checks that finish before
 # it could have forked them.
 #
 # Each gate still runs in a subshell under `set +e`, because several are
@@ -812,6 +853,13 @@ else
     run_gate sonar "SonarQube Cloud" check_sonar_gate
 fi
 
+if [[ "${SKIP_SOURCES_GATE}" -eq 1 ]]; then
+    echo "WARNING: --skip-sources-gate used — the federation pages and provider consoles the site depends on were NOT checked for this release. Emergency use only: run php scripts/check-external-sources.php right after publishing." >&2
+    SOURCES_GATE_REPORT_LINE="ignoré (\`--skip-sources-gate\`) — à vérifier manuellement."
+else
+    run_gate sources "External sources" check_sources_gate
+fi
+
 echo ""
 echo "Every gate passed. Committing the version, tagging, and handing over to the Release workflow."
 
@@ -821,6 +869,7 @@ SECURITY_GATE_REPORT_LINE="${SECURITY_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/s
 DEPENDENCY_GATE_REPORT_LINE="${DEPENDENCY_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/dependency.report" 2>/dev/null)}"
 DEPRECATED_API_GATE_REPORT_LINE="${DEPRECATED_API_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/deprecated_api.report" 2>/dev/null)}"
 SONAR_GATE_REPORT_LINE="${SONAR_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/sonar.report" 2>/dev/null)}"
+SOURCES_GATE_REPORT_LINE="${SOURCES_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/sources.report" 2>/dev/null)}"
 
 GATE_REPORT="- **Déploiement** : ${DEPLOYMENT_GATE_REPORT_LINE}
 - **Intégration continue** : ${CI_GATE_REPORT_LINE}
@@ -828,6 +877,7 @@ GATE_REPORT="- **Déploiement** : ${DEPLOYMENT_GATE_REPORT_LINE}
 - **Dépendances** : ${DEPENDENCY_GATE_REPORT_LINE}
 - **API navigateur dépréciée** : ${DEPRECATED_API_GATE_REPORT_LINE}
 - **SonarQube Cloud** : ${SONAR_GATE_REPORT_LINE}
+- **Sources externes** : ${SOURCES_GATE_REPORT_LINE}
 "
 
 rm -rf "${GATE_TMP_DIR}"
