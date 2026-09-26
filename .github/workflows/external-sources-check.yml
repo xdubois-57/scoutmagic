@@ -199,7 +199,10 @@ jobs:
             stamp="<!-- external-source-fingerprint:${fingerprint} -->"
 
             finding="$(printf '%s' "${FINDINGS}" | jq -c --arg id "${id}" \
-              '[.findings[]? | select(.source == $id)][0] // empty' 2>/dev/null || true)"
+              '[.findings[]? | select(.source == $id
+                  and (.title | type) == "string" and (.title | length) > 0
+                  and (.body | type) == "string" and (.body | length) > 0)][0] // empty' \
+              2>/dev/null || true)"
             if [ -n "${finding}" ]; then
               title="$(printf '%s' "${finding}" | jq -r '.title | gsub("[\\r\\n]+"; " ") | .[0:150]')"
               analysis="$(printf '%s' "${finding}" | jq -r '.body')"
