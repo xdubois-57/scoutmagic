@@ -123,35 +123,114 @@ class DkimManagerTest extends TestCase
         $inTheWay = $this->manager->getPrivateKeyPath();
         mkdir($inTheWay, 0700, true);
 
-        // `rename()` raises a PHP warning of its own before returning
-        // false, and this test is the only thing that provokes it. Swallowed
-        // HERE rather than with a `@` in the manager, because the warning is
-        // wanted in production — it names the path — and because phpunit.xml
-        // says in as many words that the six warnings left in this suite are
-        // a debt someone means to pay down, not a number to add to.
-        $swallowed = null;
-        set_error_handler(function (int $level, string $message) use (&$swallowed): bool {
-            $swallowed = $message;
+        $warning = $this->refusing(
+            fn() => $this->manager->replaceKey(),
+            'Cannot put the new DKIM key in place.'
+        );
+
+        // And the warning really was the rename refusing — not some other
+        // failure this test would otherwise have counted as its own.
+        $this->assertStringContainsString('Is a directory', (string) $warning);
+
+        $this->assertDirectoryExists($inTheWay, 'the live path was disturbed by a failed rotation');
+        $this->assertSame([], $this->leftoverTemporaries(), 'a *.new file survived a FAILED rotation');
+    }
+
+    /**
+     * A file where the key DIRECTORY belongs — a deployment that unpacked
+     * over `storage/`, or a `dkim` that was once something else.
+     *
+     * Reachable, unlike the four refusals around it (OpenSSL unavailable, a
+     * short write, a `chmod` that fails): each of those needs a machine
+     * state this suite cannot produce, and `mkdir` over an existing name
+     * fails for everybody.
+     */
+    public function testTheKeyDirectoryCannotBeCreatedOverAFileOfThatName(): void
+    {
+        file_put_contents($this->tempDir . '/dkim', 'not a directory');
+
+        $this->refusing(
+            fn() => $this->manager->generateKey(),
+            'Cannot create the DKIM key directory: ' . $this->tempDir . '/dkim'
+        );
+    }
+
+    /**
+     * `getPublicKey()` is where `publicHalfOf()`'s refusals become
+     * reachable, and the reason it delegates to it: from the write path the
+     * file being reloaded was written a line earlier, so it is readable and
+     * it parses, and neither `throw` could be exercised at all.
+     *
+     * **It is the PARSE that refuses a directory, not the read** — which is
+     * the opposite of what this test first asserted. `file_get_contents()`
+     * on a directory does not return `false`: it raises a NOTICE
+     * (`errno=21 Is a directory`) and hands back an EMPTY STRING, which then
+     * fails to parse as a key. So the `=== false` branch above it stays
+     * unreachable from both callers, and is kept as the guard on a contract
+     * `file_get_contents()` still has rather than as a path anything here
+     * covers.
+     */
+    public function testGetPublicKeyRefusesAKeyPathThatHasBecomeADirectory(): void
+    {
+        mkdir($this->manager->getPrivateKeyPath(), 0700, true);
+
+        $warning = $this->refusing(
+            fn() => $this->manager->getPublicKey(),
+            'The DKIM private key at ' . $this->manager->getPrivateKeyPath() . ' cannot be parsed.'
+        );
+
+        $this->assertStringContainsString('Is a directory', (string) $warning);
+    }
+
+    public function testGetPublicKeyRefusesAFileThatIsNotAKey(): void
+    {
+        $this->manager->generateKey();
+        file_put_contents($this->manager->getPrivateKeyPath(), "-----BEGIN PRIVATE KEY-----\ntruncated\n");
+
+        $this->refusing(
+            fn() => $this->manager->getPublicKey(),
+            'The DKIM private key at ' . $this->manager->getPrivateKeyPath() . ' cannot be parsed.'
+        );
+    }
+
+    /**
+     * Runs `$attempt`, requires it to refuse with exactly `$message`, and
+     * returns the PHP warning it swallowed on the way, if any.
+     *
+     * They are swallowed HERE rather than with an `@` in the manager:
+     * `rename()`, `mkdir()` and `file_get_contents()` each name the offending
+     * path in theirs, which is worth having in a production log — and
+     * phpunit.xml says in as many words that the six warnings left in this
+     * suite are a debt someone means to pay down, not a number to add to.
+     *
+     * **`E_NOTICE` is in the mask, and it has to be.** The three do not agree
+     * on a level: `rename()` and `mkdir()` raise `E_WARNING`, while
+     * `file_get_contents()` reporting `errno=21 Is a directory` raises an
+     * `E_NOTICE`. A mask of `E_WARNING` alone let that one through to the
+     * suite's output and returned null here, which read as « no diagnostic
+     * was raised » — the opposite of what happened.
+     *
+     * @param callable():mixed $attempt
+     */
+    private function refusing(callable $attempt, string $message): ?string
+    {
+        $warning = null;
+        set_error_handler(function (int $level, string $raised) use (&$warning): bool {
+            $warning = $raised;
 
             return true;
-        }, E_WARNING);
+        }, E_WARNING | E_NOTICE);
 
         try {
-            $this->manager->replaceKey();
-            $this->fail('replaceKey() reported success over a path it cannot rename onto');
-        } catch (\RuntimeException $failure) {
-            $this->assertSame('Cannot put the new DKIM key in place.', $failure->getMessage());
+            $attempt();
+            $this->fail('Expected a RuntimeException: ' . $message);
+        } catch (\RuntimeException $refusal) {
+            $this->assertSame($message, $refusal->getMessage());
         } finally {
             restore_error_handler();
         }
 
-        // And the warning really was the rename refusing — not some other
-        // failure this test would otherwise have counted as its own.
-        $this->assertIsString($swallowed);
-        $this->assertStringContainsString('Is a directory', $swallowed);
-
-        $this->assertDirectoryExists($inTheWay, 'the live path was disturbed by a failed rotation');
-        $this->assertSame([], $this->leftoverTemporaries(), 'a *.new file survived a FAILED rotation');
+        return $warning;
     }
 
     /** @return string[] the temporary names `writeNewKey()` writes under */

@@ -131,17 +131,38 @@ class DkimManager
 
     /**
      * The public half of the key stored at `$path`, read from the file.
+     *
+     * **One implementation for two callers, and that is the point.** This
+     * began as a copy of `getPublicKey()`'s tail, written for
+     * `writeNewKey()`'s read-back — and a second copy of « read the file,
+     * parse it, extract the public half » is a second place for the two to
+     * drift. It was also the part nothing could test: from the write path
+     * the reload only ever runs on a file this class has just written, so
+     * neither refusal below was reachable. Through `getPublicKey()` both
+     * are, because there the file is whatever is on disk: a key path that
+     * has become a directory, and a key file whose contents are not a key.
+     *
+     * The messages name the path rather than saying « just written », which
+     * they can no longer promise — and which the caller that *has* just
+     * written it says for itself, one line later.
+     *
+     * The `false` from `file_get_contents()` stays uncovered on purpose: a
+     * directory in the key's place does not produce it — the call raises a
+     * notice and returns an EMPTY string, which the parse below refuses instead
+     * (`DkimManagerTest::testGetPublicKeyRefusesAKeyPathThatHasBecomeADirectory()`
+     * pins exactly that). It is kept as the guard on a contract the function
+     * still has, not as a branch anything reaches.
      */
     private function publicHalfOf(string $path): string
     {
         $stored = file_get_contents($path);
         if ($stored === false) {
-            throw new \RuntimeException('Cannot read back the DKIM private key just written.');
+            throw new \RuntimeException('Cannot read the DKIM private key at ' . $path . '.');
         }
 
         $reloaded = openssl_pkey_get_private($stored);
         if ($reloaded === false) {
-            throw new \RuntimeException('The DKIM private key just written cannot be read back.');
+            throw new \RuntimeException('The DKIM private key at ' . $path . ' cannot be parsed.');
         }
 
         return $this->extractPublicKey($reloaded);
@@ -170,19 +191,7 @@ class DkimManager
             throw new \RuntimeException('No DKIM private key found.');
         }
 
-        $privateKey = file_get_contents($path);
-
-        if ($privateKey === false) {
-            throw new \RuntimeException('Cannot read DKIM private key.');
-        }
-
-        $keyResource = openssl_pkey_get_private($privateKey);
-
-        if ($keyResource === false) {
-            throw new \RuntimeException('Invalid DKIM private key.');
-        }
-
-        return $this->extractPublicKey($keyResource);
+        return $this->publicHalfOf($path);
     }
 
     /**
