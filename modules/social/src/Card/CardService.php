@@ -86,7 +86,8 @@ class CardService
         // a file no row points to, which nothing would ever delete.
         $cardId = $this->cards->create(self::hash($token), $fileName, $fromGallery, $now, $expiresAt);
         $path = $this->directory . '/' . $fileName;
-        if (@file_put_contents($path, $jpeg) === false) {
+        // A short write (a full disk) returns a byte count, not false.
+        if (@file_put_contents($path, $jpeg) !== strlen($jpeg)) {
             // A failed write can still leave part of a file. It goes first;
             // if it cannot, the row stays, and the purge — which removes
             // the file before the row — tries again once it has expired.
