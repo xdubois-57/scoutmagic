@@ -116,12 +116,16 @@ final class ReleaseGatesAreLeftGreenTest extends TestCase
     }
 
     /**
-     * Same shape as the rest of the section: the work is cut into blocks,
-     * and these two are blocks of their own. A lockfile bump inside an
-     * issue's pull request is a diff a reviewer is holding for a
-     * different reason.
+     * Each of these two is its OWN pull request. A lockfile bump inside a
+     * ticket's pull request is a diff a reviewer is holding for a different
+     * reason.
+     *
+     * This said « cut into blocks » until 2026-09-25, when the backlog
+     * stopped being cut that way — the assertion below was updated then and
+     * this wording was not, which is the drift the rest of that change was
+     * spent removing.
      */
-    public function testThisWorkIsItsOwnBlockRatherThanAnAdditionToAnother(): void
+    public function testThisWorkIsItsOwnPullRequestRatherThanAnAdditionToAnother(): void
     {
         $this->assertStringContainsString(
             '**Dependency work and SonarQube Cloud work are each their own pull',

@@ -487,9 +487,14 @@ server-side where a label or an assignee is not.
 3. **Put `status:in-progress` on the issue if that label exists**, so the
    issue list says what is being worked on. It is a signal for whoever is
    reading, never a lock — step 2 is the lock, and the work proceeds
-   identically without the label. Do not stop over a missing one: it is owned
-   by `scripts/sync-issue-labels.sh`, which needs `gh` and so cannot be run
-   from a remote session — say it is missing in your report and carry on.
+   identically without the label. **If it does not exist, do not create it,
+   and do not let the API create it for you** — adding an unknown label to an
+   issue mints it with an arbitrary colour and no description, which is the
+   hand-made GitHub configuration `scripts/sync-issue-labels.sh` exists to
+   replace (docs/quality-pipeline.md § the issue triage taxonomy). Read the
+   label first; if it is missing, say so in your report and carry on without
+   it. The script owns it, and it needs `gh`, which a remote session has not
+   got.
    Take it off when the pull request merges, or when you give the ticket up.
 
 4. **Fix it**, under the rules in this file: a test alongside the fix,
@@ -610,9 +615,17 @@ server-side where a label or an assignee is not.
    which is still open is the backlog lying about itself; one closed with
    nothing written on it is the backlog being rude.
 
+   **And delete `claude/issue-<n>`.** Nothing here deletes a head branch on
+   merge — this repository carries hundreds of them — so the claim would
+   outlive the work it stood for, and a ticket reopened later would answer
+   « Reference already exists » to every agent for ever, reported at step 8
+   as held by somebody who finished months ago.
+
 8. **Back to step 1.** When no accepted issue is left that you can take,
    **stop and report**: what you delivered, which tickets you skipped as
-   unclear, and which ones another agent held — that last list is where a
+   unclear, **which one you are still waiting on an answer for** — it keeps
+   its claim and its label, so no other agent can take it and only this
+   report makes it visible — and which ones another agent held — that last list is where a
    branch nobody is working on any more becomes visible, and it is the only
    place any of this is mentioned. Do not idle waiting for the label to
    appear on something new.
