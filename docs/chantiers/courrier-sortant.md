@@ -1407,10 +1407,11 @@ faut » de « rien n'entre jamais dedans ».
   la demande : l'absence est plus sûre que le défaut. **Sans ticket,
   délibérément** : ouvrir une issue pour une fonctionnalité que l'on ne
   veut pas, c'est la faire revenir.
-- Le rattachement d'un rebond à une sonde précise. Le code est déjà
-  reconnaissable (`MailProbeSender::codeIn()`, préfixe `SM-` distinct du
-  `RET-` d'IT-03) ; ce qui manque est le lecteur de `delivery-status`,
-  qui est le sujet d'IT-05. **Suivi en #419.**
+- ~~Le rattachement d'un rebond à une sonde précise.~~ **Livré, #419.** Le
+  lecteur de `delivery-status` d'IT-05 appelle `codeIn()` sur le corps du
+  rebond et pose sur la ligne de la sonde la **catégorie** et le code d'état
+  — jamais le motif verbatim, que `DeliveryStatusReport` lit et jette parce
+  qu'il recite l'adresse. Voir le récapitulatif d'IT-05 ci-dessous.
 
 ---
 
@@ -2084,9 +2085,30 @@ fournisseur est ce fournisseur qui refuse l'unité.
 
 ### Reporté
 
-- Le rattachement d'un rebond à une sonde précise reste possible
-  (`MailProbeSender::codeIn()`), et reste sans intérêt tant que personne ne
-  le demande. **Suivi en #419**, avec le report jumeau d'IT-04.
+- ~~Le rattachement d'un rebond à une sonde précise.~~ **Livré, #419**, avec
+  le report jumeau d'IT-04.
+
+  Le mécanisme avait été laissé en place exprès, et il l'était vraiment :
+  `codeIn()` savait déjà lire le code, `mail_probes` portait déjà
+  `idx_mail_probes_code` sans que rien s'en serve, et le docblock de
+  `subjectFor()` annonçait ce rattachement. `BounceConsumer::analyze()`
+  cherche le code dans le corps du rebond qu'il vient de lire et appelle
+  `MailProbeRepository::recordBounce()`.
+
+  **Ce qui est posé est la catégorie et le code d'état, pas le motif.** Le
+  ticket demandait « le motif exact renvoyé par le serveur distant » ;
+  `DeliveryStatusReport` interdit explicitement de le mettre à l'écran ou
+  dans un journal, parce qu'il recite l'adresse du destinataire et que
+  `mail_probes.destination_encrypted` est chiffrée pour cette raison même.
+  « Adresse inexistante (5.1.1) » dit la même chose utile sans remettre une
+  adresse en clair à côté de sa version chiffrée.
+
+  **L'absence de rattachement reste un état normal de la page.** Un serveur
+  qui refuse avant de citer le message refusé ne renvoie aucun code ; un code
+  peut appartenir à une sonde purgée ; une réponse humaine cite le code sans
+  être un rebond. Dans les trois cas la page dit ce que l'opérateur a vu, et
+  le motif s'ajoute au verdict au lieu de le remplacer : « Jamais reçu » et
+  « Adresse inexistante » sont l'observation et sa raison.
 
 ---
 

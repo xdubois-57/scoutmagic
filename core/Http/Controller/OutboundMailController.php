@@ -2321,10 +2321,18 @@ class OutboundMailController extends AbstractController
      * support package all the same, because those are read elsewhere and
      * kept far longer.
      *
+     * `bounce` is the one field that can be filled while `verdict` is not,
+     * and the page shows both (issue #419). They answer different questions:
+     * the verdict is what a person saw in the mailbox, the bounce is what the
+     * far end said before there was anything to see. « Jamais reçu » next to
+     * « Adresse inexistante (5.1.1) » is not a contradiction — it is the
+     * operator's observation and its reason, and a page that showed only one
+     * would drop the half somebody came for.
+     *
      * @param list<\Core\Mail\Probe\MailProbe> $probes
      * @return list<array{id: int, code: string, destination: string, provider: string, lane: string,
      *     sent_at: string, verdict: ?string, verdict_label: ?string, verdict_badge: ?string,
-     *     guidance: ?string}>
+     *     guidance: ?string, bounce: ?string, bounce_at: ?string}>
      */
     private function probeLines(array $probes): array
     {
@@ -2341,6 +2349,8 @@ class OutboundMailController extends AbstractController
                 'verdict_label' => $probe->verdict?->label(),
                 'verdict_badge' => $probe->verdict?->badge(),
                 'guidance' => $probe->verdict?->guidance(),
+                'bounce' => $probe->bounce?->label(),
+                'bounce_at' => $probe->bounce?->at->format('d/m/Y à H:i'),
             ];
         }
 
