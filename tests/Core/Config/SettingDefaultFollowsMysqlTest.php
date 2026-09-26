@@ -108,14 +108,14 @@ class SettingDefaultFollowsMysqlTest extends TestCase
     {
         $this->repository->insert(null, 'cased', 'https://old.example/p', 'url', 'L', 'D', null, null, true, 0);
         $this->repository->updateValue(null, 'cased', 'HTTPS://OLD.EXAMPLE/P');
-        $this->repository->insert(null, 'padded', 'weekly', 'text', 'L', 'D', null, null, true, 0);
-        $this->repository->updateValue(null, 'padded', 'weekly ');
+        $this->repository->insert(null, 'padded', 'https://old.example/p', 'url', 'L', 'D', null, null, true, 0);
+        $this->repository->updateValue(null, 'padded', 'https://old.example/p ');
 
         $this->repository->updateDefaultValue(null, 'cased', 'https://new.example/p');
-        $this->repository->updateDefaultValue(null, 'padded', 'monthly');
+        $this->repository->updateDefaultValue(null, 'padded', 'https://new.example/p');
 
         $this->assertSame('HTTPS://OLD.EXAMPLE/P', $this->valueOf(null, 'cased'));
-        $this->assertSame('weekly ', $this->valueOf(null, 'padded'));
+        $this->assertSame('https://old.example/p ', $this->valueOf(null, 'padded'));
     }
 
     public function testASecretIsNeverMoved(): void

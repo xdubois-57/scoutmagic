@@ -688,12 +688,12 @@ function e2eProvision(string $repoRoot, string $instanceDir, int $port): void
     // registers it at boot, later than this) — with the DECLARED default,
     // the one index.php registers, and the harness's value written over it
     // afterwards. Registering the harness's value as the default is what
-    // this used to do, and it stopped being safe with issue #355: index.php's
-    // register() then sees the default move, finds the value still equal to
-    // the « old default », takes it for never customised and moves it to
-    // the real destination (SettingRepository::updateDefaultValue()). A
-    // value that differs from its declared default is a customised one, and
-    // that is what a harness pin is.
+    // this used to do, and it stopped being safe with issue #355: a `url`
+    // setting whose value still equals the default being replaced follows
+    // the new one (SettingRepository::updateDefaultValue()), so index.php's
+    // register() would have moved this pin to the real destination. A
+    // value that differs from its declared default is a customised one,
+    // and that is what a harness pin is.
     $settingService = new Core\Config\SettingService(new Core\Config\SettingRepository($connection->getPdo()));
     $settingService->register(
         'statistics_destination',
@@ -735,10 +735,10 @@ function e2eProvision(string $repoRoot, string $instanceDir, int $port): void
     // failing specs interleaved, so nothing was wedged and nothing was
     // slow: the ground had moved.
     //
-    // Registered with its declared default and then set, for the same
-    // reason as statistics_destination above: public/index.php registers
-    // this key at boot, later than this, and a pin registered AS the
-    // default would be taken for a never-customised value and moved.
+    // Registered rather than set, for the same reason as
+    // statistics_destination above: public/index.php registers this key at
+    // boot, later than this, so the insert here carries the value and
+    // index.php's own register() then only refreshes default_value.
     //
     // specs/scout-year-transition.spec.js still moves this year forward on
     // purpose, through the real admin page (Core\ScoutYear\
@@ -746,7 +746,7 @@ function e2eProvision(string $repoRoot, string $instanceDir, int $port): void
     // the STARTING state that scenario expects, not a lock on it.
     $settingService->register(
         Core\ScoutYear\ScoutYearResolver::SETTING_PUBLIC_YEAR,
-        '0',
+        (string) (new Core\Config\ScoutYearService($connection->getPdo()))->getCurrentYear()['id'],
         'number',
         'Année scoute publique (ID)',
         'Identifiant de l\'année scoute vue par tout le monde. Épinglée par le harnais E2E sur '
@@ -757,10 +757,6 @@ function e2eProvision(string $repoRoot, string $instanceDir, int $port): void
         null,
         false,
         210
-    );
-    $settingService->setInternal(
-        Core\ScoutYear\ScoutYearResolver::SETTING_PUBLIC_YEAR,
-        (string) (new Core\Config\ScoutYearService($connection->getPdo()))->getCurrentYear()['id']
     );
 
     // « Le saviez-vous ? » OFF in the fixture, and this is a decision about
@@ -781,11 +777,11 @@ function e2eProvision(string $repoRoot, string $instanceDir, int $port): void
     // fixture pins the scout year rather than letting the calendar move
     // under a run.
     //
-    // Registered with its declared default and then set, for the same
-    // reason as the two keys above.
+    // Registered rather than set, for the same reason as the two keys
+    // above: public/index.php registers this one at boot, later than this.
     $settingService->register(
         Core\Help\Discovery\DiscoveryService::SETTING_ENABLED,
-        '1',
+        '0',
         'boolean',
         'Astuces de découverte',
         "Éteintes par le harnais E2E : la fenêtre s'ouvre sur chaque page tant qu'elle n'a pas été "
@@ -797,7 +793,6 @@ function e2eProvision(string $repoRoot, string $instanceDir, int $port): void
         true,
         297
     );
-    $settingService->setInternal(Core\Help\Discovery\DiscoveryService::SETTING_ENABLED, '0');
 
     $activated = e2eActivateAllModules(
         $repoRoot,

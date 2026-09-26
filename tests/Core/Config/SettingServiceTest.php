@@ -277,25 +277,45 @@ class SettingServiceTest extends TestCase
         $this->assertSame('changed', $row['default_value'] ?? null);
     }
 
+    /**
+     * Only a URL follows. The unit's name is registered with a default read
+     * from secrets.enc, per installation: an entry point that registers it
+     * with another default must not take the unit's name for an untouched
+     * value — the E2E suite once saw « Unité scoute » replace it.
+     */
+    public function testANonUrlSettingNeverFollowsItsDefault(): void
+    {
+        $this->service->register('site_name', 'Unité de test', 'text', 'Nom', 'Desc');
+
+        (new SettingService($this->repo))->register('site_name', 'Unité scoute', 'text', 'Nom', 'Desc');
+
+        $row = $this->repo->findByModuleAndKey(null, 'site_name');
+        $this->assertSame('Unité de test', $row['setting_value'] ?? null);
+        $this->assertSame('Unité scoute', $row['default_value'] ?? null);
+    }
+
     public function testAnEmptyOldDefaultAlsoMatchesANullValue(): void
     {
-        $this->service->register('optional', '', 'text', 'Optionnel', 'Desc');
+        $this->service->register('optional', '', 'url', 'Optionnel', 'Desc');
         $this->pdo->exec("UPDATE settings SET setting_value = NULL WHERE setting_key = 'optional'");
 
-        (new SettingService($this->repo))->register('optional', 'filled', 'text', 'Optionnel', 'Desc');
+        (new SettingService($this->repo))->register('optional', 'https://filled.example', 'url', 'Optionnel', 'Desc');
 
-        $this->assertSame('filled', $this->repo->findByModuleAndKey(null, 'optional')['setting_value'] ?? null);
+        $this->assertSame(
+            'https://filled.example',
+            $this->repo->findByModuleAndKey(null, 'optional')['setting_value'] ?? null
+        );
     }
 
     /** No old default on record: nothing says the value was never chosen. */
     public function testAValueIsNotMovedWhenTheOldDefaultWasNeverRecorded(): void
     {
-        $this->service->register('legacy', 'declared', 'text', 'Label', 'Desc');
+        $this->service->register('legacy', 'https://declared.example', 'url', 'Label', 'Desc');
         $this->pdo->exec("UPDATE settings SET default_value = NULL WHERE setting_key = 'legacy'");
 
-        (new SettingService($this->repo))->register('legacy', 'redeclared', 'text', 'Label', 'Desc');
+        (new SettingService($this->repo))->register('legacy', 'https://redeclared.example', 'url', 'Label', 'Desc');
 
-        $this->assertSame('declared', $this->repo->findByModuleAndKey(null, 'legacy')['setting_value'] ?? null);
+        $this->assertSame('https://declared.example', $this->repo->findByModuleAndKey(null, 'legacy')['setting_value'] ?? null);
     }
 
     /** The same service instance must not keep serving the value it moved. */

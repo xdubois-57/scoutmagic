@@ -114,8 +114,13 @@ class SettingRepository
      *   either way depending on how the row was created is not a choice;
      * - an old default of NULL (a row predating the column) matches
      *   nothing: there is no way to tell what the value was compared to;
-     * - a `secret` setting is never moved, whatever it holds — its value
-     *   is not the application's to rewrite (AGENTS.md § Setting types).
+     * - only a `url` setting follows. A URL default is a fact a release
+     *   ships (a federal page, a destination); other defaults can be
+     *   computed per installation — `site_name` is read from secrets.enc,
+     *   an E2E harness pins numbers and switches — and a second
+     *   registration with another default would take the unit's own value
+     *   for an untouched one and overwrite it. A `secret` is therefore
+     *   never moved either.
      */
     public function updateDefaultValue(?string $moduleId, string $key, string $defaultValue): void
     {
@@ -123,7 +128,7 @@ class SettingRepository
             ? 'CAST(setting_value AS BINARY) = CAST(default_value AS BINARY)'
             : 'setting_value = default_value';
 
-        $sql = "UPDATE settings SET setting_value = CASE WHEN setting_type <> 'secret' AND ({$sameBytes} "
+        $sql = "UPDATE settings SET setting_value = CASE WHEN setting_type = 'url' AND ({$sameBytes} "
             . "OR (default_value = '' AND setting_value IS NULL)) THEN ? ELSE setting_value END, "
             . 'default_value = ? WHERE setting_key = ? AND '
             . ($moduleId === null ? 'module_id IS NULL' : 'module_id = ?');
