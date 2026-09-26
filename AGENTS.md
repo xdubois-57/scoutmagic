@@ -478,17 +478,19 @@ server-side where a label or an assignee is not.
    second and both believe they won, and a push can succeed against a
    branch another agent created a moment ago and has not committed to yet.
 
-   On 422, move to the next issue and say nothing — a claim you lost is not
-   an event. The claim costs nothing, because the branch is the first thing
-   the work needed anyway.
+   On 422, move to the next issue and say nothing **as you pass** — a claim
+   you lost is not an event, and a running commentary on normal operation is
+   not a report. Step 8 is where they are named, once, at the end. The claim
+   itself costs nothing, because the branch is the first thing the work
+   needed anyway.
 
 3. **Put `status:in-progress` on the issue if that label exists**, so the
    issue list says what is being worked on. It is a signal for whoever is
    reading, never a lock — step 2 is the lock, and the work proceeds
    identically without the label. Do not stop over a missing one: it is owned
    by `scripts/sync-issue-labels.sh`, which needs `gh` and so cannot be run
-   from a remote session — say it is missing in your report and carry on. Take it off when the pull request
-   merges, or when you give the ticket up.
+   from a remote session — say it is missing in your report and carry on.
+   Take it off when the pull request merges, or when you give the ticket up.
 
 4. **Fix it**, under the rules in this file: a test alongside the fix,
    `vendor/bin/phpstan analyse` before committing PHP, `npm run typecheck`
@@ -596,8 +598,11 @@ server-side where a label or an assignee is not.
    nothing written on it is the backlog being rude.
 
 8. **Back to step 1.** When no accepted issue is left that you can take,
-   **stop and report**: what you delivered, and which tickets you skipped
-   and why. Do not idle waiting for the label to appear on something new.
+   **stop and report**: what you delivered, which tickets you skipped as
+   unclear, and which ones another agent held — that last list is where a
+   branch nobody is working on any more becomes visible, and it is the only
+   place any of this is mentioned. Do not idle waiting for the label to
+   appear on something new.
 
 **A ticket bigger than one reviewable pull request is delivered in
 several.** No pull request carries more than about **50 changed files**; a
@@ -625,14 +630,15 @@ is what a claim looks like for as long as step 4 lasts — reading the issue,
 writing the fix — and longer still when the ticket is parked on a question.
 From outside there is nothing that distinguishes it from a claim whose agent
 died, which is the same point step 2 makes to explain why a push is not a
-lock. So do not delete another agent's branch: **skip that ticket and name
-it in your report**, where a human clears it in seconds. A ticket that waits
-costs a sentence; a ticket taken from an agent still working on it costs two
-pull requests that fix the same thing differently.
+lock. So do not delete another agent's branch: skip that ticket, and name it
+in **step 8's report** rather than as you pass it — the same rule step 2
+gives, because it is the same observation. A human reading that report clears
+a genuinely dead branch in seconds. A ticket that waits costs a sentence; a
+ticket taken from an agent still working on it costs two pull requests that
+fix the same thing differently.
 
-The merge lock above is the one exception, and only on your own thirty
-minutes of waiting, because a stuck lock blocks every agent rather than one
-ticket.
+The merge lock above is the one exception, and only on your own ten minutes
+of waiting, because a stuck lock blocks every agent rather than one ticket.
 
 **Do not wait for the maintainer at any other point.** Not to start, not to
 merge, not to close, not between tickets. Report what you did afterwards; do
