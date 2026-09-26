@@ -1773,6 +1773,35 @@ complétées ; PHPStan est propre sans annotation de contournement.
 **Résultat mesuré** : de **12** branches jamais exécutées dans ce fichier à
 **2**.
 
+**Une erreur de cette itération, relevée en revue et corrigée ici** :
+
+Les deux tests de l'audience indisponible fabriquaient d'abord un état que
+la production ne peut pas atteindre. Ils supprimaient la ligne d'audience par
+un `DELETE` direct, laissant `mass_mail_emails.audience_id` pointer dans le
+vide — or une vraie purge passe par `AudienceRepository::deleteById()`, dont
+la **première** instruction met cette colonne à `NULL`, conformément au
+`ON DELETE SET NULL` du schéma et au commentaire qui l'accompagne
+(« the sent email itself lives on, merely unlinked »). Le schéma SQLite des
+tests déclare cette clé étrangère **sans action**, ce qui a rendu la
+fabrication possible et silencieuse.
+
+C'était donc un test qui certifiait la couverture d'un état impossible —
+exactement le défaut que cette itération corrige, réintroduit dans les tests
+écrits pour le fermer. Le commentaire de la branche nommait pourtant les deux
+cas : « a purged **or someone else's** audience ». Le second est atteignable,
+et c'est lui qui est testé maintenant : un chef d'unité prépare un
+publipostage pour une section avec le fichier qu'il a importé, un chef de
+cette section ouvre « Destinataires ». Le fixture construit donc un membre
+lié portant une fonction de section, puisque c'est par là que
+`findVisibleEmail()` admet un non-chef d'unité.
+
+Deux pièges rencontrés en le construisant, consignés pour la suite : chaque
+colonne chiffrée a son **propre** contexte (`member_years.first_name` et les
+autres), une erreur de contexte se manifestant par « Decryption failed » depuis
+les profondeurs du dépôt ; et Twig échappe « ' » en « &#039; », donc un
+fragment assertionné dans une page rendue ne doit pas porter d'apostrophe —
+le message du service en contient deux.
+
 **Non vérifiable, et pourquoi** :
 
 - **Les deux dernières branches ne sont pas atteignables par un test

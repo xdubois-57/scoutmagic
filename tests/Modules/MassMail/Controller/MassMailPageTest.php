@@ -843,15 +843,34 @@ class MassMailPageTest extends TestCase
     }
 
     // -----------------------------------------------------------------
-    // A mail merge whose audience is gone
+    // A mail merge whose audience the viewer may not read
     //
-    // Genuinely gone: the audience rows are deleted while the email keeps
-    // its audience_id, which is what a purge leaves behind.
+    // NOT a purged audience, and the distinction cost this section a
+    // rewrite. A real purge goes through AudienceRepository::deleteById(),
+    // whose FIRST statement sets mass_mail_emails.audience_id to NULL —
+    // matching the schema's own `ON DELETE SET NULL` and the comment beside
+    // it («  the sent email itself lives on, merely unlinked »). So a purge
+    // never leaves an email pointing at an audience that is gone, and the
+    // branch below is gated on exactly that pointer being non-null.
+    //
+    // The first version of these tests raw-DELETEd the audience row, which
+    // the SQLite test schema permits because it declares the foreign key
+    // without an action. That fabricated a state production cannot reach —
+    // which is the very defect issue #449 is about, reintroduced in the
+    // tests written to close it. A reviewer caught it.
+    //
+    // The reachable half is the other one the branch's own comment names:
+    // « a purged OR SOMEONE ELSE'S audience ». A unit chief prepares a mail
+    // merge for a section with the file they imported; a chief of that
+    // section opens « Destinataires ». The audience is there, and not
+    // theirs to read.
     // -----------------------------------------------------------------
 
-    public function testThePurgedAudienceIsNamedOnTheRecipientsPage(): void
+    public function testAnAudienceImportedBySomebodyElseIsReportedOnTheRecipientsPage(): void
     {
-        $email = $this->createMergeDraftOverPurgedAudience('Convocation');
+        $email = $this->createMergeDraftOwnedBySomebodyElse('Convocation');
+        $this->makeCurrentAccountAChiefOfItsSection();
+        AuthSession::login($this->accountId, 'chief@test.com', 'chief');
 
         $response = $this->controller->recipients(
             $this->get('/mass-mail/' . $email->id . '/recipients'),
@@ -864,16 +883,21 @@ class MassMailPageTest extends TestCase
         // time a test could read it the page has already shown it. Reading
         // the body is also the stronger question — whether the chief sees
         // it, not whether something was set.
+        // The fragment deliberately carries NO apostrophe: Twig escapes « ' »
+        // to « &#039; », so asserting the service's « quelqu'un d'autre »
+        // verbatim fails against a page that does show it.
         $this->assertStringContainsString(
-            'réimportez le fichier Excel',
+            'réimportez votre propre fichier',
             (string) $response->getBody(),
-            'the page opened without telling the chief the file has to come back'
+            'the page opened without telling the chief why it shows no audience'
         );
     }
 
-    public function testTheComposerOffersTheImportZoneAgainWhenTheAudienceIsGone(): void
+    public function testTheComposerOffersTheImportZoneAgainForAnAudienceNotYours(): void
     {
-        $email = $this->createMergeDraftOverPurgedAudience('Convocation');
+        $email = $this->createMergeDraftOwnedBySomebodyElse('Convocation');
+        $this->makeCurrentAccountAChiefOfItsSection();
+        AuthSession::login($this->accountId, 'chief@test.com', 'chief');
 
         $response = $this->controller->show($this->get('/mass-mail/' . $email->id), ['id' => (string) $email->id]);
 
@@ -1007,25 +1031,91 @@ class MassMailPageTest extends TestCase
     }
 
     /**
-     * A mail merge whose audience is genuinely gone: the audience row is
-     * deleted after the email was attached to it, which is what a purge
-     * leaves behind — an email still carrying an audience_id that resolves
-     * to nothing.
+     * A mail merge belonging to another account, with the audience that
+     * account imported — the legitimate state a unit chief leaves behind
+     * after preparing a section's mail merge.
      */
-    private function createMergeDraftOverPurgedAudience(string $subject): Email
+    private function createMergeDraftOwnedBySomebodyElse(string $subject): Email
     {
+        $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)')
+            ->execute(['x', 'blind-importer-' . uniqid()]);
+        $otherAccountId = (int) $this->pdo->lastInsertId();
+
         $audienceId = $this->audienceRepository->createAudience(
             'invites.xlsx',
             'Feuille1',
             ['Prénom', 'Email'],
             1,
-            $this->accountId
+            $otherAccountId
         );
-        $email = $this->createMergeDraft($subject, $audienceId);
 
-        $this->pdo->prepare('DELETE FROM mass_mail_audiences WHERE id = ?')->execute([$audienceId]);
+        return $this->massMailService->createDraft(
+            $subject,
+            '<p>Bonjour {{Prénom}}</p>',
+            $this->sectionId,
+            Email::LIST_TYPE_MAIL_MERGE,
+            null,
+            null,
+            [],
+            $otherAccountId,
+            new SenderAuthorization(true, [], null),
+            $audienceId
+        );
+    }
 
-        return $email;
+    /**
+     * Makes the signed-in account a chief OF THE EMAIL'S SECTION, which is
+     * how it can see somebody else's email at all: Controller\MassMail
+     * Controller::findVisibleEmail() admits a non-unit-chief either as the
+     * email's creator or through allowedListSectionIds, and those come from
+     * MassMailAccessService::getUserSectionIds() — a linked member with a
+     * function carrying that section's desk code. Built here rather than
+     * asserted, because without it the page under test answers 404 and the
+     * branch is never reached.
+     */
+    private function makeCurrentAccountAChiefOfItsSection(): void
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $blindIndex = $encryption->blindIndex(
+            EncryptionService::normalizeEmailForIndex('chief@test.com'),
+            'email'
+        );
+
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK-CHIEF-1')");
+        $memberId = (int) $this->pdo->lastInsertId();
+
+        $this->pdo->prepare(
+            'INSERT INTO member_years
+                (member_id, scout_year_id, first_name_encrypted, last_name_encrypted,
+                 email_encrypted, email_blind_index)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        )->execute([
+            $memberId,
+            $this->scoutYearId,
+            // Each column has its OWN encryption context, and a mismatch
+            // surfaces as « Decryption failed » from deep inside
+            // MemberProfileRepository rather than as a wrong value.
+            $encryption->encrypt('Chef', 'member_years.first_name'),
+            $encryption->encrypt('Exemple', 'member_years.last_name'),
+            $encryption->encrypt('chief@test.com', 'member_years.email'),
+            $blindIndex,
+        ]);
+        $memberYearId = (int) $this->pdo->lastInsertId();
+
+        $this->pdo->exec(
+            "INSERT INTO functions (desk_code, label, role, confirmed) VALUES ('Animateur', 'Animateur', 'chief', 1)"
+        );
+        $functionId = (int) $this->pdo->lastInsertId();
+
+        $sectionCode = (string) $this->pdo->query(
+            'SELECT desk_code FROM sections WHERE id = ' . $this->sectionId
+        )->fetchColumn();
+        self::assertSame('LOU01', $sectionCode, 'the fixture no longer matches the section it targets');
+
+        $this->pdo->prepare(
+            'INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function)
+             VALUES (?, ?, ?, 1)'
+        )->execute([$memberYearId, $functionId, $this->sectionId]);
     }
 
     /**
