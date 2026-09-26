@@ -7804,6 +7804,11 @@ $frontController->registerController(
             $mailTransport['delivery'],
             $mailProbeRepository,
             $twig,
+            // The send receipts (roadmap IT-05). A probe stamps its own,
+            // because its destination is never an address the site holds
+            // on file and `recordSend()` would otherwise refuse — leaving
+            // the probe's own bounce unbelieved and #419's tracing dead.
+            new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService),
             $journalService,
             $sendCounterRepository
         ),

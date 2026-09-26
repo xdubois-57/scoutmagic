@@ -80,6 +80,21 @@ final class MailProbeSender
         private MailTransportInterface $delivery,
         private MailProbeRepository $probes,
         private Environment $twig,
+        /**
+         * Where « the site wrote to this address » is written down
+         * (roadmap IT-05).
+         *
+         * **Required, not defaulted**, for §8.17's reason and #419's: a
+         * probe that cannot stamp its own receipt looks exactly like a
+         * probe that works, right up until its bounce is silently thrown
+         * away — which is what the review of #562 found. A fatal at boot
+         * costs less than a diagnostic that diagnoses nothing.
+         *
+         * **Before the two optional parameters below**, because both call
+         * sites build this positionally and a required parameter cannot
+         * follow an optional one anyway.
+         */
+        private \Core\Mail\Feedback\Bounce\BounceStateRepository $sendReceipts,
         private ?JournalService $journal = null,
         private ?SendCounterRepository $counters = null
     ) {
@@ -150,6 +165,45 @@ final class MailProbeSender
                 'La sonde n’a pas pu partir par ce fournisseur. Regardez la page « Fournisseurs ».',
                 previous: $e
             );
+        }
+
+        // **The receipt, and the probe stamps it itself.**
+        //
+        // `BounceStateRepository::record()` refuses a report for an address
+        // the site cannot show it wrote to, and `recordSend()` mints that
+        // proof only for an address the site already holds — which a probe
+        // destination is not: RGPD §2.9 says it is the administrator's own
+        // address, or the witness address of an outside analysis service.
+        // So nothing stamped it, `record()` answered null for the probe's
+        // own bounce, and #419's tracing could only fire for a destination
+        // that happened to be a member's with a recent unrelated send. The
+        // feature was dead for exactly the addresses probes exist for, and
+        // the review of #562 is what said so.
+        //
+        // **`vouchesForRecipient` on `MailService::send()` does not do it**,
+        // and that is deliberate on its part: it decides whether to CALL
+        // `recordSend()`, which then applies its own « is this address on
+        // file » test — two independent conditions, both of which must
+        // hold, so that aiming a send AT somebody else's on-file address
+        // cannot mint a receipt for them.
+        //
+        // This is the second case `$vouchedFor` was written for, the same
+        // shape as the mailing-list address its docblock names: an address
+        // living in this feature's OWN table, entered by a super-admin on a
+        // protected page, which this sender vouches for at its own send.
+        // The send is never automatic, so there is no path by which a
+        // visitor reaches it.
+        //
+        // After the send and never before, for `MailService`'s reason: a
+        // relay that refused the message wrote nothing, and a receipt for
+        // it would be a receipt for a message nobody sent.
+        try {
+            $this->sendReceipts->recordSend($destination, $now, vouchedFor: true);
+        } catch (\Throwable) {
+            // Best effort, like the journal below: the message is gone, and
+            // a receipt that could not be written must not turn a probe
+            // that left into a probe the operator is told failed. The cost
+            // is that this one probe's bounce will not be traced.
         }
 
         // **The message is gone from here on**, so nothing below may
