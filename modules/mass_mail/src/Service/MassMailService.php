@@ -771,6 +771,12 @@ class MassMailService
      *
      * @return array{count: int, kind: string} kind: 'members' | 'rows'
      * @throws MassMailException when the email doesn't exist
+     * @throws MailingListException when the list behind it can no longer be
+     *         resolved — an unknown custom list id, or the external list
+     *         after the module publishing it was disabled. Declared because
+     *         callers have to handle it: it was missing here, and
+     *         Controller\MassMailController caught only MassMailException
+     *         around this call as a result, so that case reached a 500.
      */
     public function estimateRecipientCount(int $id): array
     {
@@ -811,6 +817,9 @@ class MassMailService
      * kicked off here with an immediate first run.
      *
      * @throws MassMailException when the email doesn't exist or isn't in test
+     * @throws MailingListException when the list can no longer be resolved — the
+     *         freeze re-resolves it, so the same case that breaks the
+     *         estimate refuses the send here.
      */
     public function startSending(int $id, ?int $actorId): Email
     {
