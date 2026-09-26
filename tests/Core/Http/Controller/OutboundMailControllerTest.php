@@ -2807,35 +2807,47 @@ class OutboundMailControllerTest extends TestCase
     }
 
     /**
-     * And when the generation FAILS, the site is told it now signs nothing.
+     * **And when the generation fails, the old key is still signing.**
      *
-     * `deleteKey()` has already run by then — `DkimManager` has no API to
-     * mint into a temporary path and swap — so the failure leaves an
-     * installation with no key at all, which is worse than the rotation it
-     * refused and is invisible until a receiver bounces a message. The
-     * branch therefore owes three things, and this test holds all three:
-     * the remembered reading goes anyway (it described the key that is now
-     * gone), the journal records the failure, and the operator reads French
-     * rather than whatever OpenSSL says.
+     * This test used to assert the opposite, and it was right to: the
+     * rotation was `deleteKey()` then `generateKey()`, so a failure of the
+     * second left the installation with no key at all and the message had to
+     * say so. Issue #547 removed that state instead of describing it —
+     * `DkimManager::replaceKey()` writes the pair beside the live file and
+     * `rename()`s it into place, so a failure changes nothing.
      *
-     * Written because a reviewer read the branch, not because it fired:
-     * `docs` issue #449 counts 328 `catch` blocks this suite has never
-     * executed, and a branch nobody runs is a message nobody has read.
+     * Two assertions are the whole point, and neither existed before:
+     *
+     * 1. **the previous key is still there and still usable** — read back
+     *    through `getPublicKey()`, which parses the file rather than
+     *    trusting that it exists;
+     * 2. **the remembered DNS reading survived**, because it still describes
+     *    the key in service. Together with
+     *    testRegeneratingTheDkimKeyForgetsTheRememberedDnsReading() above —
+     *    where a rotation that SUCCEEDS loses the reading — this pair pins
+     *    the ORDER of the invalidation, which
+     *    `Tests\Architecture\DkimKeyChangeForgetsDnsTest` cannot: that guard
+     *    reads the whole method and accepts the call anywhere in it.
+     *
+     * The double overrides `replaceKey()` and not `generateKey()`, which is
+     * how this test caught its own staleness: left on `generateKey()`, the
+     * fake stopped refusing anything and the rotation quietly succeeded.
      */
-    public function testAFailedRegenerationSaysTheSiteNoLongerSignsAndForgetsTheReading(): void
+    public function testAFailedRegenerationLeavesTheOldKeySigningAndKeepsTheReading(): void
     {
         $this->settings->set('mail_from_address', 'info@unite.be');
         $this->settings->set('dkim_selector', 's2026');
         $this->dkim->generateKey();
+        $survivor = $this->dkim->getPublicKey();
         $this->controller->checkDns($this->formRequest([]), []);
         $this->assertStringContainsString(
             'Relevé du',
             (string) $this->controller->authentication($this->getRequest(), [])->getBody(),
-            'the fixture needs a remembered reading for its loss to be observable'
+            'the fixture needs a remembered reading for its survival to be observable'
         );
 
         $refuses = new class ($this->secretsDirectory) extends \Core\Mail\DkimManager {
-            public function generateKey(): string
+            public function replaceKey(): string
             {
                 throw new \RuntimeException('Failed to generate DKIM key pair: openssl_pkey_new(): unavailable');
             }
@@ -2852,9 +2864,9 @@ class OutboundMailControllerTest extends TestCase
         $flash = \Core\Http\FlashMessage::get();
         $this->assertSame('error', $flash['type'] ?? null);
         $this->assertStringContainsString(
-            'ne sont plus signés',
+            'toujours signés',
             (string) ($flash['message'] ?? ''),
-            'the message has to say what the failure LEFT, not only that it failed'
+            'the message has to say what the failure LEFT, and what it left is a working key'
         );
         $this->assertStringNotContainsString(
             'openssl_pkey_new',
@@ -2862,16 +2874,23 @@ class OutboundMailControllerTest extends TestCase
             'whatever OpenSSL says is English and technical, and it reached a visitor'
         );
 
-        $this->assertStringNotContainsString(
+        $this->assertTrue($this->dkim->hasKey(), 'the failed rotation took the key away');
+        $this->assertSame(
+            $survivor,
+            $this->dkim->getPublicKey(),
+            'the key on disk is no longer the one that was signing before the failed rotation'
+        );
+
+        $this->assertStringContainsString(
             'Relevé du',
             (string) $this->controller->authentication($this->getRequest(), [])->getBody(),
-            'the reading survived a rotation that removed the key it was taken against'
+            'a reading that still describes the key in service was thrown away'
         );
 
         $entries = $this->pdo->query(
             "SELECT event_type FROM event_log WHERE event_type = 'dkim_key_regeneration_failed'"
         )->fetchAll();
-        $this->assertCount(1, $entries, 'nothing recorded that this site stopped signing');
+        $this->assertCount(1, $entries, 'nothing recorded that the rotation failed');
     }
 
     /**
