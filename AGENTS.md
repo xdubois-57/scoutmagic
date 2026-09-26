@@ -493,7 +493,7 @@ decided it does not need one.
    and do not let the API create it for you** — adding an unknown label to an
    issue mints it with an arbitrary colour and no description, which is the
    hand-made GitHub configuration `scripts/sync-issue-labels.sh` exists to
-   replace (docs/quality-pipeline.md § the issue triage taxonomy). Read the
+   replace (docs/quality-pipeline.md § Labels). Read the
    label first; if it is missing, say so in your report and carry on without
    it. The script owns it, and it needs `gh`, which a remote session has not
    got.
