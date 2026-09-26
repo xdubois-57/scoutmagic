@@ -384,14 +384,47 @@ function deprecatedApiFetch(string $url): ?string
         return null;
     }
 
-    // No status-line inspection, on purpose. `ignore_errors` means an error
-    // response arrives as a body — but an error body is not this document:
-    // raw.githubusercontent answers a missing path with the plain text
-    // "404: Not Found", which fails to decode as JSON and lands in
-    // deprecatedApiVerdict()'s "the shape has moved" branch, reported as
-    // unverified. Reading $http_response_header to reach the same verdict
-    // would be a second mechanism for one outcome.
+    // `ignore_errors` means an error RESPONSE arrives as a body, so the status
+    // has to be read. An earlier version of this function skipped it and said
+    // so: the argument was that raw.githubusercontent answers a missing path
+    // with the plain text "404: Not Found", which fails to decode and lands in
+    // « the shape has moved » anyway. That is an assumption about how an
+    // external host formats its errors — a proxy or a mirror returning a JSON
+    // error page would have been decoded as the document — and it also made
+    // every HTTP failure report the wrong cause.
+    //
+    // $http_response_header is set in this function's own scope by the http
+    // wrapper, and a protocol that has no status line at all — `file://`, which
+    // is how the tests exercise this — leaves it UNDEFINED. Measured, because
+    // PHPStan models it as always defined and is wrong about that: after a
+    // `file://` read, `isset()` on it is false. Indexing it under `??`
+    // is what satisfies both — the operator suppresses the undefined-variable
+    // warning for its whole left side, so this yields null rather than a
+    // notice, and PHPStan sees no bare variable to object to.
+    if (!deprecatedApiIsSuccessfulStatus($http_response_header[0] ?? null)) {
+        return null;
+    }
+
     return $body;
+}
+
+/**
+ * Whether a status line says the body is the document that was asked for.
+ *
+ * Takes the line rather than reading `$http_response_header` itself, so every
+ * case can be asserted without standing up a server.
+ *
+ * **An absent line is not a failure.** A `file://` URL carries no status at
+ * all, and reading that as a refusal would reject the very fetch the tests
+ * use to prove this function works.
+ */
+function deprecatedApiIsSuccessfulStatus(?string $statusLine): bool
+{
+    if ($statusLine === null || $statusLine === '') {
+        return true;
+    }
+
+    return preg_match('#^HTTP/\S+\s+2\d\d#', $statusLine) === 1;
 }
 
 /**

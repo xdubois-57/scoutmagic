@@ -221,6 +221,46 @@ class ReleaseGatesTest extends TestCase
     }
 
     /**
+     * `docs/quality-pipeline.md`'s table of the gates — an EIGHTH place
+     * nothing connects, and it drifted the same way the README did.
+     *
+     * Adding the gate for issue #379 put a paragraph about it in that file
+     * while the sentence and the table four lines above still said « Five
+     * gates, all fail-closed » and listed five rows. The section contradicted
+     * itself, and a reviewer had to notice, having already had to notice the
+     * identical thing in the README. Once is an oversight; twice in one hour
+     * is a missing test.
+     *
+     * Rows rather than words here, because that file counts in English and
+     * writes the number as a numeral nowhere: the table is the claim.
+     */
+    public function testThePipelineDocTabulatesEveryGateTheScriptRuns(): void
+    {
+        $doc = (string) file_get_contents(dirname(__DIR__, 3) . '/docs/quality-pipeline.md');
+        $expected = count(self::launchedKeys());
+
+        $anchor = '| Gate | What it checks |';
+        $start = strpos($doc, $anchor);
+        self::assertIsInt($start, 'the gate table is gone from docs/quality-pipeline.md § Releases');
+
+        // The table runs to the first blank line after its header.
+        $table = substr($doc, $start + strlen($anchor));
+        $end = strpos($table, "\n\n");
+        $table = $end === false ? $table : substr($table, 0, $end);
+
+        // Its header separator is not a gate.
+        $rows = preg_match_all('/^\| \*\*/m', $table);
+
+        $this->assertSame(
+            $expected,
+            $rows,
+            "docs/quality-pipeline.md tabulates {$rows} gates while scripts/release.sh launches "
+            . "{$expected}. A gate described in that file's prose but missing from its table is a"
+            . ' section that contradicts itself.'
+        );
+    }
+
+    /**
      * What this script deliberately does NOT run, and what it reads
      * instead.
      *

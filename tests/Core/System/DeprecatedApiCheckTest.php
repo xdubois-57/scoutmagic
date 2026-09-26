@@ -212,6 +212,33 @@ class DeprecatedApiCheckTest extends TestCase
 
     // ————— Fetching, against a real stream —————
 
+    /**
+     * The status line decides whether the body is the document, and every
+     * case is asserted here because the function is pure — a non-2xx page
+     * that happens to be JSON would otherwise be decoded as MDN's data.
+     *
+     * An absent line is deliberately a success: a `file://` URL carries no
+     * status at all, and PHP leaves `$http_response_header` undefined for
+     * protocols that have none (measured — PHPStan models it as always
+     * defined and is wrong about that). Reading absence as a refusal would
+     * reject the very fetch the next test uses.
+     */
+    public function testOnlyASuccessfulStatusLineLetsTheBodyThrough(): void
+    {
+        $this->assertTrue(deprecatedApiIsSuccessfulStatus(null));
+        $this->assertTrue(deprecatedApiIsSuccessfulStatus(''));
+        $this->assertTrue(deprecatedApiIsSuccessfulStatus('HTTP/1.1 200 OK'));
+        $this->assertTrue(deprecatedApiIsSuccessfulStatus('HTTP/2 204 No Content'));
+
+        $this->assertFalse(deprecatedApiIsSuccessfulStatus('HTTP/1.1 404 Not Found'));
+        $this->assertFalse(deprecatedApiIsSuccessfulStatus('HTTP/1.1 502 Bad Gateway'));
+        $this->assertFalse(deprecatedApiIsSuccessfulStatus('HTTP/1.1 301 Moved Permanently'));
+        // Not a status line at all: refused rather than read as a success,
+        // because a body arriving without one from an HTTP fetch is not
+        // something this gate should trust.
+        $this->assertFalse(deprecatedApiIsSuccessfulStatus('200 OK'));
+    }
+
     public function testFetchingReturnsTheBodyOfAReadableUrl(): void
     {
         $path = dirname(__DIR__, 3) . '/tests/fixtures/mdn-document-compat.json';

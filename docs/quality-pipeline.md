@@ -22,7 +22,7 @@ catches what, and what each one cannot see.
 | **SonarQube Cloud** | CI; release gate | Quality, duplication, security hotspots | Intent |
 | **AI triage** | Every issue opened or reopened, plus a nightly pass over the untriaged backlog | Whether a report is a real defect, the one fact a blocked report is missing, and the workaround when the behaviour is correct — and, when the reporter cited a support ticket, what that site's anonymised logs show | Anything a running installation shows that its diagnostic archive does not — it reads the code and an extract, but reproduces nothing, changes nothing, and gates nothing |
 | **AI review** | Pull requests it is eligible for — not drafts, and `Claude review` not on forks | Cross-file reasoning, stale documentation, intent mismatches | Nothing reliably — it is a reader, not a gate |
-| **Release gates** | `scripts/release.sh` | Deployment state, the CI verdict on the released commit, security advisories, dependency freshness, Sonar | What the AI reviewers read — intent, cross-file reasoning, stale docs. It runs no test and no scan of its own: it reads the runner's verdict on all of them |
+| **Release gates** | `scripts/release.sh` | Deployment state, the CI verdict on the released commit, security advisories, dependency freshness, whether an engine has removed the deprecated browser API the editors need, Sonar | What the AI reviewers read — intent, cross-file reasoning, stale docs. It runs no test and no scan of its own: it reads the runner's verdict on all of them |
 | **Release workflow** | `.github/workflows/release.yml`, on the tag | The same gates a second time, on a runner nobody configured by hand, with each tool's native output kept, signed and attached to the Release | Nothing the gates themselves are blind to — it is a record of them, not a new judge |
 
 No single layer is trusted alone, and the ones that overlap do so on
@@ -1023,8 +1023,11 @@ acceptable only for a manual release — see the end of this section.
 security item: CodeQL alerts, Dependabot alerts, and active SonarQube Cloud
 findings. The gates below are the final check, not the fix.
 
-Five gates, all fail-closed, all run **before** any commit or tag, one
-after another, and the release stops at the first one that refuses:
+Six gates, all run **before** any commit or tag, one after another, and the
+release stops at the first one that refuses. Five of them fail closed; the
+sixth is the deprecated browser API gate, which reports « non vérifié »
+rather than refusing — see below for why, and § The failure mode this
+repository keeps meeting for what makes that safe:
 
 | Gate | What it checks |
 |---|---|
@@ -1032,6 +1035,7 @@ after another, and the release stops at the first one that refuses:
 | **Continuous integration** | `All checks` is green on the commit being released, and the working tree is clean |
 | **Security** | `composer audit`, `npm audit`, open CodeQL findings, open Dependabot alerts |
 | **Dependency freshness** | `composer outdated --direct`, and every vendored front-end library against its upstream release |
+| **Deprecated browser API** | `scripts/check-deprecated-api.php` — whether any engine has removed `document.execCommand`, generic entry and per-command entries alike. The one gate that does not fail closed |
 | **SonarQube Cloud** | `scripts/check-sonar-release.sh` — see below |
 
 **None of them runs a test**, and that is the design rather than a gap.
