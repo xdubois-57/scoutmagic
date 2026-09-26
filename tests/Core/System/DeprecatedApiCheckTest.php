@@ -25,11 +25,19 @@ class DeprecatedApiCheckTest extends TestCase
 {
     /**
      * @param array<string, mixed> $support
+     * @param array<string, array<string, mixed>> $commands per-command support,
+     *        the sibling `__compat` entries MDN publishes under execCommand
      * @return array<string, mixed>
      */
-    private static function document(array $support): array
+    private static function document(array $support, array $commands = []): array
     {
-        return ['api' => ['Document' => ['execCommand' => ['__compat' => ['support' => $support]]]]];
+        $execCommand = ['__compat' => ['support' => $support]];
+
+        foreach ($commands as $command => $commandSupport) {
+            $execCommand[$command] = ['__compat' => ['support' => $commandSupport]];
+        }
+
+        return ['api' => ['Document' => ['execCommand' => $execCommand]]];
     }
 
     public function testASingleStatementWithNoRemovalIsSupported(): void
@@ -262,6 +270,112 @@ class DeprecatedApiCheckTest extends TestCase
         $this->assertSame(0, deprecatedApiExitCode(deprecatedApiUnverified('anything at all')));
     }
 
+    // ————— How many engines actually answered —————
+
+    public function testEnginesAreCountedOnlyWhenTheyCarryAVerdict(): void
+    {
+        $this->assertSame(0, deprecatedApiEnginesInspected([]));
+        $this->assertSame(1, deprecatedApiEnginesInspected(['chrome' => ['version_added' => '1']]));
+        // "mirror" defers to another entry, which is counted on its own line.
+        $this->assertSame(1, deprecatedApiEnginesInspected([
+            'chrome' => ['version_added' => '1'],
+            'chrome_android' => 'mirror',
+        ]));
+        // An engine this gate does not watch answers nothing it asked.
+        $this->assertSame(0, deprecatedApiEnginesInspected(['ie' => ['version_added' => '4']]));
+        $this->assertSame(1, deprecatedApiEnginesInspected([
+            'firefox' => [['version_added' => '69'], ['version_added' => '1', 'version_removed' => '69']],
+        ]));
+    }
+
+    /**
+     * THE REGRESSION TEST FOR THE GATE'S WORST FAILURE MODE.
+     *
+     * `support` present but empty passes the shape check, yields no removals,
+     * and used to come back as « supporté par 7 moteurs » — the size of a
+     * constant, with nothing read. Reporting seven verdicts from zero data is
+     * the exact thing this gate's own header says it refuses to do.
+     */
+    public function testDataCarryingNoWatchedEngineIsUnverifiedRatherThanSupported(): void
+    {
+        foreach ([
+            'support present but empty' => self::document([]),
+            'only engines this gate does not watch' => self::document([
+                'ie' => ['version_added' => '4'],
+                'opera' => ['version_added' => '9'],
+            ]),
+            'every entry a mirror, so nothing of its own' => self::document([
+                'chrome_android' => 'mirror',
+                'safari_ios' => 'mirror',
+            ]),
+        ] as $label => $data) {
+            $verdict = deprecatedApiVerdict($data);
+            $this->assertSame('unverified', $verdict['status'], $label);
+            $this->assertStringContainsString('no verdict for any of the', $verdict['message'], $label);
+        }
+    }
+
+    // ————— The per-command entries MDN publishes —————
+
+    /**
+     * `api.Document.execCommand` is not one entry: MDN gives several
+     * individual commands a `__compat` of their own as sibling keys. The
+     * first version of this gate read the generic one alone, so an engine
+     * dropping `insertHTML` — which the mass-mail chip insertion depends on —
+     * would have been reported as « supporté ».
+     */
+    public function testACommandTheProductIssuesIsReadFromItsOwnEntry(): void
+    {
+        $verdict = deprecatedApiVerdict(self::document(
+            ['chrome' => ['version_added' => '1']],
+            ['insertHTML' => ['chrome' => ['version_added' => '1', 'version_removed' => '150']]]
+        ));
+
+        $this->assertSame('blocked', $verdict['status']);
+        $this->assertStringContainsString("document.execCommand('insertHTML') in chrome (150)", $verdict['message']);
+        $this->assertStringContainsString('insertHTML', $verdict['report']);
+    }
+
+    /**
+     * And the other half of that rule: a per-command entry for a command
+     * NOTHING here issues must not block.
+     *
+     * Not hypothetical — it is today's data. `defaultParagraphSeparator`
+     * carries `version_removed: 79` for Edge (the EdgeHTML lineage ending at
+     * the Chromium switch) and `version_added: false` for Chrome and Safari.
+     * Reading every sibling entry rather than the product's own commands
+     * would abort every release over a capability the editors never ask for.
+     */
+    public function testACommandTheProductNeverIssuesDoesNotBlock(): void
+    {
+        $verdict = deprecatedApiVerdict(self::document(
+            ['chrome' => ['version_added' => '1']],
+            ['defaultParagraphSeparator' => ['edge' => ['version_added' => '≤18', 'version_removed' => '79']]]
+        ));
+
+        $this->assertSame('ok', $verdict['status']);
+    }
+
+    public function testTheFeatureWalkReportsWhatItReadAndHowMuch(): void
+    {
+        $read = deprecatedApiFeatureRemovals([
+            '__compat' => ['support' => ['chrome' => ['version_added' => '1']]],
+            'insertHTML' => ['__compat' => ['support' => ['firefox' => ['version_added' => '1']]]],
+            // No `__compat`, so nothing to read and nothing claimed.
+            'copy' => ['something_else' => true],
+            // A `__compat` with no `support` in it: the same answer, reached
+            // by the other route.
+            'insertText' => ['__compat' => ['status' => ['deprecated' => true]]],
+        ]);
+
+        $this->assertSame([], $read['removals']);
+        $this->assertSame(2, $read['inspected']);
+        $this->assertSame(
+            ['document.execCommand', "document.execCommand('insertHTML')"],
+            $read['features']
+        );
+    }
+
     /**
      * A recorded sample of the upstream document, so the parser is exercised
      * against the real shape rather than only against shapes written by
@@ -285,5 +399,22 @@ class DeprecatedApiCheckTest extends TestCase
         ));
 
         $this->assertSame('ok', $verdict['status'], (string) json_encode($verdict));
+
+        // What the real document actually offers this gate today: the generic
+        // entry plus `copy` and `insertHTML`, the two commands the product
+        // issues that MDN publishes an entry for. A number, so that MDN
+        // adding a per-command entry for a command the editors use shows up
+        // here rather than passing unnoticed.
+        $read = deprecatedApiFeatureRemovals(
+            json_decode(
+                (string) file_get_contents(dirname(__DIR__, 3) . '/tests/fixtures/mdn-document-compat.json'),
+                true
+            )['api']['Document']['execCommand']
+        );
+        $this->assertSame(
+            ['document.execCommand', "document.execCommand('copy')", "document.execCommand('insertHTML')"],
+            $read['features']
+        );
+        $this->assertSame(12, $read['inspected']);
     }
 }

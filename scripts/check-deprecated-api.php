@@ -27,10 +27,24 @@ declare(strict_types=1);
  *    still WORK. It is exact and blocking, and it only ever knows about
  *    ONE engine: the Chromium the browser job runs. It also cannot know
  *    anything until a removal has already shipped and broken the editor.
- *  - This gate asks whether any engine has REMOVED it, or announced doing
- *    so, from the published compatibility data — including the engines CI
- *    does not run. It is the early warning, and it is the only thing here
- *    that can speak about Firefox or Safari at all.
+ *  - This gate asks whether any engine has REMOVED it, from the published
+ *    compatibility data — including the engines CI does not run. It is the
+ *    early warning, and it is the only thing here that can speak about
+ *    Firefox or Safari at all.
+ *
+ * WHAT IT DETECTS, AND WHAT IT CANNOT
+ * ---------------------------------------------------------------------
+ * A removal that has SHIPPED, which in this data is a `version_removed` on
+ * the current statement. Nothing more, and the earlier version of this
+ * header claimed more: it said the gate blocks on « a removal or a
+ * deprecation ANNOUNCEMENT », and no code path ever read `status` or
+ * `deprecated`. It could not usefully: MDN has marked this API deprecated
+ * for years, so treating deprecation as the signal would block every
+ * release from the day it was written.
+ *
+ * So an « Intent to Remove » that has been announced but not yet shipped is
+ * exactly what this cannot see, and that is the one thing the human page in
+ * the report line is for.
  *
  * WHY MDN RATHER THAN caniuse.com
  * ---------------------------------------------------------------------
@@ -55,9 +69,8 @@ declare(strict_types=1);
  * 502'd would buy nothing and cost the release; the honest failure mode
  * for an early warning is to say it did not run.
  *
- * A removal or a deprecation ANNOUNCEMENT found in the data does block —
- * exit code 2 — because at that point the question stops being about the
- * future.
+ * A removal found in the data does block — exit code 2 — because at that
+ * point the question stops being about the future.
  */
 
 /** Where the published compatibility data lives. */
@@ -69,6 +82,45 @@ const DEPRECATED_API_HUMAN_PAGE = 'https://caniuse.com/document-execcommand';
 
 /** How long to wait for the data before calling it unverified, in seconds. */
 const DEPRECATED_API_TIMEOUT = 20;
+
+/**
+ * The commands this product actually issues, which is what decides which of
+ * MDN's PER-COMMAND entries are read.
+ *
+ * `api.Document.execCommand` is not one entry: MDN publishes a `__compat` of
+ * its own for several individual commands as sibling keys — today `copy`,
+ * `cut`, `defaultParagraphSeparator`, `insertBrOnReturn`, `insertHTML` and
+ * `paste`. Two of those, `copy` and `insertHTML`, are commands the editors
+ * issue, and the first version of this gate read none of them: it inspected
+ * the generic entry alone, so an engine dropping `insertHTML` while keeping
+ * `execCommand` would have been reported as « supporté ».
+ *
+ * Intersected with what MDN publishes rather than listing the two: the
+ * product's list is the thing that changes, and
+ * tests/Architecture/DeprecatedBrowserApiIsWatchedTest.php reads the
+ * commands out of the product and fails until this constant holds each one
+ * — the same rule that keeps the end-to-end alarm honest.
+ *
+ * NOT every sub-entry, deliberately. `defaultParagraphSeparator` carries
+ * `version_removed: 79` for Edge — the EdgeHTML lineage ending at the
+ * Chromium switch — and `version_added: false` for Chrome and Safari. It is
+ * a command nothing here issues, and blocking on it would abort every
+ * release over a capability the product never asks for.
+ */
+const DEPRECATED_API_COMMANDS = [
+    'bold',
+    'copy',
+    'createLink',
+    'formatBlock',
+    'insertHTML',
+    'insertImage',
+    'insertOrderedList',
+    'insertText',
+    'insertUnorderedList',
+    'italic',
+    'removeFormat',
+    'underline',
+];
 
 /** The engines whose verdict matters — the ones a scout unit's browser is. */
 const DEPRECATED_API_ENGINES = [
@@ -147,6 +199,80 @@ function deprecatedApiRemovals(array $support): array
 }
 
 /**
+ * How many of DEPRECATED_API_ENGINES this support object actually carries a
+ * verdict for.
+ *
+ * Exists because the absence of a removal and the absence of DATA are the
+ * same empty array, and the gate used to report the first while looking at
+ * the second: a `support` of `[]` passed the shape check, produced no
+ * removals, and came back as « supporté par 7 moteurs » — the constant's
+ * size, not anything measured. Seven is now whatever was read.
+ *
+ * A `"mirror"` string is not counted: it defers to another entry, which is
+ * counted on its own line.
+ *
+ * @param array<string, mixed> $support the `__compat.support` object
+ */
+function deprecatedApiEnginesInspected(array $support): int
+{
+    $inspected = 0;
+
+    foreach (DEPRECATED_API_ENGINES as $engine) {
+        $statements = $support[$engine] ?? null;
+        if (!is_array($statements)) {
+            continue;
+        }
+        $current = array_is_list($statements) ? ($statements[0] ?? null) : $statements;
+        if (is_array($current)) {
+            $inspected++;
+        }
+    }
+
+    return $inspected;
+}
+
+/**
+ * Every feature under `api.Document.execCommand` this gate reads, with the
+ * removals found in it and how many engines answered.
+ *
+ * The generic entry, plus one per command of DEPRECATED_API_COMMANDS that
+ * MDN publishes a `__compat` for — see that constant for why the product's
+ * list decides, and not MDN's.
+ *
+ * @param array<string, mixed> $execCommand the `execCommand` subtree
+ * @return array{removals: array<string, array<string, string>>, inspected: int, features: list<string>}
+ */
+function deprecatedApiFeatureRemovals(array $execCommand): array
+{
+    $features = ['document.execCommand' => $execCommand['__compat'] ?? null];
+
+    foreach (DEPRECATED_API_COMMANDS as $command) {
+        $entry = $execCommand[$command]['__compat'] ?? null;
+        if (is_array($entry)) {
+            $features["document.execCommand('{$command}')"] = $entry;
+        }
+    }
+
+    $removals = [];
+    $inspected = 0;
+    $read = [];
+
+    foreach ($features as $name => $compat) {
+        if (!is_array($compat) || !is_array($compat['support'] ?? null)) {
+            continue;
+        }
+        $read[] = $name;
+        $inspected += deprecatedApiEnginesInspected($compat['support']);
+        $found = deprecatedApiRemovals($compat['support']);
+        if ($found !== []) {
+            $removals[$name] = $found;
+        }
+    }
+
+    return ['removals' => $removals, 'inspected' => $inspected, 'features' => $read];
+}
+
+/**
  * The gate's verdict on a decoded api/Document.json.
  *
  * @param mixed $data whatever json_decode returned
@@ -158,8 +284,8 @@ function deprecatedApiVerdict(mixed $data): array
         return deprecatedApiUnverified('the compatibility data is not a JSON object');
     }
 
-    $compat = $data['api']['Document']['execCommand']['__compat'] ?? null;
-    if (!is_array($compat) || !is_array($compat['support'] ?? null)) {
+    $execCommand = $data['api']['Document']['execCommand'] ?? null;
+    if (!is_array($execCommand) || !is_array($execCommand['__compat']['support'] ?? null)) {
         // The shape moved. That is a real possibility for an upstream file
         // and it is precisely why this case is "unverified" rather than
         // "supported": saying nothing found means nothing was looked at.
@@ -168,35 +294,58 @@ function deprecatedApiVerdict(mixed $data): array
         );
     }
 
-    $removals = deprecatedApiRemovals($compat['support']);
+    $read = deprecatedApiFeatureRemovals($execCommand);
 
-    if ($removals !== []) {
+    // THE SAME PRINCIPLE ONE LEVEL DOWN, and the earlier version of this
+    // function stopped short of it. The shape check above passes for a
+    // `support` of `[]`, or for one whose keys are engines this gate does not
+    // watch: no removal is found, and « no removal found » was reported as
+    // « supported ». Nothing had been looked at.
+    if ($read['inspected'] === 0) {
+        return deprecatedApiUnverified(
+            'the data carries no verdict for any of the ' . count(DEPRECATED_API_ENGINES)
+            . ' engines this gate watches'
+        );
+    }
+
+    if ($read['removals'] !== []) {
         $named = [];
-        foreach ($removals as $engine => $version) {
-            $named[] = "{$engine} ({$version})";
+        foreach ($read['removals'] as $feature => $engines) {
+            foreach ($engines as $engine => $version) {
+                $named[] = "{$feature} in {$engine} ({$version})";
+            }
         }
         $list = implode(', ', $named);
 
         return [
             'status' => 'blocked',
-            'message' => "document.execCommand has been REMOVED by: {$list}.\n"
-                . "Six files under public/assets/js/ depend on it (issue #379), and the editors\n"
-                . "stop working silently in that engine. Option 1 of that issue — rebuilding the\n"
-                . "toolbar on Selection/Range — is now due, and this release should not go out\n"
-                . "claiming a working editor. See " . DEPRECATED_API_HUMAN_PAGE . "\n",
-            'report' => "**bloquant** — `document.execCommand` a été retiré par {$list}. "
+            'message' => "REMOVED: {$list}.\n"
+                . "Six files under public/assets/js/ depend on document.execCommand (issue #379),\n"
+                . "and the editors stop working silently in that engine. Option 1 of that issue —\n"
+                . "rebuilding the toolbar on Selection/Range — is now due, and this release should\n"
+                . "not go out claiming a working editor. See " . DEPRECATED_API_HUMAN_PAGE . "\n",
+            'report' => "**bloquant** — retiré : {$list}. "
                 . 'Les éditeurs de texte riche en dépendent (issue #379).',
         ];
     }
 
+    // Both numbers are measured, not assumed — see
+    // deprecatedApiEnginesInspected() for what the constant's size used to
+    // be reported as.
+    $features = count($read['features']);
+    $engines = $read['inspected'];
+
     return [
         'status' => 'ok',
-        'message' => "Deprecated browser API gate OK: document.execCommand is still supported by "
-            . count(DEPRECATED_API_ENGINES) . " engines in MDN's published compatibility data "
-            . "(deprecated, as it has been for years, but removed nowhere).\n",
+        'message' => "Deprecated browser API gate OK: no engine has removed document.execCommand.\n"
+            . "Read {$engines} engine entries across {$features} MDN feature(s) — the generic one "
+            . "plus a per-command entry for each command this product issues that MDN publishes "
+            . "one for.\n"
+            . "Still deprecated, as it has been for years; that is the baseline, not a signal.\n",
         'report' => 'vérifié — `document.execCommand` (dont dépendent les éditeurs de texte riche, '
-            . 'issue #379) est déprécié mais retiré par aucun moteur, d\'après les données de '
-            . 'compatibilité publiées par MDN — celles que rend ' . DEPRECATED_API_HUMAN_PAGE . '.',
+            . "issue #379) est déprécié mais retiré par aucun moteur : {$engines} verdicts de "
+            . "moteur lus sur {$features} entrée(s) MDN, celles que rend "
+            . DEPRECATED_API_HUMAN_PAGE . '.',
     ];
 }
 

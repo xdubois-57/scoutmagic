@@ -6,6 +6,11 @@ namespace Tests\Architecture;
 
 use PHPUnit\Framework\TestCase;
 
+if (!defined('DEPRECATED_API_CHECK_TEST')) {
+    define('DEPRECATED_API_CHECK_TEST', true);
+}
+require_once dirname(__DIR__, 2) . '/scripts/check-deprecated-api.php';
+
 /**
  * Every `document.execCommand` command this product issues is watched by
  * the end-to-end alarm, and the list of files that reach for the API is
@@ -77,6 +82,55 @@ class DeprecatedBrowserApiIsWatchedTest extends TestCase
             . implode("\n  ", $unwatched)
             . "\nAdd each to TOOLBAR_COMMANDS or DIRECT_COMMANDS in " . self::ALARM
             . ", so the day an engine drops the API the suite says so (issue #379)."
+        );
+    }
+
+    /**
+     * The release gate watches the same commands, and by the same rule.
+     *
+     * `scripts/check-deprecated-api.php` reads MDN's PER-COMMAND compat
+     * entries, and which ones it reads is decided by its own
+     * `DEPRECATED_API_COMMANDS`. A command the product issues but that list
+     * omits is a command whose removal the gate would not see — it would
+     * inspect the generic entry, find nothing, and report « supporté ».
+     *
+     * So the same extraction feeds both: the alarm answers « does it still
+     * work », the gate answers « has anyone removed it », and neither gets to
+     * fall behind the product on its own.
+     */
+    public function testEveryCommandTheProductIssuesIsWatchedByTheReleaseGate(): void
+    {
+        $unwatched = [];
+
+        foreach (self::commandsIssuedByTheProduct() as $command => $sources) {
+            if (!in_array($command, DEPRECATED_API_COMMANDS, true)) {
+                $unwatched[] = "{$command} (issued from " . implode(', ', $sources) . ')';
+            }
+        }
+
+        $this->assertSame(
+            [],
+            $unwatched,
+            "These commands are issued by the product and absent from the release gate's list:\n  "
+            . implode("\n  ", $unwatched)
+            . "\nAdd each to DEPRECATED_API_COMMANDS in scripts/check-deprecated-api.php, so a"
+            . " removal\nMDN publishes per command is one the gate can see (issue #379)."
+        );
+    }
+
+    /**
+     * And nothing in that list the product does not issue, so it stays a
+     * description of this codebase rather than a wish list.
+     */
+    public function testTheReleaseGateWatchesNothingTheProductDoesNotIssue(): void
+    {
+        $issued = array_keys(self::commandsIssuedByTheProduct());
+        $extra = array_values(array_diff(DEPRECATED_API_COMMANDS, $issued));
+
+        $this->assertSame(
+            [],
+            $extra,
+            'DEPRECATED_API_COMMANDS names commands nothing here issues: ' . implode(', ', $extra)
         );
     }
 
