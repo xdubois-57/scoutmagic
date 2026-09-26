@@ -451,6 +451,24 @@ class ReleaseGatesTest extends TestCase
      *
      * Numerals in words, English and French, because that is how these
      * files write it; a bare digit is too common to scan for.
+     *
+     * WHAT IT CANNOT SEE, and why that shapes the prose
+     * ---------------------------------------------------------------
+     * A numeral is only a claim about `run_gate` when a noun says so, so
+     * the noun list below is what gives the guard its meaning — and it
+     * had to be widened once already: `release.sh` paired a numeral with
+     * `checks`, a noun a list holding only `gates|verrous` never saw.
+     *
+     * Note that this file is one of the seven scanned, so its own prose
+     * cannot quote a stale count either — hence the phrasing here and in
+     * the exemption below, which describe the offending sentences rather
+     * than reproducing them. The guard caught that too, on its first run.
+     *
+     * A numeral with NO noun cannot be guarded at all: « the five before
+     * it » is indistinguishable from « five minutes ». One such sentence
+     * existed, in `check_sources_gate`'s header, and it was rewritten to
+     * « every gate before it » rather than renumbered — a count no test
+     * can check should not be written as a number.
      */
     public function testNoFileStatesAGateCountOtherThanTheRealOne(): void
     {
@@ -462,12 +480,24 @@ class ReleaseGatesTest extends TestCase
         $expected = count(self::launchedKeys());
         $root = dirname(__DIR__, 3);
 
-        // One sentence is exempt, and it is prose about the PAST: release.sh
+        // One phrase is exempt, and it is prose about the PAST: release.sh
         // records that gate execution "used to be a parallel scheduler:
-        // seven gates in background subshells". It happens to say seven and
-        // means something else entirely. Matched on its own words so that
-        // the exemption cannot quietly cover a real claim.
-        $historical = 'used to be a parallel scheduler';
+        // seven gates in background subshells". It states a number about a
+        // design that no longer exists.
+        //
+        // Anchored to the words IMMEDIATELY before the numeral rather than
+        // by looking back a few hundred characters for them, because the
+        // loose form did cover a real claim: the stale count twenty lines
+        // below it in the same comment block, a numeral paired with
+        // `checks`, sat 376 characters away — inside a 400-character
+        // lookback. Widening the noun list would have caught it and the
+        // exemption would have swallowed it again, by 24 characters.
+        // Measured, not supposed.
+        //
+        // The anchor stops at the colon, so the sentence may be renumbered
+        // or corrected without touching this test — only a numeral sitting
+        // exactly there is excused, and nothing else can reach.
+        $historical = 'used to be a parallel scheduler: ';
 
         $wrong = [];
         foreach ([
@@ -482,15 +512,23 @@ class ReleaseGatesTest extends TestCase
             $text = (string) file_get_contents($root . '/' . $file);
 
             preg_match_all(
-                '/\b(' . implode('|', array_keys($numerals)) . ')\s+(gates|verrous)\b/iu',
+                '/\b(' . implode('|', array_keys($numerals)) . ')\s+(gates|verrous|checks|portes|contr\x{00f4}les)\b/iu',
                 $text,
                 $claims,
                 PREG_OFFSET_CAPTURE
             );
 
+            // The offsets a numeral may occupy and still be historical:
+            // the one character position right after the anchor.
+            $excused = [];
+            $at = 0;
+            while (($at = strpos($text, $historical, $at)) !== false) {
+                $excused[] = $at + strlen($historical);
+                $at += strlen($historical);
+            }
+
             foreach ($claims[0] as $index => [$phrase, $offset]) {
-                $sentence = substr($text, max(0, $offset - 400), 400);
-                if (str_contains($sentence, $historical)) {
+                if (in_array($offset, $excused, true)) {
                     continue;
                 }
                 $stated = $numerals[strtolower($claims[1][$index][0])];

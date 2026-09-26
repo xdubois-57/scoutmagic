@@ -731,8 +731,8 @@ check_sonar_gate() {
 # so a divergence found here should already have its issue.
 #
 # Last, because it is the one gate that depends on third parties'
-# websites rather than on this repository: whatever it says, the five
-# before it have already said everything about the code.
+# websites rather than on this repository: whatever it says, every gate
+# before it has already said everything about the code.
 # ---------------------------------------------------------------
 check_sources_gate() {
     local script_dir
@@ -766,7 +766,7 @@ check_sources_gate() {
 # fought over the same local MySQL server, and a collection loop that
 # reported every failure together. All of it existed to overlap runs
 # measured in tens of minutes. With none of those left, the machinery
-# would be a page of orchestration for six checks that finish before
+# would be a page of orchestration for seven checks that finish before
 # it could have forked them.
 #
 # Each gate still runs in a subshell under `set +e`, because several are
