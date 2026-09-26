@@ -18,8 +18,8 @@ class WeeklySeriesTest extends TestCase
     {
         $series = WeeklySeries::build(
             [
-                ['at' => new \DateTimeImmutable('2026-09-21 10:00:00'), 'sample' => 8, 'hits' => 6],
-                ['at' => new \DateTimeImmutable('2026-09-23 10:00:00'), 'sample' => 2, 'hits' => 2],
+                ['at' => new \DateTimeImmutable('2026-09-21 10:00:00'), 'sample' => 8, 'hits' => 6, 'total' => 8],
+                ['at' => new \DateTimeImmutable('2026-09-23 10:00:00'), 'sample' => 2, 'hits' => 2, 'total' => 2],
             ],
             5,
             new \DateTimeImmutable('2026-09-21 00:00:00'),
@@ -41,7 +41,7 @@ class WeeklySeriesTest extends TestCase
     public function testAWeekUnderTheThresholdIsAHoleAndNotAZero(): void
     {
         $series = WeeklySeries::build(
-            [['at' => new \DateTimeImmutable('2026-09-21 10:00:00'), 'sample' => 4, 'hits' => 0]],
+            [['at' => new \DateTimeImmutable('2026-09-21 10:00:00'), 'sample' => 4, 'hits' => 0, 'total' => 4]],
             5,
             new \DateTimeImmutable('2026-09-21 00:00:00'),
             new \DateTimeImmutable('2026-09-25 12:00:00')
@@ -51,11 +51,68 @@ class WeeklySeriesTest extends TestCase
         $this->assertSame(4, $series->points[0]['sample'], 'and the evidence is still reported');
     }
 
+    /**
+     * **The evidence and the denominator are separate figures**, and the seed
+     * boxes are the case: the threshold counts mailings while the share is
+     * over answered copies. One mailing to eight boxes is one piece of
+     * evidence, so it stays under a threshold of five however many copies it
+     * produced.
+     */
+    public function testTheThresholdCountsEvidenceAndTheRatioCountsSomethingElse(): void
+    {
+        $series = WeeklySeries::build(
+            [['at' => new \DateTimeImmutable('2026-09-21 10:00:00'), 'sample' => 1, 'hits' => 6, 'total' => 8]],
+            5,
+            new \DateTimeImmutable('2026-09-21 00:00:00'),
+            new \DateTimeImmutable('2026-09-25 12:00:00')
+        );
+
+        $this->assertNull(
+            $series->points[0]['value'],
+            'eight copies of one mailing are one observation, not eight'
+        );
+    }
+
+    /** And with the evidence there, the share is over the denominator. */
+    public function testTheRatioDividesByTheDenominatorAndNotByTheEvidence(): void
+    {
+        $series = WeeklySeries::build(
+            [
+                ['at' => new \DateTimeImmutable('2026-09-21 10:00:00'), 'sample' => 3, 'hits' => 4, 'total' => 6],
+                ['at' => new \DateTimeImmutable('2026-09-23 10:00:00'), 'sample' => 2, 'hits' => 2, 'total' => 4],
+            ],
+            5,
+            new \DateTimeImmutable('2026-09-21 00:00:00'),
+            new \DateTimeImmutable('2026-09-25 12:00:00')
+        );
+
+        $this->assertSame(5, $series->points[0]['sample'], 'five mailings of evidence');
+        $this->assertSame(0.6, $series->points[0]['value'], 'six of ten answered copies, not six of five');
+    }
+
+    /**
+     * **Enough evidence and nothing answered yet is a hole, not a division by
+     * zero.** A week can carry its mailings while every copy is still
+     * pending, and that is not the same state as « nothing landed ».
+     */
+    public function testAWeekWithEvidenceButNoAnsweredMeasurementIsAHole(): void
+    {
+        $series = WeeklySeries::build(
+            [['at' => new \DateTimeImmutable('2026-09-21 10:00:00'), 'sample' => 7, 'hits' => 0, 'total' => 0]],
+            5,
+            new \DateTimeImmutable('2026-09-21 00:00:00'),
+            new \DateTimeImmutable('2026-09-25 12:00:00')
+        );
+
+        $this->assertNull($series->points[0]['value']);
+        $this->assertSame(7, $series->points[0]['sample']);
+    }
+
     /** Exactly the threshold is enough — the guard is « fewer than », not « at most ». */
     public function testTheThresholdItselfIsEnough(): void
     {
         $series = WeeklySeries::build(
-            [['at' => new \DateTimeImmutable('2026-09-21 10:00:00'), 'sample' => 5, 'hits' => 5]],
+            [['at' => new \DateTimeImmutable('2026-09-21 10:00:00'), 'sample' => 5, 'hits' => 5, 'total' => 5]],
             5,
             new \DateTimeImmutable('2026-09-21 00:00:00'),
             new \DateTimeImmutable('2026-09-25 12:00:00')
@@ -73,7 +130,7 @@ class WeeklySeriesTest extends TestCase
     public function testWeeksWithNoRowsAreHolesAcrossTheWholeWindow(): void
     {
         $series = WeeklySeries::build(
-            [['at' => new \DateTimeImmutable('2026-09-21 10:00:00'), 'sample' => 9, 'hits' => 9]],
+            [['at' => new \DateTimeImmutable('2026-09-21 10:00:00'), 'sample' => 9, 'hits' => 9, 'total' => 9]],
             5,
             new \DateTimeImmutable('2026-08-31 00:00:00'),
             new \DateTimeImmutable('2026-09-25 12:00:00')
@@ -117,7 +174,7 @@ class WeeklySeriesTest extends TestCase
     public function testAWeekStraddlingNewYearKeepsItsIsoYear(): void
     {
         $series = WeeklySeries::build(
-            [['at' => new \DateTimeImmutable('2027-01-01 10:00:00'), 'sample' => 5, 'hits' => 5]],
+            [['at' => new \DateTimeImmutable('2027-01-01 10:00:00'), 'sample' => 5, 'hits' => 5, 'total' => 5]],
             5,
             new \DateTimeImmutable('2026-12-28 00:00:00'),
             new \DateTimeImmutable('2027-01-01 12:00:00')
@@ -143,7 +200,7 @@ class WeeklySeriesTest extends TestCase
         // A Thursday, and a row from the Tuesday BEFORE it — inside the same
         // ISO week, outside the 90 days.
         $series = WeeklySeries::build(
-            [['at' => new \DateTimeImmutable('2026-09-22 10:00:00'), 'sample' => 6, 'hits' => 3]],
+            [['at' => new \DateTimeImmutable('2026-09-22 10:00:00'), 'sample' => 6, 'hits' => 3, 'total' => 6]],
             5,
             new \DateTimeImmutable('2026-09-24 13:45:00'),
             new \DateTimeImmutable('2026-10-01 09:00:00')
@@ -195,7 +252,7 @@ class WeeklySeriesTest extends TestCase
     public function testASeriesWithNoDrawablePointKnowsItIsEmpty(): void
     {
         $empty = WeeklySeries::build(
-            [['at' => new \DateTimeImmutable('2026-09-21 10:00:00'), 'sample' => 1, 'hits' => 1]],
+            [['at' => new \DateTimeImmutable('2026-09-21 10:00:00'), 'sample' => 1, 'hits' => 1, 'total' => 1]],
             5,
             new \DateTimeImmutable('2026-09-21 00:00:00'),
             new \DateTimeImmutable('2026-09-25 12:00:00')
@@ -207,7 +264,7 @@ class WeeklySeriesTest extends TestCase
     public function testASeriesWithOneDrawablePointIsNotEmpty(): void
     {
         $drawn = WeeklySeries::build(
-            [['at' => new \DateTimeImmutable('2026-09-21 10:00:00'), 'sample' => 5, 'hits' => 0]],
+            [['at' => new \DateTimeImmutable('2026-09-21 10:00:00'), 'sample' => 5, 'hits' => 0, 'total' => 5]],
             5,
             new \DateTimeImmutable('2026-09-21 00:00:00'),
             new \DateTimeImmutable('2026-09-25 12:00:00')

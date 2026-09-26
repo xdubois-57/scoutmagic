@@ -67,8 +67,18 @@ final class WeeklySeries
      * same query on both engines, bucketed by a single `DateTimeImmutable`
      * here, cannot drift that way.
      *
-     * @param iterable<array{at: \DateTimeImmutable, sample: int, hits: int}> $rows one
-     *   row per measured event, already summed per event by the caller so
+     * **`sample` and `total` are separate on purpose, and the seed boxes are
+     * why.** There the evidence is counted in MAILINGS — five copies of one
+     * mailing to five boxes say one thing five times, which is the noise
+     * `DomainRouting::MINIMUM_RUNS` exists to refuse — while the ratio has to
+     * stay inbox copies over answered copies, because that is the share the
+     * ranking screen already shows and a trend computing it differently would
+     * be a second answer to the same question. For DMARC the two coincide:
+     * the evidence and the denominator are both messages, and the caller
+     * passes the same figure twice rather than this class guessing.
+     *
+     * @param iterable<array{at: \DateTimeImmutable, sample: int, hits: int, total: int}> $rows
+     *   one row per measured event, already summed per event by the caller so
      *   this never holds more of them than there are events
      * @param int $minimumSample the evidence a week needs before its ratio
      *   means anything — counted in whatever the caller's `sample` counts,
@@ -85,6 +95,7 @@ final class WeeklySeries
             $key = $row['at']->format(self::KEY_FORMAT);
             $tallies[$key]['sample'] = ($tallies[$key]['sample'] ?? 0) + $row['sample'];
             $tallies[$key]['hits'] = ($tallies[$key]['hits'] ?? 0) + $row['hits'];
+            $tallies[$key]['total'] = ($tallies[$key]['total'] ?? 0) + $row['total'];
         }
 
         // **Refused rather than guarded around.** A threshold of zero would
@@ -102,17 +113,26 @@ final class WeeklySeries
         foreach (self::weeksBetween($edge, $now) as $week) {
             $sample = $tallies[$week['key']]['sample'] ?? 0;
             $hits = $tallies[$week['key']]['hits'] ?? 0;
+            $total = $tallies[$week['key']]['total'] ?? 0;
 
             $points[] = [
                 'week' => $week['key'],
                 'from' => $week['from'],
                 // The hole. Never 0.0 for « no evidence », which would be
                 // indistinguishable from a real week where nothing passed.
+                //
+                // **`$total < 1` is a second condition and not a duplicate of
+                // the threshold**, because `sample` and `total` count
+                // different things: a caller whose evidence is mailings can
+                // hand over a week with enough mailings and nothing answered
+                // yet. Without it that week divides by zero rather than
+                // reading « not measured ».
+                //
                 // Cast before dividing: PHP's `/` hands back an INT when the
                 // division comes out exact, so a week where everything passed
                 // would be `1` where every other week is a float — and the
                 // declared `?float` would be a shape this class does not keep.
-                'value' => $sample >= $minimumSample ? (float) $hits / $sample : null,
+                'value' => $sample >= $minimumSample && $total >= 1 ? (float) $hits / $total : null,
                 'sample' => $sample,
                 'partial' => $week['key'] === $current,
             ];
