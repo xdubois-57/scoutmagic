@@ -713,12 +713,14 @@ class FunctionsControllerTest extends TestCase
      */
     private function siteSendsFrom(string $address, string $name): void
     {
-        $insert = $this->pdo->prepare(
-            'INSERT INTO settings (module_id, setting_key, setting_value, setting_type, label, description, editable)
-             VALUES (NULL, ?, ?, \'text\', ?, ?, 0)'
-        );
-        $insert->execute([\Core\Mail\MailIdentity::SETTING_FROM_ADDRESS, $address, 'from', 'from']);
-        $insert->execute([\Core\Mail\MailIdentity::SETTING_FROM_NAME, $name, 'name', 'name']);
+        $settings = new SettingService($this->settingRepo);
+        foreach ([
+            \Core\Mail\MailIdentity::SETTING_FROM_ADDRESS => $address,
+            \Core\Mail\MailIdentity::SETTING_FROM_NAME => $name,
+        ] as $key => $value) {
+            $settings->register($key, '', 'text', $key, '', null, null, null, false, 0);
+            $settings->setInternal($key, $value);
+        }
     }
 
     private function startSessionWithToken(): string

@@ -129,7 +129,6 @@ class SectionSenderAlignmentTest extends TestCase
 
         $this->assertNull($alignment->warningFor('baladins@telenet.be', 'Baladins'));
         $this->assertSame([], $alignment->misaligned());
-        $this->assertSame('', $alignment->siteDomain());
     }
 
     public function testTheListNamesEverySectionTheSiteCannotSignFor(): void
@@ -185,11 +184,14 @@ class SectionSenderAlignmentTest extends TestCase
         // object reads through.
         $settings->setInternal(MailIdentity::SETTING_FROM_ADDRESS, 'info@autre.be');
 
-        $this->assertNotNull(
-            $alignment->warningFor('baladins@unite.be', 'Baladins'),
-            'the address that was signable a moment ago no longer is'
+        $warning = $alignment->warningFor('baladins@unite.be', 'Baladins');
+
+        $this->assertNotNull($warning, 'the address that was signable a moment ago no longer is');
+        $this->assertStringContainsString(
+            'autre.be',
+            $warning,
+            'and the sentence names the NEW domain, not the one the object was built with'
         );
-        $this->assertSame('autre.be', $alignment->siteDomain());
     }
 
     private function alignmentFor(string $address, string $name): SectionSenderAlignment
@@ -201,12 +203,16 @@ class SectionSenderAlignmentTest extends TestCase
         return new SectionSenderAlignment($settings, $this->sections);
     }
 
+    /**
+     * Declared the way the composition root declares it, rather than with
+     * an `INSERT` of this test's own: `setInternal()` updates and never
+     * creates, and a hand-written row is a second description of a table
+     * this suite would then have to keep in step.
+     */
     private function declareSetting(string $key): void
     {
-        $this->pdo->prepare(
-            'INSERT INTO settings (module_id, setting_key, setting_value, setting_type, label, description, editable)
-             VALUES (NULL, ?, \'\', \'text\', ?, ?, 0)'
-        )->execute([$key, $key, $key]);
+        (new SettingService(new SettingRepository($this->pdo)))
+            ->register($key, '', 'text', $key, '', null, null, null, false, 0);
     }
 
     private function createSection(string $deskCode, string $name, ?string $email): int

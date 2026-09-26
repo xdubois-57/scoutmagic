@@ -129,6 +129,39 @@
                 </tbody>
             </table>
         </div>
+
+        {# The sections whose address plays none of the four roles above, because this site cannot sign
+           for it (issue #418). Absent when there is nothing to say — an empty list here would read as a
+           check somebody does, and this page has enough of those already. #}
+        {% if misaligned_sections is not empty %}
+            <div class="alert alert-warning mt-3 mb-0" role="alert">
+                <h3 class="h6">Des sections envoient sous une adresse que ce site ne peut pas signer</h3>
+                <p class="small mb-2">
+                    Un publipostage part au nom de sa section, sous l'adresse réglée dans Correspondances
+                    Desk. Quand cette adresse n'est pas sur <code>{{ dkim_domain }}</code> — le seul domaine
+                    pour lequel ce site signe —, ni SPF ni DKIM ne s'alignent sur l'expéditeur affiché, et
+                    le message échoue à DMARC chez tous les destinataires. Ce site ne l'apprendrait jamais :
+                    un rapport agrégé part vers l'adresse <code>rua=</code> du domaine de l'expéditeur
+                    affiché, donc chez le fournisseur de la section, pas ici.
+                </p>
+                <p class="small mb-2">
+                    Ces publipostages partent donc de <code>{{ identity.from_address }}</code>, au nom de la
+                    section suivi de celui de l'unité, avec l'adresse de la section en adresse de réponse :
+                    « Répondre » arrive toujours à la section. Pour que son adresse redevienne l'expéditeur
+                    affiché, donnez-lui une adresse sur <code>{{ dkim_domain }}</code>.
+                </p>
+                <ul class="small mb-2">
+                    {% for section in misaligned_sections %}
+                        <li>
+                            <strong>{{ section.name ?: section.desk_code }}</strong> —
+                            <code>{{ section.email }}</code>, annoncée comme
+                            « {{ section.substituted_name }} »
+                        </li>
+                    {% endfor %}
+                </ul>
+                <a href="{{ sections_url }}" class="small">Régler les adresses dans Correspondances Desk</a>
+            </div>
+        {% endif %}
     </div>
 </div>
 

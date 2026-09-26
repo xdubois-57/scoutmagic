@@ -41,18 +41,6 @@ final class SectionSenderAlignment
     ) {
     }
 
-    /** The address a misaligned section's mailing will actually leave from. */
-    public function siteAddress(): string
-    {
-        return $this->identity()->fromAddress;
-    }
-
-    /** The domain this site signs for — empty when it sends from nowhere. */
-    public function siteDomain(): string
-    {
-        return $this->identity()->dkimDomain();
-    }
-
     /**
      * The sentence to put under a section's e-mail field, or null when
      * there is nothing to warn about.
@@ -94,10 +82,13 @@ final class SectionSenderAlignment
      */
     public function misaligned(): array
     {
-        if ($this->siteDomain() === '') {
-            return [];
-        }
-
+        // **No « does this site sign for anything » check here**, and its
+        // absence is the point. `warningFor()` already answers that for
+        // every row, so a second one in front of the loop was an ornament:
+        // its mutation survived the whole suite, because removing it
+        // changed nothing anybody could observe. Two mechanisms for one
+        // boundary is how the ornament ends up being the one that gets
+        // trusted, and the one that gets mutated away unnoticed.
         $identity = $this->identity();
         $rows = [];
         foreach ($this->sections->getAllWithBranches(includeHidden: true) as $section) {

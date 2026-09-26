@@ -179,6 +179,23 @@ class OutboundMailControllerTest extends TestCase
                 null
             ),
             new JournalService(new JournalRepository($this->pdo)),
+            // REAL, over the same settings and a real section service: the
+            // Authentification page lists the sections this site cannot sign
+            // a `From:` for, and a double would make every assertion about
+            // that list hold whatever the code does.
+            new \Core\Mail\SectionSenderAlignment(
+                $settings,
+                new \Core\Member\SectionService(
+                    new \Core\Member\Repository\SectionRepository(
+                        \Core\Database\Connection::withPdo($this->pdo)
+                    ),
+                    new \Core\Member\Repository\MemberProfileRepository(
+                        \Core\Database\Connection::withPdo($this->pdo),
+                        $encryption,
+                        new \Core\Badge\MemberBadgeRepository($this->pdo)
+                    )
+                )
+            ),
             // A REAL probe sender, not null. With null every probe action
             // returns « la sonde n'est pas disponible » before touching
             // anything — and a test asserting « no row was written » then
@@ -536,6 +553,35 @@ class OutboundMailControllerTest extends TestCase
         );
     }
 
+    /**
+     * One dependency replaced, named rather than counted.
+     *
+     * **Two call sites wrote the offset as a literal**, `[19 => …]` and
+     * `[10 => …]`, which is exactly what the comment in
+     * `controllerWithout()` below explains cannot be written by hand: adding
+     * a dependency moved one of them and nothing said so. Both go through
+     * reflection now, which asks the constructor itself.
+     */
+    private function controllerWith(string $name, mixed $value): OutboundMailController
+    {
+        $arguments = $this->controllerArguments;
+        $arguments[$this->constructorPositions()[$name]
+            ?? self::fail("Unknown constructor dependency '{$name}'.")] = $value;
+
+        return new OutboundMailController(...$arguments);
+    }
+
+    /** @return array<string, int> dependency name => constructor position */
+    private function constructorPositions(): array
+    {
+        $positions = [];
+        foreach ((new \ReflectionMethod(OutboundMailController::class, '__construct'))->getParameters() as $p) {
+            $positions[$p->getName()] = $p->getPosition();
+        }
+
+        return $positions;
+    }
+
     private function controllerWithout(string ...$omitted): OutboundMailController
     {
         // **Positions read off the constructor itself**, not written
@@ -544,10 +590,7 @@ class OutboundMailControllerTest extends TestCase
         // backwards, and IT-06 appending two dependencies is what showed
         // it: every offset moved by two and nothing said so. Reflection
         // cannot drift, because it is asking the thing itself.
-        $positions = [];
-        foreach ((new \ReflectionMethod(OutboundMailController::class, '__construct'))->getParameters() as $p) {
-            $positions[$p->getName()] = $p->getPosition();
-        }
+        $positions = $this->constructorPositions();
 
         $arguments = $this->controllerArguments;
         foreach ($omitted as $name) {
@@ -1352,10 +1395,10 @@ class OutboundMailControllerTest extends TestCase
     public function testAPageWithoutAResolvedRelayReadingSaysWhereToTakeOne(): void
     {
         $this->settings->setInternal(\Core\Mail\Feedback\Dmarc\KnownSenders::SETTING_KEY, '');
-        $controller = new OutboundMailController(...array_replace(
-            $this->controllerArguments,
-            [19 => \Core\Mail\Feedback\Dmarc\KnownSenders::remembered($this->settings)]
-        ));
+        $controller = $this->controllerWith(
+            'knownSenders',
+            \Core\Mail\Feedback\Dmarc\KnownSenders::remembered($this->settings)
+        );
 
         $this->recordDmarcReport('google.com', 'r-1', [['198.51.100.7', 120, true]]);
 
@@ -1728,6 +1771,76 @@ class OutboundMailControllerTest extends TestCase
      * that had failed. A failure that reads as a success is worse than a
      * failure.
      */
+    // ── Sections this site cannot sign a From: for (issue #418) ───────
+
+    /**
+     * **This page explains which address plays which role, so it is where
+     * « and this one plays none of them » belongs.** A mailing sent under a
+     * section's own address keeps this site's envelope and DKIM key, so it
+     * fails DMARC outright — and nothing here would ever say so, because an
+     * aggregate report goes to the `rua=` of the FROM domain, which is the
+     * section's provider.
+     */
+    public function testTheSectionsThisSiteCannotSignForAreListedWithWhatBecomesOfThem(): void
+    {
+        $this->settings->set('mail_from_address', 'info@unite.be');
+        $this->settings->set('mail_from_name', 'Unité Test');
+        $this->createSectionWithAddress('BAL01', 'Baladins', 'baladins@telenet.be');
+        $this->createSectionWithAddress('LOU01', 'Louveteaux', 'louveteaux@unite.be');
+
+        $body = (string) $this->controller->authentication($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('baladins@telenet.be', $body, 'the offending address');
+        $this->assertStringContainsString('Baladins (Unité Test)', $body, 'the name the recipient will read');
+        $this->assertStringContainsString('Correspondances Desk', $body, 'where it is fixed');
+        $this->assertStringNotContainsString(
+            'louveteaux@unite.be',
+            $body,
+            'an address this site signs for has nothing to explain, so it is not listed'
+        );
+    }
+
+    /**
+     * And an installation where every section is signable says nothing at
+     * all: an empty list would read as a check somebody does, on a page that
+     * already has three of those.
+     */
+    public function testAnInstallationWithNoMisalignedSectionSaysNothingAboutIt(): void
+    {
+        $this->settings->set('mail_from_address', 'info@unite.be');
+        $this->createSectionWithAddress('LOU01', 'Louveteaux', 'louveteaux@unite.be');
+
+        $body = (string) $this->controller->authentication($this->getRequest(), [])->getBody();
+
+        $this->assertStringNotContainsString('que ce site ne peut pas signer', $body);
+    }
+
+    /**
+     * **A site that has not configured its own sending address blames
+     * nobody.** `canAlignFrom()` answers « no » for every address when the
+     * site signs for no domain, which would list every section — while the
+     * missing address is what this page says in its own words, two cards up.
+     */
+    public function testASiteWithNoSendingAddressListsNoSection(): void
+    {
+        $this->createSectionWithAddress('BAL01', 'Baladins', 'baladins@telenet.be');
+
+        $body = (string) $this->controller->authentication($this->getRequest(), [])->getBody();
+
+        $this->assertStringNotContainsString('baladins@telenet.be', $body);
+    }
+
+    private function createSectionWithAddress(string $deskCode, string $name, string $email): void
+    {
+        $branch = $this->pdo->prepare('INSERT INTO age_branches (desk_code, label, sort_order) VALUES (?, ?, ?)');
+        $branch->execute([$deskCode, $name, 10]);
+
+        $section = $this->pdo->prepare(
+            'INSERT INTO sections (desk_code, age_branch_id, name, email) VALUES (?, ?, ?, ?)'
+        );
+        $section->execute([$deskCode, (int) $this->pdo->lastInsertId(), $name, $email]);
+    }
+
     public function testARelayListThatCannotBeReadIsNotARelayListThatIsEmpty(): void
     {
         $this->settings->set('mail_from_address', 'info@unite.be');
@@ -2852,10 +2965,7 @@ class OutboundMailControllerTest extends TestCase
                 throw new \RuntimeException('Failed to generate DKIM key pair: openssl_pkey_new(): unavailable');
             }
         };
-        $controller = new OutboundMailController(...array_replace(
-            $this->controllerArguments,
-            [10 => $refuses]
-        ));
+        $controller = $this->controllerWith('dkim', $refuses);
 
         $response = $controller->regenerateDkimKey($this->formRequest([]), []);
 
