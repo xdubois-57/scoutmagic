@@ -4,7 +4,8 @@ set -euo pipefail
 # Usage: ./scripts/release.sh [--minor|--major] [--notes-file <path>]
 #                             [--skip-deployment-check] [--skip-ci-gate]
 #                             [--skip-security-gate] [--skip-dependency-check]
-#                             [--skip-sonar-gate] [--skip-sources-gate]
+#                             [--skip-deprecated-api-gate] [--skip-sonar-gate]
+#                             [--skip-sources-gate]
 # Default: increments patch level, computes release notes from the commit
 # list (fetched via the same GitHub API `--generate-notes` itself calls),
 # and requires seven gates to pass, in order, before anything is committed

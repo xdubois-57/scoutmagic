@@ -169,6 +169,98 @@ class ReleaseGatesTest extends TestCase
     }
 
     /**
+     * `release.sh` enumerates its bypass flags THREE times, and the test
+     * above is blind to which of the three is wrong: it searches the whole
+     * header as one blob, so the per-flag documentation block satisfies it
+     * on behalf of the `# Usage:` synopsis four lines from the top.
+     *
+     * That is exactly how this drifted. The gate added for issue #379 was
+     * written into the per-flag block and into the usage string printed on
+     * an unrecognized argument, and left out of the synopsis — which went
+     * on advertising six flags for seven gates. Every test in this file
+     * passed; a reviewer noticed.
+     *
+     * So each enumeration is checked against the argument loop separately,
+     * because the argument loop is the only one of the four that decides
+     * anything. A flag a releaser cannot find is as good as absent, and
+     * the synopsis is the first place they look.
+     */
+    public function testEachOfTheThreeFlagEnumerationsListsEveryFlagTheScriptAccepts(): void
+    {
+        $script = self::script();
+
+        // The authority: nothing else in the file can turn a gate off.
+        preg_match_all('/^\s*(--skip-[a-z-]+)\)\s*SKIP_/m', $script, $accepted);
+        $expected = $accepted[1];
+        sort($expected);
+        $this->assertNotSame([], $expected, 'no --skip-… argument is parsed at all');
+
+        $enumerations = [
+            // The synopsis: from `# Usage:` to the `# Default:` paragraph
+            // that follows it. Bounded, or the per-flag block 75 lines
+            // lower would answer for it — the very confusion above.
+            '# Usage: synopsis' => self::between($script, '# Usage: ./scripts/release.sh', "\n# Default:"),
+            // The per-flag block, gathered from its own lines rather than
+            // sliced, so reordering or moving it does not matter.
+            'per-flag documentation block' => implode("\n", self::linesMatching($script, '/^#\s+--skip-[a-z-]+\s/m')),
+            // What an unrecognized argument prints — the one enumeration a
+            // releaser sees without opening the file.
+            'usage printed on an unknown argument' => implode("\n", self::linesMatching($script, '/^\s*echo "Usage: \$0 /m')),
+        ];
+
+        $wrong = [];
+        foreach ($enumerations as $where => $text) {
+            $this->assertNotSame('', $text, "{$where}: not found in the script at all");
+
+            preg_match_all('/--skip-[a-z-]+/', $text, $listed);
+            $found = array_values(array_unique($listed[0]));
+            sort($found);
+
+            foreach (array_diff($expected, $found) as $absent) {
+                $wrong[] = "{$where} does not list {$absent}";
+            }
+            foreach (array_diff($found, $expected) as $invented) {
+                $wrong[] = "{$where} lists {$invented}, which the argument loop does not accept";
+            }
+        }
+
+        $this->assertSame([], $wrong);
+    }
+
+    /**
+     * The text between two markers, or '' if either is missing.
+     */
+    private static function between(string $haystack, string $from, string $to): string
+    {
+        $start = strpos($haystack, $from);
+        if ($start === false) {
+            return '';
+        }
+
+        $end = strpos($haystack, $to, $start);
+
+        return $end === false ? '' : substr($haystack, $start, $end - $start);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function linesMatching(string $haystack, string $pattern): array
+    {
+        preg_match_all($pattern . '', $haystack, $matches, PREG_OFFSET_CAPTURE);
+
+        $lines = [];
+        foreach ($matches[0] as [$_, $offset]) {
+            $end = strpos($haystack, "\n", $offset);
+            $lines[] = $end === false
+                ? substr($haystack, $offset)
+                : substr($haystack, $offset, $end - $offset);
+        }
+
+        return $lines;
+    }
+
+    /**
      * The same flags, in the two documents an agent and a maintainer read
      * before releasing: AGENTS.md § Releases, which says when a bypass is
      * allowed, and docs/quality-pipeline.md § Releases, the map. A sixth
