@@ -487,6 +487,12 @@ la voie et le verdict noté à la main ; que cette adresse est celle de l'admini
 service d'analyse extérieur, **jamais celle d'un membre choisie par le site** ; qu'elle n'apparaît ni dans le journal
 technique ni dans l'archive de diagnostic, lesquels ne portent que le fournisseur, la voie et le verdict ; que le
 site n'appelle lui-même **aucun service d'analyse** ; et qu'aucune sonde n'est jamais envoyée automatiquement.
+Doivent conserver aussi que si le message de test **revient comme non remis**, le site rapproche ce retour de la sonde
+grâce au code que porte son objet, et garde sur la ligne de cette sonde la **catégorie du refus**, le **code technique**
+et la **date** du retour ; que le texte renvoyé par le serveur distant n'est, là non plus, **jamais** conservé ni
+affiché, parce qu'il recite l'adresse ; et que ce rapprochement n'est souvent pas possible — un serveur qui refuse sans
+citer le message refusé ne renvoie aucun code —, auquel cas la page dit simplement ce que l'administrateur a constaté
+lui-même.
 L'historique est conservé sans purge automatique, parce que comparer deux essais séparés de plusieurs mois est
 précisément ce à quoi il sert.
 

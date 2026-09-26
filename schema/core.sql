@@ -1894,7 +1894,26 @@ CREATE TABLE IF NOT EXISTS mail_probes (
     -- observe another provider's spam folder.
     verdict VARCHAR(10) NULL,
     verdict_at DATETIME NULL,
+    -- What the far end said, when a bounce could be traced back to this
+    -- probe by the code in its subject (roadmap IT-04, issue #419). The
+    -- CATEGORY and the enhanced status code, and deliberately NOT the
+    -- diagnostic text: Core\Mail\Feedback\Bounce\DeliveryStatusReport reads
+    -- that text and drops it, because it quotes the address back. This table
+    -- encrypts its destination for exactly that reason, so a diagnostic kept
+    -- three columns away would hand back in clear what destination_encrypted
+    -- protects.
+    --
+    -- All three are null together, and that is a NORMAL state rather than a
+    -- gap: a server that rejects before quoting the message it rejected sends
+    -- no code, so nothing can be traced. « Jamais reçu » and « rejeté pour ce
+    -- motif » are two answers, and the first stays true when the second is
+    -- not available.
+    bounce_category VARCHAR(20) NULL,
+    bounce_status_code VARCHAR(16) NULL,
+    bounce_at DATETIME NULL,
     INDEX idx_mail_probes_sent (sent_at),
+    -- Unused until issue #419, and declared from the start for it: the
+    -- lookup a bounce does, by the code it quoted back.
     INDEX idx_mail_probes_code (code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
