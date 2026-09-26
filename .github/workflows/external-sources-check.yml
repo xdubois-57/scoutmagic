@@ -198,6 +198,10 @@ jobs:
               inside { print }
             ' "${report}")"
             fingerprint="$(printf '%s' "${section}" | grep '✗' | sha256sum | cut -c1-16)"
+            # Only this step writes a marker: an HTML comment opened in the
+            # agent's text or in the report (which quotes fetched pages)
+            # could otherwise pass for another source's marker next week.
+            section="${section//<!--/\&lt;!--}"
             marker="<!-- external-source:${id} -->"
             stamp="<!-- external-source-fingerprint:${fingerprint} -->"
 
@@ -210,7 +214,7 @@ jobs:
               title="$(printf '%s' "${finding}" | jq -r '.title | gsub("[\\r\\n]+"; " ") | .[0:150]')"
               # GitHub refuses a body over 65 536 characters; the schema caps
               # it, and this holds even if the schema was not honoured.
-              analysis="$(printf '%s' "${finding}" | jq -r '.body | .[0:20000]')"
+              analysis="$(printf '%s' "${finding}" | jq -r '.body | .[0:20000] | gsub("<!--"; "&lt;!--")')"
             else
               title="divergence détectée"
               analysis="Le contrôle a signalé cette source ; aucune analyse n'a pu être produite."

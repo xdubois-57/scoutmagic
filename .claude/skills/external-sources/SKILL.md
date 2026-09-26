@@ -101,7 +101,9 @@ In the weekly workflow you do not write to GitHub at all: you return the
 title (without the `Source externe « <id> » :` prefix) and the body
 (without the type line and without the markers) as JSON, and the workflow
 adds the prefix, the type line, the script's report, the markers, and
-decides between opening and commenting.
+decides between opening and commenting. Any `<!--` in your text is
+escaped there: only the workflow writes a marker, so no body can pass for
+another source's issue.
 
 ## 4. What this is not
 
