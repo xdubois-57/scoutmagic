@@ -450,6 +450,16 @@ server-side where applying a label or an assignee is not. Step 6 says why
 there is nothing equivalent for merging, and why this repository already
 decided it does not need one.
 
+**First, run the external sources check** —
+`php scripts/check-external-sources.php`, before step 1. The maintainer
+asked for it on issue #355: « une vérification explicite quand je demande
+"fix the backlog" ». What it finds is a backlog item like any other: each
+divergence becomes an issue, or updates the one already open for that
+source, by `.claude/skills/external-sources/SKILL.md` — never a duplicate,
+and never a fix folded into another ticket's pull request. That issue then
+waits for `status:accepted` like everything else. A check that could not
+run (no network) is said in step 8's report, not skipped in silence.
+
 1. **List the OPEN issues carrying `status:accepted`, lowest number
    first.** That label, and only that label, selects the work. Nothing
    automatic ever applies it (`.claude/skills/triage/SKILL.md` § 6 forbids
@@ -647,7 +657,9 @@ they can only make it if they know.
 **The release gates are not part of this.** Dependencies, SonarQube Cloud,
 CodeQL and Dependabot have their own section below and their own
 instruction; they are never smuggled into a pull request whose diff a
-reviewer is holding for a ticket.
+reviewer is holding for a ticket. The external sources check at the top of
+this section is no exception, although the sixth gate runs the same
+script: here it only files issues, and fixes nothing.
 
 ## Leaving the release gates green
 
@@ -831,7 +843,7 @@ When the user asks to release a new version (`scripts/release.sh`), do this **in
    - open CodeQL scanning findings (`gh api "repos/{owner}/{repo}/code-scanning/alerts" --paginate --jq '.[] | select(.state == "open")'`)
    - open Dependabot alerts (`gh api "repos/{owner}/{repo}/dependabot/alerts" --paginate --jq '.[] | select(.state == "open")'`)
    - active SonarQube Cloud findings for `main` — **every** unresolved issue, plus unreviewed Security Hotspots. The one exemption is a pure convention nit: see § SonarQube Cloud release gate below for the exact rule (project `xdubois-57_scoutmagic`, https://sonarcloud.io/project/overview?id=xdubois-57_scoutmagic)
-2. Only after all of them are resolved, run the release script. Its five gates — **deployment** (www.scoutmagic.be is on the previous release and responds normally — via the public `GET /api/version`, `Core\Http\Controller\VersionController`), **continuous integration** (see below), **security** (`composer audit` + `npm audit` — always mandatory and blocking, queried directly against public advisory databases, no GitHub permission of any kind involved — plus the CodeQL/Dependabot query described above; see § A gate that cannot be verified from the current environment below for what happens when that query alone hits a permission gap), **dependency freshness** (`composer outdated --direct` + every vendored front-end library — Bootstrap, Bootstrap Icons, Chart.js, Leaflet, html5-qrcode — each vs. its latest upstream GitHub release), and **SonarQube Cloud** (`scripts/check-sonar-release.sh` — see below) — run in that order, in seconds, and are the final checks rather than the fix: the first one that finds a problem aborts the script before any commit or tag exists. Do not bypass or disable any gate to make a release "pass" — `--skip-deployment-check`, `--skip-ci-gate`, `--skip-security-gate`, `--skip-dependency-check` and `--skip-sonar-gate` (see below) exist only for genuine emergencies, not to route around a real finding, a real test failure, a real outdated dependency, or a real production problem.
+2. Only after all of them are resolved, run the release script. Its six gates — **deployment** (www.scoutmagic.be is on the previous release and responds normally — via the public `GET /api/version`, `Core\Http\Controller\VersionController`), **continuous integration** (see below), **security** (`composer audit` + `npm audit` — always mandatory and blocking, queried directly against public advisory databases, no GitHub permission of any kind involved — plus the CodeQL/Dependabot query described above; see § A gate that cannot be verified from the current environment below for what happens when that query alone hits a permission gap), **dependency freshness** (`composer outdated --direct` + every vendored front-end library — Bootstrap, Bootstrap Icons, Chart.js, Leaflet, html5-qrcode — each vs. its latest upstream GitHub release), **SonarQube Cloud** (`scripts/check-sonar-release.sh` — see below), and **external sources** (`php scripts/check-external-sources.php` — every page registered in `Core\ExternalSource\ExternalSources`: the federation pages must answer 200 with their expected content and the fees page's three amounts readable, the provider console and legal links must be alive; issue #355) — run in that order, in seconds, and are the final checks rather than the fix: the first one that finds a problem aborts the script before any commit or tag exists. Do not bypass or disable any gate to make a release "pass" — `--skip-deployment-check`, `--skip-ci-gate`, `--skip-security-gate`, `--skip-dependency-check`, `--skip-sonar-gate` and `--skip-sources-gate` (see below) exist only for genuine emergencies, not to route around a real finding, a real test failure, a real outdated dependency, or a real production problem.
 
 ### The tests are not among those gates, and that is deliberate
 
@@ -894,6 +906,7 @@ The script appends two more things after the note and the "Vérifications effect
 - `--skip-ci-gate`: skips the check that `All checks` is green on the commit being released — which is to say, every test and scan this project has. **This is the widest bypass in the list**: nothing else in the script looks at the code at all, so a release cut with it has been tested by nobody at the moment it is tagged. Only use this if the user explicitly asks, knowing that; the script prints a warning, and you must tell the user the same. Note what happens next either way: the tag's own Release workflow runs every gate again and creates no draft if one is red, so the release will simply refuse to publish rather than ship untested — which is why reaching for this flag to get past a red test wastes an hour and fixes nothing.
 - `--skip-dependency-check`: skips the dependency freshness gate (outdated direct Composer packages, outdated vendored front-end libraries — Bootstrap, Bootstrap Icons, Chart.js, Leaflet, html5-qrcode). Only use this if the user explicitly asks for an urgent release despite outdated dependencies; the script prints a warning, and you must tell the user the same and follow up to update them right after.
 - `--skip-sonar-gate`: skips the SonarQube Cloud check (every unresolved finding bar the pure convention nits exempted above, unreviewed Security Hotspots, the Quality Gate). Only use this if the user explicitly asks for an urgent release despite open findings or an unavailable/unconfirmed SonarQube Cloud result; the script prints a warning, and you must tell the user the same and follow up to resolve them right after.
+- `--skip-sources-gate`: skips the external sources check (the federation pages the site reads or links, the provider consoles its help texts point to). Only use this if the user explicitly asks for an urgent release despite a divergence — a moved federation page, changed fees amounts, a dead console link; the script prints a warning, and you must tell the user the same and make sure the divergence has its issue (`.claude/skills/external-sources/SKILL.md`).
 
 ### A gate that cannot be verified from the current environment
 

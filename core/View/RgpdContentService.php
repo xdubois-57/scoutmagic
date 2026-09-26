@@ -10,6 +10,7 @@ namespace Core\View;
 
 use Core\Config\AppClock;
 use Core\Config\SettingService;
+use Core\ExternalSource\ExternalSources;
 use Core\Module\ModuleManager;
 use Core\Module\SubProcessorProvider;
 use Core\Module\SubProcessorView;
@@ -308,6 +309,7 @@ class RgpdContentService
         $modulesText = implode(', ', $activeModules);
         $unitName = $this->settingService->get('site_name') ?: 'Unité scoute';
         $contactEmail = $this->settingService->get('contact_email') ?: '(non configuré)';
+        $federationPolicyUrl = ExternalSources::DATA_PROTECTION_PAGE;
 
         return <<<PROMPT
 Tu es un assistant juridique spécialisé en conformité RGPD pour des sites web d'unités scoutes belges.
@@ -317,7 +319,7 @@ Contexte de l'unité :
 - Email de contact RGPD : {$contactEmail}
 - Responsable du traitement : chef d'unité (responsable du groupe « chefs d'U »)
 - Affiliation : Les Scouts ASBL (BE0409580916), politique fédération :
-https://www.lesscouts.be/fr/ressources-scouts/administratif-1/web-et-vie-privee/protection-des-donnees-personnelles
+{$federationPolicyUrl}
 - Modules actifs : {$modulesText}
 - Fournisseur IA : {$providerInfo}
 - Modèles IA : {$modelsInfo}
