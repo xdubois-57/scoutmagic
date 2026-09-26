@@ -11,6 +11,7 @@ namespace Core\Http\Controller;
 use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
 use Core\Cookie\CookieConsentService;
+use Core\ExternalSource\ExternalSources;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Member\SectionService;
@@ -118,6 +119,9 @@ class PageController extends AbstractController
         return $this->render('pages/contact.html.twig', [
             'staffdu_section_id' => $staffduSectionId,
             'staffdu_staff' => $this->sectionService->getSectionStaff($staffduSectionId, $scoutYearId),
+            // From the register of external sources (issue #355), which the
+            // weekly check and the release gate watch.
+            'federation_url' => ExternalSources::FEDERATION_PAGE,
         ]);
     }
 

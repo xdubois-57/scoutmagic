@@ -597,6 +597,22 @@ class PageControllerTest extends TestCase
         $this->assertStringContainsString('Contact', $response->getBody());
     }
 
+    /**
+     * Issue #355: the federation link comes from the register of external
+     * sources, which the weekly check and the release gate watch, rather
+     * than from a copy of the URL in the template.
+     */
+    public function testContactPageLinksTheFederationFromTheRegister(): void
+    {
+        $request = new Request('GET', '/contact', [], [], [], []);
+        $response = $this->controller->contact($request, []);
+
+        $this->assertStringContainsString(
+            'href="' . \Core\ExternalSource\ExternalSources::FEDERATION_PAGE . '"',
+            $response->getBody()
+        );
+    }
+
     public function testContactPageListsStaffDuMembersInACardLikeTheEmailBox(): void
     {
         $scoutYearId = $this->scoutYearService->getCurrentYear()['id'];
