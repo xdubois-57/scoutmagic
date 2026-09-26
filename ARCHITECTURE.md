@@ -4886,8 +4886,10 @@ under the attributed provider, `runs` still distinct across the domains
 folded together — so a box measured before its
 domain was resolved moves with its whole history the day the answer
 arrives. The DNS is read by `Seed\Task\ResolveMailboxProvidersHandler`
-alone: forty domains a day inside a twenty-second wall clock (checked
-between lookups, since `dns_get_record()` has no timeout), each answer
+alone: at most seven hundred and fifty domains a day — enough to re-read
+the whole 5 000-domain cache within its seven days — inside a
+twenty-second wall clock (checked between lookups, since
+`dns_get_record()` has no timeout), each answer
 good for seven days, a failed lookup keeping the last good answer and
 backing off 1, 2, 4, then 7 days, nothing thrown to the scheduler, and a
 domain nobody has written to for 180 days forgotten.
