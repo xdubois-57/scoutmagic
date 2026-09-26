@@ -1206,8 +1206,65 @@ class MassMailServiceTest extends TestCase
         $mailServiceMock->method('getDefaultSender')
             ->willReturn(['address' => 'unite@test.be', 'name' => 'Test Unité']);
         $mailServiceMock->expects($this->once())->method('send')->with(
-            'to@test.be', $this->anything(), $this->anything(), $this->anything(), $this->anything(), $this->anything(),
-            'meute-a@test.be', 'Meute A'
+            'to@test.be',
+            $this->anything(),
+            $this->anything(),
+            $this->anything(),
+            // **`null`, asserted rather than waved through.** This argument
+            // used to be `$this->anything()`, which reads an argument and
+            // pins nothing — and that is what let the test send keep a
+            // hardcoded null after `resolveSenderIdentity()` started
+            // answering a `reply_to` (found in review on #573). Here the
+            // section's address IS the `From:`, so a `Reply-To:` repeating it
+            // would be one more header to keep in step for no reader.
+            null,
+            $this->anything(),
+            'meute-a@test.be',
+            'Meute A'
+        );
+
+        $service = $this->buildServiceWithMailService($mailServiceMock);
+
+        $email = $service->createDraft(
+            'Sujet', '<p>Corps</p>', $this->sectionId, Email::LIST_TYPE_DEFAULT_ACTIVE_MEMBERS, null, null,
+            [$this->scoutYearId], null, $this->unrestricted
+        );
+        $service->moveToTest($email->id, null);
+
+        $service->sendTestEmail($email->id, 'to@test.be');
+    }
+
+    /**
+     * **The test send has to show what the batch sends, for the sections this
+     * rule is about too** (found in review on #573).
+     *
+     * `sendTestEmail()` passed a hardcoded null where `SendBatchHandler`
+     * passes `$sender['reply_to']`. For a section whose address this site
+     * cannot sign for, the substituted `From:` names the section while
+     * `MailService::send()`'s own fallback routed « Répondre » to the SITE —
+     * so the one message a chief reads before sending to everybody described
+     * a behaviour the real send does not have.
+     */
+    public function testTheTestSendCarriesTheSameReplyToAsTheBatchForAMisalignedSection(): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE sections SET email = ? WHERE id = ?');
+        $stmt->execute(['meute-a@telenet.be', $this->sectionId]);
+
+        $mailServiceMock = $this->createMock(MailService::class);
+        $mailServiceMock->method('getDefaultSender')
+            ->willReturn(['address' => 'unite@test.be', 'name' => 'Test Unité']);
+        $mailServiceMock->expects($this->once())->method('send')->with(
+            'to@test.be',
+            $this->anything(),
+            $this->anything(),
+            $this->anything(),
+            // Where the reply goes: the section, as on the real batch.
+            'meute-a@telenet.be',
+            $this->anything(),
+            // No `From:` override — the site's own address, the one it signs
+            // for — under the substituted name.
+            null,
+            'Meute A (Test Unité)'
         );
 
         $service = $this->buildServiceWithMailService($mailServiceMock);

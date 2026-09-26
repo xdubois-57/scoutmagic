@@ -630,7 +630,16 @@ class MassMailService
             '[TEST] ' . $subject,
             $bodyHtml,
             strip_tags($bodyHtml),
-            null,
+            // **The same `Reply-To:` the batch sets**, and it was a hardcoded
+            // null (found in review on #573). For a section whose address
+            // this site cannot sign for, `resolveSenderIdentity()` answers a
+            // null address and the section in `reply_to`; passing null here
+            // let `MailService::send()` apply its own fallback — the SITE's
+            // reply address — so the test message showed the substituted
+            // `From:` naming the section and sent « Répondre » to the unit.
+            // This message is the one thing a chief inspects to know what
+            // recipients get, so a divergence here is worse than elsewhere.
+            $sender['reply_to'],
             $this->buildAttachmentPayload($id),
             $sender['address'],
             $sender['name']
