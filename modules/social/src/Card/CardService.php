@@ -85,8 +85,14 @@ class CardService
         // row without a file — a 404, and a row the purge deletes — never
         // a file no row points to, which nothing would ever delete.
         $cardId = $this->cards->create(self::hash($token), $fileName, $fromGallery, $now, $expiresAt);
-        if (@file_put_contents($this->directory . '/' . $fileName, $jpeg) === false) {
-            $this->cards->delete($cardId);
+        $path = $this->directory . '/' . $fileName;
+        if (@file_put_contents($path, $jpeg) === false) {
+            // A failed write can still leave part of a file. It goes first;
+            // if it cannot, the row stays, and the purge — which removes
+            // the file before the row — tries again once it has expired.
+            if (!is_file($path) || @unlink($path)) {
+                $this->cards->delete($cardId);
+            }
 
             throw new CardException('L\'image n\'a pas pu être enregistrée. Réessayez plus tard.');
         }
