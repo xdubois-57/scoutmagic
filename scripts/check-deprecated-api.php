@@ -1,4 +1,3 @@
-#!/usr/bin/env php
 <?php
 /**
  * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors

@@ -261,6 +261,54 @@ class ReleaseGatesTest extends TestCase
     }
 
     /**
+     * `scripts/release.test.sh` pins the gate order too — a NINTH place
+     * nothing connects, and the one that could stay broken longest, because
+     * nothing in CI runs it.
+     *
+     * Adding the gate for issue #379 left its `expected_order` at five keys,
+     * so the shell self-test failed for anyone who ran it, saying the order
+     * was « deployment ci security dependency deprecated sonar » — a list no
+     * line of release.sh contains, because its extraction pattern was
+     * `[a-z]+` and truncated `deprecated_api`. A failure message naming the
+     * wrong defect is worse than none.
+     *
+     * This test is not a second copy of that one: it asserts that the shell
+     * script's expectation IS the order `run_gate` actually launches, so the
+     * two cannot disagree. PHPUnit runs in CI; that self-test does not.
+     */
+    public function testTheShellSelfTestExpectsTheOrderTheScriptActuallyLaunches(): void
+    {
+        $selfTest = (string) file_get_contents(dirname(__DIR__, 3) . '/scripts/release.test.sh');
+
+        $this->assertSame(
+            1,
+            preg_match('/^expected_order="([^"]*)"/m', $selfTest, $pinned),
+            'scripts/release.test.sh no longer pins an expected_order'
+        );
+
+        $this->assertSame(
+            implode(' ', self::launchedKeys()),
+            $pinned[1],
+            "scripts/release.test.sh expects a gate order release.sh does not run. Nothing in CI"
+            . " runs that\nfile, so it stays wrong until somebody runs it by hand — which is why"
+            . ' this assertion is here.'
+        );
+
+        // And the pattern it extracts with has to admit the keys that exist.
+        foreach (self::launchedKeys() as $key) {
+            if (!str_contains($key, '_')) {
+                continue;
+            }
+            $this->assertStringContainsString(
+                "run_gate [a-z_]+",
+                $selfTest,
+                "the gate key '{$key}' has an underscore, so release.test.sh's extraction pattern"
+                . ' must accept one'
+            );
+        }
+    }
+
+    /**
      * What this script deliberately does NOT run, and what it reads
      * instead.
      *

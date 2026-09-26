@@ -166,14 +166,18 @@ else
 fi
 
 # The order is the documented one, and it is the order of the file.
-expected_order="deployment ci security dependency sonar"
+expected_order="deployment ci security dependency deprecated_api sonar"
 # [[:space:]], not \s: BSD grep — the one a macOS releaser runs, and this
 # script is written for the same machine scripts/release.sh caffeinates —
 # does not know \s in an ERE. It would match nothing, actual_order would be
 # empty, and this would report a gate-order failure that is not one.
-actual_order="$(grep -oE '^[[:space:]]*run_gate [a-z]+' "${RELEASE_SH}" | awk '{print $2}' | tr '\n' ' ' | sed 's/ $//')"
+# [a-z_]+, not [a-z]+: the gate keys are not all single words. `[a-z]+`
+# truncated `run_gate deprecated_api` to `deprecated` and reported a gate
+# order that no line of release.sh contains — a failure message naming the
+# wrong defect, which is worse than none.
+actual_order="$(grep -oE '^[[:space:]]*run_gate [a-z_]+' "${RELEASE_SH}" | awk '{print $2}' | tr '\n' ' ' | sed 's/ $//')"
 if [[ "${actual_order}" == "${expected_order}" ]]; then
-    ok "the five gates run in the documented order (${actual_order})"
+    ok "the six gates run in the documented order (${actual_order})"
 else
     fail "gate order is '${actual_order}', expected '${expected_order}'"
 fi
