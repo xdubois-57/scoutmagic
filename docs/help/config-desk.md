@@ -45,6 +45,25 @@ Une section sans aucun membre au dernier import devient inactive et
 disparaît d'elle-même, y compris de cette page ; elle revient dès
 qu'un import lui redonne des membres — rien n'est jamais supprimé.
 
+### L'adresse d'une section et les publipostages
+
+Un publipostage part au nom de sa section, sous l'adresse renseignée
+ici. Pour que les serveurs des destinataires l'acceptent, cette adresse
+doit être **sur le domaine d'envoi du site** (ou un de ses
+sous-domaines) : c'est le seul domaine pour lequel le site peut signer.
+Une adresse chez un fournisseur grand public — Telenet, Skynet, Gmail,
+Yahoo… — n'en fait pas partie, et un message envoyé sous une telle
+adresse est refusé ou classé en indésirable chez une bonne partie des
+destinataires.
+
+Ce n'est pas un refus : la page vous avertit sous le champ, et le
+publipostage part quand même — depuis l'adresse d'envoi du site, sous le
+nom de la section suivi de celui de l'unité, avec les réponses qui
+arrivent toujours à l'adresse de la section. Pour que l'adresse de la
+section redevienne l'expéditeur, il faut lui en donner une sur le
+domaine du site. La sous-page « Authentification » du courrier sortant
+récapitule toutes les sections concernées.
+
 ## Les branches
 
 Pour chaque branche d'âge, vous pouvez remplacer le logo fédéral et le

@@ -1104,9 +1104,10 @@ que l'invariant dit vraiment est écrit là où il est vrai — le docblock de
 `dkimDomain()` — et épinglé par un test qui compare les deux domaines sur
 quatre identités, adresse de réponse et adresse DMARC chez d'autres
 opérateurs comprises. Le seul cas qui les ferait diverger pour de bon est
-l'envoi « au nom de » d'une section, déjà porté en « Reporté » : c'est
-l'itération du publipostage qui donnera à ce contrôle quelque chose à
-comparer.
+l'envoi « au nom de » d'une section, alors porté en « Reporté » : c'est
+l'itération du publipostage qui a donné à ce contrôle quelque chose à
+comparer, et #418 l'a écrit là où il porte — sur l'adresse d'une section,
+jamais sur l'identité du site.
 
 **Et deux messages de commit rédigés en anglais**, alors qu'AGENTS.md
 § Langue est explicite : tout ce qui est écrit *à propos* d'un changement
@@ -1211,8 +1212,20 @@ deux règles opposées au même fichier, et cela mérite un arbitrage.
 
 ### Reporté
 
-- L'alignement DMARC d'un envoi « au nom de » (ci-dessus), à l'itération
-  qui touchera le publipostage. **Suivi en #418.**
+- ~~L'alignement DMARC d'un envoi « au nom de » (ci-dessus), à l'itération
+  qui touchera le publipostage.~~ **Traitée dans #418**, et le contrôle
+  retiré ici est revenu à l'endroit où il a enfin quelque chose à comparer :
+  `MailIdentity::canAlignFrom()` répond pour l'adresse d'une section, pas
+  pour l'identité du site — où les deux domaines ne pouvaient pas diverger.
+  L'arbitrage du ticket est une **substitution, pas un refus** : le message
+  part de l'adresse du site, au nom de « Baladins (Unité X) », avec
+  l'adresse de la section en « Répondre à ». Et il est annoncé aux deux
+  endroits où il se configure — sous le champ de Correspondances Desk et
+  dans la liste d'Authentification — parce que la mesure faite le
+  24 septembre 2026 dit que Telenet et Yahoo publient `p=reject` : sans
+  cette substitution le publipostage d'une section était refusé partout,
+  l'écran entièrement vert, et aucun rapport DMARC ne pouvait le dire
+  puisqu'il part vers le `rua=` du domaine du `From:`.
 - ~~La régénération de la clé DKIM depuis la sous-page.~~ **Traitée dans
   #336**, qui a tranché comme ce paragraphe l'annonçait : elle est
   maintenant sur « Authentification » et **retirée de l'assistant dans le

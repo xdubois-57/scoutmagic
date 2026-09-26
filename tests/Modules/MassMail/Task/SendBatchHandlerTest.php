@@ -128,8 +128,15 @@ class SendBatchHandlerTest extends TestCase
         $mailService = $this->mailServiceDouble();
         $mailService->expects($this->once())
             ->method('send')
-            ->willReturnCallback(function (...$args) use (&$copy): void {
-                $copy = $args[12] ?? null;
+            // The address is named rather than swallowed by `...$args`:
+            // `send()` takes it first, and an expectation that never reads it
+            // would pass while the batch wrote to somebody else
+            // (`Tests\Architecture\MailDoublesNameTheirRecipientTest`).
+            ->willReturnCallback(function (string $to, ...$rest) use (&$copy): void {
+                self::assertSame('member0@test.be', $to, 'the one recipient left standing in this fixture');
+                // One place further left than before, the address having been
+                // taken out of the variadic.
+                $copy = $rest[11] ?? null;
             });
 
         (new SendBatchHandler())->handle([], $this->buildContext($mailService));

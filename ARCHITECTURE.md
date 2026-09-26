@@ -4284,6 +4284,39 @@ mailing's own sender override included; nothing said so and nothing
 tested it, and `Tests\Core\Mail\MailIdentityTest` now pins it against
 the real service rather than against a string the test also wrote.
 
+**And it decides whether a `From:` can be signed for at all**
+(`canAlignFrom()`, issue #418). A mailing sent under a section's own
+address keeps the site's envelope and the site's DKIM key, so neither SPF
+nor DKIM aligns with that `From:` unless the address is on the domain the
+site signs for; when it is not, the message fails DMARC outright, and the
+site never learns it because an aggregate report goes to the `rua=` of the
+**From** domain — `baladins@telenet.be` is reported to Telenet, never
+here. The rule is the narrow half of DMARC's relaxed alignment: the domain
+this site signs for, or a subdomain of it, matched on a dot-prefixed
+suffix so that `unite.be.evil.com` and `autre-unite.be` — both of which
+contain the site's domain and neither of which is under it — are refused.
+Carrying the Public Suffix List to do the wide half was decided against,
+and the asymmetry errs toward the warning: wrong in this direction costs a
+warning nobody needed, wrong in the other lets a mailing be refused with
+every screen green.
+
+The answer is a **substitution, never a refusal**:
+`MassMailService::resolveSenderIdentity()` sends from the site's own
+address with `substitutedFromName()`'s « Baladins (Unité X) » as the
+display name and the section's address as `Reply-To:`, so the recipient
+still reads who is writing and « Répondre » still arrives where it always
+did. That name lives on `MailIdentity` rather than in the mailing because
+three places have to say the same thing — the send, and the two
+configuration screens that warn about it — and a screen composing it
+itself would be a second answer to a question the send already settles.
+`Core\Mail\SectionSenderAlignment` is what those screens ask: it carries
+no rule of its own, only the one French sentence both of them show, so an
+operator who checks Authentification after fixing Correspondances Desk is
+not told something different. A site with no sending address configured
+warns about nothing — `canAlignFrom()` answers « no » for every address
+when the site signs for no domain, and blaming the sections for a missing
+site address is not a diagnosis.
+
 **The DNS check moved out of the installation wizard** onto
 Authentification, and the wizard keeps only the initial entry — a site has
 to be able to send before anybody can open a configuration page. The same
