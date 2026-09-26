@@ -58,6 +58,9 @@ class SeedCopyRepository
     ) {
     }
 
+    /** Set once the cache has failed to read: see {@see attributed()}. */
+    private bool $attributionUnreadable = false;
+
     /**
      * The provider a copy is COUNTED under: the one the MX records of its
      * box's domain named (issue #422), or the domain itself.
@@ -76,12 +79,30 @@ class SeedCopyRepository
      * has no column `mail_seed_copies.provider` could be compared with.
      * The cache is read whole into memory once per instance, so this is
      * an array lookup per row, never a query.
+     *
+     * **An unreadable cache attributes nothing, and says so once.** A
+     * table not migrated yet, or a key that cannot decrypt it, must not
+     * take down a results page that rendered from `mail_seed_copies`
+     * alone before the cache existed: every copy keeps its own domain,
+     * exactly as if nothing had been resolved — the same answer every
+     * other reader of the cache gives. The failure is remembered, so a
+     * broken cache is not queried again for each row.
      */
     private function attributed(string $storedProvider): string
     {
+        if ($this->attributionUnreadable) {
+            return $storedProvider;
+        }
+
         $this->mailboxProviders ??= new MailboxProviderRepository($this->pdo, $this->encryption);
 
-        return $this->mailboxProviders->providerOf($storedProvider) ?? $storedProvider;
+        try {
+            return $this->mailboxProviders->providerOf($storedProvider) ?? $storedProvider;
+        } catch (\Throwable) {
+            $this->attributionUnreadable = true;
+
+            return $storedProvider;
+        }
     }
 
     /**

@@ -443,6 +443,25 @@ class SeedCopyRepositoryTest extends TestCase
     }
 
     /** Not resolved yet, or resolved to nobody known: the domain is its own column, as before. */
+    /**
+     * A cache that cannot be read — not migrated yet, or another key —
+     * must leave the results page as it was before the cache existed:
+     * every copy under its own domain, never a 500.
+     */
+    public function testAnUnreadableCacheLeavesEveryCopyUnderItsOwnDomain(): void
+    {
+        $sent = new \DateTimeImmutable('-1 day');
+        $this->copies->claim('envoi-1', 'temoin@famille-dupont.be', $sent);
+        $this->copies->claim('envoi-1', 'temoin@gmail.com', $sent);
+        $this->pdo->prepare('DROP TABLE mail_domain_providers')->execute();
+
+        $tally = $this->copies->tallyByProviderSince(new \DateTimeImmutable('-30 days'));
+        $runs = $this->copies->runsSince(new \DateTimeImmutable('-30 days'));
+
+        $this->assertSame(['famille-dupont.be', 'gmail.com'], array_column($tally, 'provider'));
+        $this->assertCount(1, $runs);
+    }
+
     public function testAnUnattributedDomainKeepsItsOwnColumn(): void
     {
         $sent = new \DateTimeImmutable('-1 day');
