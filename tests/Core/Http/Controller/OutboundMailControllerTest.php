@@ -207,6 +207,11 @@ class OutboundMailControllerTest extends TestCase
                 $probeTransport,
                 $this->mailProbes = new \Core\Mail\Probe\MailProbeRepository($this->pdo, $encryption),
                 $twig,
+                // The send receipts. A probe stamps its own, because its
+                // destination is never an address the site holds on file —
+                // and without one, its own bounce is refused and #419's
+                // tracing never runs.
+                new \Core\Mail\Feedback\Bounce\BounceStateRepository($this->pdo, $encryption),
                 new JournalService(new JournalRepository($this->pdo))
             ),
             $this->mailProbes,
@@ -1548,6 +1553,89 @@ class OutboundMailControllerTest extends TestCase
         $flash = \Core\Http\FlashMessage::get();
         $this->assertSame('error', $flash['type'] ?? null);
         $this->assertStringContainsString('Cette sonde n’existe plus', $flash['message'] ?? '');
+    }
+
+    /**
+     * **The half of issue #419 that is the point of it: what the page says.**
+     *
+     * The consumer's own tests prove a bounce gets attached; none of them can
+     * prove an operator ever sees it. This renders the real history table
+     * from a real row and reads the sentence back.
+     *
+     * And it reads BOTH: the verdict the operator entered and the reason the
+     * far end gave, on the same line. They are not alternatives — « jamais
+     * reçu » is what a person saw in the mailbox, « Adresse inexistante » is
+     * why there was nothing to see — and a page that replaced one with the
+     * other would drop the half somebody came for.
+     */
+    public function testAProbeThatWasTracedToABounceShowsTheReasonNextToTheVerdict(): void
+    {
+        $probes = new \Core\Mail\Probe\MailProbeRepository(
+            $this->pdo,
+            // The same keys setUp() gave the controller: a different pair
+            // would store a destination the page cannot decrypt.
+            new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+        $id = $probes->record(
+            'SM-7K2XPQ',
+            'vous@exemple.be',
+            null,
+            'Relais principal',
+            \Core\Mail\Transport\MailLane::Transactional,
+            new \DateTimeImmutable('2026-09-15 07:00:00')
+        );
+        $probes->recordVerdict($id, \Core\Mail\Probe\MailProbeVerdict::Never, new \DateTimeImmutable('2026-09-15 09:00:00'));
+        $probes->recordBounce(
+            $id,
+            \Core\Mail\Feedback\Bounce\BounceCategory::NoSuchAddress,
+            '5.1.1',
+            new \DateTimeImmutable('2026-09-15 08:00:00')
+        );
+
+        $body = (string) $this->controller->probe($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('Adresse inexistante (5.1.1)', $body);
+        $this->assertStringContainsString('Jamais reçu', $body);
+        // **The date of the refusal, and not the date of the send.** The
+        // probe left at 07:00 and the bounce came back at 08:00; a test
+        // that only read the label passed while `bounce_at` was computed
+        // in the view model and printed nowhere, which is what the review
+        // of #562 found.
+        $this->assertStringContainsString('Rebond le 15/09/2026 à 08:00', $body);
+    }
+
+    /**
+     * The ordinary probe, and the assertion that keeps the one above from
+     * passing on a page that says « Rebond » to everybody.
+     *
+     * Most bounces name no probe at all — a server that rejects before
+     * quoting the message it rejected sends no code — so a row with nothing
+     * traced to it is the common case, and it must stay silent rather than
+     * show an empty reason.
+     */
+    public function testAProbeWithNothingTracedToItSaysNothingAboutARebound(): void
+    {
+        $probes = new \Core\Mail\Probe\MailProbeRepository(
+            $this->pdo,
+            // The same keys setUp() gave the controller: a different pair
+            // would store a destination the page cannot decrypt.
+            new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+        $probes->record(
+            'SM-7K2XPQ',
+            'vous@exemple.be',
+            null,
+            'Relais principal',
+            \Core\Mail\Transport\MailLane::Transactional,
+            new \DateTimeImmutable('2026-09-15 07:00:00')
+        );
+
+        $body = (string) $this->controller->probe($this->getRequest(), [])->getBody();
+
+        // `Rebond le ` and not `Rebond`: the page's own navigation carries
+        // a « Rebonds » tab, so the looser needle passed on that instead
+        // and said nothing about the row under test.
+        $this->assertStringNotContainsString('Rebond le ', $body);
     }
 
     /**

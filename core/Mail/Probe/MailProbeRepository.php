@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Mail\Probe;
 
+use Core\Mail\Feedback\Bounce\BounceCategory;
 use Core\Mail\Transport\MailLane;
 use Core\Security\EncryptionService;
 use Core\Service\DateInput;
@@ -105,6 +106,56 @@ final class MailProbeRepository
         return $statement->rowCount() === 1;
     }
 
+    /**
+     * The probe a bounce quoted, by the code in its subject.
+     *
+     * **Newest first, because a code can come round again.**
+     * MailProbeSender::generateCode() draws six characters from an alphabet
+     * of 32 — a billion codes, so a repeat is unlikely rather than
+     * impossible, and the history is kept for years. If one ever repeats,
+     * the bounce belongs to the run that was still in flight, which is the
+     * most recent one; the alternative is attaching a rejection to a probe
+     * somebody answered two years ago.
+     */
+    public function findByCode(string $code): ?MailProbe
+    {
+        $statement = $this->pdo->prepare($this->selectClause() . ' WHERE code = ? ORDER BY id DESC LIMIT 1');
+        $statement->execute([$code]);
+        $row = $statement->fetch(PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $this->hydrate($row);
+    }
+
+    /**
+     * Attach what the far end said, once.
+     *
+     * `AND bounce_at IS NULL` for the same reason as recordVerdict()'s own
+     * guard: the first rejection is the one that explains the probe's fate,
+     * and a mailbox that keeps bouncing would otherwise rewrite the line
+     * every time somebody else's message fails — the row would then carry
+     * the date of the last unrelated bounce.
+     *
+     * The category is stored by its value and not its label: the label is
+     * what a screen says today, and storing it would freeze one version's
+     * wording into the history.
+     *
+     * @return bool whether this call is the one that wrote the attachment
+     */
+    public function recordBounce(
+        int $id,
+        BounceCategory $category,
+        string $statusCode,
+        \DateTimeImmutable $at
+    ): bool {
+        $statement = $this->pdo->prepare(
+            'UPDATE mail_probes SET bounce_category = ?, bounce_status_code = ?, bounce_at = ?
+              WHERE id = ? AND bounce_at IS NULL'
+        );
+        $statement->execute([$category->value, $statusCode, $at->format('Y-m-d H:i:s'), $id]);
+
+        return $statement->rowCount() === 1;
+    }
+
     public function find(int $id): ?MailProbe
     {
         $statement = $this->pdo->prepare($this->selectClause() . ' WHERE id = ?');
@@ -165,7 +216,7 @@ final class MailProbeRepository
     private function selectClause(): string
     {
         return 'SELECT id, code, destination_encrypted, provider_id, provider_name, lane, sent_at, '
-            . 'verdict, verdict_at FROM mail_probes';
+            . 'verdict, verdict_at, bounce_category, bounce_status_code, bounce_at FROM mail_probes';
     }
 
     /**
@@ -180,6 +231,31 @@ final class MailProbeRepository
         }
 
         return $probes;
+    }
+
+    /**
+     * The attachment, or null when nothing was ever traced to this probe.
+     *
+     * Keyed on `bounce_at`, not on the category: the date is what says an
+     * attachment happened, and a category this version no longer knows must
+     * not turn a recorded rejection back into « rien n'est revenu ».
+     *
+     * @param array<string, mixed> $row
+     */
+    private function hydrateBounce(array $row): ?ProbeBounce
+    {
+        $at = DateInput::fromStorage(isset($row['bounce_at']) ? (string) $row['bounce_at'] : null);
+        if ($at === null) {
+            return null;
+        }
+
+        return new ProbeBounce(
+            category: isset($row['bounce_category'])
+                ? BounceCategory::tryFrom((string) $row['bounce_category'])
+                : null,
+            statusCode: (string) ($row['bounce_status_code'] ?? ''),
+            at: $at
+        );
     }
 
     /**
@@ -203,7 +279,8 @@ final class MailProbeRepository
             verdict: $verdict,
             verdictAt: DateInput::fromStorage(
                 isset($row['verdict_at']) ? (string) $row['verdict_at'] : null
-            )
+            ),
+            bounce: $this->hydrateBounce($row)
         );
     }
 }
