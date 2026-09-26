@@ -4654,6 +4654,52 @@ and AAAA both, because a relay reached over IPv6 would otherwise be
 has no reason to write it the way a resolver does. The host itself never
 reaches a screen (SECURITY.md §11); the provider's name does.
 
+*`SpfCoverage` names what `KnownSenders` cannot* (issue #421). A source no
+declared relay places is an address and nothing else — and almost always a
+mail service the unit really uses and never told the site about, whose
+ranges are in the unit's own SPF record behind an `include:`, because
+somebody had to put them there for that mail to pass. So the same
+« Vérifier les enregistrements » action walks that chain and stores what it
+authorises, and the page says « déclarée dans votre SPF, via
+`_spf.google.com` ». **The attribution is the top-level `include:`, however
+deep the range was found**: `_netblocks3.google.com` is where the addresses
+actually are and appears nowhere in the operator's zone, so naming it would
+send them hunting for a string they cannot find. **Naming is not
+clearing** — a source this places keeps its « À identifier » and stays in
+the warning's count, because « je l'ai mis dans le SPF il y a trois ans » is
+the commonest way a forgotten tool got there. Three of its bounds are
+borrowed rather than chosen: ten lookups, the number RFC 7208 §4.6.4 gives
+receivers, past which a real receiver abandons the chain too; 256 ranges,
+a COUNT whose stored size is bounded separately — each attribution is
+written once and referred to by index, so at most `MAX_LOOKUPS + 1` names
+of 253 characters plus 256 hex addresses, under 12 KB in the setting's
+`TEXT` column (the first version repeated the name per range and could
+reach 80 KB, which review of #571 caught); thirty days before the reading
+stops naming anybody, since a provider's published ranges are the one input
+here that moves without anybody at the unit touching it. **A `redirect=` is
+ignored when the record carries an `all`**, as RFC 7208 §6.1 requires, so
+the page cannot name a target no receiver read; a host in the chain that
+does not answer marks the reading incomplete rather than passing for a
+record that publishes nothing — which needed a nullable seam to be true and
+not merely written: the walk is handed
+`Core\Mail\DnsVerifier::txtRecordsFor()`, which returns `null` for « the
+resolver could not be asked », where the three record checks keep reading
+that same failure as « the record is absent ». **The first version of this
+claim was false in production and every test passed**, because the closure
+was declared `: array` over a verifier that mapped a failed lookup to `[]`;
+the branch the page's warning hangs on was dead outside the unit test that
+injected its own `?array` closure. `DnsVerifier` now reaches a resolver in
+exactly one method, and it is the only one a fake replaces — two
+overridable methods over one lookup is how the chain walk came to ask the
+real network from a test that thought it had substituted a zone. A reading
+taken for a domain the site no longer sends from places nothing at all, which is asked on the read side so
+that a restore or an edit made anywhere else is covered too. `a`, `mx`, `exists:`, `ptr` and any
+mechanism carrying a `-`, `~` or `?` qualifier are deliberately not read —
+`-ip4:` names a range the record REFUSES — each leaving its addresses
+**unplaced** rather than misplaced. Unlike a relay hostname, an `include:`
+target is public DNS the operator published themselves and has to find again
+in their own zone, which is why this one name does reach the screen.
+
 *The caps are on the DRAWING, and on nothing else.* `sourcesSince()` and
 `reportsSince()` feed tables and are limited; every count and the one
 warning come from uncapped queries (`totalsSince()`, and

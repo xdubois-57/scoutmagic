@@ -746,6 +746,26 @@ $settingService->register(
     false,
     57
 );
+// Which address ranges the unit's OWN SPF record authorises, and behind
+// which `include:` (issue #421). Not the same question as the reading
+// above: that one places the relays the unit declared TO THIS SITE, this
+// one places a service it uses and never declared — which is what the
+// « Rapports DMARC » page cannot name today and is the one thing it has to
+// say. Written by the same « Vérifier les enregistrements » action, never
+// by hand — hence editable: false.
+$settingService->register(
+    \Core\Mail\Feedback\Dmarc\SpfCoverage::SETTING_KEY,
+    '',
+    'text',
+    'Plages autorisées par votre SPF, dernière résolution',
+    'Plages d\'adresses que la chaîne d\'include: de votre enregistrement SPF autorise, '
+        . 'telles que la dernière vérification DNS les a lues, avec sa date.',
+    null,
+    null,
+    null,
+    false,
+    58
+);
 // Whether the mailing lane also writes to the unit's seed mailboxes
 // (roadmap IT-07). Off unless somebody turns it on: a copy of every
 // mailing carries real members' data into however many boxes are
@@ -7857,7 +7877,14 @@ $frontController->registerController(
                 $mailDomainPreferences,
                 new \Core\Mail\Transport\LaneChainRepository($pdo),
                 $mailProviderDirectory
-            )
+            ),
+        // What this unit's own SPF authorises, as the last DNS check read
+        // it — READ, never resolved here, for `KnownSenders`' reason above
+        // (issue #421). Last in the list because the constructor is
+        // positional; see the parameter's own note.
+        $inboundMailForOthers === null
+            ? null
+            : \Core\Mail\Feedback\Dmarc\SpfCoverage::remembered($settingService)
     )
 );
 
