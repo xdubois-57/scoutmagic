@@ -111,7 +111,9 @@ final class ShareSourceResolver
             $address,
             'Les photos de « ' . $album->title . ' » sont en ligne !'
                 . ($address !== '' ? ' À voir sur ' . $address : ''),
-            '/gallery/' . $album->id . '/edit'
+            '/gallery/' . $album->id . '/edit',
+            null,
+            $this->absolute($album->path)
         );
     }
 
@@ -136,8 +138,16 @@ final class ShareSourceResolver
             '/news/' . $article->id . '/gerer',
             $article->shareable
                 ? null
-                : 'Cette actualité est réservée aux animateurs : elle ne peut pas quitter le site.'
+                : 'Cette actualité est réservée aux animateurs : elle ne peut pas quitter le site.',
+            $article->url !== '' ? $article->url : null
         );
+    }
+
+    private function absolute(string $path): ?string
+    {
+        $base = rtrim((string) ($this->settings->get('base_url') ?: ''), '/');
+
+        return $base === '' ? null : $base . $path;
     }
 
     private function address(string $path): string

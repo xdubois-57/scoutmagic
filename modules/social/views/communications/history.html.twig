@@ -21,10 +21,10 @@
             </p>
             <ul class="list-unstyled mb-0">
                 {% for row in entry.rows %}
-                    <li class="d-flex align-items-center gap-2 py-1 border-top" data-platform="{{ row.platform.value }}" data-state="{{ row.state }}">
-                        <i class="bi {{ row.platform.value == 'facebook' ? 'bi-facebook' : 'bi-instagram' }}" aria-hidden="true"></i>
+                    <li class="d-flex align-items-center gap-2 py-1 border-top" data-platform="{{ row.key }}" data-state="{{ row.state }}">
+                        <i class="bi {{ row.icon }}" aria-hidden="true"></i>
                         <span class="flex-grow-1">
-                            {{ row.platform.value == 'facebook' ? 'Facebook' : 'Instagram' }}
+                            {{ row.label }}
                             <br>
                             {% if row.state == 'published' %}
                                 <span class="small text-body-secondary">Publié le {{ row.publication.publishedAt|french_date }} à {{ row.publication.publishedAt|time_fr }}</span>
@@ -40,11 +40,11 @@
                         <span class="flex-shrink-0">
                             {% if row.state == 'published' and row.publication.remoteUrl %}
                                 <a href="{{ row.publication.remoteUrl }}" class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener"
-                                   aria-label="Voir la publication {{ row.platform.value == 'facebook' ? 'Facebook' : 'Instagram' }} du {{ row.publication.publishedAt|french_date }}"
+                                   aria-label="Voir la publication {{ row.label }} du {{ row.publication.publishedAt|french_date }}"
                                    title="Voir"><i class="bi bi-box-arrow-up-right" aria-hidden="true"></i></a>
                             {% elseif row.state == 'failed' %}
                                 <a href="{{ row.retry_path }}" class="btn btn-sm btn-outline-secondary"
-                                   aria-label="Réessayer la publication sur {{ row.platform.value == 'facebook' ? 'Facebook' : 'Instagram' }}"
+                                   aria-label="Réessayer la publication sur {{ row.label }}"
                                    title="Réessayer"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i></a>
                             {% else %}
                                 <span class="btn btn-sm invisible" aria-hidden="true"><i class="bi bi-arrow-clockwise"></i></span>

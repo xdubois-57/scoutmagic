@@ -24,8 +24,97 @@ final class DestinationStates
         private readonly PublishingService $publishing,
         private readonly PublicationRepository $publications,
         private readonly ConnectionRepository $connections,
-        private readonly SettingService $settings
+        private readonly SettingService $settings,
+        private readonly ?GroupPublishingService $groups = null
     ) {
+    }
+
+    /** Whether discussion groups are a destination here at all (the groups module is on). */
+    public function offersGroups(): bool
+    {
+        return $this->groups !== null;
+    }
+
+    /**
+     * Sends a content where the form asked: the Meta platforms, then each
+     * discussion group.
+     *
+     * @return list<PublishOutcome>
+     */
+    public function publish(
+        ShareSource $source,
+        PublishRequest $request,
+        string $caption,
+        ?string $email,
+        string $role,
+        ?int $userId,
+        \DateTimeImmutable $now
+    ): array {
+        $outcomes = $request->platforms === [] ? [] : $this->publishing->publish(
+            $source,
+            $request->platforms,
+            $caption,
+            $request->platformRetries,
+            $userId,
+            $now
+        );
+        if ($request->groupIds !== [] && $this->groups !== null && $userId !== null) {
+            $outcomes = array_merge($outcomes, $this->groups->publish(
+                $source,
+                $request->groupIds,
+                $caption,
+                $request->groupRetries,
+                $email,
+                $role,
+                $userId,
+                $now
+            ));
+        }
+
+        return $outcomes;
+    }
+
+    /**
+     * The groups this person may post in, each with its state for this
+     * content — what the « Groupe de discussion » dialog lists.
+     *
+     * @return list<array{
+     *     value: string, id: int, name: string, members: int, state: string,
+     *     date: ?\DateTimeImmutable, reason: ?string
+     * }>
+     */
+    public function groupsFor(?ShareSource $source, ?string $email, string $role, ?int $userId): array
+    {
+        if ($this->groups === null) {
+            return [];
+        }
+
+        $done = $source === null ? [] : $this->publications->forSource($source->kind, $source->id);
+        $staleBefore = (new \DateTimeImmutable())->modify('-' . PublishingService::STALE_MINUTES . ' minutes');
+        $rows = [];
+        foreach ($this->groups->postableGroups($email, $role, $userId) as $group) {
+            $key = GroupPublishingService::KEY_PREFIX . $group->id;
+            $publication = $done[$key] ?? null;
+            [$state, $date, $reason] = match (true) {
+                $publication === null => ['available', null, null],
+                $publication->isPublished() => ['published', $publication->publishedAt, null],
+                $publication->isRetryable($staleBefore)
+                    => ['failed', $publication->attemptedAt, $publication->errorMessage
+                        ?? 'La publication a été interrompue.'],
+                default => ['pending', $publication->attemptedAt, null],
+            };
+            $rows[] = [
+                'value' => $key,
+                'id' => $group->id,
+                'name' => $group->name,
+                'members' => $group->memberCount,
+                'state' => $state,
+                'date' => $date,
+                'reason' => $reason,
+            ];
+        }
+
+        return $rows;
     }
 
     /**
@@ -76,25 +165,6 @@ final class DestinationStates
         return $rows;
     }
 
-    /**
-     * The destinations a publishing form asked for, and the retries it
-     * confirmed. A confirmed retry is a destination in its own right: the
-     * retry box stands under its destination and can be ticked alone.
-     *
-     * @return array{0: list<SocialPlatform>, 1: list<SocialPlatform>}
-     */
-    public static function requested(mixed $destinations, mixed $retries): array
-    {
-        $retried = self::platforms($retries);
-
-        return [
-            self::platforms(array_merge(
-                is_array($destinations) ? $destinations : [],
-                array_map(static fn (SocialPlatform $p): string => $p->value, $retried)
-            )),
-            $retried,
-        ];
-    }
 
     /**
      * One flash message for a publication's outcomes, destination by
@@ -110,8 +180,8 @@ final class DestinationStates
         foreach ($outcomes as $outcome) {
             $published += $outcome->published ? 1 : 0;
             $lines[] = $outcome->published
-                ? 'Publié sur ' . $outcome->platform->label() . '.'
-                : $outcome->platform->label() . ' : ' . $outcome->message;
+                ? 'Publié sur ' . $outcome->label() . '.'
+                : $outcome->label() . ' : ' . $outcome->message;
         }
 
         return [
@@ -120,19 +190,4 @@ final class DestinationStates
         ];
     }
 
-    /**
-     * @return list<SocialPlatform>
-     */
-    private static function platforms(mixed $values): array
-    {
-        $platforms = [];
-        foreach (is_array($values) ? $values : [] as $value) {
-            $platform = is_string($value) ? SocialPlatform::tryFrom($value) : null;
-            if ($platform !== null && !in_array($platform, $platforms, true)) {
-                $platforms[] = $platform;
-            }
-        }
-
-        return $platforms;
-    }
 }

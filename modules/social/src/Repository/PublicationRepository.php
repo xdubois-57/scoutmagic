@@ -49,13 +49,15 @@ class PublicationRepository
      */
     public function recentSources(int $limit): array
     {
-        $sources = $this->pdo->query(
+        $sources = $this->pdo->prepare(
             'SELECT source_kind, source_id, MAX(attempted_at) AS last_attempt FROM social_publications'
             . ' GROUP BY source_kind, source_id ORDER BY last_attempt DESC, source_kind, source_id DESC'
-            . ' LIMIT ' . max(1, $limit)
+            . ' LIMIT ?'
         );
+        $sources->bindValue(1, max(1, $limit), \PDO::PARAM_INT);
+        $sources->execute();
         $groups = [];
-        foreach ($sources === false ? [] : $sources->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+        foreach ($sources->fetchAll(\PDO::FETCH_ASSOC) as $row) {
             $kind = (string) $row['source_kind'];
             $id = (int) $row['source_id'];
             $groups[] = ['kind' => $kind, 'id' => $id, 'publications' => $this->forSource($kind, $id)];
@@ -65,7 +67,8 @@ class PublicationRepository
     }
 
     private const SELECT = 'SELECT source_kind, source_id, destination, status, error_message, attempted_at,'
-        . ' published_at, source_title, caption, remote_url, user_account_id FROM social_publications';
+        . ' published_at, source_title, caption, remote_url, user_account_id, destination_label'
+        . ' FROM social_publications';
 
     /**
      * @param array<string, mixed> $row
@@ -83,7 +86,8 @@ class PublicationRepository
             (string) ($row['source_title'] ?? ''),
             (string) ($row['caption'] ?? ''),
             $row['remote_url'] === null ? null : (string) $row['remote_url'],
-            $row['user_account_id'] === null ? null : (int) $row['user_account_id']
+            $row['user_account_id'] === null ? null : (int) $row['user_account_id'],
+            $row['destination_label'] === null ? null : (string) $row['destination_label']
         );
     }
 
@@ -106,7 +110,8 @@ class PublicationRepository
         \DateTimeImmutable $now,
         \DateTimeImmutable $staleBefore,
         string $title = '',
-        string $caption = ''
+        string $caption = '',
+        ?string $destinationLabel = null
     ): bool {
         $stamp = $now->format('Y-m-d H:i:s');
         $title = mb_substr($title, 0, 200);
@@ -114,7 +119,7 @@ class PublicationRepository
         try {
             $this->pdo->prepare(
                 'INSERT INTO social_publications (source_kind, source_id, destination, status, attempted_at,'
-                . ' user_account_id, source_title, caption) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+                . ' user_account_id, source_title, caption, destination_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
             )->execute([
                 $kind,
                 $sourceId,
@@ -124,6 +129,7 @@ class PublicationRepository
                 $userId,
                 $title,
                 $caption,
+                $destinationLabel === null ? null : mb_substr($destinationLabel, 0, 200),
             ]);
 
             return true;

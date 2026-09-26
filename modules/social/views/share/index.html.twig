@@ -31,7 +31,9 @@
             <div class="alert alert-warning">{{ source.blockedReason }}</div>
         {% endif %}
 
-        <form method="post" action="{{ self_path }}">
+        <form method="post" action="{{ self_path }}"
+              data-confirm="Publier maintenant ? C'est public et hors du site : ni vous ni ScoutMagic ne pourrez le reprendre."
+              data-confirm-label="Publier">
             {{ csrf_field()|raw }}
 
             {% include 'partials/form_field.html.twig' with {
@@ -44,7 +46,7 @@
                 maxlength: max_caption,
             } only %}
 
-            {% include '@social/share/_destinations.html.twig' with { destinations: destinations } only %}
+            {% include '@social/share/_destinations.html.twig' with { destinations: destinations, offers_groups: offers_groups|default(false), groups: groups|default([]), csp_nonce: csp_nonce|default('') } only %}
 
             <div class="alert alert-warning small" data-publish-warning>
                 Une fois publié, c'est <strong>public</strong> et hors du site : ni vous ni ScoutMagic ne pourrez le reprendre.

@@ -9123,6 +9123,9 @@ if ($isEnabled('gallery')) {
     // GalleryController and its access registry.
 }
 
+// The groups module's publisher for social's share (§7.5): null while the
+// module is off, and the « Groupe de discussion » destination disappears.
+$groupsPublisherForOthers = null;
 if ($isEnabled('groups')) {
     \Core\Debug\RequestTimeline::mark('module_groups');
     $groupsGroupRepo = new \Modules\Groups\Repository\GroupRepository($pdo);
@@ -9307,6 +9310,21 @@ if ($isEnabled('groups')) {
             $settingService
         ),
         $notificationService
+    );
+
+    // Publishing in a group for another module (social's share, §8.122):
+    // the composer's own steps — access, rate limit, moderation, media,
+    // link, notification — behind groups' Api.
+    $groupsPublisherForOthers = new \Modules\Groups\Service\GroupPublisherService(
+        $groupsGroupRepo,
+        $groupsPostRepo,
+        $groupsAccessService,
+        $groupsListService,
+        $groupsPostService,
+        $groupsPostMediaService,
+        $groupsPostLinkService,
+        $groupsContextFactory,
+        $groupsNotificationService
     );
 
     // Reporting and auto-hiding (prompt 9): two report tables behind one
@@ -10397,7 +10415,12 @@ if ($isEnabled('social')) {
         $socialPublishing,
         $socialPublicationRepo,
         $socialConnectionRepo,
-        $settingService
+        $settingService,
+        $groupsPublisherForOthers === null ? null : new \Modules\Social\Service\GroupPublishingService(
+            $groupsPublisherForOthers,
+            $socialPublicationRepo,
+            $journalService
+        )
     );
     $socialCommunicationRepo = new \Modules\Social\Repository\CommunicationRepository($pdo);
     $socialShareSources = new \Modules\Social\Service\ShareSourceResolver(
@@ -10414,7 +10437,6 @@ if ($isEnabled('social')) {
         new \Modules\Social\Controller\ShareController(
             $twig,
             $socialShareSources,
-            $socialPublishing,
             $socialDestinationStates,
             $socialCardService
         )
@@ -10427,7 +10449,6 @@ if ($isEnabled('social')) {
             $twig,
             $socialCommunicationRepo,
             $socialShareSources,
-            $socialPublishing,
             $socialDestinationStates,
             $socialPublicationRepo,
             $socialConnectionRepo,

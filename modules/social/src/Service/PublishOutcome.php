@@ -17,9 +17,17 @@ use Modules\Social\Api\SocialPlatform;
 final class PublishOutcome
 {
     public function __construct(
-        public readonly SocialPlatform $platform,
+        /** Null for a discussion group, which is not a Meta platform. */
+        public readonly ?SocialPlatform $platform,
         public readonly bool $published,
         public readonly string $message,
+        private readonly ?string $label = null,
     ) {
+    }
+
+    /** How the destination is named to the person: « Page Facebook », « Staff Lutins ». */
+    public function label(): string
+    {
+        return $this->label ?? $this->platform?->label() ?? '';
     }
 }

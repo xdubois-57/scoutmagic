@@ -1,9 +1,10 @@
 {% extends "base.html.twig" %}
 
-{% block title %}Nouvelle communication — {{ site_name }}{% endblock %}
+{% set page_title = communication ? 'Communication' : 'Nouvelle communication' %}
+{% block title %}{{ page_title }} — {{ site_name }}{% endblock %}
 
 {% block content %}
-{% include 'partials/page_header.html.twig' with { title: 'Nouvelle communication' } only %}
+{% include 'partials/page_header.html.twig' with { title: page_title } only %}
 
 <div class="row"><div class="col-12 col-lg-8">
 <form method="post" action="{{ form_action }}" enctype="multipart/form-data">
@@ -81,7 +82,7 @@
     {% if source and source.blockedReason %}
         <div class="alert alert-warning">{{ source.blockedReason }}</div>
     {% endif %}
-    {% include '@social/share/_destinations.html.twig' with { destinations: destinations } only %}
+    {% include '@social/share/_destinations.html.twig' with { destinations: destinations, offers_groups: offers_groups|default(false), groups: groups|default([]), csp_nonce: csp_nonce|default('') } only %}
 
     <div class="alert alert-warning small" data-publish-warning>
         Une fois publié, c'est <strong>public</strong> et hors du site : personne ne pourra le reprendre d'ici.
@@ -92,7 +93,9 @@
         {% if not frozen %}
             <button type="submit" name="action" value="save" class="btn btn-outline-secondary">Enregistrer</button>
         {% endif %}
-        <button type="submit" name="action" value="publish" class="btn btn-primary">
+        <button type="submit" name="action" value="publish" class="btn btn-primary"
+                data-confirm="Publier maintenant ? C'est public et hors du site : personne ne pourra le reprendre d'ici."
+                data-confirm-label="Publier">
             <i class="bi bi-share" aria-hidden="true"></i> Publier
         </button>
     </div>

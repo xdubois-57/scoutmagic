@@ -50,6 +50,7 @@ final class SocialTestHelper
             source_title TEXT NULL,
             caption TEXT NULL,
             remote_url TEXT NULL,
+            destination_label TEXT NULL,
             UNIQUE (source_kind, source_id, destination)
         )');
         $pdo->exec('CREATE TABLE social_communications (
