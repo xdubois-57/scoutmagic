@@ -75,12 +75,21 @@ final class BounceConsumer implements MessageConsumerInterface
 
     public function analyze(CandidateMessage $message): AnalysisResult
     {
-        $reports = DeliveryStatusReport::parseAll($message->bodyText);
-        foreach ($reports as $report) {
-            $this->bounces->record($report);
+        $accepted = [];
+        foreach (DeliveryStatusReport::parseAll($message->bodyText) as $report) {
+            // **The return value is the anti-forgery verdict, not a
+            // courtesy.** `record()` answers null when no `mail_send_receipts`
+            // row shows this site ever wrote to the reported address — « the
+            // report is somebody's word about a message we cannot show we
+            // sent ». Anything built on a refused report is built on that
+            // word. Throwing the verdict away is what made the tracing below
+            // forgeable (found in review on #562).
+            if ($this->bounces->record($report) !== null) {
+                $accepted[] = $report;
+            }
         }
 
-        $this->traceToProbe($message, $reports);
+        $this->traceToProbe($message, $accepted);
 
         return AnalysisResult::nothing();
     }
@@ -104,7 +113,21 @@ final class BounceConsumer implements MessageConsumerInterface
      * The `SM-` prefix is distinct from IT-03's `RET-` on purpose, so there
      * is no ambiguity to resolve between the two mechanisms.
      *
-     * @param list<DeliveryStatusReport> $reports
+     * **Two things have to hold before anything is written, and neither was
+     * there until review caught it on #562.** A probe's code travels in the
+     * clear in its own subject, so quoting it proves nothing: anybody who can
+     * read the probe can post a hand-written `multipart/report` to the site's
+     * bounce mailbox. And `recordBounce()` is first-write-wins, so a forged
+     * reason could never be corrected afterwards.
+     *
+     * So: the report must have PASSED the receipt gate — `$reports` here is
+     * the accepted list, never the parsed one — and its recipient must be the
+     * address this probe actually went to. The second is not only against
+     * forgery: a digest bounce carrying two messages passes the gate for both,
+     * and only one of them can be the probe.
+     *
+     * @param list<DeliveryStatusReport> $reports the ones `BounceService`
+     *                                            accepted, never the parsed ones
      */
     private function traceToProbe(CandidateMessage $message, array $reports): void
     {
@@ -129,15 +152,24 @@ final class BounceConsumer implements MessageConsumerInterface
             return;
         }
 
-        // The first failed recipient. A probe goes to one address, so a
-        // report with several means this bounce is about a message that was
-        // not the probe — and the code was quoted for another reason. Taking
-        // the first is still the right answer for the ordinary case, and the
-        // wrong one costs a category on one row rather than a blocked
-        // address: `record()` above has already handled every recipient on
-        // its own terms.
-        $first = $reports[0];
-        $this->probes->recordBounce($probe->id, $first->category, $first->statusCode, $message->sentAt);
+        // The report about THIS probe's address, and no other. A probe goes
+        // to exactly one address, so a bounce carrying several is a bounce
+        // about a message that was not only the probe — and a bounce about
+        // one other address is not the probe's reason at all, however
+        // faithfully it quotes the code.
+        //
+        // `DeliveryStatusReport::$recipient` is lower-cased without its
+        // `rfc822;` prefix; `MailProbe::$destination` is what the operator
+        // typed, so it is folded here rather than trusted to match.
+        foreach ($reports as $report) {
+            if (strcasecmp($report->recipient, trim($probe->destination)) !== 0) {
+                continue;
+            }
+
+            $this->probes->recordBounce($probe->id, $report->category, $report->statusCode, $message->sentAt);
+
+            return;
+        }
     }
 
     /**

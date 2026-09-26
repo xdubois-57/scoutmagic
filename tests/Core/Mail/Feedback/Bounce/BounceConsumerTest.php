@@ -431,6 +431,137 @@ class BounceConsumerTest extends TestCase
     }
 
     /**
+     * **A forged bounce must not be able to write on a probe's line.**
+     *
+     * Found in review on #562, in code this very pull request added. The
+     * anti-forgery gate of this whole file is the return value of
+     * `BounceService::record()`: it answers null when no `mail_send_receipts`
+     * row shows the site ever wrote to the reported address — « the report is
+     * somebody's word about a message we cannot show we sent ». `analyze()`
+     * calls it and, until this test, threw that verdict away before tracing.
+     *
+     * The attack needs nothing privileged. A probe's code travels in the
+     * clear in its own subject, so its recipient — or anyone who reads that
+     * mailbox — can post a hand-written `multipart/report` to the site's
+     * bounce address quoting the code, with a `Final-Recipient` the site
+     * never wrote to. And it would stick: `recordBounce()` is first-write-
+     * wins, so no genuine bounce could ever correct it, and `bounce_at` comes
+     * from the forged message's own date.
+     *
+     * The address here has no receipt — `setUp()` writes one for
+     * `parent@exemple.be` only — so the gate refuses the bounce, and the
+     * probe must come out untouched.
+     */
+    public function testAForgedBounceForAnAddressWithNoReceiptTouchesNoProbe(): void
+    {
+        // **The probe went to the very address the forged report names**, so
+        // the recipient comparison cannot be what refuses this: only the
+        // receipt gate can. Written the other way round first, with a
+        // mismatched address, this test passed against a consumer that
+        // ignored the gate entirely — mutation said so, and it was right.
+        $id = $this->probes->record(
+            'SM-7K2XPQ',
+            'jamais-ecrit@exemple.be',
+            null,
+            'Relais principal',
+            MailLane::Transactional,
+            new \DateTimeImmutable('2026-09-15 07:00:00')
+        );
+
+        $forged = str_replace(
+            'parent@exemple.be',
+            'jamais-ecrit@exemple.be',
+            self::bounceQuoting(MailProbeSender::subjectFor('SM-7K2XPQ'))
+        );
+        $this->consumer->analyze($this->candidateFrom($forged));
+
+        // The gate did its job on the address itself…
+        $this->assertNull(
+            $this->states->find('jamais-ecrit@exemple.be'),
+            'no receipt, so no bounce state — this is the gate this test is about'
+        );
+        // …and the probe must not have been written on either.
+        $probe = $this->probes->find($id);
+        $this->assertNotNull($probe);
+        $this->assertNull(
+            $probe->bounce,
+            'a report the receipt gate refused may not leave a reason on a probe'
+        );
+    }
+
+    /**
+     * **A genuine bounce for somebody else's address is not this probe's
+     * reason either.**
+     *
+     * The second half of the same finding. This report passes the receipt
+     * gate — the unit really did write to that address — so filtering on the
+     * gate alone would let it through. But the address is not the one the
+     * probe went to, and a probe goes to exactly one address: quoting the
+     * code proves the bounce mentions the probe, never that it is about it.
+     *
+     * Reachable without an attacker: a digest bounce that carries two
+     * messages, or a mailing whose subject happened to quote a code an
+     * operator pasted somewhere.
+     */
+    public function testABounceForAnotherAddressIsNotAttachedToTheProbe(): void
+    {
+        // The probe went somewhere else entirely.
+        $id = $this->probes->record(
+            'SM-7K2XPQ',
+            'sonde@exemple.be',
+            null,
+            'Relais principal',
+            MailLane::Transactional,
+            new \DateTimeImmutable('2026-09-15 07:00:00')
+        );
+
+        $this->consumer->analyze($this->candidateFrom(
+            self::bounceQuoting(MailProbeSender::subjectFor('SM-7K2XPQ'))
+        ));
+
+        // The bounce itself is recorded — it is a real failure for a real
+        // address the unit wrote to.
+        $this->assertNotNull($this->states->find('parent@exemple.be'));
+        // It just says nothing about this probe.
+        $this->assertNull(
+            $this->probes->find($id)?->bounce,
+            'the probe went to sonde@exemple.be; this bounce is about parent@exemple.be'
+        );
+    }
+
+    /**
+     * The two sides of the comparison do not come from the same place, and
+     * the fold is what bridges them.
+     *
+     * `DeliveryStatusReport::$recipient` is lower-cased and stripped of its
+     * `rfc822;` prefix by the parser. `MailProbe::$destination` is what an
+     * administrator typed into a form — with whatever capitals and whatever
+     * stray space their keyboard produced. A byte comparison between the two
+     * would refuse a perfectly genuine bounce for a probe whose address was
+     * typed `Parent@Exemple.BE`, and the operator would never learn why.
+     */
+    public function testTheAddressesAreComparedWithoutCaseOrStraySpace(): void
+    {
+        $id = $this->probes->record(
+            'SM-7K2XPQ',
+            ' Parent@Exemple.BE ',
+            null,
+            'Relais principal',
+            MailLane::Transactional,
+            new \DateTimeImmutable('2026-09-15 07:00:00')
+        );
+
+        $this->consumer->analyze($this->candidateFrom(
+            self::bounceQuoting(MailProbeSender::subjectFor('SM-7K2XPQ'))
+        ));
+
+        $this->assertNotNull(
+            $this->probes->find($id)?->bounce,
+            'the report says parent@exemple.be and the probe says " Parent@Exemple.BE " — the same address'
+        );
+    }
+
+    /**
      * The FIRST rejection stays.
      *
      * A mailbox that bounces once bounces again, and the later ones are
