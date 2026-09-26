@@ -79,14 +79,19 @@ class CardService
 
         $token = bin2hex(random_bytes(32));
         $fileName = bin2hex(random_bytes(16)) . '.jpg';
+        $expiresAt = $now->modify('+' . self::LIFETIME_MINUTES . ' minutes');
+
+        // The row first, then the file: whatever stops in between leaves a
+        // row without a file — a 404, and a row the purge deletes — never
+        // a file no row points to, which nothing would ever delete.
+        $cardId = $this->cards->create(self::hash($token), $fileName, $fromGallery, $now, $expiresAt);
         if (@file_put_contents($this->directory . '/' . $fileName, $jpeg) === false) {
+            $this->cards->delete($cardId);
+
             throw new CardException('L\'image n\'a pas pu être enregistrée. Réessayez plus tard.');
         }
 
-        $expiresAt = $now->modify('+' . self::LIFETIME_MINUTES . ' minutes');
-        $id = $this->cards->create(self::hash($token), $fileName, $fromGallery, $now, $expiresAt);
-
-        return new IssuedCard($id, self::ROUTE_PREFIX . $token, $expiresAt);
+        return new IssuedCard($cardId, self::ROUTE_PREFIX . $token, $expiresAt);
     }
 
     /**

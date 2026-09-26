@@ -119,6 +119,34 @@ final class CardServiceTest extends TestCase
         $this->assertNotNull($service->open($this->token($live->path), $this->now));
     }
 
+    public function testAnUnwritableDirectoryLeavesNeitherARowNorAFile(): void
+    {
+        file_put_contents($this->directory, 'a file where the directory should be');
+        try {
+            $this->service()->issue(H::groupPhoto(), 'Camp', 'a.be', true, $this->now);
+            $this->fail('An image that cannot be stored must not be issued.');
+        } catch (\Modules\Social\Card\CardException $e) {
+            $this->assertStringContainsString('n\'a pas pu être enregistrée', $e->getMessage());
+        } finally {
+            unlink($this->directory);
+        }
+
+        $this->assertSame(0, (int) $this->scalar('SELECT COUNT(*) FROM social_cards'));
+    }
+
+    public function testACardWhoseFileIsGoneIsA404AndThePurgeDropsItsRow(): void
+    {
+        $service = $this->service();
+        $card = $service->issue(H::groupPhoto(), 'Camp', 'a.be', true, $this->now->modify('-2 hours'));
+        foreach (glob($this->directory . '/*.jpg') ?: [] as $file) {
+            unlink($file);
+        }
+
+        $this->assertNull($service->open($this->token($card->path), $this->now->modify('-90 minutes')));
+        $this->assertSame(1, $service->purgeExpired($this->now));
+        $this->assertSame(0, (int) $this->scalar('SELECT COUNT(*) FROM social_cards'));
+    }
+
     private function service(): CardService
     {
         return new CardService(

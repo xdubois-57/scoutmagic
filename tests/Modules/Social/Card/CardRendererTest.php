@@ -56,8 +56,18 @@ final class CardRendererTest extends TestCase
         $title = str_repeat('Grand jeu de nuit dans les bois de la Hulpe ', 6);
 
         $jpeg = (new CardRenderer())->render(H::groupPhoto(), $title, '25sv.be', true, 0.05);
-
         $this->assertNotFalse(imagecreatefromstring($jpeg));
+
+        // What writeText() lays out: three lines at most, the last one cut.
+        $class = new \ReflectionClass(CardRenderer::class);
+        $maxLines = (int) $class->getConstant('TITLE_MAX_LINES');
+        $size = (int) $class->getConstant('TITLE_SIZE');
+        $width = CardRenderer::SIZE - 2 * (int) round(CardRenderer::SIZE * (float) $class->getConstant('MARGIN'));
+        $lines = $class->getMethod('wrap')->invoke(new CardRenderer(), trim($title), $size, $width);
+
+        $this->assertIsArray($lines);
+        $this->assertCount($maxLines, $lines);
+        $this->assertStringEndsWith('…', (string) end($lines));
     }
 
     public function testSomethingThatIsNotAnImageIsRefusedInFrench(): void
