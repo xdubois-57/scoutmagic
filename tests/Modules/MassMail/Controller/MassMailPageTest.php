@@ -1023,7 +1023,7 @@ class MassMailPageTest extends TestCase
         );
         $email = $this->createMergeDraft($subject, $audienceId);
 
-        $this->pdo->exec('DELETE FROM mass_mail_audiences WHERE id = ' . $audienceId);
+        $this->pdo->prepare('DELETE FROM mass_mail_audiences WHERE id = ?')->execute([$audienceId]);
 
         return $email;
     }
@@ -1074,9 +1074,16 @@ class MassMailPageTest extends TestCase
             'the fixture could not attach anything, so the refusal below would prove nothing'
         );
 
-        return (int) $this->pdo->query(
-            'SELECT id FROM mass_mail_attachments WHERE email_id = ' . $emailId
-        )->fetchColumn();
+        $stmt = $this->pdo->prepare('SELECT id FROM mass_mail_attachments WHERE email_id = ?');
+        $stmt->execute([$emailId]);
+        $id = $stmt->fetchColumn();
+        // fetchColumn() answers false with no row, and (int) false is 0 — an
+        // id no attachment has. Asserted rather than cast, so a fixture that
+        // silently attached nothing fails here instead of making the refusal
+        // test below refuse something that never existed.
+        self::assertIsNumeric($id, 'no attachment row was created for this email');
+
+        return (int) $id;
     }
 
 
