@@ -60,8 +60,17 @@ class DkimKeyChangeForgetsDnsTest extends TestCase
         'core/Http/Controller/OutboundMailController.php',
     ];
 
-    /** Mutations of the key pair. `hasKey()` and `getPublicKey()` read. */
-    private const MUTATORS = ['generateKey', 'deleteKey'];
+    /**
+     * Mutations of the key pair. `hasKey()` and `getPublicKey()` read.
+     *
+     * `replaceKey` joined them with issue #547, and **leaving it out would
+     * have blinded this guard to the one site that matters most**: the
+     * rotation on a live installation. It used to spell itself
+     * `deleteKey()` then `generateKey()`, both listed here; it is now a
+     * single `replaceKey()`, and a list that had not heard of it would have
+     * found nothing to check in `regenerateDkimKey()` at all.
+     */
+    private const MUTATORS = ['generateKey', 'deleteKey', 'replaceKey'];
 
     /**
      * The two spellings of « forget the reading », both of which really do.
@@ -105,8 +114,13 @@ class DkimKeyChangeForgetsDnsTest extends TestCase
         // A guard that guards nothing passes for the wrong reason: if the
         // mutations move to another class, this test must fail rather
         // than quietly find none.
+        // Three, and it was four until issue #547. The rotation stopped
+        // being `deleteKey()` + `generateKey()` — two sites — and became
+        // one `replaceKey()`. NOTHING stopped being guarded: the same
+        // method is still read, by one line instead of two. Move the floor
+        // when a mutation merges or splits; never when one goes unwatched.
         $this->assertGreaterThanOrEqual(
-            4,
+            3,
             $found,
             'The DKIM key mutations are no longer where this test looks. Move the test, do not delete it.'
         );

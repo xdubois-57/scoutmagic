@@ -1077,6 +1077,12 @@ class SetupController extends AbstractController
         }
 
         try {
+            // `generateKey()` and not `replaceKey()`, deliberately. This is
+            // first install: the guard means there is no key to lose, so the
+            // door that REFUSES an existing key is the right one here —
+            // `replaceKey()` behind this guard would be dead code today and
+            // a silent rotation the day the guard moved. Issue #547 changed
+            // the rotation in OutboundMailController, not this.
             if (!$this->dkimManager->hasKey()) {
                 $this->dkimManager->generateKey();
                 $this->forgetDnsReading();

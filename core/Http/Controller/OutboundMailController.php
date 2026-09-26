@@ -1749,22 +1749,18 @@ class OutboundMailController extends AbstractController
             return $guard;
         }
 
-        $this->dkim->deleteKey();
-        // Forgotten HERE rather than after the generation, and the order is
-        // the whole of it: the old key is gone from this line on, whatever
-        // happens next, so a reading taken against it describes nothing.
-        // Left for after a generation that throws, it would survive as a
-        // green tick over a key that no longer exists.
-        DnsCheckMemory::forget($this->settings);
-
         try {
-            $this->dkim->generateKey();
+            // Replaced, not deleted-then-generated. The old shape left the
+            // site with NO key between the two calls and after any failure
+            // of the second (issue #547); this one either swaps the pair or
+            // changes nothing.
+            $this->dkim->replaceKey();
         } catch (\Throwable $e) {
-            // The site now has NO key and signs nothing, which is worse
-            // than the failed rotation and has to be said in the message
-            // rather than left for the operator to discover from a bounce.
-            // Whatever OpenSSL says here is English and technical, so it
-            // goes through UserFacingMessage::from() like its sibling in
+            // The old key is STILL IN PLACE and still signing, which is the
+            // whole difference from the previous shape and is why the
+            // sentence below reassures instead of warning. Whatever OpenSSL
+            // says here is English and technical, so it goes through
+            // UserFacingMessage::from() like its sibling in
             // SetupController::generateDkimKey().
             $this->journal->log(
                 'core',
@@ -1777,14 +1773,31 @@ class OutboundMailController extends AbstractController
 
             $message = UserFacingMessage::from(
                 $e,
-                'La nouvelle clé DKIM n’a pas pu être générée, et l’ancienne est déjà retirée : les messages '
-                    . 'du site ne sont plus signés. Vérifiez que l’extension OpenSSL est active et que le '
-                    . 'dossier storage/ est accessible en écriture, puis relancez la génération.'
+                'La nouvelle clé DKIM n’a pas pu être générée. L’ancienne reste en service et les messages '
+                    . 'du site sont toujours signés : rien n’est à republier dans le DNS. Vérifiez que '
+                    . 'l’extension OpenSSL est active et que le dossier storage/ est accessible en écriture, '
+                    . 'puis relancez la génération.'
             );
             FlashMessage::set('error', $message);
 
             return $this->redirect(self::AUTHENTICATION_URL);
         }
+
+        // Forgotten HERE, AFTER the swap, and the order is the reverse of
+        // what it was — deliberately. While the replacement had not landed,
+        // the old key was still in service and its remembered DNS reading
+        // was still exact; throwing it away on the failing path would have
+        // discarded a true reading and told the operator to republish a
+        // record that never changed. Only a swap that succeeded makes the
+        // reading describe a key that has left service.
+        //
+        // `Tests\Architecture\DkimKeyChangeForgetsDnsTest` reads the whole
+        // method and therefore accepts either order: it holds « somebody
+        // forgets the reading here », never « at the right moment ». The
+        // order is pinned instead by the two tests in
+        // OutboundMailControllerTest that bracket it — a failed rotation
+        // keeps the reading, a successful one loses it.
+        DnsCheckMemory::forget($this->settings);
 
         $this->journal->log(
             'core',

@@ -11,6 +11,9 @@
 // re-imports (vi.resetModules() + dynamic import), the same pattern as
 // tests/js/maintenance.test.js.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 
 function el(html) {
     const div = document.createElement('div');
@@ -37,6 +40,18 @@ async function settle() {
  * gate are not silently also testing the cron gate — the cron scenarios
  * below set it explicitly.
  *
+ * **`initialized` is ONE flag, and it gates five blocks.** The template
+ * asks for the send mode and the relay, the mail identity, the DKIM key,
+ * the test message and the DNS panel behind the same
+ * `{% if not is_initialized %}` that sets `data-initialized`: all five
+ * left this page for « Courrier sortant » with issue #336. This stub used
+ * to spell two of those gates `options.installed`, a name no caller ever
+ * passed and the JSDoc never mentioned — so it modelled pages the
+ * template cannot serve, in both directions, and the tests written
+ * against them proved nothing (issue #546). The last describe in this
+ * file now reads the template and compares the two, id by id, so the
+ * copy cannot drift again in silence.
+ *
  * @param {{ initialized?: boolean, installAction?: string, cronState?: string }} [options]
  */
 function buildDom(options = {}) {
@@ -59,7 +74,7 @@ function buildDom(options = {}) {
                 <input id="smtp_user" value="mailer">
                 <input id="smtp_password" value="mailpass">
             </div>`}
-            ${options.installed ? '' : `
+            ${options.initialized ? '' : `
             <input id="mail_from_address" value="unite@exemple.be">
             <input id="mail_from_name" value="Unité">
             <input id="dkim_selector" value="scoutmagic">
@@ -68,13 +83,15 @@ function buildDom(options = {}) {
             <button type="button" id="btn-test-db"${options.installAction ? ` data-action="${options.installAction}"` : ''}>Tester</button>
             <span id="db-spinner" class="d-none"></span>
             <div id="db-test-result"></div>
+            ${options.initialized ? '' : `
             <div id="db-not-empty-warning" class="d-none">
                 <span id="db-not-empty-count"></span>
                 <button type="button" id="btn-backup-empty-db">Sauvegarder et vider</button>
                 <span id="backup-empty-spinner" class="d-none"></span>
                 <div id="backup-empty-result"></div>
                 <button type="button" id="btn-empty-without-backup" class="d-none">Vider sans sauvegarde</button>
-            </div>
+            </div>`}
+            ${options.initialized ? '' : `
             <div id="dkim-key-section">
                 <button type="button" id="btn-generate-dkim">Générer</button>
                 <span id="dkim-gen-spinner" class="d-none"></span>
@@ -83,16 +100,18 @@ function buildDom(options = {}) {
             <input id="test_email_recipient" value="">
             <button type="button" id="btn-test-email">Tester l'email</button>
             <span id="email-spinner" class="d-none"></span>
-            <div id="email-test-result"></div>
-            ${options.installed ? '' : `
+            <div id="email-test-result"></div>`}
+            ${options.initialized ? '' : `
             <button type="button" id="btn-check-dns">Vérifier DNS</button>
             <span id="dns-spinner" class="d-none"></span>
             <div id="dns-records"></div>`}
             <span id="cron-status-chip" class="badge text-bg-secondary" data-initial-state="${options.cronState || 'active'}">Vérification…</span>
             <button type="button" id="btn-save" disabled>Enregistrer</button>
             <div id="save-hint">Testez d'abord la connexion.</div>
-            <div id="cron-save-hint" class="d-none">Aucune tâche cron n'a encore été détectée.</div>
+            ${options.initialized ? '' : `
+            <div id="cron-save-hint" class="d-none">Aucune tâche cron n'a encore été détectée.</div>`}
         </form>
+        ${options.initialized ? '' : `
         <div id="portable-restore-card">
             <input type="file" id="portable-file">
             <input type="password" id="portable-passphrase" value="">
@@ -100,7 +119,7 @@ function buildDom(options = {}) {
             <span id="portable-spinner" class="d-none"></span>
             <span id="portable-restore-result"></span>
             <output id="portable-progress" class="d-none"></output>
-        </div>
+        </div>`}
     `;
 }
 
@@ -211,8 +230,14 @@ describe('setup.js: the cron gate', () => {
         // database password over a three-minute cron hiccup would be worse
         // than the problem being prevented. Same asymmetry server-side.
         expect(/** @type {HTMLButtonElement} */ (document.getElementById('btn-save')).disabled).toBe(false);
-        expect(document.getElementById('cron-save-hint').classList.contains('d-none')).toBe(true);
         expect(document.getElementById('cron-status-chip').textContent).toContain('Jamais détecté');
+        // `#cron-save-hint` is not read here, because this page has not got
+        // one: the hint explains a Save button the cron is holding shut,
+        // which only ever happens during first run. The script guards its
+        // absence (`if (cronSaveHint)`); the stub used to render it anyway,
+        // so this assertion had been reading an element the real page drops
+        // (issue #546).
+        expect(document.getElementById('cron-save-hint')).toBeNull();
     });
 
     it('keeps the last known verdict when a poll fails, rather than flipping red on a dropped request', async () => {
@@ -400,48 +425,6 @@ describe('setup.js: test email', () => {
         expect(document.getElementById('email-test-result').textContent).toContain('Email envoyé.');
     });
 
-    /**
-     * Once the site is installed, the mail identity lives on « Courrier
-     * sortant › Authentification » and those inputs are not rendered here
-     * at all. Reading `.value` off a missing one threw before `fetch()`
-     * ran, so the spinner started and the button hung for ever — and
-     * `npm run typecheck` cannot see it, because `strictNullChecks` is
-     * off and the JSDoc cast asserts the element exists.
-     */
-    it('still sends the test on an installed site, where the mail identity fields are gone', async () => {
-        fetch.mockReturnValue(jsonResponse({ success: true, message: 'Email envoyé.' }));
-        await boot({ installed: true });
-
-        /** @type {HTMLInputElement} */ (document.getElementById('test_email_recipient')).value = 'moi@exemple.be';
-        document.getElementById('btn-test-email').click();
-        await settle();
-
-        expect(fetch).toHaveBeenCalled();
-        expect(document.getElementById('email-test-result').textContent).toContain('Email envoyé.');
-    });
-
-    /**
-     * An ABSENT field and an EMPTY one are different answers on the
-     * server: `mailSecretsUnderTest()` falls back to the stored value for
-     * a key the request does not carry, and takes '' at face value. So
-     * the missing inputs must be left out, never sent empty — an empty
-     * From makes PHPMailer refuse the send outright.
-     */
-    it('omits the absent fields rather than sending them empty', async () => {
-        fetch.mockReturnValue(jsonResponse({ success: true, message: 'Email envoyé.' }));
-        await boot({ installed: true });
-
-        /** @type {HTMLInputElement} */ (document.getElementById('test_email_recipient')).value = 'moi@exemple.be';
-        document.getElementById('btn-test-email').click();
-        await settle();
-
-        const body = /** @type {FormData} */ (fetch.mock.calls[0][1].body);
-        expect(body.has('mail_from_address')).toBe(false);
-        expect(body.has('dkim_selector')).toBe(false);
-        // The fields this page still owns keep travelling.
-        expect(body.get('smtp_host')).toBe('smtp.example.be');
-        expect(body.get('short_name')).toBe('unite');
-    });
 });
 
 describe('setup.js: DKIM generation', () => {
@@ -458,29 +441,6 @@ describe('setup.js: DKIM generation', () => {
         expect(document.getElementById('dkim-key-section').textContent).toContain('scoutmagic');
     });
 
-    /**
-     * Reachable on any installed site that has no key yet: the selector
-     * input is no longer on this page, and the null dereference was
-     * swallowed by the handler's own `.catch()` — surfacing as « Erreur
-     * réseau » over a request that had in fact succeeded.
-     */
-    it('still rebuilds the key section on an installed site, where the selector field is gone', async () => {
-        fetch.mockReturnValue(jsonResponse({ success: true, public_key: 'v=DKIM1; p=MIIB' }));
-        await boot({ installed: true });
-
-        document.getElementById('btn-generate-dkim').click();
-        await settle();
-
-        const display = /** @type {HTMLInputElement} */ (document.getElementById('dkim-pubkey-display'));
-        // The rebuilt section is the proof the handler ran to the end:
-        // the selector read used to throw before it got here, leaving the
-        // key nowhere on the page. (`#dkim-gen-result` is inside the
-        // section the handler replaces, so it is gone by now — that part
-        // is by design and predates this change.)
-        expect(display).not.toBeNull();
-        expect(display.value).toBe('v=DKIM1; p=MIIB');
-        expect(document.getElementById('dkim-key-section').textContent).toContain('Clé DKIM générée');
-    });
 });
 
 describe('setup.js: DNS check', () => {
@@ -801,5 +761,306 @@ describe('setup.js: restoring from a portable backup', () => {
 
         expect(document.getElementById('portable-restore-result').textContent).toContain('phrase de passe');
         expect(document.getElementById('btn-portable-restore').disabled).toBe(false);
+    });
+});
+
+describe('setup.js: an already-initialized site', () => {
+    /**
+     * **No button to click, and no field to read.** Everything the two
+     * mail sections own is first-run only: the send mode and the relay
+     * (« Courrier sortant › Fournisseurs »), the mail identity and the
+     * DKIM key (« Authentification »), the test message (the Sonde) and
+     * the DNS panel. The template gates all five behind the same
+     * `{% if not is_initialized %}`, so an installed site sees a card of
+     * pointers instead, and the only thing left to guarantee is that the
+     * script binds NOTHING here and keeps going.
+     *
+     * This replaces three tests that asserted the opposite — that the
+     * « Envoyer un test » button still sent, and that the DKIM button
+     * still rebuilt its section, once those fields were gone. All three
+     * called `boot({ installed: true })`, the same name the stub misread,
+     * so all three actually ran against a first-run page and proved their
+     * own neighbours. The page they described — the buttons rendered
+     * while the fields they read are absent — is one the template has not
+     * been able to produce since issue #545 gated the block that holds
+     * them (issue #546).
+     */
+    it('renders none of the first-run mail controls', async () => {
+        await boot({ initialized: true });
+
+        for (const id of [
+            'mail_mode', 'smtp-fields', 'smtp_host',
+            'mail_from_address', 'mail_from_name', 'dkim_selector', 'dmarc_report_email',
+            'dkim-key-section', 'btn-generate-dkim',
+            'test_email_recipient', 'btn-test-email', 'email-test-result',
+            'btn-check-dns', 'dns-records',
+        ]) {
+            expect(document.getElementById(id), '#' + id + ' is first-run only').toBeNull();
+        }
+    });
+
+    /**
+     * **The #545 failure mode, pinned from the other side.** This file is
+     * one IIFE with no try/catch, so a single null dereference in it
+     * aborts every statement below — which is how an installed site ended
+     * up unable to save anything at all, from one `addEventListener` on a
+     * `mail_mode` that had moved out.
+     *
+     * What is left on this page is the server card and the database: five
+     * connection fields, « Tester », the cron chip and Save. The warning
+     * about a database that already has tables is NOT here — it belongs to
+     * a first-time install, and `testDatabase()` answers
+     * `has_existing_tables: false` outright once the site is initialized
+     * (« an already-initialized site's own database is never empty »). So
+     * the handler runs with `#db-not-empty-warning` missing, and the four
+     * `if (dbNotEmptyWarning)` guards around it are what this asserts.
+     */
+    it('still tests the database, without the empty-database warning this page has not got', async () => {
+        fetch.mockReturnValue(jsonResponse({
+            success: true, message: 'Connexion réussie', has_existing_tables: false, table_count: 0,
+        }));
+        await boot({ initialized: true });
+
+        expect(document.getElementById('db-not-empty-warning')).toBeNull();
+
+        document.getElementById('btn-test-db').click();
+        await settle();
+        // Twice: a TypeError raised inside the `.then()` does not surface
+        // where it was thrown — the handler's own `.catch()` swallows it a
+        // microtask LATER and reports « Erreur réseau » over a request that
+        // succeeded. Asserting the success text alone passed against a
+        // dereference of the missing warning, because the catch had not run
+        // yet when the assertion did.
+        await settle();
+
+        expect(document.getElementById('db-test-result').textContent).toContain('Connexion réussie');
+        expect(document.getElementById('db-test-result').textContent).not.toContain('Erreur');
+        expect(/** @type {HTMLButtonElement} */ (document.getElementById('btn-save')).disabled).toBe(false);
+    });
+});
+
+// --- The stub against the page it stands in for ---------------------------
+//
+// `buildDom()` is a hand-written copy of setup/index.html.twig, and the two
+// worst bugs this file has carried were both that copy drifting. #545:
+// `mail_mode` emitted unconditionally, so no test could see the
+// `addEventListener` on null that left an installed site with a dead Save
+// button. #546: the mail identity and the DNS panel gated on a name no
+// caller passed, so three tests asserted behaviour on a page that is never
+// served, and stayed green for it.
+//
+// A stub can only be trusted about the page it copies if something checks.
+// So the template is read here and compared against the stub, id by id,
+// in both directions.
+
+const TEMPLATE_PATH = 'core/View/templates/setup/index.html.twig';
+const SCRIPT_PATH = 'public/assets/js/setup.js';
+const here = dirname(fileURLToPath(import.meta.url));
+const TEMPLATE = readFileSync(resolve(here, '../../', TEMPLATE_PATH), 'utf8');
+const SCRIPT = readFileSync(resolve(here, '../../', SCRIPT_PATH), 'utf8');
+
+/**
+ * The `{% if %}` conditions still open where `id="…"` is emitted, outermost
+ * first — or null when the template has no such id at all. Each entry is
+ * the page flag that condition tests, or null for a condition that tests
+ * something else (`errors.x is defined`, `has_dkim_key`).
+ *
+ * The walk keeps a STACK rather than counting, because this template is
+ * mostly inline conditions — `class="form-control{% if errors.db_host is
+ * defined %} is-invalid{% endif %}"`, a dozen of them before the first
+ * gated field. Walking every tag in order lets those open and close on
+ * their own; a search backwards for the nearest `{% if %}` would have read
+ * one of them instead of the block gate twenty lines above.
+ *
+ * `{% else %}` flips the branch it belongs to, which this template needs:
+ * the SMTP block's else is the card of pointers an installed site gets
+ * instead of the fields.
+ *
+ * @param {string} source
+ * @param {string} id
+ * @returns {Array<string|null>|null}
+ */
+function openConditionsAt(source, id) {
+    const at = source.indexOf('id="' + id + '"');
+    if (at === -1) {
+        return null;
+    }
+
+    /** @type {Array<string|null>} */
+    const open = [];
+    const tags = /\{%-?\s*(if|elseif|else|endif)\b([^%]*?)-?%\}/g;
+    let tag;
+    while ((tag = tags.exec(source)) !== null && tag.index < at) {
+        if (tag[1] === 'if') {
+            open.push(flagOf(tag[2]));
+        } else if (tag[1] === 'endif') {
+            open.pop();
+        } else if (open.length > 0) {
+            open[open.length - 1] = tag[1] === 'else'
+                ? invertFlag(open[open.length - 1])
+                : flagOf(tag[2]);
+        }
+    }
+
+    return open;
+}
+
+/**
+ * Which of the two pages carries `id="…"`.
+ *
+ * @param {string} source
+ * @param {string} id
+ * @returns {'first-run'|'installed'|'both'|'absent'|'never'}
+ */
+function gateFor(source, id) {
+    const open = openConditionsAt(source, id);
+    if (open === null) {
+        return 'absent';
+    }
+
+    const firstRun = open.includes('first-run');
+    const installed = open.includes('installed');
+    if (firstRun && installed) {
+        return 'never';
+    }
+
+    return firstRun ? 'first-run' : (installed ? 'installed' : 'both');
+}
+
+/**
+ * The flag a condition tests, or null for one that has nothing to do with
+ * it. Deliberately exact: a condition that merely MENTIONS `is_initialized`
+ * alongside something else is not a page gate, and reading it as one would
+ * answer confidently about a block nobody has checked.
+ *
+ * @param {string} condition
+ * @returns {string|null}
+ */
+function flagOf(condition) {
+    const trimmed = condition.trim();
+    if (trimmed === 'not is_initialized') {
+        return 'first-run';
+    }
+
+    return trimmed === 'is_initialized' ? 'installed' : null;
+}
+
+/**
+ * @param {string|null} flag
+ * @returns {string|null}
+ */
+function invertFlag(flag) {
+    if (flag === 'first-run') {
+        return 'installed';
+    }
+
+    return flag === 'installed' ? 'first-run' : null;
+}
+
+/** Every id the stub actually emits for one set of options. */
+function idsRendered(options) {
+    buildDom(options);
+
+    return new Set(Array.from(document.querySelectorAll('[id]')).map((node) => node.id));
+}
+
+/** Every literal id the template emits, in source order. */
+function templateIds() {
+    return Array.from(TEMPLATE.matchAll(/id="([^"]+)"/g))
+        .map((match) => match[1])
+        .filter((id) => !id.includes('{{'));
+}
+
+describe('setup.test.js: the stub matches the page it stands in for', () => {
+    /**
+     * **No exemption list on purpose.** Every id this stub emits is one the
+     * template emits too, under the same gate, and the day that stops being
+     * true the answer is to fix the stub — not to write the divergence down
+     * here, which is how a copy drifts in the first place.
+     */
+    it('gates every element exactly as the template gates it', () => {
+        const firstRun = idsRendered({});
+        const installed = idsRendered({ initialized: true });
+
+        /** @type {Record<string, string>} */
+        const disagreements = {};
+        for (const id of new Set([...firstRun, ...installed])) {
+            const stub = firstRun.has(id) && installed.has(id)
+                ? 'both'
+                : (installed.has(id) ? 'installed' : 'first-run');
+            const template = gateFor(TEMPLATE, id);
+            if (stub !== template) {
+                disagreements[id] = 'the stub renders it on: ' + stub + ' — ' + TEMPLATE_PATH + ' on: ' + template;
+            }
+        }
+
+        expect(disagreements).toEqual({});
+    });
+
+    /**
+     * The other direction: a first-run control the SCRIPT reads and the
+     * stub does not render is a control no test on this page can reach,
+     * which is exactly how #545 stayed invisible until an installed site
+     * lost its Save button.
+     *
+     * Two filters, both narrowing the claim rather than excusing an id:
+     * a field the script never names is nothing to this file (`admin_email`,
+     * `statistics_enabled` — plain form inputs nobody scripts), and an id
+     * that sits under a condition of its own as well as the page gate
+     * cannot be demanded of a stub that has to pick one branch
+     * (`dkim-pubkey-display`, which the template emits only when a key
+     * already exists and the script builds itself otherwise).
+     */
+    it('renders every first-run-only control the script reads', () => {
+        const firstRun = idsRendered({});
+        const unreachable = templateIds()
+            .filter((id) => gateFor(TEMPLATE, id) === 'first-run')
+            .filter((id) => !(openConditionsAt(TEMPLATE, id) || []).includes(null))
+            .filter((id) => SCRIPT.includes("'" + id + "'"))
+            .filter((id) => !firstRun.has(id));
+
+        expect(unreachable).toEqual([]);
+    });
+
+    /**
+     * The readers, on a literal fixture whose answer is known in advance.
+     *
+     * Every id in the real template now agrees with the stub, so a
+     * `gateFor()` that answered 'both' to everything — or that read the
+     * nearest inline `{% if %}` instead of the block gate — would pass both
+     * sweeps above without a murmur. Only a fixture written for the purpose
+     * says whether these still read what they claim to.
+     */
+    it('reads the page gates, and not the inline conditions between them', () => {
+        const fixture = `
+            <input class="form-control{% if errors.a is defined %} is-invalid{% endif %}" id="always">
+            {% if not is_initialized %}
+                <input id="first_run_only">
+                {% if has_key %}
+                    <input id="under_an_unrelated_condition">
+                {% else %}
+                    <input id="under_that_condition_else">
+                {% endif %}
+            {% else %}
+                <input id="installed_only">
+            {% endif %}
+            <input id="always_too">
+        `;
+
+        expect(gateFor(fixture, 'always')).toBe('both');
+        expect(gateFor(fixture, 'first_run_only')).toBe('first-run');
+        expect(gateFor(fixture, 'under_an_unrelated_condition')).toBe('first-run');
+        expect(gateFor(fixture, 'under_that_condition_else')).toBe('first-run');
+        expect(gateFor(fixture, 'installed_only')).toBe('installed');
+        // The one that matters most: an `{% endif %}` really does close, so
+        // a field after the whole block is not read as gated by it.
+        expect(gateFor(fixture, 'always_too')).toBe('both');
+        expect(gateFor(fixture, 'never_rendered_anywhere')).toBe('absent');
+
+        // And the second filter of the sweep above can tell the two kinds
+        // of nesting apart.
+        expect(openConditionsAt(fixture, 'first_run_only')).toEqual(['first-run']);
+        expect(openConditionsAt(fixture, 'under_an_unrelated_condition')).toEqual(['first-run', null]);
+        expect(openConditionsAt(fixture, 'never_rendered_anywhere')).toBeNull();
     });
 });
