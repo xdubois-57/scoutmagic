@@ -1066,7 +1066,7 @@ this repository keeps meeting for what makes that safe:
 | **Dependency freshness** | `composer outdated --direct`, and every vendored front-end library against its upstream release |
 | **Deprecated browser API** | `scripts/check-deprecated-api.php` — whether any engine has removed `document.execCommand`, generic entry and per-command entries alike. The one gate that does not fail closed |
 | **SonarQube Cloud** | `scripts/check-sonar-release.sh` — see below |
-| **External sources** | `scripts/check-external-sources.php`: every page in `Core\ExternalSource\ExternalSources` — federation pages answer 200 with their expected content and the fees page's three amounts readable; provider console and legal links alive (2xx, 3xx, 401, 403) |
+| **External sources** | `scripts/check-external-sources.php`: every page in `Core\ExternalSource\ExternalSources` — federation pages answer 200 with their expected content and the fees page's three amounts readable and equal to the scale shipped in `modules/fees/data/federal-scale.json`; provider console and legal links alive (2xx, 3xx, 401, 403) |
 
 **The External sources gate is the one that looks outside the
 repository**, and it is last for that reason: a federation page that moved

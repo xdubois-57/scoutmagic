@@ -1,0 +1,10 @@
+{
+    "year": "2026-2027",
+    "source_url": "https://www.lesscouts.be/fr/ressources-scouts/administratif-1/inscriptions-et-cotisations/inscriptions-et-cotisations",
+    "verified_on": "2026-09-24",
+    "amount_cents": {
+        "normal": 5750,
+        "couple": 4600,
+        "family": 3900
+    }
+}

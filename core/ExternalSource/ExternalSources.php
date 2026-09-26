@@ -105,8 +105,9 @@ final class ExternalSources
                 url: self::FEES_PAGE,
                 kind: ExternalSourceKind::Content,
                 purpose: 'Federal fees page: read by « Chercher les montants » (Justesse des tarifs), '
-                    . 'source of the normal, couple and family amounts.',
+                    . 'source of the normal, couple and family amounts, and of the scale shipped with the site.',
                 usedIn: [
+                    'modules/fees/data/federal-scale.json',
                     'modules/fees/module.json',
                     'modules/fees/src/Service/FederalScaleLookupService.php',
                 ],

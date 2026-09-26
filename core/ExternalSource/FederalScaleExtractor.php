@@ -45,7 +45,7 @@ final class FederalScaleExtractor
      */
     public static function extract(string $html): ?FederalScale
     {
-        $text = self::text($html);
+        [$year, $text] = self::latestSeason(self::text($html));
         $cents = [];
 
         foreach (self::CATEGORY_WORDS as $key => $word) {
@@ -56,12 +56,48 @@ final class FederalScaleExtractor
             $cents[$key] = self::toCents($matches[1]);
         }
 
-        $year = null;
-        if (preg_match('/cotisations\s+(\d{4})\s*[-–]\s*(\d{4})/iu', $text, $matches) === 1) {
-            $year = $matches[1] . '-' . $matches[2];
+        return new FederalScale($cents['normal'], $cents['couple'], $cents['family'], $year);
+    }
+
+    /**
+     * The most recent season's section, and its year. Around a rollover
+     * the page can carry two « Cotisations YYYY-YYYY » headings at once,
+     * in either order; reading the first one would report last season's
+     * amounts and year, and a new season with the same amounts would never
+     * be noticed. Without any heading, the whole text and no year.
+     *
+     * @return array{0: ?string, 1: string}
+     */
+    private static function latestSeason(string $text): array
+    {
+        $found = preg_match_all(
+            '/cotisations\s+(\d{4})\s*[-–]\s*(\d{4})/iu',
+            $text,
+            $matches,
+            PREG_SET_ORDER | PREG_OFFSET_CAPTURE
+        );
+        if ($found === false || $found === 0) {
+            return [null, $text];
         }
 
-        return new FederalScale($cents['normal'], $cents['couple'], $cents['family'], $year);
+        $latest = max(array_map(static fn (array $match): int => (int) $match[1][0], $matches));
+
+        // From the first mention of that season to the first mention of
+        // another one: a season is often named again in its own section.
+        $start = null;
+        $end = strlen($text);
+        foreach ($matches as $match) {
+            $isLatest = (int) $match[1][0] === $latest;
+            if ($start === null && $isLatest) {
+                $start = $match[0][1];
+                $year = $match[1][0] . '-' . $match[2][0];
+            } elseif ($start !== null && !$isLatest) {
+                $end = $match[0][1];
+                break;
+            }
+        }
+
+        return [$year ?? null, substr($text, (int) $start, $end - (int) $start)];
     }
 
     /**

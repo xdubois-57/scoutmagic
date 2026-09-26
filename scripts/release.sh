@@ -723,7 +723,8 @@ check_sonar_gate() {
 # default age branch link, the RGPD policy, the contact page's link) and
 # the provider consoles and legal pages its help texts point to. It
 # refuses on any divergence — a page gone, a page that no longer says
-# what it must, the fees page's amounts no longer readable — because a
+# what it must, the fees page's amounts no longer readable or no longer
+# those of the scale shipped in modules/fees/data — because a
 # release is the moment a shipped default reaches every installed site.
 # The same script runs weekly (.github/workflows/external-sources-check.yml),
 # so a divergence found here should already have its issue.
@@ -744,7 +745,7 @@ check_sources_gate() {
         echo "Fix the register or the code that depends on the page (the weekly check's issue says how), or re-run with --skip-sources-gate to bypass (emergency use only)." >&2
         exit 1
     }
-    echo "vérifié — pages fédérales disponibles et conformes (contenu attendu, montants de la page des cotisations lisibles), liens vers les consoles et pages légales des fournisseurs vivants." > "${GATE_REPORT_FILE}"
+    echo "vérifié — pages fédérales disponibles et conformes (contenu attendu, montants de la page des cotisations lisibles et égaux au barème livré), liens vers les consoles et pages légales des fournisseurs vivants." > "${GATE_REPORT_FILE}"
 }
 
 # ---------------------------------------------------------------

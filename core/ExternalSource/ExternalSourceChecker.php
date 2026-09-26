@@ -26,11 +26,12 @@ namespace Core\ExternalSource;
  *   sign-in page, or refusing an anonymous visitor, still exists); dead on
  *   anything else — 404, 410, an unknown domain, no answer, a server error.
  *
- * THE REFERENCE SCALE IS THE EXTENSION POINT. Issue #355 ships the federal
- * scale with the site in a later pull request; until then there is nothing
- * to compare the page's amounts with, and the fees page result says so in
- * a note rather than pretending a comparison happened. The script passes
- * the shipped scale here once it exists.
+ * THE REFERENCE SCALE is the federal scale shipped with the site
+ * (`modules/fees/data/federal-scale.json`, issue #355), which
+ * `scripts/check-external-sources.php` passes in: the page's amounts must
+ * equal it. Without one — a caller that passes none — the fees page result
+ * says in a note that nothing was compared, rather than pretending a
+ * comparison happened.
  */
 final class ExternalSourceChecker
 {
@@ -178,6 +179,16 @@ final class ExternalSourceChecker
                 } elseif (!$scale->sameAmountsAs($this->referenceScale)) {
                     $divergences[] = 'amounts changed: the page says ' . $scale->describe()
                         . '; the shipped scale says ' . $this->referenceScale->describe();
+                } elseif (
+                    $scale->year !== null
+                    && $this->referenceScale->year !== null
+                    && $scale->year !== $this->referenceScale->year
+                ) {
+                    // Same amounts, new season: the pre-fill only offers the
+                    // shipped scale for its own year, so it would go quiet.
+                    $divergences[] = 'season changed: the page is about ' . $scale->year
+                        . ', the shipped scale about ' . $this->referenceScale->year
+                        . ' — same amounts, but its year must follow';
                 }
             }
         }

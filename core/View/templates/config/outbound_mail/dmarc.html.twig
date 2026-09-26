@@ -48,7 +48,9 @@
                 <p class="text-body-secondary small">
                     Sur les {{ window_days }} derniers jours. Un serveur « à vous » est un de vos relais
                     déclarés ; tout le reste est classé ailleurs, y compris ce que nous n'avons pas pu
-                    identifier.
+                    identifier. Pour un serveur que vos relais ne placent pas, la page regarde aussi ce
+                    que votre propre enregistrement SPF autorise : elle indique alors par quel
+                    <code>include:</code> il est déclaré, ce qui vous dit où chercher — pas que tout va bien.
                     {% if total_sources > shown_sources %}
                         <strong>{{ total_sources }} serveurs</strong> ont écrit en votre nom ; le tableau
                         montre les {{ shown_sources }} plus actifs. L'avertissement ci-dessous, lui, est
@@ -61,6 +63,56 @@
                         comme étant le vôtre. Lancez « Vérifier les enregistrements » depuis la page
                         « Authentification » : cette page lit le résultat, elle n'interroge jamais le DNS
                         elle-même.
+                    </p>
+                {% endif %}
+                {# **Five separate things, said separately.** « Never taken », « about another
+                   domain », « too old to trust », « a host did not answer », « over the
+                   protocol's budget » and « more ranges than we keep » all leave the operator
+                   at the same place on screen — a source that is not named — for different
+                   reasons, and they do not have the same remedy. Rolling them into one
+                   sentence would send somebody to re-run a check that will come back just as
+                   short.
+
+                   **And the lookup sentence no longer says what receivers do.** It claimed the
+                   ranges beyond the limit authorise nothing in practice; the counter here is
+                   one budget for the whole queue, so exhaustion on one branch says nothing
+                   about the branch a given source is matched by. Review of #571 was right, and
+                   the sentence now reports only what this reading is: incomplete. #}
+                {% if spf_stale %}
+                    <p class="text-body-secondary small">
+                        La lecture de votre enregistrement SPF a plus de {{ spf_max_age_days }} jours, donc
+                        elle ne sert plus à nommer personne : les plages qu'un fournisseur publie changent
+                        sans que vous y touchiez. Relancez « Vérifier les enregistrements ».
+                    </p>
+                {% elseif not spf_resolved %}
+                    <p class="text-body-secondary small">
+                        Votre enregistrement SPF n'a pas encore été lu, donc un serveur inconnu de vos
+                        relais ne peut pas non plus être rattaché à un <code>include:</code> de votre
+                        domaine.
+                    </p>
+                {% elseif spf_other_domain %}
+                    <p class="text-body-secondary small">
+                        La dernière lecture porte sur <code>{{ spf_other_domain }}</code>, qui n'est plus
+                        votre domaine d'envoi : elle ne sert donc à rattacher personne. Relancez
+                        « Vérifier les enregistrements ».
+                    </p>
+                {% elseif spf_partial == spf_partial_unreadable %}
+                    <p class="text-body-secondary small">
+                        Un des domaines de votre chaîne d'<code>include:</code> n'a pas répondu lors de la
+                        dernière lecture : elle est donc incomplète, et un serveur affiché « Autre » peut
+                        malgré tout figurer dans votre SPF. Relancez « Vérifier les enregistrements ».
+                    </p>
+                {% elseif spf_partial == spf_partial_lookups %}
+                    <p class="text-body-secondary small">
+                        La chaîne d'<code>include:</code> de votre enregistrement SPF demande plus que les
+                        {{ spf_max_lookups }} résolutions que le protocole accorde : la lecture s'arrête là,
+                        elle est donc incomplète, et un serveur affiché « Autre » peut malgré tout y figurer.
+                        C'est l'enregistrement qu'il faut raccourcir.
+                    </p>
+                {% elseif spf_partial %}
+                    <p class="text-body-secondary small">
+                        Votre enregistrement SPF publie plus de plages que nous n'en conservons : la lecture
+                        est incomplète, donc un serveur affiché « Autre » peut malgré tout y figurer.
                     </p>
                 {% endif %}
                 <div class="table-responsive">
@@ -85,6 +137,24 @@
                                         {% endif %}
                                         {% if source.needs_attention %}
                                             <span class="badge text-bg-warning-subtle ms-1">À identifier</span>
+                                        {% endif %}
+                                        {# **The `include:` target is named, and a relay hostname
+                                           is not** (SECURITY.md §11, and `KnownSenders` which keeps
+                                           its own host off the screen). They are not the same kind
+                                           of value: a relay host is configuration this site holds
+                                           on the unit's behalf, while an `include:` target is
+                                           public DNS the operator published themselves and has to
+                                           find again in their own zone. Naming it is the whole
+                                           point; a token they cannot search for would not be. #}
+                                        {% if source.spf_via %}
+                                            <span class="d-block text-body-secondary small">
+                                                {% if source.spf_is_own_record %}
+                                                    Déclarée directement dans votre enregistrement SPF.
+                                                {% else %}
+                                                    Déclarée dans votre SPF, via
+                                                    <code>{{ source.spf_via }}</code>.
+                                                {% endif %}
+                                            </span>
                                         {% endif %}
                                         {% if source.reporters > 1 %}
                                             <span class="d-block text-body-secondary small">

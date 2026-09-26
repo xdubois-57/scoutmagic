@@ -139,6 +139,21 @@ class HouseholdTariffService
         return false;
     }
 
+    /**
+     * True once the barème has been saved at all, even with every amount
+     * left empty — the panel always saves its three lines together, and an
+     * empty one is a choice (« Laissé vide, un écart s'affiche sans
+     * montant »), not a blank to fill.
+     */
+    public function wasEverSaved(): bool
+    {
+        if ($this->tariffs === null) {
+            $this->tariffs = $this->repository->findAll();
+        }
+
+        return $this->tariffs !== [];
+    }
+
     /** @return array<string, ?HouseholdTariff> always the three keys */
     private function all(): array
     {

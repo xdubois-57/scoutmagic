@@ -71,11 +71,22 @@ use Modules\LlmConnector\Api\LlmTier;
  *    chef d'unité reads it, and only their own click on « Enregistrer le
  *    barème » stores anything.
  *
- * The prompt also has to survive two traps the real page carries, both
- * verified on 27 August 2026: last year's amount printed in parentheses
- * right after this year's (« 56,25 € (54,25 € en 2024-2025) »), and half a
- * dozen other amounts (invités, demi-année, IAmA, solidarité) that are not
- * the three household tariffs.
+ * What the real page looked like when last read, on 24 September 2026:
+ * one heading, « Cotisations 2026-2027 », then « Cotisation normale :
+ * 57,50 € », and couple and familiale at « 46 € » and « 39 € » par
+ * personne — two of the three amounts **without decimals**, which
+ * {@see self::amountCentsOrNull()} reads as whole euros. The prompt keeps
+ * guarding against two shapes the page has carried before or may carry
+ * again: a second season printed beside the current one, and last year's
+ * amount in parentheses right after this year's (« 56,25 € (54,25 € en
+ * 2024-2025) », seen on 27 August 2026 and gone by 24 September). Half a
+ * dozen other amounts (invités, demi-année, IAmA, solidarité) are never the
+ * three household tariffs.
+ *
+ * The deterministic counterpart is `Core\ExternalSource\FederalScaleExtractor`,
+ * which the weekly check runs against the scale shipped with the site
+ * (`Support\ShippedFederalScale`) — when the page changes, that check says
+ * so before a chef d'unité presses this button.
  */
 class FederalScaleLookupService
 {
@@ -158,9 +169,10 @@ class FederalScaleLookupService
         1. La page peut présenter PLUSIEURS années scoutes (par exemple « COTISATIONS 2025-2026 » et
            « COTISATIONS 2026-2027 »). Choisis la section de l'année la PLUS RÉCENTE et renvoie son
            année dans le champ « annee ». Les trois montants doivent provenir de cette seule section.
-        2. Un montant est souvent suivi du montant de l'année précédente entre parenthèses, par exemple
+        2. Un montant peut être suivi du montant de l'année précédente entre parenthèses, par exemple
            « 56,25 € (54,25 € en 2024-2025) ». Renvoie TOUJOURS le montant principal, JAMAIS celui
-           entre parenthèses.
+           entre parenthèses. Un montant peut aussi être écrit sans décimales (« 46 € ») : renvoie-le
+           tel quel (« 46 »).
         3. La page contient d'autres montants (invités, demi-année, IAmA, solidarité, frais divers).
            Ignore-les complètement : seules les cotisations normale, couple et familiale comptent.
         4. Si un montant est indiqué pour un couple ou une famille entière, ne le divise pas et ne le
