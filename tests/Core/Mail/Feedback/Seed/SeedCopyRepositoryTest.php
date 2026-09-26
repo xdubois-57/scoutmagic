@@ -397,4 +397,129 @@ class SeedCopyRepositoryTest extends TestCase
 
         $this->assertSame(SeedVerdict::Missing, $this->copies->forRun('envoi')[0]->verdict);
     }
+
+    /**
+     * **A box on a domain Google hosts is counted under gmail.com** (issue
+     * #422), history included: the attribution is folded in when the
+     * results are READ, so copies measured before the domain was resolved
+     * move with it — and the sample is still counted in mailings, not in
+     * boxes.
+     */
+    public function testABoxOnAPersonalDomainIsCountedUnderItsMxProvider(): void
+    {
+        $sent = new \DateTimeImmutable('-1 day');
+        foreach (['envoi-1', 'envoi-2'] as $run) {
+            $this->copies->claim($run, 'temoin@gmail.com', $sent);
+            $this->copies->recordLanding($run, 'temoin@gmail.com', 'INBOX', $sent);
+            $this->copies->claim($run, 'temoin@unite-scoute.be', $sent);
+            $this->copies->recordLanding($run, 'temoin@unite-scoute.be', 'Junk', $sent);
+        }
+
+        $cache = new \Core\Mail\Transport\MailboxProviderRepository(
+            $this->pdo,
+            new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+        $cache->note('unite-scoute.be', $sent);
+        $cache->recordResolved('unite-scoute.be', 'gmail.com', $sent);
+
+        $tally = $this->copies->tallyByProviderSince(new \DateTimeImmutable('-30 days'));
+        $this->assertSame(['gmail.com'], array_column($tally, 'provider'));
+        $this->assertSame(2, $tally[0]['runs'], 'Two mailings, whatever the number of boxes.');
+        $this->assertSame(2, $tally[0]['inbox']);
+        $this->assertSame(2, $tally[0]['spam']);
+
+        foreach ($this->copies->runsSince(new \DateTimeImmutable('-30 days')) as $copies) {
+            $this->assertSame(['gmail.com', 'gmail.com'], array_map(
+                static fn(\Core\Mail\Feedback\Seed\SeedCopy $copy): string => $copy->provider,
+                $copies
+            ));
+        }
+
+        // The stored column is the question, not the answer.
+        $this->assertSame(
+            ['gmail.com', 'unite-scoute.be'],
+            array_column($this->copies->measuredDomains(), 'domain')
+        );
+    }
+
+    /** Not resolved yet, or resolved to nobody known: the domain is its own column, as before. */
+    /**
+     * A cache that cannot be read — not migrated yet, or another key —
+     * must leave the results page as it was before the cache existed:
+     * every copy under its own domain, never a 500.
+     */
+    public function testAnUnreadableCacheLeavesEveryCopyUnderItsOwnDomain(): void
+    {
+        $sent = new \DateTimeImmutable('-1 day');
+        $this->copies->claim('envoi-1', 'temoin@famille-dupont.be', $sent);
+        $this->copies->claim('envoi-1', 'temoin@gmail.com', $sent);
+        $this->pdo->prepare('DROP TABLE mail_domain_providers')->execute();
+
+        $tally = $this->copies->tallyByProviderSince(new \DateTimeImmutable('-30 days'));
+        $runs = $this->copies->runsSince(new \DateTimeImmutable('-30 days'));
+
+        $this->assertSame(['famille-dupont.be', 'gmail.com'], array_column($tally, 'provider'));
+        $this->assertCount(1, $runs);
+    }
+
+    public function testAnUnattributedDomainKeepsItsOwnColumn(): void
+    {
+        $sent = new \DateTimeImmutable('-1 day');
+        $this->copies->claim('envoi-1', 'temoin@ecole.be', $sent);
+
+        $tally = $this->copies->tallyByProviderSince(new \DateTimeImmutable('-30 days'));
+
+        $this->assertSame(['ecole.be'], array_column($tally, 'provider'));
+    }
+
+    /**
+     * **The fold happens in PHP now, and must say what the SQL said**
+     * (the domain is encrypted, so nothing can join on it): a mailing
+     * answered by one box and still pending at the other is ONE run, a
+     * mailing only pending is none, and within a run the columns follow
+     * the provider a copy is counted under — « aaa-famille.be » sorts
+     * after gmail.com once it is outlook.com.
+     */
+    public function testTheFoldCountsMailingsOnceAndOrdersByTheAttributedProvider(): void
+    {
+        $sent = new \DateTimeImmutable('-1 day');
+        $this->copies->claim('envoi-1', 'temoin@hotmail.com', $sent);
+        $this->copies->recordLanding('envoi-1', 'temoin@hotmail.com', 'INBOX', $sent);
+        $this->copies->claim('envoi-1', 'temoin@aaa-famille.be', $sent);
+        $this->copies->claim('envoi-1', 'temoin@gmail.com', $sent);
+        $this->copies->claim('envoi-2', 'temoin@aaa-famille.be', $sent->modify('+1 hour'));
+
+        $cache = new \Core\Mail\Transport\MailboxProviderRepository(
+            $this->pdo,
+            new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+        foreach (['aaa-famille.be', 'hotmail.com'] as $domain) {
+            $cache->note($domain, $sent);
+            $cache->recordResolved($domain, 'outlook.com', $sent);
+        }
+
+        $tally = $this->copies->tallyByProviderSince(new \DateTimeImmutable('-30 days'));
+        $this->assertSame(['gmail.com', 'outlook.com'], array_column($tally, 'provider'));
+        $this->assertSame(
+            ['provider' => 'outlook.com', 'runs' => 1, 'inbox' => 1, 'spam' => 0, 'missing' => 0,
+                'elsewhere' => 0, 'pending' => 2],
+            $tally[1]
+        );
+        $this->assertSame(0, $tally[0]['runs'], 'Pending everywhere is not a mailing measured.');
+
+        $runs = $this->copies->runsSince(new \DateTimeImmutable('-30 days'));
+        $this->assertSame(['envoi-2', 'envoi-1'], array_keys($runs), 'Most recent first.');
+        $this->assertSame(['gmail.com', 'outlook.com', 'outlook.com'], array_map(
+            static fn(\Core\Mail\Feedback\Seed\SeedCopy $copy): string => $copy->provider,
+            $runs['envoi-1']
+        ));
+        $this->assertSame(
+            ['temoin@gmail.com', 'temoin@hotmail.com', 'temoin@aaa-famille.be'],
+            array_map(
+                static fn(\Core\Mail\Feedback\Seed\SeedCopy $copy): string => $copy->address,
+                $runs['envoi-1']
+            ),
+            'Same provider: the order they were claimed in.'
+        );
+    }
 }

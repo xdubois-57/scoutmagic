@@ -432,6 +432,9 @@ class OutboundMailController extends AbstractController
             // minimum sample, and the screen says which of the two it is
             // looking at.
             'readings' => $this->routing?->readings($since) ?? [],
+            // How many personal domains the MX records moved under a
+            // provider (issue #422) — a count, never which ones.
+            'attributed_domains' => $this->routing?->attributedDomains() ?? 0,
             'routing_automatic' => $this->routing?->isAutomatic() ?? false,
             'minimum_runs' => \Core\Mail\Feedback\Seed\DomainRouting::MINIMUM_RUNS,
             // Two relays on the mailing lane is what makes « appliquer »
@@ -672,7 +675,10 @@ class OutboundMailController extends AbstractController
     {
         $providers = [];
         foreach ($addresses as $address) {
-            $providers[\Core\Mail\Feedback\Seed\SeedCopy::providerOf($address)] = true;
+            $domain = \Core\Mail\Feedback\Seed\SeedCopy::providerOf($address);
+            // The column the results are read by: a box on a domain whose
+            // MX records name Google is a Gmail box (issue #422).
+            $providers[$this->routing?->providerOf($domain) ?? $domain] = true;
         }
 
         $names = array_keys($providers);
@@ -738,6 +744,15 @@ class OutboundMailController extends AbstractController
             $sentAt = null;
             foreach ($copies as $copy) {
                 $sentAt ??= $copy->sentAt;
+                // Two boxes can now share a column — a gmail.com box and
+                // one on a domain Google hosts (issue #422). The cell
+                // shows the worse of the two: a copy filed as spam is the
+                // finding, and letting the other box's inbox overwrite it
+                // would hide exactly what this table exists to show.
+                $existing = $cells[$copy->provider]['verdict'] ?? null;
+                if ($existing !== null && self::verdictRank($existing) >= self::verdictRank($copy->verdict->value)) {
+                    continue;
+                }
                 $cells[$copy->provider] = [
                     'verdict' => $copy->verdict->value,
                     'label' => $copy->verdict->label(),
@@ -754,6 +769,18 @@ class OutboundMailController extends AbstractController
         }
 
         return $rows;
+    }
+
+    /** How bad a verdict is, for two copies sharing one cell. */
+    private static function verdictRank(string $verdict): int
+    {
+        return match ($verdict) {
+            'missing' => 4,
+            'spam' => 3,
+            'elsewhere' => 2,
+            'pending' => 1,
+            default => 0,
+        };
     }
 
     /**

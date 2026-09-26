@@ -120,6 +120,18 @@
     <div class="card mb-3">
         <div class="card-body">
             <h2 class="h5">Résultats, {{ window_days }} derniers jours</h2>
+            {# Issue #422: a column is a provider, read from the MX records of
+               the box's domain, not the text after the @. #}
+            <p class="text-body-secondary small">
+                Chaque colonne est un fournisseur de messagerie, reconnu aux enregistrements MX du domaine :
+                une adresse sur un domaine personnel hébergé chez Google compte dans gmail.com, et le relais
+                choisi plus bas pour gmail.com vaut aussi pour elle.
+                {% if attributed_domains > 0 %}
+                    <strong>{{ attributed_domains }}</strong> domaine(s) destinataire(s) sont aujourd'hui
+                    rattachés ainsi à leur vrai fournisseur.
+                {% endif %}
+                Ces enregistrements sont relus chaque jour en tâche de fond, jamais au moment d'un envoi.
+            </p>
             {% if runs is empty %}
                 {% include 'partials/empty_state.html.twig' with {
                     message: 'Aucun publipostage mesuré sur la période.',

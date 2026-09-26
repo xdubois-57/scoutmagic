@@ -478,4 +478,35 @@ class DomainRoutingTest extends TestCase
 
         $this->assertSame(MailProvider::LOCAL_NAME, $this->readingFor('gmail.com')['routed_to']);
     }
+
+    /**
+     * The column a box's domain is shown in, and how many domains the MX
+     * records moved — a count and never the list (issue #422).
+     */
+    public function testAPersonalDomainIsShownUnderItsMxProvider(): void
+    {
+        $cache = new \Core\Mail\Transport\MailboxProviderRepository(
+            $this->pdo,
+            new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+        $now = new \DateTimeImmutable();
+        $known = ['famille.be' => 'gmail.com', 'gmail.com' => 'gmail.com', 'ecole.be' => null];
+        foreach ($known as $domain => $provider) {
+            $cache->note($domain, $now);
+            $cache->recordResolved($domain, $provider, $now);
+        }
+        $routing = new DomainRouting($this->copies, $this->settings, mailboxProviders: $cache);
+
+        $this->assertSame('gmail.com', $routing->providerOf('Famille.be'));
+        $this->assertSame('ecole.be', $routing->providerOf('ecole.be'));
+        $this->assertSame('inconnu.be', $routing->providerOf('inconnu.be'));
+        $this->assertSame(1, $routing->attributedDomains());
+    }
+
+    /** Without the cache the screen behaves exactly as it did before. */
+    public function testWithoutTheCacheADomainIsItsOwnProvider(): void
+    {
+        $this->assertSame('famille.be', $this->routing->providerOf('famille.be'));
+        $this->assertSame(0, $this->routing->attributedDomains());
+    }
 }

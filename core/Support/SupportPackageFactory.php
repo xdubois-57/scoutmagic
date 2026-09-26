@@ -266,7 +266,8 @@ final class SupportPackageFactory
                     new \Core\Mail\Transport\MailProviderRepository($pdo),
                     new \Core\Mail\Transport\ProviderConnections($secrets),
                     $context->settings
-                )
+                ),
+                new \Core\Mail\Transport\MailboxProviderRepository($pdo, $context->encryption)
             ),
             $domainPreferences,
             // And whether those figures could see what they measure: a

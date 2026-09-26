@@ -4864,6 +4864,46 @@ recipients is not routed at all, because a mailing sends one message per
 member and routing a batch by its first address would send the rest
 through a relay chosen for somebody else's provider.
 
+*A recipient is counted under the provider its MX records name, not the
+text after its `@`* (issue #422). « famille.be » served by Google is a
+Gmail mailbox for every purpose this section cares about, so
+`mail_domain_providers` caches domain → provider key, and the keys are
+the domains the results were already read by (« gmail.com »,
+« outlook.com », `Seed\MxProviderMap`) — a new vocabulary would have
+split every existing result and every stored decision in two. Three
+readers, one rule: **nobody on the send path resolves anything.**
+`Transport\MailboxProviderRepository` is a cache read whole once per
+process; `DomainPreferences::reorder()` notes a domain it has not seen
+(a row with no provider) and looks up the provider already known, the
+domain's own decision taking precedence over its provider's;
+`SeedCopyRepository` folds `provider` through the cache **when it reads**
+— in PHP, through `MailboxProviderRepository::providerOf()`, because the
+cache's domain is encrypted with a blind index (SECURITY.md §5: a
+personal domain can name a family) and so offers SQL nothing to join
+on: the tally reads two aggregates (counts per stored domain and
+verdict, and the distinct mailings each answered in) and regroups them
+under the attributed provider, `runs` still distinct across the domains
+folded together — so a box measured before its
+domain was resolved moves with its whole history the day the answer
+arrives. The DNS is read by `Seed\Task\ResolveMailboxProvidersHandler`
+alone: at most seven hundred and fifty domains a day — enough to re-read
+the whole 5 000-domain cache within its seven days — inside a
+twenty-second wall clock (checked between lookups, since
+`dns_get_record()` has no timeout), each answer
+good for seven days, a failed lookup keeping the last good answer and
+backing off 1, 2, 4, then 7 days, nothing thrown to the scheduler, and a
+domain nobody has written to for 180 days forgotten.
+`Tests\Core\Mail\Transport\SendPathResolvesNothingTest` holds the send
+path to it. **Which domains exist is learnt from the sends themselves**:
+there was no aggregate of recipient domains anywhere, and deriving one
+from the addresses would have meant decrypting every member's address
+daily to read what a mailing already passes through the transport in
+clear. **A domain, never an address**, and a count on the screen, never
+the list — a personal domain can name a family. **It changes who is
+counted in which column, not what is measured**: the seed boxes still
+measure. An MX pointing at nobody known (a filtering gateway, a Belgian
+ISP) keeps the domain's own name, which is what the site did before.
+
 *The automatism applies once per domain and never undoes.* `apply()`
 moves a domain to the NEXT relay of the chain, so a sweep that applied
 again each day would walk that domain around the chain for ever. And a

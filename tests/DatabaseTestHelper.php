@@ -918,6 +918,18 @@ class DatabaseTestHelper
             UNIQUE (run_reference, seed_address_blind_index)
         )');
 
+        $pdo->exec('CREATE TABLE mail_domain_providers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            domain_encrypted BLOB NOT NULL,
+            domain_blind_index TEXT NOT NULL UNIQUE,
+            provider TEXT NULL,
+            noted_at TEXT NOT NULL,
+            resolved_at TEXT NULL,
+            failures INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT NULL,
+            retry_after TEXT NULL
+        )');
+
         $pdo->exec('CREATE TABLE human_check_rate_limits (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ip_hash TEXT NOT NULL,
