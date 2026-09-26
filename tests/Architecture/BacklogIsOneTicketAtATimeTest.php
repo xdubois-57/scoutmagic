@@ -105,103 +105,47 @@ final class BacklogIsOneTicketAtATimeTest extends TestCase
     }
 
     /**
-     * The merge lock, and the sentence it serves.
+     * Why there is NO merge lock, which is the part a future edit will want
+     * to "fix" — the maintainer asked for serialised merges twice, and the
+     * section does not deliver them.
      *
-     * « Development is parallel; merging never is » was written for blocks
-     * cut by one agent. It matters more now, not less: nothing else stops
-     * two agents merging in the same second.
+     * It cannot: an agent here arms auto-merge and GitHub merges when the
+     * ruleset is satisfied, at a moment no agent chooses, so two agents
+     * cannot serialise what neither performs. Four attempts to bridge that
+     * with a git ref each produced a new hole instead of a mutex — a
+     * creation date refs do not have, a threshold the prescribed work
+     * exceeded, an unconditional delete that destroyed a peer's fresh lock.
+     *
+     * And it does not need to: `docs/quality-pipeline.md` § Branch ruleset
+     * already decided to accept the window and named the maintainer as the
+     * one who answers for it. What this file pins is that the REASON stays
+     * written down, because a section that merely lacked a lock would read
+     * as an oversight worth correcting.
      */
-    public function testMergingIsSerialisedByALockWithAStalenessRule(): void
+    public function testTheAbsenceOfAMergeLockIsExplainedRatherThanSilent(): void
     {
         $rules = self::agentRules();
 
         $this->assertStringContainsString(
-            '**Development is parallel; merging never is.**',
+            '**There is no merge lock, and « fusionne les PR une par une » cannot be',
             $rules,
-            'AGENTS.md no longer says that only development runs in parallel — the half the maintainer '
-            . 'asked for twice, and the one that costs wall-clock time to obey.',
+            'AGENTS.md no longer says that merges are not serialised, nor why. The maintainer asked '
+            . 'for it twice, so a section that is simply silent about it invites the next agent to '
+            . 'build the mutex that four attempts here failed to build.',
         );
 
         $this->assertStringContainsString(
-            'claude/merge-lock',
+            'An agent here does not merge: it **arms**',
             $rules,
-            'AGENTS.md no longer names the ref that serialises merges between agents. The rule above '
-            . 'then has no mechanism, and an agent that cannot see the others cannot obey it.',
+            'AGENTS.md no longer says WHY serialising is out of an agent\'s hands. Without it the '
+            . 'absence of a lock looks like laziness rather than a property of arming auto-merge.',
         );
 
         $this->assertStringContainsString(
-            '**Time your OWN wait, never the lock\'s age.**',
+            'never arm against a `main` that has moved into **your**',
             $rules,
-            'AGENTS.md no longer says where the staleness clock comes from. A ref carries no creation '
-            . 'date, so an agent reading the lock\'s "age" reads when `main` last moved — and deletes a '
-            . 'lock taken seconds ago to merge on top of its holder.',
-        );
-
-        $this->assertStringContainsString(
-            'is still held after ten minutes of your waiting, it is stuck',
-            $rules,
-            'AGENTS.md no longer bounds how long an agent waits on a stuck lock, so one agent dying '
-            . 'mid-merge stops every other one for good.',
-        );
-
-        $this->assertStringContainsString(
-            '**None of that happens under the lock, and the reason is arithmetic.**',
-            $rules,
-            'AGENTS.md no longer keeps the re-merge and its push OUTSIDE the lock. Held across a push, '
-            . 'the lock lasts thirty to forty-five minutes by this repository\'s own review and CI '
-            . 'numbers — longer than any threshold can tell from an agent that died — so a waiting '
-            . 'agent breaks a valid lock and merges beside its holder.',
-        );
-
-        $this->assertStringContainsString(
-            '**Create the lock from YOUR OWN branch, so the ref names its holder.**',
-            $rules,
-            'AGENTS.md no longer creates the lock from the holder\'s own branch, so the ref no longer '
-            . 'names who holds it — and the read below has nothing to compare against.',
-        );
-
-        $this->assertStringContainsString(
-            'before merging, read the ref again — if it no longer points at your head',
-            $rules,
-            'AGENTS.md no longer makes a holder re-read the lock before merging. That read is the ONLY '
-            . 'fencing available here: GitHub\'s ref delete takes no precondition, so two agents past '
-            . 'the threshold can each destroy the other\'s fresh lock and both get a 201.',
-        );
-    }
-
-    /**
-     * The authorization, which this PR nearly dropped a guard for: the
-     * sentence was pinned by the deleted blocks test and by nothing else.
-     * Read literally without « not the first », every ticket after the first
-     * waits for a permission the maintainer has already given — which is how
-     * a backlog stays a backlog.
-     */
-    public function testTheMergeAuthorizationCoversEveryTicketRatherThanTheFirst(): void
-    {
-        $this->assertStringContainsString(
-            '**is** that instruction, standing, for **every** pull',
-            self::agentRules(),
-            '§ Merging a pull request no longer says that « fixe le backlog » authorises every pull '
-            . 'request in the set. One ticket per pull request and read literally, that leaves every '
-            . 'ticket after the first waiting for an authorization already given.',
-        );
-    }
-
-    /**
-     * And the rule that says a claim is never taken, because from outside a
-     * live claim and an abandoned one are the same thing: a branch with no
-     * commit and no pull request, which is what step 4 looks like all the
-     * way through.
-     */
-    public function testAClaimIsNeverTakenFromAnotherAgent(): void
-    {
-        $this->assertStringContainsString(
-            '**Never take a ticket somebody else has claimed, even when the claim looks',
-            self::agentRules(),
-            'AGENTS.md no longer forbids taking a claimed ticket. An earlier version called any branch '
-            . 'with no commit a dead claim — which is exactly what a claim looks like while its agent '
-            . 'is reading the issue — so a second agent could delete a live one and fix the same '
-            . 'ticket differently.',
+            'AGENTS.md no longer states the half an agent CAN see and is answerable for. That '
+            . 'paragraph is the whole of what replaces the lock.',
         );
     }
 

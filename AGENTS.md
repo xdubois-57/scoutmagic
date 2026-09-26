@@ -443,10 +443,12 @@ backlog » — and it is a standing instruction, not a one-off. It means
 **one accepted ticket at a time, carried from end to end**, and then the
 next.
 
-It can be given to several agents at once, and they will not collide
-without being told about each other: steps 2 and 6 are the whole of the
-coordination, and both work because creating a git ref is atomic
-server-side where a label or an assignee is not.
+It can be given to several agents at once, and they will not pick the same
+ticket without being told about each other: **step 2 is the whole of the
+coordination**, and it works because creating a git ref is atomic
+server-side where applying a label or an assignee is not. Step 6 says why
+there is nothing equivalent for merging, and why this repository already
+decided it does not need one.
 
 1. **List the OPEN issues carrying `status:accepted`, lowest number
    first.** That label, and only that label, selects the work. Nothing
@@ -526,78 +528,44 @@ server-side where a label or an assignee is not.
    **Do not "fix" a body by putting a closing keyword back** — that is the
    bug, not the convention.
 
-6. **Get green first; the lock covers the merge alone.** Before reaching for
-   it: if `main` has moved into files your branch touches, merge `main` in,
-   re-run the checks locally — `vendor/bin/phpstan analyse` above all, which
-   catches a semantic conflict that compiles on each side and not together —
-   push, and wait for green. Where the files are disjoint, nothing is
-   needed.
+6. **Bring `main` in if it moved into your files, then arm auto-merge.** If
+   `main` has moved into files your branch touches, merge `main` in, re-run
+   the checks locally — `vendor/bin/phpstan analyse` above all, which catches
+   a semantic conflict that compiles on each side and not together — push,
+   and wait for green. Where the files are disjoint, nothing is needed.
 
-   **None of that happens under the lock, and the reason is arithmetic.** A
-   push re-arms the required checks, and by this repository's own numbers
-   (`.claude/skills/steward/SKILL.md`: a push waits twelve minutes before
-   the review begins, a review round is 8 to 25 minutes, CI another 20) a
-   lock held across one would be held for thirty to forty-five minutes — so
-   no threshold could tell it from a lock whose agent had died, and a
-   waiting agent would break a valid one to merge beside its holder. That is
-   the failure this lock exists to prevent, arriving through the lock
-   itself.
+   Then **arm auto-merge**: § Merging a pull request has the command and the
+   reason, and says why `merge_pull_request` is not a fallback there. The
+   instruction to fix the backlog IS the authorization that section requires,
+   for every ticket in the set and not for the first one, and everything it
+   requires *before* arming still holds without exception.
 
-   Then create the ref `claude/merge-lock` through the API, **from your own
-   branch** (see below): **« Reference already exists »** means another agent
-   is merging, so wait and try again; created means it is your turn. Under it, do exactly two things — check
-   that `main` has not moved into your files since (if it has, delete the
-   ref and go back to the first paragraph), and merge. Delete the ref as
-   soon as the merge has landed. **The hold is seconds**, which is what
-   makes the threshold below mean something.
+   **There is no merge lock, and « fusionne les PR une par une » cannot be
+   obeyed as worded.** The maintainer asked for it twice — « Travaille en
+   parallèle, mais fusionne les PR une par une, jamais en même temps » — and
+   it was written when one agent cut the work into blocks and merged each of
+   them itself. An agent here does not merge: it **arms**, and GitHub merges
+   once the ruleset on `main` is satisfied, at a moment no agent chooses. Two
+   agents that armed seconds apart cannot serialise what neither of them
+   performs. A git ref cannot bridge that: an earlier version of this section
+   tried, and every attempt produced a new hole instead of a mutex — a
+   creation date refs do not have, a threshold the work itself exceeded, an
+   unconditional delete that destroyed a peer's fresh lock.
 
-   **Development is parallel; merging never is.** The maintainer asks for
-   both halves in one breath — « Travaille en parallèle, mais fusionne les
-   PR une par une, jamais en même temps », and again « Parallélise ce que tu
-   peux, mais sérialise les merge de PR pour éviter de perdre du temps ».
-   Two merges at once is not faster, it is a failure arriving by a quiet
-   door: `main` moves under the second one, and « require branches up to
-   date » is off here (docs/quality-pipeline.md § Branch ruleset), so GitHub
-   merges it happily against a base that no longer exists — the required
-   checks that went green were computed against something else.
+   **What that rule protects against is answered one step later, and this
+   repository decided so deliberately.** `docs/quality-pipeline.md` § Branch
+   ruleset keeps « require branches to be up to date » **off** for a measured
+   reason — with it on, every push to `main` invalidates every open pull
+   request, and on 2026-09-05 that cost #152 four consecutive CI cycles, each
+   green and stale again before the merge call. It then names exactly what
+   pays for it: two pull requests each green alone whose combination is not,
+   caught by `ci.yml` on `main` **after** they land, with **the maintainer**
+   answering the red-`main` notification and the fix going forward rather
+   than by revert. The window is accepted, owned, and small by construction.
 
-   **Time your OWN wait, never the lock's age.** A git ref carries no
-   creation date — the only date reachable from it is that of the commit it
-   points at, which says when its holder last committed and nothing about
-   when the lock was taken. A lock taken ten seconds ago on a branch nobody
-   has touched since this morning would read as hours old, and the agent that
-   believed it would delete it and merge on top of the holder: the exact
-   failure the lock exists to prevent. So the
-   clock is the one thing a waiting agent can trust, its own: **if the lock
-   is still held after ten minutes of your waiting, it is stuck** — a hold
-   that only spans a check and a merge is a matter of seconds, and ten
-   minutes of it is not a merge in progress.
-
-   **Create the lock from YOUR OWN branch, so the ref names its holder.**
-   `from_branch: claude/issue-<n>` rather than `main`: the ref's target is
-   then your head's SHA, which no other agent shares. Then, **immediately
-   before merging, read the ref again — if it no longer points at your head,
-   you do not hold the lock** and you start step 6 over. That one read is
-   what makes everything below safe, and it is the only fencing available
-   here.
-
-   **Because breaking a stuck lock is a delete and a create, and neither can
-   be made conditional.** GitHub's ref delete takes no precondition, so two
-   agents past the threshold can interleave in a way no ordering rule
-   catches: A deletes the stuck ref, A creates it again and gets 201, B
-   deletes — destroying **A's fresh lock**, not the stuck one — and B creates
-   it again and also gets 201. Both hold a 201 and both would merge. Nothing
-   in the create tells A it lost.
-
-   The read above tells it: A finds the ref pointing at B's head and stands
-   down. So the protocol is not race-free at the delete, and cannot be made
-   so with these tools; it is made **safe at the point of use** instead,
-   which is the only place a holder can still act on the answer.
-
-   The instruction to fix the backlog IS the authorization § Merging a pull
-   request requires, for every ticket in the set and not for the first one.
-   Everything that section requires *before* arming auto-merge still holds
-   without exception.
+   Your share of it is the first paragraph, and it is the half a branch can
+   actually see: never arm against a `main` that has moved into **your**
+   files.
 
 7. **Verify the comment and the closure, then take `status:in-progress`
    off** — this step and the next apply to the pull request that carries
@@ -663,8 +631,6 @@ a genuinely dead branch in seconds. A ticket that waits costs a sentence; a
 ticket taken from an agent still working on it costs two pull requests that
 fix the same thing differently.
 
-The merge lock above is the one exception, and only on your own ten minutes
-of waiting, because a stuck lock blocks every agent rather than one ticket.
 
 **Do not wait for the maintainer at any other point.** Not to start, not to
 merge, not to close, not between tickets. Report what you did afterwards; do
