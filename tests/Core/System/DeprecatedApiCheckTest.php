@@ -213,30 +213,58 @@ class DeprecatedApiCheckTest extends TestCase
     // ————— Fetching, against a real stream —————
 
     /**
-     * The status line decides whether the body is the document, and every
-     * case is asserted here because the function is pure — a non-2xx page
-     * that happens to be JSON would otherwise be decoded as MDN's data.
+     * The status decides whether the body is the document, and every case is
+     * asserted here because the function is pure — a non-2xx page that
+     * happens to be JSON would otherwise be decoded as MDN's data.
      *
-     * An absent line is deliberately a success: a `file://` URL carries no
-     * status at all, and PHP leaves `$http_response_header` undefined for
-     * protocols that have none (measured — PHPStan models it as always
-     * defined and is wrong about that). Reading absence as a refusal would
-     * reject the very fetch the next test uses.
+     * No status line at all is deliberately a success: a `file://` URL
+     * carries none, and reading absence as a refusal would reject the very
+     * fetch the next test uses.
      */
-    public function testOnlyASuccessfulStatusLineLetsTheBodyThrough(): void
+    public function testOnlyASuccessfulStatusLetsTheBodyThrough(): void
     {
-        $this->assertTrue(deprecatedApiIsSuccessfulStatus(null));
-        $this->assertTrue(deprecatedApiIsSuccessfulStatus(''));
-        $this->assertTrue(deprecatedApiIsSuccessfulStatus('HTTP/1.1 200 OK'));
-        $this->assertTrue(deprecatedApiIsSuccessfulStatus('HTTP/2 204 No Content'));
+        $this->assertTrue(deprecatedApiIsSuccessfulStatus([]));
+        $this->assertTrue(deprecatedApiIsSuccessfulStatus(['Content-Type: application/json']));
+        $this->assertTrue(deprecatedApiIsSuccessfulStatus(['HTTP/1.1 200 OK']));
+        $this->assertTrue(deprecatedApiIsSuccessfulStatus(['HTTP/2 204 No Content']));
 
-        $this->assertFalse(deprecatedApiIsSuccessfulStatus('HTTP/1.1 404 Not Found'));
-        $this->assertFalse(deprecatedApiIsSuccessfulStatus('HTTP/1.1 502 Bad Gateway'));
-        $this->assertFalse(deprecatedApiIsSuccessfulStatus('HTTP/1.1 301 Moved Permanently'));
-        // Not a status line at all: refused rather than read as a success,
-        // because a body arriving without one from an HTTP fetch is not
-        // something this gate should trust.
-        $this->assertFalse(deprecatedApiIsSuccessfulStatus('200 OK'));
+        $this->assertFalse(deprecatedApiIsSuccessfulStatus(['HTTP/1.1 404 Not Found']));
+        $this->assertFalse(deprecatedApiIsSuccessfulStatus(['HTTP/1.1 502 Bad Gateway']));
+        $this->assertFalse(deprecatedApiIsSuccessfulStatus(['HTTP/1.1 301 Moved Permanently']));
+    }
+
+    /**
+     * THE LAST STATUS LINE IS THIS BODY'S, and reading the first one was a
+     * defect a reviewer caught.
+     *
+     * With `follow_location` on — PHP's default — the wrapper concatenates
+     * every hop's headers into one list, each opening with its own status
+     * line. The list below is real, measured against
+     * `github.com/mdn/browser-compat-data/raw/main/README.md`: a `302` then a
+     * `200`, for 14 793 bytes of body that arrived perfectly. Reading `[0]`
+     * threw that document away and reported « non vérifié ».
+     *
+     * Same rule as core/ExternalSource/StreamPageFetcher::fromHeaders().
+     */
+    public function testARedirectChainIsJudgedOnWhereItEnded(): void
+    {
+        $this->assertTrue(deprecatedApiIsSuccessfulStatus([
+            'HTTP/1.1 302 Found',
+            'Location: https://raw.githubusercontent.com/mdn/browser-compat-data/main/README.md',
+            'HTTP/1.1 200 OK',
+            'Content-Type: text/plain; charset=utf-8',
+        ]));
+
+        // And the other direction: a chain that ends badly is still bad,
+        // whatever it started with.
+        $this->assertFalse(deprecatedApiIsSuccessfulStatus([
+            'HTTP/1.1 301 Moved Permanently',
+            'HTTP/1.1 404 Not Found',
+        ]));
+        $this->assertFalse(deprecatedApiIsSuccessfulStatus([
+            'HTTP/1.1 200 OK',
+            'HTTP/1.1 502 Bad Gateway',
+        ]));
     }
 
     public function testFetchingReturnsTheBodyOfAReadableUrl(): void

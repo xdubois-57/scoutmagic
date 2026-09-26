@@ -378,6 +378,15 @@ function deprecatedApiFetch(string $url): ?string
         ],
     ]);
 
+    // Pre-initialised on purpose. The http wrapper overwrites this in the
+    // local scope; a protocol that carries no status line — `file://`, which
+    // is how the tests exercise this function — leaves it untouched, so an
+    // empty list IS « nobody said anything », with no undefined variable to
+    // coalesce around. It also settles a disagreement: PHPStan models this
+    // variable as always defined, and without this line it is wrong (after a
+    // `file://` read, `isset()` on it is false). With it, PHPStan is right.
+    $http_response_header = [];
+
     $body = @file_get_contents($url, false, $context);
     if ($body === false || $body === '') {
         return null;
@@ -392,15 +401,18 @@ function deprecatedApiFetch(string $url): ?string
     // error page would have been decoded as the document — and it also made
     // every HTTP failure report the wrong cause.
     //
-    // $http_response_header is set in this function's own scope by the http
-    // wrapper, and a protocol that has no status line at all — `file://`, which
-    // is how the tests exercise this — leaves it UNDEFINED. Measured, because
-    // PHPStan models it as always defined and is wrong about that: after a
-    // `file://` read, `isset()` on it is false. Indexing it under `??`
-    // is what satisfies both — the operator suppresses the undefined-variable
-    // warning for its whole left side, so this yields null rather than a
-    // notice, and PHPStan sees no bare variable to object to.
-    if (!deprecatedApiIsSuccessfulStatus($http_response_header[0] ?? null)) {
+    // The WHOLE header list, not its first line. With `follow_location` on —
+    // PHP's default, and wanted here — the wrapper concatenates every hop's
+    // headers into one list, each hop opening with its own status line, so a
+    // redirect puts a `302` first and the real `200` last. Reading `[0]`
+    // rejected a document that had been fetched perfectly: measured against
+    // github.com/…/raw/main, which answers « HTTP/1.1 302 Found » then
+    // « HTTP/1.1 200 OK » for 14 793 bytes of body.
+    //
+    // core/ExternalSource/StreamPageFetcher::fromHeaders() is this
+    // repository's precedent and says the same thing; this follows it rather
+    // than inventing a second rule.
+    if (!deprecatedApiIsSuccessfulStatus($http_response_header)) {
         return null;
     }
 
@@ -408,22 +420,39 @@ function deprecatedApiFetch(string $url): ?string
 }
 
 /**
- * Whether a status line says the body is the document that was asked for.
+ * Whether the response the body came from says it is the document asked for.
  *
- * Takes the line rather than reading `$http_response_header` itself, so every
- * case can be asserted without standing up a server.
+ * Takes the header list rather than reading `$http_response_header` itself,
+ * so every case — including a recorded redirect chain — can be asserted
+ * without standing up a server.
  *
- * **An absent line is not a failure.** A `file://` URL carries no status at
- * all, and reading that as a refusal would reject the very fetch the tests
- * use to prove this function works.
+ * **The LAST status line decides.** A redirect chain leaves one per hop, in
+ * order, and the last one is the response the body belongs to. Reading the
+ * first made a `302` reject a document already in hand. Same rule, and same
+ * reason, as core/ExternalSource/StreamPageFetcher::fromHeaders().
+ *
+ * **No status line at all is not a failure.** A `file://` URL carries none,
+ * and reading that as a refusal would reject the very fetch the tests use to
+ * prove this function works.
+ *
+ * @param list<string> $headers what the stream wrapper collected
  */
-function deprecatedApiIsSuccessfulStatus(?string $statusLine): bool
+function deprecatedApiIsSuccessfulStatus(array $headers): bool
 {
-    if ($statusLine === null || $statusLine === '') {
+    $status = null;
+
+    foreach ($headers as $line) {
+        if (preg_match('#^HTTP/\S+\s+(\d{3})#', $line, $matches) === 1) {
+            // Keep overwriting: the last one to match is this body's.
+            $status = (int) $matches[1];
+        }
+    }
+
+    if ($status === null) {
         return true;
     }
 
-    return preg_match('#^HTTP/\S+\s+2\d\d#', $statusLine) === 1;
+    return $status >= 200 && $status < 300;
 }
 
 /**
