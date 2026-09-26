@@ -572,6 +572,15 @@ server-side where a label or an assignee is not.
    on that attempt exactly as on the first: the ref decides which of the two
    breakers merges, the same way it decides everything else here.
 
+   **And from the holder's side: a lock you have held for more than those ten
+   minutes is no longer yours.** Nothing in a ref records who created it, so
+   a holder that stalled cannot be told its lock was broken — it would merge
+   believing it still held one. So if anything delays you between taking the
+   lock and merging for that long, do not merge: start step 6 over from the
+   first paragraph. This is the one rule here that protects against your own
+   slowness rather than somebody else's, and a hold that spans only a check
+   and a merge makes it a rule you will never need.
+
    The instruction to fix the backlog IS the authorization § Merging a pull
    request requires, for every ticket in the set and not for the first one.
    Everything that section requires *before* arming auto-merge still holds

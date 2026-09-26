@@ -154,6 +154,14 @@ final class BacklogIsOneTicketAtATimeTest extends TestCase
         );
 
         $this->assertStringContainsString(
+            'a lock you have held for more than those ten',
+            $rules,
+            'AGENTS.md no longer tells a STALLED HOLDER to give up its lock. A ref records no owner, '
+            . 'so a holder whose lock was broken cannot be told — it merges believing it still holds '
+            . 'one, beside the agent that broke it.',
+        );
+
+        $this->assertStringContainsString(
             '**Breaking it is a delete AND a create, and the create decides.**',
             $rules,
             'AGENTS.md no longer says that breaking the lock ends with a create whose refusal is '
