@@ -39,6 +39,9 @@ class SendPathResolvesNothingTest extends TestCase
         'gethostbynamel',
         'socket_addrinfo_lookup',
         'MxLookup',
+        // `\bMxLookup\b` does not match inside « DnsMxLookup »: the
+        // concrete resolver has to be named on its own.
+        'DnsMxLookup',
         'DnsRecordReader',
         'DnsVerifier',
         'ResolveMailboxProvidersHandler',
