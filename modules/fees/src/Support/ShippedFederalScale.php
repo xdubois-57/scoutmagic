@@ -10,6 +10,7 @@ namespace Modules\Fees\Support;
 
 use Core\ExternalSource\FederalScale;
 use Core\Member\HouseholdFeeCategory;
+use Core\Service\DateInput;
 use Modules\Fees\Service\FederalScaleLookupService;
 
 /**
@@ -141,8 +142,7 @@ final class ShippedFederalScale
 
     private static function verifiedOn(mixed $raw): string
     {
-        $date = is_string($raw) ? \DateTimeImmutable::createFromFormat('!Y-m-d', $raw) : false;
-        if ($date === false || $date->format('Y-m-d') !== $raw) {
+        if (!is_string($raw) || !DateInput::isIso($raw)) {
             throw new \UnexpectedValueException('The shipped federal scale verification date must read YYYY-MM-DD.');
         }
 
