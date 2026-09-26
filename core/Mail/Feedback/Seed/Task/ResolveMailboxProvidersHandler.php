@@ -49,8 +49,14 @@ class ResolveMailboxProvidersHandler implements TaskHandlerInterface
     public const TASK_KEY = 'resolve_mail_domain_providers';
     public const REFERENCE = 'daily';
 
-    /** How many domains one run asks about. */
-    public const BATCH = 40;
+    /**
+     * How many domains one run may ask about: enough for the cache's
+     * ceiling (MailboxProviderRepository::MAXIMUM) to be refreshed within
+     * one TTL, so a large unit's domains do not go stale behind their
+     * newcomers. BUDGET_SECONDS is what actually bounds a run; the rest
+     * waits for tomorrow without starting a back-off.
+     */
+    public const BATCH = 750;
 
     /**
      * How long one run may spend asking. A healthy resolver answers a
@@ -115,12 +121,18 @@ class ResolveMailboxProvidersHandler implements TaskHandlerInterface
         $now = new \DateTimeImmutable();
 
         // The seed boxes' own domains, so a box on a domain Google hosts
-        // is counted under gmail.com even before a mailing notes it.
-        foreach ($copies->measuredDomains() as $domain) {
-            $providers->note($domain, $now);
+        // is counted under gmail.com even before a mailing notes it —
+        // dated by their last send, so the retention stated on the RGPD
+        // page counts from the site's last message to that domain, not
+        // from today. One already past it is not noted back in.
+        $retentionCut = $now->modify('-' . self::RETENTION_DAYS . ' days');
+        foreach ($copies->measuredDomains() as $measured) {
+            if ($measured['last_sent_at'] >= $retentionCut) {
+                $providers->note($measured['domain'], $measured['last_sent_at']);
+            }
         }
 
-        $forgotten = $providers->purgeNotedBefore($now->modify('-' . self::RETENTION_DAYS . ' days'));
+        $forgotten = $providers->purgeNotedBefore($retentionCut);
 
         $lookup = $this->lookup ?? new DnsMxLookup();
         $deadline = microtime(true) + $this->budgetSeconds;

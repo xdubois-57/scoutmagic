@@ -319,15 +319,29 @@ class SeedCopyRepository
     /**
      * The domains of the boxes that have been measured, so the MX task
      * attributes them too (issue #422). The stored column, never the
-     * attributed one: this is the question, not the answer.
+     * attributed one: this is the question, not the answer. Each comes
+     * with its last send, which is when the site last wrote to it — the
+     * date its retention counts from, never the day the task happens to run.
      *
-     * @return list<string>
+     * @return list<array{domain: string, last_sent_at: \DateTimeImmutable}>
      */
     public function measuredDomains(): array
     {
-        $statement = $this->pdo->query('SELECT DISTINCT provider FROM mail_seed_copies ORDER BY provider');
+        $statement = $this->pdo->prepare(
+            'SELECT provider, MAX(sent_at) AS last_sent_at FROM mail_seed_copies GROUP BY provider ORDER BY provider'
+        );
+        $statement->execute();
 
-        return $statement === false ? [] : array_map('strval', $statement->fetchAll(\PDO::FETCH_COLUMN));
+        return array_map(
+            static fn(array $row): array => [
+                'domain' => (string) $row['provider'],
+                'last_sent_at' => DateInput::requireFromStorage(
+                    (string) $row['last_sent_at'],
+                    'mail_seed_copies.sent_at'
+                ),
+            ],
+            $statement->fetchAll(\PDO::FETCH_ASSOC)
+        );
     }
 
     /** Operational data, so it purges — on the send, which is its only date. */

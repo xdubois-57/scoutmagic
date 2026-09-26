@@ -2652,7 +2652,8 @@ domaine, et trois décisions portent tout le reste.
 **Aucune résolution DNS sur le chemin d'envoi.** Le transport lit un
 cache, `mail_domain_providers`, et n'y écrit qu'une chose : qu'un domaine
 existe. La lecture des MX appartient à une tâche quotidienne, bornée en
-nombre (quarante domaines) et en temps (vingt secondes d'horloge, puisque
+nombre (sept cent cinquante domaines, de quoi relire le plafond du cache en
+une semaine) et en temps (vingt secondes d'horloge, puisque
 `dns_get_record()` n'a pas de délai propre), avec une réponse valable
 sept jours et, en cas d'échec, la dernière bonne réponse conservée et un
 recul de 1, 2, 4 puis 7 jours. Un test lit le code du chemin d'envoi et

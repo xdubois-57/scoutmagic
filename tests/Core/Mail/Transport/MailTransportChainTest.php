@@ -401,8 +401,9 @@ class MailTransportChainTest extends TestCase
             ->deliver($this->message('prenom@nouveau-domaine.be'), MailPurpose::Bulk);
 
         $this->assertSame(['smtp.premier.test'], $delivery->attemptedHosts);
-        $row = $this->pdo->query('SELECT domain, provider, resolved_at FROM mail_domain_providers')
-            ?->fetch(\PDO::FETCH_ASSOC);
+        $statement = $this->pdo->prepare('SELECT domain, provider, resolved_at FROM mail_domain_providers');
+        $statement->execute();
+        $row = $statement->fetch(\PDO::FETCH_ASSOC);
         $this->assertSame(
             ['domain' => 'nouveau-domaine.be', 'provider' => null, 'resolved_at' => null],
             $row
@@ -419,7 +420,9 @@ class MailTransportChainTest extends TestCase
         $this->chain($this->recordingTransport(), preferences: $this->preferring('gmail.com', $first, $cache))
             ->deliver($this->message('prenom@nouveau-domaine.be'), MailPurpose::MagicLink);
 
-        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM mail_domain_providers')?->fetchColumn());
+        $statement = $this->pdo->prepare('SELECT COUNT(*) FROM mail_domain_providers');
+        $statement->execute();
+        $this->assertSame(0, (int) $statement->fetchColumn());
     }
 
     /**
@@ -431,7 +434,7 @@ class MailTransportChainTest extends TestCase
         $first = $this->addRelay('Premier', 'smtp.premier.test');
         $second = $this->addRelay('Second', 'smtp.second.test');
         $this->enable(MailLane::Bulk, [$first, $second]);
-        $this->pdo->exec('DROP TABLE mail_domain_providers');
+        $this->pdo->prepare('DROP TABLE mail_domain_providers')->execute();
 
         $delivery = $this->recordingTransport();
         $cache = new \Core\Mail\Transport\MailboxProviderRepository($this->pdo);

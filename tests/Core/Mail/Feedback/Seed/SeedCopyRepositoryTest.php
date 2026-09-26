@@ -433,7 +433,10 @@ class SeedCopyRepositoryTest extends TestCase
         }
 
         // The stored column is the question, not the answer.
-        $this->assertSame(['gmail.com', 'unite-scoute.be'], $this->copies->measuredDomains());
+        $this->assertSame(
+            ['gmail.com', 'unite-scoute.be'],
+            array_column($this->copies->measuredDomains(), 'domain')
+        );
     }
 
     /** Not resolved yet, or resolved to nobody known: the domain is its own column, as before. */

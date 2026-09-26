@@ -210,6 +210,33 @@ class ResolveMailboxProvidersHandlerTest extends TestCase
         $this->assertSame('gmail.com', (new MailboxProviderRepository($this->pdo))->providerOf('unite-scoute.be'));
     }
 
+    /**
+     * A seed box's domain is dated by its last send, not by the run: the
+     * retention on the RGPD page counts from the site's last message, and
+     * one past it is not noted back in every day.
+     */
+    public function testASeedDomainIsDatedByItsLastSend(): void
+    {
+        $seeds = new SeedCopyRepository($this->pdo, $this->encryption);
+        $seeds->claim('envoi-1', 'temoin@recent.be', new \DateTimeImmutable('-3 days'));
+        $seeds->claim(
+            'envoi-2',
+            'temoin@ancien.be',
+            new \DateTimeImmutable('-' . (ResolveMailboxProvidersHandler::RETENTION_DAYS + 5) . ' days')
+        );
+
+        (new ResolveMailboxProvidersHandler($this->lookup([])))->handle([], $this->context);
+
+        $recent = $this->row('recent.be');
+        $this->assertNotFalse($recent);
+        $this->assertLessThan(
+            (new \DateTimeImmutable('-2 days'))->format('Y-m-d H:i:s'),
+            (string) $recent['noted_at'],
+            'Noted at its last send, three days ago, not today.'
+        );
+        $this->assertFalse($this->row('ancien.be'));
+    }
+
     /** The retention: a domain nobody has written to for six months is forgotten. */
     public function testADomainNobodyWritesToAnyMoreIsForgotten(): void
     {
