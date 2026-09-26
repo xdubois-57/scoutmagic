@@ -34,7 +34,7 @@ final class PublicationRepositoryTest extends TestCase
         $this->assertFalse($this->claim(false), 'A second claim, even concurrent, is refused.');
         $this->assertFalse($this->claim(true), 'Pending right now: not retryable.');
 
-        $this->repository->markPublished('album', 3, 'instagram', '42_99', $this->now);
+        $this->repository->markPublished('album', 3, 'instagram', '42_99', $this->now, $this->now);
 
         $this->assertFalse($this->claim(true), 'Published: never again, retry or not.');
         $this->assertTrue($this->repository->forSource('album', 3)['instagram']->isPublished());
@@ -43,7 +43,7 @@ final class PublicationRepositoryTest extends TestCase
     public function testAFailedDestinationIsTakenAgainOnlyWhenTheRetryIsConfirmed(): void
     {
         $this->claim(false);
-        $this->repository->markFailed('album', 3, 'instagram', 'Meta a refusé la demande.');
+        $this->repository->markFailed('album', 3, 'instagram', 'Meta a refusé la demande.', $this->now);
 
         $this->assertFalse($this->claim(false));
         $this->assertTrue($this->claim(true));
@@ -57,6 +57,18 @@ final class PublicationRepositoryTest extends TestCase
         $publication = $this->repository->forSource('album', 3)['instagram'];
         $this->assertTrue($publication->isRetryable($this->stale));
         $this->assertTrue($this->claim(true));
+    }
+
+    public function testAStalledAttemptCannotOverwriteTheRetryThatTookItsRowOver(): void
+    {
+        $stalled = $this->now->modify('-20 minutes');
+        $this->repository->claim('album', 3, 'instagram', false, 7, $stalled, $this->stale);
+        $this->assertTrue($this->claim(true));
+        $this->repository->markPublished('album', 3, 'instagram', '42_99', $this->now, $this->now);
+
+        $this->repository->markFailed('album', 3, 'instagram', 'Délai dépassé.', $stalled);
+
+        $this->assertTrue($this->repository->forSource('album', 3)['instagram']->isPublished());
     }
 
     public function testDestinationsAndContentsAreIndependent(): void

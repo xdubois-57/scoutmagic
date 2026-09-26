@@ -277,6 +277,22 @@ final class ShareControllerTest extends TestCase
         $this->assertStringNotContainsString('name="retry[]" value="facebook"', $html);
     }
 
+    public function testTickingOnlyTheRetryConfirmationRetriesThatDestination(): void
+    {
+        $this->loginManager();
+        $failing = $this->meta->answers;
+        $this->meta->answers = ['/media' => ['status' => 400, 'body' => (string) json_encode(
+            ['error' => ['message' => 'Only photo or video can be accepted', 'code' => 9004]]
+        )]] + $failing;
+        $this->controller()->publishAlbum($this->post(['destinations' => ['instagram']]), ['id' => '3']);
+        $this->meta->answers = $failing;
+
+        $this->controller()->publishAlbum($this->post(['retry' => ['instagram']]), ['id' => '3']);
+
+        $this->assertSame('success', FlashMessage::get()['type'] ?? null);
+        $this->assertTrue($this->publications->forSource('album', 3)['instagram']->isPublished());
+    }
+
     public function testNoDestinationTickedPublishesNothing(): void
     {
         $this->loginManager();

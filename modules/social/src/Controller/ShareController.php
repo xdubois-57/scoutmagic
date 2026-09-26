@@ -135,7 +135,13 @@ final class ShareController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        $destinations = self::platforms($request->getBody('destinations', []));
+        // A confirmed retry is a destination in its own right: the retry
+        // box stands under its destination and can be ticked alone.
+        $retries = self::platforms($request->getBody('retry', []));
+        $destinations = self::platforms(array_merge(
+            (array) $request->getBody('destinations', []),
+            array_map(static fn (SocialPlatform $p): string => $p->value, $retries)
+        ));
         if ($destinations === []) {
             FlashMessage::set('error', 'Cochez au moins une destination.');
 
@@ -146,7 +152,7 @@ final class ShareController extends AbstractController
             $source,
             $destinations,
             (string) $request->getBody('caption', ''),
-            self::platforms($request->getBody('retry', [])),
+            $retries,
             AuthSession::getUserAccountId(),
             new \DateTimeImmutable()
         );

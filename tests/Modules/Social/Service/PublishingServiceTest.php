@@ -128,6 +128,21 @@ final class PublishingServiceTest extends TestCase
         $this->assertTrue($this->publish($this->album(), [SocialPlatform::Instagram], [SocialPlatform::Instagram])[0]->published);
     }
 
+    public function testAnUnexpectedFailureIsRecordedAsFailedWithoutItsText(): void
+    {
+        // The fake transport throws a LogicException, naming the URL (and
+        // so the token), on a request it has no answer for.
+        unset($this->meta->answers['/photos']);
+
+        $outcomes = $this->publish($this->album(), [SocialPlatform::Facebook]);
+
+        $this->assertFalse($outcomes[0]->published);
+        $this->assertStringContainsString('sur le site lui-même', $outcomes[0]->message);
+        $this->assertSame('failed', $this->publications->forSource('album', 3)['facebook']->status, 'Never left pending.');
+        $this->assertSame(1, $this->journal->countOf('publish_failed'));
+        $this->assertStringNotContainsString('PAGE', $this->journal->textOf('publish_failed'), 'No token.');
+    }
+
     public function testARetryLeavesThePublishedDestinationAlone(): void
     {
         $this->publish($this->album(), [SocialPlatform::Facebook]);

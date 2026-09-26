@@ -17,6 +17,9 @@ use Core\Service\DateInput;
  */
 class PublicationRepository
 {
+    private const CLAIM_FENCE = ' WHERE source_kind = ? AND source_id = ? AND destination = ?'
+        . ' AND status = ? AND attempted_at = ?';
+
     public function __construct(private \PDO $pdo)
     {
     }
@@ -106,16 +109,23 @@ class PublicationRepository
         return $stmt->rowCount() === 1;
     }
 
+    /**
+     * Both outcome writes are fenced on the claim that started the attempt
+     * ($claimedAt, the `$now` given to claim()): a request that stalled
+     * past the stale delay while a confirmed retry took the row over must
+     * not overwrite the retry's result when it finally returns.
+     */
     public function markPublished(
         string $kind,
         int $sourceId,
         string $destination,
         string $remoteId,
+        \DateTimeImmutable $claimedAt,
         \DateTimeImmutable $now
     ): void {
         $this->pdo->prepare(
             'UPDATE social_publications SET status = ?, remote_id = ?, published_at = ?, error_message = NULL'
-            . ' WHERE source_kind = ? AND source_id = ? AND destination = ?'
+            . self::CLAIM_FENCE
         )->execute([
             Publication::STATUS_PUBLISHED,
             mb_substr($remoteId, 0, 100),
@@ -123,15 +133,28 @@ class PublicationRepository
             $kind,
             $sourceId,
             $destination,
+            Publication::STATUS_PENDING,
+            $claimedAt->format('Y-m-d H:i:s'),
         ]);
     }
 
-    public function markFailed(string $kind, int $sourceId, string $destination, string $message): void
-    {
-        $this->pdo->prepare(
-            'UPDATE social_publications SET status = ?, error_message = ?'
-            . ' WHERE source_kind = ? AND source_id = ? AND destination = ?'
-        )->execute([Publication::STATUS_FAILED, mb_substr($message, 0, 500), $kind, $sourceId, $destination]);
+    public function markFailed(
+        string $kind,
+        int $sourceId,
+        string $destination,
+        string $message,
+        \DateTimeImmutable $claimedAt
+    ): void {
+        $this->pdo->prepare('UPDATE social_publications SET status = ?, error_message = ?' . self::CLAIM_FENCE)
+            ->execute([
+                Publication::STATUS_FAILED,
+                mb_substr($message, 0, 500),
+                $kind,
+                $sourceId,
+                $destination,
+                Publication::STATUS_PENDING,
+                $claimedAt->format('Y-m-d H:i:s'),
+            ]);
     }
 
     /**

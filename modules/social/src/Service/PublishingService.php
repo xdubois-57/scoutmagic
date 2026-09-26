@@ -125,19 +125,45 @@ class PublishingService
                 }
                 $remoteId = $this->send($source, $platform, $caption, $base, $card);
             } catch (MetaException | CardException $e) {
-                $this->publications->markFailed($source->kind, $source->id, $platform->value, $e->getMessage());
+                $this->markFailed($source, $platform, $e->getMessage(), $now);
                 $this->log($source, $platform, 'publish_failed', 'warning', 'publication refusée : '
                     . $e->getMessage(), $userId, $e instanceof MetaException ? $e->detail : null);
                 $outcomes[] = new PublishOutcome($platform, false, $e->getMessage());
                 continue;
+            } catch (\Throwable $e) {
+                // Anything else (a secret that no longer decrypts, the
+                // database): the row must not stay pending, and neither the
+                // page nor the journal gets the exception's text.
+                $message = 'La publication a échoué sur le site lui-même. Réessayez plus tard.';
+                $this->markFailed($source, $platform, $message, $now);
+                $this->log($source, $platform, 'publish_failed', 'error', 'publication interrompue : '
+                    . $e::class, $userId);
+                $outcomes[] = new PublishOutcome($platform, false, $message);
+                continue;
             }
 
-            $this->publications->markPublished($source->kind, $source->id, $platform->value, $remoteId, $now);
+            $this->publications->markPublished(
+                $source->kind,
+                $source->id,
+                $platform->value,
+                $remoteId,
+                $now,
+                $now
+            );
             $this->log($source, $platform, 'published', 'info', 'publication faite', $userId);
             $outcomes[] = new PublishOutcome($platform, true, 'Publié.');
         }
 
         return $outcomes;
+    }
+
+    private function markFailed(
+        ShareSource $source,
+        SocialPlatform $platform,
+        string $message,
+        \DateTimeImmutable $claimedAt
+    ): void {
+        $this->publications->markFailed($source->kind, $source->id, $platform->value, $message, $claimedAt);
     }
 
     /**
