@@ -142,9 +142,9 @@ final class DomainRouting
      * to tell « nothing wrong » from « nothing measured », which are very
      * different answers and the second is the one that needs acting on.
      *
-     * @return list<array{provider: string, runs: int, inbox: int, spam: int, missing: int,
-     *     elsewhere: int, enough: bool, troubled: bool, routed_to: ?string, alternative: ?string,
-     *     verdict: string}>
+     * @return list<array{provider: string, measured: bool, runs: int, inbox: int, spam: int,
+     *     missing: int, elsewhere: int, enough: bool, troubled: bool, routed_to: ?string,
+     *     alternative: ?string, verdict: string}>
      */
     public function readings(\DateTimeImmutable $since): array
     {
@@ -178,6 +178,7 @@ final class DomainRouting
 
             $readings[] = [
                 'provider' => $row['provider'],
+                'measured' => true,
                 'runs' => $row['runs'],
                 'inbox' => $row['inbox'],
                 'spam' => $row['spam'],
@@ -199,7 +200,65 @@ final class DomainRouting
             ];
         }
 
-        return $readings;
+        return [...$readings, ...$this->unmeasuredDecisions($readings)];
+    }
+
+    /**
+     * The decisions still in force that no measured row carries — each as
+     * a row of its own, so it can be read and cleared.
+     *
+     * **A decision the screen does not show is a decision nobody can
+     * undo, and the send path still obeys it.** `DomainPreferences`
+     * tries the recipient's own domain before its provider, so a choice
+     * written under « hotmail.com » — the column name before issue #422
+     * folded that box under « outlook.com » — goes on rerouting that
+     * domain's mail while the « outlook.com » row says no relay was
+     * chosen. The same holds for a provider no box has measured in the
+     * window. Nothing here is counted or concluded — `measured` is false
+     * so a reader can tell the row from a measurement of zero — and the
+     * row only says what is decided and offers the button that takes it
+     * back.
+     *
+     * @param list<array{provider: string}> $measured
+     * @return list<array{provider: string, measured: bool, runs: int, inbox: int, spam: int,
+     *     missing: int, elsewhere: int, enough: bool, troubled: bool, routed_to: ?string,
+     *     alternative: ?string, verdict: string}>
+     */
+    private function unmeasuredDecisions(array $measured): array
+    {
+        try {
+            $decisions = $this->preferences?->all() ?? [];
+        } catch (\Throwable) {
+            return [];
+        }
+
+        $shown = array_fill_keys(array_column($measured, 'provider'), true);
+        $rows = [];
+        foreach ($decisions as $domain => $providerId) {
+            if (isset($shown[$domain])) {
+                continue;
+            }
+
+            $counted = $this->providerOf($domain);
+            $rows[] = [
+                'provider' => $domain,
+                'measured' => false,
+                'runs' => 0,
+                'inbox' => 0,
+                'spam' => 0,
+                'missing' => 0,
+                'elsewhere' => 0,
+                'enough' => false,
+                'troubled' => false,
+                'routed_to' => $this->nameOf($providerId),
+                'alternative' => null,
+                'verdict' => $counted !== $domain
+                    ? 'Choix toujours appliqué ; ses envois sont désormais comptés sous ' . $counted
+                    : 'Choix toujours appliqué, sans envoi mesuré sous ce nom',
+            ];
+        }
+
+        return $rows;
     }
 
     /**

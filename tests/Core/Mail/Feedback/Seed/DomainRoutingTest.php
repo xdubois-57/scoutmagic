@@ -503,6 +503,54 @@ class DomainRoutingTest extends TestCase
         $this->assertSame(1, $routing->attributedDomains());
     }
 
+    /**
+     * **A decision written under a box's own domain before issue #422
+     * folded it under its MX provider stays on the screen.** The send
+     * path still obeys it — the recipient's own domain is tried first —
+     * so a row that hid it would leave a live reroute nobody can see or
+     * take back.
+     */
+    public function testADecisionUnderAFoldedDomainStaysVisibleAndClearable(): void
+    {
+        $brevo = $this->relay('Brevo', 1);
+        $this->relay('OVH', 2);
+        $this->preferences->prefer('hotmail.com', $brevo);
+
+        $cache = new \Core\Mail\Transport\MailboxProviderRepository(
+            $this->pdo,
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+        $now = new \DateTimeImmutable();
+        $cache->note('hotmail.com', $now);
+        $cache->recordResolved('hotmail.com', 'outlook.com', $now);
+        $this->record('t@hotmail.com', 'INBOX', 1);
+
+        $this->routing = new DomainRouting(
+            $this->copies,
+            $this->settings,
+            $this->preferences,
+            $this->chains,
+            new MailProviderDirectory(
+                new MailProviderRepository($this->pdo),
+                new ProviderConnections([]),
+                $this->settings
+            ),
+            $cache
+        );
+
+        $this->assertNull($this->readingFor('outlook.com')['routed_to']);
+        $orphan = $this->readingFor('hotmail.com');
+        $this->assertSame('Brevo', $orphan['routed_to']);
+        $this->assertFalse($orphan['measured']);
+        $this->assertSame(0, $orphan['runs']);
+        $this->assertFalse($orphan['troubled']);
+        $this->assertStringContainsString('outlook.com', $orphan['verdict']);
+
+        $this->assertTrue($this->routing->clear($orphan['provider']));
+        $providers = array_column($this->routing->readings(new \DateTimeImmutable('-30 days')), 'provider');
+        $this->assertSame(['outlook.com'], $providers);
+    }
+
     /** Without the cache the screen behaves exactly as it did before. */
     public function testWithoutTheCacheADomainIsItsOwnProvider(): void
     {
