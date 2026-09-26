@@ -50,6 +50,15 @@ montrée.
 Une actualité réservée aux animateurs ou aux administrateurs ne peut
 pas quitter le site.
 
+## Un groupe de discussion
+
+Si les groupes de discussion sont actifs, cochez « Groupe de
+discussion », puis choisissez les groupes avec le crayon : seuls ceux où
+vous pouvez publier sont proposés, avec leur nombre de membres. Chaque
+groupe reçoit **sa propre publication** : le texte, la photo **nette**
+— le groupe est privé — et un lien vers l'album ou l'actualité. Elle
+suit les règles du groupe, comme n'importe quel message.
+
 ## Publier
 
 > Une publication est publique, hors du site, et le site ne peut pas la

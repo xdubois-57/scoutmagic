@@ -17,6 +17,7 @@ use Modules\Social\Card\CardException;
 use Modules\Social\Card\CardService;
 use Modules\Social\Service\DestinationStates;
 use Modules\Social\Service\PublishingService;
+use Modules\Social\Service\PublishRequest;
 use Modules\Social\Service\ShareSource;
 use Modules\Social\Service\ShareSourceResolver;
 use Twig\Environment;
@@ -46,7 +47,6 @@ final class ShareController extends AbstractController
     public function __construct(
         Environment $twig,
         private readonly ShareSourceResolver $sources,
-        private readonly PublishingService $publishing,
         private readonly DestinationStates $states,
         private readonly CardService $cards
     ) {
@@ -99,6 +99,13 @@ final class ShareController extends AbstractController
             'source' => $source,
             'self_path' => $this->selfPath($source),
             'destinations' => $this->states->forSource($source),
+            'offers_groups' => $this->states->offersGroups(),
+            'groups' => $this->states->groupsFor(
+                $source,
+                AuthSession::getEmail(),
+                AuthSession::getRole(),
+                AuthSession::getUserAccountId()
+            ),
             'facebook_link' => $source->link !== null,
             'max_caption' => PublishingService::CAPTION_MAX_LENGTH,
         ]);
@@ -130,21 +137,23 @@ final class ShareController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        [$destinations, $retries] = DestinationStates::requested(
+        $asked = PublishRequest::fromForm(
             $request->getBody('destinations', []),
+            $request->getBody('groups', []),
             $request->getBody('retry', [])
         );
-        if ($destinations === []) {
+        if ($asked->isEmpty()) {
             FlashMessage::set('error', 'Cochez au moins une destination.');
 
             return $this->redirect($selfPath);
         }
 
-        $outcomes = $this->publishing->publish(
+        $outcomes = $this->states->publish(
             $source,
-            $destinations,
+            $asked,
             (string) $request->getBody('caption', ''),
-            $retries,
+            AuthSession::getEmail(),
+            AuthSession::getRole(),
             AuthSession::getUserAccountId(),
             new \DateTimeImmutable()
         );

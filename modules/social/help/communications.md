@@ -29,7 +29,9 @@ compose :
   votre appareil (choisissez d'abord le fichier, puis cliquez) ;
 - **le titre sur l'image** ;
 - **le texte de la publication** ;
-- **les destinations**, puis « Publier ».
+- **les destinations**, puis « Publier ». Avec les groupes de discussion,
+  « Groupe de discussion » et le crayon choisissent les groupes : chacun
+  reçoit sa propre publication, photo nette comprise.
 
 Une image de la galerie est **toujours floutée** : on devine l'ambiance,
 pas les visages. Une image téléversée part telle quelle — choisissez-en

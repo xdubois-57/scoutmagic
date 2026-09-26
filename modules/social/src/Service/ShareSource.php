@@ -37,6 +37,12 @@ final class ShareSource
         public readonly string $defaultCaption,
         public readonly string $backPath,
         public readonly ?string $blockedReason = null,
+        /**
+         * The content's own page on the site, absolute — the clickable link
+         * a discussion group receives. Null when there is none (a free
+         * communication).
+         */
+        public readonly ?string $pageUrl = null,
     ) {
     }
 }

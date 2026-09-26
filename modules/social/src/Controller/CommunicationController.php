@@ -26,7 +26,9 @@ use Modules\Social\Repository\ConnectionRepository;
 use Modules\Social\Repository\Publication;
 use Modules\Social\Repository\PublicationRepository;
 use Modules\Social\Service\DestinationStates;
+use Modules\Social\Service\GroupPublishingService;
 use Modules\Social\Service\PublishingService;
+use Modules\Social\Service\PublishRequest;
 use Modules\Social\Service\ShareSource;
 use Modules\Social\Service\ShareSourceResolver;
 use Twig\Environment;
@@ -68,7 +70,6 @@ final class CommunicationController extends AbstractController
         Environment $twig,
         private readonly CommunicationRepository $communications,
         private readonly ShareSourceResolver $sources,
-        private readonly PublishingService $publishing,
         private readonly DestinationStates $states,
         private readonly PublicationRepository $publications,
         private readonly ConnectionRepository $connections,
@@ -240,7 +241,7 @@ final class CommunicationController extends AbstractController
         }
 
         return $this->render('@social/communications/retry.html.twig', $retry + [
-            'self_path' => self::retryPath($retry['source'], $retry['platform']),
+            'self_path' => self::retryPath($retry['source'], $retry['key']),
         ]);
     }
 
@@ -255,11 +256,15 @@ final class CommunicationController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        $outcomes = $this->publishing->publish(
+        $groupId = GroupPublishingService::groupIdOf($retry['key']);
+        $outcomes = $this->states->publish(
             $retry['source'],
-            [$retry['platform']],
+            $groupId === null
+                ? new PublishRequest([$retry['platform']], [$retry['platform']])
+                : new PublishRequest([], [], [$groupId], [$groupId]),
             $retry['failed']->caption,
-            [$retry['platform']],
+            AuthSession::getEmail(),
+            AuthSession::getRole(),
             AuthSession::getUserAccountId(),
             new \DateTimeImmutable()
         );
@@ -328,11 +333,12 @@ final class CommunicationController extends AbstractController
     private function publishNow(Request $request, Communication $communication): Response
     {
         $self = self::path($communication);
-        [$destinations, $retries] = DestinationStates::requested(
+        $asked = PublishRequest::fromForm(
             $request->getBody('destinations', []),
+            $request->getBody('groups', []),
             $request->getBody('retry', [])
         );
-        if ($destinations === []) {
+        if ($asked->isEmpty()) {
             FlashMessage::set('error', 'Cochez au moins une destination.');
 
             return $this->redirect($self);
@@ -347,11 +353,12 @@ final class CommunicationController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        $outcomes = $this->publishing->publish(
+        $outcomes = $this->states->publish(
             $source,
-            $destinations,
+            $asked,
             $this->frozenCaption($communication) ?? $communication->body,
-            $retries,
+            AuthSession::getEmail(),
+            AuthSession::getRole(),
             AuthSession::getUserAccountId(),
             new \DateTimeImmutable()
         );
@@ -378,6 +385,13 @@ final class CommunicationController extends AbstractController
             'from_gallery' => $communication?->galleryMediaId !== null,
             'gallery_available' => $this->photos !== null,
             'destinations' => $source === null ? $this->unsavedDestinations() : $this->states->forSource($source),
+            'offers_groups' => $this->states->offersGroups() && $source !== null,
+            'groups' => $source === null ? [] : $this->states->groupsFor(
+                $source,
+                AuthSession::getEmail(),
+                AuthSession::getRole(),
+                AuthSession::getUserAccountId()
+            ),
             'title_max' => self::TITLE_MAX_LENGTH,
             'body_max' => PublishingService::CAPTION_MAX_LENGTH,
         ]);
@@ -462,12 +476,15 @@ final class CommunicationController extends AbstractController
      *
      * @param array<string, string> $params
      * @return array{
-     *     source: ShareSource, platform: SocialPlatform, failed: Publication, published: list<Publication>
+     *     source: ShareSource, key: string, platform: ?SocialPlatform, label: string, failed: Publication,
+     *     published: list<Publication>
      * }|null
      */
     private function retryContext(array $params): ?array
     {
-        $platform = SocialPlatform::tryFrom((string) ($params['platform'] ?? ''));
+        $key = (string) ($params['platform'] ?? '');
+        $platform = SocialPlatform::tryFrom($key);
+        $groupId = GroupPublishingService::groupIdOf($key);
         $id = (int) ($params['id'] ?? 0);
         $role = AuthSession::getRole();
         $accountId = (int) AuthSession::getUserAccountId();
@@ -477,12 +494,12 @@ final class CommunicationController extends AbstractController
             ShareSource::KIND_COMMUNICATION => $this->sources->communication($id, $role, $accountId),
             default => null,
         };
-        if ($platform === null || $source === null) {
+        if (($platform === null && ($groupId === null || !$this->states->offersGroups())) || $source === null) {
             return null;
         }
 
         $publications = $this->publications->forSource($source->kind, $source->id);
-        $failed = $publications[$platform->value] ?? null;
+        $failed = $publications[$key] ?? null;
         $staleBefore = (new \DateTimeImmutable())->modify('-' . PublishingService::STALE_MINUTES . ' minutes');
         if ($failed === null || !$failed->isRetryable($staleBefore)) {
             return null;
@@ -490,7 +507,9 @@ final class CommunicationController extends AbstractController
 
         return [
             'source' => $source,
+            'key' => $key,
             'platform' => $platform,
+            'label' => $platform?->label() ?? ($failed->destinationLabel ?? 'le groupe'),
             'failed' => $failed,
             'published' => array_values(array_filter(
                 $publications,
@@ -515,11 +534,26 @@ final class CommunicationController extends AbstractController
             }
         }
 
-        $rows = [];
+        $destinations = [];
         foreach ($platforms as $platform) {
-            $publication = $publications[$platform->value] ?? null;
+            $destinations[$platform->value] = [$platform->label(), $platform->value === 'facebook'
+                ? 'bi-facebook' : 'bi-instagram'];
+        }
+        // One line per discussion group, named as it was when the post
+        // left — never « non demandé »: a group is not a standing account.
+        foreach ($publications as $key => $publication) {
+            if (GroupPublishingService::groupIdOf($key) !== null) {
+                $destinations[$key] = [$publication->destinationLabel ?? 'Groupe de discussion', 'bi-people'];
+            }
+        }
+
+        $rows = [];
+        foreach ($destinations as $key => [$label, $icon]) {
+            $publication = $publications[$key] ?? null;
             $rows[] = [
-                'platform' => $platform,
+                'key' => $key,
+                'label' => $label,
+                'icon' => $icon,
                 'state' => match (true) {
                     $publication === null => 'not_requested',
                     $publication->isPublished() => 'published',
@@ -527,8 +561,9 @@ final class CommunicationController extends AbstractController
                     default => 'pending',
                 },
                 'publication' => $publication,
-                'retry_path' => '/communications/reessayer/' . $group['kind'] . '/' . $group['id'] . '/'
-                    . $platform->value,
+                // Unencoded: the router matches the raw path, and a
+                // destination key (`group:3`) is valid in one as it is.
+                'retry_path' => '/communications/reessayer/' . $group['kind'] . '/' . $group['id'] . '/' . $key,
             ];
         }
 
@@ -556,9 +591,9 @@ final class CommunicationController extends AbstractController
         ));
     }
 
-    private static function retryPath(ShareSource $source, SocialPlatform $platform): string
+    private static function retryPath(ShareSource $source, string $key): string
     {
-        return '/communications/reessayer/' . $source->kind . '/' . $source->id . '/' . $platform->value;
+        return '/communications/reessayer/' . $source->kind . '/' . $source->id . '/' . $key;
     }
 
     private static function path(?Communication $communication): string

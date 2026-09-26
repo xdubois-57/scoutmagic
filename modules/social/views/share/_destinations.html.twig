@@ -35,3 +35,80 @@
         <p class="text-body-secondary">Aucun compte n'est connecté.</p>
     {% endfor %}
 </fieldset>
+{% if offers_groups|default(false) %}
+    {# A discussion group (IT-05): two lines on the page — the box, then the
+       groups chosen in the dialog with the pencil that reopens it. #}
+    <div class="mb-3" data-share-groups>
+        <div class="form-check mb-1" data-destination="groups">
+            <input class="form-check-input" type="checkbox" name="destinations[]" value="groups" id="dest-groups"
+                   data-share-groups-toggle {{ groups is empty ? 'disabled' : '' }}>
+            <label class="form-check-label" for="dest-groups">
+                <i class="bi bi-people" aria-hidden="true"></i> Groupe de discussion
+                {% if groups is empty %}
+                    <br><span class="small text-body-secondary">Vous ne pouvez publier dans aucun groupe.</span>
+                {% endif %}
+            </label>
+        </div>
+        {% if groups is not empty %}
+            <div class="d-flex align-items-center gap-2 ps-4">
+                <span class="flex-grow-1 small" data-share-groups-summary data-empty-label="Aucun groupe choisi">Aucun groupe choisi</span>
+                <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#share-groups"
+                        aria-label="Changer les groupes de discussion" title="Changer les groupes">
+                    <i class="bi bi-pencil" aria-hidden="true"></i>
+                </button>
+            </div>
+
+            <div class="modal fade" id="share-groups" tabindex="-1" aria-labelledby="share-groups-title" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-scrollable">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h2 class="modal-title h5" id="share-groups-title">Dans quels groupes ?</h2>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+                        </div>
+                        <div class="modal-body">
+                            <fieldset>
+                                <legend class="h6">Groupes où vous pouvez publier</legend>
+                                {% for g in groups %}
+                                    <div class="form-check mb-2" data-group="{{ g.id }}" data-state="{{ g.state }}">
+                                        <input class="form-check-input" type="checkbox" name="groups[]" value="{{ g.id }}"
+                                               id="group-{{ g.id }}" data-share-group-name="{{ g.name }}"
+                                               {{ g.state in ['available', 'failed'] ? '' : 'disabled' }}
+                                               {{ g.state == 'published' ? 'checked' : '' }}>
+                                        <label class="form-check-label" for="group-{{ g.id }}">
+                                            {{ g.name }}
+                                            <span class="small text-body-secondary">— {{ g.members }} membre{{ g.members > 1 ? 's' : '' }}</span>
+                                            {% if g.state == 'published' %}
+                                                <br><span class="small text-body-secondary">Déjà publié le {{ g.date|french_date }}</span>
+                                            {% elseif g.state == 'pending' %}
+                                                <br><span class="small text-body-secondary">Publication en cours…</span>
+                                            {% elseif g.state == 'failed' %}
+                                                <br><span class="small text-danger">Échec le {{ g.date|french_date }} : {{ g.reason }}</span>
+                                            {% endif %}
+                                        </label>
+                                        {% if g.state == 'failed' %}
+                                            <div class="form-check mt-1">
+                                                <input class="form-check-input" type="checkbox" name="retry[]" value="{{ g.value }}" id="retry-group-{{ g.id }}">
+                                                <label class="form-check-label small" for="retry-group-{{ g.id }}">
+                                                    Je confirme : réessayer dans ce groupe.
+                                                </label>
+                                            </div>
+                                        {% endif %}
+                                    </div>
+                                {% endfor %}
+                            </fieldset>
+                            <p class="small text-body-secondary mb-0">
+                                Seuls les groupes où vous avez le droit de publier apparaissent ici. Chaque groupe reçoit
+                                sa propre publication, avec ses propres règles de modération. La photo y part nette, avec un
+                                lien vers le site.
+                            </p>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Valider</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <script src="{{ asset('/assets/js/social-share-groups.js') }}" defer nonce="{{ csp_nonce }}"></script>
+        {% endif %}
+    </div>
+{% endif %}

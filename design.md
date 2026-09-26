@@ -519,8 +519,12 @@ helpers; a page-level primary action that happens to call an AI
 - Flash messages: types `success` | `error` | `warning` only
   (`Core\Http\FlashMessage`); `danger` is not a type.
 - Destructive POSTs carry `data-confirm` **on the `<form>` element** — the
-  global handler in `base.html.twig` listens on `submit` and looks at
-  `e.target.closest('form[data-confirm]')`; the attribute on a button is
+  global handler (`public/assets/js/confirm.js`) listens on `submit` and
+  looks at `e.target.closest('form[data-confirm]')`. **One exception**: a
+  form whose buttons do different things, only one of them irreversible
+  (« Publier » beside « Enregistrer » on a communication), carries it on
+  that **submit button** — the handler reads the pressed button
+  (`e.submitter`) when the form has none. Anywhere else the attribute is
   silently inert. Messages state the consequence: « {Verbe} {objet} ?
   {Conséquence concrète}. »
   - **What carries one**: every POST that **deletes, removes, refuses,

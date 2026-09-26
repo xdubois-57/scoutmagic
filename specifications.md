@@ -3245,11 +3245,10 @@ membres ne voient jamais l'historique.
 ## 47. Réseaux sociaux (module social)
 
 Chantier « Partage vers Facebook et Instagram » (issue #528,
-`docs/chantiers/CHANTIER-partage-social.md`). Cette section décrit les quatre
-premières itérations : le **connecteur**, **l'image publiée**, **le
-partage depuis un album ou une actualité** et **l'écran
-Communications**. Le groupe de discussion arrive avec la dernière
-itération.
+`docs/chantiers/CHANTIER-partage-social.md`). Cette section décrit les
+cinq itérations : le **connecteur**, **l'image publiée**, **le partage
+depuis un album ou une actualité**, **l'écran Communications** et **le
+groupe de discussion comme destination**.
 
 ### 47.1 Ce que le module relie
 
@@ -3429,3 +3428,33 @@ case vide de même largeur. « Réessayer » ouvre une confirmation qui dit
 ce qui repart (la même image et le même texte, vers cette destination
 seulement), que la destination déjà publiée n'est pas touchée, et la
 raison de l'échec précédent.
+
+### 47.8 Le groupe de discussion comme destination
+
+Avec le module Groupes actif, la page de partage d'un album ou d'une
+actualité et la communication libre proposent une destination de plus,
+**interne** : les groupes de discussion du site.
+
+- **Deux lignes seulement** sous Facebook et Instagram : la case
+  « Groupe de discussion », puis les groupes retenus, écrits en clair,
+  avec un bouton crayon (« Changer les groupes de discussion ») qui ouvre
+  le choix.
+- **Le choix se fait dans une fenêtre** : une case par groupe, avec son
+  nom et son nombre de membres. Seuls les groupes où l'on a le droit de
+  publier y apparaissent — c'est le module Groupes qui le décide. La
+  fenêtre dit que chaque groupe reçoit sa propre publication, avec ses
+  propres règles de modération.
+- **Chaque groupe reçoit sa propre publication** : le texte, **la photo
+  telle quelle — jamais floutée**, le groupe étant privé et ses membres
+  voyant déjà la galerie — et **un vrai lien** vers l'album ou
+  l'actualité. Pas de carte composée.
+- **Chaque groupe est une destination à part entière** : sa propre ligne
+  dans « Ce qui est parti », son propre état, et la règle « une seule
+  fois » appliquée groupe par groupe. Un même album peut partir dans deux
+  groupes, une fois dans chacun. Un échec se relance comme ailleurs, sur
+  confirmation.
+- **La publication reste une publication ordinaire du groupe** : limite
+  de rythme, modération, signalement et notifications s'appliquent ; le
+  partage ne se glisse pas sous ces règles.
+
+Sans le module Groupes, la destination n'apparaît simplement pas.

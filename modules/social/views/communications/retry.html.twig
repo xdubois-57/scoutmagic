@@ -1,9 +1,9 @@
 {% extends "base.html.twig" %}
 
-{% block title %}Réessayer sur {{ platform.label }} ? — {{ site_name }}{% endblock %}
+{% block title %}Réessayer sur {{ label }} ? — {{ site_name }}{% endblock %}
 
 {% block content %}
-{% include 'partials/page_header.html.twig' with { title: 'Réessayer sur ' ~ platform.label ~ ' ?' } only %}
+{% include 'partials/page_header.html.twig' with { title: 'Réessayer sur ' ~ label ~ ' ?' } only %}
 
 <div class="card mb-3">
     <div class="card-body">
@@ -13,9 +13,9 @@
 </div>
 
 <p>
-    La même image et le même texte repartiront vers {{ platform.label }}.
+    La même image et le même texte repartiront vers {{ label }}.
     {% for p in published %}
-        {{ p.destination == 'facebook' ? 'La Page Facebook' : 'Instagram' }}, déjà publié le {{ p.publishedAt|french_date }}
+        {{ p.destination == 'facebook' ? 'La Page Facebook' : (p.destination == 'instagram' ? 'Instagram' : '« ' ~ p.destinationLabel|default('Groupe') ~ ' »') }}, déjà publié le {{ p.publishedAt|french_date }}
         à {{ p.publishedAt|time_fr }}, ne sera pas touché — il n'y aura donc pas de doublon.
     {% endfor %}
 </p>
