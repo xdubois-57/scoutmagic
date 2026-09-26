@@ -25,6 +25,13 @@ final class Publication
         public readonly ?string $errorMessage,
         public readonly \DateTimeImmutable $attemptedAt,
         public readonly ?\DateTimeImmutable $publishedAt,
+        /** The content's title when it was sent — the history survives the content. */
+        public readonly string $sourceTitle = '',
+        /** The text sent, kept so a retry resends exactly the same. */
+        public readonly string $caption = '',
+        /** Where the post can be seen, when Meta said. */
+        public readonly ?string $remoteUrl = null,
+        public readonly ?int $userAccountId = null,
     ) {
     }
 

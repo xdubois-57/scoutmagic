@@ -86,6 +86,17 @@ final class PublishingServiceTest extends TestCase
         $this->assertStringNotContainsString('Les photos', $this->journal->textOf('published'), 'No caption in the journal.');
     }
 
+    public function testWhatWasSentIsKeptForTheHistoryAndARetry(): void
+    {
+        $this->publish($this->album(), [SocialPlatform::Facebook]);
+
+        $publication = $this->publications->forSource('album', 3)['facebook'];
+        $this->assertSame('Camp', $publication->sourceTitle);
+        $this->assertSame('Les photos sont en ligne', $publication->caption);
+        $this->assertSame('https://www.facebook.com/42_1', $publication->remoteUrl);
+        $this->assertSame(7, $publication->userAccountId);
+    }
+
     public function testAnArticleGoesAsALinkToFacebookAndAsAnImageToInstagram(): void
     {
         $this->publish($this->article(), [SocialPlatform::Facebook, SocialPlatform::Instagram]);

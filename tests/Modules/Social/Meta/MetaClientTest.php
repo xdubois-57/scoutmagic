@@ -199,6 +199,15 @@ final class MetaClientTest extends TestCase
         $this->assertSame('C1', $transport->requests[1]['fields']['creation_id']);
     }
 
+    public function testAnInstagramPermalinkIsAnHttpsAddressOrNothing(): void
+    {
+        $client = new MetaClient(H::transport(['IG1?' => H::ok(['permalink' => 'https://www.instagram.com/p/abc/'])]));
+        $this->assertSame('https://www.instagram.com/p/abc/', $client->instagramPermalink('IG1', 'T'));
+
+        $odd = new MetaClient(H::transport(['IG1?' => H::ok(['permalink' => 'javascript:alert(1)'])]));
+        $this->assertNull($odd->instagramPermalink('IG1', 'T'), 'Never a link the history would render as is.');
+    }
+
     public function testAContainerMetaCouldNotFillIsNotPublished(): void
     {
         $transport = H::transport([

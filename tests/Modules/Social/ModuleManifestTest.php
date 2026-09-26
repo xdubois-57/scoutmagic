@@ -35,9 +35,10 @@ final class ModuleManifestTest extends TestCase
             if ($route['path'] === '/partage/carte/{token}') {
                 continue;
             }
-            if (str_starts_with($route['path'], '/partage/')) {
-                // Sharing: a chief at the floor, narrowed by the gallery's
-                // and the news module's own rule (ShareSourceResolver).
+            if (str_starts_with($route['path'], '/partage/') || str_starts_with($route['path'], '/communications')) {
+                // Sharing and free communications: a chief at the floor,
+                // narrowed by the gallery's and the news module's own rule,
+                // or the communication's author (ShareSourceResolver).
                 $this->assertSame('chief', $route['role_min'], $route['path']);
                 $this->assertSame('espace_chefs', $route['menu'], $route['path']);
                 continue;
@@ -76,6 +77,7 @@ final class ModuleManifestTest extends TestCase
         foreach ($this->manifest['routes'] as $route) {
             $reads = in_array($route['action'], [
                 'index', 'connect', 'callback', 'show', 'showAlbum', 'showArticle', 'previewAlbum', 'previewArticle',
+                'history', 'create', 'edit', 'preview', 'picker', 'confirmRetry',
             ], true);
             $this->assertSame($reads ? 'GET' : 'POST', $route['method'], $route['path'] . ' → ' . $route['action']);
         }

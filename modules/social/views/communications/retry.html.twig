@@ -1,0 +1,32 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Réessayer sur {{ platform.label }} ? — {{ site_name }}{% endblock %}
+
+{% block content %}
+{% include 'partials/page_header.html.twig' with { title: 'Réessayer sur ' ~ platform.label ~ ' ?' } only %}
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h6 mb-1">{{ source.title }}</h2>
+        <p class="small text-body-secondary mb-0">Tenté le {{ failed.attemptedAt|french_date }}</p>
+    </div>
+</div>
+
+<p>
+    La même image et le même texte repartiront vers {{ platform.label }}.
+    {% for p in published %}
+        {{ p.destination == 'facebook' ? 'La Page Facebook' : 'Instagram' }}, déjà publié le {{ p.publishedAt|french_date }}
+        à {{ p.publishedAt|time_fr }}, ne sera pas touché — il n'y aura donc pas de doublon.
+    {% endfor %}
+</p>
+<div class="alert alert-warning">
+    L'échec précédent : {{ failed.errorMessage|default('la publication a été interrompue.') }}
+    Si rien n'a changé depuis, il se répétera.
+</div>
+
+<form method="post" action="{{ self_path }}" class="d-flex flex-wrap gap-2 justify-content-end">
+    {{ csrf_field()|raw }}
+    <a class="btn btn-outline-secondary" href="/communications">Annuler</a>
+    <button type="submit" class="btn btn-primary"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Réessayer</button>
+</form>
+{% endblock %}

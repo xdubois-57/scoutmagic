@@ -8978,6 +8978,7 @@ if ($isEnabled('news')) {
 // §7.5/§7.6), read and registered into by `social`'s block below.
 $galleryAlbumActions = null;
 $galleryShareSourceForOthers = null;
+$galleryPhotoPickerForOthers = null;
 if ($isEnabled('gallery')) {
     \Core\Debug\RequestTimeline::mark('module_gallery');
     $galleryAlbumActions = new \Modules\Gallery\Service\AlbumActionRegistry();
@@ -9101,6 +9102,20 @@ if ($isEnabled('gallery')) {
         $galleryLocationService,
         $storageBackendFactory,
         $storedFileReader
+    );
+    // The photo picker other modules offer (social's free communication).
+    // Delegated albums are seen through the checkers the groups and camps
+    // blocks append further down, so the registry is built on first use,
+    // over the list by reference — never over the copy it holds now.
+    $galleryPhotoPickerForOthers = new \Modules\Gallery\Service\PhotoPickerService(
+        $galleryAlbumRepo,
+        $galleryMediaRepo,
+        $galleryMediaService,
+        $galleryLocationService,
+        $storageBackendFactory,
+        static function () use (&$galleryDelegatedAlbumAccessCheckers): \Modules\Gallery\Service\DelegatedAlbumAccessRegistry {
+            return new \Modules\Gallery\Service\DelegatedAlbumAccessRegistry($galleryDelegatedAlbumAccessCheckers);
+        }
     );
     // GalleryConfigController is NOT registered here — see the late block
     // at the end of this file. It needs the describer registry, and every
@@ -10371,27 +10386,56 @@ if ($isEnabled('social')) {
     // Sharing an album or an article (§8.122): through the gallery's and
     // the news module's Api, both optional — null when either is off.
     $socialPublicationRepo = new \Modules\Social\Repository\PublicationRepository($pdo);
+    $socialPublishing = new \Modules\Social\Service\PublishingService(
+        $socialConnectionRepo,
+        $socialPublicationRepo,
+        $socialCardService,
+        $settingService,
+        $journalService
+    );
+    $socialDestinationStates = new \Modules\Social\Service\DestinationStates(
+        $socialPublishing,
+        $socialPublicationRepo,
+        $socialConnectionRepo,
+        $settingService
+    );
+    $socialCommunicationRepo = new \Modules\Social\Repository\CommunicationRepository($pdo);
+    $socialShareSources = new \Modules\Social\Service\ShareSourceResolver(
+        $settingService,
+        $storedFileReader,
+        $galleryShareSourceForOthers,
+        $newsShareSourceForOthers,
+        $socialCommunicationRepo,
+        $galleryPhotoPickerForOthers,
+        $linkedMemberIds
+    );
     $frontController->registerController(
         \Modules\Social\Controller\ShareController::class,
         new \Modules\Social\Controller\ShareController(
             $twig,
-            new \Modules\Social\Service\ShareSourceResolver(
-                $settingService,
-                $storedFileReader,
-                $galleryShareSourceForOthers,
-                $newsShareSourceForOthers
-            ),
-            new \Modules\Social\Service\PublishingService(
-                $socialConnectionRepo,
-                $socialPublicationRepo,
-                $socialCardService,
-                $settingService,
-                $journalService
-            ),
+            $socialShareSources,
+            $socialPublishing,
+            $socialDestinationStates,
+            $socialCardService
+        )
+    );
+    // « Communications »: a free communication, and the history of
+    // everything that left (§8.122).
+    $frontController->registerController(
+        \Modules\Social\Controller\CommunicationController::class,
+        new \Modules\Social\Controller\CommunicationController(
+            $twig,
+            $socialCommunicationRepo,
+            $socialShareSources,
+            $socialPublishing,
+            $socialDestinationStates,
             $socialPublicationRepo,
             $socialConnectionRepo,
             $socialCardService,
-            $settingService
+            $uploadHandler,
+            $userAccountRepo,
+            $galleryPhotoPickerForOthers,
+            $linkedMemberIds
         )
     );
     $galleryAlbumActions?->register(new \Modules\Social\Service\AlbumShareAction($socialSharingForOthers));

@@ -27,6 +27,7 @@ use Modules\Social\Meta\MetaClient;
 use Modules\Social\Repository\CardRepository;
 use Modules\Social\Repository\ConnectionRepository;
 use Modules\Social\Repository\PublicationRepository;
+use Modules\Social\Service\DestinationStates;
 use Modules\Social\Service\PublishingService;
 use Modules\Social\Service\ShareSourceResolver;
 use PHPUnit\Framework\TestCase;
@@ -355,6 +356,16 @@ final class ShareControllerTest extends TestCase
             }
         };
 
+        $publishing = new PublishingService(
+            $this->connections,
+            $this->publications,
+            $cards,
+            $settings,
+            $journal,
+            new MetaClient($this->meta, static function (int $seconds): void {
+            })
+        );
+
         return new ShareController(
             $this->twig(),
             new ShareSourceResolver(
@@ -363,19 +374,9 @@ final class ShareControllerTest extends TestCase
                 $this->albums,
                 $this->articles
             ),
-            new PublishingService(
-                $this->connections,
-                $this->publications,
-                $cards,
-                $settings,
-                $journal,
-                new MetaClient($this->meta, static function (int $seconds): void {
-                })
-            ),
-            $this->publications,
-            $this->connections,
-            $cards,
-            $settings
+            $publishing,
+            new DestinationStates($publishing, $this->publications, $this->connections, $settings),
+            $cards
         );
     }
 

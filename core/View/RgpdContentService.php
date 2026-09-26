@@ -1116,8 +1116,9 @@ raccordés, en particulier : (a) que l'unité relie **sa propre** Page Facebook 
 professionnel au moyen de **sa propre** application Meta ; (b) que le site **ne publie jamais de lui-même** :
 chaque publication est décidée par un animateur, est **publique** et ne peut pas être reprise depuis le site ; qu'elle
 contient un titre, une légende et une image — pour un album, sa photo de couverture **systématiquement floutée**, pour
-une actualité, son image déjà publique et, sur Facebook, son lien — que Meta récupère par un lien temporaire d'une
-heure ; et que l'historique des publications (quoi, où, quand, par quel compte) est conservé pour ne jamais publier deux
+une actualité, son image déjà publique et, sur Facebook, son lien, pour une communication libre, une photo de la galerie
+(floutée elle aussi) ou une image téléversée par l'animateur, qui part telle quelle — que Meta récupère par un lien
+temporaire d'une heure ; et que l'historique des publications (quoi, où, quand, par quel compte) est conservé pour ne jamais publier deux
 fois au même endroit ; (c) que les autorisations délivrées par Meta
 sont **chiffrées en base**, que le journal ne nomme aucun compte et ne contient aucune autorisation ; (d) que Meta
 Platforms Ireland Limited peut transférer ces données vers Meta Platforms, Inc. aux États-Unis, à décrire en section 5.2
