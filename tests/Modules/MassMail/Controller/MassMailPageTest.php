@@ -929,12 +929,28 @@ class MassMailPageTest extends TestCase
             'brouillon',
             (string) (FlashMessage::get()['message'] ?? '')
         );
-        // The refusal has to be complete: no attachment row, and no file
-        // row either — the upload runs BEFORE the service refuses, so this
-        // is the assertion that says the file did not survive the refusal.
         $this->assertSame(
             0,
             (int) $this->pdo->query('SELECT COUNT(*) FROM mass_mail_attachments')->fetchColumn()
+        );
+        // And the upload itself SURVIVES — pinned rather than wished away.
+        // UploadHandler::handle() writes the bytes and inserts the `files`
+        // row before MassMailService::addAttachment() refuses, and this
+        // controller's catch does no cleanup. Keeping the row is the
+        // project-wide convention, stated in
+        // Modules\Gallery\Service\StoredFileCleaner: `files` rows are an
+        // audit trail, and only derived/staging assets are dropped. So this
+        // asserts what the convention implies rather than a deletion that
+        // would quietly contradict it.
+        //
+        // What no convention covers is that the upload was ACCEPTED at all
+        // for an email that cannot take attachments, leaving bytes no screen
+        // will ever show. That is #578, not this test's business.
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn(),
+            'the upload no longer survives the refusal — if that is deliberate, '
+            . 'the convention in StoredFileCleaner and issue #578 both need revisiting'
         );
     }
 
