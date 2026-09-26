@@ -150,6 +150,9 @@
     "/config/pages-de-texte/{id}": {
       "id": "1"
     },
+    "/partage/carte/{token}": {
+      "token": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
     "/config/reseaux-sociaux/{platform}": {
       "platform": "facebook"
     },

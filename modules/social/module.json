@@ -76,14 +76,36 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": ""
+    },
+    {
+      "path": "/partage/carte/{token}",
+      "method": "GET",
+      "controller": "Modules\\Social\\Controller\\CardController",
+      "action": "show",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
     }
   ],
-  "settings": [],
+  "settings": [
+    {
+      "key": "social_card_blur_ratio",
+      "default_value": "0.05",
+      "type": "text",
+      "label": "Intensité du flou des images publiées",
+      "description": "Rayon du flou appliqué à toute photo de la galerie avant publication, en proportion du petit côté de l'image. Calibré sur de vraies photos ; jamais en dessous de 0,05. Non modifiable.",
+      "editable": false
+    }
+  ],
   "cookies": [],
   "scheduled_tasks": [
     {
       "key": "check_connections",
       "handler": "Modules\\Social\\Task\\CheckConnectionsHandler"
+    },
+    {
+      "key": "purge_cards",
+      "handler": "Modules\\Social\\Task\\PurgeCardsHandler"
     }
   ],
   "storage": {},

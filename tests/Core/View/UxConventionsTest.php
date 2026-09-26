@@ -600,6 +600,8 @@ final class UxConventionsTest extends TestCase
         // which always lands back on « Réseaux sociaux ».
         '/config/reseaux-sociaux/{platform}/connecter',
         '/config/reseaux-sociaux/{platform}/retour',
+        // The composed image Meta's servers fetch — a JPEG, never a page.
+        '/partage/carte/{token}',
         // XLSX download of the fee-accuracy screen, never a page.
         '/admin/fees/tarifs/export',
         // XLSX download of one invoice's verification report, likewise.

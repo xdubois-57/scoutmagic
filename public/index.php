@@ -10329,6 +10329,28 @@ if ($isEnabled('social')) {
         )
     );
 
+    // The composed images Meta fetches (§8.122): the one public route of
+    // the module, and the daily purge of the expired ones.
+    $frontController->registerController(
+        \Modules\Social\Controller\CardController::class,
+        new \Modules\Social\Controller\CardController(
+            $twig,
+            new \Modules\Social\Card\CardService(
+                new \Modules\Social\Repository\CardRepository($pdo),
+                new \Modules\Social\Card\CardRenderer(),
+                $settingService,
+                $journalService,
+                $storagePath . '/' . \Modules\Social\Card\CardService::DIRECTORY
+            )
+        )
+    );
+    $schedulerService->seed(
+        'social',
+        \Modules\Social\Task\PurgeCardsHandler::TASK_KEY,
+        \Modules\Social\Task\PurgeCardsHandler::REFERENCE,
+        'tomorrow 04:35'
+    );
+
     // Meta is declared on the RGPD page while an account is connected,
     // and only then (§7.4).
     $rgpdContentService->addSubProcessorProvider(

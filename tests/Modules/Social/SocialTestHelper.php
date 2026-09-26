@@ -27,6 +27,50 @@ final class SocialTestHelper
             check_ok INTEGER NULL,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
+        $pdo->exec('CREATE TABLE social_cards (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            token_hash TEXT NOT NULL UNIQUE,
+            file_name TEXT NOT NULL,
+            blurred INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            served_count INTEGER NOT NULL DEFAULT 0
+        )');
+    }
+
+    /** A real photo of people, from the reference dataset. */
+    public static function groupPhoto(): string
+    {
+        return (string) file_get_contents(dirname(__DIR__, 2) . '/fixtures/reference-dataset/photos/unite_group_002.jpg');
+    }
+
+    /**
+     * How much detail the top of a card keeps — the mean luminance step
+     * between horizontal neighbours, over the band above the text veil.
+     * A sharp photo scores several times what a blurred one does.
+     */
+    public static function sharpness(string $jpeg): float
+    {
+        $image = imagecreatefromstring($jpeg);
+        if ($image === false) {
+            throw new \RuntimeException('not an image');
+        }
+        $sum = 0.0;
+        $count = 0;
+        for ($y = 20; $y < 360; $y += 4) {
+            $previous = null;
+            for ($x = 0; $x < imagesx($image); $x += 2) {
+                $rgb = imagecolorat($image, $x, $y);
+                $luma = 0.299 * (($rgb >> 16) & 0xFF) + 0.587 * (($rgb >> 8) & 0xFF) + 0.114 * ($rgb & 0xFF);
+                if ($previous !== null) {
+                    $sum += abs($luma - $previous);
+                    $count++;
+                }
+                $previous = $luma;
+            }
+        }
+
+        return $count === 0 ? 0.0 : $sum / $count;
     }
 
     public static function encryption(): EncryptionService
