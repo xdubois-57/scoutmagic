@@ -8,6 +8,9 @@ declare(strict_types=1);
 
 namespace Core\Cookie;
 
+/**
+ * @phpstan-type CookieOptions array{expires: int, path: string, httponly: bool, secure: bool, samesite: string}
+ */
 class CookieHelper
 {
     /**
@@ -67,12 +70,12 @@ class CookieHelper
      * Static because the helper is, and always restored in a `finally` by
      * the tests that install one.
      *
-     * @var (callable(string, string, array{expires: int, path: string, httponly: bool, secure: bool, samesite: string}): void)|null
+     * @var (callable(string, string, CookieOptions): void)|null
      */
     private static $recorder = null;
 
     /**
-     * @param (callable(string, string, array{expires: int, path: string, httponly: bool, secure: bool, samesite: string}): void)|null $recorder
+     * @param (callable(string, string, CookieOptions): void)|null $recorder
      */
     public static function recordWith(?callable $recorder): void
     {
