@@ -149,6 +149,120 @@ class DeprecatedApiCheckTest extends TestCase
     }
 
     /**
+     * A statement list with nothing usable in it — `"firefox": []`, or a
+     * null first entry. Neither says the API was removed, and reading the
+     * absence as a removal would block every release.
+     */
+    public function testAStatementListWithNothingInItIsNotARemoval(): void
+    {
+        $this->assertSame([], deprecatedApiRemovals(['firefox' => []]));
+        $this->assertSame([], deprecatedApiRemovals(['firefox' => [null]]));
+    }
+
+    // ————— The decision path, with the fetching handed in —————
+
+    /**
+     * THE ASSERTION THE GATE'S SAFETY RESTS ON.
+     *
+     * The gate exits 0 whether the API is supported or the check could not
+     * run, so the only thing separating those two outcomes is which verdict
+     * comes back — and therefore which line lands in the release notes. A
+     * fetch that comes back with nothing must never read as « supporté ».
+     */
+    public function testAFetchThatComesBackWithNothingIsUnverifiedAndNotSupported(): void
+    {
+        $verdict = deprecatedApiDecide(static fn (): ?string => null);
+
+        $this->assertSame('unverified', $verdict['status']);
+        $this->assertStringContainsString('could not be fetched', $verdict['message']);
+        $this->assertStringContainsString('à vérifier à la main', $verdict['report']);
+    }
+
+    public function testAFetchedDocumentIsDecidedOnItsContents(): void
+    {
+        $supported = (string) json_encode(self::document(['chrome' => ['version_added' => '1']]));
+        $this->assertSame('ok', deprecatedApiDecide(static fn (): string => $supported)['status']);
+
+        $removed = (string) json_encode(self::document([
+            'chrome' => ['version_added' => '1', 'version_removed' => '142'],
+        ]));
+        $this->assertSame('blocked', deprecatedApiDecide(static fn (): string => $removed)['status']);
+    }
+
+    /**
+     * A body that is not JSON at all — what raw.githubusercontent answers
+     * for a path that has moved: the plain text "404: Not Found". The
+     * script's header says this is why no HTTP status line is inspected, so
+     * the claim is asserted rather than left as a comment.
+     */
+    public function testANonJsonBodyIsUnverifiedRatherThanSupported(): void
+    {
+        $verdict = deprecatedApiDecide(static fn (): string => '404: Not Found');
+
+        $this->assertSame('unverified', $verdict['status']);
+    }
+
+    // ————— Fetching, against a real stream —————
+
+    public function testFetchingReturnsTheBodyOfAReadableUrl(): void
+    {
+        $path = dirname(__DIR__, 3) . '/tests/fixtures/mdn-document-compat.json';
+        $body = deprecatedApiFetch('file://' . $path);
+
+        $this->assertIsString($body);
+        $this->assertSame('ok', deprecatedApiVerdict(json_decode($body, true))['status']);
+    }
+
+    public function testFetchingReturnsNullWhenTheDocumentCannotBeRead(): void
+    {
+        $this->assertNull(deprecatedApiFetch('file:///nonexistent/mdn-document-compat.json'));
+    }
+
+    // ————— What release.sh reads afterwards —————
+
+    public function testTheReportLineIsWrittenWhereTheReleaseScriptReadsIt(): void
+    {
+        $file = (string) tempnam(sys_get_temp_dir(), 'gate');
+        $verdict = deprecatedApiVerdict(self::document(['chrome' => ['version_added' => '1']]));
+
+        try {
+            deprecatedApiWriteReport($verdict, $file);
+            $this->assertSame($verdict['report'], (string) file_get_contents($file));
+        } finally {
+            @unlink($file);
+        }
+    }
+
+    /**
+     * Run by hand, with no gate around it, there is nowhere to write — and
+     * that is not an error.
+     */
+    public function testNoReportFileMeansNothingIsWritten(): void
+    {
+        $verdict = deprecatedApiVerdict(self::document(['chrome' => ['version_added' => '1']]));
+
+        deprecatedApiWriteReport($verdict, false);
+        deprecatedApiWriteReport($verdict, '');
+
+        $this->expectNotToPerformAssertions();
+    }
+
+    /**
+     * The one asymmetry in this file, asserted so it cannot be tidied away:
+     * a removal blocks the release, and a check that could not run does not.
+     */
+    public function testOnlyARemovalBlocksTheRelease(): void
+    {
+        $this->assertSame(2, deprecatedApiExitCode(deprecatedApiVerdict(self::document([
+            'chrome' => ['version_added' => '1', 'version_removed' => '142'],
+        ]))));
+        $this->assertSame(0, deprecatedApiExitCode(deprecatedApiVerdict(self::document([
+            'chrome' => ['version_added' => '1'],
+        ]))));
+        $this->assertSame(0, deprecatedApiExitCode(deprecatedApiUnverified('anything at all')));
+    }
+
+    /**
      * A recorded sample of the upstream document, so the parser is exercised
      * against the real shape rather than only against shapes written by
      * hand here — three of them nest differently from anything above.

@@ -245,6 +245,57 @@ function deprecatedApiFetch(string $url): ?string
     return $body;
 }
 
+/**
+ * The gate's whole decision, with the fetching handed in.
+ *
+ * Separated from deprecatedApiMain() so that the path a release actually
+ * depends on can be tested: that a fetch which comes back with nothing
+ * produces « non vérifié » and not « supporté ». That distinction is the
+ * entire safety of a gate which, by design, exits 0 either way
+ * (AGENTS.md § Deprecated browser API release gate) — so leaving it to be
+ * exercised only by a real network call was the wrong half to skip.
+ *
+ * @param callable(): ?string $fetch the document, or null if it cannot be had
+ * @return array{status: 'ok'|'blocked'|'unverified', message: string, report: string}
+ */
+function deprecatedApiDecide(callable $fetch): array
+{
+    $body = $fetch();
+
+    return $body === null
+        ? deprecatedApiUnverified('the compatibility data could not be fetched')
+        : deprecatedApiVerdict(json_decode($body, true));
+}
+
+/**
+ * Writes the gate's report line where scripts/release.sh will read it.
+ *
+ * Takes what getenv() returns, false included, because the release script
+ * only sets GATE_REPORT_FILE while a gate is running and this script is
+ * also runnable by hand.
+ *
+ * @param array{status: string, message: string, report: string} $verdict
+ */
+function deprecatedApiWriteReport(array $verdict, string|false $reportFile): void
+{
+    if ($reportFile === false || $reportFile === '') {
+        return;
+    }
+
+    file_put_contents($reportFile, $verdict['report']);
+}
+
+/**
+ * 2 when an engine has removed the API, 0 otherwise — « not checked »
+ * included, which is the one deliberate asymmetry in this file.
+ *
+ * @param array{status: string, message: string, report: string} $verdict
+ */
+function deprecatedApiExitCode(array $verdict): int
+{
+    return $verdict['status'] === 'blocked' ? 2 : 0;
+}
+
 // Guarded the same way scripts/dependency-inventory.php is: the test suite
 // defines DEPRECATED_API_CHECK_TEST and includes this file for its
 // functions, and the command must not run when it does.
@@ -253,10 +304,9 @@ if (!defined('DEPRECATED_API_CHECK_TEST')) {
 }
 
 /**
- * Every side effect this file has: one HTTP GET, writes to stdout/stderr,
- * exits.
- *
- * Exit codes: 0 supported or unverified, 2 removed somewhere.
+ * The wiring, and nothing else: the real URL, the real environment, the
+ * real streams, the exit. Every decision it makes is made by one of the
+ * functions above, each tested on its own.
  */
 function deprecatedApiMain(): void
 {
@@ -265,21 +315,9 @@ function deprecatedApiMain(): void
         exit(1);
     }
 
-    $body = deprecatedApiFetch(DEPRECATED_API_SOURCE);
-    $verdict = $body === null
-        ? deprecatedApiUnverified('the compatibility data could not be fetched')
-        : deprecatedApiVerdict(json_decode($body, true));
+    $verdict = deprecatedApiDecide(static fn (): ?string => deprecatedApiFetch(DEPRECATED_API_SOURCE));
+    deprecatedApiWriteReport($verdict, getenv('GATE_REPORT_FILE'));
 
-    $reportFile = getenv('GATE_REPORT_FILE');
-    if (is_string($reportFile) && $reportFile !== '') {
-        file_put_contents($reportFile, $verdict['report']);
-    }
-
-    if ($verdict['status'] === 'blocked') {
-        fwrite(STDERR, $verdict['message']);
-        exit(2);
-    }
-
-    fwrite($verdict['status'] === 'unverified' ? STDERR : STDOUT, $verdict['message']);
-    exit(0);
+    fwrite($verdict['status'] === 'ok' ? STDOUT : STDERR, $verdict['message']);
+    exit(deprecatedApiExitCode($verdict));
 }
