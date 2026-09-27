@@ -2560,6 +2560,34 @@ seule preuve de falsifiabilité est de retirer la panne, pas de muter le
 produit.** Une mutation du produit peut tuer le test par un chemin latéral ; le
 retrait de la mise en scène ne peut le tuer que par l'assertion visée.
 
+**Une récidive à quatre lots d'intervalle, et c'est la plus instructive.**
+CodeRabbit a relevé sur la PR deux instructions SQL non préparées dans mes
+tests : `dropTable()` **concaténait** un nom de table, et la suppression du
+réglage `dkim_selector` était un littéral exécuté sans préparation. La consigne
+de `.coderabbit.yaml` pour cette arborescence est catégorique — « Every SQL
+statement is prepared; concatenating a value into SQL is a defect regardless of
+where the value came from » —, donc l'étiquette « Minor » sous-évaluait la
+première, que l'analyseur statique signale en `ERROR`.
+
+C'est **le même constat qu'au lot 2**, où il portait sur des `PDO::query()` de
+comptage dans `CampaignControllerTest`. Je l'avais corrigé là, en écrivant un
+helper préparé et un garde `assertIsNumeric` — et je l'ai refait ici quatre lots
+plus tard. Trois équivalents préexistent d'ailleurs dans ce fichier
+(`DROP TABLE mail_probes` deux fois, `DELETE FROM event_log`), mais m'en
+prévaloir aurait été une excuse, pas un argument : la consigne ne dit pas « sauf
+si les voisins le font ».
+
+La correction fait de `dropTable()` une **liste blanche d'instructions
+complètes** choisies par clé puis préparées — PDO ne peut pas lier un
+identifiant, donc c'est la seule façon de sortir la requête de la construction de
+chaîne —, et une clé inconnue fait échouer le test au lieu de fabriquer du SQL.
+
+Ce que cette récidive apprend, au-delà du SQL : **une correction appliquée une
+fois dans un lot ne se propage pas d'elle-même aux suivants.** Les règles que
+cette séance a fait tenir sont celles qui ont été écrites quelque part — dans le
+skill steward, dans ce journal, dans un point de contrôle. Celle-ci n'avait été
+écrite nulle part : elle n'a vécu que le temps du lot 2.
+
 **Vérifié par la couverture, pas par le vert.** Les sept lignes sont couvertes,
 mesurées après écriture. `OutboundMailController` passe de 7 branches non
 couvertes à **0**.
