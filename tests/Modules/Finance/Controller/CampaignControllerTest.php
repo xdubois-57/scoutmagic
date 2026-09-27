@@ -937,19 +937,161 @@ class CampaignControllerTest extends TestCase
     }
 
     /**
-     * **The guard that keeps issue #582 from being a security hole, and the
-     * reason that issue is about a route's honesty rather than about
-     * privilege.** The campaign named in the URL is in reach; the receivable
-     * named beside it belongs to another campaign, on an account that is
-     * not. Nothing in `waive()` compares the two, so `requireCampaign()`
-     * passes — and the refusal comes from the receivable's OWN account
-     * check, inside `ReceivableAllocationService::requireReceivable()`,
-     * which is why the message is the receivable's and not the campaign's.
+     * **The receivable's OWN account check, isolated — and isolating it took a
+     * second construction once issue #582 was fixed.**
      *
-     * Remove that check and this test goes red while every other test here
-     * stays green: it is the only one that reaches it through this route.
+     * The campaign named in the URL is in reach, and the receivable named
+     * beside it **is one of that campaign's own**, moved onto a third account
+     * the caller may not see. So the campaign guard passes, the
+     * campaign-membership guard added for #582 passes too — its source still
+     * points at a row of this campaign — and the only thing left to refuse is
+     * `ReceivableAllocationService::requireReceivable()`. Remove that check
+     * and this test goes red — along with the ordering test below, which the
+     * same deletion also breaks, and nothing else in the file.
+     *
+     * **It used to be built the other way round**, with a receivable of a
+     * FOREIGN campaign on an out-of-reach account, back when nothing compared
+     * the campaign to the receivable. That construction no longer isolates
+     * this check: the membership guard added for #582 refuses it too. It has
+     * not been deleted — it pins the ORDER of the two guards instead, in the
+     * test below, which is the whole reason the two refusals may differ in
+     * wording.
+     *
+     * A receivable sitting on an account other than its campaign's does not
+     * arise from the screens — `createFromFile()` books both against the same
+     * one. It is written directly here because that is the only way to hold
+     * one guard still while testing the other.
      */
     public function testAReceivableOnAnAccountOutOfReachIsRefusedThroughACampaignInReach(): void
+    {
+        $inReach = $this->createCampaign();
+        $ownRowId = $this->rows->findByCampaignId($inReach)[0]->id;
+        $ownReceivableId = $this->receivables
+            ->findBySource(CampaignService::SOURCE_MODULE, $ownRowId)[0]->id;
+        [, $unreachableAccountId] = $this->createCampaignOnItsOwnAccount();
+        $this->pdo->prepare("UPDATE finance_accounts SET role_min_view = 'admin' WHERE id = ?")
+            ->execute([$unreachableAccountId]);
+        $this->pdo->prepare('UPDATE finance_expected_receivables SET account_id = ? WHERE id = ?')
+            ->execute([$unreachableAccountId, $ownReceivableId]);
+        FlashMessage::get();
+
+        $response = $this->controller->waive(
+            new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken(), 'waived' => '1'], [], []),
+            ['id' => (string) $inReach, 'receivableId' => (string) $ownReceivableId]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            "Cette créance n'existe pas.",
+            FlashMessage::get()['message'] ?? null,
+            'the refusal did not come from the receivable-side account check'
+        );
+        $this->assertFalse(
+            $this->receivables->findById($ownReceivableId)?->isWaived(),
+            "a treasurer waived a receivable on an account they may not see"
+        );
+    }
+
+    /**
+     * **Issue #582: the receivable named in the URL must belong to the
+     * campaign named beside it.** Both campaigns here sit on the SAME
+     * account, in reach, so every account check on the route passes and the
+     * only thing that can refuse is
+     * `CampaignService::requireReceivableSourceOfCampaign()`. Remove it and
+     * this test goes red on its own — the neighbouring test, which moves a
+     * receivable out of reach instead, stays green.
+     *
+     * The mix-up is not hypothetical: the two ids travel in one URL, the
+     * receivable's comes from a table shared by every module, and nothing
+     * upstream pairs them. What made it a bug about a route's honesty rather
+     * than about privilege is that a campaign's page lists only its own
+     * receivables, so reaching another's takes a hand-built request — the
+     * caller may already see it, and the refusal is about the URL claiming a
+     * pairing that does not exist.
+     *
+     * Three calls, because a refusal alone would not say what refused:
+     *  1. the receivable is waived through ITS OWN campaign, which must
+     *     succeed — otherwise the two assertions below pass on a route that
+     *     refuses everyone;
+     *  2. cancelling that waiver through the OTHER campaign is refused and
+     *     leaves it waived — `cancelWaiver` is this same method with
+     *     `waived=0`, and the guard sits before that branch, so a mutant that
+     *     moved it inside the `waived=1` arm would survive without this call;
+     *  3. waiving the other direction is refused too, with nothing waived.
+     */
+    public function testAReceivableIsRefusedThroughACampaignThatIsNotItsOwn(): void
+    {
+        $ownerCampaignId = $this->createCampaign();
+        // A second campaign on the same account as the first: `upload()`
+        // defaults to it, which is what holds the account checks still.
+        $otherCampaignId = $this->campaignIdCreatedBy(
+            $this->upload('Camp 2025', [[$this->memberIds['D-200'], '60,00']])
+        );
+        $ownerRowId = $this->rows->findByCampaignId($ownerCampaignId)[0]->id;
+        $ownerReceivableId = $this->receivables
+            ->findBySource(CampaignService::SOURCE_MODULE, $ownerRowId)[0]->id;
+        $otherRowId = $this->rows->findByCampaignId($otherCampaignId)[0]->id;
+        $otherReceivableId = $this->receivables
+            ->findBySource(CampaignService::SOURCE_MODULE, $otherRowId)[0]->id;
+        $this->assertNotSame(
+            $ownerReceivableId,
+            $otherReceivableId,
+            'the two campaigns share a receivable, so this test crosses nothing'
+        );
+
+        $this->waiveThrough($ownerCampaignId, $ownerReceivableId, '1');
+        $this->assertSame(
+            'La créance a été abandonnée.',
+            FlashMessage::get()['message'] ?? null,
+            'waiving through the receivable\'s own campaign did not succeed, '
+            . 'so the refusals below prove nothing about the pairing'
+        );
+        $this->assertTrue(
+            $this->receivables->findById($ownerReceivableId)?->isWaived(),
+            'the control call did not waive anything'
+        );
+
+        $this->waiveThrough($otherCampaignId, $ownerReceivableId, '0');
+        $this->assertSame(
+            "Cette créance n'appartient pas à cette campagne.",
+            FlashMessage::get()['message'] ?? null,
+            'cancelling a waiver through a foreign campaign was not refused'
+        );
+        $this->assertTrue(
+            $this->receivables->findById($ownerReceivableId)?->isWaived(),
+            "a waiver was cancelled through a campaign the receivable does not belong to"
+        );
+
+        $this->waiveThrough($ownerCampaignId, $otherReceivableId, '1');
+        $this->assertSame(
+            "Cette créance n'appartient pas à cette campagne.",
+            FlashMessage::get()['message'] ?? null,
+            'waiving through a foreign campaign was not refused'
+        );
+        $this->assertFalse(
+            $this->receivables->findById($otherReceivableId)?->isWaived(),
+            "a receivable was waived through a campaign it does not belong to"
+        );
+    }
+
+    /**
+     * **Both guards violated at once, and the narrower one must answer.**
+     *
+     * The receivable belongs to another campaign AND sits on an account out of
+     * reach — the construction the visibility test above used to have. The
+     * caller must be told « Cette créance n'existe pas. », not that it is not
+     * this campaign's: the second sentence would confirm the receivable exists
+     * to someone who may not see it, and enumeration is what this module's
+     * shared « n'existe pas » exists to prevent.
+     *
+     * This is what lets the two refusals differ in wording at all. The
+     * membership refusal names the receivable openly, which is only safe
+     * because it is unreachable until visibility has been settled; swap the
+     * two calls in `CampaignController::waive()` and this test goes red while
+     * the two above stay green, since neither of them violates more than one
+     * guard.
+     */
+    public function testAReceivableOutOfReachAndOfAnotherCampaignIsRefusedForBeingOutOfReach(): void
     {
         $inReach = $this->createCampaign();
         [$foreignCampaignId, $foreignAccountId] = $this->createCampaignOnItsOwnAccount();
@@ -960,21 +1102,32 @@ class CampaignControllerTest extends TestCase
             ->execute([$foreignAccountId]);
         FlashMessage::get();
 
-        $response = $this->controller->waive(
-            new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken(), 'waived' => '1'], [], []),
-            ['id' => (string) $inReach, 'receivableId' => (string) $foreignReceivableId]
-        );
+        $this->waiveThrough($inReach, $foreignReceivableId, '1');
 
-        $this->assertSame(302, $response->getStatusCode());
         $this->assertSame(
             "Cette créance n'existe pas.",
             FlashMessage::get()['message'] ?? null,
-            'the refusal did not come from the receivable-side account check'
+            'the wider refusal answered first, telling a caller who may not see '
+            . 'this receivable that it exists'
         );
         $this->assertFalse(
             $this->receivables->findById($foreignReceivableId)?->isWaived(),
-            "a treasurer waived a receivable on an account they may not see"
+            'a receivable both out of reach and of another campaign was waived'
         );
+    }
+
+    /**
+     * One call on the abandon route, with the flash queue left for the caller
+     * to read: `FlashMessage::get()` empties it, so a test that makes several
+     * calls has to read between them, and reading is the assertion.
+     */
+    private function waiveThrough(int $campaignId, int $receivableId, string $waived): void
+    {
+        $response = $this->controller->waive(
+            new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken(), 'waived' => $waived], [], []),
+            ['id' => (string) $campaignId, 'receivableId' => (string) $receivableId]
+        );
+        self::assertSame(302, $response->getStatusCode(), $response->getBody());
     }
 
     /**

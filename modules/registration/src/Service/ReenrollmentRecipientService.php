@@ -8,7 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Registration\Service;
 
-use Core\Security\EncryptionService;
+use Modules\Registration\Repository\PassageRosterRepository;
 use Modules\Registration\Repository\ReenrollmentRepository;
 
 /**
@@ -26,16 +26,15 @@ use Modules\Registration\Repository\ReenrollmentRepository;
  * about a form they already filled in for their other two is how a
  * reminder gets ignored.
  *
- * The addresses are decrypted here because this is the one place that
- * needs them, and the query itself lives in this module's own repository
- * layer (SECURITY.md §5). Nothing about a recipient reaches the journal:
- * the campaign counts, it does not name.
+ * The addresses and names are read and decrypted by
+ * `Repository\PassageRosterRepository::findContacts()`, in this module's
+ * own repository layer (SECURITY.md §5, issue #593). Nothing about a
+ * recipient reaches the journal: the campaign counts, it does not name.
  */
 class ReenrollmentRecipientService
 {
     public function __construct(
-        private \PDO $pdo,
-        private EncryptionService $encryption,
+        private PassageRosterRepository $roster,
         private ReenrollmentRepository $repository,
         private PassageService $passageService
     ) {
@@ -80,40 +79,15 @@ class ReenrollmentRecipientService
             $answered[$memberId] = true;
         }
 
-        $placeholders = implode(',', array_fill(0, count($animeMemberIds), '?'));
-        $stmt = $this->pdo->prepare(
-            "SELECT member_id, first_name_encrypted, last_name_encrypted, email_encrypted
-             FROM member_years
-             WHERE scout_year_id = ? AND member_id IN ({$placeholders}) AND is_active = 1
-             ORDER BY member_id ASC"
-        );
-        $stmt->execute([$publicYearId, ...array_keys($animeMemberIds)]);
-
         /** @var array<string, array{email: string, key: int, member_names: array<int, string>}> $byAddress */
         $byAddress = [];
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $memberId = (int) $row['member_id'];
+        foreach ($this->roster->findContacts($publicYearId, array_keys($animeMemberIds)) as $contact) {
+            $memberId = $contact['member_id'];
             if ($silentOnly && isset($answered[$memberId])) {
                 continue;
             }
-            if ($row['email_encrypted'] === null) {
-                continue;
-            }
-
-            $email = trim($this->encryption->decrypt($row['email_encrypted'], 'member_years.email'));
-            if ($email === '') {
-                continue;
-            }
-
-            $name = trim(
-                ($row['first_name_encrypted'] !== null
-                    ? $this->encryption->decrypt($row['first_name_encrypted'], 'member_years.first_name')
-                    : '')
-                . ' '
-                . ($row['last_name_encrypted'] !== null
-                    ? $this->encryption->decrypt($row['last_name_encrypted'], 'member_years.last_name')
-                    : '')
-            );
+            $email = $contact['email'];
+            $name = $contact['name'];
 
             $key = mb_strtolower($email);
             if (!isset($byAddress[$key])) {

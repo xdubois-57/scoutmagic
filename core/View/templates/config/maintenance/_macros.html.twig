@@ -1,0 +1,122 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{# The macros the Maintenance sub-pages share (issue #619), imported by
+   each of them as . #}
+
+{# One row of « Sauvegardes récentes ». A macro because the list is cut
+   in two — the five shown, then the rest inside a <details> — and two
+   copies of the same row would drift apart at the first fix. Every
+   string it displays (the type label, the family's label and colour, the
+   size) arrives already written from
+   Core\Http\Controller\MaintenanceController::backupList(): a choice
+   made in a Twig file is a choice nobody can test, and the deletion
+   confirmation must name the backup in exactly the words of the row. #}
+{% macro backup_rows(rows) %}
+    <ul class="list-unstyled mb-0">
+        {% for backup in rows %}
+            <li class="d-flex flex-wrap align-items-center gap-2 border-bottom py-2">
+                <div class="flex-grow-1">
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <span class="badge {{ backup.familyClass }}">{{ backup.typeLabel }}</span>
+                        {% if backup.integrityLabel %}
+                            <span class="badge {{ backup.integrityClass }}"
+                                  {% if backup.integrityExplanation %}title="{{ backup.integrityExplanation }}"{% endif %}>
+                                {{ backup.integrityLabel }}
+                            </span>
+                        {% endif %}
+                        {% if backup.status == 'in_progress' %}
+                            {% include 'partials/status_badge.html.twig' with { status: 'in_progress', label: 'En cours' } only %}
+                        {% elseif backup.status == 'pending' %}
+                            {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'En attente' } only %}
+                        {% elseif backup.status == 'failed' %}
+                            {# title tooltip (error detail) — kept out of the shared partial #}
+                            <span class="badge text-bg-danger" title="{{ backup.errorMessage }}">Échouée</span>
+                        {% endif %}
+                    </div>
+                    <div class="small text-body-secondary mt-1">
+                        {{ backup.createdAt }}{% if backup.sizeLabel %} · {{ backup.sizeLabel }}{% endif %}
+                    </div>
+                </div>
+                {# Two icons rather than two labelled buttons. A row
+                   already carries up to three badges, a date and a size;
+                   « Télécharger » and « Supprimer » spelled out wrapped it
+                   onto a second line as soon as an integrity badge
+                   appeared — on a phone and on a wide screen alike. The
+                   accessible name stays whole and names the backup: there
+                   are up to fifteen rows, and fifteen identical
+                   « Supprimer » tell them apart for nobody (design.md
+                   §7.4 — an icon-only action carries its wording in title
+                   and aria-label). #}
+                {% if backup.status == 'completed' and backup.fileId %}
+                    {% include 'partials/file_link.html.twig' with {
+                        href: '/files/' ~ backup.fileId,
+                        label: '',
+                        aria_label: 'Télécharger la sauvegarde « ' ~ backup.typeLabel ~ ' » du ' ~ backup.createdAt,
+                        title: 'Télécharger',
+                        classes: 'btn btn-sm btn-outline-secondary',
+                        icon: 'download',
+                    } only %}
+                {% endif %}
+                {# The confirmation is `data-confirm` on the FORM
+                   (design.md §7.5) and names the backup. No keyword to
+                   type: that level is kept for the three reset actions
+                   (§8.18), and making it routine would weaken it where it
+                   really matters.
+
+                   A « before an operation » backup adds a sentence: it is
+                   the one an automatic rollback depends on. The hard
+                   refusal only applies while a task references it and is
+                   running — Core\Maintenance\BackupSafetyNet decides that
+                   on the server and says why. #}
+                <form method="post" action="/config/maintenance/backup/{{ backup.id }}/delete"
+                      data-confirm="Supprimer la sauvegarde « {{ backup.typeLabel }} » du {{ backup.createdAt }}{% if backup.sizeLabel %} ({{ backup.sizeLabel }}){% endif %} ?{% if backup.isOperational %} C'est la sauvegarde de sécurité d'une opération : tant qu'elle existe, un retour en arrière automatique reste possible.{% endif %}"
+                      data-confirm-label="Supprimer">
+                    {{ csrf_field()|raw }}
+                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Supprimer"
+                            aria-label="Supprimer la sauvegarde « {{ backup.typeLabel }} » du {{ backup.createdAt }}">
+                        <i class="bi bi-trash" aria-hidden="true"></i>
+                    </button>
+                </form>
+            </li>
+        {% endfor %}
+    </ul>
+{% endmacro %}
+
+{# The header of one box on this page: a button that folds its body.
+
+   The page carries eight boxes, three of which are used once a year and
+   one nobody wants to open at all. Flat, it is read with the scroll
+   wheel; folded, it is its own table of contents — the move Réglages and
+   Support already made, with exactly their button
+   (`btn w-100 … border rounded-3 p-3 text-start` and the chevron
+   `app.css` rotates on `:not(.collapsed)`). Two ways of folding a
+   section on one site would be one too many.
+
+   `open` is true for the first two only: the site's state and the update
+   are what brings anybody here, and everything else is looked up.
+
+   **The button is INSIDE the <h2>, not in its place.** Every box holds
+   <h3> sections; a heading replaced by a <span> would leave them without
+   a parent in the document outline, and this page read through a screen
+   reader would become a list of orphaned subheadings. It is also the
+   pattern WAI-ARIA describes for an accordion.
+
+   `heading_class` goes on the BUTTON rather than the <h2>, and the
+   title's size on the <span> rather than the <h2> either: `.btn` fixes
+   its own colour AND its own font-size, so an `h5 text-danger` put on
+   the heading would deliver neither. That is exactly how Réglages and
+   Support compose it. #}
+{% macro section_header(target_id, title, open, icon, heading_class) %}
+    <h2 class="mb-0">
+        <button type="button"
+                class="btn w-100 d-flex align-items-center gap-2 border rounded-3 p-3 text-start{{ heading_class ? ' ' ~ heading_class }}{{ open ? '' : ' collapsed' }}"
+                data-bs-toggle="collapse" data-bs-target="#{{ target_id }}"
+                aria-expanded="{{ open ? 'true' : 'false' }}" aria-controls="{{ target_id }}">
+            {% if icon %}<i class="bi bi-{{ icon }}" aria-hidden="true"></i>{% endif %}
+            <span class="h5 mb-0 flex-grow-1">{{ title }}</span>
+            <i class="bi bi-chevron-down text-body-tertiary" aria-hidden="true"></i>
+        </button>
+    </h2>
+{% endmacro %}

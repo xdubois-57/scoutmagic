@@ -754,7 +754,7 @@
         if (restoreProgressEl) restoreProgressEl.classList.remove('d-none');
         pollResetStatus(
             Number.parseInt(restoreIdMatch[1], 10),
-            function () { window.location.href = '/config/maintenance'; },
+            function () { window.location.href = '/config/maintenance/reinitialisation'; },
             function (message) {
                 if (restoreProgressEl) restoreProgressEl.classList.add('d-none');
                 if (restoreErrorEl) {
@@ -762,7 +762,7 @@
                     restoreErrorEl.classList.remove('d-none');
                 }
             },
-            function () { window.location.href = '/config/maintenance'; }
+            function () { window.location.href = '/config/maintenance/reinitialisation'; }
         );
     }
 })();

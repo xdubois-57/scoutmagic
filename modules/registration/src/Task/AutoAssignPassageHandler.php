@@ -72,7 +72,7 @@ class AutoAssignPassageHandler implements TaskHandlerInterface
 
         $transferRepository = new SectionTransferRepository($pdo);
         $passageService = new PassageService(
-            $pdo,
+            new \Modules\Registration\Repository\PassageRosterRepository($pdo, $context->encryption),
             $context->encryption,
             new SectionService(
                 new SectionRepository($context->connection),

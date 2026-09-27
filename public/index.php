@@ -68,6 +68,7 @@ use Core\Http\Controller\PasswordResetController;
 use Core\Http\Controller\ConfigGeneralController;
 use Core\Http\Controller\ConfigModulesController;
 use Core\Http\Controller\BadgeConfigurationController;
+use Core\Http\Controller\BadgeHoldersController;
 use Core\Http\Controller\RgpdConfigController;
 use Core\Http\Controller\FunctionsController;
 use Core\Http\Controller\CookieController;
@@ -3347,7 +3348,7 @@ $menuBuilder->addPage(
 $menuBuilder->addPage(
     MenuBuilder::MENU_ESPACE_ADMIN,
     'Badges',
-    '/admin/badges/configuration',
+    '/admin/badges',
     'admin',
     45,
     false,
@@ -5173,6 +5174,11 @@ $router->addRoute(
     'superadmin',
     ['label' => 'Actions planifiées', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
 );
+// Configuration > Maintenance — six sub-pages sharing one rail (issue #619,
+// docs/chantiers/CHANTIER-maintenance.md), Santé de l'hébergement being the
+// landing one at /config/maintenance. The five below take the page's own
+// floor for now; the whole set moves to `superadmin` in the next step of
+// the same issue.
 $router->addRoute(
     'GET',
     '/config/maintenance',
@@ -5180,6 +5186,51 @@ $router->addRoute(
     'index',
     'admin',
     ['label' => 'Maintenance', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+);
+$router->addRoute(
+    'GET',
+    '/config/maintenance/mise-a-jour',
+    MaintenanceController::class,
+    'updatePage',
+    'admin',
+    ['label' => 'Mise à jour', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Maintenance', 'path' => '/config/maintenance']]],
+);
+$router->addRoute(
+    'GET',
+    '/config/maintenance/sauvegarde-manuelle',
+    MaintenanceController::class,
+    'manualBackupPage',
+    'admin',
+    ['label' => 'Sauvegarde manuelle', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Maintenance', 'path' => '/config/maintenance']]],
+);
+$router->addRoute(
+    'GET',
+    '/config/maintenance/sauvegarde-automatique',
+    MaintenanceController::class,
+    'automaticBackupPage',
+    'admin',
+    ['label' => 'Sauvegarde automatique', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Maintenance', 'path' => '/config/maintenance']]],
+);
+$router->addRoute(
+    'GET',
+    '/config/maintenance/sauvegardes-recentes',
+    MaintenanceController::class,
+    'recentBackupsPage',
+    'admin',
+    ['label' => 'Sauvegardes récentes', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Maintenance', 'path' => '/config/maintenance']]],
+);
+$router->addRoute(
+    'GET',
+    '/config/maintenance/reinitialisation',
+    MaintenanceController::class,
+    'resetPage',
+    'admin',
+    ['label' => 'Réinitialisation', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Maintenance', 'path' => '/config/maintenance']]],
 );
 $router->addRoute(
     'POST',
@@ -5561,6 +5612,16 @@ $router->addRoute(
     'superadmin',
 );
 
+// Espace chefs d'U > Badges — who wears which badge (issue #621). Read
+// only: assigning stays on /chefs/staffs.
+$router->addRoute(
+    'GET',
+    '/admin/badges',
+    BadgeHoldersController::class,
+    'current',
+    'admin',
+    ['label' => 'Badges', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]],
+);
 // Espace chefs d'U > Badges > Configuration — badge registry (split out of
 // Configuration générale, ARCHITECTURE §8.11). It lived at /config/badges,
 // superadmin, in the Configuration menu; it moved unchanged to admin
@@ -5571,7 +5632,8 @@ $router->addRoute(
     BadgeConfigurationController::class,
     'index',
     'admin',
-    ['label' => 'Configuration des badges', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]],
+    ['label' => 'Configuration des badges', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)],
+        'ancestors' => [['label' => 'Badges', 'path' => '/admin/badges']]],
 );
 $router->addRoute('POST', '/admin/badges/add', BadgeConfigurationController::class, 'addBadge', 'admin');
 $router->addRoute('POST', '/admin/badges/update', BadgeConfigurationController::class, 'updateBadge', 'admin');
@@ -6785,7 +6847,15 @@ $frontController->registerController(
 );
 $frontController->registerController(
     BadgeConfigurationController::class,
-    new BadgeConfigurationController($twig, $badgeService, $journalService)
+    new BadgeConfigurationController($twig, $badgeService, $journalService, $scoutYearResolver)
+);
+$frontController->registerController(
+    BadgeHoldersController::class,
+    new BadgeHoldersController(
+        $twig,
+        new \Core\Badge\BadgeHolderService($badgeRepository, $memberBadgeRepository, $sectionService),
+        $scoutYearResolver
+    )
 );
 $frontController->registerController(
     SuperAdminAccountsController::class,
@@ -10910,7 +10980,7 @@ if ($isEnabled('registration')) {
 
     $registrationSectionTransferRepo = new \Modules\Registration\Repository\SectionTransferRepository($pdo);
     $registrationPassageService = new \Modules\Registration\Service\PassageService(
-        $pdo,
+        new \Modules\Registration\Repository\PassageRosterRepository($pdo, $encryptionService),
         $encryptionService,
         $sectionService,
         $registrationSectionTransferRepo,

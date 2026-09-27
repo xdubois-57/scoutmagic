@@ -13,8 +13,11 @@ use Core\Badge\BadgeService;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
+use Core\ScoutYear\ScoutYearResolver;
+use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Security\Role;
 use Twig\Environment;
 
 /**
@@ -34,7 +37,8 @@ class BadgeConfigurationController extends AbstractController
     public function __construct(
         protected Environment $twig,
         private BadgeService $badgeService,
-        private JournalService $journalService
+        private JournalService $journalService,
+        private ScoutYearResolver $scoutYearResolver
     ) {
     }
 
@@ -58,6 +62,11 @@ class BadgeConfigurationController extends AbstractController
         return $this->render('admin/badges/configuration.html.twig', [
             'badges' => $this->badgeService->getAll(),
             'undeletable_badge_reasons' => $this->badgeService->getUndeletableBadgeReasons(),
+            // The rail's first tab is named after the year its page shows.
+            'badges_current_year_label' => $this->scoutYearResolver->getEffectiveYear(
+                ScoutYearSession::getPreviewId(),
+                Role::fromString(AuthSession::getRole())
+            )->label,
         ]);
     }
 

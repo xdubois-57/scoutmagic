@@ -101,7 +101,7 @@ class PassageControllerTest extends TestCase
         $this->transferRepository = new SectionTransferRepository($this->pdo);
 
         $passageService = new PassageService(
-            $this->pdo, $encryption, $sectionService, $this->transferRepository, $this->requestRepository, $ageBracketRepository
+            new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $encryption), $encryption, $sectionService, $this->transferRepository, $this->requestRepository, $ageBracketRepository
         );
         $this->passageService = $passageService;
 

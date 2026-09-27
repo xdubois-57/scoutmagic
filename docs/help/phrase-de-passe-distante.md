@@ -9,7 +9,7 @@ question: Où est la phrase de passe de mes sauvegardes distantes ?
 question: Pourquoi le site me demande-t-il de confirmer que j'ai noté la phrase ?
 question: Que se passe-t-il si je régénère la phrase de passe ?
 question: Comment ouvrir une sauvegarde récupérée sur Google Drive ?
-paths: /config/maintenance
+paths: /config/maintenance/sauvegarde-automatique
 related: sauvegardes-distantes, restaurer-ailleurs, sauvegarde-hors-site
 ---
 

@@ -7,11 +7,15 @@
   docs/chantiers/CHANTIER-badges.md) — through partials/page_picker.html.twig,
   never a copy of its markup.
 
-  Requires `current_path` in scope.
+  The tabs carry the years (« 2026-2027 »), never « Année en cours »: it
+  reads at a glance, and it does not turn false during the year
+  transition. Requires `current_path` and `badges_current_year_label` in
+  scope.
 #}
 {% include 'partials/page_picker.html.twig' with {
     picker_id: 'badges-page-picker',
     pages: [
+        {'url': '/admin/badges', 'label': badges_current_year_label},
         {'url': '/admin/badges/configuration', 'label': 'Configuration'},
     ],
     current_path: current_path,

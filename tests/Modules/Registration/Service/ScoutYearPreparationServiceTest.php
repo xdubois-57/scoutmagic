@@ -70,7 +70,7 @@ class ScoutYearPreparationServiceTest extends TestCase
         $this->transferRepository = new SectionTransferRepository($this->pdo);
 
         $passageService = new PassageService(
-            $this->pdo,
+            new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $this->encryption),
             $this->encryption,
             $sectionService,
             $this->transferRepository,
@@ -195,7 +195,7 @@ class ScoutYearPreparationServiceTest extends TestCase
 );
 
         $passageService = new PassageService(
-            $this->pdo,
+            new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $this->encryption),
             $this->encryption,
             $sectionService,
             $this->transferRepository,

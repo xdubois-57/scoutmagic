@@ -82,11 +82,10 @@ class SendReenrollmentEmailsHandler implements TaskHandlerInterface
         $targetYearId = $scoutYearService->ensureYear($targetLabel);
 
         $recipients = new ReenrollmentRecipientService(
-            $pdo,
-            $context->encryption,
+            new \Modules\Registration\Repository\PassageRosterRepository($pdo, $context->encryption),
             new \Modules\Registration\Repository\ReenrollmentRepository($pdo, $context->encryption),
             new \Modules\Registration\Service\PassageService(
-                $pdo,
+                new \Modules\Registration\Repository\PassageRosterRepository($pdo, $context->encryption),
                 $context->encryption,
                 new \Core\Member\SectionService(
                     new \Core\Member\Repository\SectionRepository($context->connection),

@@ -30,6 +30,11 @@
 /config/functions
 /config/scheduled
 /config/maintenance
+/config/maintenance/mise-a-jour
+/config/maintenance/sauvegarde-manuelle
+/config/maintenance/sauvegarde-automatique
+/config/maintenance/sauvegardes-recentes
+/config/maintenance/reinitialisation
 /admin/badges/configuration
 /config/superadmins
 /config/rgpd

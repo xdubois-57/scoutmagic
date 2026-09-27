@@ -80,7 +80,7 @@ class ForecastServiceTest extends TestCase
         $this->requestRepository = new RegistrationRequestRepository($this->pdo, $this->encryption);
 
         $passageService = new PassageService(
-            $this->pdo, $this->encryption, $sectionService, $this->transferRepository, $this->requestRepository, $ageBracketRepository
+            new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $this->encryption), $this->encryption, $sectionService, $this->transferRepository, $this->requestRepository, $ageBracketRepository
         );
 
         $this->service = new ForecastService($this->pdo, $this->encryption, $sectionService, $passageService);

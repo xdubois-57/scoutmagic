@@ -245,7 +245,7 @@ class RegistrationTestHelper
         \Core\Security\EncryptionService $encryption
     ): \Modules\Registration\Service\PassageService {
         return new \Modules\Registration\Service\PassageService(
-            $pdo,
+            new \Modules\Registration\Repository\PassageRosterRepository($pdo, $encryption),
             $encryption,
             new \Core\Member\SectionService(
     new \Core\Member\Repository\SectionRepository(\Core\Database\Connection::withPdo($pdo)),
@@ -326,7 +326,7 @@ class RegistrationTestHelper
         $ageBracketRepository = new \Modules\Registration\Repository\AgeBracketRepository($pdo);
 
         $passageService = new \Modules\Registration\Service\PassageService(
-            $pdo,
+            new \Modules\Registration\Repository\PassageRosterRepository($pdo, $encryption),
             $encryption,
             $sectionService,
             new \Modules\Registration\Repository\SectionTransferRepository($pdo),
