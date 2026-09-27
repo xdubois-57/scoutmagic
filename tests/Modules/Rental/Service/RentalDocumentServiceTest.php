@@ -915,6 +915,24 @@ class RentalDocumentServiceTest extends TestCase
     }
 
     /**
+     * The asset's own landlord wins over the module's, whole again: a unit
+     * whose hall belongs to one ASBL and whose meadow to another.
+     */
+    public function testTheAssetsOwnLandlordWinsOverTheModules(): void
+    {
+        $this->settingService->set('landlord_name', 'ASBL Les Amis du Local', 'rental');
+        $this->settingService->set('landlord_enterprise_number', '0123.456.789', 'rental');
+        $this->assetRepository->saveLandlord($this->assetId, 'ASBL Le Pré Fleuri', 'Chemin du Pré 2, 1380 Lasne', null);
+
+        $values = $this->service->valuesFor($this->createBooking(), $this->asset(), $this->settings());
+
+        $this->assertSame('ASBL Le Pré Fleuri', $values['nom_bailleur']);
+        $this->assertSame('Chemin du Pré 2, 1380 Lasne', $values['adresse_bailleur']);
+        $this->assertNull($values['bce_bailleur'], 'the module\'s number is not borrowed');
+        $this->assertSame('asset', $this->service->landlordFor($this->asset())->source);
+    }
+
+    /**
      * A landlord with a name and no address keeps the address missing: the
      * unit's postal address under an ASBL's name would print a place that
      * is not theirs, and a « — » is at least visibly incomplete.

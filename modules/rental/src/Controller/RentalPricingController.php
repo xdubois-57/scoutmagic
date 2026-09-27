@@ -18,6 +18,7 @@ use Core\Security\CsrfGuard;
 use Core\Security\HtmlSanitizer;
 use Core\Service\IntegerInput;
 use Modules\Rental\Document\AssetConditions;
+use Modules\Rental\Document\Landlord;
 use Modules\Rental\Payment\DepositMode;
 use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Reminder\ReminderKind;
@@ -448,6 +449,52 @@ class RentalPricingController extends AbstractController
 
             return 'Les rappels de ce bien ont été enregistrés.';
         });
+    }
+
+    /**
+     * POST /mes-locations/{slug}/reglages/bailleur — who lets this asset,
+     * when it is not the module's landlord (issue #497).
+     *
+     * Three empty fields hand the asset back to the module's landlord, and
+     * failing that to the unit: that is how a manager undoes it, with no
+     * separate « reset ». The enterprise number is checked here as well as
+     * in the module settings, because a contract is where a typo in it
+     * would be printed and signed.
+     *
+     * @param array<string, string> $params
+     */
+    public function saveLandlord(Request $request, array $params): Response
+    {
+        return $this->guarded($request, $params, 'bailleur', function (RentalAsset $asset) use ($request): string {
+            $name = self::optionalText($request->getBody('landlord_name'));
+            $address = self::optionalText($request->getBody('landlord_address'));
+            $number = self::optionalText($request->getBody('landlord_enterprise_number'));
+
+            if ($number !== null && !Landlord::isValidEnterpriseNumber($number)) {
+                throw new RentalException(
+                    "Le numéro d'entreprise n'a pas le format attendu : dix chiffres, par exemple 0123.456.789."
+                );
+            }
+            if ($number !== null && $name === null && $address === null) {
+                throw new RentalException(
+                    "Un numéro d'entreprise seul ne désigne personne : "
+                        . "indiquez aussi le nom ou l'adresse du bailleur."
+                );
+            }
+
+            $this->assetRepository->saveLandlord($asset->id, $name, $address, $number);
+
+            return $name === null && $address === null
+                ? 'Ce bien reprend désormais le bailleur des réglages du module.'
+                : 'Le bailleur de ce bien a été enregistré.';
+        });
+    }
+
+    private static function optionalText(mixed $value): ?string
+    {
+        $text = is_scalar($value) ? trim((string) $value) : '';
+
+        return $text === '' ? null : $text;
     }
 
     /**

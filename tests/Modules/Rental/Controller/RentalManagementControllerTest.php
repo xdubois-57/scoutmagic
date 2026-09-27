@@ -2234,6 +2234,10 @@ class RentalManagementControllerTest extends TestCase
         // "le gabarit est vide" as the first answer.
         $this->loginAsManager();
         $booking = $this->createBooking();
+        // A landlord with an address, or the generation rightly warns that
+        // the contract prints « — » in its place (issue #497) — which is
+        // testGeneratingWithoutALandlordAddressSaysSo()'s subject, not this.
+        $this->assetRepository->saveLandlord($this->assetId, null, 'Rue du Local 1, 1000 Bruxelles', null);
 
         $this->post('/mes-locations/document-generer', 'generateDocument', [
             'asset_id' => (string) $this->assetId,
@@ -3406,5 +3410,68 @@ class RentalManagementControllerTest extends TestCase
         // switched on is one a unit discovers it never had.
         $other = substr($html, (int) strpos($html, 'name="active_departure_inventory"'), 120);
         $this->assertStringContainsString('checked', $other);
+    }
+
+    // ── The landlord (issue #497) ────────────────────────────────────────
+
+    /**
+     * Said on the Documents page BEFORE anything is generated: a contract
+     * sent with « — » where the landlord's address belongs is locked once
+     * it has gone.
+     */
+    public function testTheDocumentsPageWarnsWhileTheLandlordHasNoAddress(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $body = (string) $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString('data-landlord-address-missing', $body);
+        $this->assertStringContainsString('href="/mes-locations/local-saint-georges/reglages#bailleur"', $body);
+        $this->assertStringContainsString("l'adresse postale de l'unité", $body, 'names the setting that is empty');
+    }
+
+    public function testTheWarningGoesOnceTheLandlordHasAnAddress(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->assetRepository->saveLandlord($this->assetId, 'ASBL Les Amis du Local', 'Place du Parc 3, 1300 Wavre', null);
+
+        $body = (string) $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringNotContainsString('data-landlord-address-missing', $body);
+    }
+
+    public function testGeneratingWithoutALandlordAddressSaysSo(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('warning', $flash['type'] ?? null);
+        $this->assertStringContainsString("l'adresse du bailleur est vide", (string) ($flash['message'] ?? ''));
+        $this->assertCount(1, $this->documentService->forBooking($booking->id), 'generated all the same');
+    }
+
+    /** The card says who the landlord is today, and where that comes from. */
+    public function testTheSettingsPageShowsTheLandlordInForceAndItsOrigin(): void
+    {
+        $this->loginAsManager();
+        $this->assetRepository->saveLandlord($this->assetId, 'ASBL Les Amis du Local', "Place du Parc 3\n1300 Wavre", null);
+
+        $html = $this->settingsPage();
+
+        $this->assertStringContainsString('id="bailleur"', $html);
+        $this->assertStringContainsString('ASBL Les Amis du Local', $html);
+        $this->assertStringContainsString('Place du Parc 3<br />', $html);
+        $this->assertStringContainsString('Le bailleur propre à ce bien.', $html);
+        $this->assertStringContainsString('action="/mes-locations/local-saint-georges/reglages/bailleur"', $html);
     }
 }

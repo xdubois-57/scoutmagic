@@ -588,7 +588,7 @@ class RentalDocumentService
         $billing = $this->bookingRepository->findBillingIdentity($booking->id);
         $deposit = $total !== null ? $paymentSettings->depositFor($total) : null;
         $securityDeposit = $paymentSettings->securityDepositAmount();
-        $landlord = Landlord::resolve($this->settingService);
+        $landlord = $this->landlordFor($asset);
 
         return [
             'reference' => $booking->reference,
@@ -619,6 +619,14 @@ class RentalDocumentService
             'date_du_jour' => (new \DateTimeImmutable())->format('d/m/Y'),
             'mention_tva' => $this->vatNote($asset),
         ];
+    }
+
+    /**
+     * Who lets $asset, as its documents name it (issue #497).
+     */
+    public function landlordFor(RentalAsset $asset): Landlord
+    {
+        return Landlord::forAsset($this->settingService, $asset);
     }
 
     /**

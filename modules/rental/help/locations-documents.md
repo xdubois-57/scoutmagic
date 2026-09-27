@@ -37,7 +37,9 @@ L'en-tête du contrat et de la facture nomme le bailleur. Par défaut,
 c'est l'unité : son nom et son adresse postale (Paramètres, cœur du
 site). Si les locaux appartiennent à une ASBL distincte, renseignez son
 nom, son adresse et son numéro d'entreprise dans Paramètres › Locations.
-Les documents générés ensuite la nomment à la place de l'unité.
+Un bien qui appartient à quelqu'un d'autre a son propre bailleur, dans la
+section « Bailleur » de ses réglages. Si l'adresse du bailleur manque, la
+page « Documents » vous prévient avant la génération.
 
 ## Générer, puis envoyer
 
