@@ -288,7 +288,14 @@ class BoardService implements RetroEventLinkLookupInterface
     }
 
     /**
-     * @throws RetroException when already closed
+     * Idempotent: a board that is no longer open is returned unchanged
+     * rather than refused, so a chief who presses the button twice — or who
+     * arrives from a list rendered before someone else closed it — is told
+     * it is closed instead of being handed an error. The only refusal here
+     * is an id that matches no board; unlike reopen()/archive()/unarchive()
+     * below, the current status is never a reason to refuse.
+     *
+     * @throws RetroException when no board carries $id
      */
     public function close(int $id, ?int $closedBy): Board
     {
