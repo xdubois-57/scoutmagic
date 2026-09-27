@@ -629,19 +629,35 @@ class RentalRbacTest extends TestCase
     }
 
     /**
-     * The page in force follows the asset's own visibility; an archived
-     * version does not. A renter keeps the link to what they accepted after
-     * the asset leaves the public site, and a twelve-hex version is not
-     * something an outsider guesses.
+     * Both pages follow the asset's own visibility. An archived version is
+     * no exception: the shipped standard text hashes to the same version on
+     * every installation, so serving it for a hidden asset would tell
+     * anybody with a slug that the asset exists — the disclosure `show()`
+     * answers with a plain 404. The standard text is the case that matters,
+     * so it is the one this seeds.
      */
-    public function testAHiddenAssetHidesItsCurrentConditionsButKeepsAcceptedVersionsReadable(): void
+    public function testAHiddenAssetHidesEveryVersionOfItsConditions(): void
+    {
+        $assetId = $this->createAsset('Local privé', 'local-prive', isPublic: false);
+        $standard = $this->conditionsService()->current($assetId);
+        $custom = $this->conditionsService()->recordSave($assetId, '<p>Texte accepté.</p>', 1);
+
+        $this->assertSame(404, $this->dispatchConditions('local-prive')->getStatusCode());
+        $this->assertSame(404, $this->dispatchConditions('local-prive', $standard->version)->getStatusCode());
+        $this->assertSame(404, $this->dispatchConditions('local-prive', $custom->version)->getStatusCode());
+    }
+
+    public function testAManagerStillReadsTheVersionsOfTheirHiddenAsset(): void
     {
         $assetId = $this->createAsset('Local privé', 'local-prive', isPublic: false);
         $version = $this->conditionsService()->recordSave($assetId, '<p>Texte accepté.</p>', 1);
-
-        $this->assertSame(404, $this->dispatchConditions('local-prive')->getStatusCode());
+        $memberId = RentalTestHelper::insertMember($this->pdo, 'D-MANAGER');
+        RentalTestHelper::insertMemberYear($this->pdo, $this->encryption, $memberId, $this->scoutYearId, 'manager@test.be');
+        $this->managerRepository->grant($assetId, $memberId, false);
+        AuthSession::login(1, 'manager@test.be', 'identified');
 
         $response = $this->dispatchConditions('local-prive', $version->version);
+
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('Texte accepté.', (string) $response->getBody());
     }

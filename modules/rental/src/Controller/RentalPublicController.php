@@ -154,7 +154,8 @@ class RentalPublicController extends AbstractController
      * address that can be linked to (issue #494).
      *
      * The same visibility as the asset's own page: public, or reachable by
-     * its managers, and a plain 404 otherwise.
+     * its managers, and a plain 404 otherwise — like every archived version
+     * below.
      *
      * @param array<string, string> $params
      */
@@ -174,18 +175,23 @@ class RentalPublicController extends AbstractController
      * GET /locations/{slug}/conditions/{version} — one archived wording, at
      * a permanent address: the one each email to a renter links to.
      *
-     * **Served whether or not the asset is still public.** A renter keeps
-     * the link to the text they accepted for as long as their booking
-     * matters, and an asset taken off the public site does not unmake what
-     * they agreed to. Nothing is disclosed to anybody else by it: the
-     * version is twelve hex characters of a hash, which nobody guesses,
-     * and an unknown one is the same 404 as an unknown asset.
+     * **The same visibility as the asset's own page, deliberately.** It
+     * was tempting to serve an archived version even for an asset taken off
+     * the public site, so a renter's link would outlive the unpublishing —
+     * on the argument that a version, twelve hex characters of a hash, is
+     * not guessable. It is: an asset whose unit never wrote its own
+     * wording carries the shipped standard text, whose hash is the same
+     * constant on every installation and is printed on every other such
+     * asset's page. A 200 for it would tell anybody holding a slug that a
+     * hidden asset exists, which is the disclosure `show()` refuses with a
+     * plain 404. A renter of an asset put back on the site finds their link
+     * working again; an asset kept hidden keeps its managers' access.
      *
      * @param array<string, string> $params
      */
     public function conditionsVersion(Request $request, array $params): Response
     {
-        $asset = $this->assetRepository->findBySlug((string) ($params['slug'] ?? ''));
+        $asset = $this->visibleAsset((string) ($params['slug'] ?? ''));
         $version = $asset === null
             ? null
             : $this->conditionsService->find($asset->id, (string) ($params['version'] ?? ''));
