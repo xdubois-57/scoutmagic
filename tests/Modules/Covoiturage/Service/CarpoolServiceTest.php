@@ -154,7 +154,7 @@ final class CarpoolServiceTest extends TestCase
 
         $id = $this->service->create(
             $this->input(['event_ids' => [], 'address' => 'Bastogne']),
-            H::viewer(1, Role::CHIEF)
+            H::viewer(1, Role::CHIEF, [$this->sectionId])
         );
 
         $this->assertSame([$this->sectionId], $this->carpools->findById($id)?->sectionIds());
@@ -185,7 +185,7 @@ final class CarpoolServiceTest extends TestCase
 
         $id = $this->service->create(
             $this->input(['event_ids' => [], 'address' => 'Bastogne']),
-            H::viewer(1, Role::CHIEF)
+            H::viewer(1, Role::CHIEF, [$this->sectionId])
         );
 
         $this->assertSame(
@@ -221,13 +221,64 @@ final class CarpoolServiceTest extends TestCase
                 'address' => 'Bastogne',
                 'section_id' => (string) $otherSectionId,
             ]),
-            H::viewer(1, Role::CHIEF)
+            H::viewer(1, Role::CHIEF, [$this->sectionId])
         );
 
         $this->assertSame(
             [$this->sectionId],
             $this->carpools->findById($id)?->sectionIds(),
             'the section posted by hand was stored, so a request can choose who sees the passengers'
+        );
+    }
+
+    /**
+     * **The main-function rule is blind to role; the access check is not**
+     * (raised in review of #664). `MemberProfile::getMainFunction()` returns
+     * whichever function Desk flagged « Fonction principale », or simply the
+     * first one, with no regard for its role. `CarpoolViewer::isStaffOf()`
+     * reads `staffedSectionIds`, which `StaffedSectionRepository` builds
+     * WITH `f.role IN ('chief', 'admin')` — « without the role filter, every
+     * animé would come back as an animateur of their own section », says its
+     * own comment.
+     *
+     * So the two can name different sections. Here the creator's
+     * main-flagged function is in the Louveteaux section while they staff
+     * only another one: freezing the carpool onto Louveteaux would hand that
+     * staff the passengers of children they do not follow, and leave the
+     * creator's own colleagues with nothing — the leak this whole change was
+     * written to avoid, reached through the main-function flag instead of
+     * through the « first available section » fallback.
+     *
+     * Remove the intersection with `$viewer->staffedSectionIds` from
+     * `creatorSectionId()` and this test goes red on its own.
+     */
+    public function testASectionTheCreatorDoesNotStaffIsNeverFrozenOntoTheCarpool(): void
+    {
+        $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('ECL', 'Éclaireurs', 40)");
+        $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id, name) VALUES (?, ?, ?)')
+            ->execute(['ECL01', (int) $this->pdo->lastInsertId(), 'Éclaireurs']);
+        $staffedElsewhere = (int) $this->pdo->lastInsertId();
+
+        // Their Desk main function names Louveteaux; the sections they
+        // actually staff hold only Éclaireurs.
+        H::linkAccountToSection($this->pdo, 1, $this->sectionId);
+        $viewer = H::viewer(1, Role::CHIEF, [$staffedElsewhere]);
+
+        $this->assertNull(
+            $this->service->creatorSectionId($viewer),
+            'a section the creator does not staff was named as theirs'
+        );
+
+        $id = $this->service->create(
+            $this->input(['event_ids' => [], 'address' => 'Bastogne']),
+            $viewer
+        );
+        $carpool = $this->carpools->findById($id);
+        $this->assertNotNull($carpool);
+        $this->assertNull($carpool->sectionId, 'that section was frozen onto the carpool anyway');
+        $this->assertFalse(
+            H::viewer(20, Role::CHIEF, [$this->sectionId])->seesPassengersOf($carpool),
+            'the staff of a section the creator does not staff was given the passengers'
         );
     }
 
@@ -277,7 +328,7 @@ final class CarpoolServiceTest extends TestCase
     {
         H::linkAccountToSection($this->pdo, 1, $this->sectionId);
 
-        $id = $this->service->create($this->input(), H::viewer(1, Role::CHIEF));
+        $id = $this->service->create($this->input(), H::viewer(1, Role::CHIEF, [$this->sectionId]));
 
         $sectionIds = $this->carpools->findById($id)?->sectionIds() ?? [];
         // 10 and 20 are the sections of events 501 and 502 in setUp().
@@ -298,7 +349,7 @@ final class CarpoolServiceTest extends TestCase
         H::linkAccountToSection($this->pdo, 1, $this->sectionId);
         $id = $this->service->create(
             $this->input(['event_ids' => [], 'address' => 'Bastogne']),
-            H::viewer(1, Role::CHIEF)
+            H::viewer(1, Role::CHIEF, [$this->sectionId])
         );
 
         $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('ECL', 'Éclaireurs', 40)");
@@ -472,12 +523,12 @@ final class CarpoolServiceTest extends TestCase
         );
 
         $this->assertFalse($service->hasCalendar());
-        $this->assertSame([], $service->searchEvents('fête', H::viewer(1, Role::CHIEF)));
+        $this->assertSame([], $service->searchEvents('fête', H::viewer(1, Role::CHIEF, [$this->sectionId])));
 
         H::linkAccountToSection($this->pdo, 1, $this->sectionId);
         $id = $service->create(
             $this->input(['event_ids' => [], 'address' => 'Bastogne']),
-            H::viewer(1, Role::CHIEF)
+            H::viewer(1, Role::CHIEF, [$this->sectionId])
         );
 
         $this->assertSame([$this->sectionId], $this->carpools->findById($id)?->sectionIds());
@@ -486,6 +537,6 @@ final class CarpoolServiceTest extends TestCase
         // calendar there is nothing to resolve it against, so the carpool
         // would silently lose the section the form said it concerned.
         $this->expectException(CarpoolException::class);
-        $service->create($this->input(['address' => 'Bastogne']), H::viewer(1, Role::CHIEF));
+        $service->create($this->input(['address' => 'Bastogne']), H::viewer(1, Role::CHIEF, [$this->sectionId]));
     }
 }

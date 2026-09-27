@@ -451,7 +451,16 @@ Trois points méritent d'être retenus plutôt que redécouverts :
    masquée que la liste ne mentionne pas, et ses covoiturages auraient été
    enregistrés sans section du tout. D'où `resolveMainSectionCode()`, qui
    ne consulte aucune liste, et `SectionService::findByDeskCode()`, qui ne
-   filtre sur aucun des deux drapeaux.
+   filtre sur aucun des deux drapeaux. Et la section retenue est ensuite
+   **croisée avec celles que le créateur encadre réellement** : la règle de
+   la fonction principale est aveugle au rôle, alors que le contrôle
+   d'accès qu'elle alimente filtre sur `f.role IN ('chief', 'admin')`. Sans
+   ce croisement, un animateur de la section B dont la fonction principale
+   Desk est en section A figerait le covoiturage sur A — dont le staff ne
+   suit pas ces enfants — et priverait le sien. Le croisement se fait avec
+   le tableau même que `CarpoolViewer::isStaffOf()` consulte, pour que
+   l'octroi et sa vérification ne puissent pas venir de deux lectures
+   différentes.
 2. **`null` est une réponse.** Un compte lié à aucun membre, ou à un membre
    sans fonction dans une section, crée un covoiturage sans section :
    géré par son créateur, le Staff d'U et les sections de ses évènements.

@@ -73,6 +73,26 @@ class CarpoolService
      * change exists to show them. `findByDeskCode()` filters on neither
      * flag.
      *
+     * **And the answer is then kept only if the creator actually STAFFS
+     * that section** (raised in review too, and it is the same lesson from
+     * the other side). The main-function rule is blind to role:
+     * `MemberProfile::getMainFunction()` returns whichever function Desk
+     * flagged « Fonction principale », or simply the first one, with no
+     * regard for `functionRole`. The access check this section feeds,
+     * `CarpoolViewer::isStaffOf()`, reads `staffedSectionIds`, which
+     * `StaffedSectionRepository` builds WITH a role filter — « without the
+     * role filter, every animé would come back as an animateur of their own
+     * section », says its own comment.
+     *
+     * Left unchecked, the two disagree: a chief of section B whose
+     * main-flagged function sits in section A would freeze the carpool onto
+     * A, handing A's staff the passengers of children they do not follow
+     * while B's staff — and the creator's own colleagues — see nothing.
+     * Intersecting with `$viewer->staffedSectionIds` closes it with the
+     * SAME array `isStaffOf()` will consult, so the grant and its check
+     * cannot come from different readings. The main-function rule stays
+     * what it was: the selector among the sections a creator staffs.
+     *
      * **Null is a real answer and is stored as such.** An account linked to
      * no member, or to one with no main function, creates a carpool with no
      * section: it is managed by its creator, by the Staff d'U, and by the
@@ -95,8 +115,11 @@ class CarpoolService
         }
 
         $section = $this->sections->findByDeskCode($code);
+        if ($section === null) {
+            return null;
+        }
 
-        return $section !== null ? $section['id'] : null;
+        return in_array($section['id'], $viewer->staffedSectionIds, true) ? $section['id'] : null;
     }
 
     public function hasCalendar(): bool
