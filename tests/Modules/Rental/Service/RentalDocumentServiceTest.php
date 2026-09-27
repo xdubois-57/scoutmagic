@@ -929,6 +929,15 @@ class RentalDocumentServiceTest extends TestCase
         $this->assertNull($values['adresse_bailleur']);
     }
 
+    public function testACommaAtTheEndOfALineIsNotDoubled(): void
+    {
+        $this->settingService->set(UnitAddresses::POSTAL_ADDRESS, "Rue du Local 1,\r\n  1000 Bruxelles");
+
+        $values = $this->service->valuesFor($this->createBooking(), $this->asset(), $this->settings());
+
+        $this->assertSame('Rue du Local 1, 1000 Bruxelles', $values['adresse_bailleur']);
+    }
+
     /** An address with no name is the unit letting from somewhere else. */
     public function testALandlordAddressWithoutANameIsTheUnitElsewhere(): void
     {

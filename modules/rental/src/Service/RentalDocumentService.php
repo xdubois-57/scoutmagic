@@ -628,7 +628,10 @@ class RentalDocumentService
      */
     private static function oneLine(?string $text): ?string
     {
-        return $text === null ? null : (string) preg_replace('/[ \t]*\R\s*/u', ', ', trim($text));
+        // A comma typed at the end of a line is absorbed, not doubled:
+        // « Rue du Local 1, » over « 1000 Bruxelles » is how many people
+        // write an address.
+        return $text === null ? null : (string) preg_replace('/[ \t]*,?[ \t]*\R\s*/u', ', ', trim($text));
     }
 
     /**
