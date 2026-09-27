@@ -101,7 +101,7 @@ class CreateBackupHandler implements TaskHandlerInterface
                 $scope === Backup::PORTABLE_TYPE ? 'sauvegarde-portable.zip' : 'sauvegarde.zip',
                 'application/zip',
                 (int) filesize($result['zipPath']),
-                'admin',
+                \Core\Maintenance\Backup::FILE_ROLE,
                 null,
                 $backup->requestedBy
             );
@@ -110,7 +110,7 @@ class CreateBackupHandler implements TaskHandlerInterface
                 'database.sql',
                 'application/sql',
                 (int) filesize($result['dbDumpPath']),
-                'admin',
+                \Core\Maintenance\Backup::FILE_ROLE,
                 null,
                 $backup->requestedBy
             );
@@ -148,7 +148,7 @@ class CreateBackupHandler implements TaskHandlerInterface
                     [
                         'title' => 'Sauvegarde prête',
                         'body' => 'Votre sauvegarde est prête à être téléchargée.',
-                        'url' => '/config/maintenance',
+                        'url' => '/config/maintenance/sauvegardes-recentes',
                     ]
                 );
             }
@@ -187,7 +187,7 @@ class CreateBackupHandler implements TaskHandlerInterface
                         'title' => 'Échec de la sauvegarde',
                         'body' => 'La génération de votre sauvegarde a échoué. Consultez la page Maintenance pour plus '
                             . 'de détails.',
-                        'url' => '/config/maintenance',
+                        'url' => '/config/maintenance/sauvegardes-recentes',
                     ]
                 );
             }

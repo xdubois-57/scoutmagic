@@ -69,6 +69,24 @@ final class AttentionPoint
     }
 
     /**
+     * The same point without its action — for a reader who could not open
+     * the page it leads to (Core\Http\Controller\AttentionController).
+     * The fact stays; only the door that would answer a refusal goes.
+     */
+    public function withoutAction(): self
+    {
+        return new self(
+            $this->title,
+            $this->why,
+            null,
+            null,
+            $this->dueDate,
+            $this->severity,
+            $this->source
+        );
+    }
+
+    /**
      * Whole days from $today to the deadline; negative once it has
      * passed, null when there is no deadline.
      */
