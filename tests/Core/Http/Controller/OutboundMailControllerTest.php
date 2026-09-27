@@ -3835,11 +3835,21 @@ class OutboundMailControllerTest extends TestCase
         // the reason it was handed rather than replacing it.
         $this->assertStringContainsString('L’envoi local ne peut pas être supprimé', $flash['message']);
         $this->assertStringContainsString('Vous pouvez le désactiver dans une voie', $flash['message']);
-        // What « still there » means for the local sender: it is not a
-        // `mail_providers` row at all (`findById()` on its id answers null
-        // even before this gesture), so its presence is read where it is
-        // real — its place in the chain the refusal told us to edit instead.
-        $this->assertTrue($this->chains->exists(MailLane::Transactional, MailProvider::LOCAL_ID));
+        // **No state assertion here, and that is the finding rather than an
+        // omission.** The obvious one — « the local sender is still in its
+        // chain » — cannot fail. Remove the guard under test and
+        // `deleteProvider()` falls through to `findById(LOCAL_ID)`, which
+        // answers null because the local sender is not a `mail_providers`
+        // row, and returns before the loop that removes lane entries. So the
+        // chain entry survives whether the guard exists or not.
+        //
+        // Measured, not reasoned: with the guard stubbed out, this test fails
+        // on the flash type above — the refusal becoming a success — and the
+        // chain assertion that stood here stayed true. For this gesture the
+        // message IS the only observable, because the guard's whole effect is
+        // to refuse before anything happens, and the path it guards does
+        // nothing either. Same shape as batch 5's four list gestures, where
+        // success and refusal shared a redirect.
     }
 
     public function testDeletingTheOnlyEnabledProviderOfALaneIsRefusedByThatLaneName(): void

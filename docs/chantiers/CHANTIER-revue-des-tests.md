@@ -2588,6 +2588,33 @@ cette séance a fait tenir sont celles qui ont été écrites quelque part — d
 skill steward, dans ce journal, dans un point de contrôle. Celle-ci n'avait été
 écrite nulle part : elle n'a vécu que le temps du lot 2.
 
+**Trois assertions infalsifiables dans le même lot, et le motif est le même
+les trois fois.** Après les trois tests de dégradation trouvés par le relecteur
+local, `Claude review` en a trouvé deux autres : les deux
+`assertStringNotContainsString` qui suivaient un `assertSame` sur le même champ,
+puis — et c'est la plus instructive — mon assertion « l'envoi local est toujours
+dans sa chaîne ».
+
+Celle-là mérite d'être dépliée. Retirez le garde qu'elle prétend protéger et
+`deleteProvider()` tombe sur `findById(LOCAL_ID)`, qui rend `null` puisque
+l'envoi local n'est pas une ligne de `mail_providers`, et sort **avant** la
+boucle qui retire les entrées de voie. L'entrée survit donc que le garde existe
+ou non. Mesuré en neutralisant le garde : le test tombe sur le **type** du
+flash — le refus devenu succès — et l'assertion d'état, elle, reste vraie.
+
+La généralisation, qui vaut pour tout ce chantier : **une assertion d'état ne
+prouve un refus que si le chemin non refusé aurait changé cet état.** Au lot 5
+j'avais eu raison sans le formuler — `status` reste `open`, et c'est falsifiable
+parce que `reopen()` l'aurait passé à autre chose. Ici il n'y a aucun état à
+changer : le garde refuse avant tout effet, et le chemin qu'il garde ne fait rien
+non plus. Dans ce cas le message **est** le seul témoin, exactement comme pour
+les quatre gestes de liste du lot 5 qui partageaient une redirection.
+
+Et il faut nommer la répétition : j'avais remplacé ici un invariant **inventé**
+(« l'envoi local existe encore », alors que `findById()` rend `null` avant comme
+après) par une assertion **infalsifiable**. Le premier défaut corrigé par un
+second de la même famille.
+
 **Vérifié par la couverture, pas par le vert.** Les sept lignes sont couvertes,
 mesurées après écriture. `OutboundMailController` passe de 7 branches non
 couvertes à **0**.
