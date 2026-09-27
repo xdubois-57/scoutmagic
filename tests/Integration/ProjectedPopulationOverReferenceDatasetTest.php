@@ -93,12 +93,12 @@ final class ProjectedPopulationOverReferenceDatasetTest extends TestCase
             new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $encryption), $encryption, $sectionService,
             new SectionTransferRepository($this->pdo), $requestRepository, $ageBracketRepository
         );
-        $this->forecastService = new ForecastService($this->pdo, $encryption, $sectionService, $passageService);
+        $this->forecastService = new ForecastService(new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $encryption), $encryption, $sectionService, $passageService);
 
         $this->provider = new ProjectedPopulationService(
             $this->forecastService,
             new SlotService(
-                $this->pdo, $encryption, new SettingService(new SettingRepository($this->pdo)),
+                new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $encryption), new \Core\Config\ScoutYearService($this->pdo), new SettingService(new SettingRepository($this->pdo)),
                 $ageBracketRepository, new SlotCapacityRepository($this->pdo), $requestRepository
             ),
             new ScoutYearService($this->pdo),

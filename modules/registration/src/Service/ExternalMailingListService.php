@@ -10,8 +10,8 @@ namespace Modules\Registration\Service;
 
 use Core\Config\ScoutYearService;
 use Core\ScoutYear\ScoutYearResolver;
-use Core\Security\EncryptionService;
 use Modules\Registration\Api\ExternalMailingListProvider;
+use Modules\Registration\Repository\ImportedMemberRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 
 /**
@@ -36,8 +36,7 @@ use Modules\Registration\Repository\RegistrationRequestRepository;
 class ExternalMailingListService implements ExternalMailingListProvider
 {
     public function __construct(
-        private \PDO $pdo,
-        private EncryptionService $encryption,
+        private ImportedMemberRepository $importedMembers,
         private ScoutYearResolver $scoutYearResolver,
         private ScoutYearService $scoutYearService,
         private RegistrationRequestRepository $requestRepository
@@ -64,28 +63,8 @@ class ExternalMailingListService implements ExternalMailingListProvider
     {
         $targetYearId = $this->targetYearId();
         $memberIds = $this->requestRepository->findEncodedMemberIdsForYear($targetYearId);
-        if ($memberIds === []) {
-            return [];
-        }
 
-        $placeholders = implode(',', array_fill(0, count($memberIds), '?'));
-        $stmt = $this->pdo->prepare(
-            "SELECT member_id, email_encrypted FROM member_years
-             WHERE member_id IN ({$placeholders}) AND scout_year_id = ? AND is_active = 1"
-        );
-        $stmt->execute([...array_values($memberIds), $targetYearId]);
-
-        $members = [];
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $members[] = [
-                'member_id' => (int) $row['member_id'],
-                'email' => $row['email_encrypted'] !== null
-                    ? $this->encryption->decrypt($row['email_encrypted'], 'member_years.email')
-                    : null,
-            ];
-        }
-
-        return $members;
+        return $this->importedMembers->findEmailsForYear($memberIds, $targetYearId);
     }
 
     private function targetYearId(): int

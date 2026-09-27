@@ -11,13 +11,14 @@ namespace Modules\Registration\Repository;
 use Core\Security\EncryptionService;
 
 /**
- * The roster reads behind « Passage », « Prévisions » and the reenrollment
- * campaign: who the animés of a year are, who shares their address, what
- * their names and sections read as.
+ * The roster reads behind « Passage », « Prévisions », the slot capacities
+ * and the reenrollment campaign: who the animés of a year are, who shares
+ * their address, what their names and sections read as.
  *
  * These statements used to live in `Service\PassageService` and
- * `Service\ReenrollmentRecipientService` (issue #593). ARCHITECTURE.md §13
- * and SECURITY.md §1 keep PDO in the Repository layer, and §5 keeps
+ * `Service\ReenrollmentRecipientService` (issue #593), then in
+ * `Service\ForecastService` and `Service\SlotService` (issue #646).
+ * ARCHITECTURE.md §13 and SECURITY.md §1 keep PDO in the Repository layer, and §5 keeps
  * decryption there too, so what the services now receive is already the
  * plain value they asked for — never a ciphertext to decrypt themselves —
  * except where a caller has always received the raw row
@@ -138,6 +139,121 @@ class PassageRosterRepository
         $stmt->execute([$scoutYearId, ...$memberIds]);
 
         return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /**
+     * How many animés $scoutYearId has, one per member_year — leavers
+     * INCLUDED, and whatever their age. This is the real present-day
+     * headcount « Prévisions » compares its projection against
+     * (`Service\ForecastService`'s `current_total`), so it must not be
+     * filtered the way {@see findAnimeMemberYears()} can be.
+     */
+    public function countAnimes(int $scoutYearId): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(DISTINCT my.id)
+             FROM member_years my
+             JOIN member_functions mf ON mf.member_year_id = my.id
+             JOIN functions f ON mf.function_id = f.id
+             WHERE my.scout_year_id = ? AND my.is_active = 1
+               AND ' . self::NOT_STAFF
+        );
+        $stmt->execute([$scoutYearId]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * How many animés of $scoutYearId are marked leaving — exactly the set
+     * {@see findAnimeMemberYears()} leaves out by default, counted once per
+     * member_year.
+     */
+    public function countLeavingAnimes(int $scoutYearId): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(DISTINCT my.id)
+             FROM member_years my
+             JOIN member_functions mf ON mf.member_year_id = my.id
+             JOIN functions f ON mf.function_id = f.id
+             WHERE my.scout_year_id = ? AND my.is_active = 1 AND my.leaving = 1
+               AND ' . self::NOT_STAFF
+        );
+        $stmt->execute([$scoutYearId]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * The birth date, decrypted, and the chief's offset of every animé of
+     * $scoutYearId who is not leaving — what `Service\SlotService` needs to
+     * place each of them in the slot they occupy today. One entry per
+     * member_year, however many functions it holds: the join multiplies
+     * rows, and counting those would replace one over-count by another.
+     *
+     * @return array<int, array{birth_date: ?string, scout_year_offset: int}> member_year id => age inputs
+     */
+    public function findAnimeAges(int $scoutYearId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT DISTINCT my.id, my.birth_date_encrypted, my.scout_year_offset
+             FROM member_years my
+             JOIN member_functions mf ON mf.member_year_id = my.id
+             JOIN functions f ON mf.function_id = f.id
+             WHERE my.scout_year_id = ? AND my.is_active = 1 AND my.leaving = 0
+               AND ' . self::NOT_STAFF
+        );
+        $stmt->execute([$scoutYearId]);
+
+        $ages = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $ages[(int) $row['id']] = [
+                'birth_date' => $row['birth_date_encrypted'] !== null
+                    ? $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date')
+                    : null,
+                'scout_year_offset' => (int) $row['scout_year_offset'],
+            ];
+        }
+
+        return $ages;
+    }
+
+    /**
+     * Gender and birth date, decrypted, and the chief's offset of each of
+     * $memberIds on their $scoutYearId row — active or not, animé or not:
+     * the caller already knows who they are and only needs what to project
+     * them with. A member with no row that year is absent.
+     *
+     * @param array<int, int> $memberIds
+     * @return array<int, array{gender: ?string, birth_date: ?string, scout_year_offset: int}> member id => data
+     */
+    public function findGendersAndAges(array $memberIds, int $scoutYearId): array
+    {
+        $memberIds = array_values(array_unique($memberIds));
+        if ($memberIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($memberIds), '?'));
+        $stmt = $this->pdo->prepare(
+            'SELECT member_id, gender_encrypted, birth_date_encrypted, scout_year_offset FROM member_years
+             WHERE scout_year_id = ? AND member_id IN (' . $placeholders . ')'
+        );
+        $stmt->execute([$scoutYearId, ...$memberIds]);
+
+        $byMemberId = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $byMemberId[(int) $row['member_id']] = [
+                'gender' => $row['gender_encrypted'] !== null
+                    ? $this->encryption->decrypt($row['gender_encrypted'], 'member_years.gender')
+                    : null,
+                'birth_date' => $row['birth_date_encrypted'] !== null
+                    ? $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date')
+                    : null,
+                'scout_year_offset' => (int) $row['scout_year_offset'],
+            ];
+        }
+
+        return $byMemberId;
     }
 
     /**

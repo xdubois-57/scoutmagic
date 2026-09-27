@@ -92,8 +92,8 @@ final class RegistrationSeeder
         $this->settingService = new SettingService(new SettingRepository($pdo));
         $this->scoutYearService = new ScoutYearService($pdo);
         $this->slotService = new SlotService(
-            $pdo,
-            $encryption,
+            new \Modules\Registration\Repository\PassageRosterRepository($pdo, $encryption),
+            new \Core\Config\ScoutYearService($pdo),
             $this->settingService,
             $this->bracketRepository,
             $this->capacityRepository,

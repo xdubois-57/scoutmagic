@@ -83,7 +83,7 @@ class ForecastServiceTest extends TestCase
             new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $this->encryption), $this->encryption, $sectionService, $this->transferRepository, $this->requestRepository, $ageBracketRepository
         );
 
-        $this->service = new ForecastService($this->pdo, $this->encryption, $sectionService, $passageService);
+        $this->service = new ForecastService(new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $this->encryption), $this->encryption, $sectionService, $passageService);
     }
 
     private function createSection(string $deskCode, int $branchId, string $name, bool $visible = true): int
