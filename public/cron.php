@@ -263,6 +263,7 @@ $mailTransport = \Core\Mail\Transport\MailTransportFactory::build(
     $pdo,
     $secrets,
     $settingService,
+    $encryptionService,
     \Modules\TestTools\Mail\CaptureTransportFactory::forInstallation(
         $installationProfile,
         new ModuleRegistryRepository($pdo),

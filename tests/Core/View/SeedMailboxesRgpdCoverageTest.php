@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Tests\Core\View;
 
 use Core\Mail\Feedback\Seed\Task\PurgeSeedCopiesHandler;
+use Core\Mail\Feedback\Seed\Task\ResolveMailboxProvidersHandler;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -146,5 +147,39 @@ final class SeedMailboxesRgpdCoverageTest extends TestCase
                 $path . ': routing by provider must stay described as introducing no processor.'
             );
         }
+    }
+
+    /**
+     * **The MX reading is an outbound flow, and both documents say so**
+     * (issue #422, AGENTS.md § RGPD — a new outbound flow is a
+     * documentation change). What leaves is a domain name, never an
+     * address, and what stays is the domain → provider pairing.
+     */
+    public function testBothDocumentsDescribeTheMxReading(): void
+    {
+        foreach ([self::NOTICE, self::PROMPT] as $path) {
+            $content = self::read($path);
+            foreach (['enregistrements MX', 'seul le nom de domaine est interrogé, jamais l\'adresse'] as $needle) {
+                $this->assertStringContainsStringIgnoringCase(
+                    $needle,
+                    $content,
+                    $path . ' no longer describes the DNS reading of recipient domains.'
+                );
+            }
+        }
+    }
+
+    /** And its retention, in the task's own numbers. */
+    public function testTheRetentionSectionStatesTheMxWindowsTheTaskApplies(): void
+    {
+        $notice = self::read(self::NOTICE);
+
+        $this->assertMatchesRegularExpression(
+            '/Domaines destinataires rattachés à un fournisseur.{0,600}?tous les '
+                . ResolveMailboxProvidersHandler::TTL_DAYS . ' jours.{0,300}?<strong>'
+                . ResolveMailboxProvidersHandler::RETENTION_DAYS . ' jours<\/strong>.{0,300}?aucune adresse/su',
+            $notice,
+            'The notice states an MX refresh or retention window the task no longer applies.'
+        );
     }
 }

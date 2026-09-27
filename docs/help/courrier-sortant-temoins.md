@@ -53,6 +53,10 @@ case l'un de ces états :
   que la boîte surveille bien son dossier d'indésirables, sans quoi ce
   verdict y remplace simplement « Indésirables ».
 
+Une colonne est un fournisseur, reconnu aux enregistrements MX du
+domaine : une boîte sur un domaine personnel hébergé chez Google compte
+dans gmail.com.
+
 Une colonne reste affichée tant qu'elle porte des résultats, même si
 vous avez retiré la boîte témoin de ce fournisseur entre-temps : ce qui
 a été mesuré a été mesuré.

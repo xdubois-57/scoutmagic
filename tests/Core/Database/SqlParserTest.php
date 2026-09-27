@@ -189,7 +189,7 @@ class SqlParserTest extends TestCase
         $schemaPath = dirname(__DIR__, 3) . '/schema/core.sql';
         $tables = $this->parser->parseFile($schemaPath);
 
-        $this->assertCount(66, $tables);
+        $this->assertCount(67, $tables);
 
         $tableNames = array_map(fn($t) => $t->name, $tables);
         $this->assertContains('sent_email_claims', $tableNames);
@@ -217,6 +217,9 @@ class SqlParserTest extends TestCase
         // wrong two tables as readily as the right ones.
         $this->assertContains('mail_dmarc_reports', $tableNames);
         $this->assertContains('mail_dmarc_sources', $tableNames);
+        // Which provider really hosts a recipient domain, read from its MX
+        // records off the send path (issue #422).
+        $this->assertContains('mail_domain_providers', $tableNames);
         // And the round trip that says whether what comes back reaches
         // anybody (roadmap IT-03).
         $this->assertContains('mail_return_probes', $tableNames);

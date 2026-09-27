@@ -2300,6 +2300,7 @@ $mailTransport = \Core\Mail\Transport\MailTransportFactory::build(
     $pdo,
     $secrets,
     $settingService,
+    $encryptionService,
     $mailCaptureTransport,
     $journalService,
     $secretManager
@@ -3843,6 +3844,18 @@ $schedulerService->seed(
     'core',
     \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY,
     \Core\Support\Task\PurgeSupportPackagesHandler::REFERENCE,
+    new DateTimeImmutable()
+);
+
+// Same bootstrap for the MX reading of recipient domains (Core\Mail\
+// Feedback\Seed\Task\ResolveMailboxProvidersHandler, issue #422): which
+// provider really hosts « famille.be ». Seeded unconditionally, because
+// its other half is a retention — a domain nobody writes to any more is
+// forgotten by this task and by nothing else.
+$schedulerService->seed(
+    'core',
+    \Core\Mail\Feedback\Seed\Task\ResolveMailboxProvidersHandler::TASK_KEY,
+    \Core\Mail\Feedback\Seed\Task\ResolveMailboxProvidersHandler::REFERENCE,
     new DateTimeImmutable()
 );
 
@@ -7878,7 +7891,8 @@ $frontController->registerController(
                 $settingService,
                 $mailDomainPreferences,
                 new \Core\Mail\Transport\LaneChainRepository($pdo),
-                $mailProviderDirectory
+                $mailProviderDirectory,
+                new \Core\Mail\Transport\MailboxProviderRepository($pdo, $encryptionService)
             ),
         // What this unit's own SPF authorises, as the last DNS check read
         // it — READ, never resolved here, for `KnownSenders`' reason above
