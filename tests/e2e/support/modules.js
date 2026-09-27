@@ -24,7 +24,10 @@ import { scaled } from './timeouts.js';
  * @param {string} moduleName the module's name as the page shows it
  */
 export function moduleToggle(page, moduleName) {
-    return page.getByRole('checkbox', { name: `Activer ou désactiver le module ${moduleName}` });
+    // Exact: « Documents » is a prefix of « Documents officiels », and a
+    // substring match resolved to both switches (a strict-mode violation
+    // that failed every row of zz-module-boot-matrix.spec.js).
+    return page.getByRole('checkbox', { name: `Activer ou désactiver le module ${moduleName}`, exact: true });
 }
 
 /**
@@ -44,17 +47,30 @@ export async function toggleModule(page, moduleName, enabled) {
     // flight, and the caller's next page.goto() was aborted by it
     // (net::ERR_ABORTED). Listening for the main frame's navigation,
     // registered before the click, makes the wait below the reload's.
-    // Its ceiling is the navigation one, as for waitForServerResponse():
-    // waitForEvent() otherwise inherits actionTimeout, tighter than the
-    // response wait this one always finishes after.
-    await Promise.all([
-        page.waitForEvent('framenavigated', {
-            predicate: (frame) => frame === page.mainFrame(),
-            timeout: scaled(30_000),
-        }),
-        waitForServerResponse(page, (response) => response.url().includes('/config/modules/toggle')),
+    //
+    // But only a SUCCESS reloads. A refused toggle (unmet requirement, a
+    // dependent module still on) answers `success: false` and the page
+    // stays put, so the navigation is awaited only when the answer says
+    // one is coming; otherwise the toBeChecked() below fails at once, as
+    // the refusal detector optional-module-dependencies.spec.js and
+    // zz-module-boot-matrix.spec.js rely on. Its ceiling is the navigation
+    // one, as for waitForServerResponse(): waitForEvent() would otherwise
+    // inherit actionTimeout, tighter than the response wait it follows.
+    const reload = page.waitForEvent('framenavigated', {
+        predicate: (frame) => frame === page.mainFrame(),
+        timeout: scaled(30_000),
+    });
+    // Never awaited on a refusal; its eventual timeout must not surface as
+    // an unhandled rejection.
+    reload.catch(() => {});
+    const [response] = await Promise.all([
+        waitForServerResponse(page, (r) => r.url().includes('/config/modules/toggle')),
         enabled ? toggle.check() : toggle.uncheck(),
     ]);
+    const answer = await response.json().catch(() => null);
+    if (answer?.success === true) {
+        await reload;
+    }
     await page.waitForLoadState('domcontentloaded');
 
     // The page has reloaded from the database by now, so this reads the
