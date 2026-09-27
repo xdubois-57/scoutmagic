@@ -11,7 +11,6 @@ use Core\Http\Response;
 use Core\Http\Router;
 use Core\Security\AuthSession;
 use Core\Security\Role;
-use Core\View\TwigFactory;
 use Modules\Documents\Controller\DocumentsAdminController;
 use Modules\Documents\Controller\DocumentsPublicController;
 use Modules\Documents\File\DirectLinkGrants;
@@ -21,6 +20,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Documents\DocumentsTestHelper as H;
+use Tests\TestTwig;
 use Twig\Environment;
 
 /**
@@ -48,7 +48,7 @@ final class DocumentsControllerTest extends TestCase
         $this->documentId = H::create($this->service, 'Règlement', DocumentVisibility::PUBLIC);
 
         $root = dirname(__DIR__, 4);
-        $twig = TwigFactory::create($root . '/core/View/templates', false, ['documents' => $root . '/modules/documents/views']);
+        $twig = TestTwig::create(['documents' => $root . '/modules/documents/views'], ['param' => static fn(string $key): string => 'Test Unit']);
         $twig->addGlobal('site_name', 'Test Unit');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_role', 'admin');
@@ -56,7 +56,6 @@ final class DocumentsControllerTest extends TestCase
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
         $twig->addGlobal('current_path', '/');
-        $twig->addFunction(new \Twig\TwigFunction('param', static fn(string $key): string => 'Test Unit'));
         $this->twig = $twig;
 
         $this->public = new DocumentsPublicController($twig, $this->service, new DirectLinkGrants());

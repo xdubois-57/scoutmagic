@@ -9,7 +9,7 @@ use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\StorageLocationRepository;
 use Core\Storage\Location\StorageLocationType;
 use PHPUnit\Framework\TestCase;
-use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 /**
  * The two statements in this repository that only the REAL engine can
@@ -20,92 +20,27 @@ use Tests\DatabaseTestHelper;
  * concurrent first-ever creations from both claiming `is_default = 1` is
  * exactly the kind of thing a green SQLite run proves nothing about. It
  * is added for MySQL and MariaDB, and this is where it is actually
- * parsed.
- *
- * @group database
+ * parsed — against the table `schema/core.sql` declares, migrated by the
+ * real runner (`Tests\UsesProductionEngine`).
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class StorageLocationRepositoryOnMysqlTest extends TestCase
 {
+    use UsesProductionEngine;
+
     private \PDO $pdo;
     private StorageLocationRepository $repository;
-    private bool $createdTheTable = false;
 
     protected function setUp(): void
     {
-        $this->pdo = $this->connect();
-
-        // The shared test database is not migrated, so the table is
-        // created here from `schema/core.sql` itself — which also means
-        // the declaration this chantier added is parsed by the real
-        // engine rather than only by SQLite's dialect.
-        //
-        // Created only when it is absent, and dropped only when this test
-        // is what created it: the database is shared with every other
-        // `@group database` test, and dropping a table another one left
-        // behind would make this file's result depend on the order the
-        // suite happens to run in.
-        $this->createdTheTable = $this->pdo
-            ->query("SHOW TABLES LIKE 'storage_locations'")?->fetchColumn() === false;
-        if ($this->createdTheTable) {
-            $this->pdo->exec(self::createTableStatement());
-        }
-
+        // `storage_locations` as the migration builds it, foreign keys and
+        // all, in a database of this class's own and empty — so no test
+        // has to clean up after itself, and none sees another's rows.
+        $this->pdo = $this->productionEngine();
         $this->repository = new StorageLocationRepository(
             $this->pdo,
             new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
         );
-    }
-
-    private function connect(): \PDO
-    {
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('TEST_DB_PORT') ?: 3306);
-        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
-
-        try {
-            return new \PDO(
-                "mysql:host={$host};port={$port};dbname={$dbName}",
-                getenv('TEST_DB_USER') ?: 'root',
-                getenv('TEST_DB_PASSWORD') ?: '',
-                [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
-            );
-        } catch (\PDOException $e) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database connection not available: ' . $e->getMessage());
-        }
-    }
-
-    protected function tearDown(): void
-    {
-        if ($this->createdTheTable) {
-            $this->pdo->exec('DROP TABLE IF EXISTS storage_locations');
-        }
-    }
-
-    /**
-     * The `CREATE TABLE storage_locations` block of `schema/core.sql`, as
-     * written — foreign keys stripped, since nothing else is migrated here.
-     */
-    private static function createTableStatement(): string
-    {
-        // The `--` comments are dropped BEFORE looking for the statement's
-        // terminator: `schema/core.sql` documents this table heavily, and
-        // one of those comments ends in `getSecret());` — a semicolon that
-        // would cut the declaration in half.
-        $lines = [];
-        foreach (explode("\n", (string) file_get_contents(__DIR__ . '/../../../../schema/core.sql')) as $line) {
-            if (!str_starts_with(ltrim($line), '--')) {
-                $lines[] = $line;
-            }
-        }
-        $schema = implode("\n", $lines);
-
-        $start = strpos($schema, 'CREATE TABLE IF NOT EXISTS storage_locations');
-        self::assertNotFalse($start, 'schema/core.sql no longer declares storage_locations.');
-        $end = strpos($schema, ';', $start);
-        self::assertNotFalse($end);
-
-        return substr($schema, $start, $end - $start + 1);
     }
 
     public function testCreatingALocationParsesAndRunsOnTheRealEngine(): void
@@ -119,12 +54,8 @@ class StorageLocationRepositoryOnMysqlTest extends TestCase
             null
         );
 
-        try {
-            $this->assertGreaterThan(0, $id);
-            $this->assertSame($label, $this->repository->findById($id)?->label);
-        } finally {
-            $this->repository->delete($id);
-        }
+        $this->assertGreaterThan(0, $id);
+        $this->assertSame($label, $this->repository->findById($id)?->label);
     }
 
     public function testDeletingTheDefaultPromotesTheSurvivorOnTheRealEngine(): void
@@ -149,13 +80,9 @@ class StorageLocationRepositoryOnMysqlTest extends TestCase
         );
         $this->repository->setDefault($second);
 
-        try {
-            $this->repository->delete($second);
+        $this->repository->delete($second);
 
-            $this->assertTrue($this->repository->findById($first)?->isDefault);
-        } finally {
-            $this->repository->delete($first);
-        }
+        $this->assertTrue($this->repository->findById($first)?->isDefault);
     }
 
     public function testTheLockingReadDeleteIssuesMakesAConcurrentWriterWait(): void
@@ -190,7 +117,11 @@ class StorageLocationRepositoryOnMysqlTest extends TestCase
             null
         );
 
-        $other = $this->connect();
+        // A second session on the same database, as a concurrent request
+        // would open one.
+        $other = self::productionEngineConnection(
+            (string) $this->pdo->query('SELECT DATABASE()')->fetchColumn()
+        )->getPdo();
         $other->exec('SET SESSION innodb_lock_wait_timeout = 1');
 
         // The statement is spelled exactly as StorageLocationRepository::
@@ -212,8 +143,6 @@ class StorageLocationRepositoryOnMysqlTest extends TestCase
             $this->assertSame('1205', (string) ($e->errorInfo[1] ?? ''), $e->getMessage());
         } finally {
             $this->pdo->rollBack();
-            $this->repository->delete($second);
-            $this->repository->delete($first);
         }
     }
 

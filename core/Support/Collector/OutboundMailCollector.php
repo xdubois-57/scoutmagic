@@ -583,6 +583,11 @@ class OutboundMailCollector implements SupportCollectorInterface
             . ($this->seedMailboxes?->boxesBlindToSpam() ?? 0)
             . ' (leurs copies classées en indésirables comptent « perdues »)';
 
+        // The decisions `readings()` shows without a measurement are
+        // printed below, as decisions: a row of zeros would read to a
+        // third party as a provider measured and found silent.
+        $readings = array_values(array_filter($readings, static fn(array $reading): bool => $reading['measured']));
+
         $rows = [];
         foreach ($readings as $reading) {
             $rows[] = sprintf(

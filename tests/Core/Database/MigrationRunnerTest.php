@@ -11,7 +11,7 @@ use Core\Database\SchemaIntrospector;
 use Core\Database\SqlParser;
 use Core\Journal\JournalService;
 use PHPUnit\Framework\TestCase;
-use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 /**
  * @group database
@@ -19,29 +19,23 @@ use Tests\DatabaseTestHelper;
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class MigrationRunnerTest extends TestCase
 {
+    use UsesProductionEngine;
+
     private ?Connection $connection = null;
     private ?SchemaIntrospector $introspector = null;
 
     protected function setUp(): void
     {
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('TEST_DB_PORT') ?: 3306);
-        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
-        $user = getenv('TEST_DB_USER') ?: 'root';
-        $password = getenv('TEST_DB_PASSWORD') ?: '';
-
-        // Assigned only once the server has answered: tearDown() runs even
-        // after markTestSkipped(), and dereferencing an unusable Connection
-        // there turned a clean skip into a PDOException on every one of
-        // this class's tests wherever no MySQL is running.
-        $connection = new Connection($host, $port, $dbName, $user, $password);
-
-        $result = $connection->testConnection();
-        if ($result !== true) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database connection not available: ' . $result);
-        }
-
-        $this->connection = $connection;
+        // Assigned only once the server has answered — the fixture skips or
+        // fails before returning otherwise: tearDown() runs even after
+        // markTestSkipped(), and dereferencing an unusable Connection there
+        // turned a clean skip into a PDOException on every one of this
+        // class's tests wherever no MySQL is running.
+        //
+        // TEST_DB_NAME itself rather than productionEngine(): every test
+        // here measures a migration against an EMPTY database, not one the
+        // whole schema was already migrated into.
+        $this->connection = self::productionEngineConnection();
 
         $this->introspector = new SchemaIntrospector($this->connection->getPdo());
 
@@ -158,6 +152,86 @@ class MigrationRunnerTest extends TestCase
             $this->assertSame(
                 'error',
                 $pdo->query('SELECT level FROM enum_widening_test ORDER BY id DESC LIMIT 1')->fetchColumn()
+            );
+        } finally {
+            @unlink($schemaPath);
+            @rmdir($tmpDir);
+        }
+    }
+
+    /**
+     * A moved column default reaches the rows that never chose anything
+     * (issue #355) — against a real server, because the byte comparison and
+     * the old default both come from it: MariaDB reports a string default
+     * quoted, MySQL bare, and the collation would otherwise match a URL
+     * typed in another case.
+     */
+    public function testRowsStillOnAMovedFollowingDefaultFollowItAndCustomisedRowsStay(): void
+    {
+        $tmpDir = sys_get_temp_dir() . '/migration_follow_test_' . uniqid();
+        mkdir($tmpDir);
+        $schemaPath = $tmpDir . '/schema.sql';
+        $old = 'https://lesscouts.be/fr/site-parents/le-parcours-scout';
+        $new = 'https://lesscouts.be/fr/parents/le-parcours';
+
+        $declare = static function (string $default) use ($schemaPath): void {
+            file_put_contents(
+                $schemaPath,
+                "CREATE TABLE age_branches (\n"
+                . "    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,\n"
+                . "    desk_code VARCHAR(50) NOT NULL,\n"
+                . "    explanation_url VARCHAR(500) NOT NULL DEFAULT '{$default}'\n"
+                . ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;'
+            );
+        };
+
+        try {
+            $runner = new MigrationRunner(
+                $this->connection,
+                $this->introspector,
+                new SchemaComparator(),
+                new SqlParser()
+            );
+            $pdo = $this->connection->getPdo();
+
+            $declare($old);
+            $runner->migrate([$schemaPath]);
+
+            $pdo->exec("INSERT INTO age_branches (desk_code) VALUES ('never-customised')");
+            $insert = $pdo->prepare('INSERT INTO age_branches (desk_code, explanation_url) VALUES (?, ?)');
+            $insert->execute(['customised', 'https://unite.example/parcours']);
+            $insert->execute(['other-case', strtoupper($old)]);
+
+            $declare($new);
+            $result = $runner->migrate([$schemaPath]);
+
+            $this->assertTrue($result->converged);
+            $this->assertStringStartsWith('UPDATE `age_branches`', $result->executedStatements[0]);
+
+            $urls = $pdo->query('SELECT desk_code, explanation_url FROM age_branches')
+                ->fetchAll(\PDO::FETCH_KEY_PAIR);
+            $this->assertSame(
+                [
+                    'never-customised' => $new,
+                    'customised' => 'https://unite.example/parcours',
+                    'other-case' => strtoupper($old),
+                ],
+                $urls
+            );
+
+            $pdo->exec("INSERT INTO age_branches (desk_code) VALUES ('after')");
+            $this->assertSame(
+                $new,
+                $pdo->query("SELECT explanation_url FROM age_branches WHERE desk_code = 'after'")->fetchColumn()
+            );
+
+            // Converged: the next full diff has nothing left to say.
+            $this->assertSame(
+                [],
+                (new SchemaComparator())->compare(
+                    (new SqlParser())->parseFile($schemaPath),
+                    $this->introspector->getTableDefinitions(['age_branches'])
+                )
             );
         } finally {
             @unlink($schemaPath);
@@ -575,16 +649,10 @@ class MigrationRunnerTest extends TestCase
      */
     public function testMigrateYieldsImmediatelyWhenAnotherProcessHoldsTheLock(): void
     {
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('TEST_DB_PORT') ?: 3306);
-        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
-        $user = getenv('TEST_DB_USER') ?: 'root';
-        $password = getenv('TEST_DB_PASSWORD') ?: '';
-
         // A second connection is a second MySQL session, which is what
         // GET_LOCK() is scoped to — the same connection would just be
         // granted the lock it already holds.
-        $other = new Connection($host, $port, $dbName, $user, $password);
+        $other = self::productionEngineConnection();
         $holder = $other->getPdo()->query("SELECT GET_LOCK('scoutmagic_schema_migration', 0)");
         $this->assertSame(1, (int) $holder->fetchColumn());
         $holder->closeCursor();

@@ -11,6 +11,7 @@ namespace Core\Member;
 use Core\Badge\Badge;
 use Core\Badge\BadgeRepository;
 use Core\Badge\MemberBadgeRepository;
+use Core\ExternalSource\ExternalSources;
 use Core\Import\AgeBranchRepository;
 use Core\Module\FormationPathProvider;
 use Core\Module\MemberPaymentProvider;
@@ -231,8 +232,15 @@ class MemberPageService
      * link alone is still meaningful — see AgeBranchRepository::
      * defaultLogoFilename()'s docblock for why Staff d'U has no default).
      *
+     * Plus where to sew the insignia (issue #473): the federation's
+     * article, the same for every branch and every unit — the document it
+     * leads to is organised by branch, animateurs and cadres included, so
+     * the reader looks for their own there. From the register of external
+     * sources, which the weekly check watches, rather than a setting.
+     *
      * @param array{age_branch_id: int, branch_name: string, branch_sort_order: int} $section
-     * @return array{label: string, logo_file_id: ?int, default_logo: ?string, explanation_url: string}|null
+     * @return array{label: string, logo_file_id: ?int, default_logo: ?string, explanation_url: string,
+     *     insignia_placement_url: string}|null
      */
     private function buildBranchCard(array $section): ?array
     {
@@ -246,6 +254,7 @@ class MemberPageService
             'logo_file_id' => $branch['logo_file_id'],
             'default_logo' => AgeBranchRepository::defaultLogoFilename($branch['sort_order']),
             'explanation_url' => $branch['explanation_url'],
+            'insignia_placement_url' => ExternalSources::INSIGNIA_PLACEMENT_PAGE,
         ];
     }
 

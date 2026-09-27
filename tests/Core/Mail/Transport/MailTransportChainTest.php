@@ -362,8 +362,110 @@ class MailTransportChainTest extends TestCase
         $this->assertSame(['smtp.premier.test'], $delivery->attemptedHosts);
     }
 
-    private function preferring(string $domain, int $providerId): DomainPreferences
+    /**
+     * **A family on its own domain, hosted by Google, follows gmail.com's
+     * decision** (issue #422) — read from the MX cache, which the send
+     * path consults and never fills itself.
+     */
+    public function testAPersonalDomainFollowsTheDecisionTakenForItsProvider(): void
     {
+        $first = $this->addRelay('Premier', 'smtp.premier.test');
+        $second = $this->addRelay('Second', 'smtp.second.test');
+        $this->enable(MailLane::Bulk, [$first, $second]);
+
+        $cache = new \Core\Mail\Transport\MailboxProviderRepository(
+            $this->pdo,
+            new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+        $cache->note('famille-dupont.be', new \DateTimeImmutable());
+        $cache->recordResolved('famille-dupont.be', 'gmail.com', new \DateTimeImmutable());
+
+        $delivery = $this->recordingTransport();
+        $this->chain($delivery, preferences: $this->preferring('gmail.com', $second, $cache))
+            ->deliver($this->message('prenom@famille-dupont.be'), MailPurpose::Bulk);
+
+        $this->assertSame(['smtp.second.test'], $delivery->attemptedHosts);
+    }
+
+    /**
+     * **An unknown domain is noted, not resolved.** The message leaves on
+     * the lane's own order at once, and the row it leaves behind has no
+     * provider and no resolution date: the scheduled task asks later.
+     */
+    public function testAnUnknownDomainIsOnlyNotedOnTheSendPath(): void
+    {
+        $first = $this->addRelay('Premier', 'smtp.premier.test');
+        $second = $this->addRelay('Second', 'smtp.second.test');
+        $this->enable(MailLane::Bulk, [$first, $second]);
+
+        $cache = new \Core\Mail\Transport\MailboxProviderRepository(
+            $this->pdo,
+            new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+        $delivery = $this->recordingTransport();
+        $this->chain($delivery, preferences: $this->preferring('gmail.com', $second, $cache))
+            ->deliver($this->message('prenom@nouveau-domaine.be'), MailPurpose::Bulk);
+
+        $this->assertSame(['smtp.premier.test'], $delivery->attemptedHosts);
+        $statement = $this->pdo->prepare('SELECT domain_encrypted, provider, resolved_at FROM mail_domain_providers');
+        $statement->execute();
+        $row = $statement->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($row);
+        // Noted encrypted (SECURITY.md §5): a personal domain can name a family.
+        $this->assertStringNotContainsString('nouveau-domaine.be', (string) $row['domain_encrypted']);
+        $row['domain_encrypted'] = (new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)))
+            ->decrypt((string) $row['domain_encrypted'], 'mail_domain_providers.domain');
+        $this->assertSame(
+            ['domain_encrypted' => 'nouveau-domaine.be', 'provider' => null, 'resolved_at' => null],
+            $row
+        );
+    }
+
+    /** A magic link notes nothing: the authentication lane has no business here. */
+    public function testAMagicLinkNotesNoDomain(): void
+    {
+        $first = $this->addRelay('Premier', 'smtp.premier.test');
+        $this->enable(MailLane::Authentication, [$first]);
+
+        $cache = new \Core\Mail\Transport\MailboxProviderRepository(
+            $this->pdo,
+            new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+        $this->chain($this->recordingTransport(), preferences: $this->preferring('gmail.com', $first, $cache))
+            ->deliver($this->message('prenom@nouveau-domaine.be'), MailPurpose::MagicLink);
+
+        $statement = $this->pdo->prepare('SELECT COUNT(*) FROM mail_domain_providers');
+        $statement->execute();
+        $this->assertSame(0, (int) $statement->fetchColumn());
+    }
+
+    /**
+     * **A cache that cannot be read costs nothing.** The table gone — a
+     * deploy that has not migrated yet — and the mailing still leaves.
+     */
+    public function testAnUnreadableCacheNeverCostsTheMessage(): void
+    {
+        $first = $this->addRelay('Premier', 'smtp.premier.test');
+        $second = $this->addRelay('Second', 'smtp.second.test');
+        $this->enable(MailLane::Bulk, [$first, $second]);
+        $this->pdo->prepare('DROP TABLE mail_domain_providers')->execute();
+
+        $delivery = $this->recordingTransport();
+        $cache = new \Core\Mail\Transport\MailboxProviderRepository(
+            $this->pdo,
+            new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+        $this->chain($delivery, preferences: $this->preferring('gmail.com', $second, $cache))
+            ->deliver($this->message('famille@gmail.com'), MailPurpose::Bulk);
+
+        $this->assertSame(['smtp.second.test'], $delivery->attemptedHosts);
+    }
+
+    private function preferring(
+        string $domain,
+        int $providerId,
+        ?\Core\Mail\Transport\MailboxProviderRepository $cache = null
+    ): DomainPreferences {
         $this->settings->register(
             DomainPreferences::SETTING_KEY,
             '',
@@ -376,7 +478,7 @@ class MailTransportChainTest extends TestCase
             false,
             60
         );
-        $preferences = new DomainPreferences($this->settings);
+        $preferences = new DomainPreferences($this->settings, $cache);
         $preferences->prefer($domain, $providerId);
 
         return $preferences;

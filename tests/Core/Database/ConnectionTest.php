@@ -6,10 +6,12 @@ namespace Tests\Core\Database;
 
 use Core\Database\Connection;
 use PHPUnit\Framework\TestCase;
-use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 class ConnectionTest extends TestCase
 {
+    use UsesProductionEngine;
+
     public function testConstructorStoresParameters(): void
     {
         $connection = new Connection('localhost', 3306, 'test_db', 'user', 'pass');
@@ -60,7 +62,7 @@ class ConnectionTest extends TestCase
     #[\PHPUnit\Framework\Attributes\Group('database')]
     public function testTestConnectionReturnsTrueWithValidCredentials(): void
     {
-        $connection = $this->connectionFromEnvironment();
+        $connection = $this->unopenedConnectionFromEnvironment();
         $result = $connection->testConnection();
 
         $this->assertTrue($result);
@@ -72,8 +74,7 @@ class ConnectionTest extends TestCase
     #[\PHPUnit\Framework\Attributes\Group('database')]
     public function testGetPdoReturnsConfiguredInstance(): void
     {
-        $connection = $this->connectionFromEnvironment();
-        $pdo = $connection->getPdo();
+        $pdo = self::productionEngineConnection()->getPdo();
 
         $this->assertInstanceOf(\PDO::class, $pdo);
         $this->assertSame(\PDO::ERRMODE_EXCEPTION, $pdo->getAttribute(\PDO::ATTR_ERRMODE));
@@ -101,7 +102,7 @@ class ConnectionTest extends TestCase
     #[\PHPUnit\Framework\Attributes\Group('database')]
     public function testTheSessionTimeZoneAgreesWithPhpsOwnClock(): void
     {
-        $pdo = $this->connectionFromEnvironment()->getPdo();
+        $pdo = self::productionEngineConnection()->getPdo();
 
         $statement = $pdo->query("SELECT DATE_FORMAT(NOW(), '%Y-%m-%d %H:%i') AS db_now");
         $this->assertNotFalse($statement);
@@ -130,7 +131,7 @@ class ConnectionTest extends TestCase
     #[\PHPUnit\Framework\Attributes\Group('database')]
     public function testTheSessionTimeZoneIsSetAsANumericOffsetNotAZoneName(): void
     {
-        $pdo = $this->connectionFromEnvironment()->getPdo();
+        $pdo = self::productionEngineConnection()->getPdo();
 
         $statement = $pdo->query('SELECT @@session.time_zone');
         $this->assertNotFalse($statement);
@@ -139,30 +140,25 @@ class ConnectionTest extends TestCase
     }
 
     /**
-     * The MySQL server the TEST_DB_* variables point at, skipping the test
-     * when it isn't reachable — the same contract as
-     * Tests\Core\Database\MigrationRunnerTest and SchemaIntrospectorTest,
-     * which this class was the only @group database holdout from. CI's
-     * database-tests job provides the server; a local or Claude-on-the-web
-     * checkout usually has none, and these two tests hard-failing there is
-     * what made `phpunit --group database` unrunnable outside CI.
+     * A Connection built by hand from the `TEST_DB_*` values and NOT yet
+     * connected — for the one test whose subject is `testConnection()`
+     * itself, which the fixture's already-open connection would not
+     * exercise. The values come from `productionEngineCredentials()`;
+     * whether a refused server skips or fails is decided first by
+     * `productionEngineConnection()`, the fixture's own rule.
      */
-    private function connectionFromEnvironment(): Connection
+    private function unopenedConnectionFromEnvironment(): Connection
     {
-        $connection = new Connection(
-            getenv('TEST_DB_HOST') ?: '127.0.0.1',
-            (int) (getenv('TEST_DB_PORT') ?: 3306),
-            getenv('TEST_DB_NAME') ?: 'test_db',
-            getenv('TEST_DB_USER') ?: 'root',
-            getenv('TEST_DB_PASSWORD') ?: ''
+        self::productionEngineConnection();
+        $credentials = self::productionEngineCredentials();
+
+        return new Connection(
+            $credentials['host'],
+            $credentials['port'],
+            $credentials['dbName'],
+            $credentials['user'],
+            $credentials['password']
         );
-
-        $result = $connection->testConnection();
-        if ($result !== true) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database connection not available: ' . $result);
-        }
-
-        return $connection;
     }
 
 }

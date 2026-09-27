@@ -93,9 +93,11 @@ final class DeletePrefixIsAFolderTest extends TestCase
     /**
      * The one that was wrong.
      *
-     * Drive's folder is flat — `"5/med_9.jpg"` is one file whose NAME
-     * contains a slash — so this is the backend with nothing structural
-     * to lean on, and the only one where the rule has to be written down.
+     * Drive's folder was flat when #484 was found — `"5/med_9.jpg"` one
+     * file whose NAME contained a slash — so this backend had nothing
+     * structural to lean on. Since #474 the album is a real folder and the
+     * rule is structural here too; the scenario stays, because it is what
+     * would catch the day either stops being true.
      */
     public function testTheDriveFolderDeletesTheFolderAndNotTheNamesakes(): void
     {

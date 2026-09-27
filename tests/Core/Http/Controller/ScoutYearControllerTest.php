@@ -25,8 +25,7 @@ use Modules\Registration\Api\ScoutYearPreparationProvider;
 use Modules\Registration\Api\ScoutYearTransitionVetoProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
-use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
+use Tests\TestTwig;
 
 /**
  * @group database
@@ -447,11 +446,7 @@ class ScoutYearControllerTest extends TestCase
         ?ScoutYearPreparationProvider $preparation = null,
         ?ScoutYearEventCountProvider $eventCount = null
     ): ClockableScoutYearController {
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $twig = TestTwig::create([], ['param' => fn(string $k) => 'Test']);
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_email', 'chief@test.com');
@@ -460,11 +455,6 @@ class ScoutYearControllerTest extends TestCase
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
         $twig->addGlobal('csp_nonce', 'test-nonce');
-        $twig->addFunction(new \Twig\TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
-        $twig->addFunction(new \Twig\TwigFunction('get_flash', fn() => null));
-        $twig->addFunction(new \Twig\TwigFunction('csrf_token', fn() => 'test'));
-        $twig->addFunction(new \Twig\TwigFunction('file_url', fn() => ''));
-        $twig->addFunction(new \Twig\TwigFunction('param', fn(string $k) => 'Test'));
 
         $transitionService = new ScoutYearTransitionService(
             $resolver,

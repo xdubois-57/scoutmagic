@@ -7,7 +7,7 @@ namespace Tests\Modules\SupportDashboard;
 use Core\Database\AdvisoryLock;
 use Modules\SupportDashboard\Repository\SupportReportRateLimitRepository;
 use PHPUnit\Framework\TestCase;
-use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 /**
  * The exclusion has to be real to be worth anything: what reserve()
@@ -18,57 +18,33 @@ use Tests\DatabaseTestHelper;
  * run on. Same shape as Tests\Core\Scheduler\CronPassLockTest, and the
  * same skip rule as Tests\Core\Scheduler\LivePrefixGuardOnMysqlTest:
  * where TEST_DB_* is set, a server that does not answer is a failure.
- *
- * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class RateLimitReservationLockTest extends TestCase
 {
+    use UsesProductionEngine;
+
     private ?\PDO $holder = null;
     private ?\PDO $requester = null;
 
     /**
-     * Two connections to the pre-provisioned test database (TEST_DB_NAME,
-     * the one CI's database job and the session hook both create), never
-     * a database of this test's own: a `CREATE DATABASE` takes its name
-     * by concatenation, and SECURITY.md allows no exception to "every
-     * statement is prepared" for a value that merely happens to be
-     * generated. The table is created with a static statement if the
-     * database does not carry the module schema, and the rows this test
-     * writes are deleted by a prepared statement in tearDown().
+     * The requester writes to `support_report_rate_limits` as the
+     * migration builds it from modules/support_dashboard/schema.sql, in a
+     * database of this class's own and emptied before every test
+     * (`Tests\UsesProductionEngine`) — so the count reserve() reads is
+     * never one another class left behind. The holder is a second session
+     * on that same database, as a concurrent request would be; a named
+     * lock is server-wide, so what it proves does not depend on which
+     * database the session sits in.
      */
     protected function setUp(): void
     {
         SupportDashboardTestHelper::ensureAutoloadable();
 
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('TEST_DB_PORT') ?: 3306);
-        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
-        $user = getenv('TEST_DB_USER') ?: 'root';
-        $password = getenv('TEST_DB_PASSWORD') ?: '';
-        $dsn = sprintf('mysql:host=%s;port=%d;dbname=%s', $host, $port, $dbName);
-
-        try {
-            $this->holder = new \PDO($dsn, $user, $password, [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
-            $this->requester = new \PDO($dsn, $user, $password, [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
-        } catch (\Throwable $e) {
-            // Skip only on a laptop that never configured a server. On a
-            // CI runner (GitHub sets CI=true) both PHP jobs export
-            // TEST_DB_*, so an unset TEST_DB_HOST there is a workflow
-            // regression to fail on, not a laptop to accommodate: a lock
-            // test that skips itself in CI proves nothing.
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised($e->getMessage());
-        }
-
-        // The production DDL (modules/support_dashboard/schema.sql), a no-op
-        // where the module schema is already installed.
-        $this->requester->exec('CREATE TABLE IF NOT EXISTS support_report_rate_limits (
-            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            ip_hash CHAR(64) NOT NULL,
-            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            INDEX idx_support_report_rate_limits_lookup (ip_hash, created_at)
-        ) ENGINE=InnoDB');
-        $this->deleteOwnRows();
+        $this->requester = $this->productionEngine();
+        $this->holder = self::productionEngineConnection(
+            (string) $this->requester->query('SELECT DATABASE()')->fetchColumn()
+        )->getPdo();
     }
 
     protected function tearDown(): void
@@ -76,18 +52,8 @@ class RateLimitReservationLockTest extends TestCase
         if ($this->holder instanceof \PDO) {
             AdvisoryLock::release($this->holder, SupportReportRateLimitRepository::reservationLockName($this->hash()));
         }
-        $this->deleteOwnRows();
         $this->holder = null;
         $this->requester = null;
-    }
-
-    private function deleteOwnRows(): void
-    {
-        if (!$this->requester instanceof \PDO) {
-            return;
-        }
-        $stmt = $this->requester->prepare('DELETE FROM support_report_rate_limits WHERE ip_hash IN (?, ?)');
-        $stmt->execute([$this->hash(), $this->otherHash()]);
     }
 
     private function hash(): string

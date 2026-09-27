@@ -25,7 +25,7 @@ use Core\View\TwigFactory;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Twig\Environment;
-use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 /**
  * Who may reach the wizard's portable restore, and who may not.
@@ -45,6 +45,8 @@ use Tests\DatabaseTestHelper;
  */
 final class SetupPortableRestoreTest extends TestCase
 {
+    use UsesProductionEngine;
+
     private const PASSPHRASE = 'quatre mots parfaitement ordinaires';
     private const ORIGIN_ID = 'aaaabbbbccccddddeeeeffff00001111';
     private const ORIGIN_ENCRYPTION_KEY = 'la-clef-de-colonne-de-l-origine=';
@@ -566,15 +568,22 @@ final class SetupPortableRestoreTest extends TestCase
         $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
     }
 
-    /** @return array<string, string> */
+    /**
+     * The database fields of the wizard's form, pointing at the `TEST_DB_*`
+     * server — the target the archive is restored into.
+     *
+     * @return array<string, string>
+     */
     private function targetCredentials(): array
     {
+        $credentials = self::productionEngineCredentials();
+
         return [
-            'db_host' => getenv('TEST_DB_HOST') ?: '127.0.0.1',
-            'db_port' => getenv('TEST_DB_PORT') ?: '3306',
-            'db_name' => getenv('TEST_DB_NAME') ?: 'test_db',
-            'db_user' => getenv('TEST_DB_USER') ?: 'root',
-            'db_password' => getenv('TEST_DB_PASSWORD') ?: '',
+            'db_host' => $credentials['host'],
+            'db_port' => (string) $credentials['port'],
+            'db_name' => $credentials['dbName'],
+            'db_user' => $credentials['user'],
+            'db_password' => $credentials['password'],
         ];
     }
 
@@ -661,20 +670,14 @@ final class SetupPortableRestoreTest extends TestCase
         return $value === false ? null : (string) $value;
     }
 
+    /**
+     * The `TEST_DB_*` database, with the core schema migrated into it. That
+     * database rather than `productionEngine()`'s: it is the one the
+     * wizard's form (`targetCredentials()`) sends the restore to.
+     */
     private function realDbConnection(): Connection
     {
-        $credentials = $this->targetCredentials();
-        $connection = new Connection(
-            $credentials['db_host'],
-            (int) $credentials['db_port'],
-            $credentials['db_name'],
-            $credentials['db_user'],
-            $credentials['db_password']
-        );
-        $result = $connection->testConnection();
-        if ($result !== true) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database not available: ' . (is_string($result) ? $result : 'unknown error'));
-        }
+        $connection = self::productionEngineConnection();
 
         (new MigrationRunner(
             $connection,

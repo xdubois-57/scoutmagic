@@ -33,8 +33,10 @@ final class LandingTrend
     /**
      * @param ?\DateTimeImmutable $now injected so a test can stand somewhere
      *   other than today — the partial week and the left edge both depend on it
-     * @return array<string, WeeklySeries> keyed by provider, in the order the
-     *   repository returns them, which is alphabetical
+     * @return array<string, WeeklySeries> keyed by the ATTRIBUTED provider —
+     *   the same key the ranking screen groups on (issue #422), so a box on a
+     *   personal domain is one of its host's lines and not a line of its own —
+     *   in the order the repository returns them, which is alphabetical
      */
     public static function build(
         SeedCopyRepository $copies,

@@ -162,6 +162,11 @@ class PageController extends AbstractController
 
         return $this->render('pages/sections.html.twig', [
             'section_groups' => $groups,
+            // Where to sew the insignia (issue #473), once for the whole
+            // page: the question comes before a family even has an account.
+            // From the register of external sources, like the contact page's
+            // federation link.
+            'insignia_placement_url' => ExternalSources::INSIGNIA_PLACEMENT_PAGE,
         ]);
     }
 

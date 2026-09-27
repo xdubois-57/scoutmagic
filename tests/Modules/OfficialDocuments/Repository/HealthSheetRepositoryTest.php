@@ -13,7 +13,7 @@ use Core\Security\EncryptionService;
 use Modules\OfficialDocuments\Repository\HealthSheetRepository;
 use Modules\OfficialDocuments\Value\HealthSheet;
 use PHPUnit\Framework\TestCase;
-use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 /**
  * The one table holding health data about children, and the guarantees that
@@ -36,73 +36,45 @@ use Tests\DatabaseTestHelper;
  * for the wrong reason or, worse, push the repository towards a
  * read-then-write that has the race back.
  *
- * The table is created here from `modules/official_documents/schema.sql`
- * itself, which also means that file is parsed by the engine that will run
- * it in production rather than only read by a human.
- *
- * @group database
+ * The table is the one the real migration builds from
+ * `modules/official_documents/schema.sql` (`Tests\UsesProductionEngine`),
+ * foreign key into `members` included — so the sheets here belong to
+ * members that exist, as they must on a site, and the module's file is
+ * parsed by the engine that will run it in production rather than only
+ * read by a human.
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
 final class HealthSheetRepositoryTest extends TestCase
 {
+    use UsesProductionEngine;
+
     private \PDO $pdo;
     private HealthSheetRepository $repository;
     private int $memberId;
+    /** A second member, for the tests about two sheets side by side. */
+    private int $otherMemberId;
 
     protected function setUp(): void
     {
-        $this->pdo = $this->connect();
-        $this->pdo->exec('DROP TABLE IF EXISTS official_documents_health_sheets');
-        $this->pdo->exec(self::createTableStatement());
-
+        $this->pdo = $this->productionEngine();
         $this->repository = new HealthSheetRepository(
             $this->pdo,
             new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
         );
 
-        // A member id that belongs to nobody else in the shared database:
-        // the foreign key is stripped below, so this only has to be
-        // unique to this file.
-        $this->memberId = random_int(1_000_000, 9_999_999);
-    }
-
-    protected function tearDown(): void
-    {
-        $this->pdo->exec('DROP TABLE IF EXISTS official_documents_health_sheets');
-    }
-
-    private function connect(): \PDO
-    {
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('TEST_DB_PORT') ?: 3306);
-        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
-
-        try {
-            return new \PDO(
-                "mysql:host={$host};port={$port};dbname={$dbName}",
-                getenv('TEST_DB_USER') ?: 'root',
-                getenv('TEST_DB_PASSWORD') ?: '',
-                [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
-            );
-        } catch (\PDOException $e) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database connection not available: ' . $e->getMessage());
-        }
+        $this->memberId = $this->member('HS-1');
+        $this->otherMemberId = $this->member('HS-2');
     }
 
     /**
-     * The module's own `schema.sql`, with the foreign key stripped —
-     * `members` is not migrated into this shared database, and the
-     * constraint is not what this file is about.
+     * A real member for the foreign key to point at. The id is read back,
+     * never assumed: auto-increment carries on from one test to the next.
      */
-    private static function createTableStatement(): string
+    private function member(string $deskId): int
     {
-        $sql = (string) file_get_contents(
-            dirname(__DIR__, 4) . '/modules/official_documents/schema.sql'
-        );
+        $this->pdo->prepare('INSERT INTO members (desk_id) VALUES (?)')->execute([$deskId]);
 
-        // Drop the FK line and the comma that precedes it, so the real
-        // column and index declarations are the ones the engine parses.
-        return (string) preg_replace('/,\s*\n\s*CONSTRAINT fk_odhs_member[^\n]*\n/', "\n", $sql);
+        return (int) $this->pdo->lastInsertId();
     }
 
     private static function now(string $when = '2026-09-20 10:00:00'): \DateTimeImmutable
@@ -303,7 +275,7 @@ final class HealthSheetRepositoryTest extends TestCase
      */
     public function testTwoMembersSheetsStayApart(): void
     {
-        $other = $this->memberId + 1;
+        $other = $this->otherMemberId;
 
         $this->repository->save($this->memberId, self::sheet(), self::now());
         $this->repository->save($other, HealthSheet::fromArray(['allergies' => 'Aucune']), self::now());
@@ -347,7 +319,7 @@ final class HealthSheetRepositoryTest extends TestCase
      */
     public function testTheRetentionDeleteAnswersWhoseSheetsItTook(): void
     {
-        $other = $this->memberId + 1;
+        $other = $this->otherMemberId;
         $this->repository->save($this->memberId, self::sheet(), self::now('2024-01-01 09:00:00'));
         $this->repository->save($other, self::sheet(), self::now('2026-09-01 09:00:00'));
 
@@ -478,7 +450,7 @@ final class HealthSheetRepositoryTest extends TestCase
      */
     public function testThePassAnswersOnlyWhatItActuallyRemoved(): void
     {
-        $used = $this->memberId + 1;
+        $used = $this->otherMemberId;
         $this->repository->save($this->memberId, self::sheet(), self::now('2024-01-01 09:00:00'));
         $this->repository->save($used, self::sheet(), self::now('2024-01-01 09:00:00'));
         $this->repository->touch($used, self::now('2026-09-20 08:00:00'));

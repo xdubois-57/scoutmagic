@@ -12,7 +12,6 @@ use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthSession;
 use Core\Security\UserAccount;
 use Core\Security\UserAccountRepository;
-use Core\View\TwigFactory;
 use Modules\Groups\Repository\GroupMemberRepository;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\GroupSectionRepository;
@@ -23,6 +22,7 @@ use Modules\Groups\Service\GroupService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Groups\GroupsTestHelper;
+use Tests\TestTwig;
 use Twig\Environment;
 
 /**
@@ -173,24 +173,19 @@ abstract class GroupsControllerTestCase extends TestCase
 
     protected function twig(string $role = 'identified'): Environment
     {
-        $twig = TwigFactory::create(
-            dirname(__DIR__, 4) . '/core/View/templates',
-            true,
-            [
-                'groups' => dirname(__DIR__, 4) . '/modules/groups/views',
-                // show.html.twig includes @gallery/partials/lightbox.html.twig —
-                // groups hard-requires gallery, and production registers every
-                // enabled module's namespace (public/index.php), so the test
-                // environment has to as well or the page cannot render.
-                'gallery' => dirname(__DIR__, 4) . '/modules/gallery/views',
-            ]
-        );
+        $twig = TestTwig::create([
+            'groups' => dirname(__DIR__, 4) . '/modules/groups/views',
+            // show.html.twig includes @gallery/partials/lightbox.html.twig —
+            // groups hard-requires gallery, and production registers every
+            // enabled module's namespace (public/index.php), so the test
+            // environment has to as well or the page cannot render.
+            'gallery' => dirname(__DIR__, 4) . '/modules/gallery/views',
+        ]);
         foreach (['site_name' => 'Test', 'is_authenticated' => true, 'current_user_email' => 'p@t.be',
                   'current_user_role' => $role, 'config_mode' => false, 'cookie_consent_given' => true,
                   'menus' => null, 'csp_nonce' => 'test'] as $key => $value) {
             $twig->addGlobal($key, $value);
         }
-        $twig->addFunction(new \Twig\TwigFunction('param', fn(...$a) => ''));
 
         return $twig;
     }

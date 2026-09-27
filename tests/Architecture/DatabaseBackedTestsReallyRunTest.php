@@ -11,6 +11,7 @@ namespace Tests\Architecture;
 use PHPUnit\Framework\SkippedWithMessageException;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 /**
  * The tests that need a real server really got one.
@@ -46,6 +47,8 @@ use Tests\DatabaseTestHelper;
  */
 final class DatabaseBackedTestsReallyRunTest extends TestCase
 {
+    use UsesProductionEngine;
+
     /**
      * The words that make a skip message a database one. Matched against
      * the whole argument text of `markTestSkipped()`, case-insensitively.
@@ -79,29 +82,32 @@ final class DatabaseBackedTestsReallyRunTest extends TestCase
     public function testWhereTheEnvironmentPromisesADatabaseOneReallyAnswers(): void
     {
         // Falsy, not `=== false`, and the difference is not cosmetic: the
-        // twenty-four classes read `getenv('TEST_DB_HOST') ?: '127.0.0.1'`,
-        // so an exported-but-empty TEST_DB_HOST sends them to the default
-        // host and they connect. A guard that treated the same value as a
+        // fixture reads `getenv('TEST_DB_HOST') ?: '127.0.0.1'`, so an
+        // exported-but-empty TEST_DB_HOST sends every class on it to the
+        // default host and they connect. A guard that treated the same value as a
         // promise of a server at the empty string would go red where every
         // one of them is green, which is the opposite of mirroring them.
         $configuredHost = getenv('TEST_DB_HOST') ?: '';
         if ($configuredHost === '' && getenv('CI') === false) {
             $this->markTestSkipped(
                 'Neither TEST_DB_HOST nor CI is set: nothing here promised a server, '
-                    . 'so the twenty-four database-backed classes are entitled to skip. '
+                    . 'so the classes on the production engine are entitled to skip. '
                     . 'See CONTRIBUTING.md § Development setup.'
             );
         }
 
-        // The same five variables, the same defaults and the same DSN shape
-        // as Tests\Core\Mail\Feedback\Bounce\BounceSendReceiptMysqlTest and
-        // its twenty-three neighbours. Reading them differently here would
-        // make this guard answer a question none of them asks.
-        $host = $configuredHost ?: '127.0.0.1';
-        $port = (int) (getenv('TEST_DB_PORT') ?: 3306);
-        $database = getenv('TEST_DB_NAME') ?: 'test_db';
-        $user = getenv('TEST_DB_USER') ?: 'root';
-        $password = getenv('TEST_DB_PASSWORD') ?: '';
+        // The very values the classes on Tests\UsesProductionEngine connect
+        // with, read by the fixture itself: reading them differently here
+        // would make this guard answer a question none of them asks. The
+        // connection below stays a bare PDO on purpose — the fixture's own
+        // would skip on a refusal, which is the verdict under test.
+        [
+            'host' => $host,
+            'port' => $port,
+            'dbName' => $database,
+            'user' => $user,
+            'password' => $password,
+        ] = self::productionEngineCredentials();
 
         // One assertion, and it carries the whole verdict. The engine needs
         // no assertion of its own: the DSN says `mysql:`, which pdo_sqlite
@@ -154,14 +160,7 @@ final class DatabaseBackedTestsReallyRunTest extends TestCase
 
         foreach ($this->testFiles() as $path) {
             $source = (string) file_get_contents($path);
-            // `getenv('TEST_DB_HOST')` rather than the bare name: a file
-            // that merely says TEST_DB_HOST — in a comment, in a message,
-            // in a docblock like this one — reaches no server, and
-            // exempting it would be the hole this test exists to close.
-            // All twenty-five files carrying the name read it this way
-            // today, so the tightening changes no verdict; what it
-            // removes is a way for a future one to slip through.
-            if (preg_match('/getenv\\(\\s*[\'"]TEST_DB_HOST[\'"]\\s*\\)/', $source) === 1) {
+            if ($this->opensTheConnection($source)) {
                 continue;
             }
 
@@ -180,6 +179,35 @@ final class DatabaseBackedTestsReallyRunTest extends TestCase
                 . "above does not cover it, so it can fire on a runner without anything going red.\n"
                 . implode("\n", $uncovered)
         );
+    }
+
+    /**
+     * Whether a file reaches the server from `TEST_DB_*`: through the shared
+     * fixture, or by reading the variable itself.
+     *
+     * **The fixture first, and both halves of it.** Issue #481 moved the
+     * classes that reach the server onto `Tests\UsesProductionEngine`, so
+     * most of them no longer read the variable at all — the trait does. A
+     * file counts when it uses the trait INSIDE a class (an indented `use`,
+     * not the file's `use Tests\UsesProductionEngine;` import, which uses
+     * nothing) AND calls one of the two methods that connect. Merely
+     * pulling the trait in reaches no server, and exempting that would be
+     * the hole this test exists to close.
+     *
+     * `getenv('TEST_DB_HOST')` rather than the bare name, for the same
+     * reason: a file that merely SAYS TEST_DB_HOST — in a comment, in a
+     * message, in a docblock like this one — reaches no server. What is
+     * left reading it is the trait itself, this guard, and the helper that
+     * decides the skip.
+     */
+    private function opensTheConnection(string $source): bool
+    {
+        if (preg_match('/^[ \t]+use\s+(?:\\\\?Tests\\\\)?UsesProductionEngine\s*[;{]/m', $source) === 1
+            && preg_match('/\bproductionEngine(?:Connection)?\s*\(/', $source) === 1) {
+            return true;
+        }
+
+        return preg_match('/getenv\\(\\s*[\'"]TEST_DB_HOST[\'"]\\s*\\)/', $source) === 1;
     }
 
     /**
@@ -342,6 +370,48 @@ final class DatabaseBackedTestsReallyRunTest extends TestCase
             PHP;
 
         $this->assertSame(0, preg_match(self::DATABASE_WORDS, $this->skipCalls($capability)[0]['argument']));
+    }
+
+    /**
+     * What counts as reaching the server, shown on the shapes that must and
+     * must not: the exemption above is only as tight as this reading.
+     */
+    public function testOnlyAClassThatConnectsThroughTheFixtureIsExempt(): void
+    {
+        $connects = <<<'PHP'
+            <?php
+            use Tests\UsesProductionEngine;
+            final class ATest extends TestCase
+            {
+                use UsesProductionEngine;
+                protected function setUp(): void { $this->pdo = self::productionEngineConnection()->getPdo(); }
+            }
+            PHP;
+        $this->assertTrue($this->opensTheConnection($connects));
+
+        // Imported, never used as a trait: the import line sits in column 0.
+        $importedOnly = <<<'PHP'
+            <?php
+            use Tests\UsesProductionEngine;
+            final class ATest extends TestCase
+            {
+                protected function setUp(): void { self::productionEngineConnection(); }
+            }
+            PHP;
+        $this->assertFalse($this->opensTheConnection($importedOnly));
+
+        // Used, but nothing in the class ever connects.
+        $usedButIdle = <<<'PHP'
+            <?php
+            final class ATest extends TestCase
+            {
+                use \Tests\UsesProductionEngine;
+                public function testIt(): void { self::productionEngineCredentials(); }
+            }
+            PHP;
+        $this->assertFalse($this->opensTheConnection($usedButIdle));
+
+        $this->assertFalse($this->opensTheConnection("<?php\n// reads TEST_DB_HOST, in prose only\n"));
     }
 
     /**

@@ -247,10 +247,7 @@ final class GoogleDriveConnectionController extends AbstractController
                 $code
             );
             $about = $this->client->about($tokens['access_token']);
-            $folderId = $this->client->ensureFolder(
-                $tokens['access_token'],
-                GoogleDriveLocationConfig::FOLDER_NAME
-            );
+            $folderId = $this->locationService->resolveDriveFolder($this->client, $tokens['access_token'], $location);
 
             $this->locations->update(
                 $location->id,
@@ -337,10 +334,16 @@ final class GoogleDriveConnectionController extends AbstractController
         // « leave the secret alone », which is the opposite of what this
         // button means. The empty JSON document is present and says the
         // three values are gone.
+        //
+        // **The folder id stays** (#474). The folder is found by id and
+        // never by name, so forgetting it would have the same account,
+        // reconnected, start an empty folder beside the one holding every
+        // file — while a different account simply cannot see it and gets
+        // a folder of its own ({@see StorageLocationService::resolveDriveFolder()}).
         $this->locations->update(
             $location->id,
             $location->label,
-            new GoogleDriveLocationConfig(),
+            new GoogleDriveLocationConfig('', $this->configOf($location)->folderId, ''),
             (string) json_encode(['client_secret' => '', 'refresh_token' => '', 'account' => ''])
         );
 

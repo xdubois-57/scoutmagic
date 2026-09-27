@@ -23,9 +23,8 @@ use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Attestations\AttestationsTestHelper;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
-use Twig\TwigFunction;
 
 /**
  * The coverage screen, rendered.
@@ -283,12 +282,7 @@ class CoverageControllerTest extends TestCase
 
     private function buildTwig(): Environment
     {
-        $loader = new FilesystemLoader(dirname(__DIR__, 4) . '/core/View/templates');
-        $loader->addPath(dirname(__DIR__, 4) . '/modules/attestations/views', 'attestations');
-
-        $twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
-        $twig->addFunction(new TwigFunction('asset', static fn(string $path): string => $path));
-        $twig->addExtension(new \Core\View\DateFilterExtension());
+        $twig = TestTwig::create(['attestations']);
 
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', true);
@@ -299,10 +293,6 @@ class CoverageControllerTest extends TestCase
         $twig->addGlobal('menus', null);
         $twig->addGlobal('current_path', '/');
         $twig->addGlobal('csp_nonce', 'test-nonce');
-        $twig->addFunction(new TwigFunction('csrf_field', static fn(): string => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
-        $twig->addFunction(new TwigFunction('csrf_token', static fn(): string => 'test'));
-        $twig->addFunction(new TwigFunction('get_flash', static fn() => null));
-        $twig->addFunction(new TwigFunction('file_url', static fn(): string => ''));
 
         return $twig;
     }

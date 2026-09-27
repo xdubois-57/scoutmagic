@@ -221,7 +221,14 @@ class SettingService
      * SQL. The declared default is still self-healed when it differs
      * (including a NULL left by a row that predates the column) — the
      * register() call site stays the single source of truth that
-     * Core\Maintenance\Task\ResetSettingsHandler relies on.
+     * Core\Maintenance\Task\ResetSettingsHandler relies on. A value still
+     * equal to the default being replaced follows it (issue #355, see
+     * SettingRepository::updateDefaultValue()), so **one setting must have
+     * one declared default**: two call sites registering the same key with
+     * different defaults would drag a never-customised value back and
+     * forth. To give a setting a starting value of its own, register it
+     * with its declared default and write the value with setInternal(), as
+     * the setup wizard does for `statistics_enabled`.
      *
      * @param array<int, string>|null $selectOptions
      */
@@ -242,8 +249,13 @@ class SettingService
 
         if ($this->defaults !== null && array_key_exists($cacheKey, $this->defaults)) {
             if ($this->defaults[$cacheKey] !== $defaultValue) {
+                // May move the value too, when it was never customised
+                // (SettingRepository::updateDefaultValue()) — which the
+                // cached value cannot know, so the cache is dropped rather
+                // than patched. Costs one SELECT, on the one boot per
+                // release that changes a default.
                 $this->repository->updateDefaultValue($moduleId, $key, $defaultValue);
-                $this->defaults[$cacheKey] = $defaultValue;
+                $this->clearCache();
             }
             return;
         }

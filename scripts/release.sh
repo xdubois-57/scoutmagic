@@ -4,12 +4,13 @@ set -euo pipefail
 # Usage: ./scripts/release.sh [--minor|--major] [--notes-file <path>]
 #                             [--skip-deployment-check] [--skip-ci-gate]
 #                             [--skip-security-gate] [--skip-dependency-check]
-#                             [--skip-sonar-gate] [--skip-sources-gate]
+#                             [--skip-deprecated-api-gate] [--skip-sonar-gate]
+#                             [--skip-sources-gate]
 # Default: increments patch level, computes release notes from the commit
 # list (fetched via the same GitHub API `--generate-notes` itself calls),
-# and requires six gates to pass, in order, before anything is committed
+# and requires seven gates to pass, in order, before anything is committed
 # or tagged: deployment, continuous integration, security, dependency
-# freshness, SonarQube Cloud, external sources. Each finishes in seconds
+# freshness, deprecated browser API, SonarQube Cloud, external sources. Each finishes in seconds
 # (the last in under a minute), each is a
 # PRECONDITION rather than a statement about the code, and the release
 # stops at the first one that refuses.
@@ -119,6 +120,13 @@ set -euo pipefail
 #                               findings, unreviewed Security Hotspots, the
 #                               Quality Gate). Emergency use only — prints
 #                               a warning. See check_sonar_gate.
+#   --skip-deprecated-api-gate Bypass the deprecated browser API check
+#                               (has any engine removed
+#                               document.execCommand, which the rich-text
+#                               editors depend on — issue #379). Rarely
+#                               needed: that gate already reports rather
+#                               than blocks when it cannot read the data.
+#                               See check_deprecated_api_gate.
 #   --skip-sources-gate        Bypass the external sources check (the
 #                               federation pages the site reads or links,
 #                               the provider consoles its help texts send
@@ -153,6 +161,7 @@ SKIP_CI_GATE=0
 SKIP_DEPENDENCY_CHECK=0
 SKIP_DEPLOYMENT_CHECK=0
 SKIP_SONAR_GATE=0
+SKIP_DEPRECATED_API_GATE=0
 SKIP_SOURCES_GATE=0
 
 while [[ $# -gt 0 ]]; do
@@ -170,10 +179,11 @@ while [[ $# -gt 0 ]]; do
         --skip-dependency-check) SKIP_DEPENDENCY_CHECK=1; shift ;;
         --skip-deployment-check) SKIP_DEPLOYMENT_CHECK=1; shift ;;
         --skip-sonar-gate) SKIP_SONAR_GATE=1; shift ;;
+        --skip-deprecated-api-gate) SKIP_DEPRECATED_API_GATE=1; shift ;;
         --skip-sources-gate) SKIP_SOURCES_GATE=1; shift ;;
         *)
             echo "ERROR: unknown argument: $1" >&2
-            echo "Usage: $0 [--minor|--major] [--notes-file <path>] [--skip-deployment-check] [--skip-ci-gate] [--skip-security-gate] [--skip-dependency-check] [--skip-sonar-gate] [--skip-sources-gate]" >&2
+            echo "Usage: $0 [--minor|--major] [--notes-file <path>] [--skip-deployment-check] [--skip-ci-gate] [--skip-security-gate] [--skip-dependency-check] [--skip-sonar-gate] [--skip-deprecated-api-gate] [--skip-sources-gate]" >&2
             exit 1
             ;;
     esac
@@ -646,6 +656,38 @@ check_dependency_freshness_gate() {
 }
 
 # ---------------------------------------------------------------
+# Deprecated browser API gate — delegates to
+# scripts/check-deprecated-api.php (kept as a separate script for the same
+# reason check-sonar-release.sh is: its logic is a shape-sensitive read of
+# an upstream JSON document, and it is unit-tested on its own in
+# tests/Core/System/DeprecatedApiCheckTest.php).
+#
+# Asked for by the maintainer on issue #379: the rich-text editors are
+# built on document.execCommand, which is deprecated with no standard
+# replacement, so a release should check that no engine has removed it.
+#
+# THE ONE GATE HERE THAT DOES NOT FAIL CLOSED, deliberately. It answers a
+# question about a removal that has happened nowhere yet — so a network
+# error means "not checked", reported as such in the release notes, rather
+# than a release refused. What a real removal would break is caught by the
+# browser job's own alarm (tests/e2e/specs/rich-text-commands.spec.js),
+# which IS blocking and which the CI gate above already reads. A removal
+# actually found in the data does block, with exit code 2. The script's
+# header argues this at length.
+# ---------------------------------------------------------------
+check_deprecated_api_gate() {
+    command -v php &> /dev/null || { echo "ERROR: php is required for the deprecated browser API gate." >&2; exit 1; }
+
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+    # The script writes its own report line to ${GATE_REPORT_FILE} on every
+    # path — supported, removed, or not checked — and prints its own
+    # reason, so there is nothing to add here.
+    php "${script_dir}/check-deprecated-api.php" || exit 1
+}
+
+# ---------------------------------------------------------------
 # SonarQube Cloud gate — delegates to scripts/check-sonar-release.sh (kept
 # as a separate script rather than inlined here: its logic — multiple Web
 # API calls, JSON parsing, fail-closed error handling — is non-trivial
@@ -689,8 +731,8 @@ check_sonar_gate() {
 # so a divergence found here should already have its issue.
 #
 # Last, because it is the one gate that depends on third parties'
-# websites rather than on this repository: whatever it says, the five
-# before it have already said everything about the code.
+# websites rather than on this repository: whatever it says, every gate
+# before it has already said everything about the code.
 # ---------------------------------------------------------------
 check_sources_gate() {
     local script_dir
@@ -708,7 +750,7 @@ check_sources_gate() {
 }
 
 # ---------------------------------------------------------------
-# Gate execution — six gates, in this order, one after another, and
+# Gate execution — seven gates, in this order, one after another, and
 # the release stops at the first one that refuses.
 #
 # They are ordered by what they are about rather than by cost, because
@@ -724,7 +766,7 @@ check_sources_gate() {
 # fought over the same local MySQL server, and a collection loop that
 # reported every failure together. All of it existed to overlap runs
 # measured in tens of minutes. With none of those left, the machinery
-# would be a page of orchestration for six checks that finish before
+# would be a page of orchestration for seven checks that finish before
 # it could have forked them.
 #
 # Each gate still runs in a subshell under `set +e`, because several are
@@ -799,6 +841,13 @@ else
     run_gate dependency "Dependency freshness" check_dependency_freshness_gate
 fi
 
+if [[ "${SKIP_DEPRECATED_API_GATE}" -eq 1 ]]; then
+    echo "WARNING: --skip-deprecated-api-gate used — nothing checked whether a browser engine has removed document.execCommand, which the rich-text editors depend on (issue #379). Verify it by hand on https://caniuse.com/document-execcommand." >&2
+    DEPRECATED_API_GATE_REPORT_LINE="ignoré (\`--skip-deprecated-api-gate\`) — à vérifier manuellement sur https://caniuse.com/document-execcommand."
+else
+    run_gate deprecated_api "Deprecated browser API" check_deprecated_api_gate
+fi
+
 if [[ "${SKIP_SONAR_GATE}" -eq 1 ]]; then
     echo "WARNING: --skip-sonar-gate used — active SonarQube Cloud security findings, unreviewed Security Hotspots, and the Quality Gate were NOT checked for this release. Emergency use only: verify and resolve them immediately after publishing." >&2
     SONAR_GATE_REPORT_LINE="ignoré (\`--skip-sonar-gate\`) — à vérifier manuellement."
@@ -820,6 +869,7 @@ DEPLOYMENT_GATE_REPORT_LINE="${DEPLOYMENT_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DI
 CI_GATE_REPORT_LINE="${CI_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/ci.report" 2>/dev/null)}"
 SECURITY_GATE_REPORT_LINE="${SECURITY_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/security.report" 2>/dev/null)}"
 DEPENDENCY_GATE_REPORT_LINE="${DEPENDENCY_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/dependency.report" 2>/dev/null)}"
+DEPRECATED_API_GATE_REPORT_LINE="${DEPRECATED_API_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/deprecated_api.report" 2>/dev/null)}"
 SONAR_GATE_REPORT_LINE="${SONAR_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/sonar.report" 2>/dev/null)}"
 SOURCES_GATE_REPORT_LINE="${SOURCES_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/sources.report" 2>/dev/null)}"
 
@@ -827,6 +877,7 @@ GATE_REPORT="- **Déploiement** : ${DEPLOYMENT_GATE_REPORT_LINE}
 - **Intégration continue** : ${CI_GATE_REPORT_LINE}
 - **Sécurité** : ${SECURITY_GATE_REPORT_LINE}
 - **Dépendances** : ${DEPENDENCY_GATE_REPORT_LINE}
+- **API navigateur dépréciée** : ${DEPRECATED_API_GATE_REPORT_LINE}
 - **SonarQube Cloud** : ${SONAR_GATE_REPORT_LINE}
 - **Sources externes** : ${SOURCES_GATE_REPORT_LINE}
 "

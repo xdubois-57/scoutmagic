@@ -52,8 +52,18 @@ final class ExternalSources
     /** Linked from the federation logo on the contact page. */
     public const FEDERATION_PAGE = 'https://lesscouts.be/fr/le-scoutisme/la-federation-les-scouts';
 
-    /** Where the badges go on the uniform — for issue #473, not used yet. */
-    public const BADGE_PLACEMENT_PAGE = 'https://lesscouts.be/fr/news/uniforme-ou-coudre-les-ecussons';
+    /**
+     * Where to sew the insignia on the uniform, branch by branch (issue
+     * #473): linked from the sections page, from the branch card of a
+     * member's page, and from the help topic `ou-placer-les-insignes`.
+     *
+     * The ARTICLE, never the PDF it embeds: `lesscouts.be/api/file/<id>` is
+     * an internal file id that dies the day the federation re-uploads the
+     * document, while the article is the address it maintains. The same for
+     * every unit, so a constant rather than a setting — a move is a release,
+     * like the other federal pages above.
+     */
+    public const INSIGNIA_PLACEMENT_PAGE = 'https://lesscouts.be/fr/news/uniforme-ou-coudre-les-ecussons';
 
     /** The id of the one source the checker extracts the federal scale from. */
     public const FEES_PAGE_ID = 'federal-fees';
@@ -145,13 +155,17 @@ final class ExternalSources
                 expectedContent: ['La fédération Les Scouts'],
             ),
             new ExternalSource(
-                id: 'federal-badge-placement',
-                url: self::BADGE_PLACEMENT_PAGE,
+                id: 'federal-insignia-placement',
+                url: self::INSIGNIA_PLACEMENT_PAGE,
                 kind: ExternalSourceKind::Content,
-                purpose: 'Where to sew the badges on the uniform (upcoming, issue #473).',
-                usedIn: [],
-                expectedContent: ['écussons'],
-                upcoming: true,
+                purpose: 'Where to sew the insignia on the uniform, by branch: linked from the sections page, '
+                    . 'the branch card of a member\'s page and the help topic ou-placer-les-insignes.',
+                usedIn: [
+                    'core/Http/Controller/PageController.php',
+                    'core/Member/MemberPageService.php',
+                    'docs/help/ou-placer-les-insignes.md',
+                ],
+                expectedContent: ['où coudre les écussons'],
             ),
             self::link(
                 'federal-adult-quality-code',

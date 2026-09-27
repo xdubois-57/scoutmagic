@@ -1690,3 +1690,448 @@ CI définit ses jobs, l'inventaire compte les routes, et le document seul
   et déplacer le bloc (les numéros restent justes, le texte bouge). Déposé
   en **#488**, la revue ayant relevé qu'un constat différé sans issue est
   précisément ce qu'`AGENTS.md` interdit.
+
+### Itération 9 — Les chemins d'échec, lot 1 : `MassMailController` — 2026-09-26
+
+**Périmètre parcouru** : la suite de l'itération 6, sur le premier fichier de
+son tableau. Issue #449 avait laissé 327 branches d'erreur jamais exécutées ;
+`modules/mass_mail/src/Controller/MassMailController.php` en portait le plus
+gros lot, **douze**.
+
+**La mesure, refaite plutôt que reprise.** Les chiffres de l'itération 6
+datent du 2026-09-21 et `main` a bougé depuis. La même méthode, réappliquée
+sur `578f4c9e` — `vendor/bin/phpunit --coverage-php`, 21 512 tests, puis la
+première ligne exécutable de chaque corps de `catch` — redonne
+**42,3 %**, et le haut du tableau à l'identique : MassMail 12, Campaign 8,
+MemberEmailAddress 7, OutboundMail 7, GalleryChief 7. La méthode du ticket est
+donc corroborée indépendamment.
+
+> Deux pièges dans la lecture du rapport, tous deux rencontrés ici.
+> `$payload['codeCoverage']` **est** le `ProcessedCodeCoverageData`, pas un
+> `CodeCoverage` à qui demander `getData()`. Et le rapport indexe ses fichiers
+> par chemin **relatif** — d'où sa clé `basePath`. Chercher par chemin absolu
+> ne trouve rien et rapporte 97,8 % de branches jamais exécutées, chiffre si
+> gros qu'il se dénonce lui-même : `MailTransportChain` y figurait, que
+> l'itération 6 avait justement couvert.
+
+**Le vrai défaut, trouvé en demandant *pourquoi* une branche n'est jamais
+exécutée.** Trois des douze ne l'étaient pas faute de test : elles étaient
+**inatteignables**. Elles nomment `MassMailException`, alors que l'appel
+qu'elles entourent lève `MailingListException` — une classe **sœur**, non
+parente (toutes deux `\RuntimeException` + `Core\Exception\UserFacingException`).
+La panne pour laquelle elles ont été écrites passait donc à côté d'elles, et
+finissait en 500.
+
+Le scénario ne demande aucune doublure : la liste « externe » est fournie par
+le module `registration` (ARCHITECTURE.md §7.5), et le docblock de
+`MailingListService` dit que le fournisseur est nul « whenever that module is
+disabled ». Un email écrit quand il était actif pointe toujours sur cette
+liste après. Mesuré : sans le correctif, les trois tests **erreurent** sur un
+`MailingListException: Liste externe indisponible.` sorti du contrôleur.
+
+| Page | Ce qu'un chef obtenait | Ce qu'il obtient |
+|---|---|---|
+| « Destinataires » | 500 | la page, et la raison affichée |
+| le décompte avant envoi | 500 | `404`, la raison dans la charge JSON |
+| « Lancer l'envoi » | 500 | l'envoi refusé, l'email intact en mode test |
+
+La première ligne a demandé une seconde passe, sur un autre finding de revue.
+Élargir le `catch` suffisait à ne plus rendre 500, mais il n'annonçait rien :
+il ne capturait même pas `$e`, et `recipients.html.twig` n'a pas de
+`{% else %}` après son `{% elseif estimate %}` — donc la section du décompte
+se rendait **vide**. Mieux qu'un 500 et inutile pour le chef, venu justement
+savoir qui le courrier atteint. La raison est désormais posée en message,
+comme le fait le `catch` de l'audience dix lignes plus haut et comme le font
+les deux autres sites corrigés.
+
+La deuxième ligne mérite sa nuance, relevée par une troisième passe de revue :
+le gain y est **entièrement côté serveur**. `recipientSentence()`
+(`public/assets/js/mass-mail-compose.js`) rend `''` dès que `data.success` est
+faux et ne lit jamais `data.error` — ce qu'un test Vitest existant épingle
+déjà. Le dialogue de confirmation est donc identique avant et après : toujours
+sans nombre et sans raison. Ce qui a changé est qu'un `404` propre remplace un
+`MailingListException` non attrapé devenu 500. Afficher la raison dans le
+dialogue est déposé en **#579**, parce que cela touche le JavaScript et son
+test, et qu'un constat différé sans ticket est ce qu'`AGENTS.md` interdit.
+
+Le test de cette page souffrait du défaut jumeau, relevé par la même revue :
+il affirmait la présence de « Destinataires », que le contrôleur passe
+**inconditionnellement** sur le seul chemin rendant un 200. Un test qui ne
+peut pas échouer, c'est-à-dire le §1 de ce chantier, dans l'itération qui
+prétend le corriger. Il affirme maintenant la raison elle-même, et rougit
+quand le message est retiré.
+
+La cause de la cause est une déclaration fausse : `estimateRecipientCount()`
+ne déclarait que `@throws MassMailException`, et `startSending()` pareil, alors
+que `resolveMembersForYears()` déclare bien la sienne. PHPStan a refusé le
+correctif d'abord — « Dead catch … is never thrown in the try block » — et il
+avait raison sur les `@throws`, faux sur le code. Les deux déclarations sont
+complétées ; PHPStan est propre sans annotation de contournement.
+
+**Mutations tentées** :
+
+| Mutation | Tests exécutés | Verdict |
+|---|---|---|
+| le correctif retiré (les trois `catch` re-rétrécis) | 3 | **3 erreurs**, exception non attrapée |
+| `default => ` de `changeStatus` ne lève plus | 1 | **rouge** |
+| `showAudience` répond 200 au lieu de 404 | 1 | **rouge** |
+| la raison du service remplacée dans `mergePreview` | 1 | **rouge** |
+| idem dans `uploadAttachment`, `deleteAttachment`, `recipients` | 3 | **3 rouges** |
+| le `catch` de `buildComposeContext` ne correspond plus | 1 | **erreur** |
+| `importAudience` ne rapporte que la première ligne fautive | 1 | **rouge** |
+
+**Corrigé dans cette PR** :
+
+- `MassMailController` — trois `catch` élargis à
+  `MassMailException|MailingListException`, chacun avec la raison écrite à
+  côté de lui.
+- `MassMailService` — `@throws MailingListException` sur
+  `estimateRecipientCount()` et `startSending()`.
+- `MassMailPageTest` — dix tests, et la doublure de `AudienceImportService`
+  remplacée par le **vrai** service : la branche testée est le refus de
+  l'importeur, et une doublure à qui l'on dit de lever n'affirmerait que le
+  transport d'une exception écrite à la main (§3). `CsrfTest` garde la
+  sienne, à raison : il vérifie que la garde passe *avant* ce service.
+  Le fichier Excel est réel, écrit avec la bibliothèque qui le relit, et
+  porte deux lignes refusables sur trois — le contrat « tout ou rien, et
+  toutes les lignes d'un coup » est affirmé dans ses deux moitiés.
+
+**Résultat mesuré** : de **12** branches jamais exécutées dans ce fichier à
+**2**.
+
+**Une erreur de cette itération, relevée en revue et corrigée ici** :
+
+Les deux tests de l'audience indisponible fabriquaient d'abord un état que
+la production ne peut pas atteindre. Ils supprimaient la ligne d'audience par
+un `DELETE` direct, laissant `mass_mail_emails.audience_id` pointer dans le
+vide — or une vraie purge passe par `AudienceRepository::deleteById()`, dont
+la **première** instruction met cette colonne à `NULL`, conformément au
+`ON DELETE SET NULL` du schéma et au commentaire qui l'accompagne
+(« the sent email itself lives on, merely unlinked »). Le schéma SQLite des
+tests déclare cette clé étrangère **sans action**, ce qui a rendu la
+fabrication possible et silencieuse.
+
+C'était donc un test qui certifiait la couverture d'un état impossible —
+exactement le défaut que cette itération corrige, réintroduit dans les tests
+écrits pour le fermer. Le commentaire de la branche nommait pourtant les deux
+cas : « a purged **or someone else's** audience ». Le second est atteignable,
+et c'est lui qui est testé maintenant : un chef d'unité prépare un
+publipostage pour une section avec le fichier qu'il a importé, un chef de
+cette section ouvre « Destinataires ». Le fixture construit donc un membre
+lié portant une fonction de section, puisque c'est par là que
+`findVisibleEmail()` admet un non-chef d'unité.
+
+Deux pièges rencontrés en le construisant, consignés pour la suite : chaque
+colonne chiffrée a son **propre** contexte (`member_years.first_name` et les
+autres), une erreur de contexte se manifestant par « Decryption failed » depuis
+les profondeurs du dépôt ; et Twig échappe « ' » en « &#039; », donc un
+fragment assertionné dans une page rendue ne doit pas porter d'apostrophe —
+le message du service en contient deux.
+
+**Non vérifiable, et pourquoi** :
+
+- **Les deux dernières branches ne sont pas atteignables par un test
+  mono-thread, et ne sont pas pour autant du code mort.** `tracking()`
+  attrape ce que `getTrackingData()` lève quand l'email n'existe pas — mais
+  le contrôleur vient de le résoudre par le même dépôt, deux lignes plus
+  haut. `resend()` a la même forme : `findEmailIdForRecipient()` et
+  `resendToRecipient()` posent la **même** requête sur le même id. Ce sont
+  des fenêtres TOCTOU : une suppression concurrente entre les deux requêtes
+  les ouvre, et la garde transforme alors un 500 en réponse propre. Les
+  atteindre demanderait une doublure qui mente sur le dépôt, c'est-à-dire
+  exactement ce que §3 reproche. Elles restent, documentées ici.
+- **La mesure porte toujours sur l'exécution, pas sur la vérification.** Les
+  dix branches closes ici le sont avec une assertion d'état en plus du
+  message — rien n'écrit, le statut inchangé, la pièce jointe encore là —
+  mais ce renforcement n'est pas ce que le chiffre de 42,3 % mesure, et le
+  reste du dépôt n'en bénéficie pas.
+
+### Itération 10 — Les chemins d'échec, lot 2 : `CampaignController` — 2026-09-27
+
+**Mesuré d'abord.** Le script du scratchpad, relu sur une exécution neuve de
+la suite complète (21 586 tests, 0 échec) : **845 blocs `catch` balayés, 349
+corps jamais exécutés (41,3 %)**. `MassMailController` avait disparu du
+tableau — le lot 1 tient —, et `CampaignController` y était passé premier
+avec **8** branches, sur ses 12.
+
+Deux pièges de lecture du rapport `--coverage-php`, qui coûtent une mesure
+chacun et que la suite doit éviter de payer une troisième fois :
+`$payload['codeCoverage']` **est** le `ProcessedCodeCoverageData` (il n'a pas
+de `getData()`), et le rapport indexe les fichiers par chemin **relatif** —
+d'où sa clé `basePath`. Une recherche par chemin absolu ne trouve rien et
+rend un taux flatteur et faux.
+
+**Ce lot ne porte que sur un fichier**, alors que le plan en annonçait
+quatre. Le lot 1, sur un seul fichier déjà, a produit cinq rondes de revue ;
+une PR de quatre contrôleurs ne serait pas relisable. Les trois autres
+suivront séparément.
+
+| Branche | Ce qu'un trésorier y lit | Atteinte par |
+|---|---|---|
+| `create()` `FinanceException` | « Donnez un nom à la campagne. » | un envoi sans nom |
+| `export()` → `notFound()` | un 404, comme une page inconnue | un id de campagne inconnu |
+| `updateStatus()` | « Cette campagne n'existe pas. » | idem |
+| `saveNote()` | « Cette créance n'existe pas. » | un `rowId` inconnu |
+| `waive()` | « Cette campagne n'existe pas. » | idem, sur une créance qui existe |
+| `reminder()` `FinanceException` | « Le module de publipostage n'est pas activé. » | **aucune doublure** — voir plus bas |
+| `reminder()` `\Throwable` | la phrase de repli, et rien du module | une doublure qui lève un `\RuntimeException` |
+| `notify()` | « Cette campagne n'existe pas. » | un id de campagne inconnu |
+
+**La trouvaille du lot** : la branche `reminder()`/`FinanceException` ne
+demande pas de doublure. Le contrôleur par défaut du test porte déjà le
+**vrai** `CampaignReminderService`, construit avec `null` pour le module de
+publipostage — la configuration d'un site qui ne le fait pas tourner, et le
+commentaire du fixture le disait depuis toujours (« mass_mail disabled: the
+button is simply not offered »). Le bouton n'est pas proposé sur un tel site,
+mais la route répond quand même, et c'est ce qu'elle répond qui est
+maintenant affirmé. Une seule branche sur huit justifie une doublure, celle
+dont l'exception d'un autre module **est** le sujet ; le fichier en portait
+déjà le précédent et sa justification (`controllerWithReminderUrl()`), dont
+l'assemblage est désormais partagé au lieu d'être recopié.
+
+**Preuve par mutation ciblée** (§0.3), une mutation à la fois, restaurée
+après chacune :
+
+| Mutation | Verdict |
+|---|---|
+| `create()` : le refus perd sa raison | **rouge** |
+| `export()` : le 404 devient une redirection | **rouge** |
+| `updateStatus()` : le refus est avalé | **rouge** |
+| `saveNote()` : le refus est avalé | **rouge** |
+| `waive()` : la campagne n'est plus résolue en premier | **rouge** |
+| `reminder()` : le refus `FinanceException` est avalé | **rouge** |
+| `reminder()` : le message du module est affiché tel quel | **rouge** |
+| `notify()` : le refus est avalé | **rouge** |
+| `requireCampaign()` : le contrôle par compte est retiré | **rouge** |
+
+**Une assertion d'état sur trois ne pouvait pas échouer, et a été
+remplacée.** Les premières versions de trois tests affirmaient, après un
+refus sur un id inconnu, que la vraie campagne restait ouverte, non notifiée
+et sans note. Aucune mutation plausible de ce contrôleur ne fait échouer ces
+assertions : l'écriture refusée porterait de toute façon sur l'id 999, qui
+n'existe pas, donc elle ne toucherait rien même si la garde sautait. C'était
+donc du §1 — un test qui ne peut pas échouer — écrit dans l'itération censée
+le corriger, comme le lot 1 avait écrit un état impossible dans la sienne.
+
+Le refus qui **peut** écrire est ailleurs : une campagne qui existe, sur un
+compte dont le plancher `role_min_view` a été relevé depuis. Les quatre
+gestes qui modifient quelque chose la résolvent par le même prédicat, et
+doivent tous la laisser intacte — c'est la décision par compte que le
+docblock du contrôleur énonce, pas le `role_min: intendant` de la route. Un
+test le vérifie, et retirer ce prédicat de `requireCampaign()` le fait
+rougir : la campagne est alors clôturée, notifiée, annotée et la créance
+abandonnée, depuis l'extérieur de son compte.
+
+**Résultat mesuré** : de **8** branches jamais exécutées dans ce fichier à
+**0** — `CampaignController` ne figure plus au tableau. Par soustraction sur
+la même exécution, 341 sur 845 (40,4 %) ; la mesure globale n'a pas été
+refaite.
+
+**Au passage** : les deux doublures du fichier passent de `createMock()` à
+`createStub()`. Aucune des deux ne configure d'attente, et PHPUnit 13 émet
+une notice pour le dire — l'une la déclenchait avant ce lot.
+
+**Le défaut le plus intéressant du lot n'était pas dans un test, mais dans une
+phrase** — relevé par CodeRabbit dans son paragraphe « Merge Risk », pas dans
+un commentaire en ligne, donc à un endroit qu'il est facile de ne pas lire.
+
+Le commentaire de `waive()` affirmait depuis l'origine que résoudre la
+campagne d'abord empêche d'abandonner « une créance d'une autre campagne — ou
+d'un autre compte ». La seconde moitié est vraie mais tenue ailleurs, dans
+`ReceivableAllocationService::requireReceivable()`. La première est **fausse** :
+`$campaignId` et `$receivableId` ne se rencontrent jamais dans cette route. Et
+le docblock du test que j'écrivais pour couvrir cette branche répétait
+l'affirmation, ce qui l'aurait certifiée.
+
+Les deux commentaires disent maintenant ce que le code fait, et renvoient à
+l'issue #582 ; le comportement n'a pas été changé, une PR de durcissement des
+tests n'étant pas l'endroit pour modifier ce qu'une route accepte.
+
+C'est la quatrième fois sur ce chantier que mon défaut est une phrase et non du
+code — après la ligne `files` du lot 1, la boîte de dénombrement du lot 1, et
+le compte de portes de `release.sh`. Le chantier existe pour retirer des tests
+les affirmations que le code ne tient pas ; il faut le lire aussi sur les
+commentaires écrits pour les accompagner.
+
+**Et une cinquième fois, dans le correctif de la quatrième.** La phrase qui
+remplaçait l'affirmation fausse en portait une autre : elle disait que le
+contrôle côté créance (`ReceivableAllocationService::requireReceivable()`)
+était « asserté par
+`testNothingCanBeChangedOnACampaignWhoseAccountIsOutOfReach` ». Il ne
+l'était pas. Ce test relève le plancher du compte **de la campagne**, donc
+`requireCampaign()` lève d'abord et le service d'allocation n'est jamais
+atteint — l'assertion du test le dit elle-même, puisqu'elle attend « Cette
+campagne n'existe pas. » et non « Cette créance n'existe pas. ». Relevé par
+`Claude review`, en commentaire en ligne.
+
+La réponse n'a pas été d'adoucir la phrase mais de la rendre vraie :
+`testAReceivableOnAnAccountOutOfReachIsRefusedThroughACampaignInReach` nomme
+une campagne **à portée** et, à côté d'elle, la créance d'une autre campagne
+sur un compte qui ne l'est pas. `requireCampaign()` passe — c'est #582 — et le
+refus vient du contrôle côté créance, ce que son message prouve.
+
+Retirer ce contrôle rend ce test rouge **et lui seul** dans ce fichier
+(vérifié, les deux moitiés de l'affirmation), et la créance est alors
+réellement abandonnée depuis l'extérieur de son compte : « La créance a été
+abandonnée. » C'est ce garde-fou qui fait de #582 une question d'honnêteté de
+route et non un trou de privilège — et il n'était, jusqu'ici, asserté par
+aucun test passant par cette route.
+
+La leçon de méthode, pour la suite du chantier : une phrase qui dit « ceci est
+couvert ailleurs » est une affirmation vérifiable, et se vérifie comme le
+reste — en cassant ce qu'elle nomme pour voir qui rougit.
+
+**Ce que le relecteur local trouve, et ce que cela dit du lot.** Le passage
+« One round per reading, and the arithmetic that says why » de
+`.claude/skills/steward/SKILL.md` prescrit de lancer la compétence
+`code-review` sur le diff **avant** de pousser un correctif de revue : elle lit
+comme le relecteur de CI, coûte des minutes et zéro dollar. Je ne l'avais pas
+fait sur ce lot. Lancée après coup sur les quatre commits, elle a rendu cinq
+constats, dont deux du §1 — dans le code écrit pour fermer des défauts du §1 :
+
+- `assertNull($this->rows->findById($rowId)?->note)` passe aussi quand la
+  **ligne** a disparu : « la ligne n'existe plus » n'est pas « la note n'a pas
+  été écrite ». Les trois assertions voisines, elles, échouent sur `null`.
+- `FlashMessage` est une case unique, écrasée à chaque appel. Une seule
+  assertion posée après quatre gestes ne fixait donc que la raison du
+  **dernier** : les trois autres pouvaient être refusés pour n'importe quoi
+  d'autre — une régression CSRF, une résolution qui se déclenche avant — et le
+  test restait vert. Vérifié : en faisant refuser la clôture pour une autre
+  raison, l'ancienne forme passait, la nouvelle rougit.
+
+Les trois autres : un docblock qui annonçait « trois gestes » pour quatre et
+prêtait à `saveNote()` un ordre de résolution qui n'est pas le sien (elle passe
+par la ligne), deux affectations mortes, et `createCampaign()` qui rendait `1`
+en dur — inoffensif jusqu'à ce que ce lot rende deux campagnes possibles dans
+le même fichier, après quoi appeler les deux fabriques dans l'autre ordre
+rendait un identifiant faux **sans faire échouer aucune de leurs propres
+assertions**. Corrigé en lisant l'identifiant dans la redirection, et vérifié
+en inversant l'ordre des deux fabriques : vert.
+
+C'est exactement l'arithmétique que la compétence décrit — « cinq de ses dix
+constats portaient sur le code poussé pour corriger les quatre précédents ».
+Sur ce lot, deux rondes payantes ont trouvé deux défauts de prose ; la
+troisième aurait trouvé ces cinq-là. Le relecteur local passe avant, désormais.
+
+### Itération 11 — Les chemins d'échec, lot 3 : `MemberEmailAddressController` — 2026-09-27
+
+**Mesuré d'abord, et cette fois la mesure globale a été refaite** :
+**845 blocs `catch` balayés, 341 corps jamais exécutés (40,4 %)**. Le lot 2
+avait annoncé ce chiffre par soustraction en disant qu'il n'était pas mesuré ;
+il l'est maintenant, et il tombe juste. `CampaignController` a disparu du
+tableau, comme `MassMailController` avant lui.
+
+`MemberEmailAddressController` en portait **7 sur 9**, aux lignes 76, 111, 113,
+144, 175, 231 et 307 — les deux déjà exécutées étant le `MemberEmailException`
+de `add()` et le `MemberNotFoundException` de `requireOwnMemberId()`.
+
+**Un seul fichier encore**, alors que le plan annonçait trois contrôleurs.
+`OutboundMailController` fait 2 791 lignes pour 20 `catch` et mérite son propre
+lot ; `GalleryChiefController` en porte 12. Le lot 2, sur un fichier, a produit
+six constats de revue au total.
+
+**Ce que ces branches ont en commun, et ce qui change donc dans les
+assertions.** Elles existent pour qu'un membre apprenne pourquoi son geste n'a
+pas abouti. Or les tests du fichier n'assertaient que le code 302 — que le
+chemin de succès rend aussi. Chaque test de ce lot affirme donc le **type** et
+le **texte** de ce qui atterrit sur la page. Le test préexistant
+`testAddSurfacesAMemberEmailExceptionAsAFlashMessageNotAnError` portait dans son
+nom la promesse d'un message qu'il ne vérifiait pas : il l'assure maintenant.
+
+| Branche | Ce qu'un membre y lit |
+|---|---|
+| `add()` `MailException` | « l'adresse a été enregistrée, mais l'email de confirmation n'a pas pu être envoyé » |
+| `resend()` `MemberEmailException` | la raison du service, telle quelle |
+| `resend()` `MailException` | « n'a pas pu être envoyé » — surtout pas la phrase de succès |
+| `delete()` | la raison du service |
+| `reactivate()` | la raison du service |
+| `unblockBounce()` | la raison du service |
+| `deskEmailFor()` `MemberNotFoundException` | rien : l'adresse Desk ne voyage pas, et la réponse arrive quand même |
+
+**La branche qui dit ce que le service n'a pas dit.** Le `MailException` de
+`add()` est la seule où le contrôleur ajoute une information : l'adresse **est**
+enregistrée, seul le courriel a échoué. Annoncer un échec sec serait donc faux,
+et cacherait le seul recours qui fonctionne.
+
+Ma première formulation disait « la seconde tentative refuserait, l'adresse étant
+déjà là ». **Faux**, relevé par `Claude review` et vérifié : `addEmail()` ne
+refuse un doublon que pour une ligne `SOURCE_DESK`. Pour une ligne manuelle en
+attente — exactement ce que laisse un envoi échoué — elle **rend la ligne
+existante**, en renvoyant la confirmation seulement si le délai d'attente est
+écoulé. Or `MemberEmailRepository::create()` a déjà posé
+`last_confirmation_sent_at` : le délai court, et une nouvelle tentative
+immédiate ne fait donc **rien du tout, en silence**. Le comportement réel est
+pire que celui que je décrivais, ce qui renforce l'utilité de la branche plutôt
+que de l'affaiblir : sans ce message, le membre ressaisit une adresse déjà
+présente et n'obtient aucune réaction.
+
+C'est la branche la plus utile du lot, et elle n'était jamais exécutée.
+
+**Les doublures restent, et pour deux raisons différentes.** Pour les deux
+`MailException`, l'échec de la couche courriel **est** le sujet — même
+raisonnement qu'au lot 2 pour son `\Throwable`. Pour les `MemberEmailException`,
+la doublure porte la formulation réelle du service et ce qui est sous test est
+le seul travail du contrôleur : transmettre cette raison sans la changer, comme
+une erreur et non comme un succès. Le docblock du lot le dit, plutôt que de
+laisser croire que la décision du service est vérifiée ici.
+
+**La fenêtre TOCTOU, atteinte cette fois.** Au lot 1, deux branches de ce type
+avaient été documentées comme inatteignables. Celle-ci l'est : `deskEmailFor()`
+relit le profil **après** que `requireOwnMemberId()` l'a déjà lu, donc un membre
+supprimé entre les deux lectures tombe dans son `catch`. La doublure répond
+différemment au second appel, ce qui n'est pas une doublure qui mente sur le
+système (§3) : un membre **peut** être supprimé en cours de requête. Et l'effet
+du `catch` n'était observable qu'en donnant au profil une adresse Desk — le
+fixture du fichier n'en portait pas, si bien que le `null` du chemin normal et
+celui du chemin fautif étaient indistinguables.
+
+**Preuve par mutation** : neuf mutations, une à la fois, restaurées après
+chacune — le succès partiel changé en échec sec, quatre raisons de service
+avalées, un échec d'envoi présenté comme un succès, l'adresse Desk prise dans la
+requête, le profil disparu plus rattrapé. **Neuf rouges.**
+
+La neuvième a été ajoutée après coup, et elle dit quelque chose sur la méthode :
+CodeRabbit a relevé — sous l'étiquette « Trivial » — que les assertions du
+message de succès partiel laissaient passer « l'adresse a été enregistrée **et**
+l'email de confirmation a été envoyé ». Exact. Ma mutation d'origine supprimait
+« a été enregistrée », donc elle était attrapée ; une mutation qui garde cette
+phrase et prétend l'envoi réussi ne l'était pas. Démontré dans les deux sens :
+avant le correctif elle survit, après elle est tuée.
+
+**Une table de mutations ne vaut que par les mutations qu'on a imaginées.** La
+leçon vaut pour la suite du chantier : quand une assertion porte sur un texte
+composé de deux affirmations, muter chacune séparément — pas seulement celle qui
+vient à l'esprit.
+
+**Corrigé au passage, dans le fichier de production** : un docblock attaché à la
+mauvaise méthode. Il décrivait `requireOwnMemberId()` — « Returns the persistent
+member id on success » — et se trouvait devant `deskEmailFor()`, qui rend une
+adresse. La famille de défaut de ce chantier, un étage au-dessus du test.
+
+**Le relecteur local lancé AVANT de pousser**, comme la compétence steward le
+prescrit et comme le lot 2 avait omis de le faire. Cinq constats, trois à moi et
+corrigés ici : un fixture qui recopiait un constructeur de dix-neuf arguments
+plutôt que de prendre un paramètre optionnel, une assertion
+`assertStringNotContainsString('renvoyé', …)` qui aurait rougi sur la
+formulation **correcte** « n'a pas pu être renvoyé » — un test qui punit le
+correctif — et l'absence de cette entrée de journal.
+
+**Deux constats hors périmètre, vérifiés et ouverts en tickets.** #586 :
+`unblockBounce()` paie une hydratation complète de profil que le service ignore
+dès que `email_id` n'est pas 0 — et ce second appel est la seule raison d'être de
+la fenêtre TOCTOU ci-dessus, donc le rendre conditionnel la réduirait à la
+branche où l'adresse Desk compte. #587 : `addEmail()` ne journalise jamais
+`member_email_added` quand le courriel de confirmation échoue, alors que la ligne
+est conservée — la trace existe sous le nom `member_email_confirmation_send_failed`,
+si bien qu'un audit « quelles adresses ont été ajoutées » posé de la façon
+évidente manque exactement les adresses ajoutées un jour de panne de courriel.
+
+**Une leçon d'outillage, payée cette fois.** La première exécution de la suite
+complète a rendu **une** défaillance sur 21 620 tests, et je n'ai pas pu dire
+laquelle : ma commande ne gardait que les cinq dernières lignes de sortie.
+L'exécution suivante, isolée, est verte avec des compteurs identiques. La cause
+la plus probable est de mon fait : j'avais lancé la suite complète **et** la
+compétence `code-review` en même temps, or celle-ci exécute elle aussi PHPUnit,
+et les deux processus partagent la base MariaDB `test_db` de ce conteneur. Ne
+jamais faire tourner la suite entière en parallèle d'autre chose qui touche cette
+base — et capturer la sortie entière, pas sa fin.

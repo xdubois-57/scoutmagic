@@ -12,8 +12,7 @@ use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
-use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
+use Tests\TestTwig;
 
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class JournalControllerTest extends TestCase
@@ -32,14 +31,7 @@ class JournalControllerTest extends TestCase
         $this->journalService = new JournalService($this->journalRepo);
         $this->userRepo = new UserAccountRepository($pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
 
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $twig = new Environment(new FilesystemLoader($templateDir), [
-            'cache' => false,
-            'autoescape' => 'html',
-        ]);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $twig = TestTwig::create([], ['param' => fn(string $k) => 'Test']);
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_email', 'admin@test.com');
@@ -47,11 +39,6 @@ class JournalControllerTest extends TestCase
         $twig->addGlobal('config_mode', false);
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
-        $twig->addFunction(new \Twig\TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
-        $twig->addFunction(new \Twig\TwigFunction('get_flash', fn() => null));
-        $twig->addFunction(new \Twig\TwigFunction('csrf_token', fn() => 'test'));
-        $twig->addFunction(new \Twig\TwigFunction('file_url', fn() => ''));
-        $twig->addFunction(new \Twig\TwigFunction('param', fn(string $k) => 'Test'));
 
         $this->controller = new JournalController($twig, $this->journalRepo, $this->userRepo);
     }

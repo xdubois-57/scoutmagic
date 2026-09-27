@@ -8,6 +8,8 @@ use Core\Database\ColumnDefinition;
 use Core\Database\ForeignKeyDefinition;
 use Core\Database\IndexDefinition;
 use Core\Database\SchemaComparator;
+use Core\Database\SchemaFiles;
+use Core\Database\SqlParser;
 use Core\Database\TableDefinition;
 use PHPUnit\Framework\TestCase;
 
@@ -537,5 +539,145 @@ class SchemaComparatorTest extends TestCase
         $this->assertStringContainsString('ADD CONSTRAINT `fk_orders_user`', $statements[0]);
         $this->assertStringContainsString('REFERENCES `users`', $statements[0]);
         $this->assertStringContainsString('ON DELETE CASCADE', $statements[0]);
+    }
+
+    // ── Rows that follow their default (issue #355) ────────────────────
+
+    private const OLD_URL = 'https://lesscouts.be/fr/site-parents/le-parcours-scout';
+    private const NEW_URL = 'https://lesscouts.be/fr/parents/parcours';
+
+    private function ageBranches(string $explanationDefault, string $labelDefault = 'Branche'): TableDefinition
+    {
+        return new TableDefinition(
+            name: 'age_branches',
+            columns: [
+                new ColumnDefinition('id', 'int unsigned', false, null, true, 'auto_increment'),
+                new ColumnDefinition('label', 'varchar(100)', false, $labelDefault, false, null),
+                new ColumnDefinition('explanation_url', 'varchar(500)', false, $explanationDefault, false, null),
+            ],
+            indexes: [new IndexDefinition('PRIMARY', ['id'], true, true)],
+            foreignKeys: []
+        );
+    }
+
+    public function testAMovedDefaultOnAFollowingColumnMovesTheRowsStillOnItBeforeTheAlter(): void
+    {
+        $statements = $this->comparator->compare(
+            [$this->ageBranches(self::NEW_URL)],
+            [$this->ageBranches(self::OLD_URL)]
+        );
+
+        $this->assertSame(
+            [
+                "UPDATE `age_branches` SET `explanation_url` = '" . self::NEW_URL . "' "
+                    . "WHERE CAST(`explanation_url` AS BINARY) = CAST('" . self::OLD_URL . "' AS BINARY)",
+                "ALTER TABLE `age_branches` MODIFY COLUMN `explanation_url` varchar(500) NOT NULL DEFAULT '"
+                    . self::NEW_URL . "'",
+            ],
+            $statements
+        );
+    }
+
+    /**
+     * columnDiffers() compares defaults case-insensitively, which a URL
+     * path cannot afford: a page moving to a lower-case address is a move.
+     */
+    public function testACaseOnlyMoveOfAFollowingDefaultIsStillAMove(): void
+    {
+        $statements = $this->comparator->compare(
+            [$this->ageBranches(self::OLD_URL)],
+            [$this->ageBranches(strtoupper(self::OLD_URL))]
+        );
+
+        $this->assertCount(2, $statements);
+        $this->assertStringStartsWith('UPDATE `age_branches`', $statements[0]);
+        $this->assertStringContainsString('MODIFY COLUMN `explanation_url`', $statements[1]);
+    }
+
+    public function testAColumnOutsideTheAllowListNeverRewritesItsRows(): void
+    {
+        $statements = $this->comparator->compare(
+            [$this->ageBranches(self::OLD_URL, 'Nouvelle')],
+            [$this->ageBranches(self::OLD_URL, 'Ancienne')]
+        );
+
+        $this->assertCount(1, $statements);
+        $this->assertStringContainsString('MODIFY COLUMN `label`', $statements[0]);
+    }
+
+    public function testAnUnchangedFollowingDefaultGeneratesNothing(): void
+    {
+        $this->assertSame(
+            [],
+            $this->comparator->compare([$this->ageBranches(self::OLD_URL)], [$this->ageBranches(self::OLD_URL)])
+        );
+    }
+
+    public function testAQuoteInTheOldDefaultIsDoubledNotInterpolated(): void
+    {
+        $statements = $this->comparator->compare(
+            [$this->ageBranches(self::NEW_URL)],
+            [$this->ageBranches("https://example.org/l'ancienne")]
+        );
+
+        $this->assertStringContainsString("CAST('https://example.org/l''ancienne' AS BINARY)", $statements[0]);
+    }
+
+    public function testABackslashRefusesTheRowUpdateWithAWarningButStillAltersTheDefault(): void
+    {
+        $statements = $this->comparator->compare(
+            [$this->ageBranches(self::NEW_URL)],
+            [$this->ageBranches('https://example.org/a\\b')]
+        );
+
+        $this->assertCount(1, $statements);
+        $this->assertStringContainsString('MODIFY COLUMN `explanation_url`', $statements[0]);
+        $this->assertStringContainsString(
+            'age_branches.explanation_url',
+            implode("\n", $this->comparator->getWarnings())
+        );
+    }
+
+    /** A column gaining its first default has no old value for rows to be « still on ». */
+    public function testAFollowingColumnWithNoPreviousDefaultMovesNoRow(): void
+    {
+        $withoutDefault = new TableDefinition(
+            name: 'age_branches',
+            columns: [
+                new ColumnDefinition('id', 'int unsigned', false, null, true, 'auto_increment'),
+                new ColumnDefinition('label', 'varchar(100)', false, 'Branche', false, null),
+                new ColumnDefinition('explanation_url', 'varchar(500)', false, null, false, null),
+            ],
+            indexes: [new IndexDefinition('PRIMARY', ['id'], true, true)],
+            foreignKeys: []
+        );
+
+        $statements = $this->comparator->compare([$this->ageBranches(self::NEW_URL)], [$withoutDefault]);
+
+        $this->assertCount(1, $statements);
+        $this->assertStringContainsString('MODIFY COLUMN', $statements[0]);
+    }
+
+    /**
+     * An entry naming a column that no longer exists, or one that lost its
+     * default, would follow nothing — silently. Checked against the
+     * declared schema itself.
+     */
+    public function testEveryAllowListedColumnIsDeclaredWithADefault(): void
+    {
+        $declaredDefaults = [];
+        foreach (SchemaFiles::all(dirname(__DIR__, 3)) as $file) {
+            foreach ((new SqlParser())->parseFile($file) as $table) {
+                foreach ($table->columns as $column) {
+                    $declaredDefaults[$table->name . '.' . $column->name] = $column->default;
+                }
+            }
+        }
+
+        $this->assertNotSame([], SchemaComparator::DEFAULT_FOLLOWING_COLUMNS);
+        foreach (SchemaComparator::DEFAULT_FOLLOWING_COLUMNS as $column) {
+            $this->assertArrayHasKey($column, $declaredDefaults, "{$column} is not declared");
+            $this->assertNotNull($declaredDefaults[$column], "{$column} declares no default to follow");
+        }
     }
 }

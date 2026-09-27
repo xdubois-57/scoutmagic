@@ -21,8 +21,8 @@ use Modules\SosStaff\Service\RedirectService;
 use Modules\SosStaff\Service\SosException;
 use Modules\SosStaff\Service\SosSettingsService;
 use PHPUnit\Framework\TestCase;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
 
 // Through `EmailTemplateRendererFactory::shippedOnlyForModule()`, which
 // reaches an in-memory database by way of its own `emptyStore()`: this
@@ -49,12 +49,7 @@ class RedirectServiceTest extends TestCase
         $this->journalService = $this->createMock(JournalService::class);
         $this->notificationService = $this->createMock(NotificationService::class);
 
-        $loader = new FilesystemLoader(dirname(__DIR__, 4) . '/core/View/templates');
-        $loader->addPath(dirname(__DIR__, 4) . '/modules/sos_staff/views', 'sos_staff');
-        $this->twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $this->twig = TestTwig::create(['sos_staff']);
     }
 
     private function service(?NotificationService $notifications = null): RedirectService

@@ -18,8 +18,7 @@ use Core\Security\HumanCheck\HumanCheckService;
 use Core\Security\MagicLinkResult;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
-use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
+use Tests\TestTwig;
 
 /**
  * Core\Security\HumanCheck integration on POST /login/magic-link — the
@@ -55,28 +54,12 @@ class AuthControllerHumanCheckTest extends TestCase
             new JournalService(new JournalRepository($pdo))
         );
 
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $twig = TestTwig::create();
         $twig->addGlobal('site_name', 'Test Unit');
         $twig->addGlobal('is_authenticated', false);
         $twig->addGlobal('current_user_email', null);
         $twig->addGlobal('current_user_role', 'public');
         $twig->addGlobal('cookie_consent_given', true);
-        $twig->addFunction(new \Twig\TwigFunction('csrf_field', fn (): string => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
-        $twig->addFunction(new \Twig\TwigFunction('get_flash', fn (): ?array => null));
-        $twig->addFunction(new \Twig\TwigFunction('csrf_token', fn (): string => 'test-csrf-token'));
-        $twig->addFunction(new \Twig\TwigFunction('editable', fn (): string => '', ['is_safe' => ['html']]));
-        // The shared person avatar (Core\View\PersonAvatar), registered here
-        // the way Core\View\TwigFactory does with no photo service: same
-        // markup as production for an account that has set no photo.
-        $twig->addFunction(new \Twig\TwigFunction('person_avatar', function (string $name, array $options = []): string {
-            return \Core\View\PersonAvatar::render($name, null, (int) ($options['size'] ?? 40));
-        }, ['is_safe' => ['html']]));
-        $twig->addFunction(new \Twig\TwigFunction('editable_image', fn (): string => '', ['is_safe' => ['html']]));
-        $twig->addFunction(new \Twig\TwigFunction('file_url', fn (): string => ''));
 
         $this->authService = $this->createMock(AuthService::class);
         $this->controller = new AuthController($twig, $this->authService);

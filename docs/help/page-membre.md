@@ -8,7 +8,7 @@ question: Où voir la fiche de mon enfant ?
 question: Où trouver les documents de la section de mon enfant ?
 question: Comment changer la photo de mon enfant ?
 paths: /members/*, /members/*/emails/*
-related: adresses-email, un-email-plusieurs-animes, envoyer-une-photo, mon-compte
+related: adresses-email, un-email-plusieurs-animes, envoyer-une-photo, mon-compte, ou-placer-les-insignes
 ---
 
 Chaque animé lié à votre adresse a sa page, ouverte depuis le menu
@@ -29,6 +29,10 @@ l'adresse de la personne responsable de la section, les badges portés
 dans la section, la prochaine activité prévue et les fonctions de
 l'année. Deux boutons mènent au trombinoscope et au calendrier de la
 section quand ces pages existent sur votre site.
+
+À côté, la carte de la branche montre son logo ; « En savoir plus »
+présente la branche sur le site de la fédération, et « Où coudre les
+insignes sur l'uniforme ? » ouvre le guide des insignes de la fédération.
 
 ## Documents et communications
 

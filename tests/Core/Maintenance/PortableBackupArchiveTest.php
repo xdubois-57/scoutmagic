@@ -10,10 +10,6 @@ declare(strict_types=1);
 namespace Tests\Core\Maintenance;
 
 use Core\Database\Connection;
-use Core\Database\MigrationRunner;
-use Core\Database\SchemaComparator;
-use Core\Database\SchemaIntrospector;
-use Core\Database\SqlParser;
 use Core\Maintenance\BackupException;
 use Core\Maintenance\BackupService;
 use Core\Storage\Location\DeclaredStorageDirectories;
@@ -22,7 +18,7 @@ use Core\Maintenance\Portable\PortableManifest;
 use Core\Maintenance\Portable\SecretEnvelope;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
-use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 /**
  * A portable archive, actually built, then opened and inspected.
@@ -34,12 +30,17 @@ use Tests\DatabaseTestHelper;
  * walk, in clear under the zip's own 1000-iteration derivation, with
  * everything else about the feature working perfectly.
  *
- * `@group database` because a portable archive contains a real database
- * dump, and `BackupService::createDatabaseDump()` needs a real engine.
+ * `#[Group('database')]` because a portable archive contains a real
+ * database dump, and `BackupService::createDatabaseDump()` needs a real
+ * engine: the class's own database from `UsesProductionEngine`, holding the
+ * whole production schema, so the dump is never taken of a database other
+ * classes are changing at the same moment.
  */
 #[Group('database')]
 final class PortableBackupArchiveTest extends TestCase
 {
+    use UsesProductionEngine;
+
     private const PASSPHRASE = 'quatre mots parfaitement ordinaires';
     private const MASTER_KEY = 'trente-deux-octets-de-clef-maitre';
     private const SECRETS_BLOB = 'le blob chiffre des identifiants';
@@ -453,24 +454,16 @@ final class PortableBackupArchiveTest extends TestCase
         @rmdir($dir);
     }
 
+    /**
+     * This class's own database, migrated with the whole production schema
+     * and emptied, rather than `TEST_DB_NAME`: a dump takes a consistent
+     * snapshot, which another class creating or dropping a table in the
+     * shared database at the same moment turns into error 1412.
+     */
     private function realDbConnection(): Connection
     {
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('TEST_DB_PORT') ?: '3306');
-        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
-        $user = getenv('TEST_DB_USER') ?: 'root';
-        $password = getenv('TEST_DB_PASSWORD') ?: '';
+        $this->productionEngine();
 
-        $connection = new Connection($host, $port, $dbName, $user, $password);
-        $result = $connection->testConnection();
-        if ($result !== true) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database not available: ' . (is_string($result) ? $result : 'unknown error'));
-        }
-
-        $introspector = new SchemaIntrospector($connection->getPdo());
-        $runner = new MigrationRunner($connection, $introspector, new SchemaComparator(), new SqlParser());
-        $runner->migrate([dirname(__DIR__, 3) . '/schema/core.sql']);
-
-        return $connection;
+        return $this->productionEngineSchemaConnection();
     }
 }

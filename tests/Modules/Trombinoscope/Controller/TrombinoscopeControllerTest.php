@@ -15,16 +15,14 @@ use Core\ScoutYear\EffectiveScoutYear;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthSession;
 use Core\Security\Role;
-use Core\View\TextNormalizerExtension;
 use Modules\Trombinoscope\Controller\TrombinoscopeController;
 use Modules\Trombinoscope\Pdf\StaffPhotoEmbedder;
 use Modules\Trombinoscope\Pdf\TrombinoscopeHtmlBuilder;
 use Modules\Trombinoscope\Service\TrombinoscopePdfService;
 use Modules\Trombinoscope\Service\TrombinoscopeService;
 use PHPUnit\Framework\TestCase;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
-use Twig\TwigFunction;
 
 /**
  * RBAC boundary for /trombinoscope (Espace membres, role_min identified):
@@ -46,15 +44,9 @@ class TrombinoscopeControllerTest extends TestCase
         }
         $_SESSION = [];
 
-        $coreTemplates = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/trombinoscope/views';
-        $loader = new FilesystemLoader($coreTemplates);
-        $loader->addPath($moduleViews, 'trombinoscope');
 
-        $this->twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $this->twig = TestTwig::create(['trombinoscope' => $moduleViews]);
         $this->twig->addGlobal('site_name', 'Test');
         $this->twig->addGlobal('is_authenticated', true);
         $this->twig->addGlobal('current_user_email', 'member@test.be');
@@ -66,13 +58,6 @@ class TrombinoscopeControllerTest extends TestCase
         $this->twig->addGlobal('csp_nonce', 'n');
         $this->twig->addGlobal('effective_scout_year_id', 1);
         $this->twig->addGlobal('_member_photo_service', null);
-        $this->twig->addFunction(new TwigFunction('csrf_field', fn() => '', ['is_safe' => ['html']]));
-        $this->twig->addFunction(new TwigFunction('csrf_token', fn() => 't'));
-        $this->twig->addFunction(new TwigFunction('get_flash', fn() => null));
-        $this->twig->addFunction(new TwigFunction('file_url', fn() => ''));
-        $this->twig->addFunction(new TwigFunction('member_photo', fn() => '<div class="member-photo-placeholder"><span class="member-photo-initials">XX</span></div>', ['is_safe' => ['html']]));
-        $this->twig->addExtension(new TextNormalizerExtension());
-        $this->twig->addExtension(new \Core\View\MemberNameFilterExtension());
 
         $configFile = sys_get_temp_dir() . '/test_trombinoscope_config_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");

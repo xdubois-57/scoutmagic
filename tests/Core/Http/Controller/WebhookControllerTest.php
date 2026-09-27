@@ -12,8 +12,7 @@ use Core\Maintenance\GitHubWebhookService;
 use Core\Security\SecretManager;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
-use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
+use Tests\TestTwig;
 
 /**
  * @group database
@@ -35,11 +34,7 @@ class WebhookControllerTest extends TestCase
         $this->secretManager = $this->createMock(SecretManager::class);
         $this->secretManager->method('readSecrets')->willReturn(['github_webhook_secret' => 'test-secret']);
 
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $twig = TestTwig::create();
 
         $this->controller = new WebhookController($twig, $this->webhookService, $this->secretManager, $journalService);
     }

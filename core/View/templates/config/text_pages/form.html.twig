@@ -17,16 +17,18 @@
 {% block title %}{{ page is null ? 'Nouvelle page de texte' : page.menuLabel }} — {{ site_name }}{% endblock %}
 
 {% block content %}
-    {% include 'partials/page_header.html.twig' with {
-        title: page is null ? 'Nouvelle page de texte' : page.menuLabel,
-        subtitle: page is null
-            ? "La section choisie décide qui pourra lire cette page. Vous écrirez son texte juste après, sur la page elle-même."
-            : "L'adresse d'une page ne change plus après sa création : les liens déjà partagés continuent de fonctionner.",
-    } only %}
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: page is null ? 'Nouvelle page de texte' : page.menuLabel,
+            subtitle: page is null
+                ? "La section choisie décide qui pourra lire cette page. Vous écrirez son texte juste après, sur la page elle-même."
+                : "L'adresse d'une page ne change plus après sa création : les liens déjà partagés continuent de fonctionner.",
+        } only %}
+    </div>
 
     <form method="post"
           action="{{ page is null ? '/config/pages-de-texte' : '/config/pages-de-texte/' ~ page.id }}"
-          class="page-narrow"
+          class="page-medium"
           data-text-page-form
           data-groups="{{ groups_by_section|json_encode }}">
         {{ csrf_field()|raw }}

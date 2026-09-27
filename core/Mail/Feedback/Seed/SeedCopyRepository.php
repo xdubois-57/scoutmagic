@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Mail\Feedback\Seed;
 
+use Core\Mail\Transport\MailboxProviderRepository;
 use Core\Security\EncryptionService;
 use Core\Service\DateInput;
 
@@ -37,8 +38,71 @@ class SeedCopyRepository
      */
     private const STAMP_PURPOSE = 'seed_run_stamp';
 
-    public function __construct(private \PDO $pdo, private EncryptionService $encryption)
+    /**
+     * The verdicts `tallyByProviderSince()` counts, in the order it
+     * returns them.
+     */
+    private const TALLIED = ['inbox', 'spam', 'missing', 'elsewhere', 'pending'];
+
+    /**
+     * @param MailboxProviderRepository|null $mailboxProviders The MX cache
+     *        (issue #422) the results are folded through. Null builds one
+     *        on this connection and key, which is what every caller wants;
+     *        the parameter is there for a test that needs to hold the same
+     *        instance.
+     */
+    public function __construct(
+        private \PDO $pdo,
+        private EncryptionService $encryption,
+        private ?MailboxProviderRepository $mailboxProviders = null
+    ) {
+    }
+
+    /** Set once the cache has failed to read: see {@see attributed()}. */
+    private bool $attributionUnreadable = false;
+
+    /**
+     * The provider a copy is COUNTED under: the one the MX records of its
+     * box's domain named (issue #422), or the domain itself.
+     *
+     * **Folded when read, never when written.** `provider` keeps the
+     * box's own domain, so a box first measured before its domain was
+     * resolved does not leave its early results in a column of their own:
+     * the day the attribution arrives, its whole history moves with it.
+     * And an attribution that later changes — a unit moving its mail to
+     * another host — moves the history too, which is right: the column
+     * says who filters that box, and the site only ever knows the latest
+     * answer.
+     *
+     * **In PHP, not in a SQL join**, and not by choice: the cache's
+     * domains are encrypted (SECURITY.md §5), so `mail_domain_providers`
+     * has no column `mail_seed_copies.provider` could be compared with.
+     * The cache is read whole into memory once per instance, so this is
+     * an array lookup per row, never a query.
+     *
+     * **An unreadable cache attributes nothing, and says so once.** A
+     * table not migrated yet, or a key that cannot decrypt it, must not
+     * take down a results page that rendered from `mail_seed_copies`
+     * alone before the cache existed: every copy keeps its own domain,
+     * exactly as if nothing had been resolved — the same answer every
+     * other reader of the cache gives. The failure is remembered, so a
+     * broken cache is not queried again for each row.
+     */
+    private function attributed(string $storedProvider): string
     {
+        if ($this->attributionUnreadable) {
+            return $storedProvider;
+        }
+
+        $this->mailboxProviders ??= new MailboxProviderRepository($this->pdo, $this->encryption);
+
+        try {
+            return $this->mailboxProviders->providerOf($storedProvider) ?? $storedProvider;
+        } catch (\Throwable) {
+            $this->attributionUnreadable = true;
+
+            return $storedProvider;
+        }
     }
 
     /**
@@ -221,8 +285,9 @@ class SeedCopyRepository
         // extra `SELECT` around it is what makes the subquery a derived
         // table, which MySQL does allow.
         $statement = $this->pdo->prepare(
-            'SELECT * FROM mail_seed_copies
-              WHERE run_reference IN (
+            'SELECT c.*
+               FROM mail_seed_copies c
+              WHERE c.run_reference IN (
                     SELECT run_reference FROM (
                         SELECT run_reference, MAX(sent_at) AS latest_sent_at
                           FROM mail_seed_copies
@@ -232,14 +297,25 @@ class SeedCopyRepository
                          LIMIT :limit
                     ) AS recent_runs
               )
-              ORDER BY sent_at DESC, provider ASC, id ASC'
+              ORDER BY c.sent_at DESC, c.id ASC'
         );
         $statement->bindValue(':since', $since->format('Y-m-d H:i:s'));
         $statement->bindValue(':limit', max(1, $limit), \PDO::PARAM_INT);
         $statement->execute();
 
+        // Sorted again once each copy carries its attributed provider:
+        // the column order the screen draws follows the provider the copy
+        // is COUNTED under, which the database can no longer see. Same
+        // keys as the SQL had — sent_at, then provider, then id.
+        $copies = $this->hydrateAll($statement, attributed: true);
+        usort(
+            $copies,
+            static fn(SeedCopy $a, SeedCopy $b): int => [$b->sentAt, $a->provider, $a->id]
+                <=> [$a->sentAt, $b->provider, $b->id]
+        );
+
         $runs = [];
-        foreach ($this->hydrateAll($statement) as $copy) {
+        foreach ($copies as $copy) {
             $runs[$copy->runReference][] = $copy;
         }
 
@@ -266,32 +342,61 @@ class SeedCopyRepository
      */
     public function tallyByProviderSince(\DateTimeImmutable $since): array
     {
-        $statement = $this->pdo->prepare(
-            'SELECT provider,
-                    COUNT(DISTINCT CASE WHEN verdict <> \'pending\' THEN run_reference END) AS runs,
-                    SUM(CASE WHEN verdict = \'inbox\'   THEN 1 ELSE 0 END) AS inbox,
-                    SUM(CASE WHEN verdict = \'spam\'    THEN 1 ELSE 0 END) AS spam,
-                    SUM(CASE WHEN verdict = \'missing\' THEN 1 ELSE 0 END) AS missing,
-                    SUM(CASE WHEN verdict = \'elsewhere\' THEN 1 ELSE 0 END) AS elsewhere,
-                    SUM(CASE WHEN verdict = \'pending\' THEN 1 ELSE 0 END) AS pending
+        // Two aggregates rather than the rows, so the memory this costs
+        // follows the number of domains and mailings, never of copies:
+        // the counts per stored domain and verdict, and which mailings
+        // each stored domain answered in. Both are then folded under the
+        // attributed provider (see `attributed()`), and the second is what
+        // keeps `runs` distinct ACROSS the domains folded together — a
+        // gmail.com box and a box Google hosts answering the same mailing
+        // are still one mailing.
+        $counts = $this->pdo->prepare(
+            'SELECT provider, verdict, COUNT(*) AS copies
                FROM mail_seed_copies
               WHERE sent_at >= :since
-              GROUP BY provider
-              ORDER BY provider ASC'
+              GROUP BY provider, verdict'
         );
-        $statement->bindValue(':since', $since->format('Y-m-d H:i:s'));
-        $statement->execute();
+        $counts->bindValue(':since', $since->format('Y-m-d H:i:s'));
+        $counts->execute();
+
+        $answeredRuns = $this->pdo->prepare(
+            'SELECT DISTINCT provider, run_reference
+               FROM mail_seed_copies
+              WHERE sent_at >= :since AND verdict <> :pending'
+        );
+        $answeredRuns->bindValue(':since', $since->format('Y-m-d H:i:s'));
+        $answeredRuns->bindValue(':pending', SeedVerdict::Pending->value);
+        $answeredRuns->execute();
+
+        /** @var array<string, array<string, int>> $verdicts */
+        $verdicts = [];
+        foreach ($counts->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $provider = $this->attributed((string) $row['provider']);
+            $verdicts[$provider] ??= array_fill_keys(self::TALLIED, 0);
+            $verdict = (string) $row['verdict'];
+            if (isset($verdicts[$provider][$verdict])) {
+                $verdicts[$provider][$verdict] += (int) $row['copies'];
+            }
+        }
+
+        /** @var array<string, array<string, true>> $runs */
+        $runs = [];
+        foreach ($answeredRuns->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $runs[$this->attributed((string) $row['provider'])][(string) $row['run_reference']] = true;
+        }
+
+        ksort($verdicts, SORT_STRING);
 
         $tally = [];
-        foreach ($statement->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+        foreach ($verdicts as $provider => $counted) {
             $tally[] = [
-                'provider' => (string) $row['provider'],
-                'runs' => (int) $row['runs'],
-                'inbox' => (int) $row['inbox'],
-                'spam' => (int) $row['spam'],
-                'missing' => (int) $row['missing'],
-                'elsewhere' => (int) $row['elsewhere'],
-                'pending' => (int) $row['pending'],
+                'provider' => (string) $provider,
+                'runs' => count($runs[$provider] ?? []),
+                'inbox' => $counted['inbox'],
+                'spam' => $counted['spam'],
+                'missing' => $counted['missing'],
+                'elsewhere' => $counted['elsewhere'],
+                'pending' => $counted['pending'],
             ];
         }
 
@@ -323,8 +428,17 @@ class SeedCopyRepository
      * **Dated by `sent_at`, like the purge**, so the points and the edge the
      * curve stops at cannot disagree about which week a mailing belongs to.
      *
+     * **And grouped under the ATTRIBUTED provider** (issue #422), like the
+     * ranking above it. Grouping on the stored column would draw a line for
+     * `famille-durand.be` beside `gmail.com` while the table above it counts
+     * that box under Google — the two screens disagreeing about the same
+     * provider, which is precisely what the paragraph above refuses. Two
+     * stored domains folding onto one provider then hold the same mailing
+     * twice, so the rows are merged rather than appended: **one mailing at a
+     * provider is one unit of evidence, whatever the number of its boxes**.
+     *
      * @return array<string, list<array{at: \DateTimeImmutable, sample: int, hits: int, total: int}>>
-     *   keyed by provider, each list ordered oldest first
+     *   keyed by attributed provider, each list ordered oldest first
      */
     public function landingsPerRunSince(\DateTimeImmutable $since): array
     {
@@ -343,24 +457,76 @@ class SeedCopyRepository
         $statement->bindValue(':since', $since->format('Y-m-d H:i:s'));
         $statement->execute();
 
+        // Keyed by run while the attribution folds, so a mailing that reached
+        // two of a provider's domains stays one row. The key is dropped on
+        // the way out: the series wants a list, in order.
         $byProvider = [];
         foreach ($statement->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $byProvider[(string) $row['provider']][] = [
-                // MIN(sent_at) over a group of a NOT NULL column, so the
-                // value is always there — and read the way every other
-                // stored date in this class is (SECURITY.md § 35).
-                'at' => DateInput::requireFromStorage(
-                    (string) $row['sent_at'],
-                    'mail_seed_copies.sent_at'
-                ),
-                // One mailing, however many boxes it reached at this provider.
+            $provider = $this->attributed((string) $row['provider']);
+            $run = (string) $row['run_reference'];
+            // MIN(sent_at) over a group of a NOT NULL column, so the value is
+            // always there — and read the way every other stored date in this
+            // class is (SECURITY.md § 35).
+            $at = DateInput::requireFromStorage(
+                (string) $row['sent_at'],
+                'mail_seed_copies.sent_at'
+            );
+
+            $existing = $byProvider[$provider][$run] ?? null;
+            $byProvider[$provider][$run] = [
+                // The earliest send of the mailing at this provider, so a
+                // second domain's later row cannot move the mailing's week.
+                'at' => $existing === null ? $at : min($existing['at'], $at),
+                // One mailing, however many boxes and however many of this
+                // provider's domains it reached.
                 'sample' => 1,
-                'hits' => (int) $row['inbox'],
-                'total' => (int) $row['answered'],
+                'hits' => ($existing['hits'] ?? 0) + (int) $row['inbox'],
+                'total' => ($existing['total'] ?? 0) + (int) $row['answered'],
             ];
         }
 
-        return $byProvider;
+        // Alphabetical, like the ranking's own `ksort()` after it folds: the
+        // SQL ordered the STORED domains, and the attribution reorders them.
+        ksort($byProvider, SORT_STRING);
+
+        return array_map(
+            static function (array $runs): array {
+                // Oldest first, which the SQL gave per stored domain but not
+                // across two that folded into one provider.
+                usort($runs, static fn(array $a, array $b): int => $a['at'] <=> $b['at']);
+
+                return $runs;
+            },
+            $byProvider
+        );
+    }
+
+    /**
+     * The domains of the boxes that have been measured, so the MX task
+     * attributes them too (issue #422). The stored column, never the
+     * attributed one: this is the question, not the answer. Each comes
+     * with its last send, which is when the site last wrote to it — the
+     * date its retention counts from, never the day the task happens to run.
+     *
+     * @return list<array{domain: string, last_sent_at: \DateTimeImmutable}>
+     */
+    public function measuredDomains(): array
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT provider, MAX(sent_at) AS last_sent_at FROM mail_seed_copies GROUP BY provider ORDER BY provider'
+        );
+        $statement->execute();
+
+        return array_map(
+            static fn(array $row): array => [
+                'domain' => (string) $row['provider'],
+                'last_sent_at' => DateInput::requireFromStorage(
+                    (string) $row['last_sent_at'],
+                    'mail_seed_copies.sent_at'
+                ),
+            ],
+            $statement->fetchAll(\PDO::FETCH_ASSOC)
+        );
     }
 
     /** Operational data, so it purges — on the send, which is its only date. */
@@ -375,7 +541,7 @@ class SeedCopyRepository
     /**
      * @return list<SeedCopy>
      */
-    private function hydrateAll(\PDOStatement $statement): array
+    private function hydrateAll(\PDOStatement $statement, bool $attributed = false): array
     {
         $copies = [];
         foreach ($statement->fetchAll(\PDO::FETCH_ASSOC) as $row) {
@@ -383,7 +549,7 @@ class SeedCopyRepository
                 (int) $row['id'],
                 (string) $row['run_reference'],
                 $this->encryption->decrypt((string) $row['seed_address_encrypted'], self::CONTEXT),
-                (string) $row['provider'],
+                $attributed ? $this->attributed((string) $row['provider']) : (string) $row['provider'],
                 // **Never the raw constructor on a stored moment.** It
                 // throws on a malformed string — one bad row and the page
                 // is a 500 — and, worse, answers *now* for an empty one,

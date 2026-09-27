@@ -1,0 +1,26 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  « Où coudre les insignes sur l'uniforme ? » — the federation's article
+  (issue #473), linked from the top of /sections and from the branch card
+  of a member's page. One partial so the two places, and the help topic
+  that says where to find them, can never word it differently.
+
+  « insignes », never « badges »: on this site a badge is a staff role
+  (docs/help/badges.md), and in the federation's document « badges et
+  brevets » is one category among others.
+
+  Opens in a new tab like every other federation link on the site
+  (target/rel and the trailing arrow of the branch card's « En savoir
+  plus »). The URL comes from Core\ExternalSource\ExternalSources, passed
+  by the controller — never written here, so the weekly check watches it.
+
+  Usage:
+  {% include 'partials/insignia_placement_link.html.twig' with {
+      url: insignia_placement_url,
+      class: 'link-secondary',   -- optional, extra classes on the <a>
+  } only %}
+#}
+<a href="{{ url }}" target="_blank" rel="noopener" class="insignia-placement-link{% if class is defined and class %} {{ class }}{% endif %}">Où coudre les insignes sur l'uniforme ? <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i></a>

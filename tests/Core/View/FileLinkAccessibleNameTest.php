@@ -10,8 +10,8 @@ declare(strict_types=1);
 namespace Tests\Core\View;
 
 use PHPUnit\Framework\TestCase;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
 
 /**
  * `partials/file_link.html.twig` and WCAG 2.5.3 « Label in Name ».
@@ -38,10 +38,7 @@ final class FileLinkAccessibleNameTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->twig = new Environment(
-            new FilesystemLoader(dirname(__DIR__, 3) . '/core/View/templates'),
-            ['cache' => false, 'autoescape' => 'html']
-        );
+        $this->twig = TestTwig::create();
     }
 
     /**

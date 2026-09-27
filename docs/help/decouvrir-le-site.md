@@ -38,7 +38,9 @@ La page Sections liste les sections de l'unité, regroupées par branche
 d'âge. Chaque carte montre la photo du staff de section, le nom de la
 section, le nom de son ou sa responsable, son adresse e-mail quand elle
 existe, et un petit texte de présentation. C'est le bon point de départ
-pour savoir à qui écrire au sujet de votre enfant.
+pour savoir à qui écrire au sujet de votre enfant. En haut de la page,
+« Où coudre les insignes sur l'uniforme ? » ouvre le guide de la
+fédération.
 
 ## Et une fois connecté ?
 

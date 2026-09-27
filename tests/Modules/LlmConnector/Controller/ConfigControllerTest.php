@@ -20,9 +20,7 @@ use Modules\LlmConnector\Service\OcrModelSelector;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
-use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
-use Twig\TwigFunction;
+use Tests\TestTwig;
 
 /**
  * @group database
@@ -44,24 +42,13 @@ class ConfigControllerTest extends TestCase
         $this->providerRepository = new ProviderRepository($this->pdo, $encryption);
         $this->modelRepository = new ProviderModelRepository($this->pdo);
 
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $loader = new FilesystemLoader($templateDir);
-        $loader->addPath(dirname(__DIR__, 4) . '/modules/llm_connector/views', 'llm_connector');
-        $twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $twig = TestTwig::create(['llm_connector']);
         foreach ([
             'site_name' => 'Test', 'is_authenticated' => true, 'current_user_role' => 'superadmin',
             'config_mode' => true, 'cookie_consent_given' => true, 'menus' => null, 'csp_nonce' => 'test-nonce',
         ] as $key => $value) {
             $twig->addGlobal($key, $value);
         }
-        $twig->addFunction(new TwigFunction('csrf_field', fn() => '', ['is_safe' => ['html']]));
-        $twig->addFunction(new TwigFunction('get_flash', fn() => null));
-        $twig->addFunction(new TwigFunction('csrf_token', fn() => 'test'));
-        $twig->addFunction(new TwigFunction('file_url', fn() => ''));
-        $twig->addFunction(new TwigFunction('param', fn() => ''));
 
         $this->controller = new ConfigController(
             $twig,

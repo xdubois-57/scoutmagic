@@ -7,7 +7,6 @@ namespace Tests\Core\Maintenance\Task;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
-use Core\Database\DeploymentMigration;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
@@ -25,7 +24,7 @@ use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
 use Minishlink\WebPush\WebPush;
 use PHPUnit\Framework\TestCase;
-use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 /**
  * The one thing InstallUpdateHandlerTest cannot show: that the handler
@@ -44,6 +43,8 @@ use Tests\DatabaseTestHelper;
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class InstallUpdateHandlerLockTest extends TestCase
 {
+    use UsesProductionEngine;
+
     private ?Connection $connection = null;
     private ?\PDO $rival = null;
     private UpdateHistoryRepository $history;
@@ -53,33 +54,19 @@ class InstallUpdateHandlerLockTest extends TestCase
 
     protected function setUp(): void
     {
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('TEST_DB_PORT') ?: 3306);
-        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
-        $user = getenv('TEST_DB_USER') ?: 'root';
-        $password = (string) (getenv('TEST_DB_PASSWORD') ?: '');
-
-        $connection = new Connection($host, $port, $dbName, $user, $password);
-        if ($connection->testConnection() !== true) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database connection not available');
-        }
-        $this->connection = $connection;
-        $this->dropAllTables($connection->getPdo());
-
         // The real declared schema rather than a hand-written subset: the
         // handler reads update_history and writes the journal, and a
-        // duplicated DDL fixture here would drift away from both.
-        DeploymentMigration::run($connection, dirname(__DIR__, 4));
-
-        $pdo = $connection->getPdo();
+        // duplicated DDL fixture here would drift away from both. The
+        // fixture's own database, migrated once and emptied per test.
+        $pdo = $this->productionEngine();
+        $connection = $this->productionEngineSchemaConnection();
+        $this->connection = $connection;
         $this->history = new UpdateHistoryRepository($pdo);
 
-        $this->rival = new \PDO(
-            "mysql:host={$host};port={$port};dbname={$dbName}",
-            $user,
-            $password,
-            [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
-        );
+        // A second connection is a second MySQL session, which is what the
+        // named lock belongs to. The lock is server-wide, so which database
+        // it opens on does not matter.
+        $this->rival = self::productionEngineConnection()->getPdo();
 
         // A throwaway install root, NOT a bare temp dir: the handler's
         // safety backup zips dirname(storagePath), and pointing that at
@@ -128,7 +115,6 @@ class InstallUpdateHandlerLockTest extends TestCase
         }
         if ($this->connection !== null) {
             InstallLock::release($this->connection->getPdo());
-            $this->dropAllTables($this->connection->getPdo());
         }
         if ($this->fakeRoot !== '' && is_dir($this->fakeRoot)) {
             $this->removeDirectory($this->fakeRoot);
@@ -145,15 +131,6 @@ class InstallUpdateHandlerLockTest extends TestCase
             is_dir($full) ? $this->removeDirectory($full) : @unlink($full);
         }
         @rmdir($path);
-    }
-
-    private function dropAllTables(\PDO $pdo): void
-    {
-        $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-        foreach ($pdo->query('SHOW TABLES')->fetchAll(\PDO::FETCH_COLUMN) as $table) {
-            $pdo->exec('DROP TABLE IF EXISTS `' . $table . '`');
-        }
-        $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
     }
 
     public function testItStandsDownWhenAnotherInstallHoldsTheLock(): void

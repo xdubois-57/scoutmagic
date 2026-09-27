@@ -34,9 +34,8 @@ use Core\Storage\Location\StorageLocationService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Gallery\GalleryTestHelper;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
-use Twig\TwigFunction;
 use Modules\Gallery\Service\GalleryStorageWiring;
 use Core\Storage\Location\StorageLocationType;
 use Core\Storage\Location\Config\LocalLocationConfig;
@@ -138,14 +137,8 @@ class GalleryChiefControllerTest extends TestCase
         $stmt->execute([$branchId, 'MEUTE_A', 'Meute A']);
         $this->sectionId = (int) $this->pdo->lastInsertId();
 
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/gallery/views';
-        $loader = new FilesystemLoader($templateDir);
-        $loader->addPath($moduleViews, 'gallery');
-        $twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $twig = TestTwig::create(['gallery' => $moduleViews]);
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_role', 'chief');
@@ -155,13 +148,6 @@ class GalleryChiefControllerTest extends TestCase
         $twig->addGlobal('current_path', '/gallery/create');
         $twig->addGlobal('route_breadcrumb', ['label' => 'Nouvel album', 'parents' => ["Espace animateurs"]]);
         $twig->addGlobal('csp_nonce', 'test-nonce');
-        $twig->addFunction(new TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
-        $twig->addFunction(new TwigFunction('get_flash', fn() => null));
-        $twig->addFunction(new TwigFunction('csrf_token', fn() => 'test'));
-        $twig->addFunction(new TwigFunction('file_url', fn() => ''));
-        // The real filters, not a passthrough: a stub that echoes the
-        // stored string renders what no visitor ever sees.
-        $twig->addExtension(new \Core\View\DateFilterExtension());
 
         $this->twig = $twig;
         $this->chunkStorageDir = sys_get_temp_dir() . '/gallery_chunk_test_' . uniqid();

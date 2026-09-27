@@ -27,15 +27,12 @@ use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
-use Core\View\TextNormalizerExtension;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
-use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
-use Twig\TwigFunction;
 use Core\Member\Repository\MemberProfileRepository;
 use Core\Member\Repository\SectionRepository;
+use Tests\TestTwig;
 
 #[Group('database')]
 class SectionRosterControllerTest extends TestCase
@@ -74,12 +71,7 @@ class SectionRosterControllerTest extends TestCase
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
         $settingService->register('current_scout_year_id', (string) $this->scoutYearId, 'text', 'x', 'x');
 
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $twig->addExtension(new \Core\View\CompactHtmlExtension());
-        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $twig = TestTwig::create();
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_email', 'chief@test.be');
@@ -89,11 +81,6 @@ class SectionRosterControllerTest extends TestCase
         $twig->addGlobal('menus', null);
         $twig->addGlobal('current_path', '/chefs/membres');
         $twig->addGlobal('route_breadcrumb', ['label' => 'Membres par section', 'parents' => ['Espace animateurs']]);
-        $twig->addFunction(new TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
-        $twig->addFunction(new TwigFunction('get_flash', fn() => null));
-        $twig->addFunction(new TwigFunction('csrf_token', fn() => 'test'));
-        $twig->addFunction(new TwigFunction('file_url', fn() => ''));
-        $twig->addExtension(new TextNormalizerExtension());
 
         $this->controller = new SectionRosterController(
             $twig,

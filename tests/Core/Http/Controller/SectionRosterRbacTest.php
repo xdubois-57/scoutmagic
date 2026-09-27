@@ -12,8 +12,8 @@ use Core\Http\Response;
 use Core\Http\Router;
 use Core\Security\AuthSession;
 use PHPUnit\Framework\TestCase;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
 
 /**
  * RBAC boundary for /chefs/membres ("Membres par section") and for its two
@@ -37,30 +37,13 @@ class SectionRosterRbacTest extends TestCase
         }
         $_SESSION = [];
 
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $this->twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $this->twig->addExtension(new \Core\View\CompactHtmlExtension());
-        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $this->twig = TestTwig::create();
         $this->twig->addGlobal('site_name', 'Test');
         $this->twig->addGlobal('is_authenticated', false);
         $this->twig->addGlobal('current_user_email', null);
         $this->twig->addGlobal('current_user_role', 'public');
         $this->twig->addGlobal('menus', null);
         $this->twig->addGlobal('cookie_consent_given', true);
-        $this->twig->addFunction(new \Twig\TwigFunction('csrf_field', fn() => '', ['is_safe' => ['html']]));
-        $this->twig->addFunction(new \Twig\TwigFunction('get_flash', fn() => null));
-        $this->twig->addFunction(new \Twig\TwigFunction('csrf_token', fn() => 'test'));
-        $this->twig->addFunction(new \Twig\TwigFunction('editable', fn() => '', ['is_safe' => ['html']]));
-        // The shared person avatar (Core\View\PersonAvatar), registered here
-        // the way Core\View\TwigFactory does with no photo service: same
-        // markup as production for an account that has set no photo.
-        $this->twig->addFunction(new \Twig\TwigFunction('person_avatar', function (string $name, array $options = []): string {
-            return \Core\View\PersonAvatar::render($name, null, (int) ($options['size'] ?? 40));
-        }, ['is_safe' => ['html']]));
-        $this->twig->addFunction(new \Twig\TwigFunction('editable_image', fn() => '', ['is_safe' => ['html']]));
-        $this->twig->addFunction(new \Twig\TwigFunction('file_url', fn() => ''));
 
         $configFile = sys_get_temp_dir() . '/test_app_config_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
