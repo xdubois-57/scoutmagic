@@ -82,6 +82,11 @@ final class EmailTemplateOverrideRepositoryOnMysqlTest extends TestCase
     public function testDeletingTheAuthorKeepsTheWording(): void
     {
         $this->overrides->save('core.password_reset', 'Sujet', '<p>Un</p>', $this->authorId);
+        // The author is really there first: a row whose `updated_by` was
+        // already NULL would leave the foreign key nothing to do, and the
+        // assertion below would pass without it ever firing.
+        $saved = $this->overrides->find('core.password_reset');
+        $this->assertSame($this->authorId, $saved['updated_by'] ?? null);
 
         $this->pdo->prepare('DELETE FROM user_accounts WHERE id = ?')->execute([$this->authorId]);
 
