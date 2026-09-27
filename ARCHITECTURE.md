@@ -4974,12 +4974,22 @@ from the curve because there is only one of it.
 they count different things.* `AuthenticationTrend::MINIMUM_MESSAGES` is
 twenty **messages** — what a DMARC report actually carries, a report
 saying nothing about which messages belonged to one mailing.
-`LandingTrend` has no constant of its own: it is `DomainRouting::
-MINIMUM_RUNS`, the five **mailings** the automatic routing is already
-gated on, because it is the same judgement about the same evidence. This
-is why `WeeklySeries` keeps `sample` and `total` apart: for the seed boxes
-the evidence is mailings while the ratio stays inbox copies over answered
-copies — the share the ranking screen already shows.
+`LandingTrend::MINIMUM_MAILINGS` is one **mailing**, and the first version
+of it got this wrong in an instructive way: it reused
+`DomainRouting::MINIMUM_RUNS` on the argument that the same evidence
+deserves the same judgement, which ignored the window. Those five mailings
+are five per THIRTY DAYS (`SEEDS_WINDOW`); as a per-ISO-week threshold they
+are four times stricter than the constant ever meant, and at this site's
+own stated volume — three to five boxes and a few mailings a year — no
+week reaches five, so every series was empty and the card could only
+render its own empty state. **A threshold calibrated for one window is not
+a threshold for another**, however much the same evidence it judges. The
+one that replaced it refuses zero evidence rather than demanding five,
+because `MINIMUM_RUNS` guards an automatic action while this only shows a
+figure to somebody who can weigh it — and `sample` reaches the tooltip so
+they can. This is also why `WeeklySeries` keeps `sample` and `total` apart:
+for the seed boxes the evidence is mailings while the ratio stays inbox
+copies over answered copies — the share the ranking screen already shows.
 
 *The ISO week is bucketed in PHP, not in SQL.* MySQL's `YEARWEEK(…, 3)`
 is the ISO week and SQLite has none — `strftime('%W')` starts on Sunday —

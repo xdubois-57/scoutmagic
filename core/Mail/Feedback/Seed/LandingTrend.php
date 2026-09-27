@@ -19,11 +19,16 @@ use Core\Mail\Feedback\Trend\WeeklySeries;
  * provider that starts filtering is read against the ones that did not. The
  * screen draws them on one chart for that reason (maintainer, 27 September).
  *
- * **No threshold of its own.** It is `MINIMUM_RUNS`, the same constant the
- * automatic routing is gated on, because it is the same judgement about the
- * same evidence — a provider's figures mean nothing under five measured
- * mailings. A second number here would be a second opinion about when this
- * data is worth acting on, and the two would drift.
+ * **Its own weekly threshold, and the first version got this wrong.** It
+ * reused `DomainRouting::MINIMUM_RUNS` on the argument that the same evidence
+ * deserves the same judgement. That argument ignored the WINDOW: those five
+ * mailings are five per THIRTY DAYS (`SEEDS_WINDOW`), and reused as a
+ * per-ISO-week threshold they are four times stricter than the constant ever
+ * meant. With « three to five boxes and a few mailings a year » — this
+ * repository's own stated volume — no week ever reaches five, so every series
+ * was empty, the « drawable » filter this class then carried returned
+ * nothing, and the card could only ever render its own empty state. The
+ * feature was inert, and measured as inert before this was written.
  *
  * **And the left edge is read from the purge**, never restated, so the curve
  * stops where the rows stop.
@@ -31,8 +36,40 @@ use Core\Mail\Feedback\Trend\WeeklySeries;
 final class LandingTrend
 {
     /**
+     * How many measured mailings a week needs before its share means anything.
+     *
+     * **One, decided rather than inherited** (maintainer, 27 September). The
+     * job of a threshold here is to refuse ZERO evidence, not to demand five:
+     * `MINIMUM_RUNS` guards an AUTOMATIC ACTION — routing a whole domain away
+     * — which is a higher bar than showing a figure to somebody who can weigh
+     * it. A week carrying one measured mailing is a measurement, and drawing
+     * it as a hole would say « not measured » about a week that was.
+     *
+     * The admitted price is that a point can rest on a single mailing, whose
+     * share over three to five boxes is coarse. That is why `sample` reaches
+     * the tooltip: the screen says « 1 publipostage mesuré » and the reader
+     * weighs the point accordingly, which a hole would never have let them do.
+     *
+     * It is deliberately a constant of its own, beside the data it judges,
+     * exactly as {@see \Core\Mail\Feedback\Dmarc\AuthenticationTrend::MINIMUM_MESSAGES}
+     * is — and for the same reason that one is not `MINIMUM_RUNS` either.
+     */
+    public const MINIMUM_MAILINGS = 1;
+
+    /**
      * @param ?\DateTimeImmutable $now injected so a test can stand somewhere
      *   other than today — the partial week and the left edge both depend on it
+     * **Every provider returned has at least one drawn week, so there is no
+     * « drawable » filter to apply.** An earlier version carried one, and its
+     * mutation survived — proof it could never fire. The reason is structural:
+     * `landingsPerRunSince()` excludes pending copies, so a provider reaches
+     * this map only with at least one ANSWERED mailing inside the window; that
+     * mailing falls in one of the walked weeks, where `sample` is then at least
+     * one and `total` at least one — which clears `MINIMUM_MAILINGS`. A second
+     * guard for a case the query already refuses would be one boundary with two
+     * mechanisms, the shape whose mutation survives because each copy hides the
+     * other's absence. A test pins the invariant instead.
+     *
      * @return array<string, WeeklySeries> keyed by the ATTRIBUTED provider —
      *   the same key the ranking screen groups on (issue #422), so a box on a
      *   personal domain is one of its host's lines and not a line of its own —
@@ -49,7 +86,7 @@ final class LandingTrend
         foreach ($copies->landingsPerRunSince($edge) as $provider => $rows) {
             $series[$provider] = WeeklySeries::build(
                 $rows,
-                DomainRouting::MINIMUM_RUNS,
+                self::MINIMUM_MAILINGS,
                 $edge,
                 $now
             );
@@ -58,19 +95,4 @@ final class LandingTrend
         return $series;
     }
 
-    /**
-     * The providers whose series has at least one drawable week.
-     *
-     * **A provider measured too thinly to draw is left off the chart rather
-     * than drawn as a flat empty line.** A legend entry with no line beside it
-     * reads as « this provider delivered nothing », which is the opposite of
-     * « we have not measured it enough to say ».
-     *
-     * @param array<string, WeeklySeries> $series
-     * @return array<string, WeeklySeries>
-     */
-    public static function drawable(array $series): array
-    {
-        return array_filter($series, static fn(WeeklySeries $one): bool => !$one->isEmpty());
-    }
 }

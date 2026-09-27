@@ -456,11 +456,13 @@ class OutboundMailController extends AbstractController
                 : array_map(
                     static fn(\Core\Mail\Feedback\Trend\WeeklySeries $one): array
                         => self::trendForView($one),
-                    \Core\Mail\Feedback\Seed\LandingTrend::drawable(
-                        \Core\Mail\Feedback\Seed\LandingTrend::build($this->seedCopies)
-                    )
+                    \Core\Mail\Feedback\Seed\LandingTrend::build($this->seedCopies)
                 ),
             'trend_window_days' => \Core\Mail\Feedback\Seed\Task\PurgeSeedCopiesHandler::RETENTION_DAYS,
+            // Not `minimum_runs`: that one gates the automatic routing over
+            // thirty days, and the trend judges a single week (see
+            // `LandingTrend::MINIMUM_MAILINGS`).
+            'trend_minimum_mailings' => \Core\Mail\Feedback\Seed\LandingTrend::MINIMUM_MAILINGS,
             // Two relays on the mailing lane is what makes « appliquer »
             // mean anything. Below that the screen says so rather than
             // drawing a button that would explain nothing when it did

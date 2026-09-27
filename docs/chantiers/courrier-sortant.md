@@ -2663,10 +2663,32 @@ sur une porte.**
   le report porte le détail. Deux choses tiennent à cette page-ci :
   **une courbe par fournisseur**, parce que la question est comparative —
   un fournisseur qui se met à filtrer se lit contre ceux qui ne le font
-  pas (mainteneur, 27 septembre) ; et **aucun seuil propre**, c'est
-  `MINIMUM_RUNS`, celui sur lequel l'acheminement automatique est déjà
-  bloqué, parce que c'est le même jugement sur les mêmes preuves. Un
-  second nombre ici serait un second avis, et les deux auraient dérivé.
+  pas (mainteneur, 27 septembre) ; et **un seuil propre à la semaine**,
+  `LandingTrend::MINIMUM_MAILINGS`, un publipostage mesuré (mainteneur,
+  27 septembre).
+
+  **La première version réutilisait `MINIMUM_RUNS` et c'était faux**, pour
+  une raison qui vaut d'être gardée : l'argument était « même preuve, même
+  jugement », et il ignorait la fenêtre. Ces cinq publipostages sont cinq
+  **par trente jours** (`SEEDS_WINDOW`) ; réutilisés comme seuil
+  hebdomadaire ils sont quatre fois plus stricts que la constante ne l'a
+  jamais voulu. À « trois à cinq boîtes et quelques publipostages par an »
+  — le volume que ce dépôt énonce lui-même — aucune semaine n'atteint
+  cinq : toutes les séries étaient vides, `drawable()` ne rendait rien, et
+  la carte ne pouvait afficher que son propre état vide. La fonction était
+  inerte, et mesurée inerte avant d'être corrigée (`Claude review`).
+
+  **Un seuil calibré pour une fenêtre n'est pas un seuil pour une autre**,
+  quelle que soit la ressemblance des preuves qu'il juge. Celui qui l'a
+  remplacé refuse zéro preuve au lieu d'en exiger cinq, parce que
+  `MINIMUM_RUNS` garde une action automatique là où celui-ci ne fait que
+  montrer un chiffre à quelqu'un qui peut le pondérer — et `sample` va
+  jusqu'à l'infobulle pour qu'il le puisse.
+
+  Ironie utile : `AuthenticationTrend`, écrit dans la même PR, refuse
+  explicitement de réutiliser `MINIMUM_RUNS` pour exactement cette
+  raison. J'avais écrit l'argument et ne l'avais pas appliqué une classe
+  plus loin.
 
   Un fournisseur mesuré trop mince est **laissé hors du graphique**
   plutôt que dessiné en ligne vide : une entrée de légende sans ligne se

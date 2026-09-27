@@ -125,27 +125,73 @@ class TrendsFollowTheirPurgeTest extends TestCase
     }
 
     /**
-     * **A provider measured too thinly is left off the chart**, rather than
-     * drawn as an empty line: a legend entry with no line beside it reads as
-     * « delivered nothing », the opposite of « not measured enough to say ».
+     * **A single measured mailing IS drawn**, at the cadence this site really
+     * has: « three to five boxes and a few mailings a year ». The first
+     * version of this trend reused `DomainRouting::MINIMUM_RUNS` — five
+     * mailings, calibrated for thirty days — as a per-week threshold, so no
+     * week ever cleared it and the chart could only render its empty state.
+     * This test is shaped like production: **one mailing a month**, which the
+     * old threshold drew as nothing at all.
      */
-    public function testAProviderWithTooFewMailingsIsNotDrawable(): void
+    public function testOneMeasuredMailingAWeekIsEnoughToBeDrawn(): void
     {
         $now = new \DateTimeImmutable('2026-09-23 12:00:00');
-
-        // One mailing at orange.fr, and MINIMUM_RUNS at gmail.com — the same
-        // week, so only the threshold separates them.
-        $this->landOneMailing('envoi-orange', $now->modify('-2 days'), 'Indésirables', 'temoin@orange.fr');
-        for ($i = 0; $i < DomainRouting::MINIMUM_RUNS; $i++) {
-            $this->landOneMailing('envoi-g-' . $i, $now->modify('-2 days'), 'INBOX');
+        foreach ([60, 30, 5] as $daysAgo) {
+            $this->landOneMailing('envoi-' . $daysAgo, $now->modify('-' . $daysAgo . ' days'), 'INBOX');
         }
 
-        $drawable = LandingTrend::drawable(LandingTrend::build($this->copies, $now));
+        $series = LandingTrend::build($this->copies, $now);
+        $drawn = array_filter(
+            $series['gmail.com']->points,
+            static fn(array $point): bool => $point['value'] !== null
+        );
+
+        $this->assertCount(3, $drawn, 'three months, three measured weeks, three points');
+        $this->assertSame(
+            1,
+            LandingTrend::MINIMUM_MAILINGS,
+            'and the threshold is the trend\'s own, not the routing\'s thirty-day five'
+        );
+        $this->assertGreaterThan(
+            LandingTrend::MINIMUM_MAILINGS,
+            DomainRouting::MINIMUM_RUNS,
+            'the two are deliberately different numbers for deliberately different jobs'
+        );
+    }
+
+    /**
+     * **A provider whose copies are all pending never reaches the map at all**,
+     * which is why this class needs no « drawable » filter: the query excludes
+     * pending copies, so the only provider that could have been filtered out is
+     * one the query never returns.
+     *
+     * This is the invariant that replaced a guard whose mutation survived. It
+     * is asserted on the WORST row the repository can produce — one mailing,
+     * one answered copy, nothing in the inbox — because that is the row a
+     * reader would expect to be « too thin to draw », and it is drawn, at 0 %.
+     */
+    public function testEveryProviderReturnedHasAtLeastOneDrawnWeek(): void
+    {
+        $now = new \DateTimeImmutable('2026-09-23 12:00:00');
+        $this->landOneMailing('envoi-g', $now->modify('-2 days'), 'Indésirables');
+        // Claimed, never answered for: the sweep has not found it yet.
+        $this->copies->claim('envoi-o', 'temoin@orange.fr', $now->modify('-2 days'));
+
+        $series = LandingTrend::build($this->copies, $now);
 
         $this->assertSame(
             ['gmail.com'],
-            array_keys($drawable),
-            'one mailing cannot carry a provider\'s figures, and is not drawn as if it could'
+            array_keys($series),
+            'a copy nobody has answered for is not evidence, and never reaches the map'
+        );
+        $this->assertFalse(
+            $series['gmail.com']->isEmpty(),
+            'and the thinnest row there is — one mailing, one answered copy — is drawn'
+        );
+        $this->assertContains(
+            0.0,
+            array_column($series['gmail.com']->points, 'value'),
+            'at nought per cent, which is a measurement and not a hole'
         );
     }
 

@@ -1437,25 +1437,31 @@ class OutboundMailControllerTest extends TestCase
     }
 
     /**
-     * The seed page carries one series per provider, and only the providers
-     * measured enough to draw: `MINIMUM_RUNS` mailings at one, one mailing at
-     * the other, the same week.
+     * The seed page carries one series per provider that has been measured,
+     * and leaves out the one that has not.
+     *
+     * **One answered mailing is enough to be drawn**, which is the whole point
+     * of `LandingTrend::MINIMUM_MAILINGS`: an earlier version demanded the
+     * routing's five-per-thirty-days and so drew nothing at all at this site's
+     * real cadence. A provider whose only copy is still pending is the case
+     * that IS left out — nothing measured there yet.
      */
-    public function testTheSeedPageCarriesOneSeriesPerDrawableProvider(): void
+    public function testTheSeedPageCarriesOneSeriesPerMeasuredProvider(): void
     {
         $at = new \DateTimeImmutable('-2 days');
-        for ($i = 0; $i < \Core\Mail\Feedback\Seed\DomainRouting::MINIMUM_RUNS; $i++) {
-            $this->seedCopies->claim('envoi-g-' . $i, 'temoin@gmail.com', $at);
-            $this->seedCopies->recordLanding('envoi-g-' . $i, 'temoin@gmail.com', 'INBOX', $at);
-        }
+        $this->seedCopies->claim('envoi-g', 'temoin@gmail.com', $at);
+        $this->seedCopies->recordLanding('envoi-g', 'temoin@gmail.com', 'INBOX', $at);
         $this->seedCopies->claim('envoi-o', 'temoin@orange.fr', $at);
         $this->seedCopies->recordLanding('envoi-o', 'temoin@orange.fr', 'Indésirables', $at);
+        // Claimed and never answered for: the sweep has not found it.
+        $this->seedCopies->claim('envoi-y', 'temoin@yahoo.fr', $at);
 
         $body = (string) $this->controller->seeds($this->getRequest(), [])->getBody();
 
-        // **Asserted on the island, not on the page.** `orange.fr` legitimately
-        // appears in the ranking table above — a negative assertion over the
-        // whole body would have passed for the wrong reason, or failed for one.
+        // **Asserted on the island, not on the page.** Every provider here
+        // legitimately appears in the ranking table above — a negative
+        // assertion over the whole body would have passed for the wrong
+        // reason, or failed for one.
         $this->assertSame(
             1,
             preg_match('/id="seed-trend-data">\s*(\{.*?\})\s*<\/script>/s', $body, $island),
@@ -1465,9 +1471,9 @@ class OutboundMailControllerTest extends TestCase
         $series = json_decode($island[1], true);
 
         $this->assertSame(
-            ['gmail.com'],
+            ['gmail.com', 'orange.fr'],
             array_keys(is_array($series) ? $series : []),
-            'one mailing cannot carry a provider, and is not drawn as if it could'
+            'one measured mailing is drawn; a pending-only provider is not'
         );
     }
 

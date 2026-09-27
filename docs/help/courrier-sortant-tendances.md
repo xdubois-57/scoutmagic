@@ -52,7 +52,9 @@ deux serait honnête.
 Il faut, par semaine :
 
 - vingt messages rapportés pour tracer un taux d'authentification ;
-- cinq publipostages mesurés pour tracer un fournisseur.
+- un publipostage mesuré pour tracer un fournisseur : un envoi mesuré est
+  une mesure. Ce n'est pas le seuil de l'acheminement automatique, qui
+  décide à votre place et en demande cinq.
 
 Une semaine creuse, des vacances, une installation récente : autant de
 trous normaux. La courbe ne les relie pas, parce qu'une pente au-dessus
@@ -60,11 +62,11 @@ d'un trou serait une mesure que personne n'a prise.
 
 ## Un fournisseur absent du graphique
 
-Un fournisseur qui n'a jamais atteint cinq publipostages sur une même
-semaine **n'est pas dessiné du tout**, plutôt que dessiné en ligne
-vide — une légende sans ligne se lit **il n'a rien délivré**, l'inverse
-de **nous ne l'avons pas assez mesuré**. Il reste dans le tableau
-au-dessus, qui lui ne prétend pas faire une tendance.
+Un fournisseur dont aucune copie n'a encore été retrouvée **n'est pas
+dessiné du tout**, plutôt que dessiné en ligne vide — une légende sans
+ligne se lit **il n'a rien délivré**, l'inverse de **nous ne l'avons pas
+encore mesuré**. Il reste dans le tableau au-dessus, qui lui ne prétend
+pas faire une tendance.
 
 ## Les chiffres en texte
 

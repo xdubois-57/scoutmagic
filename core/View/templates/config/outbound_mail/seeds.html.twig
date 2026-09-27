@@ -312,10 +312,11 @@
             <h2 class="h5">Depuis quand ?</h2>
             <p class="text-body-secondary small">
                 La part des copies arrivées en boîte de réception, semaine par semaine, sur les
-                {{ trend_window_days }} jours conservés. Un fournisseur n'est tracé qu'à partir de
-                {{ minimum_runs }} publipostages mesurés dans la semaine : cinq copies d'un même envoi
-                vers cinq boîtes disent une fois la même chose cinq fois, et un échantillon qui les
-                compterait pour cinq franchirait le seuil sur une seule observation.
+                {{ trend_window_days }} jours conservés. Une semaine est tracée dès
+                {{ trend_minimum_mailings }} publipostage mesuré chez ce fournisseur — et non à partir
+                des {{ minimum_runs }} qu'exige l'acheminement automatique, qui décide à votre place
+                sur trente jours et demande donc davantage. L'infobulle dit combien d'envois portent
+                chaque point : un point qui ne repose que sur un seul se lit avec prudence.
             </p>
             <p class="text-body-secondary small">
                 <strong>Une interruption se lit « on ne sait pas », jamais « rien n'est arrivé ».</strong>
