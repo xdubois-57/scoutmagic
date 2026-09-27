@@ -100,14 +100,53 @@ final class OrganizerSectionFieldIsGoneTest extends TestCase
             'creating and editing share the « no section » wording, so one of the two is wrong'
         );
 
-        $branches = preg_split('/\{%\s*(?:elseif[^%]*|else)\s*%\}/', $form);
-        self::assertIsArray($branches);
+        $editBranch = $this->lastBranchOfTheSectionSentence($form);
         $this->assertStringNotContainsString(
             'votre compte',
-            (string) end($branches),
+            $editBranch,
             'the edit branch explains the editor\'s own account, which has nothing to do with '
             . "this carpool's stored section"
         );
+        $this->assertStringContainsString(
+            'Aucune section n\'est enregistrée sur ce covoiturage',
+            $editBranch,
+            'the edit branch no longer says what is true of the carpool itself'
+        );
+    }
+
+    /**
+     * The LAST branch of the one `<p>` that carries the section sentence —
+     * and only of it.
+     *
+     * An earlier version of this test split the WHOLE template on
+     * `{% else %}` and `{% elseif %}` and read the last piece. Raised in
+     * review of #664, and measured before being believed: the file holds
+     * another such block further down (the map point's, three branches of
+     * its own), so « the last piece » was the tail of the file — the date
+     * fields, the buttons, the scripts. Putting the forbidden wording back
+     * into the edit branch left that assertion green, while the bounded
+     * version below goes red on it. A test that cannot fail guarantees
+     * nothing (`CLAUDE.md`), so the span is bounded first and split second.
+     */
+    private function lastBranchOfTheSectionSentence(string $form): string
+    {
+        $open = strpos($form, '<p class="small text-body-secondary mb-3">');
+        self::assertIsInt($open, 'the paragraph carrying the section sentence is gone');
+        $close = strpos($form, '</p>', $open);
+        self::assertIsInt($close, 'that paragraph is never closed');
+
+        $branches = preg_split(
+            '/\{%\s*(?:elseif[^%]*|else)\s*%\}/',
+            substr($form, $open, $close - $open)
+        );
+        self::assertIsArray($branches);
+        self::assertGreaterThanOrEqual(
+            3,
+            count($branches),
+            'the section sentence has fewer than three branches: creating and editing share one'
+        );
+
+        return (string) end($branches);
     }
 
     /** The carpool's own page says it too — same reason, other reader. */
