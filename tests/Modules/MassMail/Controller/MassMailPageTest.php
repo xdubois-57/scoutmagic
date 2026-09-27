@@ -991,25 +991,18 @@ class MassMailPageTest extends TestCase
             0,
             (int) $this->pdo->query('SELECT COUNT(*) FROM mass_mail_attachments')->fetchColumn()
         );
-        // And the upload itself SURVIVES — pinned rather than wished away.
-        // UploadHandler::handle() writes the bytes and inserts the `files`
-        // row before MassMailService::addAttachment() refuses, and this
-        // controller's catch does no cleanup. Keeping the row is the
-        // project-wide convention, stated in
-        // Modules\Gallery\Service\StoredFileCleaner: `files` rows are an
-        // audit trail, and only derived/staging assets are dropped. So this
-        // asserts what the convention implies rather than a deletion that
-        // would quietly contradict it.
-        //
-        // What no convention covers is that the upload was ACCEPTED at all
-        // for an email that cannot take attachments, leaving bytes no screen
-        // will ever show. That is #578, not this test's business.
+        // And nothing was uploaded (issue #578): the email's state is asked
+        // before UploadHandler runs, so no `files` row is inserted and the
+        // sent file is still where PHP left it, never moved into storage.
+        // Checked only after the upload, the refusal used to leave both
+        // behind, for an email that no screen would ever attach them to.
         $this->assertSame(
-            1,
+            0,
             (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn(),
-            'the upload no longer survives the refusal — if that is deliberate, '
-            . 'the convention in StoredFileCleaner and issue #578 both need revisiting'
+            'the upload survived the refusal'
         );
+        $this->assertFileExists($_FILES['file']['tmp_name'], 'the sent file was moved into storage');
+        unlink($_FILES['file']['tmp_name']);
     }
 
     public function testAnAttachmentCannotBeRemovedOnceTheEmailLeftDraft(): void

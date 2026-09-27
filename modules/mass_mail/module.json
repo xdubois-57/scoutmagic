@@ -2,7 +2,7 @@
   "id": "mass_mail",
   "name": "Envoi de mails",
   "description": "Envois groupés et listes de diffusion.",
-  "version": "1.17.4",
+  "version": "1.17.5",
   "enabled_by_default": false,
   "routes": [
     {
