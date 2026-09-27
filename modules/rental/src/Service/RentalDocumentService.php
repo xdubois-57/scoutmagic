@@ -20,6 +20,7 @@ use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Document\DocumentKeywords;
 use Modules\Rental\Document\DocumentType;
+use Modules\Rental\Document\Landlord;
 use Modules\Rental\Document\RentalDocument;
 use Modules\Rental\Document\StandardTemplates;
 use Modules\Rental\Payment\PaymentSettings;
@@ -587,6 +588,7 @@ class RentalDocumentService
         $billing = $this->bookingRepository->findBillingIdentity($booking->id);
         $deposit = $total !== null ? $paymentSettings->depositFor($total) : null;
         $securityDeposit = $paymentSettings->securityDepositAmount();
+        $landlord = Landlord::resolve($this->settingService);
 
         return [
             'reference' => $booking->reference,
@@ -610,11 +612,23 @@ class RentalDocumentService
             'locataire_telephone' => $booking->renterPhone,
             'locataire_adresse' => $billing['address'],
             'locataire_tva' => $billing['vat_number'] ?? $billing['enterprise_number'],
-            'adresse_bailleur' => (string) ($this->settingService->get('unit_address') ?: ''),
+            'nom_bailleur' => $landlord->name,
+            'adresse_bailleur' => self::oneLine($landlord->address),
+            'bce_bailleur' => $landlord->enterpriseNumber,
             'unite' => (string) ($this->settingService->get('site_name') ?: 'Unité scoute'),
             'date_du_jour' => (new \DateTimeImmutable())->format('d/m/Y'),
             'mention_tva' => $this->vatNote($asset),
         ];
+    }
+
+    /**
+     * A multi-line address on one line: the settings take it as a textarea,
+     * and the template prints it inside a paragraph, where a newline is a
+     * space — « Rue du Local 1 1000 Bruxelles » reads as one number.
+     */
+    private static function oneLine(?string $text): ?string
+    {
+        return $text === null ? null : (string) preg_replace('/[ \t]*\R\s*/u', ', ', trim($text));
     }
 
     /**

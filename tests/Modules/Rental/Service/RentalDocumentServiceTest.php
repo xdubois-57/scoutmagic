@@ -6,6 +6,7 @@ namespace Tests\Modules\Rental\Service;
 
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
+use Core\Config\UnitAddresses;
 use Core\File\FileRepository;
 use Core\File\PdfTextExtractor;
 use Core\Journal\JournalRepository;
@@ -57,6 +58,7 @@ class RentalDocumentServiceTest extends TestCase
     private RentalAssetRepository $assetRepository;
     private RentalAssetManagerRepository $managerRepository;
     private EditableContentService $editableContentService;
+    private SettingService $settingService;
     private FileRepository $fileRepository;
     private string $storagePath;
     private int $assetId;
@@ -73,7 +75,9 @@ class RentalDocumentServiceTest extends TestCase
 
         $settingService = new SettingService(new SettingRepository($this->pdo));
         $settingService->register('site_name', 'Unité Saint-Georges', 'text', 'Nom', 'Description de test.');
-        $settingService->register('unit_address', 'Rue du Local 1, 1000 Bruxelles', 'text', 'Adresse', 'Description de test.');
+        RentalTestHelper::registerSettings($settingService);
+        $settingService->set(UnitAddresses::POSTAL_ADDRESS, "Rue du Local 1\n1000 Bruxelles");
+        $this->settingService = $settingService;
 
         $journal = new JournalService(new JournalRepository($this->pdo));
         $this->assetRepository = new RentalAssetRepository($this->pdo, $this->encryption);
@@ -884,8 +888,84 @@ class RentalDocumentServiceTest extends TestCase
         $this->assertSame('Jeanne Martin', $values['locataire_nom']);
         $this->assertSame('Les Scouts de Nulle Part', $values['locataire_organisation']);
         $this->assertSame('+++100/0000/00034+++', $values['communication']);
-        $this->assertSame('Rue du Local 1, 1000 Bruxelles', $values['adresse_bailleur']);
+        $this->assertSame('Unité Saint-Georges', $values['nom_bailleur']);
+        $this->assertSame('Rue du Local 1, 1000 Bruxelles', $values['adresse_bailleur'], 'the two lines of the setting, on one');
+        $this->assertNull($values['bce_bailleur']);
         $this->assertSame('18:00', $values['heure_arrivee']);
+    }
+
+    /**
+     * The module's landlord replaces the unit whole — name, address and
+     * enterprise number together — because the case it exists for is a
+     * separate non-profit owning the hall, and the unit's address under the
+     * ASBL's name would be the wrong party at the wrong place (issue #497).
+     */
+    public function testTheModulesLandlordReplacesTheUnitWhole(): void
+    {
+        $this->settingService->set('landlord_name', 'ASBL Les Amis du Local', 'rental');
+        $this->settingService->set('landlord_address', "Place du Parc 3\n1300 Wavre", 'rental');
+        $this->settingService->set('landlord_enterprise_number', '0123.456.789', 'rental');
+
+        $values = $this->service->valuesFor($this->createBooking(), $this->asset(), $this->settings());
+
+        $this->assertSame('ASBL Les Amis du Local', $values['nom_bailleur']);
+        $this->assertSame('Place du Parc 3, 1300 Wavre', $values['adresse_bailleur']);
+        $this->assertSame('0123.456.789', $values['bce_bailleur']);
+        $this->assertSame('Unité Saint-Georges', $values['unite'], 'the unit is still nameable as itself');
+    }
+
+    /**
+     * A landlord with a name and no address keeps the address missing: the
+     * unit's postal address under an ASBL's name would print a place that
+     * is not theirs, and a « — » is at least visibly incomplete.
+     */
+    public function testALandlordWithoutAnAddressDoesNotBorrowTheUnits(): void
+    {
+        $this->settingService->set('landlord_name', 'ASBL Les Amis du Local', 'rental');
+
+        $values = $this->service->valuesFor($this->createBooking(), $this->asset(), $this->settings());
+
+        $this->assertSame('ASBL Les Amis du Local', $values['nom_bailleur']);
+        $this->assertNull($values['adresse_bailleur']);
+    }
+
+    /** An address with no name is the unit letting from somewhere else. */
+    public function testALandlordAddressWithoutANameIsTheUnitElsewhere(): void
+    {
+        $this->settingService->set('landlord_address', 'Chemin du Bois 12, 1310 La Hulpe', 'rental');
+
+        $values = $this->service->valuesFor($this->createBooking(), $this->asset(), $this->settings());
+
+        $this->assertSame('Unité Saint-Georges', $values['nom_bailleur']);
+        $this->assertSame('Chemin du Bois 12, 1310 La Hulpe', $values['adresse_bailleur']);
+    }
+
+    public function testWithNothingConfiguredTheLandlordLinesPrintADash(): void
+    {
+        $this->settingService->set(UnitAddresses::POSTAL_ADDRESS, '');
+        $booking = $this->createBooking();
+        $values = $this->service->valuesFor($booking, $this->asset(), $this->settings());
+
+        $this->assertNull($values['adresse_bailleur']);
+        $this->assertNull($values['bce_bailleur']);
+    }
+
+    /** The shipped contract names the landlord, not merely the unit. */
+    public function testTheStandardContractPrintsTheLandlord(): void
+    {
+        $this->settingService->set('landlord_name', 'ASBL Les Amis du Local', 'rental');
+        $this->settingService->set('landlord_address', 'Place du Parc 3, 1300 Wavre', 'rental');
+
+        $document = $this->service->generate(
+            $this->createBooking(),
+            $this->asset(),
+            DocumentType::CONTRACT,
+            $this->settings()
+        );
+        $text = $this->renderedTextOf($document->id);
+
+        $this->assertStringContainsString('ASBL Les Amis du Local', $text);
+        $this->assertStringContainsString('Place du Parc 3, 1300 Wavre', $text);
     }
 
     public function testAnAssetWithNoDepositResolvesTheKeywordToNothing(): void

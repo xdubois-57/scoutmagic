@@ -89,10 +89,14 @@ class ModuleManifestTest extends TestCase
      *
      * 1.30.0 ends every e-mail to the renter with a link to the version of
      * the conditions they accepted (issue #494).
+     *
+     * 1.31.0 names the landlord of a contract and an invoice: three new
+     * settings (`landlord_*`) and three keywords, and the unit's legal
+     * address in place of a setting nothing declared (issue #497).
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.30.0', $this->manifest->version);
+        $this->assertSame('1.31.0', $this->manifest->version);
     }
 
     /**

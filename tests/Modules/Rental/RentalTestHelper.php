@@ -6,6 +6,9 @@ namespace Tests\Modules\Rental;
 
 use Core\Audit\AuditRepository;
 use Core\Audit\AuditService;
+use Core\Config\SettingService;
+use Core\Config\UnitAddresses;
+use Core\Module\ModuleManifest;
 use Core\Security\EncryptionService;
 use Modules\Rental\Audit\BookingAudit;
 
@@ -519,6 +522,38 @@ class RentalTestHelper
      * other test would otherwise need a member roster to record a status
      * change.
      */
+    /**
+     * The settings a rental test reads, declared the way production
+     * declares them: the rental module's from its own `module.json`, the
+     * way `ModuleManager` registers them, and the unit's addresses through
+     * `UnitAddresses::register()`, which `public/index.php` calls.
+     *
+     * A fixture that registered its own `unit_address` is how the rental
+     * contract printed an empty landlord address on every real site for
+     * its whole life while its test stayed green (issue #497): the key the
+     * test declared was declared nowhere else. Going through the real
+     * declarations, a renamed or dropped key fails here — `set()` refuses
+     * a setting nobody registered.
+     */
+    public static function registerSettings(SettingService $settingService): void
+    {
+        $manifest = ModuleManifest::fromFile(dirname(__DIR__, 3) . '/modules/rental/module.json');
+        foreach ($manifest->settings as $setting) {
+            $settingService->register(
+                $setting['key'],
+                $setting['default_value'],
+                $setting['type'],
+                $setting['label'],
+                $setting['description'],
+                $manifest->id,
+                $setting['validation_regex'],
+                null,
+                $setting['editable']
+            );
+        }
+        UnitAddresses::register($settingService);
+    }
+
     public static function bookingAudit(\PDO $pdo, EncryptionService $encryption): BookingAudit
     {
         return new BookingAudit(new AuditService(new AuditRepository($pdo, $encryption)));

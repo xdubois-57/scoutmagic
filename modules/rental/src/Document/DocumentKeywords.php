@@ -73,8 +73,10 @@ final class DocumentKeywords
         'locataire_telephone' => 'Le téléphone du locataire, ou « — »',
         'locataire_adresse' => 'L\'adresse de facturation du locataire, ou « — »',
         'locataire_tva' => 'Le numéro de TVA ou de BCE du locataire, ou « — »',
-        'adresse_bailleur' => "L'adresse de l'unité, telle que configurée",
-        'unite' => "Le nom de l'unité",
+        'nom_bailleur' => "Le nom du bailleur : celui des réglages du module s'il est rempli, sinon l'unité",
+        'adresse_bailleur' => "L'adresse du bailleur, ou celle de l'unité si aucun bailleur n'est configuré",
+        'bce_bailleur' => "Le numéro d'entreprise (BCE) du bailleur, ou « — »",
+        'unite' => "Le nom de l'unité, qui n'est pas forcément le bailleur",
         'date_du_jour' => "La date du jour de génération",
         'mention_tva' => 'La mention d\'exonération de TVA configurée pour ce bien',
     ];
