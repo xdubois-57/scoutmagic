@@ -303,6 +303,34 @@ class ChecksTest extends TestCase
      * BOTH causes, because naming one is what made a correct alert
      * misleading.
      */
+    /**
+     * The disk alert's button leads to the page that shows the disk (issue
+     * #649). It pointed at /config/maintenance, which lost its disk-space
+     * panel to Configuration › Stockage: a button promising « l'espace
+     * disque » on a page that no longer had it. The storage dashboard is
+     * where each volume's use is shown now, so both the route and the page's
+     * own usage bar are pinned, not just the string.
+     */
+    public function testTheDiskAlertPointsAtTheStorageDashboardThatShowsTheDisk(): void
+    {
+        $settings = $this->settings([DiskBudget::QUOTA_SETTING => '1000']);
+        $this->writeBytes('gallery/photo.jpg', 900);
+
+        $reading = (new DiskUsageCheck(new DiskBudget($this->storagePath, $settings)))->read();
+
+        $this->assertSame('/config/stockage', $reading->actionUrl);
+        $this->assertSame('Voir l\'espace disque', $reading->actionLabel);
+        $this->assertStringNotContainsString('maintenance', strtolower($reading->why));
+
+        $root = dirname(__DIR__, 3);
+        $this->assertStringContainsString(
+            "'/config/stockage'",
+            (string) file_get_contents($root . '/public/index.php'),
+            'the disk alert links to /config/stockage, and no route serves it any more'
+        );
+        $this->assertFileExists($root . '/core/View/templates/config/storage/dashboard.html.twig');
+    }
+
     public function testTheHttpsAlertPointsAtTheHelpTopicThatExplainsBothCauses(): void
     {
         $settings = $this->httpsSettings(null);

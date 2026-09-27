@@ -64,7 +64,11 @@ final class DiskUsageCheck implements OperationalCheck
             why: 'Passé ce point, une sauvegarde ou un envoi de photo peut être refusé, et une écriture '
                 . 'interrompue en cours de route laisse un fichier incomplet. Supprimez des sauvegardes ou '
                 . 'des photos, ou demandez plus d\'espace à votre hébergeur.',
-            actionUrl: '/config/maintenance',
+            // The storage dashboard, which shows the use of every volume. It
+            // used to be /config/maintenance, which stopped showing disk space
+            // when its panel moved to Storage — the button then led to a page
+            // without the thing it promised (issue #649).
+            actionUrl: '/config/stockage',
             actionLabel: 'Voir l\'espace disque'
         );
     }
