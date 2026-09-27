@@ -215,6 +215,9 @@ class RunOperationalChecksHandlerTest extends TestCase
         $this->assertSame(DiskUsageCheck::ACTION_LABEL, $points[0]->actionLabel);
         $this->assertStringNotContainsString('Maintenance', $points[0]->why);
         $this->assertSame('/config/stockage', DiskUsageCheck::STORAGE_PATH);
+        // And says whose page it is: a chef d.unité gets no button to it
+        // (review of #672), so the sentence is what tells them.
+        $this->assertStringContainsString('super-administrateur', $points[0]->why);
     }
 
     /** An armed alert is not a current problem and must not be listed. */

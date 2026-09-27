@@ -288,22 +288,6 @@ class ChecksTest extends TestCase
     }
 
     /**
-     * Issue #352 — the alert now leads somewhere that can explain it.
-     *
-     * The reading was never wrong: a request really did arrive in clear.
-     * What was wrong is what it told the administrator to do. An
-     * installation whose HTTPS is terminated in front of it — a proxy, a
-     * CDN, a hosting panel — receives every request unencrypted and
-     * triggers this correctly, while its visitors are secure end to end;
-     * telling that person to « activer le certificat HTTPS » sends them
-     * looking for something already there, and `/config/maintenance`
-     * only restated the reading they had just read.
-     *
-     * The link is the reporter's own suggestion, and the sentence names
-     * BOTH causes, because naming one is what made a correct alert
-     * misleading.
-     */
-    /**
      * The disk alert's button leads to the page that shows the disk (issue
      * #649). It pointed at /config/maintenance, which lost its disk-space
      * panel to Configuration › Stockage: a button promising « l'espace
@@ -333,6 +317,22 @@ class ChecksTest extends TestCase
         $this->assertFileExists($root . '/core/View/templates/config/storage/dashboard.html.twig');
     }
 
+    /**
+     * Issue #352 — the alert now leads somewhere that can explain it.
+     *
+     * The reading was never wrong: a request really did arrive in clear.
+     * What was wrong is what it told the administrator to do. An
+     * installation whose HTTPS is terminated in front of it — a proxy, a
+     * CDN, a hosting panel — receives every request unencrypted and
+     * triggers this correctly, while its visitors are secure end to end;
+     * telling that person to « activer le certificat HTTPS » sends them
+     * looking for something already there, and `/config/maintenance`
+     * only restated the reading they had just read.
+     *
+     * The link is the reporter's own suggestion, and the sentence names
+     * BOTH causes, because naming one is what made a correct alert
+     * misleading.
+     */
     public function testTheHttpsAlertPointsAtTheHelpTopicThatExplainsBothCauses(): void
     {
         $settings = $this->httpsSettings(null);

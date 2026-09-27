@@ -40,7 +40,8 @@ final class DiskUsageCheck implements OperationalCheck
     public const ACTION_LABEL = 'Voir l\'espace disque';
 
     public const ATTENTION_WHY = 'Le site l\'a signalé aux administrateurs et le répète ici tant que c\'est '
-        . 'vrai. L\'occupation de chaque volume se lit sur Configuration › Stockage.';
+        . 'vrai. L\'occupation de chaque volume se lit sur Configuration › Stockage, '
+        . 'page du super-administrateur.';
 
     public function __construct(private readonly DiskBudget $diskBudget)
     {
