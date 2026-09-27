@@ -124,7 +124,13 @@ class CampAlbumService
         try {
             return $this->albums->listMedia($albumId);
         } catch (GalleryException $e) {
-            $this->journalRefusal('camp_album_unreadable', "les photos de l'album n'ont pas pu être lues", $campId, $e, $albumId);
+            $this->journalRefusal(
+                'camp_album_unreadable',
+                "les photos de l'album n'ont pas pu être lues",
+                $campId,
+                $e,
+                $albumId
+            );
 
             return null;
         }
