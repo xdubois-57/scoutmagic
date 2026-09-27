@@ -5884,8 +5884,7 @@ if ($isEnabled('registration')) {
     );
 }
 $feeEstimationService = new \Core\Member\FeeEstimationService(
-    new \Core\Member\FeeEstimationRepository($pdo),
-    $encryptionService,
+    new \Core\Member\FeeEstimationRepository($pdo, $encryptionService),
     $householdRegistrationCountForOthers
 );
 // Its twin, and core for the same reason: the two counts a household has

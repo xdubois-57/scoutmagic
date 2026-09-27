@@ -93,7 +93,7 @@ class RegistrationRbacTest extends TestCase
         $journalService = new JournalService(new JournalRepository($this->pdo));
         $statusService = new RequestStatusService($requestRepository, $journalService);
         $feeCategoryRepository = new FeeCategoryRepository($this->pdo);
-        $feeEstimationService = new FeeEstimationService(new FeeEstimationRepository($this->pdo), $encryption, null);
+        $feeEstimationService = new FeeEstimationService(new FeeEstimationRepository($this->pdo, $encryption), null);
 
         $created = $requestRepository->create($currentYearId, [
             'parent_name' => 'Marie Dupont', 'child_last_name' => 'Dupont', 'child_first_name' => 'Léa',

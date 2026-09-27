@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Member;
 
+use Core\Security\EncryptionService;
+
 /**
  * The PROJECTED household count, and only that one.
  *
@@ -22,8 +24,34 @@ namespace Core\Member;
  */
 class FeeEstimationRepository
 {
-    public function __construct(private \PDO $pdo)
+    public function __construct(
+        private \PDO $pdo,
+        private EncryptionService $encryption
+    ) {
+    }
+
+    /**
+     * The key a household is identified by: the blind index of its
+     * normalized address.
+     *
+     * **Derived here rather than by the caller** (SECURITY.md §5,
+     * ARCHITECTURE.md §13). It used to be computed in
+     * {@see \Core\Member\FeeEstimationService}, which meant a Service knew
+     * the purpose string `'address'` — and a purpose string is the one part
+     * of a blind index that must never be guessed twice: two layers writing
+     * it from memory is how an index silently stops matching the rows it was
+     * built for. One layer owns it, and it is the one that already owns the
+     * encryption dependency.
+     *
+     * It is returned rather than kept private because
+     * {@see \Modules\Registration\Api\HouseholdRegistrationCountProvider}
+     * keys its own counts on this very value — its contract is the key, not
+     * the address. The Service therefore relays an opaque token across that
+     * boundary instead of deriving one.
+     */
+    public function householdKeyFor(string $normalizedAddress): string
     {
+        return $this->encryption->blindIndex($normalizedAddress, 'address');
     }
 
     /**

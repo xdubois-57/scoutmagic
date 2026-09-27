@@ -28,7 +28,12 @@ class FeeEstimationServiceTest extends TestCase
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $this->service = new FeeEstimationService(new FeeEstimationRepository($this->pdo), $this->encryption);
+        // The repository now owns the blind index, so the Service takes no
+        // EncryptionService at all (#551): it cannot compute a key, which is
+        // the point of the change rather than a side effect of it.
+        $this->service = new FeeEstimationService(
+            new FeeEstimationRepository($this->pdo, $this->encryption)
+        );
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2025-2026', '2025-09-01', '2026-08-31')");
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
@@ -158,7 +163,7 @@ class FeeEstimationServiceTest extends TestCase
     public function testWithoutRegistrationModuleCountsMembersOnly(): void
     {
         $this->createMemberAtAddress('Rue de la Station', '5', null, '1000');
-        $serviceWithoutModule = new FeeEstimationService(new FeeEstimationRepository($this->pdo), $this->encryption, null);
+        $serviceWithoutModule = new FeeEstimationService(new FeeEstimationRepository($this->pdo, $this->encryption), null);
 
         $estimate = $serviceWithoutModule->estimate('Rue de la Station', '5', null, '1000', $this->scoutYearId);
 
@@ -179,7 +184,7 @@ class FeeEstimationServiceTest extends TestCase
                 return array_fill_keys($addressBlindIndexes, 2);
             }
         };
-        $service = new FeeEstimationService(new FeeEstimationRepository($this->pdo), $this->encryption, $provider);
+        $service = new FeeEstimationService(new FeeEstimationRepository($this->pdo, $this->encryption), $provider);
 
         $estimate = $service->estimate('Rue de la Station', '5', null, '1000', $this->scoutYearId);
 

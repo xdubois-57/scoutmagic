@@ -8,7 +8,6 @@ declare(strict_types=1);
 
 namespace Core\Member;
 
-use Core\Security\EncryptionService;
 use Modules\Registration\Api\HouseholdRegistrationCountProvider;
 
 /**
@@ -29,7 +28,6 @@ class FeeEstimationService
 {
     public function __construct(
         private FeeEstimationRepository $repository,
-        private EncryptionService $encryption,
         private ?HouseholdRegistrationCountProvider $registrationCount = null
     ) {
     }
@@ -57,11 +55,17 @@ class FeeEstimationService
             return FeeEstimate::addressNotUsable();
         }
 
-        $blindIndex = $this->encryption->blindIndex($normalized, 'address');
-        $count = $this->repository->countProjectedHouseholdMembers($blindIndex, $scoutYearId);
+        // The key comes from the repository, which owns the encryption
+        // dependency and the purpose string with it (SECURITY.md §5): this
+        // Service used to compute the blind index itself, so it had to know
+        // that `'address'` is the purpose — a detail no second layer should
+        // be able to get wrong. What crosses to the module below is that same
+        // key as an opaque token, because its contract keys on it.
+        $householdKey = $this->repository->householdKeyFor($normalized);
+        $count = $this->repository->countProjectedHouseholdMembers($householdKey, $scoutYearId);
         if ($this->registrationCount !== null) {
             $count += $this->registrationCount->countAtAddress(
-                $blindIndex,
+                $householdKey,
                 $scoutYearId,
                 $excludeRegistrationRequestId
             );

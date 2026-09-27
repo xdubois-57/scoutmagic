@@ -115,9 +115,9 @@ class RegistrationRequestControllerTest extends TestCase
     new MemberProfileRepository($connection, $encryption, new \Core\Badge\MemberBadgeRepository($this->pdo))
 );
 
-        $feeEstimationRepository = new FeeEstimationRepository($this->pdo);
+        $feeEstimationRepository = new FeeEstimationRepository($this->pdo, $encryption);
         $registrationCount = new HouseholdRegistrationCountService($this->requestRepository);
-        $feeEstimationService = new FeeEstimationService($feeEstimationRepository, $encryption, $registrationCount);
+        $feeEstimationService = new FeeEstimationService($feeEstimationRepository, $registrationCount);
 
         $this->journalRepository = new JournalRepository($this->pdo);
         $journalService = new JournalService($this->journalRepository);
