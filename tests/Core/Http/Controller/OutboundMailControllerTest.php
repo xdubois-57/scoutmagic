@@ -1404,6 +1404,22 @@ class OutboundMailControllerTest extends TestCase
             $body,
             'and the same weeks in text, for a reader who cannot see a chart'
         );
+        // **The card names both windows, and the wide one comes from the purge
+        // constant.** This sentence first claimed the trend covered « deux
+        // fois » the table above it — 90 against 30 is three, not two. Naming
+        // the two windows instead of their ratio removes the arithmetic, and
+        // asserting the wide one against the constant means a change to the
+        // retention cannot leave the sentence behind.
+        $this->assertStringContainsString(
+            'sur les ' . \Core\Mail\Feedback\Dmarc\Task\PurgeDmarcReportsHandler::RETENTION_DAYS . ' jours',
+            $body,
+            'the trend says how far back it reaches'
+        );
+        $this->assertStringContainsString(
+            "n'en résument que 30",
+            $body,
+            'and how far the figures above it reach, rather than a ratio of the two'
+        );
     }
 
     /**

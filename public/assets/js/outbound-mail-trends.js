@@ -28,12 +28,18 @@
      * than fitted to the data — an axis that rescaled itself would make a
      * one-point dip look like a collapse.
      *
-     * @param {Array<{label: string, sample: number, partial: boolean,
-     *     truncated: boolean}>} reference
+     * **`seriesList` is indexed by DATASET, not a single series.** One chart
+     * here carries one line per provider, and a tooltip has to answer for the
+     * line being hovered: closing over the first provider's points made every
+     * provider's tooltip report the first one's `sample` — the one figure the
+     * threshold is judged against, wrong for every line but the first.
+     *
+     * @param {Array<Array<{label: string, sample: number, partial: boolean,
+     *     truncated: boolean}>>} seriesList one entry per dataset, same order
      * @param {string} sampleNoun
      * @returns {object}
      */
-    function options(reference, sampleNoun) {
+    function options(seriesList, sampleNoun) {
         return {
             responsive: true,
             maintainAspectRatio: false,
@@ -49,7 +55,8 @@
                 tooltip: {
                     callbacks: {
                         afterBody: function (items) {
-                            var point = reference[items[0].dataIndex];
+                            var series = seriesList[items[0].datasetIndex] || [];
+                            var point = series[items[0].dataIndex];
                             if (!point) {
                                 return '';
                             }
@@ -122,7 +129,7 @@
                     tension: 0
                 }]
             },
-            options: options(dmarc, 'messages rapportés')
+            options: options([dmarc], 'messages rapportés')
         });
     }
 
@@ -148,7 +155,10 @@
                         };
                     })
                 },
-                options: options(seeds[providers[0]], 'publipostages mesurés')
+                options: options(
+                    providers.map(function (provider) { return seeds[provider]; }),
+                    'publipostages mesurés'
+                )
             });
         }
     }

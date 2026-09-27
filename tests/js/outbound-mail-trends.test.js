@@ -176,8 +176,13 @@ describe('outbound-mail-trends.js', () => {
     });
 
     describe('what the tooltip admits', () => {
-        function afterBody(id, index) {
-            return chartOn(id).options.plugins.tooltip.callbacks.afterBody([{ dataIndex: index }]);
+        // `datasetIndex` is not optional here: a chart with one line per
+        // provider must answer for the line being hovered, and defaulting it
+        // to 0 in this helper is exactly what let the bug through before.
+        function afterBody(id, index, dataset) {
+            return chartOn(id).options.plugins.tooltip.callbacks.afterBody(
+                [{ dataIndex: index, datasetIndex: dataset || 0 }]
+            );
         }
 
         it('says how much evidence the week carried', async () => {
@@ -223,7 +228,27 @@ describe('outbound-mail-trends.js', () => {
             seedPage();
             await boot();
 
-            expect(afterBody('seed-trend-chart', 1)).toBe('8 publipostages mesurés');
+            expect(afterBody('seed-trend-chart', 1, 0)).toBe('8 publipostages mesurés');
+        });
+
+        // **Every line answers for itself.** Closing over the first provider's
+        // points made every other provider's tooltip report provider #1's
+        // sample — and `sample` is the one figure the significance threshold is
+        // judged against, so it was wrong exactly where it mattered. The
+        // fixture gives the two providers different samples for this week (8
+        // and 5) so the two cannot be confused.
+        it('reports the hovered provider\'s own evidence, not the first one\'s', async () => {
+            seedPage();
+            await boot();
+
+            expect(afterBody('seed-trend-chart', 1, 1)).toBe('5 publipostages mesurés');
+        });
+
+        it('says nothing rather than throwing for a dataset it has no series for', async () => {
+            seedPage();
+            await boot();
+
+            expect(afterBody('seed-trend-chart', 0, 99)).toBe('');
         });
 
         it('says nothing rather than throwing on a point it has no week for', async () => {
