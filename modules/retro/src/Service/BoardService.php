@@ -588,7 +588,7 @@ class BoardService implements RetroEventLinkLookupInterface
      */
     private function resolveBoardDate(?int $calendarEventId, ?string $manualDate, Role $viewerRole): string
     {
-        return $this->resolveLinkedEvent($calendarEventId, $viewerRole)?->endDate
+        return $this->resolveLinkedEvent($calendarEventId, $viewerRole)->endDate
             ?? $this->resolveManualDate($manualDate);
     }
 

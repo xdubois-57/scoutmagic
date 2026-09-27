@@ -169,8 +169,8 @@ class MemberSearchController extends AbstractController
                     'member' => $profile,
                     'breadcrumb_current' => trim($profile->lastName . ' ' . $profile->firstName),
                     'effective_age' => $effectiveAge,
-                    'departure_leaving' => $departureStatus?->leaving ?? false,
-                    'departure_comment' => $departureStatus?->comment ?? '',
+                    'departure_leaving' => $departureStatus->leaving ?? false,
+                    'departure_comment' => $departureStatus->comment ?? '',
                     'is_temporary_member' => TemporaryMemberSession::get() === $profile->memberYearId,
                     // Keyed on the PERSISTENT member id, not the annual row:
                     // a note about a person outlives the scout year that saw

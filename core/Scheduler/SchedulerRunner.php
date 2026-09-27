@@ -181,7 +181,6 @@ class SchedulerRunner
                 // caller of SchedulerService::schedule() having to thread
                 // this through manually.
                 $payload['requested_by_user_account_id'] = isset($task['requested_by_user_account_id'])
-                    && $task['requested_by_user_account_id'] !== null
                     ? (int) $task['requested_by_user_account_id']
                     : null;
                 // A second reserved key, for the same reason and with a

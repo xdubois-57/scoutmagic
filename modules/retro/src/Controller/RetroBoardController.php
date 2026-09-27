@@ -389,7 +389,7 @@ class RetroBoardController extends AbstractController
 
         $isChief = Role::fromString(AuthSession::getRole())->hasAccess(Role::CHIEF);
         $revealVotes = $isChief || $board->resultsRevealed();
-        $votes = $revealVotes ? ($this->commentRepository->findById($comment->id)?->votes ?? 0) : null;
+        $votes = $revealVotes ? ($this->commentRepository->findById($comment->id)->votes ?? 0) : null;
 
         return $this->json(['success' => true, 'liked' => $liked, 'votes' => $votes]);
     }
@@ -466,7 +466,7 @@ class RetroBoardController extends AbstractController
 
         $isChief = Role::fromString(AuthSession::getRole())->hasAccess(Role::CHIEF);
         $revealVotes = $isChief || $board->resultsRevealed();
-        $votes = $revealVotes ? ($this->commentRepository->findById($comment->id)?->votes ?? 0) : null;
+        $votes = $revealVotes ? ($this->commentRepository->findById($comment->id)->votes ?? 0) : null;
 
         return $this->json(['success' => true, 'remaining' => $remaining, 'votes' => $votes]);
     }

@@ -264,7 +264,7 @@ class NotificationService
 
         foreach ($recipients as $recipient) {
             $userAccountId = (int) $recipient['userAccountId'];
-            $memberId = isset($recipient['memberId']) && $recipient['memberId'] !== null
+            $memberId = isset($recipient['memberId'])
                 ? (int) $recipient['memberId']
                 : null;
 
@@ -964,7 +964,7 @@ class NotificationService
         }
 
         $account = $this->findAccountSafely($record->userAccountId);
-        $discretion = $account?->notificationDiscretion ?? false;
+        $discretion = $account->notificationDiscretion ?? false;
 
         try {
             $payload = json_encode([

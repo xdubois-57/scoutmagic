@@ -80,10 +80,8 @@ class HtmlSanitizer
 
         // Serialize children of the wrapper
         $output = '';
-        if ($body->childNodes !== null) {
-            foreach ($body->childNodes as $child) {
-                $output .= $doc->saveHTML($child);
-            }
+        foreach ($body->childNodes as $child) {
+            $output .= $doc->saveHTML($child);
         }
 
         return trim($output);
@@ -93,10 +91,8 @@ class HtmlSanitizer
     {
         // Process children in reverse (removal-safe)
         $children = [];
-        if ($node->childNodes !== null) {
-            foreach ($node->childNodes as $child) {
-                $children[] = $child;
-            }
+        foreach ($node->childNodes as $child) {
+            $children[] = $child;
         }
 
         foreach ($children as $child) {
@@ -133,17 +129,15 @@ class HtmlSanitizer
     private function replaceWithChildren(\DOMElement $element, \DOMNode $parent, \DOMDocument $doc): void
     {
         $insertedNodes = [];
-        if ($element->childNodes !== null) {
-            // Clone children first to avoid iterator invalidation
-            $children = [];
-            foreach ($element->childNodes as $child) {
-                $children[] = $child;
-            }
-            foreach ($children as $child) {
-                $cloned = $child->cloneNode(true);
-                $parent->insertBefore($cloned, $element);
-                $insertedNodes[] = $cloned;
-            }
+        // Clone children first to avoid iterator invalidation
+        $children = [];
+        foreach ($element->childNodes as $child) {
+            $children[] = $child;
+        }
+        foreach ($children as $child) {
+            $cloned = $child->cloneNode(true);
+            $parent->insertBefore($cloned, $element);
+            $insertedNodes[] = $cloned;
         }
 
         $parent->removeChild($element);

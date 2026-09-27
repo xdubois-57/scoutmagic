@@ -278,9 +278,11 @@ class SqlParser
             . '(?:\s+ON\s+DELETE\s+' . $referentialAction . ')?'
             . '(?:\s+ON\s+UPDATE\s+' . $referentialAction . ')?/i';
 
-        if (preg_match($pattern, $def, $m)) {
-            $onDelete = isset($m[4]) && $m[4] !== '' ? strtoupper($m[4]) : null;
-            $onUpdate = isset($m[5]) && $m[5] !== '' ? strtoupper($m[5]) : null;
+        // PREG_UNMATCHED_AS_NULL: without it, an ON DELETE that is absent
+        // while ON UPDATE is present comes back as '' rather than unset.
+        if (preg_match($pattern, $def, $m, PREG_UNMATCHED_AS_NULL)) {
+            $onDelete = isset($m[4]) ? strtoupper($m[4]) : null;
+            $onUpdate = isset($m[5]) ? strtoupper($m[5]) : null;
 
             // Generate a constraint name
             $name = 'fk_' . $m[1] . '_' . $m[2];
@@ -312,9 +314,9 @@ class SqlParser
             . '(?:\s+ON\s+DELETE\s+' . $referentialAction . ')?'
             . '(?:\s+ON\s+UPDATE\s+' . $referentialAction . ')?/i';
 
-        if (preg_match($fkPattern, $def, $m)) {
-            $onDelete = isset($m[5]) && $m[5] !== '' ? strtoupper($m[5]) : null;
-            $onUpdate = isset($m[6]) && $m[6] !== '' ? strtoupper($m[6]) : null;
+        if (preg_match($fkPattern, $def, $m, PREG_UNMATCHED_AS_NULL)) {
+            $onDelete = isset($m[5]) ? strtoupper($m[5]) : null;
+            $onUpdate = isset($m[6]) ? strtoupper($m[6]) : null;
 
             $foreignKeys[] = new ForeignKeyDefinition(
                 name: $m[1],
