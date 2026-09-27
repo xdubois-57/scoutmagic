@@ -67,10 +67,18 @@
             {% if managing_section %}
                 Géré aussi par : <strong>{{ managing_section }}</strong>{% if carpool is null %} — votre section{% endif %}.
                 Ses animateurs voient les voitures et les passagers, comme ceux des sections des évènements retenus.
-            {% else %}
+            {% elseif carpool is null %}
                 Aucune section ne s'ajoute à celles des évènements retenus : votre compte n'est lié à aucun membre ayant
                 une fonction dans une section. Ce covoiturage restera géré par vous, par le Staff d'unité et par les
                 animateurs des sections de ses évènements.
+            {% else %}
+                {# Raised in review of #650: the wording above is about the account of
+                   whoever CREATES the carpool, not of whoever edits it, so it would state
+                   something false here — and the case is common, every carpool created
+                   before #650 with events holds no section. #}
+                Aucune section n'est enregistrée sur ce covoiturage, en plus de celles de ses évènements. Il reste géré
+                par son créateur, par le Staff d'unité et par les animateurs des sections de ses évènements. Cette
+                section ne se recalcule pas : elle est retenue à la création et une modification ne la change pas.
             {% endif %}
         </p>
 

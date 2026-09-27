@@ -437,12 +437,21 @@ section parce que la sortie est un évènement d'unité.
 
 Trois points méritent d'être retenus plutôt que redécouverts :
 
-1. **La variante du cœur existe pour une raison de permission.**
-   `SectionPickerHelper::resolveDefault()` se replie sur « la première
-   section disponible » quand le lecteur n'en a pas. C'est juste pour
-   décider quel onglet s'ouvre, et ce serait une fuite ici : les
-   animateurs d'une section au hasard verraient les passagers d'enfants
-   qu'ils ne suivent pas. D'où `resolveMainSection()`, qui retourne `null`.
+1. **Les variantes du cœur existent pour des raisons de permission**, et
+   il y en a deux, la seconde relevée en revue. `resolveDefault()` se
+   replie sur « la première section disponible » quand le lecteur n'en a
+   pas : juste pour décider quel onglet s'ouvre, et ce serait une fuite ici
+   — les animateurs d'une section au hasard verraient les passagers
+   d'enfants qu'ils ne suivent pas. Mais `resolveMainSection()`, qui
+   résout contre la liste des sections qu'un écran propose, ne convenait
+   pas non plus, et dans l'autre sens : cette liste vient de
+   `getAllWithBranches()`, qui écarte les sections inactives **et
+   masquées**, alors que `SectionStaffAuthorizationService::
+   getStaffedSections()` les garde. Un animateur encadre donc une section
+   masquée que la liste ne mentionne pas, et ses covoiturages auraient été
+   enregistrés sans section du tout. D'où `resolveMainSectionCode()`, qui
+   ne consulte aucune liste, et `SectionService::findByDeskCode()`, qui ne
+   filtre sur aucun des deux drapeaux.
 2. **`null` est une réponse.** Un compte lié à aucun membre, ou à un membre
    sans fonction dans une section, crée un covoiturage sans section :
    géré par son créateur, le Staff d'U et les sections de ses évènements.

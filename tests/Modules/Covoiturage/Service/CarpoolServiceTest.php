@@ -161,6 +161,41 @@ final class CarpoolServiceTest extends TestCase
     }
 
     /**
+     * **A hidden section still governs its chief's carpools** — raised in
+     * review of #650, and the asymmetry behind it is real, not hypothetical.
+     *
+     * `SectionStaffAuthorizationService::getStaffedSections()` resolves a
+     * chief's sections through `getSection()`, which filters on neither
+     * `is_active` nor `is_visible`. A chief therefore staffs a hidden
+     * section. But `getAllWithBranches()` — the list every section picker
+     * passes to `SectionPickerHelper` — drops it. Resolving the creator's
+     * section against that list stored NO section for such a chief, and
+     * their section's staff lost the passengers this change exists to show
+     * them.
+     *
+     * So the resolution goes through the Desk code and
+     * `SectionService::findByDeskCode()`, which filters on neither flag.
+     * Put `getAllWithBranches()` back in `creatorSectionId()` and this test
+     * goes red on its own.
+     */
+    public function testAHiddenSectionIsStillTheCreatorsOwn(): void
+    {
+        $this->pdo->prepare('UPDATE sections SET is_visible = 0 WHERE id = ?')->execute([$this->sectionId]);
+        H::linkAccountToSection($this->pdo, 1, $this->sectionId);
+
+        $id = $this->service->create(
+            $this->input(['event_ids' => [], 'address' => 'Bastogne']),
+            H::viewer(1, Role::CHIEF)
+        );
+
+        $this->assertSame(
+            [$this->sectionId],
+            $this->carpools->findById($id)?->sectionIds(),
+            "a chief of a hidden section created a carpool their own section cannot see"
+        );
+    }
+
+    /**
      * **The form's section is never read (issue #650).** The field is gone,
      * but a hand-built POST can still carry `section_id` — and honouring it
      * would let the sender hand ANY section's animateurs the passengers of

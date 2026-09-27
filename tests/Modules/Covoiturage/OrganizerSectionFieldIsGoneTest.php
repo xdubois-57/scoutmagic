@@ -82,6 +82,34 @@ final class OrganizerSectionFieldIsGoneTest extends TestCase
         );
     }
 
+    /**
+     * **Three branches, not two** (raised in review of #650). « No section »
+     * has two causes that must not share a sentence: creating with an
+     * account linked to no member in a section, and EDITING a carpool that
+     * simply has none — which every carpool created before #650 with events
+     * does. Explaining the editor's own account on an edit states something
+     * false about a reader who may well have a section.
+     */
+    public function testTheAbsenceOfASectionIsExplainedDifferentlyWhenEditing(): void
+    {
+        $form = $this->markupOf(self::FORM);
+
+        $this->assertMatchesRegularExpression(
+            '/\{%\s*elseif\s+carpool\s+is\s+null\s*%\}/',
+            $form,
+            'creating and editing share the « no section » wording, so one of the two is wrong'
+        );
+
+        $branches = preg_split('/\{%\s*(?:elseif[^%]*|else)\s*%\}/', $form);
+        self::assertIsArray($branches);
+        $this->assertStringNotContainsString(
+            'votre compte',
+            (string) end($branches),
+            'the edit branch explains the editor\'s own account, which has nothing to do with '
+            . "this carpool's stored section"
+        );
+    }
+
     /** The carpool's own page says it too — same reason, other reader. */
     public function testTheCarpoolPageNamesTheManagingSection(): void
     {

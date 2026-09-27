@@ -63,6 +63,16 @@ class CarpoolService
      * section — the same reading every other screen of the site starts from
      * (Core\View\SectionPickerHelper).
      *
+     * **Resolved by Desk code, deliberately, and not against the list a
+     * picker would offer** (raised in review of #650). That list comes from
+     * `getAllWithBranches()`, which drops inactive AND hidden sections,
+     * while `SectionStaffAuthorizationService::getStaffedSections()` keeps
+     * them — so a chief staffs a hidden section the list never mentions.
+     * Resolving against it would store no section for that chief's
+     * carpools, and their section's staff would lose the passengers this
+     * change exists to show them. `findByDeskCode()` filters on neither
+     * flag.
+     *
      * **Null is a real answer and is stored as such.** An account linked to
      * no member, or to one with no main function, creates a carpool with no
      * section: it is managed by its creator, by the Staff d'U, and by the
@@ -77,10 +87,16 @@ class CarpoolService
      */
     public function creatorSectionId(CarpoolViewer $viewer): ?int
     {
-        return SectionPickerHelper::resolveMainSection(
-            $this->members->getLinkedMembers($viewer->email, $viewer->scoutYearId),
-            $this->sections->getAllWithBranches()
+        $code = SectionPickerHelper::resolveMainSectionCode(
+            $this->members->getLinkedMembers($viewer->email, $viewer->scoutYearId)
         );
+        if ($code === null) {
+            return null;
+        }
+
+        $section = $this->sections->findByDeskCode($code);
+
+        return $section !== null ? $section['id'] : null;
     }
 
     public function hasCalendar(): bool
