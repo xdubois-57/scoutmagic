@@ -14,6 +14,7 @@
 // takes one away to watch another module degrade around its absence.
 import { expect } from '@playwright/test';
 import { waitForServerResponse } from './response.js';
+import { scaled } from './timeouts.js';
 
 /**
  * The switch for one module, addressed the way the page labels it for
@@ -43,8 +44,14 @@ export async function toggleModule(page, moduleName, enabled) {
     // flight, and the caller's next page.goto() was aborted by it
     // (net::ERR_ABORTED). Listening for the main frame's navigation,
     // registered before the click, makes the wait below the reload's.
+    // Its ceiling is the navigation one, as for waitForServerResponse():
+    // waitForEvent() otherwise inherits actionTimeout, tighter than the
+    // response wait this one always finishes after.
     await Promise.all([
-        page.waitForEvent('framenavigated', (frame) => frame === page.mainFrame()),
+        page.waitForEvent('framenavigated', {
+            predicate: (frame) => frame === page.mainFrame(),
+            timeout: scaled(30_000),
+        }),
         waitForServerResponse(page, (response) => response.url().includes('/config/modules/toggle')),
         enabled ? toggle.check() : toggle.uncheck(),
     ]);
