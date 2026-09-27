@@ -221,6 +221,58 @@ class StorageLocationService
     }
 
     /**
+     * The folder a Drive location writes into once connected:
+     * `ScoutMagic/<label>/` (#474). Called by the connection callback with
+     * the access token Google just granted.
+     *
+     * **The one it already has, when the account just authorised can
+     * still see it** — a reconnection after the seven-day expiry, or after
+     * « Déraccorder », must land on the folder holding the files and not
+     * beside it. A label changed while disconnected is caught up with
+     * here, as the rename itself could not reach Google — unless another
+     * location shares the folder (pre-#474 rows), whose folder would be
+     * renamed along with it. A failed rename changes nothing: the folder
+     * is found by id.
+     *
+     * **Otherwise a new one**: the shared `ScoutMagic` parent is found or
+     * created, and the location's own folder is always CREATED under it,
+     * never looked up by name — two locations must never share a folder
+     * again, which is exactly what a lookup by name produced. A folder in
+     * the trash counts as gone: writing into it would put every file where
+     * Google empties it after thirty days.
+     *
+     * @throws Backend\Drive\DriveAccessException
+     */
+    public function resolveDriveFolder(
+        Backend\Drive\GoogleDriveClient $client,
+        string $accessToken,
+        StorageLocation $location
+    ): string {
+        $config = $location->config instanceof Config\GoogleDriveLocationConfig
+            ? $location->config
+            : new Config\GoogleDriveLocationConfig();
+
+        if ($config->folderId !== '') {
+            $existing = $client->describeFile($accessToken, $config->folderId);
+            if ($existing !== null && !$existing['trashed']) {
+                if ($existing['name'] !== $location->label && $this->otherLocationOnTheSameFolder($location) === null) {
+                    try {
+                        $client->renameFile($accessToken, $config->folderId, $location->label);
+                    } catch (Backend\Drive\DriveAccessException) {
+                        // Found by id: a stale name breaks nothing.
+                    }
+                }
+
+                return $config->folderId;
+            }
+        }
+
+        $parentId = $client->ensureFolder($accessToken, Config\GoogleDriveLocationConfig::PARENT_FOLDER_NAME);
+
+        return $client->createFolder($accessToken, $location->label, $parentId);
+    }
+
+    /**
      * Another Drive location whose folder is this one's, or null.
      *
      * **Only possible for locations connected before #474.** The old

@@ -463,6 +463,47 @@ final class GoogleDriveConnectionControllerTest extends TestCase
         $this->assertSame($folderId, $this->config()->folderId);
     }
 
+    /**
+     * A label changed while disconnected could not reach Google; the
+     * reconnection catches the folder up with it (#474 review).
+     */
+    public function testReconnectingRenamesAFolderLeftBehindByARenameWhileDisconnected(): void
+    {
+        $drive = new FakeDrive(null);
+        $this->connectThrough($drive);
+        $folderId = $this->config()->folderId;
+        $this->controller()->disconnect($this->postRequest([]), ['id' => (string) $this->locationId]);
+        $this->locations->update($this->locationId, 'Galeries du groupe', $this->config(), null);
+
+        $this->connectThrough($drive);
+
+        $this->assertSame($folderId, $this->config()->folderId);
+        $this->assertSame('ScoutMagic/Galeries du groupe', $drive->pathOf($folderId));
+    }
+
+    /**
+     * …but never a folder another location shares (pre-#474 rows): its
+     * name is that location's too.
+     */
+    public function testReconnectingLeavesTheNameOfASharedFolderAlone(): void
+    {
+        $drive = new FakeDrive(null);
+        $this->connectThrough($drive);
+        $folderId = $this->config()->folderId;
+        $this->locations->create(
+            StorageLocationType::GoogleDrive,
+            'Sauvegardes hors site',
+            $this->config(),
+            (string) json_encode(['client_secret' => 's', 'refresh_token' => 'r', 'account' => 'a@example.org'])
+        );
+        $this->locations->update($this->locationId, 'Galeries du groupe', $this->config(), null);
+
+        $this->connectThrough($drive);
+
+        $this->assertSame($folderId, $this->config()->folderId);
+        $this->assertSame('ScoutMagic/Google Drive', $drive->pathOf($folderId));
+    }
+
     /** A folder in the trash is not reused: writing there would lose it all in thirty days. */
     public function testAFolderInTheTrashIsReplacedOnReconnection(): void
     {
