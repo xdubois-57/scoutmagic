@@ -68,7 +68,7 @@ class PassageServiceTest extends TestCase
         $this->requestRepository = new RegistrationRequestRepository($this->pdo, $this->encryption);
 
         $this->service = new PassageService(
-            $this->pdo, $this->encryption, $sectionService, $transferRepository, $this->requestRepository, $ageBracketRepository
+            new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $this->encryption), $this->encryption, $sectionService, $transferRepository, $this->requestRepository, $ageBracketRepository
         );
     }
 

@@ -199,7 +199,7 @@ class ReenrollmentCampaignHandler implements TaskHandlerInterface
             new \Core\Config\ScoutYearService($pdo),
             new \Modules\Registration\Repository\ReenrollmentRepository($pdo, $context->encryption),
             new \Modules\Registration\Service\PassageService(
-                $pdo,
+                new \Modules\Registration\Repository\PassageRosterRepository($pdo, $context->encryption),
                 $context->encryption,
                 $sectionService,
                 new \Modules\Registration\Repository\SectionTransferRepository($pdo),

@@ -13,6 +13,7 @@ use Core\Member\MemberYearService;
 use Core\Member\SectionService;
 use Core\Security\EncryptionService;
 use Modules\Registration\Repository\AgeBracketRepository;
+use Modules\Registration\Repository\PassageRosterRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\SectionTransferRepository;
 
@@ -39,7 +40,7 @@ use Modules\Registration\Repository\SectionTransferRepository;
 class PassageService
 {
     public function __construct(
-        private \PDO $pdo,
+        private PassageRosterRepository $roster,
         private EncryptionService $encryption,
         private SectionService $sectionService,
         private SectionTransferRepository $transferRepository,
@@ -281,27 +282,14 @@ class PassageService
         string $currentPublicYearLabel,
         bool $includeHidden = true
     ): array {
-        $stmt = $this->pdo->prepare(
-            "SELECT my.birth_date_encrypted, my.scout_year_offset
-             FROM member_years my
-             JOIN member_functions mf ON mf.member_year_id = my.id
-             JOIN functions f ON mf.function_id = f.id
-             WHERE my.member_id = ? AND my.scout_year_id = ? AND my.is_active = 1 AND my.leaving = 0
-               AND f.role NOT IN ('chief', 'admin', 'intendant') AND mf.section_id IS NOT NULL
-             ORDER BY mf.is_main_function DESC, mf.id ASC
-             LIMIT 1"
-        );
-        $stmt->execute([$memberId, $currentPublicYearId]);
-        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
-        if ($row === false) {
+        $arrival = $this->roster->findArrivalAge($memberId, $currentPublicYearId);
+        if ($arrival === null) {
             return [];
         }
 
         $nextSortOrder = $this->arrivalBranchSortOrder(
-            $row['birth_date_encrypted'] !== null
-                ? $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date')
-                : null,
-            (int) $row['scout_year_offset'],
+            $arrival['birth_date'],
+            $arrival['scout_year_offset'],
             MemberYearService::referenceYearFromScoutYearLabel($currentPublicYearLabel)
         );
         if ($nextSortOrder === null) {
@@ -451,29 +439,7 @@ class PassageService
      */
     public function getAnimeMemberYears(int $scoutYearId, bool $includeLeaving = false): array
     {
-        $leavingFilter = $includeLeaving ? '' : ' AND my.leaving = 0';
-
-        $stmt = $this->pdo->prepare(
-            "SELECT my.id AS member_year_id, my.member_id, my.first_name_encrypted, my.last_name_encrypted,
-                    my.birth_date_encrypted, my.gender_encrypted, my.scout_year_offset, mf.section_id
-             FROM member_years my
-             JOIN member_functions mf ON mf.member_year_id = my.id
-             JOIN functions f ON mf.function_id = f.id
-             WHERE my.scout_year_id = ? AND my.is_active = 1{$leavingFilter}
-               AND f.role NOT IN ('chief', 'admin', 'intendant') AND mf.section_id IS NOT NULL
-             ORDER BY my.id, mf.is_main_function DESC, mf.id ASC"
-        );
-        $stmt->execute([$scoutYearId]);
-
-        $byMemberYear = [];
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $memberYearId = (int) $row['member_year_id'];
-            if (!isset($byMemberYear[$memberYearId])) {
-                $byMemberYear[$memberYearId] = $row;
-            }
-        }
-
-        return array_values($byMemberYear);
+        return $this->roster->findAnimeMemberYears($scoutYearId, $includeLeaving);
     }
 
     /**
@@ -496,25 +462,7 @@ class PassageService
      */
     public function animeMemberIdsAmong(int $scoutYearId, array $memberIds, bool $includeLeaving = false): array
     {
-        $memberIds = array_values(array_unique(array_map('intval', $memberIds)));
-        if ($memberIds === []) {
-            return [];
-        }
-
-        $leavingFilter = $includeLeaving ? '' : ' AND my.leaving = 0';
-        $placeholders = implode(', ', array_fill(0, count($memberIds), '?'));
-        $stmt = $this->pdo->prepare(
-            "SELECT DISTINCT my.member_id
-             FROM member_years my
-             JOIN member_functions mf ON mf.member_year_id = my.id
-             JOIN functions f ON mf.function_id = f.id
-             WHERE my.scout_year_id = ? AND my.is_active = 1{$leavingFilter}
-               AND my.member_id IN ({$placeholders})
-               AND f.role NOT IN ('chief', 'admin', 'intendant') AND mf.section_id IS NOT NULL"
-        );
-        $stmt->execute([$scoutYearId, ...$memberIds]);
-
-        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+        return $this->roster->findAnimeMemberIdsAmong($scoutYearId, $memberIds, $includeLeaving);
     }
 
     /**
@@ -577,44 +525,15 @@ class PassageService
             return [];
         }
 
-        $placeholders = implode(',', array_fill(0, count($memberYearIds), '?'));
-        $blindStmt = $this->pdo->prepare(
-            "SELECT DISTINCT member_year_id, address_normalized_blind_index FROM member_addresses
-             WHERE member_year_id IN ({$placeholders}) AND address_normalized_blind_index IS NOT NULL"
-        );
-        $blindStmt->execute($memberYearIds);
-
-        /** @var array<int, array<int, string>> $blindsByMemberYear */
-        $blindsByMemberYear = [];
-        $allBlinds = [];
-        foreach ($blindStmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $blind = (string) $row['address_normalized_blind_index'];
-            $blindsByMemberYear[(int) $row['member_year_id']][] = $blind;
-            $allBlinds[$blind] = true;
-        }
-        if ($allBlinds === []) {
+        $blindsByMemberYear = $this->roster->findAddressBlindIndexes($memberYearIds);
+        if ($blindsByMemberYear === []) {
             return [];
         }
 
-        $blindList = array_keys($allBlinds);
-        $blindPlaceholders = implode(',', array_fill(0, count($blindList), '?'));
-        $occupantStmt = $this->pdo->prepare(
-            "SELECT DISTINCT ma2.address_normalized_blind_index AS blind, my2.id AS member_year_id
-             FROM member_addresses ma2
-             JOIN member_years my2 ON my2.id = ma2.member_year_id
-             WHERE ma2.address_normalized_blind_index IN ({$blindPlaceholders})
-               AND my2.scout_year_id = ? AND my2.is_active = 1 AND my2.leaving = 0"
+        $occupantsByBlind = $this->roster->findActiveOccupants(
+            array_merge(...array_values($blindsByMemberYear)),
+            $scoutYearId
         );
-        $occupantStmt->execute([...$blindList, $scoutYearId]);
-
-        /** @var array<string, array<int, int>> $occupantsByBlind */
-        $occupantsByBlind = [];
-        $allOccupantIds = [];
-        foreach ($occupantStmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $occupantId = (int) $row['member_year_id'];
-            $occupantsByBlind[(string) $row['blind']][] = $occupantId;
-            $allOccupantIds[$occupantId] = true;
-        }
 
         $households = [];
         foreach ($blindsByMemberYear as $memberYearId => $blinds) {
@@ -649,35 +568,7 @@ class PassageService
      */
     private function resolveMemberYearNamesAndSections(array $memberYearIds): array
     {
-        $memberYearIds = array_values(array_unique($memberYearIds));
-        if ($memberYearIds === []) {
-            return [];
-        }
-
-        $placeholders = implode(',', array_fill(0, count($memberYearIds), '?'));
-        $stmt = $this->pdo->prepare(
-            "SELECT my.id, my.first_name_encrypted, my.last_name_encrypted, s.name, s.desk_code
-             FROM member_years my
-             LEFT JOIN member_functions mf ON mf.member_year_id = my.id
-             LEFT JOIN sections s ON s.id = mf.section_id
-             WHERE my.id IN ({$placeholders})
-             ORDER BY my.id, mf.is_main_function DESC, mf.id ASC"
-        );
-        $stmt->execute($memberYearIds);
-
-        $labels = [];
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $id = (int) $row['id'];
-            if (isset($labels[$id])) {
-                continue; // first row wins — main function, then lowest mf.id
-            }
-            $labels[$id] = [
-                'name' => $this->decryptName($row['first_name_encrypted'], $row['last_name_encrypted']),
-                'section_label' => $row['name'] ?? $row['desk_code'] ?? null,
-            ];
-        }
-
-        return $labels;
+        return $this->roster->findNamesAndSections($memberYearIds);
     }
 
     /**
@@ -703,18 +594,7 @@ class PassageService
             return [];
         }
 
-        $memberIds = array_keys($allMemberIds);
-        $placeholders = implode(',', array_fill(0, count($memberIds), '?'));
-        $stmt = $this->pdo->prepare(
-            "SELECT member_id, id FROM member_years
-             WHERE member_id IN ({$placeholders}) AND scout_year_id = ? AND is_active = 1"
-        );
-        $stmt->execute([...$memberIds, $currentPublicYearId]);
-
-        $memberYearIdByMember = [];
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $memberYearIdByMember[(int) $row['member_id']] = (int) $row['id'];
-        }
+        $memberYearIdByMember = $this->roster->findActiveMemberYearIds(array_keys($allMemberIds), $currentPublicYearId);
 
         $labels = $this->resolveMemberYearNamesAndSections(array_values($memberYearIdByMember));
 
