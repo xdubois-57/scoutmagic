@@ -407,6 +407,17 @@ So, before pushing a fix for review findings:
     fail at all — a reviewer found them afterwards. One red line per
     assertion you claim to have proved, or the claim covers only the first
     one to die.
+    **And the mechanism is PHPUnit's own**: it stops at the first failing
+    assertion, so one staging removal can only ever exercise the assertions
+    up to that point. The rule above was written in the very commit that
+    left a sibling assertion unproved for exactly this reason — the red came
+    from the first of a pair, and the second was never evaluated. Two ways
+    out, and the second is better because it needs no discipline: run the
+    removal once per assertion with the others neutralised, or **fold them
+    into a single assertion that cannot pass half-way**. Two counts over the
+    same array became one ordered `assertSame`; the fallback relay's count
+    was identical in both worlds (the breaker only stops the FIRST relay
+    being tried), while the ordered sequence differs at its seventh entry.
   - **A measurement that overturns a premise has to be carried to every
     assertion resting on it, not only the one you were looking at.** Same
     batch, same test: the circuit breaker opens at the END of the third

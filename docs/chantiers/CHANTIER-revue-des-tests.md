@@ -2940,3 +2940,33 @@ donc le déclencheur refuse bien les écritures.
 Le `exec()` restant du fichier appartient au test de compteur, antérieur à ce lot :
 laissé tel quel plutôt que d'élargir la PR, et signalé dans la réponse au
 relecteur.
+
+#### La règle enfreinte dans le commit même qui l'écrivait
+
+Quatrième constat de relecture sur ce lot, et le plus instructif : ma correction des
+deux `assertCount` n'avait rendu discriminante que **la première**. La seconde, qui
+compte les envois par le relais de secours, vaut 4 dans les deux mondes — mesuré, la
+séquence contrefactuelle étant `P,S,P,S,P,S,S`, sept entrées dont `second` quatre
+fois. L'ouverture du disjoncteur n'empêche que le **premier** relais d'être essayé ;
+le second reçoit autant de messages de toute façon.
+
+**Et je n'avais aucune preuve du contraire, pour une raison mécanique** :
+**PHPUnit s'arrête à la première assertion en échec.** Mon retrait de mise en scène
+avait rougi sur la première du couple, et la seconde n'a jamais été évaluée. J'ai lu
+le rouge comme prouvant le couple.
+
+C'est exactement la règle que je venais d'écrire — « un retrait de mise en scène
+prouve UNE assertion, pas toutes » — enfreinte **dans le commit qui l'ajoutait**. Ce
+qui en dit plus long que la règle elle-même : une règle qui demande de la discipline
+à chaque application sera enfreinte, y compris par celui qui vient de l'écrire.
+
+D'où le raffinement, et il supprime le besoin de discipline au lieu de s'y fier :
+quand plusieurs assertions portent sur la même observable, **les fondre en une seule
+qui ne peut pas passer à moitié**. Les deux décomptes sont devenus un `assertSame`
+sur la séquence ordonnée complète : huit entrées contre sept, divergence à l'indice
+six. Un couple de décomptes pouvait être à moitié juste ; une séquence ordonnée, non.
+
+La deuxième voie — relancer le retrait une fois par assertion, les autres
+neutralisées — reste valable mais coûte une exécution par assertion et demande de
+s'en souvenir. Consigné dans le skill steward avec le mécanisme nommé, parce que
+c'est le mécanisme, et non l'inattention, qui produit l'erreur.

@@ -807,15 +807,23 @@ class MailTransportChainTest extends TestCase
             $this->chain($delivery, $health)->deliver($this->message(), MailPurpose::MagicLink);
         }
 
-        $this->assertCount(
-            $messages,
-            array_keys($delivery->attemptedHosts, 'smtp.premier.test', true),
-            'Nothing accumulated, so the refusing relay is still tried past the threshold.'
-        );
-        $this->assertCount(
-            $messages,
-            array_keys($delivery->attemptedHosts, 'smtp.second.test', true),
-            'And every one of those messages still went out.'
+        // The WHOLE ordered sequence, and one assertion rather than two
+        // counts, because a count can be right for the wrong reason. Here
+        // the fallback relay is used four times either way — the breaker
+        // opening only stops the FIRST relay being tried — so a count on it
+        // would pass in both worlds. Measured: with the writes allowed the
+        // sequence is P,S,P,S,P,S,S (seven), against P,S,P,S,P,S,P,S here.
+        // An `assertSame` on the sequence cannot pass half-way.
+        $expected = [];
+        for ($i = 0; $i < $messages; $i++) {
+            $expected[] = 'smtp.premier.test';
+            $expected[] = 'smtp.second.test';
+        }
+
+        $this->assertSame(
+            $expected,
+            $delivery->attemptedHosts,
+            'Nothing accumulated: every message tries the refusing relay, and every message still goes out.'
         );
         $this->assertContains(
             'mail_provider_attempt_failed',
