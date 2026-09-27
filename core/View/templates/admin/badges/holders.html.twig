@@ -26,9 +26,17 @@
     } only %}
 
     {% if groups is empty %}
-        <p class="text-body-secondary" data-badge-holders-empty>
-            Aucun badge n'est attribué pour {{ year_label }}.
-        </p>
+        {# design.md §7.7: the one way the site says there is nothing. The
+           reader may assign a badge — on Staffs, not here — so the state
+           offers the way there. #}
+        <div data-badge-holders-empty>
+            {% include 'partials/empty_state.html.twig' with {
+                message: 'Aucun badge n\'est attribué pour ' ~ year_label ~ '.',
+                action_label: 'Attribuer sur Staffs',
+                action_url: '/chefs/staffs',
+                icon: 'bi-award',
+            } only %}
+        </div>
     {% endif %}
 
     {% set any_inactive = false %}

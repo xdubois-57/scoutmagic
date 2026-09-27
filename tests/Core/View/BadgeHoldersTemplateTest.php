@@ -76,7 +76,11 @@ final class BadgeHoldersTemplateTest extends TestCase
     {
         $html = $this->render([]);
 
-        $this->assertStringContainsString("Aucun badge n'est attribué pour 2026-2027.", $html);
+        // Through the site's one empty state (design.md §7.7), which offers
+        // the way to where badges are assigned.
+        $this->assertMatchesRegularExpression('~<div data-badge-holders-empty>\s*<div class="[^"]*empty-state~', $html);
+        $this->assertStringContainsString('Aucun badge n&#039;est attribué pour 2026-2027.', $html);
+        $this->assertMatchesRegularExpression('~<a href="/chefs/staffs"[^>]*>[^<]*(?:<[^>]+>[^<]*)*Attribuer sur Staffs~', $html);
     }
 
     /** The tabs carry the years, never « Année en cours ». */
