@@ -136,6 +136,19 @@ final class ComponentsStylesheetIsLoadedWhereItsClassesAreUsedTest extends TestC
                 'picker' => '',
             ])
         );
+        // Nor does one in the page's own text, nor an escaped quote inside a
+        // Twig string (review of #602).
+        foreach (["<p>disposent d'une boîte</p>", "{{ 'l\\'équipe' }}"] as $before) {
+            $this->assertContains(
+                'picker',
+                self::reachable('page', [
+                    'page' => $before . "\n{% include 'partial' with { ui: { picker_template: 'picker' } } %}",
+                    'partial' => '{% include ui.picker_template %}',
+                    'picker' => '',
+                ]),
+                $before
+            );
+        }
         $this->assertSame(['a', 'b'], self::simpleClassesIn('.a, .b:hover { x: 1 } .c .d { } .e > .f { }'));
     }
 
@@ -244,7 +257,8 @@ final class ComponentsStylesheetIsLoadedWhereItsClassesAreUsedTest extends TestC
      */
     private static function quotedStringsIn(string $expression): array
     {
-        preg_match_all('/\'([^\']*)\'|"([^"]*)"/', $expression, $matches);
+        // A Twig string may escape its own quote (`'the manager\'s'`).
+        preg_match_all('/\'((?:[^\'\\\\]|\\\\.)*)\'|"((?:[^"\\\\]|\\\\.)*)"/s', $expression, $matches);
 
         return array_values(array_filter(
             array_map(static fn(string $single, string $double): string => $single . $double, $matches[1], $matches[2]),
@@ -299,7 +313,7 @@ final class ComponentsStylesheetIsLoadedWhereItsClassesAreUsedTest extends TestC
             foreach ($matches[1] as $next) {
                 $queue[] = $next;
             }
-            foreach (self::quotedStringsIn(self::withoutTwigComments($templates[$current])) as $literal) {
+            foreach (self::quotedStringsIn(self::twigCodeIn($templates[$current])) as $literal) {
                 if (isset($templates[$literal])) {
                     $queue[] = $literal;
                 }
@@ -351,13 +365,27 @@ final class ComponentsStylesheetIsLoadedWhereItsClassesAreUsedTest extends TestC
     }
 
     /**
-     * A template without its `{# … #}` comments.
+     * The Twig code of a template: its `{% … %}` and `{{ … }}` tags, one per
+     * line, and nothing of the text around them.
      *
      * Quoted strings are paired left to right, so one apostrophe in prose
-     * (« the manager's ») shifts every pair after it: in
+     * (« disposent d'une boîte ») shifts every pair after it: in
      * `rental/management/booking_mail.html.twig` it swallowed the literal
      * naming `_triage_picker.html.twig`, and the page's picker left the scan
-     * without a word (found in review of #602). Comments are prose; they go.
+     * without a word. Stripping `{# … #}` comments was not enough, since the
+     * page's own text has apostrophes too (both found in review of #602);
+     * only the tags hold Twig strings, so only the tags are read.
+     */
+    private static function twigCodeIn(string $source): string
+    {
+        preg_match_all('/\{\{.*?\}\}|\{%.*?%\}/s', self::withoutTwigComments($source), $tags);
+
+        return implode("\n", $tags[0]);
+    }
+
+    /**
+     * A template without its `{# … #}` comments, whose `{{`, `{%` and quotes
+     * are prose and would otherwise be read as code.
      */
     private static function withoutTwigComments(string $source): string
     {
