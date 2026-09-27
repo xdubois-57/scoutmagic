@@ -2714,7 +2714,6 @@ $memberExportRowBuilder = new \Core\Member\Export\MemberExportRowBuilder(
     $sectionRosterRepository,
     $sectionService,
     $scoutYearService,
-    $encryptionService,
     $memberEmailRepository,
     $memberMovementClassifier
 );
@@ -2825,7 +2824,11 @@ $duplicateMemberRepository = new \Core\Member\Duplicate\DuplicateMemberRepositor
 $duplicateMemberDetector = new \Core\Member\Duplicate\DuplicateMemberDetector(
     $duplicateMemberRepository
 );
-$memberMergeService = new \Core\Member\Duplicate\MemberMergeService($pdo, $duplicateMemberRepository, $journalService);
+$memberMergeService = new \Core\Member\Duplicate\MemberMergeService(
+    new \Core\Member\Duplicate\MemberMergeRepository($pdo, $duplicateMemberRepository),
+    $duplicateMemberRepository,
+    $journalService
+);
 $rosterReplacementGuard = new \Core\Import\RosterReplacementGuard(
     new \Core\Import\RosterComparisonRepository($pdo),
     $scoutYearResolver
