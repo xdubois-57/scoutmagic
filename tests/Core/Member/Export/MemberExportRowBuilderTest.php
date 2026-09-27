@@ -43,7 +43,7 @@ class MemberExportRowBuilderTest extends TestCase
         $rosterRepository = new SectionRosterRepository($this->pdo, $this->encryption);
 
         $this->builder = new MemberExportRowBuilder(
-            $rosterRepository, $sectionService, $scoutYearService, $this->encryption, $memberEmailRepository, $movementClassifier
+            $rosterRepository, $sectionService, $scoutYearService, $memberEmailRepository, $movementClassifier
         );
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
