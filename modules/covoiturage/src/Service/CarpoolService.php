@@ -171,11 +171,13 @@ class CarpoolService
         }
         // Moved, typed or removed by hand: locked for ever. Found from the
         // address and left alone: automatic, like the task's. A form that
-        // did not carry the point at all changes nothing — and neither does
-        // an automatic pin left where it was: after a change of address it
-        // belongs to the OLD address (the page's lookup of the new one found
-        // nothing), so it stays cleared and the background task looks again.
-        if ($data['point_given'] && $data['point']?->line() !== $carpool->point?->line()) {
+        // did not carry the point at all changes nothing. After a change of
+        // address, an automatic point the form still posts was found for the
+        // NEW address — the page drops a pin left from the old one — and is
+        // written back even when it lands on the same coordinates, or
+        // forgetGeocoding() above would leave the row without it.
+        $foundForNewAddress = $addressChanged && $data['point_automatic'] && $data['point'] !== null;
+        if ($data['point_given'] && ($data['point']?->line() !== $carpool->point?->line() || $foundForNewAddress)) {
             $this->savePoint($carpool->id, $data['point'], $data['point_automatic']);
         }
     }

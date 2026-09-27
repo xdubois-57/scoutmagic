@@ -266,11 +266,11 @@ final class CarpoolServiceTest extends TestCase
         $this->assertNull($this->carpools->findNextToGeocode());
     }
 
-    public function testAnAutomaticPinLeftOnTheOldAddressIsNotWrittenBack(): void
+    public function testANewAddressFoundOnTheSameCoordinatesIsStillWrittenBack(): void
     {
-        // The address changed and the page's lookup of the new one found
-        // nothing: the untouched pin still says `point_automatic`, but it is
-        // the OLD address's point. It must stay cleared, for the task.
+        // The page dropped any pin left from the old address, so an
+        // automatic point posted after a change of address was found for
+        // the new one — even when it lands where the old one was.
         $id = $this->service->create($this->input(), H::viewer(1, Role::CHIEF));
         $this->carpools->points()->recordGeocoding($id, new \Core\Geo\GeoPoint(50.7, 4.6), new \DateTimeImmutable());
         $carpool = $this->carpools->findById($id);
@@ -279,7 +279,7 @@ final class CarpoolServiceTest extends TestCase
         $this->service->update(
             $carpool,
             $this->input([
-                'address' => 'Gîte de Han, rue des Grottes 12',
+                'address' => 'Plaine de Basse-Wavre, entrée nord',
                 'latitude' => '50.700000',
                 'longitude' => '4.600000',
                 'point_automatic' => '1',
@@ -287,8 +287,10 @@ final class CarpoolServiceTest extends TestCase
             H::viewer(1, Role::CHIEF)
         );
 
-        $this->assertNull($this->carpools->findById($id)?->point);
-        $this->assertSame($id, $this->carpools->findNextToGeocode()?->id, 'back in the background queue');
+        $after = $this->carpools->findById($id);
+        $this->assertSame('50.700000, 4.600000', $after?->point?->line());
+        $this->assertFalse($after->pointIsManual);
+        $this->assertNull($this->carpools->findNextToGeocode(), 'found: nothing left for the task');
     }
 
     public function testAnAutomaticPinDroppedForANewAddressLeavesThePointToTheTask(): void

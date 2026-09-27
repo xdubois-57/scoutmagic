@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Camps\Task;
 
 use Core\Geo\GeocodingService;
+use Core\Geo\GeocodingThrottle;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
@@ -57,8 +58,18 @@ class GeocodePlacesHandler implements TaskHandlerInterface
             return;
         }
 
-        $point = (new GeocodingService((string) ($context->settings->get('base_url') ?? '')))
-            ->geocode($place->address, $place->postalCode, $place->city, $place->country);
+        $geocoder = new GeocodingService((string) ($context->settings->get('base_url') ?? ''));
+        // The site-wide one-per-second limiter the carpool form's lookup
+        // shares. Busy means another request just left: try again shortly,
+        // and stamp nothing — this place was not looked up.
+        [$ran, $point] = (new GeocodingThrottle($pdo))->run(
+            static fn(): ?array => $geocoder->geocode($place->address, $place->postalCode, $place->city, $place->country)
+        );
+        if (!$ran) {
+            $this->rescheduleSoon($pdo);
+
+            return;
+        }
 
         // Stamped either way. A failed lookup is a result: without it,
         // a place whose address means nothing to Nominatim would be

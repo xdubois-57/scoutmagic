@@ -27,7 +27,9 @@ namespace Core\Geo;
  * rate limit is expressed as a shape instead: a consumer's task geocodes
  * exactly one row per run and re-schedules itself when more are pending
  * (the camps module's place geocoding task is the reference shape), the
- * same way Core\Maintenance\Task\AutoBackupHandler paces itself. On a
+ * same way Core\Maintenance\Task\AutoBackupHandler paces itself — and
+ * every call goes through Core\Geo\GeocodingThrottle, the one site-wide
+ * limiter, so a task and a form lookup never land in the same second. On a
  * site without a real cron this is slow; that is acceptable, because
  * coordinates are a convenience and typing them by hand always works.
  *

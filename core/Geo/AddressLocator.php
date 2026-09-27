@@ -8,8 +8,6 @@ declare(strict_types=1);
 
 namespace Core\Geo;
 
-use Core\Database\AdvisoryLock;
-use Core\Service\TextNormalizerService;
 
 /**
  * An address looked up WHILE a form is being filled in — the one exception
@@ -23,11 +21,11 @@ use Core\Service\TextNormalizerService;
  * - **The browser never calls Nominatim.** A route of the site does, from
  *   the server, so the CSP keeps `connect-src 'self'` and the visitor's IP
  *   address never reaches a third party.
- * - **One request per second, site-wide** — Nominatim's usage policy. The
- *   call runs under an advisory lock, which is held until a full second has
- *   passed since the call began. A second lookup arriving meanwhile does not
- *   queue behind it (AdvisoryLock's timeout-0 rule): it gets no answer, and
- *   the form behaves as it did before any of this existed.
+ * - **One request per second, site-wide** — Nominatim's usage policy —
+ *   through Core\Geo\GeocodingThrottle, the limiter the background tasks
+ *   share. A lookup arriving while another call holds the slot does not
+ *   queue: it gets no answer, and the form behaves as it did before any of
+ *   this existed.
  * - **No autocompletion.** The form asks once, when the address field is
  *   left, never per keystroke; the per-account quota below is what makes
  *   that true whatever a script does.
@@ -58,21 +56,14 @@ class AddressLocator
     public const FOUND_TTL_DAYS = 90;
     public const NOT_FOUND_TTL_HOURS = 6;
 
-    private const LOCK_NAME = 'scoutmagic_live_geocoding';
-    private const MIN_INTERVAL_MICROSECONDS = 1_000_000;
     private const MIN_LENGTH = 4;
     private const MAX_LENGTH = 255;
 
-    /** @var \Closure(int): void */
-    private \Closure $pause;
-
-    /** @var \Closure(): float */
-    private \Closure $clock;
+    private GeocodingThrottle $throttle;
 
     /**
-     * @param (\Closure(int): void)|null $pause microseconds to wait —
-     *        usleep() in production, recorded in the tests
-     * @param (\Closure(): float)|null $clock seconds, as microtime(true)
+     * @param (\Closure(int): void)|null $pause handed to GeocodingThrottle
+     * @param (\Closure(): float)|null $clock handed to GeocodingThrottle
      */
     public function __construct(
         private \PDO $pdo,
@@ -80,10 +71,7 @@ class AddressLocator
         ?\Closure $pause = null,
         ?\Closure $clock = null
     ) {
-        $this->pause = $pause ?? static function (int $microseconds): void {
-            usleep($microseconds);
-        };
-        $this->clock = $clock ?? static fn(): float => microtime(true);
+        $this->throttle = new GeocodingThrottle($pdo, $pause, $clock);
     }
 
     /**
@@ -97,7 +85,10 @@ class AddressLocator
             return null;
         }
 
-        $fingerprint = hash('sha256', TextNormalizerService::fold($line));
+        // Lower-cased, never folded to ASCII: TextNormalizerService::fold()
+        // drops every non-Latin letter, and two Greek or Cyrillic addresses
+        // would then share one cache key — and one point.
+        $fingerprint = hash('sha256', mb_strtolower($line));
         $cache = new GeocodingCacheRepository($this->pdo);
         $known = $cache->find($fingerprint);
         if ($known !== null && self::isFresh($known['point'], $known['looked_up_at'])) {
@@ -110,27 +101,17 @@ class AddressLocator
             return null;
         }
 
-        if (!AdvisoryLock::acquire($this->pdo, self::LOCK_NAME)) {
-            return null;
-        }
-
-        $started = ($this->clock)();
-        try {
+        $lookup = function () use ($lookups, $cache, $userAccountId, $line, $fingerprint): ?GeoPoint {
             $lookups->record($userAccountId, new \DateTimeImmutable());
             $found = $this->geocoder->geocodeLine($line);
             $point = $found !== null ? new GeoPoint($found['latitude'], $found['longitude']) : null;
             $cache->store($fingerprint, $point, new \DateTimeImmutable());
 
             return $point;
-        } finally {
-            // Hold the lock until a second has passed since the call began:
-            // the next lookup, from any process, cannot start sooner.
-            $elapsed = (int) ((($this->clock)() - $started) * 1_000_000);
-            if ($elapsed < self::MIN_INTERVAL_MICROSECONDS) {
-                ($this->pause)(self::MIN_INTERVAL_MICROSECONDS - $elapsed);
-            }
-            AdvisoryLock::release($this->pdo, self::LOCK_NAME);
-        }
+        };
+        [, $point] = $this->throttle->run($lookup);
+
+        return $point;
     }
 
     /** The line as it will be sent, or null when it cannot mean a place. */

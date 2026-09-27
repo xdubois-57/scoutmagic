@@ -267,7 +267,13 @@
 
         var asked = 0;
         async function locate() {
-            if (!locateUrl || !address) {
+            if (!address) {
+                return;
+            }
+            if (!locateUrl) {
+                // Nothing can confirm the new address: an untouched pin
+                // from the old one must not be saved as its point.
+                dropStalePin(address.value.trim());
                 return;
             }
             var mine = ++asked;

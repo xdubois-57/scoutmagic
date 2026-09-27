@@ -272,6 +272,19 @@ describe('covoiturage-organize', () => {
             expect(document.querySelector('[data-carpool-point-place]').classList.contains('d-none')).toBe(false);
         });
 
+        it('drops a saved automatic pin when the address changes and the lookup is switched off', async () => {
+            const leaflet = stubLeaflet();
+            buildForm({ locate: false, address: 'Gîte de Han', lat: '50.125000', lng: '5.187000' });
+            await load();
+            window.ScoutMagicApi.getJson = vi.fn();
+
+            leave('Place du Marché 1, Namur');
+
+            expect(window.ScoutMagicApi.getJson).not.toHaveBeenCalled();
+            expect(pinOf(leaflet)).toBeUndefined();
+            expect(value('carpool-latitude')).toBe('');
+        });
+
         it('keeps the saved automatic pin of the saved address when its lookup is refused on opening', async () => {
             const fetch = vi.fn().mockResolvedValue({
                 ok: true, status: 200, json: () => Promise.resolve({ success: true, found: false }),

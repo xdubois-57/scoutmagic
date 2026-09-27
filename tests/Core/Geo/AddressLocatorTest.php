@@ -46,7 +46,9 @@ final class AddressLocatorTest extends TestCase
         $this->assertSame(4.5678, $point->longitude);
         $this->assertSame(['Gîte de Han, rue des Grottes 12'], $this->sent, 'sent once, whitespace collapsed');
 
-        $row = $this->pdo->query('SELECT * FROM geocoding_cache')->fetch();
+        $stmt = $this->pdo->prepare('SELECT * FROM geocoding_cache');
+        $stmt->execute();
+        $row = $stmt->fetch();
         $this->assertSame(64, strlen((string) $row['fingerprint']));
         $this->assertStringNotContainsString('Grottes', implode(' ', array_map('strval', $row)));
     }
@@ -61,6 +63,17 @@ final class AddressLocatorTest extends TestCase
         $this->assertSame(1, $this->rows('geocoding_lookups'), 'a cached answer is not counted');
     }
 
+    public function testAddressesInNonLatinScriptsDoNotShareOneCacheKey(): void
+    {
+        // Folding to ASCII would reduce both to « 12 »: one key, one point.
+        $this->locator()->locate('Οδός Αθηνάς 12', 7);
+        $this->answer = ['latitude' => 40.64, 'longitude' => 22.94];
+        $second = $this->locator()->locate('Οδός Εγνατίας 12', 7);
+
+        $this->assertCount(2, $this->sent);
+        $this->assertSame(40.64, $second?->latitude);
+    }
+
     public function testNothingFoundIsCachedForHoursNotForMonths(): void
     {
         $this->answer = null;
@@ -68,9 +81,7 @@ final class AddressLocatorTest extends TestCase
         $this->assertNull($this->locator()->locate('Le pré de Jules', 7));
         $this->assertCount(1, $this->sent);
 
-        $this->pdo->exec("UPDATE geocoding_cache SET looked_up_at = '"
-            . (new \DateTimeImmutable('-' . (AddressLocator::NOT_FOUND_TTL_HOURS + 1) . ' hours'))->format('Y-m-d H:i:s')
-            . "'");
+        $this->ageCache('-' . (AddressLocator::NOT_FOUND_TTL_HOURS + 1) . ' hours');
         $this->answer = ['latitude' => 50.5, 'longitude' => 4.5];
 
         $this->assertNotNull($this->locator()->locate('Le pré de Jules', 7));
@@ -80,9 +91,7 @@ final class AddressLocatorTest extends TestCase
     public function testAFoundPointIsServedFromTheCacheForMonths(): void
     {
         $this->locator()->locate('Rue des Grottes 12, Han', 7);
-        $this->pdo->exec("UPDATE geocoding_cache SET looked_up_at = '"
-            . (new \DateTimeImmutable('-' . (AddressLocator::FOUND_TTL_DAYS - 1) . ' days'))->format('Y-m-d H:i:s')
-            . "'");
+        $this->ageCache('-' . (AddressLocator::FOUND_TTL_DAYS - 1) . ' days');
 
         $this->assertNotNull($this->locator()->locate('Rue des Grottes 12, Han', 7));
         $this->assertCount(1, $this->sent);
@@ -109,9 +118,10 @@ final class AddressLocatorTest extends TestCase
 
         // Another account is not affected, and old rows no longer count.
         $this->assertNotNull($this->locator()->locate('Rue des Grottes 12, Han', 8));
-        $this->pdo->exec("UPDATE geocoding_lookups SET created_at = '"
-            . (new \DateTimeImmutable('-' . (AddressLocator::QUOTA_WINDOW_MINUTES + 1) . ' minutes'))->format('Y-m-d H:i:s')
-            . "' WHERE user_account_id = 7");
+        $this->pdo->prepare('UPDATE geocoding_lookups SET created_at = ? WHERE user_account_id = ?')->execute([
+            (new \DateTimeImmutable('-' . (AddressLocator::QUOTA_WINDOW_MINUTES + 1) . ' minutes'))->format('Y-m-d H:i:s'),
+            7,
+        ]);
         $this->assertNotNull($this->locator()->locate('Place du Marché 1, Namur', 7));
     }
 
@@ -180,6 +190,19 @@ final class AddressLocatorTest extends TestCase
 
     private function rows(string $table): int
     {
-        return (int) $this->pdo->query('SELECT COUNT(*) FROM ' . $table)->fetchColumn();
+        $sql = [
+            'geocoding_cache' => 'SELECT COUNT(*) FROM geocoding_cache',
+            'geocoding_lookups' => 'SELECT COUNT(*) FROM geocoding_lookups',
+        ][$table];
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute();
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    private function ageCache(string $modifier): void
+    {
+        $this->pdo->prepare('UPDATE geocoding_cache SET looked_up_at = ?')
+            ->execute([(new \DateTimeImmutable($modifier))->format('Y-m-d H:i:s')]);
     }
 }

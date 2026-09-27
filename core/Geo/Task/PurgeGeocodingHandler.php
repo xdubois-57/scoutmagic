@@ -42,11 +42,15 @@ class PurgeGeocodingHandler implements TaskHandlerInterface
             ->format('Y-m-d H:i:s');
         (new GeocodingLookupRepository($pdo))->deleteOlderThan($quotaCutoff);
 
-        // The longest a cached answer is ever served; « not found » rows
-        // expire sooner and are simply ignored until this catches them.
+        // Each kind of answer goes when it stops being served: « not found »
+        // after hours, a point after months.
+        $cache = new GeocodingCacheRepository($pdo);
+        $notFoundCutoff = (new \DateTimeImmutable('-' . AddressLocator::NOT_FOUND_TTL_HOURS . ' hours'))
+            ->format('Y-m-d H:i:s');
+        $cache->deleteNotFoundOlderThan($notFoundCutoff);
         $cacheCutoff = (new \DateTimeImmutable('-' . AddressLocator::FOUND_TTL_DAYS . ' days'))
             ->format('Y-m-d H:i:s');
-        (new GeocodingCacheRepository($pdo))->deleteOlderThan($cacheCutoff);
+        $cache->deleteOlderThan($cacheCutoff);
 
         $schedulerService = new SchedulerService(new SchedulerRepository($pdo));
         $schedulerService->rearmAfter('core', self::TASK_KEY, self::REFERENCE, self::INTERVAL_SECONDS);

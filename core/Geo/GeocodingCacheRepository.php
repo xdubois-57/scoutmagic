@@ -61,6 +61,20 @@ class GeocodingCacheRepository
         )->execute([$fingerprint, $point?->latitude, $point?->longitude, $at->format('Y-m-d H:i:s')]);
     }
 
+    /**
+     * Task\PurgeGeocodingHandler's cleanup of « nothing found » rows, which
+     * are served for hours, not months.
+     */
+    public function deleteNotFoundOlderThan(string $beforeDatetime): int
+    {
+        $stmt = $this->pdo->prepare(
+            'DELETE FROM geocoding_cache WHERE latitude IS NULL AND longitude IS NULL AND looked_up_at < ?'
+        );
+        $stmt->execute([$beforeDatetime]);
+
+        return $stmt->rowCount();
+    }
+
     /** Task\PurgeGeocodingHandler's cleanup: rows no lookup can still use. */
     public function deleteOlderThan(string $beforeDatetime): int
     {

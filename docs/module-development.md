@@ -551,7 +551,9 @@ uses the core's map rather than a copy of it (ARCHITECTURE.md §8.119):
   and let its `GeoPointException` reach the reader.
 - **Geocode in a scheduled task, one row per run**, re-arming itself while
   rows are pending, and seeded only when something is pending — the shape
-  of `Modules\Camps\Task\GeocodePlacesHandler`. Never on a page load:
+  of `Modules\Camps\Task\GeocodePlacesHandler`, with the call inside
+  `Core\Geo\GeocodingThrottle::run()` (busy: re-arm, stamp nothing). Never
+  on a page load:
   `Core\Geo\GeocodingService` calls a free third-party service allowed one
   request per second. A form that must find an address while it is being
   filled in goes through `Core\Geo\AddressLocator` instead — cached,

@@ -59,7 +59,9 @@ final class PurgeGeocodingHandlerTest extends TestCase
 
         (new PurgeGeocodingHandler())->handle([], $this->context);
 
-        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM geocoding_lookups')->fetchColumn());
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM geocoding_lookups');
+        $stmt->execute();
+        $this->assertSame(1, (int) $stmt->fetchColumn());
     }
 
     public function testDropsCachedAnswersTooOldToBeServedAndKeepsTheRest(): void
@@ -74,6 +76,22 @@ final class PurgeGeocodingHandlerTest extends TestCase
 
         $this->assertNull($cache->find(str_repeat('a', 64)));
         $this->assertNotNull($cache->find(str_repeat('b', 64)));
+    }
+
+    public function testNothingFoundRowsGoAfterHoursNotMonths(): void
+    {
+        $cache = new GeocodingCacheRepository($this->pdo);
+        $cache->store(str_repeat('c', 64), null, new \DateTimeImmutable(
+            '-' . (AddressLocator::NOT_FOUND_TTL_HOURS + 1) . ' hours'
+        ));
+        $cache->store(str_repeat('d', 64), null, new \DateTimeImmutable('-1 hour'));
+        $cache->store(str_repeat('e', 64), new GeoPoint(50.0, 4.0), new \DateTimeImmutable('-2 days'));
+
+        (new PurgeGeocodingHandler())->handle([], $this->context);
+
+        $this->assertNull($cache->find(str_repeat('c', 64)));
+        $this->assertNotNull($cache->find(str_repeat('d', 64)));
+        $this->assertNotNull($cache->find(str_repeat('e', 64)));
     }
 
     public function testReschedulesItselfAndIsKnownToBothEntryPoints(): void
