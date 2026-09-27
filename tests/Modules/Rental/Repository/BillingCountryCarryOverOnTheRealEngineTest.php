@@ -9,12 +9,12 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Rental\Repository;
 
-use Core\Database\Connection;
 use Core\Security\EncryptionService;
 use Modules\Rental\Repository\RentalBookingRepository;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 /**
  * The one thing about the billing-country carry-over that only the real
@@ -41,68 +41,53 @@ use Tests\DatabaseTestHelper;
  * MySQL.
  *
  * **In a database of its own, created and dropped here**, and with a
- * reduced `rental_bookings` carrying only the columns the repository names:
- * the same arrangement, for the same reasons, as
- * DocumentTextLockOnTheRealEngineTest. The real table's foreign key would
- * drag the module's whole schema in for two assertions, and borrowing the
- * shared `TEST_DB_NAME` would make the result depend on what else the suite
- * happened to be doing.
+ * reduced `rental_bookings` carrying only the columns the repository names.
+ * Borrowing the shared `TEST_DB_NAME` would make the result depend on what
+ * else the suite happened to be doing.
  *
  * The `DATETIME … ON UPDATE CURRENT_TIMESTAMP` clause is copied from
- * `modules/rental/schema.sql` verbatim, because it IS the subject.
+ * `modules/rental/schema.sql` verbatim, because it IS the subject — and it
+ * is why this class does not stand on `Tests\UsesProductionEngine`'s
+ * migrated schema like its neighbours: the table the migration builds
+ * today lacks the clause (issue #590), so this covers a table the site
+ * does not build yet and will once #590 is fixed. Only the connections
+ * come from that fixture.
  */
 #[Group('database')]
 final class BillingCountryCarryOverOnTheRealEngineTest extends TestCase
 {
+    use UsesProductionEngine;
+
     private \PDO $pdo;
-    private \PDO $server;
+    private ?\PDO $server = null;
     private string $schema = '';
     private RentalBookingRepository $repository;
 
     protected function setUp(): void
     {
-        $connection = new Connection(
-            getenv('TEST_DB_HOST') ?: '127.0.0.1',
-            (int) (getenv('TEST_DB_PORT') ?: 3306),
-            getenv('TEST_DB_NAME') ?: 'test_db',
-            getenv('TEST_DB_USER') ?: 'root',
-            getenv('TEST_DB_PASSWORD') ?: ''
-        );
-
-        $result = $connection->testConnection();
-        if ($result !== true) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database connection not available: ' . $result);
-        }
-
+        // Connected before anything else, so a missing server is decided
+        // by the fixture's rule — skipped on a laptop, failed wherever
+        // TEST_DB_* promised one — and not by the first CREATE below.
+        $this->server = self::productionEngineConnection()->getPdo();
         $this->schema = 'sm_billing_country_' . getmypid() . '_' . bin2hex(random_bytes(4));
-        $dsn = sprintf(
-            'mysql:host=%s;port=%d',
-            getenv('TEST_DB_HOST') ?: '127.0.0.1',
-            (int) (getenv('TEST_DB_PORT') ?: 3306)
-        );
 
         try {
-            $this->server = new \PDO(
-                $dsn,
-                getenv('TEST_DB_USER') ?: 'root',
-                getenv('TEST_DB_PASSWORD') ?: '',
-                [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
-            );
             $this->server->exec('CREATE DATABASE `' . $this->schema . '`');
-            $this->server->exec('USE `' . $this->schema . '`');
-        } catch (\Throwable $e) {
+        } catch (\PDOException $e) {
             // A refused CREATE DATABASE FAILS wherever TEST_DB_* was
             // exported: this class is the only real-engine check of the
             // carry-over, so a silent skip would leave the build green
             // over the one thing it proves.
+            $this->schema = '';
             DatabaseTestHelper::skipOnlyWhenNoServerWasPromised(
                 'The MySQL database this class creates for itself could not be created: '
                 . $e->getMessage()
             );
         }
 
-        $this->pdo = $this->server;
-        $this->pdo->setAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE, \PDO::FETCH_ASSOC);
+        // The site's own connection, into that database: the attributes
+        // and the session time zone are the ones production opens with.
+        $this->pdo = self::productionEngineConnection($this->schema)->getPdo();
         // The retired plaintext column is here BECAUSE this is the upgraded
         // installation: it no longer appears in schema.sql, which is what
         // makes MigrationRunner leave it in place on a real upgrade.
@@ -135,7 +120,7 @@ final class BillingCountryCarryOverOnTheRealEngineTest extends TestCase
 
     protected function tearDown(): void
     {
-        if ($this->schema !== '') {
+        if ($this->server !== null && $this->schema !== '') {
             $this->server->exec('DROP DATABASE IF EXISTS `' . $this->schema . '`');
             $this->schema = '';
         }

@@ -177,6 +177,11 @@ trait UsesProductionEngine
     {
         // A short class name keeps the whole under MySQL's 64 characters;
         // the pid and random suffix keep two runs on one server apart.
+        //
+        // Concatenated into the DDL below, which SECURITY.md otherwise
+        // forbids: an identifier cannot be a bound parameter, and every
+        // character of this one is generated here — `[a-z0-9_]` from the
+        // class name, the pid and hex — so nothing outside reaches it.
         $short = strtolower((string) preg_replace('/\W/', '', substr(strrchr('\\' . self::class, '\\'), 1)));
         $database = 'sm_' . substr($short, 0, 32) . '_' . getmypid() . '_' . bin2hex(random_bytes(3));
 
@@ -193,25 +198,18 @@ trait UsesProductionEngine
         }
         self::$productionEngineDatabase = $database;
 
-        $connection = self::productionEngineConnection($database);
-        $pdo = $connection->getPdo();
-        $result = (new MigrationRunner(
-            $connection,
-            new SchemaIntrospector($pdo),
-            new SchemaComparator(),
-            new SqlParser(),
-            // The default budget is a web request's. Here the migration is
-            // the fixture, and one left half done would fail every test
-            // with a missing table rather than say what happened.
-            timeBudgetSeconds: 600
-        ))->migrate(SchemaFiles::all(dirname(__DIR__)));
+        try {
+            $connection = self::productionEngineConnection($database);
+            self::migrateProductionSchema($connection, $database);
+        } catch (\Throwable $e) {
+            // Dropped at once: left in place, every later test of the class
+            // would create another one beside it, and only the last would
+            // be dropped after the class.
+            self::dropProductionEngineDatabase();
 
-        if (!$result->complete || $result->warnings !== []) {
-            throw new \RuntimeException(
-                'The production schema did not migrate cleanly into ' . $database . ': '
-                . implode('; ', $result->warnings)
-            );
+            throw $e;
         }
+        $pdo = $connection->getPdo();
 
         self::$productionEngineTables = array_map(
             'strval',
@@ -225,6 +223,51 @@ trait UsesProductionEngine
         self::emptyProductionEngineTables($pdo);
 
         return $connection;
+    }
+
+    /**
+     * The real migration, run until it reports complete.
+     *
+     * `MigrationRunner` takes one advisory lock for the whole server
+     * (`scoutmagic_schema_migration`), whatever the database, and a caller
+     * that finds it held gets `complete: false` with nothing to say — the
+     * site's own requests simply ask again. Two test processes building
+     * their database at the same moment meet exactly that, so this asks
+     * again too, within a deadline, instead of reporting an empty failure.
+     */
+    private static function migrateProductionSchema(Connection $connection, string $database): void
+    {
+        $pdo = $connection->getPdo();
+        $runner = new MigrationRunner(
+            $connection,
+            new SchemaIntrospector($pdo),
+            new SchemaComparator(),
+            new SqlParser(),
+            // The default budget is a web request's. Here the migration is
+            // the fixture, and one left half done would fail every test
+            // with a missing table rather than say what happened.
+            timeBudgetSeconds: 600
+        );
+        $deadline = microtime(true) + 120;
+
+        do {
+            $result = $runner->migrate(SchemaFiles::all(dirname(__DIR__)));
+            if ($result->warnings !== []) {
+                throw new \RuntimeException(
+                    'The production schema did not migrate cleanly into ' . $database . ': '
+                    . implode('; ', $result->warnings)
+                );
+            }
+            if ($result->complete) {
+                return;
+            }
+            usleep(100_000);
+        } while (microtime(true) < $deadline);
+
+        throw new \RuntimeException(
+            'The production schema could not be migrated into ' . $database . ' within two minutes: '
+            . 'another process held the migration lock the whole time.'
+        );
     }
 
     private static function emptyProductionEngineTables(\PDO $pdo): void

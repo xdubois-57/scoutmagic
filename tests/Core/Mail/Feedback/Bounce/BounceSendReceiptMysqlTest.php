@@ -12,7 +12,7 @@ use Core\Mail\Feedback\Bounce\BounceStateRepository;
 use Core\Security\EncryptionService;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
-use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 /**
  * The send receipt against the REAL engine, because this defect cannot
@@ -27,82 +27,32 @@ use Tests\DatabaseTestHelper;
  * from `rowCount()` is therefore correct on the test engine and wrong on
  * the production one, and no amount of SQLite coverage would ever say so.
  *
+ * The tables are the ones the migration builds from `schema/core.sql`,
+ * and the connection is `Core\Database\Connection`'s, through
+ * `Tests\UsesProductionEngine`: a receipt table written out here, or a
+ * `\PDO` opened with attributes of its own, would judge a schema and a
+ * connection the site never has — and FOUND_ROWS, the one attribute this
+ * test is about, is precisely the kind a hand-built connection gets wrong.
+ *
  * Carrying `#[Group('database')]` is not what makes a test reach MySQL —
- * the connection below is. The group is what lets CI's `database-mariadb`
- * job select it.
+ * the fixture is. The group is what lets CI's `database-mariadb` job
+ * select it.
  */
 #[Group('database')]
 class BounceSendReceiptMysqlTest extends TestCase
 {
+    use UsesProductionEngine;
+
     private \PDO $pdo;
     private BounceStateRepository $states;
 
     protected function setUp(): void
     {
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('TEST_DB_PORT') ?: 3306);
-        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
-        $user = getenv('TEST_DB_USER') ?: 'root';
-        $password = getenv('TEST_DB_PASSWORD') ?: '';
-
-        try {
-            $this->pdo = new \PDO(
-                sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', $host, $port, $dbName),
-                $user,
-                $password,
-                [
-                    \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
-                    \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
-                    // The same three attributes Core\Database\Connection
-                    // opens with. FOUND_ROWS is absent there, and its
-                    // absence is exactly what this test exists to cover:
-                    // setting it here would test a connection the site
-                    // never makes.
-                    \PDO::ATTR_EMULATE_PREPARES => false,
-                ]
-            );
-        } catch (\PDOException $e) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('No MySQL server configured (TEST_DB_HOST): ' . $e->getMessage());
-        }
-
-        $this->pdo->exec('DROP TABLE IF EXISTS mail_send_receipts');
-        $this->pdo->exec(
-            'CREATE TABLE mail_send_receipts (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                email_blind_index VARBINARY(64) NOT NULL,
-                last_send_at DATETIME NOT NULL,
-                UNIQUE KEY idx_msr_blind (email_blind_index)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
-        );
-        $this->pdo->exec('DROP TABLE IF EXISTS mail_bounce_states');
-        $this->pdo->exec(
-            'CREATE TABLE mail_bounce_states (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                email_encrypted BLOB NOT NULL,
-                email_blind_index VARBINARY(64) NOT NULL,
-                category VARCHAR(32) NOT NULL,
-                severity VARCHAR(16) NOT NULL,
-                status_code VARCHAR(16) NOT NULL,
-                failures INT NOT NULL DEFAULT 0,
-                first_seen_at DATETIME NOT NULL,
-                last_seen_at DATETIME NOT NULL,
-                blocked_at DATETIME NULL,
-                notified_code VARCHAR(16) NULL,
-                settling_since DATETIME NULL,
-                UNIQUE KEY idx_mbs_blind (email_blind_index)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
-        );
-
+        $this->pdo = $this->productionEngine();
         $this->states = new BounceStateRepository(
             $this->pdo,
             new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
         );
-    }
-
-    protected function tearDown(): void
-    {
-        $this->pdo->exec('DROP TABLE IF EXISTS mail_send_receipts');
-        $this->pdo->exec('DROP TABLE IF EXISTS mail_bounce_states');
     }
 
     /**
@@ -144,9 +94,9 @@ class BounceSendReceiptMysqlTest extends TestCase
 
         // Vouched for, because this test is about the upsert and not
         // about who the site writes to: the `isOnFile()` lookup that
-        // normally answers that reads two core tables this fixture
-        // deliberately does not build, and stubbing them would put a
-        // second thing under test.
+        // normally answers that reads member and account tables which are
+        // empty here, and filling them would put a second thing under
+        // test.
         $this->states->recordSend('parent@exemple.be', $sameSecond, true);
         $this->states->recordSend('parent@exemple.be', $sameSecond, true);
         // And the same mailbox reached under a different spelling, which

@@ -4,10 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Core\Scheduler;
 
-use Core\Database\Connection;
 use Core\Scheduler\SchedulerRepository;
 use PHPUnit\Framework\TestCase;
-use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 /**
  * `hasLiveStartingWith()` against the engine an installation actually runs.
@@ -26,67 +25,21 @@ use Tests\DatabaseTestHelper;
  * there staying green". A prefix match is exactly the kind of SQL where
  * the two engines disagree, so it is tested where it runs.
  *
- * Its own throwaway database, like the restore round trip: this creates
- * and drops schema, which is not something to do to the suite's shared
- * fixture mid-run.
- *
- * @group database
+ * Against `scheduled_actions` as the migration builds it
+ * (`Tests\UsesProductionEngine`): its collation, its ENUM status and its
+ * indexes are part of what decides how `LIKE` matches, so a copy written
+ * out here would judge a table no site has.
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class LivePrefixGuardOnMysqlTest extends TestCase
 {
-    private ?Connection $connection = null;
-    private ?\PDO $server = null;
-    private string $database = '';
+    use UsesProductionEngine;
+
+    private \PDO $pdo;
 
     protected function setUp(): void
     {
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('TEST_DB_PORT') ?: 3306);
-        $user = getenv('TEST_DB_USER') ?: 'root';
-        $password = getenv('TEST_DB_PASSWORD') ?: '';
-
-        try {
-            $server = new \PDO(
-                sprintf('mysql:host=%s;port=%d', $host, $port),
-                $user,
-                $password,
-                [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
-            );
-        } catch (\Throwable $e) {
-            // This test exists because a MySQL-only defect stayed green
-            // behind SQLite. Letting it skip itself on the one engine it
-            // was written for would rebuild that same blind spot, one
-            // level up: green, and proving nothing — which is the whole of
-            // what the helper decides (issue #393).
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised($e->getMessage());
-        }
-
-        $this->database = 'scoutmagic_prefix_' . bin2hex(random_bytes(6));
-        $server->exec('CREATE DATABASE `' . $this->database . '`');
-        $this->server = $server;
-
-        $this->connection = new Connection($host, $port, $this->database, $user, $password);
-        $this->connection->getPdo()->exec(
-            'CREATE TABLE scheduled_actions (
-                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-                module_id VARCHAR(64) NOT NULL,
-                task_key VARCHAR(128) NOT NULL,
-                run_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                payload TEXT NULL,
-                reference VARCHAR(200) NULL,
-                status VARCHAR(32) NOT NULL DEFAULT "pending",
-                requested_by_user_account_id INT UNSIGNED NULL,
-                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )'
-        );
-    }
-
-    protected function tearDown(): void
-    {
-        if ($this->server !== null && $this->database !== '') {
-            $this->server->exec('DROP DATABASE IF EXISTS `' . $this->database . '`');
-        }
+        $this->pdo = $this->productionEngine();
     }
 
     public function testTheGuardRunsAtAllOnThisEngine(): void
@@ -170,13 +123,15 @@ class LivePrefixGuardOnMysqlTest extends TestCase
 
     private function repository(): SchedulerRepository
     {
-        return new SchedulerRepository($this->connection->getPdo());
+        return new SchedulerRepository($this->pdo);
     }
 
     private function queue(string $reference, string $status): void
     {
-        $stmt = $this->connection->getPdo()->prepare(
-            'INSERT INTO scheduled_actions (module_id, task_key, reference, status) VALUES (?, ?, ?, ?)'
+        // `run_at` has no default in the declared schema: every row the
+        // scheduler queues says when it is due.
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO scheduled_actions (module_id, task_key, reference, status, run_at) VALUES (?, ?, ?, ?, NOW())'
         );
         $stmt->execute(['registration', 'send_reenrollment_emails', $reference, $status]);
     }

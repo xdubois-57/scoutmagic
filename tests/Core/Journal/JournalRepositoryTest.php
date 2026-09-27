@@ -4,21 +4,22 @@ declare(strict_types=1);
 
 namespace Tests\Core\Journal;
 
-use Core\Database\Connection;
-use Core\Database\MigrationRunner;
-use Core\Database\SchemaComparator;
-use Core\Database\SchemaIntrospector;
-use Core\Database\SqlParser;
 use Core\Journal\JournalRepository;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 /**
- * @group database
+ * Most of this runs on the SQLite helper. The two tests about what the
+ * declared schema refuses — a foreign key, an ENUM — run on the real engine
+ * instead, against `event_log` as the migration builds it
+ * (`Tests\UsesProductionEngine`): SQLite's copy enforces neither.
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class JournalRepositoryTest extends TestCase
 {
+    use UsesProductionEngine;
+
     private \PDO $pdo;
     private JournalRepository $repo;
 
@@ -80,14 +81,11 @@ class JournalRepositoryTest extends TestCase
      * runs on essentially every request. Needs a real MySQL connection —
      * the SQLite helper used by every other test in this file doesn't
      * enforce foreign keys, so it can't reproduce SQLSTATE 23000 at all.
-     *
-     * @group database
      */
     #[\PHPUnit\Framework\Attributes\Group('database')]
     public function testInsertSurvivesAForeignKeyViolationOnAStaleUserAccountId(): void
     {
-        $connection = $this->migratedMysqlConnectionOrSkip();
-        $pdo = $connection->getPdo();
+        $pdo = $this->productionEngine();
 
         $repo = new JournalRepository($pdo);
         $repo->insert('core', 'stale_session_test', 'info', 'Description', null, 999999);
@@ -96,8 +94,6 @@ class JournalRepositoryTest extends TestCase
         $this->assertNotFalse($row);
         $this->assertNull($row['user_account_id']);
         $this->assertSame('stale_session_test', $row['event_type']);
-
-        $this->dropAllTables($pdo);
     }
 
     /**
@@ -111,14 +107,11 @@ class JournalRepositoryTest extends TestCase
      * The filter is asserted in the same test on purpose: the journal
      * page's new « Erreur » choice is worth nothing if the rows it selects
      * are not exactly the rows written at that level.
-     *
-     * @group database
      */
     #[\PHPUnit\Framework\Attributes\Group('database')]
     public function testTheDeclaredSchemaStoresAndFiltersTheErrorLevel(): void
     {
-        $connection = $this->migratedMysqlConnectionOrSkip();
-        $pdo = $connection->getPdo();
+        $pdo = $this->productionEngine();
 
         $repo = new JournalRepository($pdo);
         $repo->insert('core', 'uncaught_error', 'error', 'Erreur non interceptée : RuntimeException', null, null);
@@ -136,43 +129,5 @@ class JournalRepositoryTest extends TestCase
         // And the level filter still excludes it from the other levels.
         $this->assertSame(1, $repo->count(null, 'info'));
         $this->assertSame(0, $repo->count(null, 'security'));
-
-        $this->dropAllTables($pdo);
-    }
-
-    /**
-     * A MySQL connection whose database holds the CURRENT declared core
-     * schema — the two tests above both need one, and neither can use the
-     * SQLite helper.
-     */
-    private function migratedMysqlConnectionOrSkip(): Connection
-    {
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('TEST_DB_PORT') ?: 3306);
-        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
-        $user = getenv('TEST_DB_USER') ?: 'root';
-        $password = getenv('TEST_DB_PASSWORD') ?: '';
-
-        $connection = new Connection($host, $port, $dbName, $user, $password);
-        if ($connection->testConnection() !== true) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database connection not available.');
-        }
-
-        $pdo = $connection->getPdo();
-        $this->dropAllTables($pdo);
-
-        $runner = new MigrationRunner($connection, new SchemaIntrospector($pdo), new SchemaComparator(), new SqlParser());
-        $runner->migrate([dirname(__DIR__, 3) . '/schema/core.sql']);
-
-        return $connection;
-    }
-
-    private function dropAllTables(\PDO $pdo): void
-    {
-        $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-        foreach ($pdo->query('SHOW TABLES')->fetchAll(\PDO::FETCH_COLUMN) as $table) {
-            $pdo->exec('DROP TABLE IF EXISTS `' . $table . '`');
-        }
-        $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
     }
 }

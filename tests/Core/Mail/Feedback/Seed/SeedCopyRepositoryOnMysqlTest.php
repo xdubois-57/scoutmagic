@@ -12,7 +12,7 @@ use Core\Mail\Feedback\Seed\SeedCopyRepository;
 use Core\Security\EncryptionService;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
-use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 /**
  * The statements of this repository that only the REAL engine can judge,
@@ -30,125 +30,30 @@ use Tests\DatabaseTestHelper;
  *
  * A green SQLite run proves less than it looks (`CLAUDE.md`), so every
  * statement here whose shape the two dialects disagree about gets parsed
- * where it will actually run.
- *
- * @group database
+ * where it will actually run — against the tables `schema/core.sql`
+ * declares, migrated by the real runner (`Tests\UsesProductionEngine`),
+ * and through the connection the site opens.
  */
 #[Group('database')]
 class SeedCopyRepositoryOnMysqlTest extends TestCase
 {
+    use UsesProductionEngine;
+
     private \PDO $pdo;
     private SeedCopyRepository $copies;
     private EncryptionService $encryption;
-    /** @var list<string> the tables this test created, and so drops */
-    private array $createdTables = [];
 
     protected function setUp(): void
     {
-        $this->pdo = $this->connect();
-
-        // The shared test database is not migrated, so the table is
-        // created here from `schema/core.sql` itself — which also means
-        // the declaration this iteration added is parsed by the real
-        // engine rather than only by SQLite's dialect.
-        //
-        // Created only when absent and dropped only when this test
-        // created it: the database is shared with every other
-        // `@group database` test, and dropping a table another one left
-        // behind would make this file's result depend on the order the
-        // suite happens to run in.
-        // `mail_domain_providers` since issue #422: both readings of the
-        // screen now fold through it, so it has to exist here as it does
-        // in production.
-        foreach (['mail_seed_copies', 'mail_domain_providers'] as $table) {
-            if ($this->pdo->query("SHOW TABLES LIKE '{$table}'")?->fetchColumn() === false) {
-                $this->pdo->exec(self::createTableStatement($table));
-                $this->createdTables[] = $table;
-            }
-        }
-
+        // The whole schema as the migration builds it, `mail_seed_copies`
+        // and `mail_domain_providers` included — the second since issue
+        // #422, because both readings of the screen now fold through it.
+        // A database of this class's own, emptied before every test: the
+        // shared `TEST_DB_NAME` would hand this file whatever rows another
+        // one left behind.
+        $this->pdo = $this->productionEngine();
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->copies = new SeedCopyRepository($this->pdo, $this->encryption);
-    }
-
-    private function connect(): \PDO
-    {
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('TEST_DB_PORT') ?: 3306);
-        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
-
-        try {
-            return new \PDO(
-                "mysql:host={$host};port={$port};dbname={$dbName}",
-                getenv('TEST_DB_USER') ?: 'root',
-                getenv('TEST_DB_PASSWORD') ?: '',
-                [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
-            );
-        } catch (\PDOException $e) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database connection not available: ' . $e->getMessage());
-        }
-    }
-
-    protected function tearDown(): void
-    {
-        if (!isset($this->pdo)) {
-            return;
-        }
-
-        foreach ($this->createdTables as $table) {
-            $this->pdo->exec('DROP TABLE IF EXISTS ' . $table);
-        }
-
-        // Somebody else's table: leave it, but take this test's own rows
-        // back out of it.
-        if (!in_array('mail_seed_copies', $this->createdTables, true)) {
-            $this->pdo->prepare("DELETE FROM mail_seed_copies WHERE run_reference LIKE 'mysql-probe-%'")->execute();
-        }
-        // The domain is encrypted there (SECURITY.md §5), so this test's
-        // rows are recognised by decrypting them, never by a `LIKE`. A row
-        // another key wrote is not this test's to judge.
-        if (!in_array('mail_domain_providers', $this->createdTables, true)) {
-            $rows = $this->pdo->query('SELECT id, domain_encrypted FROM mail_domain_providers');
-            $delete = $this->pdo->prepare('DELETE FROM mail_domain_providers WHERE id = ?');
-            foreach ($rows === false ? [] : $rows->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-                try {
-                    $domain = $this->encryption->decrypt(
-                        (string) $row['domain_encrypted'],
-                        'mail_domain_providers.domain'
-                    );
-                } catch (\Throwable) {
-                    continue;
-                }
-                if (str_starts_with($domain, 'mysql-probe-')) {
-                    $delete->execute([$row['id']]);
-                }
-            }
-        }
-    }
-
-    /**
-     * The `CREATE TABLE` block of `schema/core.sql` for one table, as
-     * written.
-     */
-    private static function createTableStatement(string $table): string
-    {
-        // The `--` comments are dropped BEFORE looking for the
-        // statement's terminator: a comment containing a semicolon would
-        // otherwise cut the declaration in half.
-        $lines = [];
-        foreach (explode("\n", (string) file_get_contents(__DIR__ . '/../../../../../schema/core.sql')) as $line) {
-            if (!str_starts_with(ltrim($line), '--')) {
-                $lines[] = $line;
-            }
-        }
-        $schema = implode("\n", $lines);
-
-        $start = strpos($schema, 'CREATE TABLE IF NOT EXISTS ' . $table . ' (');
-        self::assertNotFalse($start, 'schema/core.sql no longer declares ' . $table . '.');
-        $end = strpos($schema, ';', $start);
-        self::assertNotFalse($end);
-
-        return substr($schema, $start, $end - $start + 1);
     }
 
     private function recordRun(string $reference, string $address, string $folder): void
