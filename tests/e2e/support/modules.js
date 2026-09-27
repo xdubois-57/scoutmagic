@@ -35,7 +35,16 @@ export async function toggleModule(page, moduleName, enabled) {
     await page.goto('/config/modules', { waitUntil: 'domcontentloaded' });
 
     const toggle = moduleToggle(page, moduleName);
+    // The reload itself is awaited, not only the response (issue #617):
+    // config-modules.js calls window.location.reload() in the fetch's
+    // .then(), so when the response arrives the reload may not have
+    // started — and waitForLoadState() below was then satisfied by the
+    // page from BEFORE it. The helper returned with the reload still in
+    // flight, and the caller's next page.goto() was aborted by it
+    // (net::ERR_ABORTED). Listening for the main frame's navigation,
+    // registered before the click, makes the wait below the reload's.
     await Promise.all([
+        page.waitForEvent('framenavigated', (frame) => frame === page.mainFrame()),
         waitForServerResponse(page, (response) => response.url().includes('/config/modules/toggle')),
         enabled ? toggle.check() : toggle.uncheck(),
     ]);
