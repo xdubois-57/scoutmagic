@@ -285,15 +285,18 @@
                 <script type="application/json" id="dmarc-trend-data">
                     {{- authentication_trend|json_encode|raw -}}
                 </script>
-                {# The canvas is hidden from assistive technology on purpose, and the
-                   <details> below is why: it carries the SAME weeks in text, so the
-                   chart adds nothing there. `role="img"` with a one-line aria-label
-                   would have been worse than nothing — a sentence cannot carry
-                   fourteen weeks of figures, while the table can, and Sonar is right
-                   that a canvas is not an image (Web:S6819, Web:S6843). Every other
-                   chart in this repository leaves its canvas unlabelled too. #}
+                {# The canvas carries NO role, no label and no aria-hidden — bare, like
+                   every other chart canvas in this repository. The <details> below is
+                   why it needs none: it carries the SAME weeks in text, so the chart
+                   adds nothing for a reader who cannot see it, and a one-line
+                   aria-label could not carry fourteen weeks of figures anyway.
+                   Each of the three attributes tried here is refused by a rule of its
+                   own: `role="img"` because a canvas is not an image (Web:S6819) and
+                   because an interactive element may not take a non-interactive role
+                   (Web:S6843), and `aria-hidden` because it may not sit on a focusable
+                   element (Web:S6825). A bare canvas answers all three. #}
                 <div class="outbound-trend-chart">
-                    <canvas id="dmarc-trend-chart" aria-hidden="true"></canvas>
+                    <canvas id="dmarc-trend-chart"></canvas>
                 </div>
                 {# The table is not a fallback for a missing chart — it IS the reading, for anybody
                    who cannot see one. Only the drawn weeks: an interrupted week has nothing to say. #}
