@@ -111,7 +111,7 @@ final class BnpParser implements BankStatementParserInterface
 
         $lines = [];
 
-        foreach ($rows as $row) {
+        foreach ($rows as $index => $row) {
             $status = trim($row[self::COL_STATUS] ?? '');
             if ($status !== '' && $status !== 'Accepté') {
                 // Refused/pending lines never happened on the account — skip them.
@@ -127,7 +127,8 @@ final class BnpParser implements BankStatementParserInterface
                 throw new FinanceException("Date invalide dans le relevé BNP : \"{$dateStr}\".");
             }
 
-            $amount = $this->parseAmount((string) ($row[self::COL_AMOUNT] ?? ''));
+            // +2: the header is line 1, and $rows counts from 0.
+            $amount = $this->parseAmount((string) ($row[self::COL_AMOUNT] ?? ''), $index + 2);
 
             $communication = trim($row[self::COL_COMMUNICATION] ?? '');
             $label = $communication !== '' ? $communication : trim($row[self::COL_DETAILS] ?? '');
@@ -188,8 +189,11 @@ final class BnpParser implements BankStatementParserInterface
      * — no error, just a wrong amount, and a wrong balance checkpoint
      * behind it. With no comma in the value, a single "." is read as the
      * decimal separator instead.
+     *
+     * The refusal names the line, never the value: no amount leaves the
+     * import, not even in an error message (specifications.md §48.3).
      */
-    private function parseAmount(string $raw): float
+    private function parseAmount(string $raw, int $line): float
     {
         $raw = trim($raw);
 
@@ -202,7 +206,7 @@ final class BnpParser implements BankStatementParserInterface
         }
 
         if ($normalized === '' || !is_numeric($normalized)) {
-            throw new FinanceException("Montant invalide dans le relevé BNP : \"{$raw}\".");
+            throw new FinanceException("Montant invalide dans le relevé BNP (ligne {$line}).");
         }
 
         return (float) $normalized;
