@@ -2639,10 +2639,8 @@ $badgeService = new BadgeService($badgeRepository, $memberBadgeRepository, $sect
 // $memberEmailRepository silently staffs fewer sections), and this
 // question must have exactly one answer site-wide.
 $sectionStaffAuthorizationService = new \Core\Member\SectionStaffAuthorizationService(
-    $connection,
-    $encryptionService,
-    $sectionService,
-    $memberEmailRepository
+    new \Core\Member\Repository\StaffedSectionRepository($connection, $encryptionService, $memberEmailRepository),
+    $sectionService
 );
 
 // Member page (Espace membres) "Documents privés" storage — see

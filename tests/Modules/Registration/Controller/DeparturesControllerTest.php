@@ -74,7 +74,10 @@ class DeparturesControllerTest extends TestCase
     new SectionRepository($connection),
     new MemberProfileRepository($connection, $this->encryption, $badgeRepo)
 );
-        $sectionStaffAuth = new SectionStaffAuthorizationService($connection, $this->encryption, $sectionService);
+        $sectionStaffAuth = new SectionStaffAuthorizationService(
+    new \Core\Member\Repository\StaffedSectionRepository($connection, $this->encryption),
+    $sectionService
+);
         $departureRepository = new DepartureRepository($this->pdo, $this->encryption);
         $journalService = new JournalService(new JournalRepository($this->pdo));
         $this->departureService = new DepartureService($departureRepository, $journalService);

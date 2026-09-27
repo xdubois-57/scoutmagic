@@ -147,11 +147,9 @@ class CalendarChiefControllerTest extends TestCase
             $settingService,
             $moduleManager,
             new SectionStaffAuthorizationService(
-                $connection,
-                $encryption,
-                $sectionService,
-                new MemberEmailRepository($this->pdo, $encryption)
-            )
+    new \Core\Member\Repository\StaffedSectionRepository($connection, $encryption, new MemberEmailRepository($this->pdo, $encryption)),
+    $sectionService
+)
         );
 
         if (session_status() === PHP_SESSION_NONE) {

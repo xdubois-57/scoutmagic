@@ -429,14 +429,12 @@ class ScoutYearTransitionAccessTest extends TestCase
 
         $connection = Connection::withPdo($this->pdo);
         $staffedSections = new SectionStaffAuthorizationService(
-            $connection,
-            $this->encryption,
-            new SectionService(
+    new \Core\Member\Repository\StaffedSectionRepository($connection, $this->encryption, new MemberEmailRepository($this->pdo, $this->encryption)),
+    new SectionService(
     new SectionRepository($connection),
     new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
-),
-            new MemberEmailRepository($this->pdo, $this->encryption)
-        );
+)
+);
 
         $forA = $staffedSections->getStaffedSections(
             self::A_EMAIL,
@@ -494,14 +492,12 @@ class ScoutYearTransitionAccessTest extends TestCase
     new MemberEmailRepository($this->pdo, $this->encryption)
 );
         $staffedSections = new SectionStaffAuthorizationService(
-            $connection,
-            $this->encryption,
-            new SectionService(
+    new \Core\Member\Repository\StaffedSectionRepository($connection, $this->encryption, new MemberEmailRepository($this->pdo, $this->encryption)),
+    new SectionService(
     new SectionRepository($connection),
     new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
-),
-            new MemberEmailRepository($this->pdo, $this->encryption)
-        );
+)
+);
 
         $answers = [];
         foreach ([false, true] as $staffYearOpen) {

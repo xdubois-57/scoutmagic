@@ -84,7 +84,10 @@ class RegistrationChefsRbacTest extends TestCase
     new SectionRepository($connection),
     new MemberProfileRepository($connection, $encryption, new MemberBadgeRepository($this->pdo))
 );
-        $sectionStaffAuth = new SectionStaffAuthorizationService($connection, $encryption, $sectionService);
+        $sectionStaffAuth = new SectionStaffAuthorizationService(
+    new \Core\Member\Repository\StaffedSectionRepository($connection, $encryption),
+    $sectionService
+);
         $departureService = new DepartureService(new DepartureRepository($this->pdo, $encryption), new JournalService(new JournalRepository($this->pdo)));
 
         $requestRepository = new RegistrationRequestRepository($this->pdo, $encryption);

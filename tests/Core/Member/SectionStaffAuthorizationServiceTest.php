@@ -37,12 +37,13 @@ class SectionStaffAuthorizationServiceTest extends TestCase
     new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
 );
         $this->service = new SectionStaffAuthorizationService(
-            $connection,
-            $this->encryption,
-            $sectionService,
-            new MemberEmailRepository($this->pdo, $this->encryption)
-        );
-        $this->serviceWithoutSecondaryAddresses = new SectionStaffAuthorizationService($connection, $this->encryption, $sectionService);
+    new \Core\Member\Repository\StaffedSectionRepository($connection, $this->encryption, new MemberEmailRepository($this->pdo, $this->encryption)),
+    $sectionService
+);
+        $this->serviceWithoutSecondaryAddresses = new SectionStaffAuthorizationService(
+    new \Core\Member\Repository\StaffedSectionRepository($connection, $this->encryption),
+    $sectionService
+);
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2025-2026', '2025-09-01', '2026-08-31')");
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
