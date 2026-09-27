@@ -12,10 +12,6 @@ namespace Tests\Core\Maintenance\Task;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
-use Core\Database\MigrationRunner;
-use Core\Database\SchemaComparator;
-use Core\Database\SchemaIntrospector;
-use Core\Database\SqlParser;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Maintenance\BackupService;
@@ -28,7 +24,7 @@ use Core\Statistics\InstallationIdentityService;
 use Core\Security\UserAccountRepository;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
-use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 /**
  * The other entry point: a portable archive uploaded to a site that is
@@ -50,6 +46,8 @@ use Tests\DatabaseTestHelper;
 #[Group('database')]
 final class PortableMaintenanceRestoreTest extends TestCase
 {
+    use UsesProductionEngine;
+
     private const PASSPHRASE = 'quatre mots parfaitement ordinaires';
     private const ORIGIN_ID = 'aaaabbbbccccddddeeeeffff00001111';
     private const ORIGIN_ENCRYPTION_KEY = 'la-clef-de-colonne-de-l-origine=';
@@ -247,15 +245,16 @@ final class PortableMaintenanceRestoreTest extends TestCase
     public function testTheResumedPassGivesTheRestoredSiteANewIdentity(): void
     {
         // Seeded into the database the archive is about to be made from,
-        // so the dump genuinely carries the origin's identity — the shared
-        // test database holds whatever an earlier run left there, which
-        // would let this test pass on a restore that adopted nothing.
+        // so the dump genuinely carries the origin's identity — asserted
+        // on below, before the resumed pass, so that a restore which
+        // adopted nothing cannot pass.
         $this->seedSetting(InstallationIdentityService::INSTALLATION_ID_SETTING, self::ORIGIN_ID);
         $this->seedSetting(InstallationIdentityService::RESTORED_FROM_SETTING, '');
         // Cleared before the archive is made, so the dump carries none and
         // the one counted at the end can only have been written by the
-        // resumed pass. The journal is never truncated between runs, so an
-        // unscoped count would inherit every earlier run's.
+        // resumed pass. The database is this class's own and emptied
+        // before each test, so this is belt and braces; it keeps the count
+        // below meaningful if the fixture ever stops being.
         $this->pdo->exec("DELETE FROM event_log WHERE event_type = 'portable_restore_completed'");
 
         $this->handler->handle([
@@ -403,11 +402,11 @@ final class PortableMaintenanceRestoreTest extends TestCase
     /**
      * This test's own journal entries, and nobody else's.
      *
-     * Scoped to the account created in `setUp()`: the test database is
-     * shared and `event_log` is never truncated, so an unscoped read picks
-     * up rows left by earlier classes — and, worse, by earlier runs of
-     * this one, which is how a passing assertion can be made to fail by
-     * its own history.
+     * Scoped to the account created in `setUp()`. The database is this
+     * class's own and emptied before each test, but a restore puts back
+     * every row the dump carried, and an unscoped read would count those
+     * as this pass's — which is how a passing assertion can be made to
+     * fail by what the archive happened to hold.
      *
      * @return array<int, array<string, mixed>>
      */
@@ -456,27 +455,16 @@ final class PortableMaintenanceRestoreTest extends TestCase
         @rmdir($dir);
     }
 
+    /**
+     * This class's own database, migrated with the whole production
+     * schema and emptied, rather than `TEST_DB_NAME`: a restore replaces
+     * every table of the database it runs against, which is not something
+     * to do to the one every other class shares.
+     */
     private function realDbConnection(): Connection
     {
-        $connection = new Connection(
-            getenv('TEST_DB_HOST') ?: '127.0.0.1',
-            (int) (getenv('TEST_DB_PORT') ?: '3306'),
-            getenv('TEST_DB_NAME') ?: 'test_db',
-            getenv('TEST_DB_USER') ?: 'root',
-            getenv('TEST_DB_PASSWORD') ?: ''
-        );
-        $result = $connection->testConnection();
-        if ($result !== true) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database not available: ' . (is_string($result) ? $result : 'unknown error'));
-        }
+        $this->productionEngine();
 
-        (new MigrationRunner(
-            $connection,
-            new SchemaIntrospector($connection->getPdo()),
-            new SchemaComparator(),
-            new SqlParser()
-        ))->migrate([dirname(__DIR__, 4) . '/schema/core.sql']);
-
-        return $connection;
+        return $this->productionEngineSchemaConnection();
     }
 }

@@ -9,12 +9,11 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Rental\Repository;
 
-use Core\Database\Connection;
 use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Repository\RentalDocumentRepository;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
-use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 /**
  * The one thing about the document-text lock that only the real engine can
@@ -34,121 +33,42 @@ use Tests\DatabaseTestHelper;
  * nobody had sent, and the write was dropped. Every SQLite-backed test of
  * that method was green over it.
  *
- * **In a database of its own, created and dropped by this class.** The
- * repository names its tables in its SQL, so they cannot be renamed for a
- * test — and a first version therefore dropped and rebuilt
+ * **In a database of its own, holding the whole production schema**
+ * (`Tests\UsesProductionEngine`). A first version dropped and rebuilt
  * `rental_documents` and `rental_booking_document_texts` in the shared
  * `TEST_DB_NAME`, in a reduced shape, while other database-backed classes
- * were using the same server. Whether that broke anything depended on the
- * order the suite happened to run in, which is not a property a test may
- * have. A throwaway schema costs one `CREATE DATABASE` and removes the
- * question.
+ * were using the same server; the one after it built the same reduced
+ * shape in a throwaway schema. Both judged the lock on tables written out
+ * by hand. These are the tables the migration builds from
+ * `modules/rental/schema.sql` — unique key, foreign key into
+ * `rental_bookings` and all — so every text here belongs to a real
+ * booking, as it must on a site. The repository writes `updated_at`
+ * explicitly, and an explicit value equal to the stored one is what makes
+ * the whole row unchanged; that holds whether or not the migrated column
+ * carries its `ON UPDATE CURRENT_TIMESTAMP` (issue #590), since an
+ * assigned column is never bumped.
  *
- * **Two tables, built here rather than from the module's schema**, because
- * these are the only two `saveText()` touches and the foreign key to
- * `rental_bookings` would drag the module's whole schema in for nothing.
- * The column types and the `ON UPDATE CURRENT_TIMESTAMP` are copied from
- * `modules/rental/schema.sql` verbatim — the timestamp clause matters,
- * since the repository writes `updated_at` explicitly and an explicit
- * value equal to the stored one is what makes the whole row unchanged.
+ * The second connections the lock tests need are sessions on that same
+ * database, opened with the attributes the site opens with.
  */
 #[Group('database')]
 final class DocumentTextLockOnTheRealEngineTest extends TestCase
 {
+    use UsesProductionEngine;
+
     private \PDO $pdo;
-    private \PDO $server;
-    private string $schema = '';
     private RentalDocumentRepository $repository;
+    private int $assetId;
 
     protected function setUp(): void
     {
-        $connection = new Connection(
-            getenv('TEST_DB_HOST') ?: '127.0.0.1',
-            (int) (getenv('TEST_DB_PORT') ?: 3306),
-            getenv('TEST_DB_NAME') ?: 'test_db',
-            getenv('TEST_DB_USER') ?: 'root',
-            getenv('TEST_DB_PASSWORD') ?: ''
-        );
-
-        $result = $connection->testConnection();
-        if ($result !== true) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database connection not available: ' . $result);
-        }
-
-        // A schema of this class's own, so nothing here touches a table
-        // another database-backed class is using. Named per process, so two
-        // runs against one server cannot collide either.
-        $this->schema = 'sm_doc_lock_' . getmypid() . '_' . bin2hex(random_bytes(4));
-        $dsn = sprintf(
-            'mysql:host=%s;port=%d',
-            getenv('TEST_DB_HOST') ?: '127.0.0.1',
-            (int) (getenv('TEST_DB_PORT') ?: 3306)
-        );
-
-        try {
-            $this->server = new \PDO(
-                $dsn,
-                getenv('TEST_DB_USER') ?: 'root',
-                getenv('TEST_DB_PASSWORD') ?: '',
-                [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
-            );
-            $this->server->exec('CREATE DATABASE `' . $this->schema . '`');
-            $this->server->exec('USE `' . $this->schema . '`');
-        } catch (\Throwable $e) {
-            // Without the right to create one, this class would have to
-            // borrow the shared schema, which is what it exists not to do.
-            //
-            // Through the helper, not a bare markTestSkipped(): the
-            // question is not « is there a server? » but « was one
-            // promised? ». On CI, or anywhere TEST_DB_* is exported, a
-            // refused CREATE DATABASE now FAILS — because this class is
-            // the only real-engine check of the lock, and a silent skip
-            // would leave the build green over the one thing it proves.
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised(
-                'The MySQL database this class creates for itself could not be created: '
-                . $e->getMessage()
-            );
-        }
-
-        $this->pdo = $this->server;
-        $this->pdo->setAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE, \PDO::FETCH_ASSOC);
-        $this->pdo->exec(
-            'CREATE TABLE rental_booking_document_texts (
-                id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-                booking_id INT UNSIGNED NOT NULL,
-                document_type VARCHAR(30) NOT NULL,
-                body_html MEDIUMTEXT NOT NULL,
-                last_version SMALLINT UNSIGNED NOT NULL DEFAULT 0,
-                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                UNIQUE KEY uniq_rental_booking_document_text (booking_id, document_type)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
-        );
-        $this->pdo->exec(
-            'CREATE TABLE rental_documents (
-                id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-                booking_id INT UNSIGNED NOT NULL,
-                file_id INT UNSIGNED NOT NULL,
-                document_type VARCHAR(30) NOT NULL,
-                version SMALLINT UNSIGNED NOT NULL DEFAULT 1,
-                is_for_renter TINYINT(1) NOT NULL DEFAULT 0,
-                source ENUM(\'manual\', \'email\') NOT NULL DEFAULT \'manual\',
-                generated_snapshot MEDIUMTEXT NULL,
-                sent_at DATETIME NULL,
-                created_by_member_id INT UNSIGNED NULL,
-                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
-        );
-
+        $this->pdo = $this->productionEngine();
         $this->repository = new RentalDocumentRepository($this->pdo);
-    }
 
-    protected function tearDown(): void
-    {
-        if ($this->schema !== '') {
-            $this->server->exec('DROP DATABASE IF EXISTS `' . $this->schema . '`');
-            $this->schema = '';
-        }
+        $this->pdo->exec(
+            "INSERT INTO rental_assets (asset_type, name, slug) VALUES ('building', 'Local', 'local')"
+        );
+        $this->assetId = (int) $this->pdo->lastInsertId();
     }
 
     /**
@@ -161,12 +81,13 @@ final class DocumentTextLockOnTheRealEngineTest extends TestCase
      */
     public function testThisEngineCountsChangedRowsRatherThanMatchedOnes(): void
     {
-        $this->repository->saveText(1, DocumentType::CONTRACT, '<p>Identique.</p>');
+        $booking = $this->booking();
+        $this->repository->saveText($booking, DocumentType::CONTRACT, '<p>Identique.</p>');
 
         $statement = $this->pdo->prepare(
-            'UPDATE rental_booking_document_texts SET body_html = ? WHERE booking_id = 1'
+            'UPDATE rental_booking_document_texts SET body_html = ? WHERE booking_id = ?'
         );
-        $statement->execute(['<p>Identique.</p>']);
+        $statement->execute(['<p>Identique.</p>', $booking]);
 
         $this->assertSame(
             0,
@@ -181,15 +102,16 @@ final class DocumentTextLockOnTheRealEngineTest extends TestCase
      */
     public function testSavingTheSameTextTwiceIsNotReadAsASend(): void
     {
+        $booking = $this->booking();
         $text = '<p>Le texte que le gestionnaire enregistre deux fois.</p>';
 
-        $this->assertTrue($this->repository->saveText(7, DocumentType::CONTRACT, $text));
+        $this->assertTrue($this->repository->saveText($booking, DocumentType::CONTRACT, $text));
         $this->assertTrue(
-            $this->repository->saveText(7, DocumentType::CONTRACT, $text),
+            $this->repository->saveText($booking, DocumentType::CONTRACT, $text),
             'an unchanged re-save was reported as a document already sent to the tenant'
         );
 
-        $this->assertSame($text, $this->repository->findText(7, DocumentType::CONTRACT));
+        $this->assertSame($text, $this->repository->findText($booking, DocumentType::CONTRACT));
     }
 
     /**
@@ -200,12 +122,13 @@ final class DocumentTextLockOnTheRealEngineTest extends TestCase
      */
     public function testTheSameTextAfterASendIsStillRefused(): void
     {
+        $booking = $this->booking();
         $text = '<p>Le texte tel qu\'il est parti.</p>';
-        $this->repository->saveText(9, DocumentType::CONTRACT, $text);
-        $this->markSent(9);
+        $this->repository->saveText($booking, DocumentType::CONTRACT, $text);
+        $this->markSent($booking);
 
         $this->assertFalse(
-            $this->repository->saveText(9, DocumentType::CONTRACT, $text),
+            $this->repository->saveText($booking, DocumentType::CONTRACT, $text),
             'identical text slipped past the lock because nothing changed'
         );
     }
@@ -213,20 +136,22 @@ final class DocumentTextLockOnTheRealEngineTest extends TestCase
     /** Different text after a send is refused too, and nothing is written. */
     public function testDifferentTextAfterASendIsRefusedAndChangesNothing(): void
     {
-        $this->repository->saveText(11, DocumentType::CONTRACT, '<p>Ce qui est parti.</p>');
-        $this->markSent(11);
+        $booking = $this->booking();
+        $this->repository->saveText($booking, DocumentType::CONTRACT, '<p>Ce qui est parti.</p>');
+        $this->markSent($booking);
 
-        $this->assertFalse($this->repository->saveText(11, DocumentType::CONTRACT, '<p>Écrit trop tard.</p>'));
-        $this->assertSame('<p>Ce qui est parti.</p>', $this->repository->findText(11, DocumentType::CONTRACT));
+        $this->assertFalse($this->repository->saveText($booking, DocumentType::CONTRACT, '<p>Écrit trop tard.</p>'));
+        $this->assertSame('<p>Ce qui est parti.</p>', $this->repository->findText($booking, DocumentType::CONTRACT));
     }
 
     /** Different text before any send lands, so the guard is not « refuse everything ». */
     public function testDifferentTextBeforeAnySendLands(): void
     {
-        $this->repository->saveText(13, DocumentType::CONTRACT, '<p>Première rédaction.</p>');
+        $booking = $this->booking();
+        $this->repository->saveText($booking, DocumentType::CONTRACT, '<p>Première rédaction.</p>');
 
-        $this->assertTrue($this->repository->saveText(13, DocumentType::CONTRACT, '<p>Seconde rédaction.</p>'));
-        $this->assertSame('<p>Seconde rédaction.</p>', $this->repository->findText(13, DocumentType::CONTRACT));
+        $this->assertTrue($this->repository->saveText($booking, DocumentType::CONTRACT, '<p>Seconde rédaction.</p>'));
+        $this->assertSame('<p>Seconde rédaction.</p>', $this->repository->findText($booking, DocumentType::CONTRACT));
     }
 
     /**
@@ -236,11 +161,12 @@ final class DocumentTextLockOnTheRealEngineTest extends TestCase
      */
     public function testASendOfAnotherTypeDoesNotLockThisOne(): void
     {
+        $booking = $this->booking();
         $text = '<p>Le contrat.</p>';
-        $this->repository->saveText(15, DocumentType::CONTRACT, $text);
-        $this->markSent(15, DocumentType::INVOICE);
+        $this->repository->saveText($booking, DocumentType::CONTRACT, $text);
+        $this->markSent($booking, DocumentType::INVOICE);
 
-        $this->assertTrue($this->repository->saveText(15, DocumentType::CONTRACT, $text));
+        $this->assertTrue($this->repository->saveText($booking, DocumentType::CONTRACT, $text));
     }
 
     // ————— The two statements are one (#405, second review round) —————
@@ -263,22 +189,23 @@ final class DocumentTextLockOnTheRealEngineTest extends TestCase
      */
     public function testTheUpdateHoldsTheRowAgainstASecondConnection(): void
     {
-        $this->repository->saveText(21, DocumentType::CONTRACT, '<p>Le texte de départ.</p>');
+        $booking = $this->booking();
+        $this->repository->saveText($booking, DocumentType::CONTRACT, '<p>Le texte de départ.</p>');
 
         $other = $this->secondConnection();
         $other->exec('SET SESSION innodb_lock_wait_timeout = 1');
 
         $this->pdo->beginTransaction();
         $held = $this->pdo->prepare(
-            'UPDATE rental_booking_document_texts SET body_html = ? WHERE booking_id = 21'
+            'UPDATE rental_booking_document_texts SET body_html = ? WHERE booking_id = ?'
         );
-        $held->execute(['<p>Écrit par A, pas encore validé.</p>']);
+        $held->execute(['<p>Écrit par A, pas encore validé.</p>', $booking]);
 
         try {
             $blocked = $other->prepare(
-                'UPDATE rental_booking_document_texts SET body_html = ? WHERE booking_id = 21'
+                'UPDATE rental_booking_document_texts SET body_html = ? WHERE booking_id = ?'
             );
-            $blocked->execute(['<p>Écrit par B.</p>']);
+            $blocked->execute(['<p>Écrit par B.</p>', $booking]);
             $this->pdo->rollBack();
             $this->fail(
                 'a second connection changed the row while the first held it, so nothing stops a '
@@ -320,6 +247,7 @@ final class DocumentTextLockOnTheRealEngineTest extends TestCase
      */
     public function testAConcurrentSaveCannotSlipBetweenTheUpdateAndTheQuestion(): void
     {
+        $booking = $this->booking();
         $text = '<p>Le texte que le gestionnaire réenregistre tel quel.</p>';
 
         $competitor = $this->secondConnection();
@@ -327,7 +255,7 @@ final class DocumentTextLockOnTheRealEngineTest extends TestCase
 
         $slipped = null;
         $interleaving = $this->connectionThatInterleaves(
-            function () use ($competitor, &$slipped): void {
+            function () use ($competitor, $booking, &$slipped): void {
                 // Once: this is one concurrent save, not a retry loop.
                 if ($slipped !== null) {
                     return;
@@ -335,9 +263,9 @@ final class DocumentTextLockOnTheRealEngineTest extends TestCase
 
                 try {
                     $second = $competitor->prepare(
-                        'UPDATE rental_booking_document_texts SET body_html = ? WHERE booking_id = 27'
+                        'UPDATE rental_booking_document_texts SET body_html = ? WHERE booking_id = ?'
                     );
-                    $second->execute(['<p>Écrit par un second gestionnaire.</p>']);
+                    $second->execute(['<p>Écrit par un second gestionnaire.</p>', $booking]);
                     $slipped = true;
                 } catch (\PDOException) {
                     $slipped = false;
@@ -346,7 +274,7 @@ final class DocumentTextLockOnTheRealEngineTest extends TestCase
         );
 
         $repository = new RentalDocumentRepository($interleaving);
-        $repository->saveText(27, DocumentType::CONTRACT, $text);
+        $repository->saveText($booking, DocumentType::CONTRACT, $text);
 
         // Re-saved until the question is actually ASKED, and the reason is
         // a clock tick rather than anything about the lock.
@@ -372,7 +300,7 @@ final class DocumentTextLockOnTheRealEngineTest extends TestCase
         // moment it has fired.
         $written = false;
         for ($attempt = 0; $attempt < 5 && $slipped === null; $attempt++) {
-            $written = $repository->saveText(27, DocumentType::CONTRACT, $text);
+            $written = $repository->saveText($booking, DocumentType::CONTRACT, $text);
         }
 
         $this->assertNotNull(
@@ -388,7 +316,7 @@ final class DocumentTextLockOnTheRealEngineTest extends TestCase
             'an unchanged re-save was refused because another save slipped in, so the gestionnaire '
                 . 'was told the document had gone to the tenant'
         );
-        $this->assertSame($text, $this->repository->findText(27, DocumentType::CONTRACT));
+        $this->assertSame($text, $this->repository->findText($booking, DocumentType::CONTRACT));
     }
 
     /**
@@ -400,12 +328,13 @@ final class DocumentTextLockOnTheRealEngineTest extends TestCase
      */
     public function testItLeavesNoTransactionOpen(): void
     {
-        $this->repository->saveText(23, DocumentType::CONTRACT, '<p>Un.</p>');
+        $booking = $this->booking();
+        $this->repository->saveText($booking, DocumentType::CONTRACT, '<p>Un.</p>');
         $this->assertFalse($this->pdo->inTransaction());
 
         // The disambiguation path too, which is the one that returns
         // early-ish and could forget the commit.
-        $this->repository->saveText(23, DocumentType::CONTRACT, '<p>Un.</p>');
+        $this->repository->saveText($booking, DocumentType::CONTRACT, '<p>Un.</p>');
         $this->assertFalse($this->pdo->inTransaction());
     }
 
@@ -420,38 +349,55 @@ final class DocumentTextLockOnTheRealEngineTest extends TestCase
      */
     public function testItBorrowsTheCallersTransactionRatherThanOpeningASecond(): void
     {
+        $booking = $this->booking();
         $this->pdo->beginTransaction();
 
-        $this->assertTrue($this->repository->saveText(25, DocumentType::CONTRACT, '<p>Deux.</p>'));
+        $this->assertTrue($this->repository->saveText($booking, DocumentType::CONTRACT, '<p>Deux.</p>'));
         $this->assertTrue(
-            $this->repository->saveText(25, DocumentType::CONTRACT, '<p>Deux.</p>'),
+            $this->repository->saveText($booking, DocumentType::CONTRACT, '<p>Deux.</p>'),
             'the unchanged re-save must still be accepted inside a caller\'s transaction'
         );
         $this->assertTrue($this->pdo->inTransaction(), 'the caller\'s transaction was committed for them');
 
         $this->pdo->commit();
-        $this->assertSame('<p>Deux.</p>', $this->repository->findText(25, DocumentType::CONTRACT));
+        $this->assertSame('<p>Deux.</p>', $this->repository->findText($booking, DocumentType::CONTRACT));
     }
 
-    /** A connection of its own, on this class's own schema. */
+    /**
+     * A real booking for the texts and documents to belong to — the
+     * foreign keys want one. Its id is read back rather than assumed:
+     * auto-increment carries on from one test to the next.
+     */
+    private function booking(): int
+    {
+        $this->pdo->prepare(
+            'INSERT INTO rental_bookings
+                (asset_id, reference, arrival_date, departure_date,
+                 renter_name_encrypted, renter_email_encrypted, renter_email_blind_index, tracking_token_encrypted)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        )->execute([
+            $this->assetId,
+            'DOC-' . bin2hex(random_bytes(6)),
+            '2026-10-01',
+            '2026-10-03',
+            'x',
+            'x',
+            str_repeat('a', 64),
+            'x',
+        ]);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    /** A second session on this class's own database. */
     private function secondConnection(): \PDO
     {
-        return new \PDO(
-            $this->dsn(),
-            getenv('TEST_DB_USER') ?: 'root',
-            getenv('TEST_DB_PASSWORD') ?: '',
-            [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
-        );
+        return self::productionEngineConnection($this->databaseName())->getPdo();
     }
 
-    private function dsn(): string
+    private function databaseName(): string
     {
-        return sprintf(
-            'mysql:host=%s;port=%d;dbname=%s',
-            getenv('TEST_DB_HOST') ?: '127.0.0.1',
-            (int) (getenv('TEST_DB_PORT') ?: 3306),
-            $this->schema
-        );
+        return (string) $this->pdo->query('SELECT DATABASE()')->fetchColumn();
     }
 
     /**
@@ -470,10 +416,17 @@ final class DocumentTextLockOnTheRealEngineTest extends TestCase
      */
     private function connectionThatInterleaves(\Closure $probe): \PDO
     {
+        $credentials = self::productionEngineCredentials();
+
         return new class (
-            $this->dsn(),
-            getenv('TEST_DB_USER') ?: 'root',
-            getenv('TEST_DB_PASSWORD') ?: '',
+            sprintf(
+                'mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4',
+                $credentials['host'],
+                $credentials['port'],
+                $this->databaseName()
+            ),
+            $credentials['user'],
+            $credentials['password'],
             $probe
         ) extends \PDO {
             public function __construct(
@@ -482,7 +435,14 @@ final class DocumentTextLockOnTheRealEngineTest extends TestCase
                 string $password,
                 private \Closure $probe
             ) {
-                parent::__construct($dsn, $user, $password, [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
+                // The attributes `Core\Database\Connection` opens with; this
+                // has to be a subclass rather than that connection, since
+                // `prepare()` is the seam.
+                parent::__construct($dsn, $user, $password, [
+                    \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
+                    \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
+                    \PDO::ATTR_EMULATE_PREPARES => false,
+                ]);
             }
 
             /**

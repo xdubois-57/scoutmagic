@@ -161,6 +161,26 @@ class MigrateAlbumStorageHandlerTest extends TestCase
     }
 
     /**
+     * **The album's LISEZMOI follows it** (#474): written at the
+     * destination, and gone from the source with the rest of the folder —
+     * where it is the file an operator reads to know which album a
+     * numbered folder is.
+     */
+    public function testTheReadmeIsWrittenAtTheDestination(): void
+    {
+        $this->createMediaWithFiles();
+        $sourceBackend = new LocalStorageBackend($this->storagePath . '/source');
+        $sourceBackend->put("{$this->albumId}/LISEZMOI.txt", 'ancien', 'text/plain');
+        $this->startMigration();
+
+        (new MigrateAlbumStorageHandler())->handle(['album_id' => $this->albumId], $this->buildContext());
+
+        $targetBackend = new LocalStorageBackend($this->storagePath . '/target');
+        $this->assertStringContainsString('Album : Camp', $targetBackend->get("{$this->albumId}/LISEZMOI.txt"));
+        $this->assertFalse($sourceBackend->exists("{$this->albumId}/LISEZMOI.txt"));
+    }
+
+    /**
      * The single most important assertion in this whole feature: when the
      * destination fails partway through, the source is left byte-for-byte
      * intact and the album keeps pointing at it.

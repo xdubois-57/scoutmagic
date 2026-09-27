@@ -18,7 +18,7 @@ use Core\Scheduler\TaskContext;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
 use PHPUnit\Framework\TestCase;
-use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 /**
  * Restoring a backup, actually restored.
@@ -31,8 +31,8 @@ use Tests\DatabaseTestHelper;
  * one code path in the application that only ever runs on a bad day.
  *
  * This file takes the trade-off the other one declined. It runs against a
- * real MySQL server (skipped where there is none, exactly as the other
- * database-backed tests do) and, crucially, against **its own throwaway
+ * real MySQL server (reached through `UsesProductionEngine`, so skipped only
+ * where none was promised) and, crucially, against **its own throwaway
  * database and its own throwaway file tree** — a restore drops and
  * reloads a schema, which is not something to do to the suite's shared
  * fixture halfway through a run.
@@ -54,6 +54,8 @@ use Tests\DatabaseTestHelper;
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class RestoreBackupRoundTripTest extends TestCase
 {
+    use UsesProductionEngine;
+
     private ?Connection $connection = null;
     private string $database = '';
     private string $storagePath = '';
@@ -61,35 +63,22 @@ class RestoreBackupRoundTripTest extends TestCase
 
     protected function setUp(): void
     {
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('TEST_DB_PORT') ?: 3306);
-        $user = getenv('TEST_DB_USER') ?: 'root';
-        $password = getenv('TEST_DB_PASSWORD') ?: '';
+        // Connected to `TEST_DB_NAME` only to create and drop the database
+        // below; nothing is read or written there.
+        $server = self::productionEngineConnection()->getPdo();
 
-        try {
-            $server = new \PDO(
-                sprintf('mysql:host=%s;port=%d', $host, $port),
-                $user,
-                $password,
-                [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
-            );
-        } catch (\Throwable $e) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('No MySQL server to restore into: ' . $e->getMessage());
-        }
-
-        // Its own database: a restore drops and reloads a schema, and doing
-        // that to the suite's shared fixture mid-run would break whatever
-        // test happened to come next.
+        // Its own database, per test: a restore drops and reloads a
+        // schema, and doing that to the suite's shared fixture mid-run
+        // would break whatever test happened to come next. Created here
+        // rather than taken from `productionEngine()` because a restore
+        // replaces the tables that one would empty between tests, and
+        // because what it holds is this file's own subject — see
+        // createSchema().
         $this->database = 'scoutmagic_restore_' . bin2hex(random_bytes(6));
         $server->exec('CREATE DATABASE `' . $this->database . '`');
         $this->server = $server;
 
-        $connection = new Connection($host, $port, $this->database, $user, $password);
-        $result = $connection->testConnection();
-        if ($result !== true) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database connection not available: ' . $result);
-        }
-        $this->connection = $connection;
+        $this->connection = self::productionEngineConnection($this->database);
 
         $this->createSchema();
 

@@ -42,13 +42,59 @@ use Core\Storage\Location\StoredObject;
  * in memory for the life of this object, which covers exactly the one
  * request or one scheduler run a caller performs.
  *
- * **A key is a file name, and the folder is flat.** Drive has no
- * directories in the filesystem sense — a folder is a parent, and a name
- * may contain slashes — so `"12/med_3.jpg"` is one file called
- * `12/med_3.jpg` sitting directly in the folder. That is invisible to
- * every caller, which addresses objects by key and never by path, and it
- * is why {@see deletePrefix()} filters names rather than removing a
- * subtree.
+ * **A key is a path, and the folders are real** (#474). The location owns
+ * one folder, `ScoutMagic/<label>/`, created by the connection flow and
+ * found by its id ({@see GoogleDriveLocationConfig::$folderId}), never by
+ * its name. Every segment of a key before the last `/` is a sub-folder,
+ * created on first write — the same principle as WebDAV's `MKCOL`s — and
+ * the last segment is the file name: `5/med_9.jpg` is the file
+ * `med_9.jpg` in the folder `5`. The folders it has already resolved are
+ * kept, path to id, for the life of this instance, so an album costs one
+ * lookup and not one per rendition. It used to be the opposite — one flat
+ * folder, `"5/med_9.jpg"` a file whose NAME held a slash — which mixed a
+ * gallery's photographs, a safety copy, the backup archives and this
+ * class's own bookkeeping in one list nobody could read in Drive, and
+ * which made every Drive location of an account share one folder, since
+ * that folder was looked up by name.
+ *
+ * **The application's own files live in `.scoutmagic/`.** A key under
+ * {@see INTERNAL_PREFIX} (a resumable session's note, the connection
+ * test's witness) is stored in that folder, and so is anything under the
+ * storage subsystem's reserved prefix `.scoutmagic/`, which already is a
+ * folder. {@see list()} still hides the first kind and still reports the
+ * second, exactly as before: `StorageInventoryStore` lists its documents
+ * through it, and every pass skips them by key.
+ *
+ * **Why a walk of the folders, and not a tag on every file.** Drive can
+ * carry `appProperties` — the location and the key, stamped on each file —
+ * and one query `appProperties has {…}` would then find any file wherever
+ * it sits: `findFile()` and `list()` in one request each, and a file an
+ * operator moved in Drive still found. It was weighed against the walk and
+ * rejected, on three counts:
+ *
+ * - **Request count, where it matters, goes the other way.** A tag query
+ *   cannot filter on a key PREFIX, so `list('5/')` and above all
+ *   `deletePrefix('5')` would page through every file of the location to
+ *   find album 5's — thousands of requests to delete one album, against
+ *   two with folders (find `5`, `DELETE` it: Drive removes a folder with
+ *   everything in it). A lookup of one file is a single request either
+ *   way once the album folder is cached; only a full `list('')` is
+ *   cheaper tagged, and that is a safety copy reading a Drive SOURCE,
+ *   which is not how anyone uses Drive — it is a destination, and its
+ *   inventory is one folder.
+ * - **One truth instead of two.** Tagged, the folders would be decoration
+ *   and could disagree with what the site reads: a photo dragged from
+ *   `5/` to `12/` would still belong to album 5 for the site while sitting
+ *   in album 12 for the person looking. With the walk, what the operator
+ *   sees in Drive is what the site sees. « A moved file is still found »
+ *   is the other side of that coin, and the help asks precisely that
+ *   nothing be moved.
+ * - **No new limit on keys.** A property is capped at 124 bytes for key
+ *   and value together; a storage key has no such limit on the three
+ *   other backends, and a contract that holds on three backends out of
+ *   four is how #484 happened.
+ *
+ * The walk's own cost is paid in {@see list()} and stated there.
  *
  * **Drive lets two files share a name, and a storage key may not.** Every
  * write here therefore ends by removing the older namesakes it created,
@@ -64,7 +110,7 @@ use Core\Storage\Location\StoredObject;
  * The warning belongs on this location's own card, which is where the
  * screen puts it.
  */
-final class GoogleDriveBackend implements ResumableUploadBackend, QuotaReportingBackend
+final class GoogleDriveBackend implements ResumableUploadBackend, QuotaReportingBackend, ManagedRootFolderBackend
 {
     /**
      * Three, and what is absent is as informative as what is there.
@@ -141,9 +187,43 @@ final class GoogleDriveBackend implements ResumableUploadBackend, QuotaReporting
 
     private const WITNESS_KEY = self::INTERNAL_PREFIX . 'healthcheck.txt';
 
+    /**
+     * The folder the application's own files are grouped in — the same
+     * name as `StorageInventoryStore::RESERVED_PREFIX` without its slash,
+     * so the safety copy's inventories and this class's notes share it.
+     */
+    private const TECHNICAL_FOLDER = '.scoutmagic';
+
+    /**
+     * How deep {@see list()} descends below the folder it starts from.
+     * Keys are one level deep (`{albumId}/med_{mediaId}.jpg`) and the
+     * inventory's are one level too; this is a guard against a tree
+     * nobody here built, not a feature.
+     */
+    private const WALK_DEPTH_CEILING = 8;
+
     private string $accessToken = '';
 
-    private string $resolvedFolderId = '';
+    /**
+     * Folders already resolved, by path relative to the location's folder
+     * (`''` is that folder itself, `5` an album) — `null` meaning « asked,
+     * and there is none ».
+     *
+     * One lookup per album, not one per rendition: a photograph writes
+     * three files into the same folder, and the factory hands this
+     * instance out for the whole request.
+     *
+     * @var array<string, string|null>
+     */
+    private array $folderIds = [];
+
+    /**
+     * The sub-folder names of a folder, sorted, by path — what the walk in
+     * {@see list()} steps through.
+     *
+     * @var array<string, list<string>>
+     */
+    private array $subfolders = [];
 
     /**
      * Buffered uploads in flight, by key — see
@@ -208,10 +288,14 @@ final class GoogleDriveBackend implements ResumableUploadBackend, QuotaReporting
         // moving something whose size depends on what a unit has stored
         // uses the resumable path instead, which is the entire reason
         // {@see ResumableUploadBackend} exists.
+        [$folders, $name] = self::locate($key);
+        $parentId = $this->folderIdOf($folders, true);
+        \assert($parentId !== null);
+
         $fileId = $this->client->uploadContents(
             $this->accessToken(),
-            $this->folderId(),
-            $key,
+            $parentId,
+            $name,
             $contents,
             $mimeType
         );
@@ -284,6 +368,10 @@ final class GoogleDriveBackend implements ResumableUploadBackend, QuotaReporting
      * {@see list()} keeps its literal filter: that is its own documented
      * contract, and other callers depend on it — `StorageInventoryStore`
      * asks for `RESERVED_PREFIX`, which is not a folder.
+     *
+     * Since #474 the rule is structural here as well: the prefix is
+     * resolved to a real folder and that folder is deleted, so « names
+     * that begin with 5 » is not even expressible any more.
      */
     public function deletePrefix(string $prefix): void
     {
@@ -297,51 +385,103 @@ final class GoogleDriveBackend implements ResumableUploadBackend, QuotaReporting
         if ($prefix === '') {
             return;
         }
-        $folder = $prefix . '/';
 
-        $cursor = null;
-        do {
-            $listing = $this->list($folder, $cursor);
-            foreach ($listing->objects as $object) {
-                $this->delete($object->key);
-            }
-            $cursor = $listing->cursor;
-        } while ($cursor !== null);
+        // **One request, not one per file.** The prefix names a folder,
+        // and Drive removes a folder with everything in it — so album 5
+        // is the folder `5`, found and deleted, while `50/` is another
+        // folder that this never looks at.
+        $folderId = $this->folderIdOf(explode('/', $prefix), false);
+        if ($folderId === null) {
+            // Nothing was ever written under it, or it is already gone:
+            // the end state the caller asked for.
+            return;
+        }
+
+        $this->client->deleteFile($this->accessToken(), $folderId);
+        $this->forgetFolder($prefix);
     }
 
     /**
-     * One page of the folder, filtered to $prefix.
+     * One page of the objects under $prefix, with their FULL keys
+     * (`5/med_9.jpg`), whatever folder they sit in.
      *
-     * **The filtering happens here rather than in the query**, and that
-     * makes an empty page with a cursor an ordinary outcome rather than a
-     * bug: Drive pages its answer before this class looks at the names, so
-     * a page can legitimately hold nothing that matches. Every caller of
-     * this contract already continues on the cursor rather than on the
-     * page being non-empty, which is what makes that safe.
+     * **The tree is walked in a fixed order**: a folder's own files first,
+     * then its sub-folders, each in `strcmp` order of its name, depth
+     * first. The cursor says where the walk stands — which folder, and
+     * Drive's own page token inside it — so resuming costs nothing: no
+     * page is re-read, unlike WebDAV's walk, which has no token to keep.
+     * Stepping from one folder to the next asks for the sub-folders of
+     * the folders on the way, once per instance. The cost of the whole
+     * walk is therefore one request per page of files plus about one per
+     * folder, which is what a location with one folder per album pays to
+     * be listed; the reasoning against tagging every file instead is on
+     * the class.
      *
-     * The bookkeeping objects of {@see PARTIAL_PREFIX} are never listed.
-     * A half-written file must not be visible as content — half a
-     * photograph is a photograph as far as every screen is concerned —
-     * and a resumable session leaves no object under the real key at all
-     * until it completes, so the only thing to hide is this class's own
-     * note to itself.
+     * **An empty page with a cursor is an ordinary outcome**, as it
+     * already was: a page may stop at a folder boundary, or hold only
+     * bookkeeping that is hidden. Every caller of this contract continues
+     * on the cursor rather than on the page being non-empty.
+     *
+     * The prefix is literal, as the interface says: the walk starts from
+     * the deepest folder the prefix names completely (`5` for `5/`, the
+     * location's own folder for `album`) and keeps the keys that begin
+     * with it.
+     *
+     * The bookkeeping objects of {@see INTERNAL_PREFIX} are never listed,
+     * wherever they sit. A half-written file must not be visible as
+     * content — half a photograph is a photograph as far as every screen
+     * is concerned — and a resumable session leaves no object under the
+     * real key at all until it completes, so the only thing to hide is
+     * this class's own note to itself.
      */
     public function list(string $prefix, ?string $cursor = null, int $limit = 1000): StorageListing
     {
-        $page = $this->client->listPage($this->accessToken(), $this->folderId(), $cursor, $limit);
+        $slash = strrpos($prefix, '/');
+        $start = $slash === false ? '' : substr($prefix, 0, $slash);
+        [$folder, $pageToken] = $cursor === null ? [$start, null] : self::decodeCursor($cursor, $start);
+        $limit = max(1, $limit);
 
         $objects = [];
-        foreach ($page['objects'] as $object) {
-            if (str_starts_with($object->key, self::INTERNAL_PREFIX)) {
+        while (count($objects) < $limit) {
+            $folderId = $this->folderIdOf(self::segmentsOf($folder), false);
+            $page = $folderId === null
+                // A folder removed while the walk was under way holds
+                // nothing, which is an answer and not a failure: the walk
+                // carries on with the next one rather than discarding
+                // what its siblings gave.
+                ? ['objects' => [], 'cursor' => null]
+                : $this->client->listPage($this->accessToken(), $folderId, $pageToken, $limit - count($objects));
+
+            foreach ($page['objects'] as $object) {
+                if (str_starts_with($object->key, self::INTERNAL_PREFIX)) {
+                    continue;
+                }
+                $key = $folder === '' ? $object->key : $folder . '/' . $object->key;
+                if ($prefix !== '' && !str_starts_with($key, $prefix)) {
+                    continue;
+                }
+                $objects[] = new StoredObject(
+                    $key,
+                    $object->sizeBytes,
+                    $object->announcedChecksum,
+                    $object->lastModifiedAt
+                );
+            }
+
+            if ($page['cursor'] !== null) {
+                $pageToken = $page['cursor'];
                 continue;
             }
-            if ($prefix !== '' && !str_starts_with($object->key, $prefix)) {
-                continue;
+
+            $next = $this->folderAfter($folder, $start);
+            if ($next === null) {
+                return new StorageListing($objects, null);
             }
-            $objects[] = $object;
+            $folder = $next;
+            $pageToken = null;
         }
 
-        return new StorageListing($objects, $page['cursor']);
+        return new StorageListing($objects, self::encodeCursor($folder, $pageToken));
     }
 
     /** Nothing here is a file this server can open. */
@@ -415,6 +555,21 @@ final class GoogleDriveBackend implements ResumableUploadBackend, QuotaReporting
 
         $written = false;
         try {
+            // **The folder first.** Under `drive.file` a folder the
+            // operator put in the trash is still writable into, and the
+            // witness would go in and come back as if nothing were wrong —
+            // while everything written afterwards lands in a bin Google
+            // empties on its own after thirty days.
+            if ($this->config->folderId === '') {
+                return 'Cet emplacement n\'a pas encore de dossier sur Google Drive : raccordez un compte depuis '
+                    . 'sa fiche.';
+            }
+            $folder = $this->client->describeFile($this->accessToken(), $this->config->folderId);
+            if ($folder === null || $folder['trashed']) {
+                return 'Le dossier de cet emplacement n\'existe plus sur Google Drive, ou il est dans la corbeille. '
+                    . 'Sortez-le de la corbeille, ou reconnectez le compte pour en créer un nouveau.';
+            }
+
             $this->put(
                 self::WITNESS_KEY,
                 'ScoutMagic — test de raccordement ' . date('c') . "\n",
@@ -480,10 +635,14 @@ final class GoogleDriveBackend implements ResumableUploadBackend, QuotaReporting
         // `application/octet-stream` because the media type is stated at
         // promotion, not here — {@see GoogleDriveClient::setMimeType()}
         // explains why that is the right way round and what corrects it.
+        [$folders, $name] = self::locate($key);
+        $parentId = $this->folderIdOf($folders, true);
+        \assert($parentId !== null);
+
         $session = $this->client->beginUpload(
             $this->accessToken(),
-            $this->folderId(),
-            $key,
+            $parentId,
+            $name,
             $totalBytes,
             'application/octet-stream'
         );
@@ -734,7 +893,12 @@ final class GoogleDriveBackend implements ResumableUploadBackend, QuotaReporting
         unset($this->metadata[$key]);
 
         try {
-            foreach ($this->client->findDuplicates($this->accessToken(), $this->folderId(), $key, $keepId) as $id) {
+            [$folders, $name] = self::locate($key);
+            $parentId = $this->folderIdOf($folders, false);
+            if ($parentId === null) {
+                return;
+            }
+            foreach ($this->client->findDuplicates($this->accessToken(), $parentId, $name, $keepId) as $id) {
                 $this->client->deleteFile($this->accessToken(), $id);
             }
         } catch (\Throwable) {
@@ -748,7 +912,13 @@ final class GoogleDriveBackend implements ResumableUploadBackend, QuotaReporting
     private function metadataFor(string $key): ?array
     {
         if (!array_key_exists($key, $this->metadata)) {
-            $this->metadata[$key] = $this->client->findFile($this->accessToken(), $this->folderId(), $key);
+            [$folders, $name] = self::locate($key);
+            $parentId = $this->folderIdOf($folders, false);
+            // No folder means no file: nothing was ever written there, and
+            // a read must not create the album folder it is asking about.
+            $this->metadata[$key] = $parentId === null
+                ? null
+                : $this->client->findFile($this->accessToken(), $parentId, $name);
         }
 
         return $this->metadata[$key];
@@ -813,34 +983,273 @@ final class GoogleDriveBackend implements ResumableUploadBackend, QuotaReporting
         }
     }
 
+    public function renameRootFolder(string $name): void
+    {
+        if ($this->config->folderId === '') {
+            return;
+        }
+
+        $this->client->renameFile($this->accessToken(), $this->config->folderId, $name);
+    }
+
+    public function trashRootFolder(): void
+    {
+        if ($this->config->folderId === '') {
+            return;
+        }
+
+        $this->client->trashFile($this->accessToken(), $this->config->folderId);
+    }
+
     /**
-     * The folder this application writes into, created on first use.
+     * The folders and the file name a key maps to.
      *
-     * Looked up rather than assumed when the row carries none: an operator
-     * may have emptied their trash, and under `drive.file` a folder this
-     * application cannot see is a folder that no longer exists as far as
-     * it is concerned.
+     * Every segment before the last `/` is a folder, the last is the file.
+     * A key of this class's own ({@see INTERNAL_PREFIX}, at the top) goes
+     * into {@see TECHNICAL_FOLDER} so that none of it sits among the
+     * albums an operator browses. An empty segment is refused rather than
+     * guessed at: `a//b` or a leading `/` names no folder Drive could
+     * hold, and silently collapsing it would make two keys one file.
      *
-     * **Resolved in memory and not written back.** Persisting it is the
-     * connection flow's business, which holds the repository; a backend
-     * built to answer one page must not be a thing that writes
-     * configuration rows as a side effect.
+     * @return array{0: list<string>, 1: string}
+     */
+    private static function locate(string $key): array
+    {
+        $segments = explode('/', $key);
+        foreach ($segments as $segment) {
+            if ($segment === '') {
+                throw new \RuntimeException("Invalid storage key: {$key}");
+            }
+        }
+
+        $name = (string) array_pop($segments);
+        if ($segments === [] && str_starts_with($name, self::INTERNAL_PREFIX)) {
+            $segments = [self::TECHNICAL_FOLDER];
+        }
+
+        return [$segments, $name];
+    }
+
+    /** @return list<string> */
+    private static function segmentsOf(string $path): array
+    {
+        return $path === '' ? [] : explode('/', $path);
+    }
+
+    /**
+     * The id of the folder at $segments below the location's own, or null
+     * when it does not exist and $create is false.
+     *
+     * @param list<string> $segments
+     * @throws DriveAccessException
+     */
+    private function folderIdOf(array $segments, bool $create): ?string
+    {
+        $path = '';
+        $id = $this->rootFolderId();
+
+        foreach ($segments as $segment) {
+            $child = $path === '' ? $segment : $path . '/' . $segment;
+            if (!array_key_exists($child, $this->folderIds)) {
+                $this->folderIds[$child] = $this->client->findFolder($this->accessToken(), $id, $segment);
+            }
+
+            $found = $this->folderIds[$child];
+            if ($found === null) {
+                if (!$create) {
+                    return null;
+                }
+                $found = $this->createFolderUnder($id, $segment);
+                $this->folderIds[$child] = $found;
+                unset($this->subfolders[$path]);
+            }
+
+            $id = $found;
+            $path = $child;
+        }
+
+        return $id;
+    }
+
+    /**
+     * Creates a sub-folder, **and gives way to an older one**.
+     *
+     * Two runs writing the first photographs of an album at the same
+     * moment both find no folder `5` and both create one. Every lookup
+     * answers with the OLDEST of namesakes, so the younger one would hold
+     * files nothing ever finds again. Asking once more after creating —
+     * one request per album, not per file — lets the loser delete its own
+     * empty folder and write into the winner's.
      *
      * @throws DriveAccessException
      */
-    private function folderId(): string
+    private function createFolderUnder(string $parentId, string $name): string
     {
-        if ($this->config->folderId !== '') {
-            return $this->config->folderId;
-        }
-        if ($this->resolvedFolderId !== '') {
-            return $this->resolvedFolderId;
+        $created = $this->client->createFolder($this->accessToken(), $name, $parentId);
+        $oldest = $this->client->findFolder($this->accessToken(), $parentId, $name);
+        if ($oldest === null || $oldest === $created) {
+            return $created;
         }
 
-        return $this->resolvedFolderId = $this->client->ensureFolder(
-            $this->accessToken(),
-            GoogleDriveLocationConfig::FOLDER_NAME
-        );
+        try {
+            $this->client->deleteFile($this->accessToken(), $created);
+        } catch (\Throwable) {
+            // An empty folder left behind is untidy; failing a write over
+            // it would not be.
+        }
+
+        return $oldest;
+    }
+
+    /**
+     * The sub-folder names of $path, sorted, asked once per instance.
+     *
+     * @return list<string>
+     * @throws DriveAccessException
+     */
+    private function subfoldersOf(string $path): array
+    {
+        if (isset($this->subfolders[$path])) {
+            return $this->subfolders[$path];
+        }
+
+        $id = $this->folderIdOf(self::segmentsOf($path), false);
+        $names = [];
+        if ($id !== null) {
+            $pageToken = null;
+            do {
+                $page = $this->client->listFolders($this->accessToken(), $id, $pageToken);
+                foreach ($page['folders'] as $folder) {
+                    $child = $path === '' ? $folder['name'] : $path . '/' . $folder['name'];
+                    // Oldest first, as findFolder() answers: the first of
+                    // two namesakes is the one every lookup agrees on.
+                    if (!array_key_exists($child, $this->folderIds) || $this->folderIds[$child] === null) {
+                        $this->folderIds[$child] = $folder['id'];
+                    }
+                    if ($folder['name'] !== '' && !str_contains($folder['name'], '/')) {
+                        $names[$folder['name']] = true;
+                    }
+                }
+                $pageToken = $page['cursor'];
+            } while ($pageToken !== null);
+        }
+
+        $names = array_map('strval', array_keys($names));
+        usort($names, 'strcmp');
+
+        return $this->subfolders[$path] = $names;
+    }
+
+    /**
+     * The folder the walk visits after $path, in depth-first `strcmp`
+     * order, without leaving $start — or null when the walk is over.
+     *
+     * Derived from the path alone, which is what keeps the cursor small:
+     * a folder deleted since the cursor was written is stepped over from
+     * its parent's list of what remains, rather than breaking the walk.
+     *
+     * @throws DriveAccessException
+     */
+    private function folderAfter(string $path, string $start): ?string
+    {
+        $depth = count(self::segmentsOf($path)) - count(self::segmentsOf($start));
+        if ($depth < self::WALK_DEPTH_CEILING) {
+            $children = $this->subfoldersOf($path);
+            if ($children !== []) {
+                return $path === '' ? $children[0] : $path . '/' . $children[0];
+            }
+        }
+
+        $current = $path;
+        while ($current !== $start && $current !== '') {
+            $slash = strrpos($current, '/');
+            $parent = $slash === false ? '' : substr($current, 0, $slash);
+            $name = $slash === false ? $current : substr($current, $slash + 1);
+
+            foreach ($this->subfoldersOf($parent) as $sibling) {
+                if (strcmp($sibling, $name) > 0) {
+                    return $parent === '' ? $sibling : $parent . '/' . $sibling;
+                }
+            }
+            $current = $parent;
+        }
+
+        return null;
+    }
+
+    /** Drops everything remembered about $path and what was under it. */
+    private function forgetFolder(string $path): void
+    {
+        // Cast: PHP turns a key such as '5' into the integer 5.
+        foreach (array_keys($this->folderIds) as $known) {
+            $known = (string) $known;
+            if ($known === $path || str_starts_with($known, $path . '/')) {
+                unset($this->folderIds[$known]);
+            }
+        }
+        foreach (array_keys($this->subfolders) as $known) {
+            $known = (string) $known;
+            if ($known === $path || str_starts_with($known, $path . '/')) {
+                unset($this->subfolders[$known]);
+            }
+        }
+        $slash = strrpos($path, '/');
+        unset($this->subfolders[$slash === false ? '' : substr($path, 0, $slash)]);
+        $this->metadata = [];
+    }
+
+    private static function encodeCursor(string $folder, ?string $pageToken): string
+    {
+        return (string) json_encode(['folder' => $folder, 'page' => $pageToken], JSON_UNESCAPED_SLASHES);
+    }
+
+    /**
+     * @return array{0: string, 1: ?string}
+     */
+    private static function decodeCursor(string $cursor, string $start): array
+    {
+        $decoded = json_decode($cursor, true);
+        $folder = is_array($decoded) ? ($decoded['folder'] ?? null) : null;
+        $page = is_array($decoded) ? ($decoded['page'] ?? null) : null;
+
+        // **A cursor from somewhere else is refused, not reinterpreted.**
+        // The one realistic origin is a pass paused before #474, holding
+        // a page token of the old flat folder; reading it as « start
+        // over » would be a guess, and a pass that fails clears its state
+        // and restarts from the top anyway, which is the same outcome
+        // honestly reached.
+        if (
+            !is_string($folder)
+            || ($page !== null && !is_string($page))
+            || ($start !== '' && $folder !== $start && !str_starts_with($folder, $start . '/'))
+        ) {
+            throw new \RuntimeException('Unreadable listing cursor for a Google Drive location.');
+        }
+
+        return [$folder, $page];
+    }
+
+    /**
+     * The location's own folder, `ScoutMagic/<label>/` — **by id, and
+     * only by id.**
+     *
+     * It is written by the connection flow and by nothing else, and it is
+     * never looked up by name: that is what made every Drive location of
+     * an account share one folder, and what would make a location renamed
+     * in Drive lose its files. A row without one is a location that was
+     * never connected, and nothing can be written for it.
+     *
+     * @throws DriveAccessException
+     */
+    private function rootFolderId(): string
+    {
+        if ($this->config->folderId === '') {
+            throw DriveAccessException::of(
+                'Cet emplacement n\'a pas encore de dossier sur Google Drive : raccordez un compte depuis sa fiche.'
+            );
+        }
+
+        return $this->config->folderId;
     }
 
     /**

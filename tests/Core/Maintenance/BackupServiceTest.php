@@ -5,19 +5,17 @@ declare(strict_types=1);
 namespace Tests\Core\Maintenance;
 
 use Core\Database\Connection;
-use Core\Database\MigrationRunner;
-use Core\Database\SchemaComparator;
-use Core\Database\SchemaIntrospector;
-use Core\Database\SqlParser;
 use Core\Maintenance\BackupException;
 use Core\Maintenance\BackupService;
 use Core\Storage\Location\DeclaredStorageDirectories;
 use PHPUnit\Framework\TestCase;
-use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class BackupServiceTest extends TestCase
 {
+    use UsesProductionEngine;
+
     private string $basePath;
     private string $storagePath;
     private BackupService $service;
@@ -732,19 +730,16 @@ class BackupServiceTest extends TestCase
     }
 
     /**
-     * Builds a BackupService against a real, reachable MySQL server — same
-     * TEST_DB_* env var convention as SetupControllerTest — skipping
-     * rather than failing when none is available, since mysqldump/mysql
-     * genuinely need a live server this sandbox doesn't always have.
+     * Builds a BackupService against a real MySQL/MariaDB server, skipped
+     * only where no server was promised (`UsesProductionEngine`), since the
+     * dump and the restore genuinely need a live engine.
      *
-     * This test needs `settings`/`module_registry` (Core\Maintenance\
-     * BackupService::CONFIG_ONLY_TABLES) to actually exist — since this is
-     * a real, persistent MySQL shared across the whole @group database
-     * run (unlike the SQLite-per-test default suite), relying on some
-     * other, unrelated test class happening to have migrated the schema
-     * first (and not cleaned up after itself) is exactly the kind of
-     * execution-order fragility this suite has been fixing elsewhere —
-     * so migrate the real schema here too, idempotently.
+     * The tests need `settings`/`module_registry`
+     * (Core\Maintenance\BackupService::CONFIG_ONLY_TABLES) to exist, and
+     * a restore replaces every table of the database it is pointed at — so
+     * both run against this class's own database, holding the whole
+     * production schema and emptied before each test, never against the
+     * `TEST_DB_NAME` every other class shares.
      */
     private function realDbService(): BackupService
     {
@@ -753,23 +748,9 @@ class BackupServiceTest extends TestCase
 
     private function realDbConnection(): Connection
     {
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('TEST_DB_PORT') ?: '3306');
-        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
-        $user = getenv('TEST_DB_USER') ?: 'root';
-        $password = getenv('TEST_DB_PASSWORD') ?: '';
+        $this->productionEngine();
 
-        $connection = new Connection($host, $port, $dbName, $user, $password);
-        $result = $connection->testConnection();
-        if ($result !== true) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database not available: ' . (is_string($result) ? $result : 'unknown error'));
-        }
-
-        $introspector = new SchemaIntrospector($connection->getPdo());
-        $runner = new MigrationRunner($connection, $introspector, new SchemaComparator(), new SqlParser());
-        $runner->migrate([dirname(__DIR__, 3) . '/schema/core.sql']);
-
-        return $connection;
+        return $this->productionEngineSchemaConnection();
     }
 
     /**

@@ -175,12 +175,17 @@ it does not.**
 
 ### The engine a test actually runs on, which is not what the group says
 
-`#[Group('database')]` selects tests for the `database-mariadb` job. It
-switches no connection. A test reaches MySQL only if it opens one itself
-from `TEST_DB_*` — the shape `Tests\Core\Database\MigrationRunnerTest`
-and `SchemaIntrospectorTest` use. Everything built on
-`DatabaseTestHelper::createTestDatabase()` runs on in-memory SQLite,
-group or no group, in every job.
+`#[Group('database')]` selects nothing for CI: the `database-mariadb` job
+runs the **whole** suite, deliberately, and what the group serves is
+`vendor/bin/phpunit --group=database` run by hand. Nor does it switch a
+connection. A test reaches MariaDB or MySQL only through
+`Tests\UsesProductionEngine` — or, for the handful whose subject is the
+schema itself, by opening one from the same fixture's
+`productionEngineConnection()`. Everything built on
+`DatabaseTestHelper::createTestDatabase()` runs on in-memory SQLite, group
+or no group, in every job (issue #481 counted it: that is almost all of
+it, and it stays that way — rebuilding the suite on the real engine was
+weighed and turned down).
 
 That matters wherever the two engines disagree about something other than
 syntax. The case that cost a round here: **SQLite reports the rows an
@@ -191,11 +196,32 @@ trap). An upsert deciding « no row exists » from `rowCount()` is therefore
 correct on the test engine and raises a duplicate-key error on the
 production one, and no quantity of SQLite coverage will ever say so.
 
-A test for behaviour of that kind belongs in a class that connects for
-real, skips when no server answers, and **asserts its own premise** —
-`Tests\Core\Mail\Feedback\Bounce\BounceSendReceiptMysqlTest` checks
-that this engine really does report changed rows before testing anything
-that depends on it. A premise nobody checked is how the defect got in.
+A test for behaviour of that kind belongs on the real engine, and
+`Tests\UsesProductionEngine` is what makes that a `setUp()` line rather
+than a page of connection code:
+
+- `$this->productionEngine()` is a database of the class's own holding the
+  **whole declared schema as `Core\Database\MigrationRunner` builds it** —
+  no table written by hand, so the columns, defaults and indexes are the
+  ones an installed site has — emptied before each test and dropped after
+  the class. The connection is a `Core\Database\Connection`, opened with
+  the site's own attributes (no `FOUND_ROWS`, no emulated prepares).
+- A refused connection goes through
+  `DatabaseTestHelper::skipOnlyWhenNoServerWasPromised()`: skipped on a
+  laptop, a failure wherever `TEST_DB_HOST` or `CI` promised a server.
+
+The class **asserts its own premise** —
+`Tests\Core\Mail\Feedback\Bounce\BounceSendReceiptMysqlTest` checks that
+this engine really does report changed rows before testing anything that
+depends on it. A premise nobody checked is how the defect got in. Which
+repository queries need such a class is a rule, not a judgement call:
+`AGENTS.md` § Database lists them.
+
+Building from the migration rather than from a copy of the schema is not a
+detail. The first run of the fixture found that the migration drops
+`ON UPDATE CURRENT_TIMESTAMP` from every column that declares it (issue
+#590) — a test that had laid out its table by hand had been checking a
+clause no installed site has.
 
 ### Measuring a resource, and the two readings that are not the same
 

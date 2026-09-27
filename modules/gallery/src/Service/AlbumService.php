@@ -58,7 +58,12 @@ class AlbumService
         private UploadHandler $uploadHandler,
         private ?NotificationService $notificationService = null,
         private ?UserAccountRepository $userAccountRepository = null,
-        private ?StoredFileCleaner $storedFileCleaner = null
+        private ?StoredFileCleaner $storedFileCleaner = null,
+        /**
+         * The album folder's `LISEZMOI.txt` (#474). Last and optional so
+         * that adding it moved no existing argument; null writes none.
+         */
+        private ?AlbumReadme $readme = null
     ) {
     }
 
@@ -205,6 +210,7 @@ class AlbumService
 
         $created = $this->albumRepository->findById($id);
         \assert($created !== null);
+        $this->writeReadme($created);
         $this->dispatchAlbumPublished($created, $createdBy);
 
         return $created;
@@ -234,6 +240,33 @@ class AlbumService
         }
 
         return $effectiveScoutYearId ?? (int) $this->scoutYearService->getCurrentYear()['id'];
+    }
+
+    /**
+     * The album folder's `LISEZMOI.txt`, on whichever location the album
+     * lives — best effort, see {@see AlbumReadme}. A local album only: an
+     * external one has no folder, and a delegated one is never created or
+     * renamed through here.
+     */
+    private function writeReadme(Album $album): void
+    {
+        if ($this->readme === null || !$album->isLocal() || $album->isDelegated()) {
+            return;
+        }
+
+        try {
+            $location = $this->galleryLocationService->resolveLocationForAlbum($album);
+            if ($location === null) {
+                return;
+            }
+            $backend = $this->storageBackendFactory->create($location);
+        } catch (\Throwable) {
+            // A location that cannot even be opened is reported by its
+            // own health check; the album itself was saved.
+            return;
+        }
+
+        $this->readme->write($album, $backend);
     }
 
     /**
@@ -328,6 +361,13 @@ class AlbumService
 
         $updated = $this->albumRepository->findById($id);
         \assert($updated !== null);
+
+        // Rewritten when what it says changed, and only then: the file
+        // names the album and its date, and a save that changed neither
+        // has nothing new to tell the folder.
+        if ($updated->title !== $existing->title || $updated->albumDate !== $existing->albumDate) {
+            $this->writeReadme($updated);
+        }
 
         return $updated;
     }

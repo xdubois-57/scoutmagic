@@ -17,7 +17,7 @@ use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\Fixtures\ReferenceDataset\CampsBlueprint;
 use Tests\Fixtures\ReferenceDataset\UnitBlueprint;
-use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 /**
  * `build.php`, run for real: a throwaway installation, a real MySQL/MariaDB
@@ -60,6 +60,8 @@ use Tests\DatabaseTestHelper;
 #[Group('database')]
 final class ReferenceDatasetBuildTest extends TestCase
 {
+    use UsesProductionEngine;
+
     /**
      * Deliberately not TEST_DB_NAME. The builder empties every table of the
      * database it is pointed at, and the rest of this suite is entitled to
@@ -109,11 +111,9 @@ final class ReferenceDatasetBuildTest extends TestCase
 
     public static function setUpBeforeClass(): void
     {
-        if (self::serverPdo() === null) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised(
-                'No MySQL/MariaDB server reachable through TEST_DB_* — see CONTRIBUTING.md.'
-            );
-        }
+        // Decides, before anything is provisioned, whether a server that
+        // does not answer skips this class or fails it.
+        self::productionEngineConnection();
 
         self::$instanceRoot = sys_get_temp_dir() . '/scoutmagic_refdataset_build_' . uniqid() . '/instance';
 
@@ -138,17 +138,19 @@ final class ReferenceDatasetBuildTest extends TestCase
             '--root=' . self::$instanceRoot,
         ], []);
 
-        self::$pdo = self::serverPdo(self::DATABASE);
+        self::$pdo = self::buildDatabaseExists()
+            ? self::productionEngineConnection(self::DATABASE)->getPdo()
+            : null;
     }
 
     public static function tearDownAfterClass(): void
     {
         self::$pdo = null;
 
-        $server = self::serverPdo();
-        $server?->exec('DROP DATABASE IF EXISTS `' . self::DATABASE . '`');
-
+        // Set only once setUpBeforeClass() found a server: nothing was
+        // created otherwise, and nothing is there to drop.
         if (self::$instanceRoot !== '') {
+            self::productionEngineConnection()->getPdo()->exec('DROP DATABASE IF EXISTS `' . self::DATABASE . '`');
             self::removeTree(dirname(self::$instanceRoot));
         }
     }
@@ -527,13 +529,14 @@ final class ReferenceDatasetBuildTest extends TestCase
     private static function provisioningEnvironment(): array
     {
         $password = 'Reference-Build-' . bin2hex(random_bytes(8)) . '!';
+        $credentials = self::productionEngineCredentials();
 
         $environment = [
-            'E2E_DB_HOST' => getenv('TEST_DB_HOST') ?: '127.0.0.1',
-            'E2E_DB_PORT' => getenv('TEST_DB_PORT') ?: '3306',
+            'E2E_DB_HOST' => $credentials['host'],
+            'E2E_DB_PORT' => (string) $credentials['port'],
             'E2E_DB_NAME' => self::DATABASE,
-            'E2E_DB_USER' => getenv('TEST_DB_USER') ?: 'root',
-            'E2E_DB_PASSWORD' => getenv('TEST_DB_PASSWORD') ?: '',
+            'E2E_DB_USER' => $credentials['user'],
+            'E2E_DB_PASSWORD' => $credentials['password'],
         ];
 
         foreach (['ADMIN', 'MEMBER', 'INTENDANT', 'CHIEF', 'UNIT_ADMIN'] as $role) {
@@ -577,26 +580,21 @@ final class ReferenceDatasetBuildTest extends TestCase
         return [proc_close($process), $output];
     }
 
-    private static function serverPdo(?string $database = null): ?\PDO
+    /**
+     * Whether the builder left its database behind. A provisioning or a
+     * build that failed may not have, and connecting to a database that
+     * does not exist would read as a server that does not answer —
+     * skipped on a laptop — rather than as the failure
+     * testTheBuilderRunsToCompletion() reports.
+     */
+    private static function buildDatabaseExists(): bool
     {
-        $dsn = sprintf(
-            'mysql:host=%s;port=%d;charset=utf8mb4',
-            getenv('TEST_DB_HOST') ?: '127.0.0.1',
-            (int) (getenv('TEST_DB_PORT') ?: 3306),
+        $statement = self::productionEngineConnection()->getPdo()->prepare(
+            'SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = ?'
         );
+        $statement->execute([self::DATABASE]);
 
-        try {
-            $pdo = new \PDO(
-                $database === null ? $dsn : $dsn . ';dbname=' . $database,
-                getenv('TEST_DB_USER') ?: 'root',
-                getenv('TEST_DB_PASSWORD') ?: '',
-                [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION],
-            );
-        } catch (\PDOException) {
-            return null;
-        }
-
-        return $pdo;
+        return (int) $statement->fetchColumn() === 1;
     }
 
     private static function removeTree(string $directory): void

@@ -9,10 +9,9 @@ declare(strict_types=1);
 
 namespace Tests\Core\Help\Discovery;
 
-use Core\Database\Connection;
 use Core\Help\Discovery\SeenTopicRepository;
 use PHPUnit\Framework\TestCase;
-use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 /**
  * `markSeen()` against the engine an installation actually runs.
@@ -26,77 +25,28 @@ use Tests\DatabaseTestHelper;
  * SQLite-green suite over a statement the real server refuses. So the
  * MySQL clause is tested where it runs.
  *
- * Its own throwaway database, for the same reason as that test: this
- * creates and drops schema, which is not something to do to the suite's
- * shared fixture mid-run.
- *
- * @group database
+ * Against the tables the migration builds (`Tests\UsesProductionEngine`),
+ * in a database of this class's own: `help_topics_seen` with its real
+ * unique index and its foreign key into the real `user_accounts`, rather
+ * than a copy of them written out here that could drift from
+ * `schema/core.sql` without anybody noticing.
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class SeenTopicUpsertOnMysqlTest extends TestCase
 {
-    private ?Connection $connection = null;
-    private ?\PDO $server = null;
-    private string $database = '';
+    use UsesProductionEngine;
+
+    private \PDO $pdo;
     private int $accountId = 0;
 
     protected function setUp(): void
     {
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('TEST_DB_PORT') ?: 3306);
-        $user = getenv('TEST_DB_USER') ?: 'root';
-        $password = getenv('TEST_DB_PASSWORD') ?: '';
-
-        try {
-            $server = new \PDO(
-                sprintf('mysql:host=%s;port=%d', $host, $port),
-                $user,
-                $password,
-                [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
-            );
-        } catch (\Throwable $e) {
-            // Skip only where no server was ever configured. Where
-            // TEST_DB_* IS set, that configuration is a promise a server
-            // is there, and a refused connection is a failure to report
-            // rather than a test to quietly drop — letting this one skip
-            // itself on the one engine it was written for would rebuild
-            // the blind spot it exists to close.
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised($e->getMessage());
-        }
-
-        $this->database = 'scoutmagic_discovery_' . bin2hex(random_bytes(6));
-        $server->exec('CREATE DATABASE `' . $this->database . '`');
-        $this->server = $server;
-
-        $this->connection = new Connection($host, $port, $this->database, $user, $password);
-        $pdo = $this->connection->getPdo();
-        $pdo->exec(
-            'CREATE TABLE user_accounts (
-                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-                email_blind_index CHAR(64) NOT NULL,
-                help_discovery_snoozed_until DATETIME
-            ) ENGINE=InnoDB'
-        );
-        $pdo->exec(
-            'CREATE TABLE help_topics_seen (
-                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-                user_account_id INT UNSIGNED NOT NULL,
-                topic_id VARCHAR(100) NOT NULL,
-                seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE INDEX idx_hts_user_topic (user_account_id, topic_id),
-                CONSTRAINT fk_hts_user FOREIGN KEY (user_account_id)
-                    REFERENCES user_accounts(id) ON DELETE CASCADE
-            ) ENGINE=InnoDB'
-        );
-        $pdo->exec("INSERT INTO user_accounts (email_blind_index) VALUES ('" . str_repeat('a', 64) . "')");
-        $this->accountId = (int) $pdo->lastInsertId();
-    }
-
-    protected function tearDown(): void
-    {
-        if ($this->server !== null && $this->database !== '') {
-            $this->server->exec('DROP DATABASE IF EXISTS `' . $this->database . '`');
-        }
+        $this->pdo = $this->productionEngine();
+        // The account the foreign key needs. Its id is read back rather
+        // than assumed: the counter carries on from one test to the next.
+        $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)')
+            ->execute(['x', str_repeat('a', 64)]);
+        $this->accountId = (int) $this->pdo->lastInsertId();
     }
 
     public function testTheUpsertRunsAtAllOnThisEngine(): void
@@ -134,9 +84,6 @@ class SeenTopicUpsertOnMysqlTest extends TestCase
 
     private function repository(): SeenTopicRepository
     {
-        $connection = $this->connection;
-        $this->assertNotNull($connection);
-
-        return new SeenTopicRepository($connection->getPdo());
+        return new SeenTopicRepository($this->pdo);
     }
 }

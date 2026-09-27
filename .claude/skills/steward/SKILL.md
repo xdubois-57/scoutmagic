@@ -315,6 +315,14 @@ red job means. So:
   `E2E_DB_PASSWORD` for `npm run e2e`, the `DAST_DB_*` equivalents for
   `scripts/dast.sh`. Both scripts prefer those over `TEST_DB_*`, and both
   start a throwaway `mysql:8.0` container when nothing answers at all.
+- **A class on `Tests\UsesProductionEngine` creates a database of its
+  own** (`sm_<class>_<pid>_<random>`), migrates the whole schema into it
+  and drops it after the class. So the `TEST_DB_USER` needs
+  `CREATE DATABASE`/`DROP` on the server, not only rights on
+  `TEST_DB_NAME`: a red « could not be created » in `database-mariadb` or
+  `test` is a runner that lost that privilege, not a flaky test. A killed
+  local run leaves its `sm_*` databases behind; they are safe to drop.
+  Reproducing `vendor/bin/phpunit <file>` locally is unchanged.
 
 Do not paper over a divergence with a test that accepts both outputs —
 `SchemaIntrospector` reads the server version for exactly this reason, and

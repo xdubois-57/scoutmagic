@@ -10,7 +10,6 @@ declare(strict_types=1);
 namespace Tests\Modules\OfficialDocuments\Task;
 
 use Core\Config\SettingService;
-use Core\Database\Connection;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
 use Core\Scheduler\TaskContext;
@@ -20,7 +19,7 @@ use Modules\OfficialDocuments\Repository\HealthSheetRepository;
 use Modules\OfficialDocuments\Task\PurgeHealthSheetsHandler;
 use Modules\OfficialDocuments\Value\HealthSheet;
 use PHPUnit\Framework\TestCase;
-use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 /**
  * The one job on this installation that deletes children's health data, on
@@ -41,11 +40,15 @@ use Tests\DatabaseTestHelper;
  * 3. **The journal carries the member id and nothing else** — no field
  *    name, no count of what was in it, no name.
  *
- * @group database
+ * The tables are the ones the real migration builds
+ * (`Tests\UsesProductionEngine`), not copies sliced out of the schema
+ * files with their foreign keys stripped.
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
 final class PurgeHealthSheetsHandlerTest extends TestCase
 {
+    use UsesProductionEngine;
+
     private \PDO $pdo;
     private HealthSheetRepository $repository;
     private int $stale;
@@ -56,25 +59,25 @@ final class PurgeHealthSheetsHandlerTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->pdo = $this->connect();
-        $this->pdo->exec('DROP TABLE IF EXISTS official_documents_health_sheets');
-        $this->pdo->exec($this->createTableStatement());
-        // The handler re-arms itself through the real SchedulerService, so
-        // the queue it writes into has to exist. Which is the point: it
-        // makes the rescheduling assertable rather than merely believed.
-        $this->pdo->exec('DROP TABLE IF EXISTS scheduled_actions');
-        $this->pdo->exec(self::scheduledActionsTable());
-
+        // The whole schema as the migration builds it: the sheets table
+        // with its foreign key into `members`, and `scheduled_actions`,
+        // which the handler re-arms itself into through the real
+        // SchedulerService — which is the point: it makes the rescheduling
+        // assertable rather than merely believed.
+        $this->pdo = $this->productionEngine();
         $this->repository = new HealthSheetRepository($this->pdo, self::encryption());
 
-        $this->stale = random_int(1_000_000, 4_999_999);
-        $this->fresh = random_int(5_000_000, 9_999_999);
+        // Real members, their ids read back rather than assumed:
+        // auto-increment carries on from one test to the next.
+        $this->stale = $this->member('PHS-stale');
+        $this->fresh = $this->member('PHS-fresh');
     }
 
-    protected function tearDown(): void
+    private function member(string $deskId): int
     {
-        $this->pdo->exec('DROP TABLE IF EXISTS official_documents_health_sheets');
-        $this->pdo->exec('DROP TABLE IF EXISTS scheduled_actions');
+        $this->pdo->prepare('INSERT INTO members (desk_id) VALUES (?)')->execute([$deskId]);
+
+        return (int) $this->pdo->lastInsertId();
     }
 
     // ---------------------------------------------------------------
@@ -263,13 +266,18 @@ final class PurgeHealthSheetsHandlerTest extends TestCase
     public function testTheTaskQueuesItsSuccessorEvenWhenTheRunFails(): void
     {
         // The sheets table vanishing mid-pass is as good a failure as any,
-        // and closer to the real one than a thrown double would be.
-        $this->pdo->exec('DROP TABLE official_documents_health_sheets');
+        // and closer to the real one than a thrown double would be. Moved
+        // aside rather than dropped, and put back before asserting: the
+        // database is this class's for all its tests, and the next one
+        // needs the table.
+        $this->pdo->exec('RENAME TABLE official_documents_health_sheets TO official_documents_health_sheets_away');
 
         try {
             $this->handle();
         } catch (\PDOException) {
             // Expected: what matters is what the `finally` did.
+        } finally {
+            $this->pdo->exec('RENAME TABLE official_documents_health_sheets_away TO official_documents_health_sheets');
         }
 
         $this->assertSame(1, $this->pendingOccurrences(), 'A run that threw stopped the chain for good.');
@@ -319,10 +327,7 @@ final class PurgeHealthSheetsHandlerTest extends TestCase
 
     private function context(?int $retentionMonths): TaskContext
     {
-        $connection = $this->createStub(Connection::class);
-        $connection->method('getPdo')->willReturn($this->pdo);
-
-        $journal = $this->createMock(JournalService::class);
+        $journal = $this->createStub(JournalService::class);
         $journal->method('log')->willReturnCallback(
             function (string $category, string $action, string $level, string $message, $context = []): bool {
                 $this->journalled[] = [
@@ -349,7 +354,7 @@ final class PurgeHealthSheetsHandlerTest extends TestCase
         );
 
         return new TaskContext(
-            $connection,
+            $this->productionEngineSchemaConnection(),
             self::encryption(),
             $this->createStub(MailService::class),
             $journal,
@@ -378,55 +383,5 @@ final class PurgeHealthSheetsHandlerTest extends TestCase
             'allergies' => 'Arachides',
             'conditions' => ['asthma' => true],
         ]);
-    }
-
-    private function connect(): \PDO
-    {
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('TEST_DB_PORT') ?: 3306);
-        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
-
-        try {
-            return new \PDO(
-                "mysql:host={$host};port={$port};dbname={$dbName}",
-                getenv('TEST_DB_USER') ?: 'root',
-                getenv('TEST_DB_PASSWORD') ?: '',
-                [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
-            );
-        } catch (\PDOException $e) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database connection not available: ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * Core's own `scheduled_actions`, with the foreign key stripped —
-     * `user_accounts` is not migrated into this shared database, and the
-     * column is never set by a self-rescheduling task anyway.
-     *
-     * The `--` lines go first, and that is not tidiness: the statement was
-     * sliced at the first `;` after `CREATE TABLE`, and core's schema
-     * explains its columns in prose. The day one of those sentences ended
-     * with a semicolon, the slice stopped mid-column and every test in
-     * this file died on a syntax error pointing at a line that reads
-     * perfectly well. A comment is not a statement terminator.
-     */
-    private static function scheduledActionsTable(): string
-    {
-        $sql = (string) file_get_contents(dirname(__DIR__, 4) . '/schema/core.sql');
-        $body = substr($sql, (int) strpos($sql, 'CREATE TABLE scheduled_actions ('));
-        $body = (string) preg_replace('/^[ \t]*--[^\n]*\n/m', '', $body);
-        $statement = substr($body, 0, (int) strpos($body, ';'));
-
-        return (string) preg_replace('/,\s*\n\s*CONSTRAINT fk_sa_requested_by[^\n]*\n/', "\n", $statement);
-    }
-
-    /** The module's own schema.sql, with the foreign key stripped. */
-    private function createTableStatement(): string
-    {
-        $sql = (string) file_get_contents(
-            dirname(__DIR__, 4) . '/modules/official_documents/schema.sql'
-        );
-
-        return (string) preg_replace('/,\s*\n\s*CONSTRAINT fk_odhs_member[^\n]*\n/', "\n", $sql);
     }
 }
