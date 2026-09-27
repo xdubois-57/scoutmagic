@@ -67,7 +67,7 @@ use Core\Http\Controller\AuthController;
 use Core\Http\Controller\PasswordResetController;
 use Core\Http\Controller\ConfigGeneralController;
 use Core\Http\Controller\ConfigModulesController;
-use Core\Http\Controller\ConfigBadgesController;
+use Core\Http\Controller\BadgeConfigurationController;
 use Core\Http\Controller\RgpdConfigController;
 use Core\Http\Controller\FunctionsController;
 use Core\Http\Controller\CookieController;
@@ -3340,6 +3340,23 @@ $menuBuilder->addPage(
     null,
     'membres_annee'
 );
+// Badges — moved from the Configuration menu (superadmin) to here at
+// admin: a chief d'unité manages the unit's badges (issue #621,
+// ARCHITECTURE.md §8.11). Its pages share one rail,
+// admin/badges/_nav.html.twig.
+$menuBuilder->addPage(
+    MenuBuilder::MENU_ESPACE_ADMIN,
+    'Badges',
+    '/admin/badges/configuration',
+    'admin',
+    45,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-award',
+    null,
+    'membres_annee'
+);
 $menuBuilder->addPage(
     MenuBuilder::MENU_ESPACE_ADMIN,
     'Année scoute',
@@ -3410,19 +3427,6 @@ $menuBuilder->addPage(
     'bi-file-text',
     null,
     'site'
-);
-$menuBuilder->addPage(
-    MenuBuilder::MENU_CONFIGURATION,
-    'Badges',
-    '/config/badges',
-    'superadmin',
-    20,
-    false,
-    null,
-    MenuBuilder::SORT_GROUP_CORE,
-    'bi-award',
-    null,
-    'unite_donnees'
 );
 $menuBuilder->addPage(
     MenuBuilder::MENU_CONFIGURATION,
@@ -5557,26 +5561,31 @@ $router->addRoute(
     'superadmin',
 );
 
-// Configuration > Badges — badge registry (split out of Configuration
-// générale, ARCHITECTURE §8.11). Stays superadmin, in the Configuration menu.
+// Espace chefs d'U > Badges > Configuration — badge registry (split out of
+// Configuration générale, ARCHITECTURE §8.11). It lived at /config/badges,
+// superadmin, in the Configuration menu; it moved unchanged to admin
+// (issue #621) — the four POSTs as much as the page.
 $router->addRoute(
     'GET',
-    '/config/badges',
-    ConfigBadgesController::class,
+    '/admin/badges/configuration',
+    BadgeConfigurationController::class,
     'index',
-    'superadmin',
-    ['label' => 'Badges', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+    'admin',
+    ['label' => 'Configuration des badges', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]],
 );
-$router->addRoute('POST', '/config/badges/add', ConfigBadgesController::class, 'addBadge', 'superadmin');
-$router->addRoute('POST', '/config/badges/update', ConfigBadgesController::class, 'updateBadge', 'superadmin');
+$router->addRoute('POST', '/admin/badges/add', BadgeConfigurationController::class, 'addBadge', 'admin');
+$router->addRoute('POST', '/admin/badges/update', BadgeConfigurationController::class, 'updateBadge', 'admin');
 $router->addRoute(
     'POST',
-    '/config/badges/toggle-active',
-    ConfigBadgesController::class,
+    '/admin/badges/toggle-active',
+    BadgeConfigurationController::class,
     'toggleBadgeActive',
-    'superadmin',
+    'admin',
 );
-$router->addRoute('POST', '/config/badges/delete', ConfigBadgesController::class, 'deleteBadge', 'superadmin');
+$router->addRoute('POST', '/admin/badges/delete', BadgeConfigurationController::class, 'deleteBadge', 'admin');
+// The address before the move: bookmarks and old help links land on the
+// page at its new one. Same floor as its destination.
+$router->addRoute('GET', '/config/badges', BadgeConfigurationController::class, 'legacyRedirect', 'admin');
 
 // Configuration > Comptes superadmin — the accounts holding is_super_admin,
 // the one administrative access that exists outside the Desk roster.
@@ -6775,8 +6784,8 @@ $frontController->registerController(
     new ConfigModulesController($twig, $moduleManager, $journalService)
 );
 $frontController->registerController(
-    ConfigBadgesController::class,
-    new ConfigBadgesController($twig, $badgeService, $journalService)
+    BadgeConfigurationController::class,
+    new BadgeConfigurationController($twig, $badgeService, $journalService)
 );
 $frontController->registerController(
     SuperAdminAccountsController::class,

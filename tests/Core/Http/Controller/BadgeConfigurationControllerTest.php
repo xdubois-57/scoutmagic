@@ -8,7 +8,7 @@ use Core\Badge\BadgeRepository;
 use Core\Badge\BadgeService;
 use Core\Badge\MemberBadgeRepository;
 use Core\Database\Connection;
-use Core\Http\Controller\ConfigBadgesController;
+use Core\Http\Controller\BadgeConfigurationController;
 use Core\Http\Request;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
@@ -25,9 +25,9 @@ use Tests\TestTwig;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
-class ConfigBadgesControllerTest extends TestCase
+class BadgeConfigurationControllerTest extends TestCase
 {
-    private ConfigBadgesController $controller;
+    private BadgeConfigurationController $controller;
     private BadgeRepository $badgeRepository;
     private MemberBadgeRepository $memberBadgeRepository;
     private BadgeService $badgeService;
@@ -48,6 +48,7 @@ class ConfigBadgesControllerTest extends TestCase
         $twig->addGlobal('config_mode', false);
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
+        $twig->addGlobal('current_path', BadgeConfigurationController::PATH);
 
         $this->badgeRepository = new BadgeRepository($this->pdo);
         $this->memberBadgeRepository = new MemberBadgeRepository($this->pdo);
@@ -57,7 +58,7 @@ class ConfigBadgesControllerTest extends TestCase
 );
         $this->badgeService = new BadgeService($this->badgeRepository, $this->memberBadgeRepository, $sectionService);
 
-        $this->controller = new ConfigBadgesController($twig, $this->badgeService, $journalService);
+        $this->controller = new BadgeConfigurationController($twig, $this->badgeService, $journalService);
     }
 
     protected function tearDown(): void
@@ -67,7 +68,7 @@ class ConfigBadgesControllerTest extends TestCase
 
     public function testIndexSeedsAndRendersDefaultBadges(): void
     {
-        $request = new Request('GET', '/config/badges', [], [], [], []);
+        $request = new Request('GET', BadgeConfigurationController::PATH, [], [], [], []);
         $response = $this->controller->index($request, []);
 
         $body = $response->getBody();
@@ -77,11 +78,54 @@ class ConfigBadgesControllerTest extends TestCase
         $this->assertStringContainsString('Trésorier', $body);
     }
 
+    /**
+     * Moved to the Espace chefs d'U (issue #621): the page carries the
+     * shared rail of the Badges pages, with itself selected, and the title
+     * of the mockup.
+     */
+    public function testIndexCarriesTheBadgesRailWithConfigurationSelected(): void
+    {
+        $body = $this->controller->index(new Request('GET', BadgeConfigurationController::PATH, [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('id="badges-page-picker"', $body);
+        $this->assertStringContainsString('aria-label="Pages Badges"', $body);
+        $this->assertMatchesRegularExpression(
+            '~<a[^>]*href="/admin/badges/configuration"[^>]*aria-current="page"~',
+            $body
+        );
+        $this->assertStringContainsString('Configuration des badges', $body);
+    }
+
+    /**
+     * The one layout change of the move: below md the name takes the whole
+     * line and the bin is pushed to the right of the line under it; from md
+     * up the switch goes back to pushing itself right, as before.
+     */
+    public function testIndexWrapsTheRowUnderTheNameBelowTheBreakpoint(): void
+    {
+        $this->badgeService->create('Communication');
+
+        $body = $this->controller->index(new Request('GET', BadgeConfigurationController::PATH, [], [], [], []), [])->getBody();
+
+        $this->assertMatchesRegularExpression('~class="form-control form-control-sm badge-name-input badge-config-name[ "]~', $body);
+        $this->assertStringNotContainsString('max-width:220px;min-width:120px;" value=', $body, 'The inline width would pin the name on a phone.');
+        $this->assertStringContainsString('class="form-check form-switch ms-md-auto text-nowrap"', $body);
+        $this->assertMatchesRegularExpression('~badge-delete-btn ms-auto ms-md-0"~', $body);
+    }
+
+    public function testTheOldAddressRedirectsPermanentlyToTheNewOne(): void
+    {
+        $response = $this->controller->legacyRedirect(new Request('GET', '/config/badges', [], [], [], []), []);
+
+        $this->assertSame(301, $response->getStatusCode());
+        $this->assertSame('/admin/badges/configuration', $response->getHeaders()['Location']);
+    }
+
     public function testIndexDoesNotRenderModulesContent(): void
     {
         // The whole point of the split — no leftover module-list markup on
         // the badges page.
-        $request = new Request('GET', '/config/badges', [], [], [], []);
+        $request = new Request('GET', BadgeConfigurationController::PATH, [], [], [], []);
         $response = $this->controller->index($request, []);
 
         $this->assertStringNotContainsString('module-list', $response->getBody());
@@ -90,12 +134,12 @@ class ConfigBadgesControllerTest extends TestCase
 
     public function testIndexGreysOutTheReadOnlyNameOfDefaultBadges(): void
     {
-        $request = new Request('GET', '/config/badges', [], [], [], []);
+        $request = new Request('GET', BadgeConfigurationController::PATH, [], [], [], []);
         $response = $this->controller->index($request, []);
 
         $body = $response->getBody();
         $this->assertMatchesRegularExpression(
-            '/badge-name-input flex-grow-1 bg-body-secondary text-body-secondary"[^>]*value="Infirmier"[^>]*readonly/',
+            '/badge-name-input badge-config-name bg-body-secondary text-body-secondary"[^>]*value="Infirmier"[^>]*readonly/',
             $body
         );
     }
@@ -112,7 +156,7 @@ class ConfigBadgesControllerTest extends TestCase
         $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id, name, is_visible) VALUES (?, ?, ?, 1)')
             ->execute(['LOU01', $branchId, 'Louveteaux']);
 
-        $request = new Request('GET', '/config/badges', [], [], [], []);
+        $request = new Request('GET', BadgeConfigurationController::PATH, [], [], [], []);
         $response = $this->controller->index($request, []);
 
         $body = $response->getBody();
@@ -134,7 +178,7 @@ class ConfigBadgesControllerTest extends TestCase
         $memberYearId = (int) $this->pdo->lastInsertId();
         $this->memberBadgeRepository->assign($memberYearId, $badge->id, null);
 
-        $request = new Request('GET', '/config/badges', [], [], [], []);
+        $request = new Request('GET', BadgeConfigurationController::PATH, [], [], [], []);
         $response = $this->controller->index($request, []);
 
         $body = $response->getBody();
@@ -294,7 +338,7 @@ class ConfigBadgesControllerTest extends TestCase
     private function createJsonRequest(array $data): Request
     {
         $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/config/badges/add', [], [], [], []])
+            ->setConstructorArgs(['POST', '/admin/badges/add', [], [], [], []])
             ->onlyMethods(['getRawBody'])
             ->getMock();
 

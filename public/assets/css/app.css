@@ -284,6 +284,22 @@ body:has(> #cookie-banner) {
 }
 
 /* ============================================================
+   Badges configuration row (admin/badges/configuration.html.twig):
+   below md the name takes the whole line and the switch and the bin
+   wrap under it; from md up it keeps the width it always had.
+   ============================================================ */
+.badge-config-name {
+    flex: 1 1 100%;
+    min-width: 120px;
+}
+@media (min-width: 768px) {
+    .badge-config-name {
+        flex: 1 1 auto;
+        max-width: 220px;
+    }
+}
+
+/* ============================================================
    UTILITY: dashed border for drop zones (upload, receipts, gallery).
    Bootstrap 5 has border-* color/width utilities but no border-style
    one — the templates already used this class name, which silently

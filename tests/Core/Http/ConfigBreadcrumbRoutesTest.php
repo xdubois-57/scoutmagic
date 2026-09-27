@@ -48,6 +48,15 @@ class ConfigBreadcrumbRoutesTest extends TestCase
         $this->assertStringContainsString('MenuBuilder::MENU_ESPACE_ADMIN', $breadcrumb['parentsExpr']);
     }
 
+    /** Moved out of Configuration to the Espace chefs d'U (issue #621). */
+    public function testBadgesConfigurationBreadcrumbParentsEspaceChefsDU(): void
+    {
+        $breadcrumb = $this->breadcrumbForGetRoute('/admin/badges/configuration');
+
+        $this->assertSame('Configuration des badges', $breadcrumb['label']);
+        $this->assertStringContainsString('MenuBuilder::MENU_ESPACE_ADMIN', $breadcrumb['parentsExpr']);
+    }
+
     /**
      * @return array<string, string[]>
      */
@@ -56,7 +65,6 @@ class ConfigBreadcrumbRoutesTest extends TestCase
         return [
             '/setup' => ['/setup', 'Installation & serveur'],
             '/config/modules' => ['/config/modules', 'Modules'],
-            '/config/badges' => ['/config/badges', 'Badges'],
             '/config/functions' => ['/config/functions', 'Correspondances Desk'],
             '/config/settings' => ['/config/settings', 'Paramètres'],
             '/config/rgpd' => ['/config/rgpd', 'RGPD'],

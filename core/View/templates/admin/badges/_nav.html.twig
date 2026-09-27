@@ -1,0 +1,19 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The rail shared by the Badges pages of the Espace chefs d'U (issue #621,
+  docs/chantiers/CHANTIER-badges.md) — through partials/page_picker.html.twig,
+  never a copy of its markup.
+
+  Requires `current_path` in scope.
+#}
+{% include 'partials/page_picker.html.twig' with {
+    picker_id: 'badges-page-picker',
+    pages: [
+        {'url': '/admin/badges/configuration', 'label': 'Configuration'},
+    ],
+    current_path: current_path,
+    aria_label: 'Pages Badges',
+} only %}

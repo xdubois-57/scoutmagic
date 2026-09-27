@@ -67,12 +67,12 @@ const AFTER = [
     { label: "Argent", items: [["Finances", 2]] }] },
   { label: "Espace chefs d'U", icon: "⚙️", role: 4, groups: [
     { label: "Suivi", items: [["Points d'attention", 4], ["Journal", 4]] },
-    { label: "Membres et année", items: [["Import Desk", 4], ["Membres", 4], ["Année scoute", 4], ["Encadrement", 4], ["Attestations", 4]] },
+    { label: "Membres et année", items: [["Import Desk", 4], ["Membres", 4], ["Badges", 4], ["Année scoute", 4], ["Encadrement", 4], ["Attestations", 4]] },
     { label: "Communication", items: [["Édition du site", 4], ["Listes de diffusion", 4], ["Courrier reçu", 4]] },
     { label: "Effectifs", items: [["Réinscriptions", 4], ["Passages de branche", 4], ["Formulaire d'inscription", 4], ["Cotisations", 4]] },
     { label: "Services de l'unité", items: [["Biens à louer", 4], ["Gérer le téléphone d'urgence", 4]] }] },
   { label: "Configuration", icon: "🎛️", role: 5, groups: [
-    { label: "L'unité", items: [["Correspondances Desk", 5], ["Badges", 5], ["RGPD", 5], ["Synchronisation des contacts", 5]] },
+    { label: "L'unité", items: [["Correspondances Desk", 5], ["RGPD", 5], ["Synchronisation des contacts", 5]] },
     { label: "Le site", items: [["Installation & serveur", 5], ["Modules", 5], ["Pages de texte", 5], ["Paramètres", 5], ["Comptes superadmin", 5]] },
     { label: "Communication", items: [["Courrier entrant", 5], ["Courrier sortant", 5], ["Notifications", 5], ["Modèles d'e-mails", 5]] },
     { label: "Données et sauvegardes", items: [["Stockage", 5], ["Maintenance", 4], ["Actions planifiées", 5]] },

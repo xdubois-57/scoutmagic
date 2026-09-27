@@ -12,7 +12,7 @@ use Tests\TestTwig;
 /**
  * "Édition du site" shrunk to just the configuration-mode toggle —
  * the module registry and badges moved to their own controllers/tests
- * (ConfigModulesControllerTest/ConfigBadgesControllerTest).
+ * (ConfigModulesControllerTest/BadgeConfigurationControllerTest).
  */
 class ConfigGeneralControllerTest extends TestCase
 {

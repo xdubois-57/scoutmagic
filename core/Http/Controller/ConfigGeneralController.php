@@ -15,7 +15,7 @@ use Twig\Environment;
 /**
  * "Édition du site" used to also carry the module registry and
  * badges — both split out to their own single-concern controllers
- * (Core\Http\Controller\ConfigModulesController/ConfigBadgesController,
+ * (Core\Http\Controller\ConfigModulesController/BadgeConfigurationController,
  * AGENTS.md). What's left is only the configuration-mode toggle, which is
  * why this page moved from the Configuration menu (superadmin) to
  * "Espace chefs d'U" (admin) — see Core\View\ConfigurationMode and

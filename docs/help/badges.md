@@ -2,11 +2,11 @@
 id: badges
 title: Gérer les badges
 summary: Les rôles transversaux du staff : créer, renommer, désactiver — et ce que le badge Trésorier ouvre.
-category: Configuration
-role_min: superadmin
+category: Espace chefs d'U
+role_min: admin
 question: Comment créer un badge pour le staff ?
 question: Que donne le badge Trésorier à celui qui le porte ?
-paths: /config/badges
+paths: /admin/badges/configuration
 related: staffs, config-desk, finances
 ---
 
@@ -27,9 +27,10 @@ Staffs, par les animateurs.
 
 ## Créer, renommer, désactiver
 
-« Ajouter » crée un badge, le crayon le renomme. Un badge devenu
-inutile se **désactive** : il disparaît des choix proposés sur la page
-Staffs, mais l'historique de ses attributions passées reste lisible.
+« Ajouter » crée un badge ; son nom se corrige directement dans son
+champ. Un badge devenu inutile se **désactive** : il disparaît des
+choix proposés sur la page Staffs, mais l'historique de ses
+attributions passées reste lisible.
 Les badges fournis d'office et ceux déjà attribués ne se suppriment
 jamais — la désactivation est la seule sortie, précisément pour ne pas
 effacer d'historique.
