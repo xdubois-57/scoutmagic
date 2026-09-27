@@ -24,17 +24,17 @@
 (function () {
     'use strict';
 
-    var NAME = 'sm_display';
+    const NAME = 'sm_display';
 
     function isStandalone() {
         return (typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches)
             || /** @type {any} */ (window.navigator).standalone === true;
     }
 
-    var secure = window.location.protocol === 'https:' ? '; Secure' : '';
+    const secure = window.location.protocol === 'https:' ? '; Secure' : '';
     if (isStandalone()) {
         document.cookie = NAME + '=standalone; path=/; SameSite=Lax' + secure;
-    } else if (document.cookie.split(';').some(function (part) { return part.trim().indexOf(NAME + '=') === 0; })) {
+    } else if (document.cookie.split(';').some(function (part) { return part.trim().startsWith(NAME + '='); })) {
         document.cookie = NAME + '=; path=/; SameSite=Lax; Max-Age=0' + secure;
     }
 })();

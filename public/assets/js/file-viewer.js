@@ -71,7 +71,7 @@
      * navigate at all.
      */
     function isStandalone() {
-        return (win.matchMedia && win.matchMedia('(display-mode: standalone)').matches)
+        return win.matchMedia?.('(display-mode: standalone)').matches === true
             || win.navigator.standalone === true;
     }
 
@@ -108,7 +108,7 @@
      * navigates at all.
      */
     function protect(link) {
-        if (link.hasAttribute('data-file-viewer') || link.hasAttribute('data-file-link-raw')) {
+        if ('fileViewer' in link.dataset || 'fileLinkRaw' in link.dataset) {
             return;
         }
         if (!link.hasAttribute('download')) {
@@ -306,7 +306,7 @@
             // against a boolean version of this function for exactly that
             // reason, and it was right to.
             return resolved.href;
-        } catch (e) {
+        } catch {
             // Not a URL at all — certainly not one to hand a sink.
             return null;
         }
@@ -391,13 +391,13 @@
         if (declared) {
             event.preventDefault();
             if (isStandalone()) {
-                navigateToViewer(declared.getAttribute('data-file-viewer') || '');
+                navigateToViewer(declared.dataset.fileViewer || '');
                 return;
             }
             open(
-                declared.getAttribute('data-file-viewer') || '',
-                declared.getAttribute('data-file-name') || '',
-                declared.getAttribute('data-file-image') === '1' ? true : false
+                declared.dataset.fileViewer || '',
+                declared.dataset.fileName || '',
+                declared.dataset.fileImage === '1'
             );
             return;
         }
@@ -422,7 +422,7 @@
         var link = /** @type {HTMLAnchorElement|null} */ (
             target.closest('a[href^="/files/"], a[download]')
         );
-        if (!link || link.hasAttribute('data-file-link-raw')) {
+        if (!link || 'fileLinkRaw' in link.dataset) {
             return;
         }
         // Same origin only: `download` on somebody else's page is ignored

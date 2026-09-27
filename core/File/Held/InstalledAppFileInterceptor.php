@@ -116,10 +116,8 @@ class InstalledAppFileInterceptor
         ?int $userAccountId,
         \DateTimeImmutable $now
     ): Response {
-        if (
-            !self::isInstalledAppNavigation(self::serverOf($request), [self::COOKIE => $request->getCookie(self::COOKIE)])
-            || !self::isFile($response)
-        ) {
+        $cookies = [self::COOKIE => $request->getCookie(self::COOKIE)];
+        if (!self::isInstalledAppNavigation(self::serverOf($request), $cookies) || !self::isFile($response)) {
             return $response;
         }
 

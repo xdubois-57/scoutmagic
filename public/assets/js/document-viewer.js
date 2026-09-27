@@ -90,8 +90,8 @@
                 return response.blob();
             })
             .then(function (blob) {
-                var candidate = new win.File([blob], saver.getAttribute('data-file-name') || 'document', {
-                    type: saver.getAttribute('data-file-type') || blob.type,
+                var candidate = new win.File([blob], saver.dataset.fileName || 'document', {
+                    type: saver.dataset.fileType || blob.type,
                 });
                 if (nav.canShare({ files: [candidate] })) {
                     file = candidate;
@@ -114,7 +114,7 @@
                 return;
             }
             nav.share({ files: [file], title: file.name }).catch(function (/** @type {any} */ error) {
-                if (!error || error.name !== 'AbortError') {
+                if (error?.name !== 'AbortError') {
                     say('Le partage n’a pas pu s’ouvrir. Utilisez « Ouvrir dans le navigateur ».');
                 }
             });
