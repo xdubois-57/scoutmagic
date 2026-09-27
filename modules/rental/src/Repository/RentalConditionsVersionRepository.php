@@ -127,7 +127,10 @@ class RentalConditionsVersionRepository
             version: (string) $row['version'],
             hash: (string) $row['text_hash'],
             html: (string) $row['body_html'],
-            createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'rental_conditions_versions.created_at')
+            createdAt: DateInput::requireFromStorage(
+                (string) $row['created_at'],
+                'rental_conditions_versions.created_at'
+            )
         );
     }
 }
