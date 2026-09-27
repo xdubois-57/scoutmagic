@@ -45,6 +45,7 @@ class BackgroundWorkIsNotSilentTest extends TestCase
         // not events. Nobody has ever asked why one was deleted, and a
         // nightly line per module saying so would be pure housekeeping.
         'core/Help/Assistant/Task/PurgeHelpAssistantHandler.php' => 'rate-limit window and answer cache, not events',
+        'core/Geo/Task/PurgeGeocodingHandler.php' => 'lookup quota and address cache, not events',
         'core/Security/HumanCheck/Task/PurgeHumanCheckRateLimitsHandler.php' => 'rate-limit counters, not events',
         'modules/groups/src/Task/PurgeRateLimitHandler.php' => 'rate-limit counters, not events',
         'modules/retro/src/Task/PurgeRateLimitHandler.php' => 'rate-limit counters, not events',
