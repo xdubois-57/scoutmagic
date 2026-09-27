@@ -1,7 +1,7 @@
 {% extends 'base.html.twig' %}
 {% block title %}{{ board ? 'Modifier' : 'Nouvelle' }} rétrospective — {{ param('site_name') }}{% endblock %}
 {% block content %}
-    <div class="page-narrow">
+    <div class="page-medium">
         {% include 'partials/page_header.html.twig' with {
             title: board ? 'Modifier la rétrospective' : 'Nouvelle rétrospective',
             subtitle: board ? "Ces réglages s'appliquent tant que le board est ouvert." : 'Le lien et le QR code sont générés à la création.',

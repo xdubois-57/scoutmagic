@@ -1424,6 +1424,57 @@ final class UxConventionsTest extends TestCase
         self::assertMatchesAllowlist($found, $allow, 'base.html.twig already renders <main class="container"> — use a page width class, never a nested container');
     }
 
+    /**
+     * **Two page widths, medium and wide, and nothing narrower** (design.md
+     * §7.6, issue #471). A 560px column made form pages look different
+     * from every page beside them for no reason a visitor could see, and
+     * the unit asked for none — so a width class is one of the two the
+     * stylesheet defines, and the retired one cannot come back by copying
+     * an old view.
+     */
+    public function testNoPageUsesTheRetiredNarrowWidth(): void
+    {
+        $found = [];
+        foreach (self::templates() as $rel) {
+            $count = preg_match_all('/class="[^"]*(?<![-\w])page-narrow(?![-\w])/', self::templateSource($rel));
+            if ($count > 0) {
+                $found[$rel] = $count;
+            }
+        }
+        self::assertSame([], $found, 'A page width is page-medium or page-wide (design.md §7.6, issue #471)');
+
+        $css = (string) file_get_contents(self::repoRoot() . '/public/assets/css/app.css');
+        self::assertStringNotContainsString('page-narrow', $css, 'The narrow page tier is retired (issue #471)');
+        self::assertStringContainsString('.page-medium', $css);
+        self::assertStringContainsString('.page-wide', $css);
+    }
+
+    /**
+     * **A page's title sits in its page's column** (issue #471). A view
+     * that includes `page_header` before opening its `page-medium` or
+     * `page-wide` column puts the <h1> at the container's left edge and
+     * everything under it 230px further in — the misalignment the ticket
+     * reported. The header goes inside the column, or in a column of the
+     * same width of its own when the column is the form itself.
+     */
+    public function testThePageHeaderSitsInsideThePageWidthColumn(): void
+    {
+        $found = [];
+        foreach (self::templates() as $rel) {
+            $source = self::templateSource($rel);
+            $header = strpos($source, 'partials/page_header.html.twig');
+            if ($header === false
+                || !preg_match('/class="[^"]*(?<![-\w])page-(?:medium|wide)(?![-\w])/', $source, $match, PREG_OFFSET_CAPTURE)
+            ) {
+                continue;
+            }
+            if ($header < $match[0][1]) {
+                $found[$rel] = 1;
+            }
+        }
+        self::assertSame([], $found, 'Open the page-medium/page-wide column before the page_header include (issue #471)');
+    }
+
     public function testNoInlineTouchTargetPatches(): void
     {
         $found = [];

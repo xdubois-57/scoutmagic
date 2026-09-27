@@ -13,7 +13,7 @@
 {% block content %}
 {% set _direction = offer is not null ? offer.direction : (values.direction|default('outbound') == 'return' and carpool.return_day ? 'return' : 'outbound') %}
 {% set _outbound = _direction == 'outbound' %}
-<div class="page-narrow">
+<div class="page-medium">
     {% include 'partials/page_header.html.twig' with {
         title: _title,
         subtitle: carpool.title ~ ' · ' ~ carpool.address,

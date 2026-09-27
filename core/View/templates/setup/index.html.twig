@@ -3,7 +3,7 @@
 {% block title %}{% if not is_initialized %}Installation — {{ site_name }}{% else %}Configuration — {{ site_name }}{% endif %}{% endblock %}
 
 {% block content %}
-<div class="page-narrow" id="scoutmagic-setup-wizard">
+<div class="page-medium" id="scoutmagic-setup-wizard">
 
 {% if not is_initialized %}
     {% include 'partials/page_header.html.twig' with {
