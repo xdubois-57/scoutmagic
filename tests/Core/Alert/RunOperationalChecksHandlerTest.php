@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Tests\Core\Alert;
 
 use Core\Alert\AlertSurfaces;
+use Core\Alert\Check\BackupAgeCheck;
+use Core\Alert\Check\DiskUsageCheck;
 use Core\Alert\Check\HttpsCheck;
 use Core\Alert\OperationalAlert;
 use Core\Alert\OperationalAlertRepository;
@@ -118,17 +120,18 @@ class RunOperationalChecksHandlerTest extends TestCase
     /**
      * The default destination, and the eleven checks it is right for.
      *
-     * The disk figure, the backup age and the cron stamp all live on the
-     * maintenance page, so a reader who follows this link arrives at the
-     * thing the alert is about.
+     * The backup age and the cron stamp live on the maintenance page, so a
+     * reader who follows this link arrives at the thing the alert is about.
+     * The disk figure used to be the example here; it left that page for
+     * Configuration › Stockage, and has a destination of its own (#649).
      */
     public function testAnAlertWithNoDestinationOfItsOwnOpensTheMaintenancePage(): void
     {
-        (new OperationalAlertRepository($this->pdo))->markTriggered('disk_usage', '92 %');
+        (new OperationalAlertRepository($this->pdo))->markTriggered(BackupAgeCheck::KEY, '9 jours');
 
         $points = (new OperationalAttentionProvider(
             new OperationalAlertRepository($this->pdo),
-            ['disk_usage' => 'Espace disque'],
+            [BackupAgeCheck::KEY => 'Sauvegarde'],
             AlertSurfaces::destinations()
         ))->collect(1);
 
@@ -188,6 +191,30 @@ class RunOperationalChecksHandlerTest extends TestCase
 
         $this->assertSame($reading->actionUrl, $destination['path']);
         $this->assertSame($reading->actionLabel, $destination['label']);
+    }
+
+    /**
+     * The disk alert too, on both surfaces (issue #649): the notification's
+     * button and the attention page's both lead to the storage dashboard,
+     * which shows the disk — neither to the maintenance page, which no
+     * longer does.
+     */
+    public function testBothSurfacesSendTheDiskAlertToTheStorageDashboard(): void
+    {
+        $repository = new OperationalAlertRepository($this->pdo);
+        $repository->markTriggered(DiskUsageCheck::KEY, '92 %');
+
+        $points = (new OperationalAttentionProvider(
+            $repository,
+            AlertSurfaces::labels(),
+            AlertSurfaces::destinations()
+        ))->collect(1);
+
+        $this->assertCount(1, $points);
+        $this->assertSame(DiskUsageCheck::STORAGE_PATH, $points[0]->actionUrl);
+        $this->assertSame(DiskUsageCheck::ACTION_LABEL, $points[0]->actionLabel);
+        $this->assertStringNotContainsString('Maintenance', $points[0]->why);
+        $this->assertSame('/config/stockage', DiskUsageCheck::STORAGE_PATH);
     }
 
     /** An armed alert is not a current problem and must not be listed. */

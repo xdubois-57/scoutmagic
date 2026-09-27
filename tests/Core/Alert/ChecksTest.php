@@ -323,10 +323,12 @@ class ChecksTest extends TestCase
         $this->assertStringNotContainsString('maintenance', strtolower($reading->why));
 
         $root = dirname(__DIR__, 3);
-        $this->assertStringContainsString(
-            "'/config/stockage'",
+        // The whole declaration, handler included: the URL alone could
+        // survive a route that no longer leads to the dashboard.
+        $this->assertMatchesRegularExpression(
+            "~addRoute\(\s*'GET',\s*'/config/stockage',\s*\\\\Core\\\\Http\\\\Controller\\\\StorageConfigController::class,\s*'dashboard'~",
             (string) file_get_contents($root . '/public/index.php'),
-            'the disk alert links to /config/stockage, and no route serves it any more'
+            'the disk alert links to /config/stockage, and no GET route leads it to the storage dashboard any more'
         );
         $this->assertFileExists($root . '/core/View/templates/config/storage/dashboard.html.twig');
     }
