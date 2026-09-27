@@ -81,7 +81,7 @@ dd{margin:0}
 <body>
 <div class="page">
 <h1>Acceptation de la politique de protection des données</h1>
-<p class="lede">Maquette pour le suivi de #495 : qui a accepté quelle version de la politique, quand, et le rappel automatique quand l'acceptation est trop ancienne. Elle fait foi pour la hiérarchie des écrans, les libellés français et les états d'interaction, et pour rien d'autre. Le produit est en Bootstrap 5 et suit <code>design.md</code> §7 : les styles ci-dessous rendent le fichier autonome, ils ne sont pas un modèle à recopier.</p>
+<p class="lede">Maquette du chantier <code>CHANTIER-rgpd-acceptations.md</code> (#626, qui remplace #495) : qui a accepté quelle version de la politique, quand, et le rappel automatique quand l'acceptation est trop ancienne. Elle fait foi pour la hiérarchie des écrans, les libellés français et les états d'interaction, et pour rien d'autre. Le produit est en Bootstrap 5 et suit <code>design.md</code> §7 : les styles ci-dessous rendent le fichier autonome, ils ne sont pas un modèle à recopier.</p>
 <p class="meta">Largeur de référence : 390 px. Aucune dépendance externe, aucun script. Le rail de sous-pages représente <code>partials/page_picker.html.twig</code>, comme sur Finances, Frais et Courrier sortant. Les données sont fictives et montrent un site où la fonctionnalité tourne depuis plus d'un an ; le délai de redemande vaut 18 mois.</p>
 
 <ul class="sommaire">
@@ -366,7 +366,8 @@ dd{margin:0}
 <li><b>Jamais acceptée :</b> le délai de 18 mois part de la mise en service du suivi, sans envoi massif au déploiement.</li>
 <li><b>Relance :</b> tous les 30 jours tant que l'acceptation manque. Un seul e-mail par adresse, qui cite tous les membres concernés.</li>
 <li><b>Version :</b> chaque texte publié est archivé (#495). Au passage, on corrige le bug relevé dans l'analyse : la location enregistrait le hash d'un texte vide.</li>
-<li><b>Hors de cette maquette :</b> faire porter au formulaire la version affichée et refuser un envoi si elle a changé entre-temps (#495), et ajouter une case à la réinscription.</li>
+<li><b>Version affichée :</b> le formulaire de connexion porte la version qu'il affiche, et une connexion est refusée si la politique a changé entre-temps (#495).</li>
+<li><b>Hors de cette maquette :</b> une case à la réinscription.</li>
 </ul>
 </section>
 </div>

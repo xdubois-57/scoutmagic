@@ -29,6 +29,7 @@ trouve être exécutable ailleurs.
 | `partage-social.html` | Partage vers Facebook et Instagram | Le dialogue de partage d'un album — chef, avec le choix des groupes de discussion ; `Nouvelle communication` et son sélecteur de photo — chef ; l'historique « Ce qui est parti » et la confirmation d'un réessai ; l'écran de configuration du module | IT-01, IT-03, IT-04, IT-05 |
 | `maintenance.html` | Maintenance : sous-pages, sauvegardes et chiffrement (#509) | `/config/maintenance` — superadmin, les six sous-pages (Santé de l'hébergement, Mise à jour, Sauvegarde manuelle, Sauvegarde automatique, Sauvegardes récentes, Réinitialisation) et le dialogue du mot de passe au téléchargement | IT-01, IT-02, IT-04, IT-05, IT-06 |
 | `badges.html` | Badges : déménagement, porteurs par année (#367) | Espace chefs d'U — admin, les trois sous-pages du rail : porteurs de l'année en cours, porteurs de l'année précédente, configuration des badges | IT-01, IT-02, IT-03 |
+| `rgpd-acceptations.html` | Acceptation de la politique de protection des données (#626) | `/config/rgpd` — superadmin, les deux sous-pages (Acceptations, Contenu de la politique) ; la carte de `/admin/members/{id}` — admin ; le réglage du délai ; l'e-mail de rappel ; la case de `/login` ; une version archivée à `/rgpd/{version}` | IT-01 à IT-05 |
 
 ## Le cas du trombinoscope imprimable
 
