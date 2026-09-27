@@ -2421,7 +2421,7 @@ class MaintenanceControllerTest extends TestCase
     private function buildFrontController(): FrontController
     {
         $router = new Router();
-        $router->addRoute('GET', '/config/maintenance', MaintenanceController::class, 'index', 'admin');
+        $router->addRoute('GET', '/config/maintenance', MaintenanceController::class, 'index', 'superadmin');
 
         $configFile = sys_get_temp_dir() . '/test_maintenance_config_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
@@ -2433,17 +2433,18 @@ class MaintenanceControllerTest extends TestCase
         return $fc;
     }
 
-    public function testChiefIsDenied(): void
+    /** A chef d'unité, one level below the floor maintenance has since issue #619. */
+    public function testAdminIsDenied(): void
     {
-        AuthSession::login(1, 'chief@test.be', 'chief');
-
         $response = $this->buildFrontController()->handle(new Request('GET', '/config/maintenance', [], [], [], []));
 
         $this->assertSame(403, $response->getStatusCode());
     }
 
-    public function testAdminIsAllowed(): void
+    public function testSuperadminIsAllowed(): void
     {
+        AuthSession::login(1, 'root@test.be', 'superadmin');
+
         $response = $this->buildFrontController()->handle(new Request('GET', '/config/maintenance', [], [], [], []));
 
         $this->assertSame(200, $response->getStatusCode());

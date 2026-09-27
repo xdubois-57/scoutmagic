@@ -3,7 +3,7 @@ id: restaurer-ailleurs
 title: Remonter le site après un sinistre
 summary: La marche à suivre complète quand l'hébergement est perdu et qu'il faut repartir d'une sauvegarde portable.
 category: Configuration
-role_min: admin
+role_min: superadmin
 discovery: off
 question: Mon hébergeur a perdu mon site, comment je repars ?
 question: Comment restaurer une sauvegarde portable sur une installation neuve ?
