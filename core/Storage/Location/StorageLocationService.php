@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Storage\Location;
 
 use Core\Exception\UserFacingException;
+use Core\Exception\UserFacingMessage;
 use Core\Storage\Location\Backend\ManagedRootFolderBackend;
 use Core\Storage\Location\Backend\StorageBackendFactory;
 use Core\Storage\Location\Config\LocalLocationConfig;
@@ -289,9 +290,7 @@ class StorageLocationService
 
     private static function failure(\Throwable $e): RootFolderOutcome
     {
-        $reason = $e instanceof UserFacingException
-            ? $e->getMessage()
-            : 'Google Drive n\'a pas répondu comme prévu.';
+        $reason = UserFacingMessage::from($e, 'Google Drive n\'a pas répondu comme prévu.');
         $detail = $e->getMessage();
         if ($e->getPrevious() !== null) {
             $detail .= ' — ' . $e->getPrevious()->getMessage();

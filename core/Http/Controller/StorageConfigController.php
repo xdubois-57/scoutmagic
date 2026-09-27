@@ -652,6 +652,20 @@ class StorageConfigController extends AbstractController
                 . "être renommé : {$folder->reason} Le site le retrouve quand même ; vous pouvez le renommer "
                 . 'vous-même dans Google Drive.'
             );
+        } elseif ($folder->isShared()) {
+            // Not a fault, but the folder did not follow either: renaming
+            // it would have renamed another location's folder too.
+            FlashMessage::set(
+                'success',
+                "Le nom « {$label} » est enregistré. Son dossier sur Google Drive est aussi celui de "
+                . "l'emplacement « {$folder->reason} » : il garde son nom."
+            );
+        } elseif ($folder->isDisconnected()) {
+            FlashMessage::set(
+                'success',
+                "Le nom « {$label} » est enregistré. L'emplacement n'est plus raccordé à Google Drive : son "
+                . 'dossier y garde son ancien nom, et le site le retrouvera quand même à la reconnexion.'
+            );
         }
 
         return $this->redirect(self::LOCATIONS_URL);

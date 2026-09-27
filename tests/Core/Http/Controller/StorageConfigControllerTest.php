@@ -760,6 +760,27 @@ class StorageConfigControllerTest extends TestCase
         $this->assertStringContainsString("n'était plus raccordé à Google Drive", $this->flashMessage());
     }
 
+    /**
+     * A rename the Drive folder does not follow — shared with another
+     * location, or the location disconnected — is not a fault, but the
+     * administrator is told the folder kept its name.
+     */
+    public function testARenameTheFolderDoesNotFollowSaysWhyWithoutAWarning(): void
+    {
+        $drive = new FakeDrive('dossier-1', 'Google Drive');
+        $id = $this->declareDrive();
+        $this->declareDrive('Sauvegardes hors site');
+
+        $this->driveController($drive)->update(
+            $this->formRequest(['label' => 'Galeries du groupe', 'drive_client_id' => 'client-1']),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame('Galeries du groupe', $this->repository->findById($id)?->label);
+        $this->assertSame(0, $this->journalCount('storage_location_folder_rename_failed'));
+        $this->assertStringContainsString('« Sauvegardes hors site » : il garde son nom', $this->flashMessage());
+    }
+
     public function testRenamingADriveLocationRenamesItsFolder(): void
     {
         $drive = new FakeDrive('dossier-1', 'Google Drive');
