@@ -59,7 +59,7 @@ class AutoBackupHandler implements TaskHandlerInterface
     public function handle(array $payload, TaskContext $context): void
     {
         // 'weekly', the same literal `public/index.php` registers and
-        // `MaintenanceController::index()` falls back to. The three used
+        // `MaintenanceController::pageContext()` falls back to. The three used
         // to be two: this one still said 'monthly', the value issue #286
         // moved away from because it authorises four times the data loss
         // docs/exigences-non-fonctionnelles.md §3 accepts. The row exists
@@ -107,7 +107,7 @@ class AutoBackupHandler implements TaskHandlerInterface
                 'sauvegarde.zip',
                 'application/zip',
                 (int) filesize($filesZipPath),
-                'admin',
+                \Core\Maintenance\Backup::FILE_ROLE,
                 null,
                 null
             );
@@ -116,7 +116,7 @@ class AutoBackupHandler implements TaskHandlerInterface
                 'database.sql',
                 'application/sql',
                 (int) filesize($dbDumpPath),
-                'admin',
+                \Core\Maintenance\Backup::FILE_ROLE,
                 null,
                 null
             );

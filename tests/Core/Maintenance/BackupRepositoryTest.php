@@ -31,6 +31,28 @@ class BackupRepositoryTest extends TestCase
         $this->userId = (int) $this->pdo->lastInsertId();
     }
 
+    /**
+     * The archives and dumps registered at `admin` before issue #619 are
+     * raised to Backup::FILE_ROLE; a file no backup owns is left alone.
+     */
+    public function testRaiseFileFloorRaisesTheFilesOfBackupsAndNothingElse(): void
+    {
+        $archive = $this->files->create('maintenance/a.zip', 'a.zip', 'application/zip', 1, 'admin', null, null);
+        $dump = $this->files->create('maintenance/a.sql', 'a.sql', 'application/sql', 1, 'admin', null, null);
+        $dumpOnly = $this->files->create('maintenance/b.sql', 'b.sql', 'application/sql', 1, 'admin', null, null);
+        $unrelated = $this->files->create('documents/x.pdf', 'x.pdf', 'application/pdf', 1, 'admin', null, null);
+        $this->repository->markCompleted($this->repository->create('full_no_gallery', $this->userId), $archive, $dump);
+        $this->repository->markCompleted($this->repository->create('database', $this->userId), $dumpOnly, null);
+
+        $this->assertSame(3, $this->repository->raiseFileFloor());
+
+        foreach ([$archive, $dump, $dumpOnly] as $id) {
+            $this->assertSame(\Core\Maintenance\Backup::FILE_ROLE, $this->files->findById($id)?->roleMin);
+        }
+        $this->assertSame('admin', $this->files->findById($unrelated)?->roleMin);
+        $this->assertSame(0, $this->repository->raiseFileFloor(), 'A second pass changes nothing.');
+    }
+
     public function testCreateDefaultsToPendingStatus(): void
     {
         $id = $this->repository->create('database', $this->userId);

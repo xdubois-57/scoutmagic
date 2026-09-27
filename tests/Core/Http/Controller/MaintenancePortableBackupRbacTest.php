@@ -27,15 +27,14 @@ require_once dirname(__DIR__, 4) . '/scripts/authz-support.php';
 
 /**
  * The role boundary of `POST /config/maintenance/backup/portable`: allowed
- * at `admin`, refused one level below.
+ * at `superadmin`, refused one level below.
  *
- * **`admin`, and the reasoning is worth writing down because the instinct
- * says `superadmin`.** This is the one endpoint that packages
- * `storage/keys/master.key` into a downloadable file, so it looks like it
- * deserves the higher floor. It does not: the role that can reach it can
- * already take a full backup, download it, read every member's file, and
- * reset the site. Raising this one alone would buy nothing and would
- * suggest the others are safe.
+ * **The floor of every maintenance route, no higher.** This is the one
+ * endpoint that packages `storage/keys/master.key` into a downloadable
+ * file. It was `admin` like its neighbours, on the reasoning that raising
+ * it alone would buy nothing and suggest the others were safe; issue #619
+ * raised them all together, so it follows them rather than standing above
+ * them (Tests\Core\Http\MaintenanceRbacTest holds the whole set).
  *
  * What actually guards this route is what it produces — a passphrase long
  * enough to be the only lock on that key
@@ -78,15 +77,7 @@ final class MaintenancePortableBackupRbacTest extends TestCase
         $_SESSION = [];
     }
 
-    public function testAnAdminIsAllowed(): void
-    {
-        $this->startTestSession();
-        AuthSession::login(1, 'admin@test.be', 'admin');
-
-        $this->assertSame(200, $this->handle()->getStatusCode());
-    }
-
-    public function testASuperAdminIsAllowedToo(): void
+    public function testASuperAdminIsAllowed(): void
     {
         $this->startTestSession();
         AuthSession::login(1, 'root@test.be', 'superadmin');
@@ -97,21 +88,29 @@ final class MaintenancePortableBackupRbacTest extends TestCase
     /**
      * One level below the floor, and the level that matters most here.
      *
-     * A `chief` is a unit leader who legitimately reads many of the same
-     * pages an admin does. Reaching this route would hand them an archive
-     * containing the site's master key — every member's address, date of
-     * birth and telephone number, readable on any machine — from a page
-     * they can otherwise mostly see.
+     * An `admin` is a chef d'unité, who never sees the Configuration menu
+     * but used to reach this route by its address. Reaching it would hand
+     * them an archive containing the site's master key — every member's
+     * address, date of birth and telephone number, readable on any
+     * machine.
      */
-    public function testAChiefIsRefused(): void
+    public function testAnAdminIsRefused(): void
     {
         $this->startTestSession();
-        AuthSession::login(1, 'chef@test.be', 'chief');
+        AuthSession::login(1, 'admin@test.be', 'admin');
 
         $response = $this->handle();
 
         $this->assertNotSame(200, $response->getStatusCode());
         $this->assertStringNotContainsString('demandée', $response->getBody());
+    }
+
+    public function testAChiefIsRefused(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(1, 'chef@test.be', 'chief');
+
+        $this->assertNotSame(200, $this->handle()->getStatusCode());
     }
 
     public function testAVisitorWithNoAccountIsRefused(): void
@@ -129,7 +128,7 @@ final class MaintenancePortableBackupRbacTest extends TestCase
      * registers.**
      *
      * The cases above build their own Router, so they prove that the
-     * Router enforces a floor of `admin` — and they would go on passing if
+     * Router enforces a floor of `superadmin` — and they would go on passing if
      * this route were registered as `public`, as `chief`, or not at all.
      * That gap is real, and it is closed here rather than argued away:
      * `authzCoreRoutes()` parses the production registrations (the same
@@ -155,7 +154,7 @@ final class MaintenancePortableBackupRbacTest extends TestCase
             . 'route nobody can reach.'
         );
         $this->assertSame(
-            'admin',
+            'superadmin',
             $matching[0]['role_min'],
             'The production route no longer carries the floor these tests assert.'
         );
@@ -169,7 +168,7 @@ final class MaintenancePortableBackupRbacTest extends TestCase
             self::PATH,
             MaintenancePortableStubController::class,
             'createPortableBackup',
-            'admin'
+            'superadmin'
         );
 
         $frontController = new FrontController($router, $this->twig, $this->config);
