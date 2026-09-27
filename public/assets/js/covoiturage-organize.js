@@ -98,9 +98,13 @@
         return Math.abs(a.lat - b[0]) < 1e-6 && Math.abs(a.lng - b[1]) < 1e-6;
     }
 
+    /** What wirePoint() hands back when there is no map to centre. */
+    function nothing() {
+        // No map on this page: a change of address has nothing to move.
+    }
+
     /** @returns {() => void} what to call when the address changes */
     function wirePoint() {
-        var nothing = function () {};
         var box = /** @type {HTMLElement|null} */ (document.querySelector('[data-carpool-point]'));
         if (!box || typeof L === 'undefined' || !window.ScoutMagicMap) {
             // No map to offer: the two coordinate fields stay, and work.
