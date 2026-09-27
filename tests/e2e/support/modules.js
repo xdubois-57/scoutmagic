@@ -49,9 +49,8 @@ export async function toggleModule(page, moduleName, enabled) {
     // registered before the click, makes the wait below the reload's.
     //
     // But only a SUCCESS reloads. A refused toggle (unmet requirement, a
-    // dependent module still on) answers `success: false` and the page
-    // stays put, so the navigation is awaited only when the answer says
-    // one is coming; otherwise the toBeChecked() below fails at once, as
+    // dependent module still on) answers 400 and the page stays put, so
+    // the navigation is awaited only when the answer says one is coming; otherwise the toBeChecked() below fails at once, as
     // the refusal detector optional-module-dependencies.spec.js and
     // zz-module-boot-matrix.spec.js rely on. Its ceiling is the navigation
     // one, as for waitForServerResponse(): waitForEvent() would otherwise
@@ -67,8 +66,12 @@ export async function toggleModule(page, moduleName, enabled) {
         waitForServerResponse(page, (r) => r.url().includes('/config/modules/toggle')),
         enabled ? toggle.check() : toggle.uncheck(),
     ]);
-    const answer = await response.json().catch(() => null);
-    if (answer?.success === true) {
+    // The status, not the body: the controller answers 200 only on
+    // success and 400/403 on every refusal, and reading the body races the
+    // very reload it is about — Chromium may no longer serve it once the
+    // document tears down, and a swallowed read would skip the wait on a
+    // success (found in review).
+    if (response.ok()) {
         await reload;
     }
     await page.waitForLoadState('domcontentloaded');
