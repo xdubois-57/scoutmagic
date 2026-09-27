@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Repository;
 
+use Core\Service\DateInput;
 use Modules\Rental\Document\ConditionsVersion;
 
 /**
@@ -126,7 +127,7 @@ class RentalConditionsVersionRepository
             version: (string) $row['version'],
             hash: (string) $row['text_hash'],
             html: (string) $row['body_html'],
-            createdAt: new \DateTimeImmutable((string) $row['created_at'])
+            createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'rental_conditions_versions.created_at')
         );
     }
 }
