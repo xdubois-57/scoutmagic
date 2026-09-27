@@ -4,6 +4,11 @@
     and gets its text half derived from the HTML, signature included. -#}
 Bien à vous,
 {{ site_name }}
+{% if footer_note is defined and footer_note %}
+
+{{ footer_note }}{% if footer_link is defined and footer_link %}
+{{ footer_link }}{% endif %}
+{% endif %}
 
 --
 Message envoyé automatiquement par {{ site_name }}.

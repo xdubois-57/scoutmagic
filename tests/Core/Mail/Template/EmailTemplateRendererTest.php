@@ -346,6 +346,39 @@ class EmailTemplateRendererTest extends TestCase
      * substituted, and every customised e-mail went out with its button
      * pointing at the escaped placeholder itself.
      */
+    /**
+     * The frame's footer note — added by the SENDING code, not the template
+     * (email/base.html.twig) — survives a customisation, in both halves:
+     * a rental's link to the conditions the renter accepted (issue #494)
+     * must not be something an administrator can reword away.
+     */
+    public function testAFooterNoteFromTheSenderSurvivesACustomisation(): void
+    {
+        $this->overrides->save('super_admin_granted', 'Sujet', '<p>Notre propre texte.</p>', null);
+
+        $email = $this->renderer->render('super_admin_granted', [
+            'granted_by' => 'Alice',
+            'site_name' => 'Unité Test',
+            'footer_note' => 'Conditions de location acceptées le 01/05/2027 :',
+            'footer_link' => 'https://unite.test/locations/le-chalet/conditions/0123456789ab',
+        ]);
+
+        foreach (['html' => $email->bodyHtml, 'text' => $email->bodyText] as $half => $body) {
+            self::assertStringContainsString('Conditions de location acceptées le 01/05/2027', $body, $half);
+            self::assertStringContainsString('https://unite.test/locations/le-chalet/conditions/0123456789ab', $body, $half);
+        }
+        self::assertStringContainsString('href="https://unite.test/locations/le-chalet/conditions/0123456789ab"', $email->bodyHtml);
+    }
+
+    /** Without a note the frame says nothing more than it always has. */
+    public function testWithoutAFooterNoteTheFrameIsUnchanged(): void
+    {
+        $email = $this->renderer->render('super_admin_granted', ['granted_by' => 'Alice', 'site_name' => 'Unité Test']);
+
+        self::assertStringNotContainsString('<br><a href', $email->bodyHtml);
+        self::assertStringContainsString("Bien à vous,\nUnité Test\n\n--", $email->bodyText);
+    }
+
     public function testAPlaceholderInsideALinkSurvivesTheSanitisersUrlEncoding(): void
     {
         $stored = (new HtmlSanitizer())->sanitize('<p><a href="{{ login_url }}">Se connecter</a></p>');

@@ -14,7 +14,9 @@
 
  That is also why the sign-off lives here rather than in each template: it
  is the one thing every message the site sends has in common, shipped or
- reworded (docs/module-development.md § E-mails).
+ reworded (docs/module-development.md § E-mails). The optional
+ `footer_note`/`footer_link` pair follows the same rule for the one note a
+ sending service must be able to guarantee.
 #}
 <!DOCTYPE html>
 <html lang="fr">
@@ -51,6 +53,20 @@
             </p>
         </div>
         <div style="margin-top:16px;font-size:12px;line-height:1.5;color:#8a8f98;text-align:center;">
+            {#
+              An optional note the SENDING CODE adds, never the template: a
+              reference the recipient must keep whatever the wording of the
+              message — a rental's accepted conditions (issue #494). It lives
+              in the frame, like the signature, so a customised e-mail
+              cannot lose it; `footer_link` is shown as the address itself,
+              since a mail client may strip the link and leave the words.
+            #}
+            {% if footer_note is defined and footer_note %}
+                <p style="margin:0 0 8px;">
+                    {{ footer_note }}
+                    {% if footer_link is defined and footer_link %}<br><a href="{{ footer_link }}" style="color:#8a8f98;">{{ footer_link }}</a>{% endif %}
+                </p>
+            {% endif %}
             Message envoyé automatiquement par {{ site_name }}.
         </div>
     </div>
