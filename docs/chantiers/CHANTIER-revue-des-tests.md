@@ -1957,7 +1957,7 @@ commentaires écrits pour les accompagner.
 remplaçait l'affirmation fausse en portait une autre : elle disait que le
 contrôle côté créance (`ReceivableAllocationService::requireReceivable()`)
 était « asserté par
-`testACampaignOnAnAccountOutOfReachCannotBeClosedNotedOrNotified` ». Il ne
+`testNothingCanBeChangedOnACampaignWhoseAccountIsOutOfReach` ». Il ne
 l'était pas. Ce test relève le plancher du compte **de la campagne**, donc
 `requireCampaign()` lève d'abord et le service d'allocation n'est jamais
 atteint — l'assertion du test le dit elle-même, puisqu'elle attend « Cette
@@ -1980,3 +1980,35 @@ aucun test passant par cette route.
 La leçon de méthode, pour la suite du chantier : une phrase qui dit « ceci est
 couvert ailleurs » est une affirmation vérifiable, et se vérifie comme le
 reste — en cassant ce qu'elle nomme pour voir qui rougit.
+
+**Ce que le relecteur local trouve, et ce que cela dit du lot.** Le passage
+« One round per reading, and the arithmetic that says why » de
+`.claude/skills/steward/SKILL.md` prescrit de lancer la compétence
+`code-review` sur le diff **avant** de pousser un correctif de revue : elle lit
+comme le relecteur de CI, coûte des minutes et zéro dollar. Je ne l'avais pas
+fait sur ce lot. Lancée après coup sur les quatre commits, elle a rendu cinq
+constats, dont deux du §1 — dans le code écrit pour fermer des défauts du §1 :
+
+- `assertNull($this->rows->findById($rowId)?->note)` passe aussi quand la
+  **ligne** a disparu : « la ligne n'existe plus » n'est pas « la note n'a pas
+  été écrite ». Les trois assertions voisines, elles, échouent sur `null`.
+- `FlashMessage` est une case unique, écrasée à chaque appel. Une seule
+  assertion posée après quatre gestes ne fixait donc que la raison du
+  **dernier** : les trois autres pouvaient être refusés pour n'importe quoi
+  d'autre — une régression CSRF, une résolution qui se déclenche avant — et le
+  test restait vert. Vérifié : en faisant refuser la clôture pour une autre
+  raison, l'ancienne forme passait, la nouvelle rougit.
+
+Les trois autres : un docblock qui annonçait « trois gestes » pour quatre et
+prêtait à `saveNote()` un ordre de résolution qui n'est pas le sien (elle passe
+par la ligne), deux affectations mortes, et `createCampaign()` qui rendait `1`
+en dur — inoffensif jusqu'à ce que ce lot rende deux campagnes possibles dans
+le même fichier, après quoi appeler les deux fabriques dans l'autre ordre
+rendait un identifiant faux **sans faire échouer aucune de leurs propres
+assertions**. Corrigé en lisant l'identifiant dans la redirection, et vérifié
+en inversant l'ordre des deux fabriques : vert.
+
+C'est exactement l'arithmétique que la compétence décrit — « cinq de ses dix
+constats portaient sur le code poussé pour corriger les quatre précédents ».
+Sur ce lot, deux rondes payantes ont trouvé deux défauts de prose ; la
+troisième aurait trouvé ces cinq-là. Le relecteur local passe avant, désormais.
