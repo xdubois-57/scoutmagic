@@ -207,8 +207,8 @@ Les trois points que la revue de la PR #507 avait laissés ouverts :
 
 - **Le nom de la méthode** : `BankStatementParserFactory::getSupportedBankCodes()`
   — le `supportedCodes()` du texte ci-dessus était une coquille.
-- **La communication structurée a son propre champ** : `StatementLine::
-  $structuredCommunication` et la colonne chiffrée
+- **La communication structurée a son propre champ** :
+  `StatementLine::$structuredCommunication` et la colonne chiffrée
   `finance_transactions.structured_communication`. Les trois lectures
   (`ReceivableAllocationService::communicationsOf()` et les deux de
   `ReconciliationService`) la lisent en premier, avant le libellé, le
