@@ -335,10 +335,10 @@ class RegistrationTestHelper
         );
 
         return new \Modules\Registration\Service\ProjectedPopulationService(
-            new \Modules\Registration\Service\ForecastService($pdo, $encryption, $sectionService, $passageService),
+            new \Modules\Registration\Service\ForecastService(new \Modules\Registration\Repository\PassageRosterRepository($pdo, $encryption), $encryption, $sectionService, $passageService),
             new \Modules\Registration\Service\SlotService(
-                $pdo,
-                $encryption,
+                new \Modules\Registration\Repository\PassageRosterRepository($pdo, $encryption),
+                new \Core\Config\ScoutYearService($pdo),
                 $settingService,
                 $ageBracketRepository,
                 new \Modules\Registration\Repository\SlotCapacityRepository($pdo),

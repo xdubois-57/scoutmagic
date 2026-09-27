@@ -93,7 +93,7 @@ class RegistrationChefsRbacTest extends TestCase
         $requestRepository = new RegistrationRequestRepository($this->pdo, $encryption);
         $ageBracketRepository = new AgeBracketRepository($this->pdo);
         $slotCapacityRepository = new SlotCapacityRepository($this->pdo);
-        $slotService = new SlotService($this->pdo, $encryption, $settingService, $ageBracketRepository, $slotCapacityRepository, $requestRepository);
+        $slotService = new SlotService(new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $encryption), new \Core\Config\ScoutYearService($this->pdo), $settingService, $ageBracketRepository, $slotCapacityRepository, $requestRepository);
         $transferRepository = new SectionTransferRepository($this->pdo);
         $passageService = new PassageService(new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $encryption), $encryption, $sectionService, $transferRepository, $requestRepository, $ageBracketRepository);
 
@@ -114,7 +114,7 @@ class RegistrationChefsRbacTest extends TestCase
             $twig, $sectionStaffAuth, $sectionService, $departureService, $scoutYearResolver,
             RegistrationTestHelper::departureLink($this->pdo, $encryption, $settingService)
         );
-        $forecastService = new ForecastService($this->pdo, $encryption, $sectionService, $passageService);
+        $forecastService = new ForecastService(new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $encryption), $encryption, $sectionService, $passageService);
         $this->passageController = new PassageController(
             $twig, $passageService, $requestRepository, $transferRepository, $sectionService,
             $ageBracketRepository, $slotService, $scoutYearResolver, $scoutYearService,

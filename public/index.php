@@ -10847,10 +10847,20 @@ if ($isEnabled('registration')) {
         $pdo,
         $encryptionService
     );
+    // One roster repository for every service of this module reading the
+    // animés of a year (Passage, Prévisions, slot capacities).
+    $registrationPassageRosterRepo = new \Modules\Registration\Repository\PassageRosterRepository(
+        $pdo,
+        $encryptionService
+    );
+    $registrationImportedMemberRepo = new \Modules\Registration\Repository\ImportedMemberRepository(
+        $pdo,
+        $encryptionService
+    );
 
     $registrationSlotService = new \Modules\Registration\Service\SlotService(
-        $pdo,
-        $encryptionService,
+        $registrationPassageRosterRepo,
+        $scoutYearService,
         $settingService,
         $registrationAgeBracketRepo,
         $registrationSlotCapacityRepo,
@@ -10920,9 +10930,8 @@ if ($isEnabled('registration')) {
         $journalService
     );
     $registrationReconciliation = new \Modules\Registration\Service\ReconciliationService(
-        $pdo,
+        $registrationImportedMemberRepo,
         $registrationRequestRepo,
-        $encryptionService,
         $registrationMigrationService,
         $journalService
     );
@@ -10986,7 +10995,7 @@ if ($isEnabled('registration')) {
 
     $registrationSectionTransferRepo = new \Modules\Registration\Repository\SectionTransferRepository($pdo);
     $registrationPassageService = new \Modules\Registration\Service\PassageService(
-        new \Modules\Registration\Repository\PassageRosterRepository($pdo, $encryptionService),
+        $registrationPassageRosterRepo,
         $encryptionService,
         $sectionService,
         $registrationSectionTransferRepo,
@@ -11025,7 +11034,7 @@ if ($isEnabled('registration')) {
     // PassageService::getAnimeMemberYears()/getBranchChanges()/
     // getNewRegistrations() rather than recomputing any of them).
     $registrationForecastService = new \Modules\Registration\Service\ForecastService(
-        $pdo,
+        $registrationPassageRosterRepo,
         $encryptionService,
         $sectionService,
         $registrationPassageService
@@ -11279,8 +11288,7 @@ if ($isEnabled('registration')) {
     // same ordering constraint as ImportController above) — re-registered
     // here with the real provider only when mass_mail is also enabled.
     $registrationExternalMailingListService = new \Modules\Registration\Service\ExternalMailingListService(
-        $pdo,
-        $encryptionService,
+        $registrationImportedMemberRepo,
         $scoutYearResolver,
         $scoutYearService,
         $registrationRequestRepo

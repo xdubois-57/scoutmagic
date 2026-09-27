@@ -11,6 +11,7 @@ namespace Modules\Registration\Service;
 use Core\Member\MemberYearService;
 use Core\Member\SectionService;
 use Core\Security\EncryptionService;
+use Modules\Registration\Repository\PassageRosterRepository;
 
 /**
  * "Prévisions" page's domain logic (module spec, iteration 7): projects the
@@ -83,7 +84,7 @@ use Core\Security\EncryptionService;
 class ForecastService
 {
     public function __construct(
-        private \PDO $pdo,
+        private PassageRosterRepository $roster,
         private EncryptionService $encryption,
         private SectionService $sectionService,
         private PassageService $passageService,
@@ -511,17 +512,7 @@ class ForecastService
      */
     private function countCurrentAnimes(int $scoutYearId): int
     {
-        $stmt = $this->pdo->prepare(
-            "SELECT COUNT(DISTINCT my.id)
-             FROM member_years my
-             JOIN member_functions mf ON mf.member_year_id = my.id
-             JOIN functions f ON mf.function_id = f.id
-             WHERE my.scout_year_id = ? AND my.is_active = 1
-               AND f.role NOT IN ('chief', 'admin', 'intendant') AND mf.section_id IS NOT NULL"
-        );
-        $stmt->execute([$scoutYearId]);
-
-        return (int) $stmt->fetchColumn();
+        return $this->roster->countAnimes($scoutYearId);
     }
 
     /**
@@ -545,47 +536,28 @@ class ForecastService
         $memberIds = [];
         foreach ($projected as $row) {
             if (($row['needs_resolution'] ?? false) === true) {
-                $memberIds[] = $row['member_id'];
+                $memberIds[] = (int) $row['member_id'];
             }
         }
         if ($memberIds === []) {
             return $projected;
         }
 
-        $placeholders = implode(',', array_fill(0, count($memberIds), '?'));
-        $stmt = $this->pdo->prepare(
-            "SELECT member_id, gender_encrypted, birth_date_encrypted, scout_year_offset FROM member_years
-             WHERE scout_year_id = ? AND member_id IN ({$placeholders})"
-        );
-        $stmt->execute([$currentYearId, ...$memberIds]);
-
-        $byMemberId = [];
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $byMemberId[(int) $row['member_id']] = $row;
-        }
+        $byMemberId = $this->roster->findGendersAndAges($memberIds, $currentYearId);
 
         foreach ($projected as &$row) {
             if (($row['needs_resolution'] ?? false) !== true) {
                 continue;
             }
             $source = $byMemberId[$row['member_id']] ?? null;
-            $row['gender'] = $this->classifyGender(
-                $source !== null && $source['gender_encrypted'] !== null
-                    ? $this->encryption->decrypt($source['gender_encrypted'], 'member_years.gender')
-                    : null
-            );
-            $encryptedBirthDate = $source['birth_date_encrypted'] ?? null;
+            $row['gender'] = $this->classifyGender($source['gender'] ?? null);
             $birthYear = $source !== null
-                ? MemberYearService::extractBirthYear(
-                    $encryptedBirthDate !== null
-                        ? $this->encryption->decrypt($encryptedBirthDate, 'member_years.birth_date')
-                        : null
-                )
+                ? MemberYearService::extractBirthYear($source['birth_date'])
                 : null;
             $row['birth_year'] = $birthYear;
             $row['year_in_branch'] = $source !== null
                 ? $this->memberYearService
-                    ->getEffectiveAge($birthYear, (int) $source['scout_year_offset'], $targetReferenceYear)
+                    ->getEffectiveAge($birthYear, $source['scout_year_offset'], $targetReferenceYear)
                     ->yearInBranch
                 : null;
             unset($row['needs_resolution']);
@@ -767,24 +739,15 @@ class ForecastService
 
     /**
      * Count of current-year animés marked leaving — unit-wide, non-staff.
-     * A dedicated query (not a reuse of getAnimeMemberYears(), which
+     * A dedicated query (Repository\PassageRosterRepository::
+     * countLeavingAnimes(), not a reuse of getAnimeMemberYears(), which
      * excludes leaving=1 rows by design) since this is the one place that
      * needs exactly the opposite set. Same non-staff role filter as
      * getAnimeMemberYears() (chief/admin/intendant excluded).
      */
     public function countDeparturesForYear(int $scoutYearId): int
     {
-        $stmt = $this->pdo->prepare(
-            "SELECT COUNT(DISTINCT my.id)
-             FROM member_years my
-             JOIN member_functions mf ON mf.member_year_id = my.id
-             JOIN functions f ON mf.function_id = f.id
-             WHERE my.scout_year_id = ? AND my.is_active = 1 AND my.leaving = 1
-               AND f.role NOT IN ('chief', 'admin', 'intendant') AND mf.section_id IS NOT NULL"
-        );
-        $stmt->execute([$scoutYearId]);
-
-        return (int) $stmt->fetchColumn();
+        return $this->roster->countLeavingAnimes($scoutYearId);
     }
 
     private function totalYearsForBranchSortOrder(int $sortOrder): int
