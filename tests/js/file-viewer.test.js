@@ -7,7 +7,7 @@
 // to a file is a NAVIGATION — the window leaves the application and lands
 // on the file, and on iOS nothing is left to press. The user force-quits
 // the app. That is the report this file answers.
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The overlay is NOT markup any page renders: the script builds it on the
 // first click that needs one. A page therefore starts with nothing but its
@@ -39,10 +39,35 @@ async function load() {
 
 const isOpen = () => viewer() !== null && !viewer().classList.contains('d-none');
 
+/**
+ * Replaces window.location for the rest of the test and returns the spy
+ * standing for `assign` — jsdom does not navigate.
+ */
+function watchNavigation() {
+    const assign = vi.fn();
+    const original = Object.getOwnPropertyDescriptor(window, 'location');
+    Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: { ...window.location, href: window.location.href, assign },
+    });
+    restoreLocation.push(() => Object.defineProperty(window, 'location', original));
+
+    return assign;
+}
+
+/** @type {Array<() => void>} */
+const restoreLocation = [];
+
 describe('file-viewer', () => {
     beforeEach(() => {
         document.body.innerHTML = '';
         pretendStandalone(false);
+    });
+
+    afterEach(() => {
+        while (restoreLocation.length > 0) {
+            restoreLocation.pop()();
+        }
     });
 
     describe('the safety net', () => {
@@ -236,21 +261,27 @@ describe('file-viewer', () => {
          * the desktop. On iOS both are handled INSIDE the standalone
          * window: what came up was Safari's own download screen —
          * « image006.jpg, Image JPEG - 2 ko, Ouvrir dans Aperçu » — with
-         * no back button either. The attribute meant to keep the page
-         * still is what took it away.
+         * no back button either.
          *
-         * So there, the click must not navigate at all.
+         * Since issue #502 the server is what answers there: a navigation
+         * of the installed app that would end on a file gets its viewer
+         * page (Core\File\Held\InstalledAppFileInterceptor). So the click
+         * becomes a plain navigation — never a download — and the overlay,
+         * whose « Ouvrir dans le navigateur » could only open /files/… in
+         * a browser without the app's session, is never built.
          */
-        it('intercepts a plain file link instead of letting it navigate', async () => {
+        it('turns a plain file link into a plain navigation to the server viewer', async () => {
             buildPage('<a id="bare" href="/files/42">image006.jpg</a>');
             await load();
+            const assign = watchNavigation();
 
             const event = new MouseEvent('click', { bubbles: true, cancelable: true });
             document.getElementById('bare').dispatchEvent(event);
 
             expect(event.defaultPrevented).toBe(true);
-            expect(isOpen()).toBe(true);
-            expect(viewer().querySelector('img').src).toContain('/files/42');
+            expect(assign).toHaveBeenCalled();
+            expect(assign.mock.calls.every((call) => /\/files\/42$/.test(call[0]))).toBe(true);
+            expect(viewer()).toBeNull();
         });
 
         it('does not put download on a link there, since that is the trap', async () => {
@@ -260,74 +291,73 @@ describe('file-viewer', () => {
             expect(document.getElementById('bare').hasAttribute('download')).toBe(false);
         });
 
-        it('names the file from whatever the link could tell it', async () => {
-            buildPage('<a id="bare" href="/files/42">image006.jpg</a>');
+        it('sends a declared viewer trigger to the server viewer too', async () => {
+            buildPage('<button id="t" data-file-viewer="/files/9" data-file-name="Photo" data-file-image="1">Voir</button>');
             await load();
-            document.getElementById('bare').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            const assign = watchNavigation();
 
-            expect(viewer().querySelector('p').textContent).toBe('image006.jpg');
+            document.getElementById('t').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+            expect(assign).toHaveBeenCalled();
+            expect(assign.mock.calls.every((call) => /\/files\/9$/.test(call[0]))).toBe(true);
+            expect(viewer()).toBeNull();
         });
 
-        it('falls back when the browser cannot draw the file', async () => {
-            // The type is discovered by trying rather than declared: the
-            // links it now intercepts carry nothing but an id, and a HEAD
-            // request per click would cost a round trip to learn what one
-            // failed image load says for free.
-            buildPage('<a id="bare" href="/files/42" download="contrat.pdf">Contrat</a>');
+        it('refuses a javascript: URL on that path as well', async () => {
+            buildPage('<button id="t" data-file-viewer="javascript:alert(1)">Piège</button>');
             await load();
-            document.getElementById('bare').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            const assign = watchNavigation();
 
-            const img = viewer().querySelector('img');
-            img.onerror(new Event('error'));
+            document.getElementById('t').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
-            expect(img.classList.contains('d-none')).toBe(true);
-            expect(viewer().querySelector('.file-viewer__content.text-center p').textContent)
-                .toContain('contrat.pdf');
-        });
-
-        /**
-         * The viewer must not strand the app it exists to protect.
-         *
-         * A `download` link inside it would land on the very screen that
-         * was reported. `window.open()` from a standalone web app
-         * launches the BROWSER — a separate application — so ScoutMagic
-         * stays put, one swipe away.
-         */
-        it('opens the browser rather than downloading in place', async () => {
-            buildPage('<a id="bare" href="/files/42">image006.jpg</a>');
-            await load();
-            document.getElementById('bare').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-
-            const action = viewer().querySelector('a');
-            expect(action.hasAttribute('download')).toBe(false);
-            expect(action.textContent).toContain('navigateur');
-
-            const opened = vi.fn();
-            window.open = opened;
-            action.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-
-            // `href` resolves to an absolute URL, which is what
-            // window.open should be handed anyway.
-            expect(opened).toHaveBeenCalledTimes(1);
-            expect(opened.mock.calls[0][0]).toContain('/files/42');
-            expect(opened.mock.calls[0][1]).toBe('_blank');
+            expect(assign).not.toHaveBeenCalled();
         });
 
         /**
          * The gallery's own « Télécharger en haute qualité » wears
          * `download`, and so does every link the browser-tab net
          * decorates. In the installed app that attribute is precisely
-         * what strands the window, so a link wearing it is caught too.
+         * what strands the window, so a link wearing it is caught too —
+         * and followed as a navigation, which the server can answer.
          */
         it('catches any same-origin link already carrying download', async () => {
             buildPage('<a id="hq" href="/gallery/media/12/download" download>Télécharger</a>');
             await load();
+            const assign = watchNavigation();
 
             const event = new MouseEvent('click', { bubbles: true, cancelable: true });
             document.getElementById('hq').dispatchEvent(event);
 
             expect(event.defaultPrevented).toBe(true);
-            expect(isOpen()).toBe(true);
+            expect(assign.mock.calls[0][0]).toMatch(/\/gallery\/media\/12\/download$/);
+        });
+
+        /**
+         * The server viewer's own « Télécharger » (issue #502, review of
+         * #609). It carries `download` and points at the raw file: turned
+         * into a navigation, it would land the installed window on that
+         * file with no way back — the very trap the viewer removes.
+         */
+        it('leaves a download link that opts out with data-file-link-raw', async () => {
+            buildPage('<a id="dl" href="/document/telecharger/abc" download="a.pdf" data-file-link-raw>Télécharger</a>');
+            await load();
+            const assign = watchNavigation();
+
+            const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+            document.getElementById('dl').dispatchEvent(event);
+
+            expect(assign).not.toHaveBeenCalled();
+        });
+
+        it('never redoes a click another script already handled', async () => {
+            buildPage('<a id="hq" href="/gallery/media/12/download" download>Télécharger</a>');
+            await load();
+            const assign = watchNavigation();
+            document.getElementById('hq').addEventListener('click', (event) => event.preventDefault());
+
+            document.getElementById('hq').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+            expect(assign).not.toHaveBeenCalled();
         });
 
         it('never intercepts a link to somebody else\'s site', async () => {

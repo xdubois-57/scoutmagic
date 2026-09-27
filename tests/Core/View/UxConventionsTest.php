@@ -63,6 +63,15 @@ final class UxConventionsTest extends TestCase
      * `partials/file_link.html.twig` writes it — and this is what keeps
      * the next one from being written without it.
      *
+     * Re-evaluated with issue #502, and kept. In the installed application
+     * the SERVER is now the guarantee: a navigation that would end on a
+     * file is answered with a viewer page whatever the markup says
+     * (`Core\File\Held\InstalledAppFileInterceptor`), which also covers
+     * the forms, the export routes and the addresses built in JavaScript
+     * this rule could never see. What this rule still buys is the browser
+     * TAB, where nothing is intercepted: there `download` is what saves
+     * the file instead of replacing the page the visitor was on.
+     *
      * @var array<string, int> template path (repo-relative) => count
      */
     private const UNSAFE_FILE_LINK_ALLOWLIST = [];
@@ -510,6 +519,10 @@ final class UxConventionsTest extends TestCase
      *   database refused produces — SECURITY.md § 35.)
      * - pwa/offline: the offline interstitial's Retour is history.back(),
      *   there is no server-side trail to stand in for it.
+     * - document_viewer: the page the installed application gets INSTEAD
+     *   of a file (issue #502) answers whatever route produced the file,
+     *   a form's POST included; its only way back is the page the request
+     *   came from, which no breadcrumb declared for that route can know.
      *
      * @var list<string> template paths allowed to keep a Retour control
      */
@@ -518,6 +531,7 @@ final class UxConventionsTest extends TestCase
         'core/View/templates/errors/404.html.twig',
         'core/View/templates/errors/constraint.html.twig',
         'core/View/templates/pwa/offline.html.twig',
+        'core/View/templates/document_viewer.html.twig',
     ];
 
     /**

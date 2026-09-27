@@ -26,6 +26,18 @@
  * `partials/file_link.html.twig` writes the attributes where a template
  * knows to use it. Three independent guards, because the failure ends
  * with somebody killing the application.
+ *
+ * **In the installed application, the overlay is not used at all.** There
+ * the server is the mechanism (issue #502): a navigation that would end on
+ * a file is answered with the viewer page of
+ * `Core\File\Held\InstalledAppFileInterceptor` — « Ouvrir dans le
+ * navigateur », « Télécharger », « Retour » — whatever produced the file.
+ * This script's part there is only to turn a click that the browser would
+ * treat as a DOWNLOAD (a `download` attribute, which iOS handles on its own
+ * download screen inside the window) into a plain navigation, which the
+ * server can answer. One viewer, not two: the overlay's « Ouvrir dans le
+ * navigateur » could only ever open `/files/…` in a browser that has no
+ * session, which lands on the login page.
  */
 (function () {
     'use strict';
@@ -59,7 +71,7 @@
      * navigate at all.
      */
     function isStandalone() {
-        return (win.matchMedia && win.matchMedia('(display-mode: standalone)').matches)
+        return win.matchMedia?.('(display-mode: standalone)').matches === true
             || win.navigator.standalone === true;
     }
 
@@ -96,7 +108,7 @@
      * navigates at all.
      */
     function protect(link) {
-        if (link.hasAttribute('data-file-viewer') || link.hasAttribute('data-file-link-raw')) {
+        if ('fileViewer' in link.dataset || 'fileLinkRaw' in link.dataset) {
             return;
         }
         if (!link.hasAttribute('download')) {
@@ -212,25 +224,12 @@
         download = doc.createElement('a');
         download.className = 'btn btn-sm btn-outline-light';
         download.href = '#';
-
-        if (isStandalone()) {
-            // **Not a download, and not `target="_blank"` either.** Both
-            // are handled inside the standalone window on iOS, which is
-            // how the viewer itself would strand the app it exists to
-            // protect. `window.open()` from a standalone web app launches
-            // the BROWSER — a separate application — so ScoutMagic is
-            // still there, untouched, one swipe away in the app switcher.
-            download.textContent = 'Ouvrir dans le navigateur';
-            download.addEventListener('click', function (event) {
-                event.preventDefault();
-                win.open(download.href, '_blank');
-            });
-        } else {
-            download.setAttribute('download', '');
-            download.setAttribute('target', '_blank');
-            download.setAttribute('rel', 'noopener');
-            download.textContent = 'Enregistrer';
-        }
+        // A browser tab only: the installed app never builds the overlay
+        // (see the click handler at the bottom).
+        download.setAttribute('download', '');
+        download.setAttribute('target', '_blank');
+        download.setAttribute('rel', 'noopener');
+        download.textContent = 'Enregistrer';
 
         actions.appendChild(download);
         viewer.appendChild(actions);
@@ -307,7 +306,7 @@
             // against a boolean version of this function for exactly that
             // reason, and it was right to.
             return resolved.href;
-        } catch (e) {
+        } catch {
             // Not a URL at all — certainly not one to hand a sink.
             return null;
         }
@@ -316,15 +315,11 @@
     /**
      * Show one file, without navigating to it.
      *
-     * **The type is discovered by trying, not declared.** A caller that
-     * knows says so (`data-file-image`), but the click handler below now
-     * catches every file link in the installed app, and those links carry
-     * nothing: a mailbox attachment is `/files/512` and no more. Rather
-     * than a HEAD request per click to learn the content type, the
-     * overlay simply asks the `<img>` to draw it — which is the request
-     * it would make anyway — and falls back when the browser says it
-     * cannot. A wrong guess costs one failed image load; the alternative
-     * costs a round trip on every single click.
+     * **The type may be discovered by trying rather than declared.** A
+     * caller that knows says so (`data-file-image`); with `known` null the
+     * overlay simply asks the `<img>` to draw it — which is the request it
+     * would make anyway — and falls back when the browser says it cannot,
+     * rather than spending a HEAD request to learn the content type.
      *
      * @param {string} href
      * @param {string} label
@@ -343,11 +338,7 @@
 
         name.textContent = label;
         download.href = safeHref;
-        // The name rides on `download` only where that attribute is safe.
-        // In the installed app it is the trap itself — setting it here
-        // would put the viewer's own button back on Safari's download
-        // screen, which is the screen this whole file exists to avoid.
-        if (label && !isStandalone()) {
+        if (label) {
             download.setAttribute('download', label);
         }
 
@@ -373,14 +364,20 @@
     }
 
     /**
-     * The name to show, from whatever the link could tell us.
+     * In the installed app: go to the file as a plain navigation, which
+     * the server answers with its viewer page (issue #502). `assign`
+     * rather than following the link, because the link may carry
+     * `download`, and a download is exactly what iOS handles on its own
+     * screen inside the window.
      *
-     * @param {HTMLAnchorElement} link
+     * @param {string} href
      */
-    function labelOf(link) {
-        return link.getAttribute('data-file-name')
-            || link.getAttribute('download')
-            || (link.textContent || '').trim();
+    function navigateToViewer(href) {
+        var safeHref = safeViewerUrl(href);
+        if (safeHref === null) {
+            return;
+        }
+        win.location.assign(safeHref);
     }
 
     // Delegated, so a link rendered after load works too.
@@ -393,10 +390,14 @@
         var declared = /** @type {HTMLElement|null} */ (target.closest('[data-file-viewer]'));
         if (declared) {
             event.preventDefault();
+            if (isStandalone()) {
+                navigateToViewer(declared.dataset.fileViewer || '');
+                return;
+            }
             open(
-                declared.getAttribute('data-file-viewer') || '',
-                declared.getAttribute('data-file-name') || '',
-                declared.getAttribute('data-file-image') === '1' ? true : false
+                declared.dataset.fileViewer || '',
+                declared.dataset.fileName || '',
+                declared.dataset.fileImage === '1'
             );
             return;
         }
@@ -405,9 +406,14 @@
         // decorated — intercepted: on iOS neither `download` nor
         // `target="_blank"` keeps the window still, and both land on
         // Safari's own download screen inside it, which has no back
-        // button either. The only thing that cannot strand the app is a
-        // click that never navigates.
-        if (!isStandalone()) {
+        // button either. A plain navigation is what the server can turn
+        // into its viewer page.
+        //
+        // A click another script already answered is not this one's to
+        // redo: the server viewer's own « Télécharger » opens the share
+        // sheet and prevents the default, and a navigation on top of it
+        // would land the installed window on the raw file (issue #502).
+        if (!isStandalone() || event.defaultPrevented) {
             return;
         }
         //
@@ -421,7 +427,7 @@
         var link = /** @type {HTMLAnchorElement|null} */ (
             target.closest('a[href^="/files/"], a[download]')
         );
-        if (!link || link.hasAttribute('data-file-link-raw')) {
+        if (!link || 'fileLinkRaw' in link.dataset) {
             return;
         }
         // Same origin only: `download` on somebody else's page is ignored
@@ -433,7 +439,7 @@
         }
 
         event.preventDefault();
-        open(link.href, labelOf(link), null);
+        navigateToViewer(link.href);
     });
 
     doc.addEventListener('keydown', function (event) {

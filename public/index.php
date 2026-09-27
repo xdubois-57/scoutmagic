@@ -208,6 +208,17 @@ if ($measurementWindow->isOpen()) {
     \Core\Debug\RequestTimeline::activate();
 }
 
+// A navigation of the installed application may not be answered 304
+// (issue #502). The file it would revalidate is in the browser's cache —
+// fetched earlier by an <img>, or in a browser tab — and a 304 hands it to
+// the window without Core\File\Held\InstalledAppFileInterceptor ever
+// seeing a file, which is exactly the stranded window that class exists
+// to prevent. Dropping the validators makes every such navigation a full
+// answer the tail can inspect.
+if (\Core\File\Held\InstalledAppFileInterceptor::isInstalledAppNavigation($_SERVER, $_COOKIE)) {
+    unset($_SERVER['HTTP_IF_NONE_MATCH'], $_SERVER['HTTP_IF_MODIFIED_SINCE']);
+}
+
 // Create the request early to check the path
 $request = Request::fromGlobals();
 \Core\Debug\RequestTimeline::mark('request_parsed', ['path' => $request->getPath()]);
@@ -2793,6 +2804,17 @@ $encryptedFileStorageService = new \Core\File\EncryptedFileStorageService(
 // guesses wrong (Core\File\StoredFileReader).
 $storedFileReader = new \Core\File\StoredFileReader($fileRepository, $encryptedFileStorageService, $storagePath);
 
+// The documents the installed application puts aside (issue #502): its
+// two routes serve them (HeldDocumentController, registered beside
+// FileController), and the response tail is where a file answer becomes a
+// viewer page.
+$heldDocumentService = new \Core\File\Held\HeldDocumentService(
+    new \Core\File\Held\HeldDocumentRepository($pdo),
+    $encryptedFileStorageService,
+    $fileRepository,
+    $journalService
+);
+
 // The Desk import, its roster-replacement barrier and its retention.
 // Built here rather than beside the other import repositories above
 // because it needs two things that only exist from this point on:
@@ -3781,6 +3803,16 @@ $schedulerService->seed(
     'core',
     'purge_human_check_rate_limits',
     \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::REFERENCE,
+    new DateTimeImmutable()
+);
+
+// Same bootstrap for the purge of the documents the installed
+// application put aside (Core\File\Held\Task\PurgeHeldDocumentsHandler):
+// a member's own files, gone within the hour of their expiry.
+$schedulerService->seed(
+    'core',
+    \Core\File\Held\Task\PurgeHeldDocumentsHandler::TASK_KEY,
+    \Core\File\Held\Task\PurgeHeldDocumentsHandler::REFERENCE,
     new DateTimeImmutable()
 );
 
@@ -4800,6 +4832,23 @@ $router->addRoute('GET', '/api/version', VersionController::class, 'index', 'pub
 
 // Generic short-URL redirector (Core\Url)
 $router->addRoute('GET', '/s/{code}', ShortUrlController::class, 'resolve', 'public');
+
+// A document the installed application put aside instead of letting the
+// window land on it (Core\File\Held\HeldDocumentService, issue #502).
+// Both public: the browser one because the phone's browser has none of
+// the app's session and the key is the whole authorisation (one use,
+// five minutes), the application one because it checks something
+// narrower than a role — the very session that caused the hold. The
+// literal /telecharger/ route first: a {token} matches one segment only,
+// so the order is not load-bearing, but it reads as the rule it is.
+$router->addRoute(
+    'GET',
+    '/document/telecharger/{token}',
+    \Core\Http\Controller\HeldDocumentController::class,
+    'download',
+    'public'
+);
+$router->addRoute('GET', '/document/{token}', \Core\Http\Controller\HeldDocumentController::class, 'browser', 'public');
 
 // File upload — role_min is deliberately loosened to `identified` so a
 // member can upload their own photo from the member page outside
@@ -12176,6 +12225,10 @@ $fileController = new FileController(
 );
 $fileController->setJournalService($journalService);
 $frontController->registerController(FileController::class, $fileController);
+$frontController->registerController(
+    \Core\Http\Controller\HeldDocumentController::class,
+    new \Core\Http\Controller\HeldDocumentController($twig, $heldDocumentService)
+);
 
 // Gallery media serving (/gallery/media/{id}/{size}) — GalleryController
 // built here, deliberately last, for the same reason as FileController
@@ -12314,6 +12367,30 @@ if (!$secretManager->isInitialized()) {
 /** @var \Core\Http\Response $response */
 $response = \Core\Http\ErrorHandler::guard(static fn() => $frontController->handle($request));
 \Core\Debug\RequestTimeline::mark('controller_dispatch_done');
+
+// In the installed application a navigation never ends on a file: the
+// file is put aside and the window gets a viewer page instead (issue
+// #502, Core\File\Held\InstalledAppFileInterceptor — the conditions are
+// in its docblock). Here, on the finished response, because this is the
+// one place every answer passes whatever produced it: a link, a form, an
+// address built in JavaScript, a route added next year.
+//
+// Wrapped, like everything in this tail (Tests\Architecture\
+// ResponseTailCannotThrowTest): storing the file writes to the disk and
+// the database. A failure costs the viewer, and the file is sent as it
+// would have been before this existed — never the site.
+try {
+    $response = (new \Core\File\Held\InstalledAppFileInterceptor($heldDocumentService, $twig))->intercept(
+        $request,
+        $response,
+        (string) session_id(),
+        AuthSession::getUserAccountId(),
+        new DateTimeImmutable()
+    );
+} catch (\Throwable $heldDocumentError) {
+    error_log('Installed-app file interception failed: ' . $heldDocumentError->getMessage());
+}
+
 $response->setCspNonce($cspNonce);
 
 // Photos served straight from an S3-compatible bucket need their origin

@@ -769,6 +769,21 @@ class DatabaseTestHelper
             UNIQUE (scope, recipient_key)
         )');
 
+        // The documents the installed application puts aside (schema/
+        // core.sql: held_documents, Core\File\Held, issue #502). The two
+        // UNIQUE keys are declared: a token is looked up by its hash.
+        $pdo->exec('CREATE TABLE held_documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_id INTEGER NOT NULL,
+            browser_token_hash TEXT NOT NULL UNIQUE,
+            app_token_hash TEXT NOT NULL UNIQUE,
+            session_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            browser_expires_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            browser_opened_at TEXT
+        )');
+
         // The outbound transport's three tables (schema/core.sql:
         // mail_providers, mail_lane_entries, mail_send_counters,
         // ARCHITECTURE.md §8.106). No connection value is declared here
