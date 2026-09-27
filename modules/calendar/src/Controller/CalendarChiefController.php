@@ -9,7 +9,6 @@ declare(strict_types=1);
 namespace Modules\Calendar\Controller;
 
 use Core\Config\SettingService;
-use Core\Config\UnitAddresses;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -26,6 +25,7 @@ use Core\Security\Role;
 use Core\Service\IntegerInput;
 use Core\View\MonthGrid\MonthGridBuilder;
 use Core\View\SectionPickerHelper;
+use Modules\Calendar\Service\DefaultEventLocation;
 use Modules\Calendar\Service\CalendarEventService;
 use Modules\Calendar\Service\CalendarException;
 use Modules\Calendar\Service\CalendarPickerService;
@@ -189,7 +189,7 @@ class CalendarChiefController extends AbstractController
                 '14:00'
             ),
             'default_end_time' => (string) $this->settingService->get('event_default_end_time', 'calendar', '17:45'),
-            'default_location' => $this->defaultLocation(),
+            'default_location' => DefaultEventLocation::resolve($this->settingService),
             'retro_module_active' => in_array('retro', $this->moduleManager->getEnabledModuleIds(), true),
         ];
         if ($selectedCalendarLabel !== null) {
@@ -198,39 +198,6 @@ class CalendarChiefController extends AbstractController
 
         return $this->render('@calendar/chief.html.twig', $context);
     }
-
-    /**
-     * The place a new event starts with (issue #497): the calendar's own
-     * setting when somebody wrote one, else the unit's premises, else the
-     * word « Local » that used to be the only choice.
-     *
-     * The premises' coordinates are not passed on: an event carries a free
-     * text location and nothing else, so the address is what it can hold.
-     *
-     * **« Local » counts as nobody having chosen.** It was the shipped
-     * default until 1.10.0, and every installation that ever enabled the
-     * calendar still stores it: `SettingService::register()` moves a
-     * never-customised value along with a new default only for `url`
-     * settings (`SettingRepository::updateDefaultValue()`), so the empty
-     * default reaches new sites only. Read here rather than migrated once,
-     * because a stored « Local » and the old default are the same word —
-     * and a unit that typed it by hand while filling in its premises is
-     * asking for the same thing anyway.
-     */
-    private function defaultLocation(): string
-    {
-        $configured = trim((string) $this->settingService->get('event_default_location', 'calendar', ''));
-        if ($configured !== '' && $configured !== self::LEGACY_DEFAULT_LOCATION) {
-            return $configured;
-        }
-
-        $premises = UnitAddresses::premisesAddress($this->settingService);
-
-        return $premises !== null ? UnitAddresses::oneLine($premises) : self::LEGACY_DEFAULT_LOCATION;
-    }
-
-    /** The default location shipped until calendar 1.10.0 (issue #497). */
-    private const LEGACY_DEFAULT_LOCATION = 'Local';
 
     /**
      * POST /chefs/calendar/event-create (AJAX, JSON).
