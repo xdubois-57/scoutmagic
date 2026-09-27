@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Calendar\Controller;
 
 use Core\Config\SettingService;
+use Core\Config\UnitAddresses;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -188,7 +189,7 @@ class CalendarChiefController extends AbstractController
                 '14:00'
             ),
             'default_end_time' => (string) $this->settingService->get('event_default_end_time', 'calendar', '17:45'),
-            'default_location' => (string) $this->settingService->get('event_default_location', 'calendar', ''),
+            'default_location' => $this->defaultLocation(),
             'retro_module_active' => in_array('retro', $this->moduleManager->getEnabledModuleIds(), true),
         ];
         if ($selectedCalendarLabel !== null) {
@@ -196,6 +197,26 @@ class CalendarChiefController extends AbstractController
         }
 
         return $this->render('@calendar/chief.html.twig', $context);
+    }
+
+    /**
+     * The place a new event starts with (issue #497): the calendar's own
+     * setting when somebody wrote one, else the unit's premises, else the
+     * word « Local » that used to be the only choice.
+     *
+     * The premises' coordinates are not passed on: an event carries a free
+     * text location and nothing else, so the address is what it can hold.
+     */
+    private function defaultLocation(): string
+    {
+        $configured = trim((string) $this->settingService->get('event_default_location', 'calendar', ''));
+        if ($configured !== '') {
+            return $configured;
+        }
+
+        $premises = UnitAddresses::premisesAddress($this->settingService);
+
+        return $premises !== null ? UnitAddresses::oneLine($premises) : 'Local';
     }
 
     /**

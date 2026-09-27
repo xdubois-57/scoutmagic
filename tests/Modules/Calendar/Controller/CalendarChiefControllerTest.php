@@ -8,6 +8,7 @@ use Core\Badge\MemberBadgeRepository;
 use Core\Config\ScoutYearService;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
+use Core\Config\UnitAddresses;
 use Core\Database\Connection;
 use Core\Http\Request;
 use Core\Import\MemberYearRepository;
@@ -54,6 +55,7 @@ class CalendarChiefControllerTest extends TestCase
     private CalendarEventRepository $eventRepository;
     private CalendarRepository $calendarRepository;
     private int $scoutYearId;
+    private SettingService $settingService;
 
     protected function setUp(): void
     {
@@ -111,6 +113,8 @@ class CalendarChiefControllerTest extends TestCase
         $settingService->register('event_default_start_time', '14:00', 'text', 'Heure début', 'desc', 'calendar');
         $settingService->register('event_default_end_time', '16:00', 'text', 'Heure fin', 'desc', 'calendar');
         $settingService->register('event_default_location', '', 'text', 'Lieu', 'desc', 'calendar');
+        UnitAddresses::register($settingService);
+        $this->settingService = $settingService;
 
         [$label, $yearStart, $yearEnd] = DatabaseTestHelper::scoutYear();
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('{$label}', '{$yearStart}', '{$yearEnd}', 1)");
@@ -216,6 +220,37 @@ class CalendarChiefControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('Calendrier', $response->getBody());
+    }
+
+    // ── The default location (issue #497) ───────────────────────────────
+
+    private function defaultLocationOnThePage(): string
+    {
+        $body = (string) $this->controller->index(new Request('GET', '/chefs/calendar', [], [], [], []), [])->getBody();
+        $this->assertSame(1, preg_match('/"defaultLocation":("(?:[^"\\\\]|\\\\.)*")/', $body, $match), 'no defaultLocation in the page data');
+
+        return (string) json_decode($match[1]);
+    }
+
+    public function testWithNothingConfiguredANewEventStartsAtTheLocal(): void
+    {
+        $this->assertSame('Local', $this->defaultLocationOnThePage());
+    }
+
+    public function testTheUnitsPremisesBecomeTheDefaultLocation(): void
+    {
+        $this->settingService->set(UnitAddresses::PREMISES_ADDRESS, "Rue du Local 1,\n1000 Bruxelles");
+
+        $this->assertSame('Rue du Local 1, 1000 Bruxelles', $this->defaultLocationOnThePage());
+    }
+
+    /** A place the calendar's own setting names still wins: it was chosen. */
+    public function testALocationWrittenForTheCalendarWinsOverThePremises(): void
+    {
+        $this->settingService->set(UnitAddresses::PREMISES_ADDRESS, 'Rue du Local 1, 1000 Bruxelles');
+        $this->settingService->set('event_default_location', 'Terrain des Cèdres', 'calendar');
+
+        $this->assertSame('Terrain des Cèdres', $this->defaultLocationOnThePage());
     }
 
     public function testEventFormStaysInsideTheModalBodySoTheScrollableLayoutWorks(): void

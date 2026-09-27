@@ -139,6 +139,17 @@ final class UnitAddresses
         return ['latitude' => (float) $latitude, 'longitude' => (float) $longitude];
     }
 
+    /**
+     * An address typed on several lines, on one: a document prints it
+     * inside a paragraph and a form field holds a single line, where a
+     * newline is a space and « Rue du Local 1 1000 Bruxelles » reads as one
+     * number. A comma typed at the end of a line is absorbed, not doubled.
+     */
+    public static function oneLine(string $address): string
+    {
+        return (string) preg_replace('/[ \t]*,?[ \t]*\R\s*/u', ', ', trim($address));
+    }
+
     private static function text(SettingService $settingService, string $key): ?string
     {
         $value = trim((string) ($settingService->get($key) ?? ''));

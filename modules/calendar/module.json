@@ -2,7 +2,7 @@
   "id": "calendar",
   "name": "Calendrier",
   "description": "Un calendrier par section, abonnable depuis un téléphone.",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "enabled_by_default": true,
   "routes": [
     {
@@ -218,10 +218,10 @@
     },
     {
       "key": "event_default_location",
-      "default_value": "Local",
+      "default_value": "",
       "type": "text",
       "label": "Localisation par défaut",
-      "description": "Lieu pré-rempli dans le formulaire de création d'un évènement."
+      "description": "Lieu pré-rempli dans le formulaire de création d'un évènement. Vide : l'adresse des locaux de l'unité (Paramètres, cœur du site), ou « Local » tant qu'elle n'est pas renseignée."
     },
     {
       "key": "notify_multiday_events_enabled",

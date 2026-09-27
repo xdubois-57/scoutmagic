@@ -37,9 +37,13 @@
                 <button type="submit" class="btn btn-sm btn-primary w-100">Enregistrer</button>
             </div>
             <div class="col-12">
+                {# Empty = the unit's premises, else « Local » (issue #497): said
+                   as the placeholder, since a help text under one field of
+                   this inline row would lift it out of line. #}
                 {% include 'partials/form_field.html.twig' with {
                     field_id: 'default-location', label: 'Localisation par défaut',
                     value: default_location, size: 'sm', wrapper_class: '',
+                    placeholder: 'Vide : l\'adresse des locaux de l\'unité, ou « Local »',
                 } only %}
             </div>
         </div>
