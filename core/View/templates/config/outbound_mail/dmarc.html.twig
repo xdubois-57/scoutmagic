@@ -285,7 +285,7 @@
                 <script type="application/json" id="dmarc-trend-data">
                     {{- authentication_trend|json_encode|raw -}}
                 </script>
-                <div style="position:relative;height:220px;">
+                <div class="outbound-trend-chart">
                     <canvas id="dmarc-trend-chart"
                             aria-label="Taux d'authentification DMARC semaine par semaine"
                             role="img"></canvas>
