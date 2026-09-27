@@ -317,7 +317,10 @@ class DmarcReportRepository
         foreach ($statement->fetchAll(\PDO::FETCH_ASSOC) as $row) {
             $messages = (int) $row['messages'];
             $rows[] = [
-                'at' => new \DateTimeImmutable((string) $row['period_end']),
+                'at' => \Core\Service\DateInput::requireFromStorage(
+                    (string) $row['period_end'],
+                    'mail_dmarc_reports.period_end'
+                ),
                 'sample' => $messages,
                 'hits' => (int) $row['authenticated'],
                 'total' => $messages,

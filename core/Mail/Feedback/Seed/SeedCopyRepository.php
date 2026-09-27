@@ -346,7 +346,13 @@ class SeedCopyRepository
         $byProvider = [];
         foreach ($statement->fetchAll(\PDO::FETCH_ASSOC) as $row) {
             $byProvider[(string) $row['provider']][] = [
-                'at' => new \DateTimeImmutable((string) $row['sent_at']),
+                // MIN(sent_at) over a group of a NOT NULL column, so the
+                // value is always there — and read the way every other
+                // stored date in this class is (SECURITY.md § 35).
+                'at' => DateInput::requireFromStorage(
+                    (string) $row['sent_at'],
+                    'mail_seed_copies.sent_at'
+                ),
                 // One mailing, however many boxes it reached at this provider.
                 'sample' => 1,
                 'hits' => (int) $row['inbox'],
