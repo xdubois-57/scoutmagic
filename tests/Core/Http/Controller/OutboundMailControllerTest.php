@@ -3761,12 +3761,13 @@ class OutboundMailControllerTest extends TestCase
     // reason it was given; the other three replace it with one generic
     // sentence, which is a decision worth pinning rather than an oversight.
     //
-    // Three are silent degradations of the page itself — `reserveOf()`,
-    // `circuitOf()` and `queueSummary()` return null or zeros so that the
-    // screen still renders when a table underneath them is unreadable. Those
-    // three are issue #600: the fallback is indistinguishable from a normal
-    // state, so the page reports « nothing to see » when the truth is « I
-    // could not look ». The tests below RECORD that, they do not bless it.
+    // Three are degradations of the page itself — `reserveOf()`,
+    // `circuitOf()` and `queueSummary()` keep the screen rendering when a
+    // table underneath them is unreadable. Their fallback used to be the
+    // same null or zero as a normal state, so the page reported « nothing
+    // to see » when the truth was « I could not look ». Issue #600 made
+    // each say « indisponible » instead, and journal why; the tests below
+    // pin that.
     //
     // Nothing here doubles the classes under test. A `catch (\Throwable)`
     // over a database read cannot be reached by bad input, so the trigger is
@@ -3784,6 +3785,20 @@ class OutboundMailControllerTest extends TestCase
     // rather than making anything fail, and a `MailService` mock in the same
     // test. `MailService`, `JournalService`, `JournalRepository` and
     // `EncryptionService` are plain classes, not final.
+
+    /** The page rendered blind leaves a trace of which state it could not read (issue #600). */
+    private function assertUnreadableWasJournalled(string $state): void
+    {
+        $stmt = $this->pdo->prepare('SELECT context FROM event_log WHERE event_type = ?');
+        $stmt->execute(['outbound_mail_state_unreadable']);
+        $states = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_COLUMN) as $context) {
+            $decoded = json_decode((string) $context, true);
+            $states[] = is_array($decoded) ? ($decoded['state'] ?? null) : null;
+        }
+
+        $this->assertContains($state, $states, 'the unreadable ' . $state . ' left no trace in the journal');
+    }
 
     /**
      * Make one table unreadable, the way a migration that never ran leaves it.
@@ -3932,7 +3947,7 @@ class OutboundMailControllerTest extends TestCase
         $this->assertSame('info@unite.be', (string) $this->settings->get('mail_from_address'));
     }
 
-    public function testAnUnreadableReserveLeavesTheCardLookingLikeOneWithNothingToReserve(): void
+    public function testAnUnreadableReserveIsShownAsUnavailableRatherThanAsNothingToReserve(): void
     {
         // A provider with a daily quota, serving BOTH the mailing lane and
         // another one — the only shape for which `MailReserve` reads the
@@ -3956,19 +3971,28 @@ class OutboundMailControllerTest extends TestCase
         // attempt did exactly that. The chain repository stays on the live
         // database so `servesBulkAndAnother()` still says yes and the counter
         // read is still reached.
-        $broken = $this->providersBodyOf($this->controllerWith('reserve', new \Core\Mail\Transport\MailReserve(
+        $brokenController = $this->controllerWith('reserve', new \Core\Mail\Transport\MailReserve(
             new SendCounterRepository(new \PDO('sqlite::memory:')),
             $this->chains
-        )));
+        ));
+        $broken = $this->providersBodyOf($brokenController);
 
         // The catch does its job — the page is there rather than an error
-        // screen — and nothing on the card says the figure is missing rather
-        // than inapplicable. That is issue #600.
+        // screen — and the card says the figure is missing rather than
+        // inapplicable (issue #600).
         $this->assertStringContainsString('Relais partagé', $broken);
         $this->assertStringNotContainsString('sont gardés pour les liens de connexion', $broken);
+        $this->assertStringContainsString('Réserve pour les liens de connexion : état indisponible', $broken);
+        $this->assertUnreadableWasJournalled('reserve');
+
+        // The routing page lists the same reserve under the Authentication
+        // lane — the one it protects — and says the same thing.
+        $this->chains->append(MailLane::Authentication, $id, true);
+        $routing = (string) $brokenController->routing($this->getRequest(), [])->getBody();
+        $this->assertStringContainsString('n’a pas pu être lue', $routing);
     }
 
-    public function testAnUnreadableBreakerStateLooksExactlyLikeAProviderThatNeverFailed(): void
+    public function testAnUnreadableBreakerStateIsShownAsUnknownRatherThanAsNeverFailed(): void
     {
         $id = $this->providers->create('Relais muet', 200, 50, 10);
         $this->chains->append(MailLane::Transactional, $id, true);
@@ -3995,9 +4019,13 @@ class OutboundMailControllerTest extends TestCase
         // provider it hides is one whose breaker is open.
         $this->assertStringContainsString('Relais muet', $broken);
         $this->assertStringNotContainsString("Mis à l'écart", $broken);
+        // What the card says instead, since #600: not « never failed » but
+        // « cannot tell ».
+        $this->assertStringContainsString("État de mise à l'écart indisponible", $broken);
+        $this->assertUnreadableWasJournalled('circuit');
     }
 
-    public function testAnUnreadableQueueIsShownAsZeroWaitingRatherThanAsUnknown(): void
+    public function testAnUnreadableQueueIsShownAsUnknownRatherThanAsZeroWaiting(): void
     {
         $this->queueOne(MailLane::Transactional);
 
@@ -4010,12 +4038,20 @@ class OutboundMailControllerTest extends TestCase
         $this->dropTable('mail_deferred_messages');
         $broken = $this->providersBodyOf();
 
-        // Issue #600, and the one that does not merely stay silent but
-        // asserts: the same sentence comes back with a zero, for a queue that
-        // could not be read at all. The page prints « Un report n'est pas un
-        // silence » ten lines higher, which is exactly what this zero is.
-        $this->assertStringContainsString('0 en attente', $broken);
-        $this->assertStringNotContainsString('1 en attente', $broken);
+        // Issue #600, and the sharpest of the three: this used to print
+        // « 0 en attente » for a queue that could not be read at all, ten
+        // lines under « Un report n'est pas un silence ». No count at all now,
+        // on any lane — a zero would be the silence the page promises not to be.
+        $this->assertStringNotContainsString('en attente', $broken);
+        $this->assertStringContainsString('état indisponible', $broken);
+        $this->assertStringContainsString('La file des messages différés n\'a pas pu être lue', $broken);
+        $this->assertUnreadableWasJournalled('queue');
+
+        // And the dashboard's summary line, which read the same fallback as
+        // « File vide ».
+        $dashboard = (string) $this->controller->dashboard($this->getRequest(), [])->getBody();
+        $this->assertStringContainsString('État indisponible', $dashboard);
+        $this->assertStringNotContainsString('File vide', $dashboard);
     }
 
     public function testAVerificationThatCannotStartPointsAtTheTechnicalJournalRatherThanFailingSilently(): void

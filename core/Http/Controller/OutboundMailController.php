@@ -69,6 +69,9 @@ class OutboundMailController extends AbstractController
     /** Said the same way wherever the bounce page cannot run at all. */
     private const BOUNCES_UNAVAILABLE = 'Le suivi des rebonds demande le module « Courrier entrant ».';
 
+    /** Said wherever a state of the page could not be read (issue #600). */
+    private const UNREADABLE_HINT = 'La cause est dans le journal.';
+
     public const DMARC_URL = '/config/courrier-sortant/dmarc';
 
     public const SEEDS_URL = '/config/courrier-sortant/temoins';
@@ -1244,9 +1247,11 @@ class OutboundMailController extends AbstractController
             ],
             [
                 'label' => 'Messages en attente d’envoi',
-                'state_label' => $queue['waiting'] > 0
-                    ? sprintf('%d en file', $queue['waiting'])
-                    : 'File vide',
+                'state_label' => match (true) {
+                    $queue['unavailable'] => 'État indisponible',
+                    $queue['waiting'] > 0 => sprintf('%d en file', $queue['waiting']),
+                    default => 'File vide',
+                },
                 'url' => self::PROVIDERS_URL,
                 'detail' => 'Les messages différés parce qu’une voie était épuisée ou en panne.',
             ],
@@ -1721,13 +1726,40 @@ class OutboundMailController extends AbstractController
             if ($reserve !== null) {
                 $reserves[] = [
                     'name' => $provider->name,
-                    'messages' => $reserve['messages'],
-                    'provenance' => $reserve['provenance'],
+                    'messages' => $reserve['messages'] ?? 0,
+                    'provenance' => $reserve['unavailable']
+                        ? 'la réserve gardée pour les liens de connexion n’a pas pu être lue. '
+                            . self::UNREADABLE_HINT
+                        : (string) $reserve['provenance'],
                 ];
             }
         }
 
         return $reserves;
+    }
+
+    /**
+     * A state the page could not read, written down (issue #600): the page
+     * still renders and says « indisponible », and this is where the
+     * reason is found afterwards. Only the exception class — the message
+     * of a failed query can quote the values it was given.
+     *
+     * Never allowed to fail the page it is reporting on: the journal is a
+     * table like the ones that just failed.
+     */
+    private function journalUnreadable(string $what, \Throwable $e): void
+    {
+        try {
+            $this->journal->log(
+                'core',
+                'outbound_mail_state_unreadable',
+                'warning',
+                'Page Fournisseurs affichée sans un de ses états : lecture impossible',
+                ['state' => $what, 'exception' => $e::class]
+            );
+        } catch (\Throwable) {
+            // The page already says « indisponible »; nothing more to do.
+        }
     }
 
     /**
@@ -1739,18 +1771,25 @@ class OutboundMailController extends AbstractController
      * protect anybody from, and a card saying « réserve : aucune » would
      * be three lines explaining a number that is not there.
      *
-     * @return array{messages: int, provenance: string}|null
+     * **Unreadable is not « does not apply »** (issue #600): a reserve
+     * that could not be read comes back marked `unavailable`, never as
+     * null, or the card would say nothing where it should say « je ne
+     * sais pas ».
+     *
+     * @return array{unavailable: bool, messages: ?int, provenance: ?string}|null
      */
     private function reserveOf(MailProvider $provider): ?array
     {
         try {
             $reserve = $this->reserve->forProvider($provider);
-        } catch (\Throwable) {
-            return null;
+        } catch (\Throwable $e) {
+            $this->journalUnreadable('reserve', $e);
+
+            return ['unavailable' => true, 'messages' => null, 'provenance' => null];
         }
 
         return $reserve->applies()
-            ? ['messages' => $reserve->messages, 'provenance' => $reserve->provenance()]
+            ? ['unavailable' => false, 'messages' => $reserve->messages, 'provenance' => $reserve->provenance()]
             : null;
     }
 
@@ -1762,14 +1801,21 @@ class OutboundMailController extends AbstractController
      * person looking at that screen concludes their configuration is
      * wrong and starts changing it.
      *
-     * @return array{open: bool, until: ?string, failures: int, openings: int}|null
+     * An unreadable breaker comes back marked `unavailable` rather than
+     * null (issue #600): null is « nothing ever went wrong », and saying
+     * that about a provider whose state could not be read is exactly the
+     * screen this method exists to prevent.
+     *
+     * @return array{unavailable: bool, open: bool, until: ?string, failures: int, openings: int}|null
      */
     private function circuitOf(MailProvider $provider): ?array
     {
         try {
             $health = $this->health->forProvider($provider->id);
-        } catch (\Throwable) {
-            return null;
+        } catch (\Throwable $e) {
+            $this->journalUnreadable('circuit', $e);
+
+            return ['unavailable' => true, 'open' => false, 'until' => null, 'failures' => 0, 'openings' => 0];
         }
 
         if (
@@ -1786,6 +1832,7 @@ class OutboundMailController extends AbstractController
         }
 
         return [
+            'unavailable' => false,
             'open' => $health->isOpen(),
             'until' => $health->openedUntil,
             'failures' => $health->consecutiveFailures,
@@ -1803,17 +1850,27 @@ class OutboundMailController extends AbstractController
      * and those are the two halves of the decision this page exists to
      * make legible.
      *
-     * @return array{lanes: array<int, array{key: string, label: string, waiting: int, defers: bool}>,
+     * **A queue that could not be read says so** (issue #600). Its
+     * counters used to fall back to zero, and the page then printed
+     * « 0 en attente » under « Un report n'est pas un silence » — a
+     * silence, about a queue nobody had been able to look at. It comes
+     * back `unavailable`, and the page prints no count at all.
+     *
+     * @return array{unavailable: bool,
+     *     lanes: array<int, array{key: string, label: string, waiting: int, defers: bool}>,
      *     waiting: int, abandoned: array{recent: int, day: int, week: int, older: int, total: int},
      *     lifetime_hours: int, retention_days: int, windows: array<int, array{key: string, label: string}>,
      *     default_window: string}
      */
     private function queueSummary(): array
     {
+        $unavailable = false;
         try {
             $pending = $this->deferred->pendingCountByLane();
             $abandoned = $this->queue->abandonedByAge();
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            $this->journalUnreadable('queue', $e);
+            $unavailable = true;
             $pending = [];
             $abandoned = ['recent' => 0, 'day' => 0, 'week' => 0, 'older' => 0, 'total' => 0];
         }
@@ -1829,6 +1886,7 @@ class OutboundMailController extends AbstractController
         }
 
         return [
+            'unavailable' => $unavailable,
             'lanes' => $lanes,
             'waiting' => array_sum($pending),
             'abandoned' => $abandoned,
