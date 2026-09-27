@@ -408,7 +408,12 @@
         // Safari's own download screen inside it, which has no back
         // button either. A plain navigation is what the server can turn
         // into its viewer page.
-        if (!isStandalone()) {
+        //
+        // A click another script already answered is not this one's to
+        // redo: the server viewer's own « Télécharger » opens the share
+        // sheet and prevents the default, and a navigation on top of it
+        // would land the installed window on the raw file (issue #502).
+        if (!isStandalone() || event.defaultPrevented) {
             return;
         }
         //

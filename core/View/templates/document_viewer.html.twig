@@ -18,6 +18,11 @@
     download everywhere else.
   - « Retour » — back to the page the request came from.
 
+  « Télécharger » carries `data-file-link-raw`: base.html.twig loads
+  file-viewer.js on this page too, and in the installed app that script
+  turns any `download` link into a navigation — here, to the raw file,
+  which is the stranded window this page exists to prevent.
+
   `document` is null when the file was too large to put aside
   (HeldDocumentService::MAX_BYTES): the page says so and keeps « Retour ».
 #}
@@ -50,7 +55,7 @@
                 <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i> Ouvrir dans le navigateur
             </a>
             <a href="{{ document.appPath }}" class="btn btn-outline-secondary w-100 w-sm-auto"
-               download="{{ name }}" data-document-viewer-download
+               download="{{ name }}" data-document-viewer-download data-file-link-raw
                data-file-name="{{ name }}" data-file-type="{{ document.mimeType }}">
                 <i class="bi bi-download" aria-hidden="true"></i> Télécharger
             </a>

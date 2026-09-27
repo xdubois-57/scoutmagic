@@ -332,6 +332,34 @@ describe('file-viewer', () => {
             expect(assign.mock.calls[0][0]).toMatch(/\/gallery\/media\/12\/download$/);
         });
 
+        /**
+         * The server viewer's own « Télécharger » (issue #502, review of
+         * #609). It carries `download` and points at the raw file: turned
+         * into a navigation, it would land the installed window on that
+         * file with no way back — the very trap the viewer removes.
+         */
+        it('leaves a download link that opts out with data-file-link-raw', async () => {
+            buildPage('<a id="dl" href="/document/telecharger/abc" download="a.pdf" data-file-link-raw>Télécharger</a>');
+            await load();
+            const assign = watchNavigation();
+
+            const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+            document.getElementById('dl').dispatchEvent(event);
+
+            expect(assign).not.toHaveBeenCalled();
+        });
+
+        it('never redoes a click another script already handled', async () => {
+            buildPage('<a id="hq" href="/gallery/media/12/download" download>Télécharger</a>');
+            await load();
+            const assign = watchNavigation();
+            document.getElementById('hq').addEventListener('click', (event) => event.preventDefault());
+
+            document.getElementById('hq').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+            expect(assign).not.toHaveBeenCalled();
+        });
+
         it('never intercepts a link to somebody else\'s site', async () => {
             // `download` is ignored cross-origin by the browser anyway,
             // and deciding where an external link goes is not this

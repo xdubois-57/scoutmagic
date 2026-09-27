@@ -32,6 +32,14 @@ final class DocumentViewerTemplateTest extends TestCase
             '~<a href="/document/telecharger/' . self::APP . '"[^>]*download="Fiche santé.pdf"[^>]*data-document-viewer-download~',
             $html
         );
+        // file-viewer.js runs on this page too, and in the installed app it
+        // turns a `download` link into a navigation — here to the raw file,
+        // which strands the window. The opt-out is what keeps it off.
+        $this->assertMatchesRegularExpression(
+            '~<a href="/document/telecharger/' . self::APP . '"[^>]*data-file-link-raw~',
+            $html,
+            '« Télécharger » lost data-file-link-raw: file-viewer.js would navigate the installed window to the raw file.'
+        );
         $this->assertMatchesRegularExpression('~<a href="/members/7"[^>]*data-document-viewer-back>\s*<i[^>]*></i> Retour~', $html);
         $this->assertStringContainsString('/assets/js/document-viewer.js', $html);
         $this->assertStringNotContainsString('<img src="/document/', $html, 'A PDF has no preview: only an image does.');
