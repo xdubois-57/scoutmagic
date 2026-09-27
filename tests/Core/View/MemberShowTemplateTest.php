@@ -105,13 +105,13 @@ class MemberShowTemplateTest extends TestCase
     {
         $html = $this->render($this->makeMember(), true, ['branch_card' => $this->branchCard()]);
 
-        $this->assertSame(1, preg_match(
+        $this->assertSame(1, preg_match_all(
             '#<a href="([^"]+)" target="_blank" rel="noopener" class="([^"]*)">Où coudre les insignes sur l\'uniforme \?#u',
             $html,
             $m
         ), 'The insignia link is on the branch card, once.');
-        $this->assertSame(ExternalSources::INSIGNIA_PLACEMENT_PAGE, $m[1]);
-        $this->assertStringNotContainsString('btn', $m[2], 'A discreet link, not a second button.');
+        $this->assertSame(ExternalSources::INSIGNIA_PLACEMENT_PAGE, $m[1][0]);
+        $this->assertStringNotContainsString('btn', $m[2][0], 'A discreet link, not a second button.');
 
         $button = strpos($html, 'En savoir plus');
         $link = strpos($html, 'Où coudre les insignes');

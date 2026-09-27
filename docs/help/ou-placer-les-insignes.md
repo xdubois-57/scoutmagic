@@ -19,7 +19,7 @@ jour. Le site ne le recopie pas, il vous y envoie :
 ## Cherchez votre branche
 
 Le guide est organisé **par branche** — Baladins, Louveteaux,
-Éclaireurs, Pionniers, Routiers — parce que l'uniforme change d'une
+Éclaireurs, Pionniers, Route — parce que l'uniforme change d'une
 branche à l'autre. Repérez celle de votre enfant : sa page en affiche
 le nom et le logo.
 
