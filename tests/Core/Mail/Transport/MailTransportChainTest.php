@@ -192,6 +192,51 @@ class MailTransportChainTest extends TestCase
     }
 
     /**
+     * The same three states of the chain, reached the other way: not « no
+     * chain laid down » but « the chain cannot be read at all ».
+     *
+     * A table a migration has not created yet, an account whose SELECT
+     * grant was never applied: `candidates()` answers null for that just
+     * as it does for an empty chain, so an unreadable chain is « send as
+     * before » and not the configured-and-unusable error above. That is
+     * the right choice — a sign-in link must not wait for a migration —
+     * but it IS a choice, and a test asserting only that the message went
+     * out would be equally true of the empty chain covered above.
+     *
+     * Hence the two halves. The first delivery establishes that this
+     * installation has a chain and is routed by it; the second, after the
+     * table is gone, records `localhost` — PHPMailer's untouched default,
+     * never anything the chain chose — which is the observable signature
+     * of the fallback: `TransportConfigurator::apply()` was not reached,
+     * so the message left through the transport `MailService` had already
+     * configured.
+     */
+    public function testAChainThatCannotBeReadSendsTheMessageTheWayItWentBeforeTheChainExisted(): void
+    {
+        $relay = $this->addRelay('Premier', 'smtp.premier.test');
+        $this->enable(MailLane::Authentication, [$relay]);
+
+        $delivery = $this->recordingTransport();
+        $chain = $this->chain($delivery);
+        $chain->deliver($this->message(), MailPurpose::MagicLink);
+
+        // The first statement `candidates()` runs is this lane's own read,
+        // so the failure lands there rather than on the directory or the
+        // counters. Reusing the chain is safe for that precise reason and
+        // no other: `LaneChainRepository` caches nothing, while the
+        // directory memoises and the settings cache survives — which is
+        // what makes `preferred()`'s own branch reachable further down.
+        $this->pdo->prepare('DROP TABLE mail_lane_entries')->execute();
+        $chain->deliver($this->message(), MailPurpose::MagicLink);
+
+        $this->assertSame(
+            ['smtp.premier.test', 'localhost'],
+            $delivery->attemptedHosts,
+            'Routed by the chain while it was readable; sent with no relay applied once it was not.'
+        );
+    }
+
+    /**
      * The third state of the chain, and the one the other two are easy to
      * confuse it with: the lane IS configured, and nothing in it can
      * carry a message. That is an administrator's mistake rather than an
@@ -461,6 +506,52 @@ class MailTransportChainTest extends TestCase
         $this->assertSame(['smtp.second.test'], $delivery->attemptedHosts);
     }
 
+    /**
+     * **A preference is never allowed to cost a message**, and this is the
+     * branch that holds that rule when the database goes away in the
+     * middle of a mailing.
+     *
+     * Reachable only once the directory has resolved, which is why it took
+     * this chantier two attempts to find: `candidates()` reads `settings`
+     * too, through `MailProviderDirectory::local()`, so on the first send
+     * of a process a failure there is absorbed one layer earlier and the
+     * message goes out with no relay applied — a different branch, and a
+     * larger degradation. After the directory has memoised it reads no
+     * setting at all, and a settings cache invalidated since (every
+     * setting write does it) leaves `DomainPreferences::all()` to make the
+     * first query of the send, inside `preferred()`.
+     *
+     * That window is widest exactly where it matters: a publipostage of
+     * four hundred is hundreds of messages through one chain, and the one
+     * in flight when the database goes must not be the one that stops the
+     * mailing. Both halves below say so — reordered by the preference
+     * while the setting could be read, and carried by the lane's own order
+     * rather than stopped once it could not.
+     */
+    public function testAPreferenceThatCannotBeReadMidMailingLeavesTheOrderUntouched(): void
+    {
+        $first = $this->addRelay('Premier', 'smtp.premier.test');
+        $second = $this->addRelay('Second', 'smtp.second.test');
+        $this->enable(MailLane::Bulk, [$first, $second]);
+
+        $delivery = $this->recordingTransport();
+        $chain = $this->chain($delivery, preferences: $this->preferring('gmail.com', $second));
+        $chain->deliver($this->message('famille@gmail.com'), MailPurpose::Bulk);
+
+        // The directory has resolved, so the next send reads no setting of
+        // its own; the cache is invalidated the way a setting write does
+        // it; and then the database goes away.
+        $this->settings->clearCache();
+        $this->pdo->prepare('DROP TABLE settings')->execute();
+        $chain->deliver($this->message('famille@gmail.com'), MailPurpose::Bulk);
+
+        $this->assertSame(
+            ['smtp.second.test', 'smtp.premier.test'],
+            $delivery->attemptedHosts,
+            'Reordered while the preference could be read; sent in the lane\'s own order once it could not.'
+        );
+    }
+
     private function preferring(
         string $domain,
         int $providerId,
@@ -627,6 +718,231 @@ class MailTransportChainTest extends TestCase
         $this->assertSame(0, $reopened->consecutiveFailures);
     }
 
+    /**
+     * **The breaker must never be the reason a message stops**, its own
+     * table included.
+     *
+     * Unreadable, and every candidate is kept: where the optimisation
+     * cannot be consulted, trying and failing is still correct. The
+     * assertion that carries this is a comparison rather than a state, so
+     * both halves are in one test — the shut-out relay is skipped while
+     * the table answers, and tried again the moment it does not. Either
+     * half alone would be true of a chain that never applied the breaker
+     * at all.
+     *
+     * The second delivery also enters `recordSuccess()`'s catch, since
+     * with the table gone every outcome of a send goes through one of the
+     * two `record*` calls. That branch has its own test below, where it
+     * is the observable rather than a side effect.
+     */
+    public function testAnUnreadableBreakerIsNeverTheReasonAMessageStops(): void
+    {
+        $first = $this->addRelay('Premier', 'smtp.premier.test');
+        $second = $this->addRelay('Second', 'smtp.second.test');
+        $this->enable(MailLane::Authentication, [$first, $second]);
+        $health = new ProviderHealthRepository($this->pdo);
+
+        $refusing = $this->recordingTransport(refuseHosts: ['smtp.premier.test']);
+        for ($i = 0; $i < ProviderHealth::FAILURES_BEFORE_OPEN; $i++) {
+            $this->chain($refusing, $health)->deliver($this->message(), MailPurpose::MagicLink);
+        }
+        $this->assertTrue($health->forProvider($first)->isOpen(), 'The breaker is armed.');
+
+        $working = $this->recordingTransport();
+        $this->chain($working, $health)->deliver($this->message(), MailPurpose::MagicLink);
+
+        $this->pdo->prepare('DROP TABLE mail_provider_health')->execute();
+        $this->chain($working, $health)->deliver($this->message(), MailPurpose::MagicLink);
+
+        $this->assertSame(
+            ['smtp.second.test', 'smtp.premier.test'],
+            $working->attemptedHosts,
+            'Skipped while the breaker could be read; tried again as soon as it could not.'
+        );
+    }
+
+    /**
+     * The breaker's own bookkeeping refused, and the lane still moves on.
+     *
+     * Reads keep working while writes are refused — the shape a
+     * half-applied grant takes, and the shape that matters here because
+     * `recordFailure()` reads before it writes, to tell « the circuit
+     * opened » from « it was already open ». It returns before its journal
+     * line, so nothing accumulates and the refusing relay is tried again
+     * on every single message.
+     *
+     * Two things distinguish « swallowed » from « never written at all ».
+     * The journal DOES hold the attempt failure, so it was writable and
+     * the refusal was recorded; and the second half, whose only
+     * difference is that the trigger is gone, opens the circuit and says
+     * so — the invariant pinned in both directions rather than holding
+     * vacuously over a class that never writes that line.
+     */
+    public function testABreakerThatCannotBeWrittenNeverStopsTheLane(): void
+    {
+        $first = $this->addRelay('Premier', 'smtp.premier.test');
+        $second = $this->addRelay('Second', 'smtp.second.test');
+        $this->enable(MailLane::Authentication, [$first, $second]);
+        $health = new ProviderHealthRepository($this->pdo);
+        $this->refuseHealthWrites();
+
+        $delivery = $this->recordingTransport(refuseHosts: ['smtp.premier.test']);
+        for ($i = 0; $i < ProviderHealth::FAILURES_BEFORE_OPEN; $i++) {
+            $this->chain($delivery, $health)->deliver($this->message(), MailPurpose::MagicLink);
+        }
+
+        $this->assertCount(
+            ProviderHealth::FAILURES_BEFORE_OPEN,
+            array_keys($delivery->attemptedHosts, 'smtp.premier.test', true),
+            'Nothing accumulated, so the refusing relay is tried on every message.'
+        );
+        $this->assertCount(
+            ProviderHealth::FAILURES_BEFORE_OPEN,
+            array_keys($delivery->attemptedHosts, 'smtp.second.test', true),
+            'And every one of those messages still went out.'
+        );
+        $this->assertContains(
+            'mail_provider_attempt_failed',
+            $this->journalledTypes(),
+            'The journal was writable and the refusal is in it: the silence below is the breaker\'s, not the journal\'s.'
+        );
+        $this->assertNotContains(
+            'mail_provider_circuit_opened',
+            $this->journalledTypes(),
+            'Nothing was written, so there is no exclusion to announce.'
+        );
+
+        // The other direction, and the trigger is the only difference.
+        $this->pdo->exec('DROP TRIGGER refuse_health_writes');
+        $delivery->attemptedHosts = [];
+        for ($i = 0; $i < ProviderHealth::FAILURES_BEFORE_OPEN; $i++) {
+            $this->chain($delivery, $health)->deliver($this->message(), MailPurpose::MagicLink);
+        }
+
+        $this->assertContains(
+            'mail_provider_circuit_opened',
+            $this->journalledTypes(),
+            'The same failures, written this time, do open the circuit and do say so.'
+        );
+        // The circuit opens at the END of the third failure, so all three
+        // of those messages still try the relay; it is the fourth that
+        // shows the exclusion being applied — which is exactly what the
+        // refused writes above prevented for good.
+        $delivery->attemptedHosts = [];
+        $this->chain($delivery, $health)->deliver($this->message(), MailPurpose::MagicLink);
+
+        $this->assertSame(
+            ['smtp.second.test'],
+            $delivery->attemptedHosts,
+            'And the next message skips the relay those failures shut out.'
+        );
+    }
+
+    /**
+     * **A second copy in somebody's inbox, one statement earlier than the
+     * branch #449's own body cites as its example.**
+     *
+     * `deliver()` calls `recordSuccess()` after the transport returned and
+     * outside any `try` of its own, so this catch is the only thing
+     * between a health write that fails and an exception leaving
+     * `deliver()`. The consequence is the one the counter's comment ten
+     * lines below spells out in as many words: `MailService` would report
+     * a send that did happen as failed, `mass_mail` would retry it, and
+     * somebody would get the message twice. That counter's branch was
+     * already covered — this one, a statement earlier and with the same
+     * consequence, was covered by nothing.
+     *
+     * The observable is therefore not that a message left but that no
+     * exception did, AND that the statement after it still ran: the
+     * counter is incremented, which is what tells « the catch returned
+     * from `recordSuccess()` » from « it returned from `deliver()` ».
+     */
+    public function testAHealthWriteThatFailsAfterASuccessfulSendNeverReportsItAsFailed(): void
+    {
+        $relay = $this->addRelay('Unique', 'smtp.unique.test');
+        $this->enable(MailLane::Authentication, [$relay]);
+        $health = new ProviderHealthRepository($this->pdo);
+
+        // An open circuit, so the success below has something to close and
+        // the journal line is really at stake. One relay is enough because
+        // a lane's last entry is tried even when shut out (D15).
+        $refusing = $this->recordingTransport(refuseHosts: ['smtp.unique.test']);
+        for ($i = 0; $i < ProviderHealth::FAILURES_BEFORE_OPEN; $i++) {
+            try {
+                $this->chain($refusing, $health)->deliver($this->message(), MailPurpose::MagicLink);
+            } catch (LaneExhaustedException) {
+                // Expected: the only relay was refusing.
+            }
+        }
+        $this->assertTrue($health->forProvider($relay)->isOpen());
+
+        $this->refuseHealthWrites();
+        $delivery = $this->recordingTransport();
+        $this->chain($delivery, $health)->deliver($this->message(), MailPurpose::MagicLink);
+
+        $this->assertSame(
+            ['smtp.unique.test'],
+            $delivery->attemptedHosts,
+            'The relay took the message, so the send must be reported as the success it was.'
+        );
+        $this->assertSame(
+            [$relay => 1],
+            $this->counters->totalsForDay(),
+            'The statement AFTER recordSuccess() ran: the catch returned from it, not from deliver().'
+        );
+        $this->assertNotContains(
+            'mail_provider_circuit_closed',
+            $this->journalledTypes(),
+            'Nothing was written, so there is no return to availability to announce.'
+        );
+
+        // The other direction, and the trigger is the only difference.
+        $this->pdo->exec('DROP TRIGGER refuse_health_writes');
+        $this->chain($this->recordingTransport(), $health)->deliver($this->message(), MailPurpose::MagicLink);
+
+        $this->assertFalse($health->forProvider($relay)->isOpen());
+        $this->assertContains(
+            'mail_provider_circuit_closed',
+            $this->journalledTypes(),
+            'The same success, written this time, does close the circuit and does say so.'
+        );
+    }
+
+    /**
+     * Writes to the breaker's table refused, reads left working.
+     *
+     * A trigger rather than a dropped table, and the difference is the
+     * whole point: `recordFailure()` reads before writing, so a missing
+     * table would fail on the read and prove nothing about the write —
+     * and `ProviderHealthRepository` is final, so a double is not
+     * available even if it were the right instrument, which
+     * `docs/chantiers/CHANTIER-revue-des-tests.md` §3 argues it is not.
+     *
+     * `BEFORE INSERT` covers the update too: `store()` is an upsert, so
+     * every write it makes is attempted as an insert first.
+     */
+    private function refuseHealthWrites(): void
+    {
+        $this->pdo->exec(
+            'CREATE TRIGGER refuse_health_writes BEFORE INSERT ON mail_provider_health
+             BEGIN SELECT RAISE(FAIL, \'disjoncteur indisponible\'); END'
+        );
+    }
+
+    /**
+     * Every event type the journal holds, for the assertions whose subject
+     * is that one of them is NOT among them.
+     *
+     * @return array<int, string>
+     */
+    private function journalledTypes(): array
+    {
+        $statement = $this->pdo->prepare('SELECT event_type FROM event_log WHERE category = ?');
+        $statement->execute(['core']);
+
+        return $statement->fetchAll(\PDO::FETCH_COLUMN);
+    }
+
     // ── the reserve on the mailing lane (D8) ──────────────────────────
 
     /**
@@ -766,12 +1082,9 @@ class MailTransportChainTest extends TestCase
             'The message was handed to the relay, so the send must be reported as the success it was.'
         );
 
-        $statement = $this->pdo->prepare('SELECT event_type FROM event_log WHERE category = ?');
-        $statement->execute(['core']);
-        $journalled = $statement->fetchAll(\PDO::FETCH_COLUMN);
         $this->assertContains(
             'mail_send_counter_failed',
-            $journalled,
+            $this->journalledTypes(),
             'The bookkeeping failure is swallowed for the caller, not for the operator: it belongs in the journal.'
         );
     }

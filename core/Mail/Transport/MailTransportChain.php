@@ -158,6 +158,20 @@ final class MailTransportChain implements MailTransportInterface
      * database that just went away — leaves the order untouched rather
      * than stopping a mailing that has nothing to do with it.
      *
+     * **The window is a mailing already under way**, which is worth
+     * spelling out because it is where the rule earns its keep and it is
+     * not where you would look first. `candidates()` reads `settings`
+     * too, through `MailProviderDirectory::local()`, so on the first send
+     * of a process a failure there is absorbed one layer earlier and the
+     * message goes out with no relay applied at all. Once the directory
+     * has memoised it reads no setting, and a settings cache invalidated
+     * since — which every setting write does — leaves
+     * `DomainPreferences::all()` to make the first query of the send,
+     * right here. A publipostage of four hundred is hundreds of messages
+     * through one chain: the one in flight when the database goes is the
+     * one this catch keeps (#449, lot 8, which measured both states after
+     * first concluding the wrong one).
+     *
      * The recipient is read from the message rather than passed in
      * because `MailTransportInterface` is the boundary every transport
      * implements, and widening it for one lane's preference would oblige

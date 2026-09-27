@@ -2714,3 +2714,141 @@ sais au lieu de le supposer.
 La leçon de méthode, qui prolonge celle du lot 6 : **pour mettre une assertion en
 doute, il faut nommer la régression qu'elle est censée attraper, puis l'écrire.**
 La retirer ne teste rien, et la garder sans y penser ne prouve rien non plus.
+
+### Itération 16 — Les chemins d'échec, lot 8 : `MailTransportChain` — 2026-09-27
+
+**Mesuré d'abord** : **856 blocs `catch` balayés, 313 corps jamais exécutés
+(36,6 %)**, contre 319 au lot 7. La soustraction tombe juste et le total ne bouge
+pas : le lot 7 en a fermé six, j'en mesure six de moins, et `main` n'a gagné aucun
+`catch` dans cette fenêtre.
+
+C'est la **troisième** fenêtre observée, et elle est vide — après 7 nouveaux dont 2
+non couverts au lot 5 et 4 dont 3 au lot 7. Elle confirme la révision faite à
+l'itération 14 plutôt que la généralité écrite à l'itération 13 : le phénomène est
+**épisodique**, il ne coûte pas un lot à chaque fenêtre. L'argument pour une porte
+de release tient sur deux fenêtres chargées ; il n'a pas besoin d'être présenté
+comme une hémorragie continue, et le présenter ainsi le rendrait réfutable par la
+première fenêtre calme.
+
+**La cible que #449 cite dans son propre corps.** `MailTransportChain` porte douze
+`catch`, dont cinq jamais exécutés, et c'est la classe dont l'issue tire son
+exemple : le `try`/`catch` autour du compteur d'envois, dont elle explique que
+laisser remonter l'échec ferait rejouer par `mass_mail` un envoi déjà parti —
+« un second exemplaire dans la boîte de quelqu'un ». L'itération 6 avait fermé
+cette branche-là. Cinq restaient, toutes des `catch (\Throwable)` sans variable,
+dans des méthodes privées dont chaque docblock nomme l'enjeu.
+
+#### Le constat : le même danger, une instruction plus haut, non testé
+
+`deliver()` appelle `recordSuccess($provider)` **après** le retour du transport et
+**hors de tout `try`**. Son `catch` interne est donc la seule chose qui empêche
+l'exception de s'échapper — et la conséquence est mot pour mot celle que le
+commentaire du compteur, dix lignes plus bas, prend la peine d'écrire :
+`MailService` rapporterait en échec un envoi qui a bien eu lieu, `mass_mail` le
+rejouerait, quelqu'un recevrait le message deux fois.
+
+L'issue #449 célèbre la branche du compteur. La branche identique une instruction
+au-dessus, avec la même conséquence, n'était couverte par personne. Ce n'est pas un
+défaut du produit : c'est la démonstration que **l'exemple d'une issue attire les
+tests sur lui-même** et laisse son voisin immédiat dans l'ombre. Vaut d'être noté
+pour les lots suivants : là où une issue cite une ligne, regarder les deux d'à
+côté.
+
+L'observable n'est donc pas qu'un message soit parti, mais qu'**aucune exception
+ne soit sortie** *et* que l'instruction suivante ait tourné : le compteur est
+incrémenté, ce qui distingue « le `catch` est revenu de `recordSuccess()` » de
+« il est revenu de `deliver()` ».
+
+#### La branche que j'ai déclarée inatteignable, et qui ne l'est pas
+
+C'est l'erreur du lot, et elle mérite plus de place que le reste.
+
+J'ai écrit ici — et dans le docblock de `preferred()`, que j'ai « corrigé » en
+conséquence — que son `catch` n'était atteignable par aucun état du produit. Le
+raisonnement paraissait clos : une table `settings` illisible fait échouer
+`candidates()` d'abord, qui lit cette même table via
+`MailProviderDirectory::local()` ; et `DomainPreferences::all()` lit un cache de
+`SettingService` que `MailTransportFactory` donne aux deux objets, donc déjà chaud.
+J'ai même **mesuré**, ce qui m'a donné la confiance de le publier : table
+supprimée, cache le plus froid possible, le message sort en `localhost`, c'est-à-dire
+par le repli de `candidates()`.
+
+Le relecteur local l'a reproduite avec des classes de production seulement, et il a
+raison. Le chaînon manquant est la **mémoïsation de `MailProviderDirectory`** :
+`all()` garde son `$resolved`, donc au deuxième envoi `candidates()` ne lit plus
+aucun réglage. Si le cache de `SettingService` a été invalidé entre-temps — ce que
+fait **toute** écriture de réglage — c'est `DomainPreferences::all()` qui passe la
+première requête de l'envoi, à l'intérieur de `preferred()`. Vérifié à mon tour :
+mémo chaud, cache vidé, table absente, et le message part par un vrai relais dans
+l'ordre de la voie. Exactement le contrat de la branche.
+
+**Et la fenêtre est large là où elle compte** : un publipostage de quatre cents,
+c'est des centaines de messages par une seule chaîne, et celui qui est en vol quand
+la base s'en va est précisément celui que ce `catch` sauve. Le docblock original —
+« un réglage illisible, une base qui vient de disparaître » — était juste. C'est ma
+correction qui était fausse, et elle aurait dit à un mainteneur qu'une branche
+vivante est morte, ce qui est l'invitation à la supprimer.
+
+Le docblock est rétabli, augmenté de la seule chose que j'ai apprise : la fenêtre
+s'ouvre après la mémoïsation du répertoire. Et la branche a son test, donc le lot
+ferme **cinq** branches sur cinq.
+
+**La faute de méthode, nommée pour qu'elle serve.** J'ai mesuré l'état le plus
+**défavorable** à l'atteignabilité — cache froid, tout neuf — et j'en ai tiré une
+conclusion négative. Or une conclusion négative (« aucun état n'atteint ceci »)
+n'est jamais établie par un état : il faut chercher l'état le plus **favorable** et
+échouer à l'atteindre. La mesure m'a donné une fausse assurance justement parce que
+c'était une mesure. D'où la règle : **une conclusion d'inatteignabilité se démontre
+en essayant d'atteindre depuis l'état le plus favorable, pas en constatant un échec
+depuis le plus hostile** — et le premier état favorable à chercher est celui qu'un
+objet mémoïsant ou un cache produit au deuxième passage, jamais au premier.
+
+Je retire aussi ce que j'avais tiré de cette erreur : que les 313 corps non couverts
+ne sont pas tous couvrables, et qu'une porte de release exigeant zéro serait donc
+fausse. Ce lot n'en fournit **aucun** exemple — les cinq branches étaient
+atteignables, dont celle que j'avais déclarée morte. L'argument pour une porte de
+release reste celui des lots 5 et 7 (des `catch` neufs qui arrivent non couverts),
+qui n'a pas besoin de celui-là.
+
+#### Ce que la méthode du skill steward a donné, la première fois qu'elle servait
+
+Dix vérifications, dix rouges, et surtout : les **retraits de mise en
+scène** rougissent sur l'assertion visée elle-même — « Failed asserting that an
+array does not contain `mail_provider_circuit_opened` » et « … `_closed` ». C'est
+la première fois de ce chantier qu'une preuve d'absence tue par l'assertion voulue
+et non par un chemin latéral. Le lot 6 avait établi la règle en constatant l'échec
+de l'autre instrument ; le lot 8 la voit fonctionner.
+
+Les cinq mutations du produit portent chacune sur un `catch` rendu levant, et
+chacune tue le test de sa branche — ici la mutation du produit est le bon
+instrument, parce que l'observable **est** l'absence d'exception et n'a pas de
+chemin plus court.
+
+**Les deux invariants de journal sont épinglés dans les deux sens à l'intérieur de
+leur propre test**, la leçon du lot 7 : aucun test préexistant n'écrivait
+`mail_provider_circuit_opened` ni `_closed`, donc une assertion d'absence seule
+aurait tenu **à vide** sur une classe qui ne les écrit jamais. Chaque test fait
+donc les deux moitiés, et la seule différence entre elles est le déclencheur SQL.
+
+#### Deux honnêtetés plutôt qu'une propreté affichée
+
+**Une prédiction corrigée par la mesure.** J'avais écrit l'ordre attendu des
+relais à la main en supposant que le troisième message éviterait le relais fautif.
+Faux : le disjoncteur s'ouvre **à la fin** du troisième échec, donc les trois
+messages l'essaient. Le rouge l'a dit, et la preuve du saut est passée sur un
+quatrième message, où elle prouve quelque chose. Le bon sens de l'erreur — prédire
+puis mesurer — mais « trois échecs ouvrent le disjoncteur » ne veut pas dire « le
+troisième message est protégé ».
+
+**Une contamination déclarée au lieu d'une pureté revendiquée.** Le test du
+disjoncteur illisible entre aussi dans le `catch` de `recordSuccess()` : la table
+supprimée, toute issue d'un envoi passe par l'un des deux `record*`. C'est écrit
+dans le commentaire du test. Les lots précédents annonçaient « un test chacun,
+sans contamination croisée » ; ici ce serait faux, et une attribution exacte vaut
+mieux qu'une phrase rassurante.
+
+**Le retrait le plus instructif du lot** n'est ni une absence ni une mutation : ne
+pas invalider le cache de réglages, dans le test de `preferred()`, laisse le cache
+répondre et la préférence s'appliquer — donc le test rougit. C'est la preuve que ce
+test atteint sa branche **par la condition qu'il annonce** et non par accident, et
+c'est aussi la démonstration, en une ligne rouge, de l'erreur analysée plus haut.
