@@ -643,6 +643,9 @@ $settingService->register(
     'Nom de l\'unité',
     'Nom complet de l\'unité, affiché dans le header et le titre du site.'
 );
+// The unit's legal postal address and its premises (issue #497). Declared
+// by the class that reads them, so a test registers the real thing.
+\Core\Config\UnitAddresses::register($settingService);
 // The site-wide cut-out for contact synchronisation (Core\Contact\Device,
 // ARCHITECTURE.md §8.117). Default '1': it is a cut-out, not an opt-in —
 // nothing synchronises until an administrator has registered a device

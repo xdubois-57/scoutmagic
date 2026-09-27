@@ -157,8 +157,9 @@ final class StandardTemplates
             <h2>Convention de location</h2>
 
             <p><strong>Entre le bailleur</strong><br>
-            {{ unite }}<br>
-            {{ adresse_bailleur }}</p>
+            {{ nom_bailleur }}<br>
+            {{ adresse_bailleur }}<br>
+            N° d'entreprise&nbsp;: {{ bce_bailleur }}</p>
 
             <p><strong>Et le locataire</strong><br>
             {{ locataire_nom }}<br>
@@ -259,8 +260,9 @@ final class StandardTemplates
         return <<<'HTML'
             <h2>Facture</h2>
 
-            <p><strong>{{ unite }}</strong><br>
-            {{ adresse_bailleur }}</p>
+            <p><strong>{{ nom_bailleur }}</strong><br>
+            {{ adresse_bailleur }}<br>
+            N° d'entreprise&nbsp;: {{ bce_bailleur }}</p>
 
             <p><strong>Facturé à</strong><br>
             {{ locataire_nom }}<br>

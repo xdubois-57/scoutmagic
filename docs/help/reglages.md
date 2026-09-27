@@ -41,7 +41,16 @@ simple champ ne suffirait pas à en expliquer les conséquences :
 Les valeurs secrètes (mots de passe, clés) n'apparaissent jamais sur
 cette page.
 
-## Deux réglages à connaître
+## Les adresses de l'unité
+
+- L'**adresse postale de l'unité** est son adresse légale. Les documents
+  officiels l'impriment, par exemple comme adresse du bailleur d'une
+  location quand aucun autre bailleur n'est configuré.
+- L'**adresse des locaux** est l'endroit où l'unité se réunit. Pour un
+  terrain sans véritable adresse, décrivez le lieu et ajoutez sa
+  latitude et sa longitude, en degrés décimaux (50.8466, 4.3528).
+
+## Deux autres réglages à connaître
 
 - La **plage d'heures calmes par défaut** des notifications : elle
   s'applique à tous les membres qui n'ont pas défini la leur.
