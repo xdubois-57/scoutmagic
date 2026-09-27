@@ -829,7 +829,7 @@ class MailTransportChainTest extends TestCase
         );
 
         // The other direction, and the trigger is the only difference.
-        $this->pdo->exec('DROP TRIGGER refuse_health_writes');
+        $this->pdo->prepare('DROP TRIGGER refuse_health_writes')->execute();
         $delivery->attemptedHosts = [];
         for ($i = 0; $i < ProviderHealth::FAILURES_BEFORE_OPEN; $i++) {
             $this->chain($delivery, $health)->deliver($this->message(), MailPurpose::MagicLink);
@@ -913,7 +913,7 @@ class MailTransportChainTest extends TestCase
         );
 
         // The other direction, and the trigger is the only difference.
-        $this->pdo->exec('DROP TRIGGER refuse_health_writes');
+        $this->pdo->prepare('DROP TRIGGER refuse_health_writes')->execute();
         $this->chain($this->recordingTransport(), $health)->deliver($this->message(), MailPurpose::MagicLink);
 
         $this->assertFalse($health->forProvider($relay)->isOpen());
@@ -939,10 +939,10 @@ class MailTransportChainTest extends TestCase
      */
     private function refuseHealthWrites(): void
     {
-        $this->pdo->exec(
+        $this->pdo->prepare(
             'CREATE TRIGGER refuse_health_writes BEFORE INSERT ON mail_provider_health
              BEGIN SELECT RAISE(FAIL, \'disjoncteur indisponible\'); END'
-        );
+        )->execute();
     }
 
     /**

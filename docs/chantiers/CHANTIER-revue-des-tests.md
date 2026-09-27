@@ -2905,3 +2905,38 @@ Les deux règles sont écrites dans le skill steward et non seulement ici, parce
 que c'est la troisième fois de cette séance qu'une règle consignée au seul journal
 ne survit pas — et cette fois elle n'a même pas survécu à l'intérieur du **même
 fichier de test**.
+
+#### Le SQL non préparé, troisième fois dans la même séance
+
+CodeRabbit — qui a enfin pu relire, son quota horaire étant revenu — relève trois
+`PDO::exec()` de DDL fixe dans mes tests : un `CREATE TRIGGER` et deux
+`DROP TRIGGER`. Étiqueté « Minor », donc optionnel au sens des règles de conduite
+sur les PR.
+
+Corrigé quand même, et l'argument n'est pas le confort : **le corps de la PR coche
+« I have read `SECURITY.md` and applied the security checklist ».** On ne peut pas
+cocher cette case et soutenir en même temps que le premier point SQL de cette
+liste ne s'applique pas. `SECURITY.md` § 29 dit « Prepared statements everywhere
+(PDO) » et `AGENTS.md` § 51 « All SQL uses prepared statements ». Aucune de mes
+trois instructions ne concatène quoi que ce soit — il n'y a pas d'injection
+possible — mais la règle du dépôt est écrite sans exception, et mon propre fichier
+était incohérent : `prepare()->execute()` pour les `DROP TABLE`, `exec()` pour les
+déclencheurs.
+
+**Troisième fois de cette séance pour cette seule famille** : relevée au lot 2,
+refaite au lot 6, refaite ici. Les deux premières concernaient une vraie
+concaténation ; celle-ci non, ce qui explique qu'elle soit passée sous mon radar —
+je vérifiais « est-ce que je concatène ? » au lieu de « est-ce que je prépare ? ».
+La règle du dépôt pose la seconde question, plus large, et c'est celle qu'il faut
+se poser.
+
+Et une vérification que le correctif imposait : un `CREATE TRIGGER` préparé qui
+n'aurait rien créé rendrait mes tests de dégradation verts **pour la mauvaise
+raison**, la panne ayant disparu. Le test le prouve tout seul, par sa conception en
+deux sens : sans déclencheur actif, l'absence de `mail_provider_circuit_opened`
+rougirait, et le décompte à `FAILURES_BEFORE_OPEN + 1` aussi. Les deux passent,
+donc le déclencheur refuse bien les écritures.
+
+Le `exec()` restant du fichier appartient au test de compteur, antérieur à ce lot :
+laissé tel quel plutôt que d'élargir la PR, et signalé dans la réponse au
+relecteur.
