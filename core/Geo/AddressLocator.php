@@ -147,9 +147,9 @@ class AddressLocator
     private static function isFresh(?GeoPoint $point, string $lookedUpAt): bool
     {
         $limit = $point !== null
-            ? '-' . self::FOUND_TTL_DAYS . ' days'
-            : '-' . self::NOT_FOUND_TTL_HOURS . ' hours';
+            ? new \DateTimeImmutable('-' . self::FOUND_TTL_DAYS . ' days')
+            : new \DateTimeImmutable('-' . self::NOT_FOUND_TTL_HOURS . ' hours');
 
-        return $lookedUpAt >= (new \DateTimeImmutable($limit))->format('Y-m-d H:i:s');
+        return $lookedUpAt >= $limit->format('Y-m-d H:i:s');
     }
 }
