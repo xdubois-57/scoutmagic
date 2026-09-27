@@ -45,7 +45,12 @@ final class ModuleManifestTest extends TestCase
     {
         foreach ($this->manifest['routes'] as $route) {
             $action = $route['action'];
-            $reads = in_array($action, ['index', 'show', 'offerForm', 'editOffer', 'create', 'edit', 'searchEvents', 'eventLocations'], true);
+            // locateAddress (#642) writes only its own cache and quota rows,
+            // never anything a person sees: a read, like the event search.
+            $reads = in_array($action, [
+                'index', 'show', 'offerForm', 'editOffer', 'create', 'edit', 'searchEvents', 'eventLocations',
+                'locateAddress',
+            ], true);
             $this->assertSame($reads ? 'GET' : 'POST', $route['method'], $route['path'] . ' → ' . $action);
         }
     }

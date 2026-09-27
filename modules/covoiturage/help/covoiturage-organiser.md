@@ -34,12 +34,19 @@ verra les voitures et les passagers.
 
 L'adresse reprend le lieu des évènements ; c'est la destination de tous les
 allers et le départ de tous les retours. Le point sur la carte est
-facultatif : sans lui, le lien de carte ouvre l'adresse. Après
-l'enregistrement, le point est cherché automatiquement depuis l'adresse ;
-dans « Modifier », vous pouvez ensuite déplacer l'épingle ou la
-« Retirer ». Sans point, « Placer le point sur la carte » vous laisse le
-poser vous-même. Un point placé à la main n'est plus jamais modifié
-automatiquement.
+facultatif : sans lui, le lien de carte ouvre l'adresse.
+
+Dès que vous quittez le champ de l'adresse, le site la cherche : la carte
+se centre dessus, un **rond rouge** marque l'adresse, et l'épingle du point
+de rendez-vous s'y pose. Déplacez l'épingle si le rendez-vous est à côté —
+un pré, une entrée de bois ; le rond, lui, reste sur l'adresse. Si vous
+changez l'adresse ensuite, le rond et la carte suivent, mais une épingle
+que vous avez déplacée reste où vous l'avez mise.
+
+Si l'adresse n'est pas trouvée, rien ne change : « Placer le point sur la
+carte » vous laisse poser l'épingle vous-même, et le site cherche encore
+le point après l'enregistrement. « Retirer » enlève l'épingle. Un point
+placé à la main n'est plus jamais modifié automatiquement.
 
 Laissez la date du retour vide pour une sortie d'un seul trajet.
 

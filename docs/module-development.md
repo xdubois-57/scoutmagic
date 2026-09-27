@@ -553,7 +553,10 @@ uses the core's map rather than a copy of it (ARCHITECTURE.md §8.119):
   rows are pending, and seeded only when something is pending — the shape
   of `Modules\Camps\Task\GeocodePlacesHandler`. Never on a page load:
   `Core\Geo\GeocodingService` calls a free third-party service allowed one
-  request per second.
+  request per second. A form that must find an address while it is being
+  filled in goes through `Core\Geo\AddressLocator` instead — cached,
+  throttled site-wide and per account (`ARCHITECTURE.md` §8.119) — from a
+  route of your module, never from the browser.
 - **Draw with `public/assets/js/map.js`** (`window.ScoutMagicMap.create()`),
   loaded after `/assets/vendor/leaflet/leaflet.js`, and set `$mapTileOrigin
   = \Core\Geo\MapTiles::ORIGIN` in your wiring block of `public/index.php`

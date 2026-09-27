@@ -293,6 +293,13 @@ le vrai routeur, chaque page GET réellement rendue) ;
    l'enregistrement, et le formulaire de modification montre alors
    l'épingle à déplacer ; sans point, « Placer le point sur la carte » le
    laisse poser à la main.
+
+   **Revue par l'issue #642**, à la demande du mainteneur : le formulaire
+   cherche désormais l'adresse quand on quitte le champ, **sans bouton**,
+   par une route du site et jamais depuis le navigateur, avec un cache, une
+   requête par seconde pour tout le site et un quota par compte
+   (`Core\Geo\AddressLocator`, `ARCHITECTURE.md` §8.119). La tâche de fond
+   reste en place pour ce que cette recherche n'a pas trouvé.
 5. **Le lien de carte** ouvre OpenStreetMap, le fournisseur déjà nommé
    par la page RGPD, et s'intitule « Ouvrir sur une carte » plutôt que
    « Ouvrir dans une application de cartes » : sur un ordinateur, ce n'est

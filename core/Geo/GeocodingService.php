@@ -31,9 +31,12 @@ namespace Core\Geo;
  * site without a real cron this is slow; that is acceptable, because
  * coordinates are a convenience and typing them by hand always works.
  *
- * NEVER called from a web request. An outbound HTTP call on a page load
- * makes the page as slow as the slowest third party, and this one is a
- * free service with no availability promise.
+ * NEVER called directly from a web request. An outbound HTTP call on a
+ * page load makes the page as slow as the slowest third party, and this
+ * one is a free service with no availability promise. The one exception —
+ * an address looked up while a form is being filled in (issue #642) —
+ * goes through Core\Geo\AddressLocator, which caches, throttles the whole
+ * site to one request per second and bounds each account.
  */
 class GeocodingService
 {

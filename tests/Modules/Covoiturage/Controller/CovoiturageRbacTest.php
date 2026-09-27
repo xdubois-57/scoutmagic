@@ -53,6 +53,11 @@ final class CovoiturageRbacTest extends TestCase
     private int $carpoolId;
     private int $offerId;
     private int $requestId;
+    private CarpoolRepository $carpools;
+    private CarpoolBoard $board;
+    private SectionService $sections;
+    private CarpoolViewerResolver $viewers;
+    private CarpoolService $service;
 
     protected function setUp(): void
     {
@@ -107,10 +112,15 @@ final class CovoiturageRbacTest extends TestCase
             new OfferService($offers, $requests, $this->pdo),
             $viewers
         );
+        $this->carpools = $carpools;
+        $this->board = $board;
+        $this->sections = $sections;
+        $this->viewers = $viewers;
+        $this->service = new CarpoolService($carpools, $offers, $sections, new FakeCalendar([]));
         $this->organizer = new CarpoolOrganizerController(
             $twig,
             $carpools,
-            new CarpoolService($carpools, $offers, $sections, new FakeCalendar([])),
+            $this->service,
             $board,
             $sections,
             $viewers
@@ -219,6 +229,68 @@ final class CovoiturageRbacTest extends TestCase
         $response = $this->frontController('GET', '/covoiturage/organiser/{id}/modifier', 'edit', 'chief')
             ->handle(new Request('GET', '/covoiturage/organiser/' . $this->carpoolId . '/modifier', [], [], [], []));
         $this->assertSame(200, $response->getStatusCode());
+    }
+
+    public function testTheAddressLookupAnswersWithThePointOfTheAddress(): void
+    {
+        // #642: the map's live lookup, with Nominatim replaced by a fake.
+        $this->organizer = $this->organizerWithLocator(['latitude' => 50.125, 'longitude' => 5.187]);
+        AuthSession::login($this->accountId, 'parent@test.be', Role::CHIEF->value);
+
+        $response = $this->frontController('GET', '/covoiturage/organiser/adresse', 'locateAddress', 'chief')
+            ->handle(new Request('GET', '/covoiturage/organiser/adresse', ['q' => 'Gîte de Han, rue des Grottes 12'], [], [], []));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(
+            ['success' => true, 'found' => true, 'latitude' => 50.125, 'longitude' => 5.187],
+            json_decode($response->getBody(), true)
+        );
+
+        $form = $this->frontController('GET', '/covoiturage/organiser/nouveau', 'create', 'chief')
+            ->handle(new Request('GET', '/covoiturage/organiser/nouveau', [], [], [], []))->getBody();
+        $this->assertStringContainsString('data-locate-url="/covoiturage/organiser/adresse"', $form);
+        $this->assertStringContainsString('name="point_automatic"', $form);
+    }
+
+    public function testWithTheLookupSwitchedOffTheRouteFindsNothingAndTheFormNeverAsks(): void
+    {
+        AuthSession::login($this->accountId, 'parent@test.be', Role::CHIEF->value);
+
+        $response = $this->frontController('GET', '/covoiturage/organiser/adresse', 'locateAddress', 'chief')
+            ->handle(new Request('GET', '/covoiturage/organiser/adresse', ['q' => 'Gîte de Han, rue des Grottes 12'], [], [], []));
+        $this->assertSame(['success' => true, 'found' => false], json_decode($response->getBody(), true));
+
+        $form = $this->frontController('GET', '/covoiturage/organiser/nouveau', 'create', 'chief')
+            ->handle(new Request('GET', '/covoiturage/organiser/nouveau', [], [], [], []))->getBody();
+        $this->assertStringNotContainsString('data-locate-url', $form);
+    }
+
+    /** @param array{latitude: float, longitude: float}|null $answer */
+    private function organizerWithLocator(?array $answer): CarpoolOrganizerController
+    {
+        $geocoder = new class ($answer) extends \Core\Geo\GeocodingService {
+            /** @param array{latitude: float, longitude: float}|null $answer */
+            public function __construct(private ?array $answer)
+            {
+                parent::__construct('https://unit.test');
+            }
+
+            public function geocodeLine(?string $line): ?array
+            {
+                return $this->answer;
+            }
+        };
+
+        return new CarpoolOrganizerController(
+            $this->twig,
+            $this->carpools,
+            $this->service,
+            $this->board,
+            $this->sections,
+            $this->viewers,
+            new \Core\Geo\AddressLocator($this->pdo, $geocoder, static function (int $microseconds): void {
+            })
+        );
     }
 
     private function resolve(string $path): string

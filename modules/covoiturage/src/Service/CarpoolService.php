@@ -126,10 +126,11 @@ class CarpoolService
             $viewer->accountId
         );
         $this->carpools->replaceEvents($id, $data['events']);
-        // A point placed before saving is a human's point; none at all leaves
-        // the address to the geocoding task.
+        // A point placed before saving is a human's point — unless the form
+        // says it came from the address and nobody touched it (#642). None
+        // at all leaves the address to the geocoding task.
         if ($data['point'] !== null) {
-            $this->carpools->points()->setManual($id, $data['point'], new \DateTimeImmutable());
+            $this->savePoint($id, $data['point'], $data['point_automatic']);
         }
 
         return $id;
@@ -161,16 +162,40 @@ class CarpoolService
         $this->carpools->replaceEvents($carpool->id, $data['events']);
 
         $points = $this->carpools->points();
-        if (TextNormalizerService::fold($carpool->address) !== TextNormalizerService::fold($data['address'])) {
+        $addressChanged = TextNormalizerService::fold($carpool->address)
+            !== TextNormalizerService::fold($data['address']);
+        if ($addressChanged) {
             // A different address is a different place on the map; a point
             // a chief placed by hand stays where it is (the core's lock).
             $points->forgetGeocoding($carpool->id);
         }
-        // Moved, typed or removed by hand: locked for ever. A form that did
-        // not carry the point at all changes nothing.
-        if ($data['point_given'] && $data['point']?->line() !== $carpool->point?->line()) {
-            $points->setManual($carpool->id, $data['point'], new \DateTimeImmutable());
+        // Moved, typed or removed by hand: locked for ever. Found from the
+        // address and left alone: automatic, like the task's. A form that
+        // did not carry the point at all changes nothing. A new address
+        // found where the old one was still needs its point written back:
+        // forgetGeocoding() just cleared it.
+        $automaticForNewAddress = $addressChanged && $data['point_automatic'] && $data['point'] !== null;
+        if ($data['point_given'] && ($data['point']?->line() !== $carpool->point?->line() || $automaticForNewAddress)) {
+            $this->savePoint($carpool->id, $data['point'], $data['point_automatic']);
         }
+    }
+
+    /**
+     * `point_automatic` is the form's word that the pin sits where the
+     * address lookup put it (public/assets/js/covoiturage-organize.js).
+     * Trusting it costs nothing: at worst a chief's point is stored as
+     * automatic, which the next change of address may replace — and
+     * GeoPointStore never lets it overwrite a row a human already locked.
+     */
+    private function savePoint(int $carpoolId, ?GeoPoint $point, bool $automatic): void
+    {
+        $points = $this->carpools->points();
+        if ($automatic && $point !== null) {
+            $points->recordGeocoding($carpoolId, $point, new \DateTimeImmutable());
+
+            return;
+        }
+        $points->setManual($carpoolId, $point, new \DateTimeImmutable());
     }
 
     /**
@@ -209,7 +234,7 @@ class CarpoolService
     /**
      * @param array<string, mixed> $input
      * @return array{address: string, outbound: string, return: ?string, section_id: ?int,
-     *               events: list<CarpoolEvent>, point: ?GeoPoint, point_given: bool}
+     *               events: list<CarpoolEvent>, point: ?GeoPoint, point_given: bool, point_automatic: bool}
      * @throws CarpoolException
      */
     private function validate(array $input, CarpoolViewer $viewer, ?Carpool $existing): array
@@ -301,6 +326,7 @@ class CarpoolService
             ),
             'point' => $point,
             'point_given' => $pointGiven,
+            'point_automatic' => (string) ($input['point_automatic'] ?? '') === '1',
         ];
     }
 

@@ -1281,3 +1281,23 @@
 .carpool-point-map {
     height: 14rem;
 }
+
+/* The address's fixed marker on that map (issue #642): a ring, so it can
+   never be taken for the draggable pin Leaflet draws for the meeting
+   point. Built by L.divIcon, whose own white square is cleared here. */
+.leaflet-marker-icon.carpool-address-marker {
+    background: transparent;
+    border: 0;
+}
+
+.carpool-address-marker::before {
+    content: "";
+    display: block;
+    width: 18px;
+    height: 18px;
+    box-sizing: border-box;
+    border: 4px solid var(--bs-danger);
+    border-radius: 50%;
+    background: var(--bs-body-bg);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, .35);
+}

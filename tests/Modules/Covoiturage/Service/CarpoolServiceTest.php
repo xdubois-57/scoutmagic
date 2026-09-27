@@ -228,6 +228,64 @@ final class CarpoolServiceTest extends TestCase
         $this->assertFalse($this->carpools->findById($id)?->pointIsManual, 'An unchanged point is not a human decision.');
     }
 
+    public function testAPinTheAddressLookupPlacedAndNobodyTouchedIsNotAHumansPoint(): void
+    {
+        // #642: the form found the address and left the pin on it.
+        $id = $this->service->create(
+            $this->input(['latitude' => '50.7201', 'longitude' => '4.6412', 'point_automatic' => '1']),
+            H::viewer(1, Role::CHIEF)
+        );
+        $carpool = $this->carpools->findById($id);
+
+        $this->assertSame('50.720100, 4.641200', $carpool?->point?->line());
+        $this->assertFalse($carpool->pointIsManual);
+        $this->assertNull($this->carpools->findNextToGeocode(), 'already found: the task has nothing left to do');
+    }
+
+    public function testANewAddressFoundOnThePageReplacesTheAutomaticPoint(): void
+    {
+        $id = $this->service->create($this->input(), H::viewer(1, Role::CHIEF));
+        $this->carpools->points()->recordGeocoding($id, new \Core\Geo\GeoPoint(50.7, 4.6), new \DateTimeImmutable());
+        $carpool = $this->carpools->findById($id);
+        $this->assertNotNull($carpool);
+
+        $this->service->update(
+            $carpool,
+            $this->input([
+                'address' => 'Gîte de Han, rue des Grottes 12',
+                'latitude' => '50.125000',
+                'longitude' => '5.187000',
+                'point_automatic' => '1',
+            ]),
+            H::viewer(1, Role::CHIEF)
+        );
+
+        $after = $this->carpools->findById($id);
+        $this->assertSame('50.125000, 5.187000', $after?->point?->line());
+        $this->assertFalse($after->pointIsManual);
+        $this->assertNull($this->carpools->findNextToGeocode());
+    }
+
+    public function testTheFormCannotTurnAHandPlacedPointBackIntoAnAutomaticOne(): void
+    {
+        $id = $this->service->create(
+            $this->input(['latitude' => '50.7201', 'longitude' => '4.6412']),
+            H::viewer(1, Role::CHIEF)
+        );
+        $carpool = $this->carpools->findById($id);
+        $this->assertNotNull($carpool);
+
+        $this->service->update(
+            $carpool,
+            $this->input(['latitude' => '50.100000', 'longitude' => '4.100000', 'point_automatic' => '1']),
+            H::viewer(1, Role::CHIEF)
+        );
+
+        $after = $this->carpools->findById($id);
+        $this->assertSame('50.720100, 4.641200', $after?->point?->line(), 'GeoPointStore\'s fence holds');
+        $this->assertTrue($after->pointIsManual);
+    }
+
     public function testTheReturnCannotBeRemovedOnceACarIsProposedForIt(): void
     {
         // Without a return date the return tab disappears, and with it the
