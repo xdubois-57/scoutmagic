@@ -43,15 +43,18 @@ class FeeEstimationRepository
      * built for. One layer owns it, and it is the one that already owns the
      * encryption dependency.
      *
-     * It is returned rather than kept private because
-     * {@see \Modules\Registration\Api\HouseholdRegistrationCountProvider}
-     * keys its own counts on this very value — its contract is the key, not
-     * the address. The Service therefore relays an opaque token across that
-     * boundary instead of deriving one.
+     * It is returned as a {@see \Core\Member\Household\HouseholdKey}
+     * because {@see \Modules\Registration\Api\HouseholdRegistrationCountProvider}
+     * counts per household: the Service relays an identity the module can
+     * store and compare but never derive (issue #630). It must equal
+     * {@see \Core\Member\Household\HouseholdRepository::keyForAddress()}
+     * for the same address; HouseholdServiceTest pins that.
      */
-    public function householdKeyFor(string $normalizedAddress): string
+    public function householdKeyFor(string $normalizedAddress): \Core\Member\Household\HouseholdKey
     {
-        return $this->encryption->blindIndex($normalizedAddress, 'address');
+        return \Core\Member\Household\HouseholdKey::fromStorable(
+            $this->encryption->blindIndex($normalizedAddress, 'address')
+        );
     }
 
     /**

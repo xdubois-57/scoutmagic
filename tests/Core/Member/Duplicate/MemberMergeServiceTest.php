@@ -8,6 +8,7 @@ use Core\Import\MemberRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Member\Duplicate\DuplicateMemberRepository;
+use Core\Member\Duplicate\MemberMergeRepository;
 use Core\Member\Duplicate\MemberMergeService;
 use Core\Member\Duplicate\MergeException;
 use Core\Security\EncryptionService;
@@ -37,7 +38,7 @@ class MemberMergeServiceTest extends TestCase
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->duplicates = new DuplicateMemberRepository($this->pdo, $this->encryption);
         $this->service = new MemberMergeService(
-            $this->pdo,
+            new MemberMergeRepository($this->pdo, $this->duplicates),
             $this->duplicates,
             new JournalService(new JournalRepository($this->pdo))
         );
@@ -108,6 +109,35 @@ class MemberMergeServiceTest extends TestCase
 
         $this->assertSame(0, $this->duplicates->countPending());
         $this->assertSame('merged', $this->duplicates->findById($candidateId)['status']);
+    }
+
+    /**
+     * The last write failing undoes the first ones.
+     *
+     * The statements moved to MemberMergeRepository (issue #629), and the
+     * transaction moved with them: every repoint, the merge mark, the alias
+     * and the candidate's decision commit together or not at all. Here the
+     * last of them cannot run, and the member's history must still be where
+     * it was.
+     */
+    public function testAMergeThatFailsHalfwayMovesNothing(): void
+    {
+        $kept = $this->createMember('T001', $this->lastYear);
+        $duplicate = $this->createMember('T900', $this->thisYear);
+        $candidateId = $this->duplicates->recordCandidate($kept, $duplicate, false);
+        $this->pdo->exec('DROP TABLE member_duplicate_candidates');
+
+        try {
+            $this->service->merge($kept, $duplicate, 1, $candidateId);
+            $this->fail('the candidate decision could not be written, so the merge had to fail');
+        } catch (\PDOException) {
+        }
+
+        $this->assertSame(1, $this->countRows('member_years', 'member_id', $duplicate));
+        $this->assertSame(0, $this->countRows('member_desk_id_aliases', 'member_id', $kept));
+        $this->assertNull(
+            $this->pdo->query("SELECT merged_into_member_id FROM members WHERE id = {$duplicate}")->fetchColumn()
+        );
     }
 
     public function testDecidingTheyAreTwoPeopleIsAlsoRemembered(): void

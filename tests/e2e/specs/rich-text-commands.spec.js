@@ -92,6 +92,9 @@ const STILL_PERFORMED = 'still performed';
 /** The URL typed into the link dialog. */
 const LINK = 'https://example.org/';
 
+/** A 1×1 transparent GIF, inline: an image argument that never leaves the page. */
+const ONE_PIXEL_GIF = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
 /**
  * The commands issued BY THE SHARED TOOLBAR, exercised through the
  * production `wireToolbar()` over the production button markup.
@@ -161,10 +164,18 @@ const DIRECT_COMMANDS = [
     },
     // « Insérer une image » in the news form builder's own toolbar, which
     // is built in JavaScript rather than in a template.
+    //
+    // A data: URI, never a URL on the network (issue #652). This spec reads
+    // the markup the command produces, not an image loading — yet with an
+    // external URL, the one command of the list that touched the network
+    // failed under the DAST pass, where every request crosses the ZAP proxy,
+    // and passed in the plain end-to-end run on the same commit. An alarm
+    // that goes off for a proxy is not the alarm #379 asked for. The page's
+    // own CSP (img-src 'self' data: blob:) also never allowed example.org.
     {
         command: 'insertImage',
-        argument: 'https://example.org/i.png',
-        produces: /<img src="https:\/\/example\.org\/i\.png">/,
+        argument: ONE_PIXEL_GIF,
+        produces: new RegExp('<img src="' + ONE_PIXEL_GIF.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&') + '">'),
         usedBy: 'news-form-builder.js',
     },
     // Copy-to-clipboard. THE ONE ENTRY WHOSE LOSS IS NOT SILENT BREAKAGE:

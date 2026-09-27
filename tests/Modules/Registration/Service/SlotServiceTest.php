@@ -44,7 +44,7 @@ class SlotServiceTest extends TestCase
         $requestRepository = new RegistrationRequestRepository($this->pdo, $encryption);
 
         $this->service = new SlotService(
-            $this->pdo, $encryption, $settingService, $this->bracketRepository, $this->capacityRepository, $requestRepository
+            new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $encryption), new \Core\Config\ScoutYearService($this->pdo), $settingService, $this->bracketRepository, $this->capacityRepository, $requestRepository
         );
 
         $this->baladinsId = RegistrationTestHelper::insertAgeBranch($this->pdo, 'BALA', 'Baladins', 10);

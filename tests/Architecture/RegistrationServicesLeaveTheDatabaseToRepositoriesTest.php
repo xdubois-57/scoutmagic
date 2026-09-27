@@ -14,37 +14,51 @@ use PHPUnit\Framework\TestCase;
 /**
  * `modules/registration/src/Service/` leaves its SQL to `Repository/`.
  *
- * The same rule `MemberServicesLeaveTheDatabaseToRepositoriesTest` checks
+ * The same rule `MemberCodeLeavesTheDatabaseToRepositoriesTest` checks
  * on `core/Member/` — ARCHITECTURE.md §13, « Repository is the only layer
  * that touches PDO » — on the module where issue #593 found it broken:
  * `PassageService` ran seven statements of its own and
  * `ReenrollmentRecipientService` one. They moved to
  * `Repository\PassageRosterRepository`.
- *
- * **Four more Services still break it, and are named below rather than
- * fixed here.** Issue #593 named two; this guard, written for those two,
- * reports six. The other four are out of that ticket's scope, so they are
- * parked the way `core/Member/` once parked its own (issue #551): the list
- * is asserted in BOTH directions, so a Service that stops offending must
- * leave it and one that starts cannot join it quietly. It can only shrink.
  */
 final class RegistrationServicesLeaveTheDatabaseToRepositoriesTest extends TestCase
 {
     /** The floor: an empty verdict from a reader that found nothing means nothing. */
     private const AT_LEAST_THIS_MANY_FILES_ARE_READ = 15;
 
-    /**
-     * Services that still prepare statements of their own, to be moved.
-     * Removing a line here is the whole point; adding one is not.
+    /*
+     * **There is no exemption list any more** (issue #646).
+     *
+     * There was one: `STILL_TO_MOVE`. Issue #593 named two Services, and
+     * this guard, written for those two, reported six. The other four were
+     * out of that ticket's scope, so they were parked the way `core/Member/`
+     * once parked its own (issue #551), in a list asserted in BOTH
+     * directions: a Service that stopped offending had to leave it, and one
+     * that started could not join it quietly.
+     *
+     * It shrank to nothing. `ForecastService` and `SlotService` gave their
+     * roster reads to `Repository\PassageRosterRepository`, which already
+     * held the module's one definition of an animé; `ReconciliationService`
+     * and `ExternalMailingListService` gave theirs — reads of every member a
+     * Desk import produced, not only the animés — to a new
+     * `Repository\ImportedMemberRepository`; and `SlotService`'s scout-year
+     * label now comes from `Core\Config\ScoutYearService::findById()`. The
+     * rows' decryption went with the statements. The machinery went with
+     * the last line: an empty allowlist still teaches the next author that
+     * there is a place to put a name.
      */
-    private const STILL_TO_MOVE = [
-        'modules/registration/src/Service/ExternalMailingListService.php',
-        'modules/registration/src/Service/ForecastService.php',
-        'modules/registration/src/Service/ReconciliationService.php',
-        'modules/registration/src/Service/SlotService.php',
+
+    /** Every Service moved so far, by name: none of them may take a `\PDO` again. */
+    private const MOVED = [
+        'PassageService' => 593,
+        'ReenrollmentRecipientService' => 593,
+        'ExternalMailingListService' => 646,
+        'ForecastService' => 646,
+        'ReconciliationService' => 646,
+        'SlotService' => 646,
     ];
 
-    public function testNoServiceTalksToPdoExceptThoseStillToMove(): void
+    public function testNoServiceTalksToPdo(): void
     {
         $offenders = [];
         $read = 0;
@@ -62,33 +76,33 @@ final class RegistrationServicesLeaveTheDatabaseToRepositoriesTest extends TestC
             'the scan found almost no services to read, so its verdict means nothing'
         );
 
-        $newOffenders = array_values(array_diff($offenders, self::STILL_TO_MOVE));
         $this->assertSame(
             [],
-            $newOffenders,
+            $offenders,
             "a Service in modules/registration/ talks to PDO. ARCHITECTURE.md §13: the Repository layer is\n"
             . "the only one that does. Move the statement into modules/registration/src/Repository/:\n  "
-            . implode("\n  ", $newOffenders) . "\n"
-        );
-
-        $moved = array_values(array_diff(self::STILL_TO_MOVE, $offenders));
-        $this->assertSame(
-            [],
-            $moved,
-            "these Services no longer talk to PDO — take them off STILL_TO_MOVE:\n  " . implode("\n  ", $moved) . "\n"
+            . implode("\n  ", $offenders) . "\n"
         );
     }
 
-    /** The two Services issue #593 moved, by name: the list above must never grow back to them. */
-    public function testTheServicesIssue593MovedStayMoved(): void
+    /**
+     * The Services issues #593 and #646 moved, by name. Not talking to PDO
+     * is the rule above; not even TAKING one is what keeps the next
+     * statement from being one line away.
+     */
+    public function testTheServicesAlreadyMovedStayMoved(): void
     {
         $services = self::services();
 
-        foreach (['PassageService', 'ReenrollmentRecipientService'] as $name) {
+        foreach (self::MOVED as $name => $issue) {
             $path = 'modules/registration/src/Service/' . $name . '.php';
-            $this->assertArrayHasKey($path, $services);
+            $this->assertArrayHasKey($path, $services, $path . ' (issue #' . $issue . ') is no longer where it was');
             $this->assertFalse(self::talksToPdo($services[$path]), $path . ' talks to PDO again');
-            $this->assertStringNotContainsString('\\PDO $pdo', $services[$path], $path . ' takes a PDO again');
+            $this->assertStringNotContainsString(
+                '\\PDO $',
+                self::withoutComments($services[$path]),
+                $path . ' takes a PDO again (issue #' . $issue . ')'
+            );
         }
     }
 

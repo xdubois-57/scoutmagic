@@ -93,7 +93,7 @@ class PassageControllerTest extends TestCase
 
         $this->requestRepository = new RegistrationRequestRepository($this->pdo, $encryption);
         $slotCapacityRepository = new SlotCapacityRepository($this->pdo);
-        $slotService = new SlotService($this->pdo, $encryption, $settingService, $ageBracketRepository, $slotCapacityRepository, $this->requestRepository);
+        $slotService = new SlotService(new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $encryption), new \Core\Config\ScoutYearService($this->pdo), $settingService, $ageBracketRepository, $slotCapacityRepository, $this->requestRepository);
         $connection = Connection::withPdo($this->pdo);
         $sectionService = new SectionService(
     new SectionRepository($connection),
@@ -122,7 +122,7 @@ class PassageControllerTest extends TestCase
         // response carries back is the projection's own numbers, and a
         // stub here would let the two stop agreeing.
         $this->forecastService = new \Modules\Registration\Service\ForecastService(
-            $this->pdo, $encryption, $sectionService, $passageService
+            new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $encryption), $encryption, $sectionService, $passageService
         );
         $this->projection = new \Modules\Registration\Service\ProjectedPopulationService(
             $this->forecastService,

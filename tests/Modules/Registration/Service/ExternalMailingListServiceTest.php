@@ -52,7 +52,7 @@ class ExternalMailingListServiceTest extends TestCase
 
         $this->requestRepository = new RegistrationRequestRepository($this->pdo, $this->encryption);
         $this->service = new ExternalMailingListService(
-            $this->pdo, $this->encryption, $scoutYearResolver, $scoutYearService, $this->requestRepository
+            new \Modules\Registration\Repository\ImportedMemberRepository($this->pdo, $this->encryption), $scoutYearResolver, $scoutYearService, $this->requestRepository
         );
     }
 

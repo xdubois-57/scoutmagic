@@ -16,7 +16,6 @@ use Core\Member\MemberEmailRepository;
 use Core\Member\SectionRosterEntry;
 use Core\Member\SectionRosterRepository;
 use Core\Member\SectionService;
-use Core\Security\EncryptionService;
 use Core\Service\TextNormalizerService;
 
 /**
@@ -38,7 +37,6 @@ final class MemberExportRowBuilder
         private SectionRosterRepository $rosterRepository,
         private SectionService $sectionService,
         private ScoutYearService $scoutYearService,
-        private EncryptionService $encryption,
         private MemberEmailRepository $memberEmailRepository,
         private MemberMovementClassifierService $movementClassifier
     ) {
@@ -50,7 +48,15 @@ final class MemberExportRowBuilder
      */
     public function buildForSections(array $sectionIds, int $scoutYearId): array
     {
-        return $this->buildRows($this->rosterRepository->findRosterEntries($sectionIds, $scoutYearId), $scoutYearId);
+        $entries = $this->rosterRepository->findRosterEntries($sectionIds, $scoutYearId);
+
+        return $this->buildRows(
+            $entries,
+            $this->rosterRepository->findExportRecords(
+                array_map(fn(SectionRosterEntry $e) => $e->memberYearId, $entries)
+            ),
+            $scoutYearId
+        );
     }
 
     /**
@@ -69,6 +75,7 @@ final class MemberExportRowBuilder
     {
         $memberYearIds = array_values(array_unique(array_map('intval', $memberYearIds)));
         $entries = $this->rosterRepository->findEntriesByMemberYears($memberYearIds);
+        $records = $this->rosterRepository->findExportRecords($memberYearIds);
 
         $covered = [];
         foreach ($entries as $entry) {
@@ -76,12 +83,15 @@ final class MemberExportRowBuilder
         }
         $uncoveredIds = array_values(array_filter($memberYearIds, fn(int $id) => !isset($covered[$id])));
         if ($uncoveredIds !== []) {
-            foreach ($this->rosterRepository->findMemberYearRows($uncoveredIds) as $memberYearId => $row) {
+            foreach ($uncoveredIds as $memberYearId) {
+                if (!isset($records[$memberYearId])) {
+                    continue;
+                }
                 $entries[] = new SectionRosterEntry(
                     sectionId: 0,
                     ageBranchId: 0,
-                    memberYearId: (int) $memberYearId,
-                    memberId: (int) $row['member_id'],
+                    memberYearId: $memberYearId,
+                    memberId: $records[$memberYearId]->memberId,
                     bucket: SectionRosterEntry::BUCKET_ANIME,
                     functionLabel: '',
                     isMainFunction: false
@@ -89,14 +99,15 @@ final class MemberExportRowBuilder
             }
         }
 
-        return $this->buildRows($entries, $scoutYearId);
+        return $this->buildRows($entries, $records, $scoutYearId);
     }
 
     /**
      * @param SectionRosterEntry[] $entries
+     * @param array<int, MemberExportRecord> $records keyed by member_year id
      * @return MemberExportRow[]
      */
-    private function buildRows(array $entries, int $scoutYearId): array
+    private function buildRows(array $entries, array $records, int $scoutYearId): array
     {
         if ($entries === []) {
             return [];
@@ -108,8 +119,6 @@ final class MemberExportRowBuilder
         $memberYearIds = array_values(array_unique(array_map(fn(SectionRosterEntry $e) => $e->memberYearId, $entries)));
         $memberIds = array_values(array_unique(array_map(fn(SectionRosterEntry $e) => $e->memberId, $entries)));
 
-        $memberYearRows = $this->rosterRepository->findMemberYearRows($memberYearIds);
-        $addressesByMemberYear = $this->rosterRepository->findAddressRows($memberYearIds);
         $functionLabelsByMemberYear = $this->rosterRepository->findAllFunctionLabels($memberYearIds);
         $validEmailsByMember = $this->memberEmailRepository->findValidByMemberIds($memberIds);
 
@@ -134,16 +143,15 @@ final class MemberExportRowBuilder
 
         $rows = [];
         foreach ($entries as $entry) {
-            $memberYearRow = $memberYearRows[$entry->memberYearId] ?? null;
-            if ($memberYearRow === null) {
+            $record = $records[$entry->memberYearId] ?? null;
+            if ($record === null) {
                 continue;
             }
 
             $rows[] = $this->buildRow(
                 $entry,
-                $memberYearRow,
+                $record,
                 $scoutYearLabel,
-                $addressesByMemberYear[$entry->memberYearId][0] ?? null,
                 $functionLabelsByMemberYear[$entry->memberYearId] ?? [],
                 $validEmailsByMember[$entry->memberId] ?? [],
                 $movementByMemberId[$entry->memberId] ?? new MemberMovementResult(MemberMovementStatus::UNKNOWN),
@@ -164,8 +172,6 @@ final class MemberExportRowBuilder
     }
 
     /**
-     * @param array<string, mixed> $memberYearRow
-     * @param array<string, mixed>|null $addressRow
      * @param string[] $functionLabels
      * @param \Core\Member\MemberEmail[] $validSecondaryEmails
      * @param array{id: int, desk_code: string, name: ?string, branch_name: string}|null $section
@@ -173,9 +179,8 @@ final class MemberExportRowBuilder
      */
     private function buildRow(
         SectionRosterEntry $entry,
-        array $memberYearRow,
+        MemberExportRecord $record,
         string $scoutYearLabel,
-        ?array $addressRow,
         array $functionLabels,
         array $validSecondaryEmails,
         MemberMovementResult $movement,
@@ -183,8 +188,8 @@ final class MemberExportRowBuilder
         array $sectionsById
     ): MemberExportRow {
         $emails = [];
-        if (!empty($memberYearRow['email_encrypted'])) {
-            $emails[] = $this->encryption->decrypt($memberYearRow['email_encrypted'], 'member_years.email');
+        if ($record->email !== null) {
+            $emails[] = $record->email;
         }
         foreach ($validSecondaryEmails as $secondary) {
             if (!in_array($secondary->email, $emails, true)) {
@@ -193,17 +198,11 @@ final class MemberExportRowBuilder
         }
 
         $phones = [];
-        if (!empty($memberYearRow['phone_encrypted'])) {
-            $phones[] = 'Téléphone : ' . TextNormalizerService::normalizePhone($this->encryption->decrypt(
-                $memberYearRow['phone_encrypted'],
-                'member_years.phone'
-            ));
+        if ($record->phone !== null) {
+            $phones[] = 'Téléphone : ' . TextNormalizerService::normalizePhone($record->phone);
         }
-        if (!empty($memberYearRow['mobile_encrypted'])) {
-            $phones[] = 'GSM : ' . TextNormalizerService::normalizePhone($this->encryption->decrypt(
-                $memberYearRow['mobile_encrypted'],
-                'member_years.mobile'
-            ));
+        if ($record->mobile !== null) {
+            $phones[] = 'GSM : ' . TextNormalizerService::normalizePhone($record->mobile);
         }
 
         $previousSection = $movement->previousSectionId !== null
@@ -219,63 +218,34 @@ final class MemberExportRowBuilder
         return new MemberExportRow(
             memberId: $entry->memberId,
             memberYearId: $entry->memberYearId,
-            deskId: (string) $memberYearRow['desk_id'],
+            deskId: $record->deskId,
             scoutYearLabel: $scoutYearLabel,
-            firstName: $this->encryption->decrypt($memberYearRow['first_name_encrypted'], 'member_years.first_name'),
-            lastName: $this->encryption->decrypt($memberYearRow['last_name_encrypted'], 'member_years.last_name'),
-            totem: !empty($memberYearRow['totem_encrypted'])
-                ? $this->encryption->decrypt($memberYearRow['totem_encrypted'], 'member_years.totem')
-                : null,
-            quali: !empty($memberYearRow['quali_encrypted'])
-                ? $this->encryption->decrypt($memberYearRow['quali_encrypted'], 'member_years.quali')
-                : null,
-            gender: !empty($memberYearRow['gender_encrypted'])
-                ? $this->encryption->decrypt($memberYearRow['gender_encrypted'], 'member_years.gender')
-                : null,
-            birthDate: !empty($memberYearRow['birth_date_encrypted'])
-                ? $this->encryption->decrypt($memberYearRow['birth_date_encrypted'], 'member_years.birth_date')
-                : null,
+            firstName: $record->firstName,
+            lastName: $record->lastName,
+            totem: $record->totem,
+            quali: $record->quali,
+            gender: $record->gender,
+            birthDate: $record->birthDate,
             emails: $emails,
             phones: $phones,
-            street: $addressRow !== null && !empty($addressRow['street_encrypted'])
-                ? $this->encryption->decrypt($addressRow['street_encrypted'], 'member_addresses.street')
-                : null,
-            number: $addressRow !== null && !empty($addressRow['number_encrypted'])
-                ? $this->encryption->decrypt($addressRow['number_encrypted'], 'member_addresses.number')
-                : null,
-            box: $addressRow !== null && !empty($addressRow['box_encrypted'])
-                ? $this->encryption->decrypt($addressRow['box_encrypted'], 'member_addresses.box')
-                : null,
-            postalCode: $addressRow !== null && !empty($addressRow['postal_code_encrypted'])
-                ? $this->encryption->decrypt($addressRow['postal_code_encrypted'], 'member_addresses.postal_code')
-                : null,
-            city: $addressRow !== null && !empty($addressRow['city_encrypted'])
-                ? $this->encryption->decrypt($addressRow['city_encrypted'], 'member_addresses.city')
-                : null,
-            country: $addressRow !== null && !empty($addressRow['country_encrypted'])
-                ? $this->encryption->decrypt($addressRow['country_encrypted'], 'member_addresses.country')
-                : null,
+            street: $record->street,
+            number: $record->number,
+            box: $record->box,
+            postalCode: $record->postalCode,
+            city: $record->city,
+            country: $record->country,
             sectionName: $section['name'] ?? $section['desk_code'] ?? null,
             sectionCode: $section['desk_code'] ?? null,
             branchName: $section['branch_name'] ?? null,
             roleBucketLabel: $bucketLabel,
             functionLabels: $functionLabels,
-            isActive: (bool) $memberYearRow['is_active'],
-            scoutYearOffset: (int) $memberYearRow['scout_year_offset'],
-            formationLevel: $memberYearRow['formation_level'] !== null
-                ? (string) $memberYearRow['formation_level']
-                : null,
-            supplementaryInsurance: $memberYearRow['supplementary_insurance'] !== null
-                ? (string) $memberYearRow['supplementary_insurance']
-                : null,
-            leaving: (bool) $memberYearRow['leaving'],
-            leavingComment: !empty($memberYearRow['leaving_comment_encrypted']) ? $this->encryption->decrypt(
-                $memberYearRow['leaving_comment_encrypted'],
-                'member_years.leaving_comment'
-            ) : null,
-            handicap: !empty($memberYearRow['handicap_encrypted'])
-                ? $this->encryption->decrypt($memberYearRow['handicap_encrypted'], 'member_years.handicap')
-                : null,
+            isActive: $record->isActive,
+            scoutYearOffset: $record->scoutYearOffset,
+            formationLevel: $record->formationLevel,
+            supplementaryInsurance: $record->supplementaryInsurance,
+            leaving: $record->leaving,
+            leavingComment: $record->leavingComment,
+            handicap: $record->handicap,
             movementStatusLabel: $movement->status->label(),
             previousSectionName: $previousSection['name'] ?? $previousSection['desk_code'] ?? null,
             previousBranchName: $previousSection['branch_name'] ?? null
