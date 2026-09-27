@@ -563,7 +563,7 @@ class NewsController extends AbstractController
         return $this->render('@news/detail.html.twig', [
             'article' => $article,
             'breadcrumb_current' => $article->title,
-            'author_name' => $author?->firstName ?? $author?->email,
+            'author_name' => $author->firstName ?? $author?->email,
             'form' => $form,
             'fields' => $this->fieldsForTemplate($fields, $memberOptions),
             'has_real_input' => $hasRealInput,
@@ -675,7 +675,7 @@ class NewsController extends AbstractController
                 'excerpt' => $article->summary,
                 'form_badge' => $form === null ? null : ($form->isOpen() ? 'open' : 'closed'),
                 'can_edit' => $currentAccountId !== null,
-                'author_name' => $author?->firstName ?? $author?->email,
+                'author_name' => $author->firstName ?? $author?->email,
             ];
         }, $articles);
     }
@@ -708,14 +708,14 @@ class NewsController extends AbstractController
             // breadcrumb.label ("Nouvel article") via Twig's default()
             // filter, same as MemberController's pattern for a dynamic title.
             'breadcrumb_current' => $article?->title,
-            'title_value' => $article?->title ?? '',
-            'summary_value' => $article?->summary ?? '',
-            'visibility_value' => $article?->visibility ?? Article::VISIBILITY_PUBLIC,
-            'is_indexed_value' => $article?->isIndexed ?? false,
-            'seo_keywords_value' => $article?->seoKeywords ?? '',
+            'title_value' => $article->title ?? '',
+            'summary_value' => $article->summary ?? '',
+            'visibility_value' => $article->visibility ?? Article::VISIBILITY_PUBLIC,
+            'is_indexed_value' => $article->isIndexed ?? false,
+            'seo_keywords_value' => $article->seoKeywords ?? '',
             // Same "usability review" default as opens_at/closes_at below:
             // 6 months out rather than blank (forever-indexed, easy to forget).
-            'seo_stop_date_value' => $article?->seoStopDate ?? (new \DateTimeImmutable('+6 months'))->format('Y-m-d'),
+            'seo_stop_date_value' => $article->seoStopDate ?? (new \DateTimeImmutable('+6 months'))->format('Y-m-d'),
             'form' => $form,
             'fields' => $fields,
             'preview_fields' => $this->fieldsForPreview($fields, $memberOptions),
@@ -750,8 +750,8 @@ class NewsController extends AbstractController
             // Usability review defaults for a brand-new form: open
             // immediately (today) and close 6 months later, rather than
             // leaving both blank (forever-open, easy to forget about).
-            'default_opens_at' => $form?->opensAt ?? (new \DateTimeImmutable())->format('Y-m-d'),
-            'default_closes_at' => $form?->closesAt ?? (new \DateTimeImmutable('+6 months'))->format('Y-m-d'),
+            'default_opens_at' => $form->opensAt ?? (new \DateTimeImmutable())->format('Y-m-d'),
+            'default_closes_at' => $form->closesAt ?? (new \DateTimeImmutable('+6 months'))->format('Y-m-d'),
             'article_actions' => $article !== null ? ($this->articleActions?->collect($article->id) ?? []) : [],
             'short_url' => $article?->shortUrlCode !== null
                 ? rtrim((string) ($this->settingService->get('base_url') ?: ''), '/') . '/s/' . $article->shortUrlCode
@@ -1124,7 +1124,7 @@ class NewsController extends AbstractController
 
         return array_map(
             fn(array $f) => [
-                'id' => isset($f['id']) && $f['id'] !== null ? (int) $f['id'] : null,
+                'id' => isset($f['id']) ? (int) $f['id'] : null,
                 'field_type' => (string) ($f['field_type'] ?? ''),
                 'label' => isset($f['label']) && $f['label'] !== '' ? (string) $f['label'] : null,
                 'is_required' => (bool) ($f['is_required'] ?? false),
@@ -1134,12 +1134,11 @@ class NewsController extends AbstractController
                 'options_manual' => isset($f['options_manual']) && $f['options_manual'] !== ''
                     ? (string) $f['options_manual']
                     : null,
-                'capacity_max' => isset($f['capacity_max']) && $f['capacity_max'] !== '' && $f['capacity_max'] !== null
+                'capacity_max' => isset($f['capacity_max']) && $f['capacity_max'] !== ''
                     ? (int) $f['capacity_max']
                     : null,
                 'price_per_unit' => isset($f['price_per_unit'])
-                    && $f['price_per_unit'] !== ''
-                    && $f['price_per_unit'] !== null ? (float) $f['price_per_unit'] : null,
+                    && $f['price_per_unit'] !== '' ? (float) $f['price_per_unit'] : null,
                 'confirmation_text' => isset($f['confirmation_text']) && $f['confirmation_text'] !== ''
                     ? (string) $f['confirmation_text']
                     : null,

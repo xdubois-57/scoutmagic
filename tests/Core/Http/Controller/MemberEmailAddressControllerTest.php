@@ -364,7 +364,7 @@ class MemberEmailAddressControllerTest extends TestCase
 
     public function testConfirmGetNeverConfirmsEvenWithAValidToken(): void
     {
-        $this->memberEmailService->method('canConfirmEmail')->with(7, 'goodtoken')->willReturn(true);
+        $this->memberEmailService->expects($this->once())->method('canConfirmEmail')->with(7, 'goodtoken')->willReturn(true);
         $this->memberEmailService->expects($this->never())->method('confirmEmail');
         $twig = $this->createMock(Environment::class);
         $twig->expects($this->once())
@@ -386,7 +386,7 @@ class MemberEmailAddressControllerTest extends TestCase
         $this->memberEmailService->method('canConfirmEmail')->willReturn(false);
         $this->memberEmailService->expects($this->never())->method('confirmEmail');
         $twig = $this->createMock(Environment::class);
-        $twig->method('render')
+        $twig->expects($this->once())->method('render')
             ->with('members/email_confirmed.html.twig', ['state' => 'invalid', 'email_id' => 999, 'token' => 'wrong'])
             ->willReturn('<html></html>');
         $controller = new MemberEmailAddressController($twig, $this->memberEmailService, $this->memberService);
@@ -424,7 +424,7 @@ class MemberEmailAddressControllerTest extends TestCase
     {
         $this->memberEmailService->method('confirmEmail')->willReturn(false);
         $twig = $this->createMock(Environment::class);
-        $twig->method('render')
+        $twig->expects($this->once())->method('render')
             ->with('members/email_confirmed.html.twig', ['state' => 'invalid'])
             ->willReturn('<html></html>');
         $controller = new MemberEmailAddressController($twig, $this->memberEmailService, $this->memberService);
@@ -443,7 +443,7 @@ class MemberEmailAddressControllerTest extends TestCase
         // scanner "posts" without a body must not confirm on this shape.
         $this->memberEmailService->expects($this->never())->method('confirmEmail');
         $twig = $this->createMock(Environment::class);
-        $twig->method('render')
+        $twig->expects($this->once())->method('render')
             ->with('members/email_confirmed.html.twig', ['state' => 'invalid'])
             ->willReturn('<html></html>');
         $controller = new MemberEmailAddressController($twig, $this->memberEmailService, $this->memberService);

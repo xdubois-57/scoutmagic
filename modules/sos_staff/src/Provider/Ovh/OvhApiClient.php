@@ -90,7 +90,7 @@ class OvhApiClient
             throw new OvhApiException('Consumer Key manquante ou non validée.');
         }
 
-        $body = $bodyArray !== null ? json_encode($bodyArray) : '';
+        $body = $bodyArray !== null ? json_encode($bodyArray) : null;
         \assert($body !== false);
         $url = $this->endpoint . $path;
         $timestamp = (string) (time() + $this->getTimeDelta());
@@ -100,7 +100,7 @@ class OvhApiClient
             $this->consumerKey,
             $method,
             $url,
-            $body,
+            $body ?? '',
             $timestamp,
         ]));
 
@@ -112,7 +112,7 @@ class OvhApiClient
             'X-Ovh-Signature' => $signature,
         ];
 
-        $response = $this->dispatch($method, $url, $headers, $bodyArray !== null ? $body : null);
+        $response = $this->dispatch($method, $url, $headers, $body);
 
         return $this->decodeJsonResponse($response);
     }

@@ -180,7 +180,7 @@ class PersonalFeedServiceTest extends TestCase
         $eventId = $this->eventRepository->create($sectionCalendar->id, 'Réunion', '2026-03-15', null, null, null, null, 'Prévoir le matériel.', null);
 
         $lookup = $this->createMock(\Modules\Retro\Api\RetroEventLinkLookupInterface::class);
-        $lookup->method('findLinkedBoardLink')->with($eventId, $this->anything(), $email, $this->scoutYearId)
+        $lookup->expects($this->once())->method('findLinkedBoardLink')->with($eventId, $this->anything(), $email, $this->scoutYearId)
             ->willReturn(new \Modules\Retro\Api\RetroLinkSummary('https://example.test/r/abc123', 'Rétrospective Réunion'));
         $service = $this->serviceWithLookup($lookup);
 
@@ -288,7 +288,7 @@ class PersonalFeedServiceTest extends TestCase
         );
 
         $lookup = $this->createMock(\Modules\Presences\Api\PresenceSheetLinkLookupInterface::class);
-        $lookup->method('findSheetLink')->with($eventId, $this->anything(), $email, $this->scoutYearId)
+        $lookup->expects($this->once())->method('findSheetLink')->with($eventId, $this->anything(), $email, $this->scoutYearId)
             ->willReturn(new \Modules\Presences\Api\PresenceSheetLink('https://example.test/s/K7m2Qa'));
         $service = $this->serviceWithPresenceLookup($lookup);
 

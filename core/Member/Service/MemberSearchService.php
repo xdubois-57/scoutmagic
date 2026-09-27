@@ -235,7 +235,7 @@ class MemberSearchService
                 <=> [self::fold($b->lastName), self::fold($b->firstName)]
         );
 
-        return array_values($matched);
+        return $matched;
     }
 
     /**

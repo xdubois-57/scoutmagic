@@ -96,8 +96,8 @@ class DeparturesController extends AbstractController
             $rows[] = [
                 'profile' => $profile,
                 'branch_year_label' => $effectiveAge->getBranchYearLabel(),
-                'leaving' => $status?->leaving ?? false,
-                'comment' => $status?->comment ?? '',
+                'leaving' => $status->leaving ?? false,
+                'comment' => $status->comment ?? '',
             ];
         }
 

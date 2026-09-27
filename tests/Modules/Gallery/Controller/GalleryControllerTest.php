@@ -859,7 +859,7 @@ class GalleryControllerTest extends TestCase
         $backend = $this->createMock(\Core\Storage\Location\Backend\StorageBackendInterface::class);
         // The best rendition kept for a photo, which is what the album's
         // own zip puts in the archive for this media too.
-        $backend->method('get')->with('lg.jpg')->willReturn('fake-large-image-bytes');
+        $backend->expects($this->once())->method('get')->with('lg.jpg')->willReturn('fake-large-image-bytes');
         $this->storageBackendFactory->method('create')->willReturn($backend);
 
         $response = $this->controller->downloadMedia(

@@ -53,7 +53,7 @@ class UnsubscribeControllerTest extends TestCase
 
     public function testShowNeverCallsUnsubscribeEvenWithAValidToken(): void
     {
-        $this->recipientRepository->method('verifyUnsubscribeToken')->with(10, 'goodtoken')->willReturn($this->makeRecipient(5));
+        $this->recipientRepository->expects($this->once())->method('verifyUnsubscribeToken')->with(10, 'goodtoken')->willReturn($this->makeRecipient(5));
         $this->memberEmailService->expects($this->never())->method('unsubscribe');
 
         $response = $this->controller->show(
@@ -81,7 +81,7 @@ class UnsubscribeControllerTest extends TestCase
 
     public function testUnsubscribePostWithAValidTokenCallsUnsubscribeOnce(): void
     {
-        $this->recipientRepository->method('verifyUnsubscribeToken')->with(10, 'goodtoken')->willReturn($this->makeRecipient(5));
+        $this->recipientRepository->expects($this->once())->method('verifyUnsubscribeToken')->with(10, 'goodtoken')->willReturn($this->makeRecipient(5));
         $this->memberEmailService->expects($this->once())->method('unsubscribe')->with(5);
 
         $response = $this->controller->unsubscribe(
@@ -100,7 +100,7 @@ class UnsubscribeControllerTest extends TestCase
      */
     public function testUnsubscribePostAcceptsATokenFromTheQueryStringAlone(): void
     {
-        $this->recipientRepository->method('verifyUnsubscribeToken')->with(10, 'goodtoken')->willReturn($this->makeRecipient(5));
+        $this->recipientRepository->expects($this->once())->method('verifyUnsubscribeToken')->with(10, 'goodtoken')->willReturn($this->makeRecipient(5));
         $this->memberEmailService->expects($this->once())->method('unsubscribe')->with(5);
 
         $response = $this->controller->unsubscribe(
@@ -113,7 +113,7 @@ class UnsubscribeControllerTest extends TestCase
 
     public function testUnsubscribePostFallsBackToABodyToken(): void
     {
-        $this->recipientRepository->method('verifyUnsubscribeToken')->with(10, 'formtoken')->willReturn($this->makeRecipient(5));
+        $this->recipientRepository->expects($this->once())->method('verifyUnsubscribeToken')->with(10, 'formtoken')->willReturn($this->makeRecipient(5));
         $this->memberEmailService->expects($this->once())->method('unsubscribe')->with(5);
 
         $response = $this->controller->unsubscribe(
@@ -178,7 +178,7 @@ class UnsubscribeControllerTest extends TestCase
         // A mail-merge row addressed by its "Email" column: no member, no
         // member_emails row to flip — the address lands on the module's
         // own suppression list instead.
-        $this->recipientRepository->method('verifyUnsubscribeToken')->with(10, 'goodtoken')
+        $this->recipientRepository->expects($this->once())->method('verifyUnsubscribeToken')->with(10, 'goodtoken')
             ->willReturn($this->makeRecipient(null, null));
         $this->memberEmailService->expects($this->never())->method('unsubscribe');
         $this->suppressedAddressRepository->expects($this->once())->method('suppress')->with('someone@example.com');

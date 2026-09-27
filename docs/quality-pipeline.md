@@ -1692,9 +1692,10 @@ nothing**:
   output, under a green `test` job, for months. What made it invisible is
   not that nobody looked: it is that the only thing anyone reads about a
   suite is whether it passed, and this verdict does not change that answer.
-  `failOnRisky` is on now (issue #426); `failOnWarning` is deliberately not,
-  because six warnings remain and turning them red is its own piece of work.
-  The order matters and is the general rule for this whole family: **bring
+  `failOnRisky` is on now (issue #426), and `failOnWarning` and
+  `failOnPhpunitDeprecation` joined it once the suite had reached zero of
+  each (seven warnings, all test doubles answering a shape the real method
+  never returns, and nineteen `with()` without `expects()`). The order matters and is the general rule for this whole family: **bring
   the count to zero first, then close the door**, or the flag lands red on
   day one and is reverted before it has ever protected anything.
 - A `CODEOWNERS` entry naming a non-collaborator is **ignored silently**, so

@@ -38,7 +38,6 @@ class ResetSettingsHandler implements TaskHandlerInterface
     public function handle(array $payload, TaskContext $context): void
     {
         $requestedBy = isset($payload['requested_by_user_account_id'])
-            && $payload['requested_by_user_account_id'] !== null
             ? (int) $payload['requested_by_user_account_id']
             : null;
 

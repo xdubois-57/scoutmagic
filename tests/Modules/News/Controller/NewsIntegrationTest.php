@@ -500,7 +500,7 @@ class NewsIntegrationTest extends TestCase
         $financeAccount->method('getConfiguredAccounts')->willReturn([
             ['id' => 42, 'name' => 'Compte Meute A', 'iban' => null, 'holder_name' => null, 'section_id' => $sectionId],
         ]);
-        $financeAccount->method('getDefaultAccountForSection')->with($sectionId)->willReturn(42);
+        $financeAccount->expects($this->once())->method('getDefaultAccountForSection')->with($sectionId)->willReturn(42);
 
         $controller = new NewsController(
             $this->twig, $this->articleService, $this->formService, $this->responseService, new SeoKeywordService(null),

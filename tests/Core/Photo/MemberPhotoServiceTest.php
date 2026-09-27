@@ -96,7 +96,7 @@ class MemberPhotoServiceTest extends TestCase
     public function testPrimeFileIdsSkipsWhatIsAlreadyKnown(): void
     {
         $repository = $this->createMock(MemberPhotoRepository::class);
-        $repository->method('findFileIdForYearOrEarlier')->with(42, 7)->willReturn(99);
+        $repository->expects($this->once())->method('findFileIdForYearOrEarlier')->with(42, 7)->willReturn(99);
         $repository->expects($this->once())->method('findFileIdsForYearOrEarlier')->with([43], 7)->willReturn([]);
 
         $service = new MemberPhotoService($repository);
