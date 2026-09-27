@@ -2,7 +2,7 @@
   "id": "attestations",
   "name": "Attestations",
   "description": "Distribue à chaque famille son attestation fiscale et de mutuelle.",
-  "version": "1.5.4",
+  "version": "1.5.5",
   "routes": [
     {
       "path": "/admin/attestations",

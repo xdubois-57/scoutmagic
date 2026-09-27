@@ -1,5 +1,8 @@
 {% extends 'base.html.twig' %}
 {% block title %}Diagnostic — {{ site_name }}{% endblock %}
+{# .support-payload-preview lives in components.css, which base.html.twig
+   does not load (issue #602). #}
+{% block stylesheets %}<link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">{% endblock %}
 {% block content %}
 {% include 'partials/page_header.html.twig' with { title: 'Diagnostic' } only %}
 
