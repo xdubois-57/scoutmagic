@@ -1930,3 +1930,25 @@ refaite.
 **Au passage** : les deux doublures du fichier passent de `createMock()` à
 `createStub()`. Aucune des deux ne configure d'attente, et PHPUnit 13 émet
 une notice pour le dire — l'une la déclenchait avant ce lot.
+
+**Le défaut le plus intéressant du lot n'était pas dans un test, mais dans une
+phrase** — relevé par CodeRabbit dans son paragraphe « Merge Risk », pas dans
+un commentaire en ligne, donc à un endroit qu'il est facile de ne pas lire.
+
+Le commentaire de `waive()` affirmait depuis l'origine que résoudre la
+campagne d'abord empêche d'abandonner « une créance d'une autre campagne — ou
+d'un autre compte ». La seconde moitié est vraie mais tenue ailleurs, dans
+`ReceivableAllocationService::requireReceivable()`. La première est **fausse** :
+`$campaignId` et `$receivableId` ne se rencontrent jamais dans cette route. Et
+le docblock du test que j'écrivais pour couvrir cette branche répétait
+l'affirmation, ce qui l'aurait certifiée.
+
+Les deux commentaires disent maintenant ce que le code fait, et renvoient à
+l'issue #582 ; le comportement n'a pas été changé, une PR de durcissement des
+tests n'étant pas l'endroit pour modifier ce qu'une route accepte.
+
+C'est la quatrième fois sur ce chantier que mon défaut est une phrase et non du
+code — après la ligne `files` du lot 1, la boîte de dénombrement du lot 1, et
+le compte de portes de `release.sh`. Le chantier existe pour retirer des tests
+les affirmations que le code ne tient pas ; il faut le lire aussi sur les
+commentaires écrits pour les accompagner.

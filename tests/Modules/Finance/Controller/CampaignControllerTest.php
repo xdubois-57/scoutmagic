@@ -746,10 +746,15 @@ class CampaignControllerTest extends TestCase
     }
 
     /**
-     * The campaign is resolved before the receivable, on purpose — it is
-     * what stops a receivable id from another campaign, or another
-     * section's account, being waived through this route. So an unknown
-     * campaign refuses a receivable that does exist.
+     * The campaign is resolved before the receivable, so an unknown
+     * campaign refuses a receivable that does exist — nothing is waived on
+     * the way to finding out.
+     *
+     * What this does **not** show, because the route does not do it: that
+     * the receivable belongs to this campaign. Nothing compares the two
+     * (issue #582). The check that does hold is on the receivable's own
+     * account, inside the allocation service, and it is asserted below by
+     * testACampaignOnAnAccountOutOfReachCannotBeClosedNotedOrNotified.
      */
     public function testWaivingThroughAnUnknownCampaignLeavesTheReceivableStanding(): void
     {
