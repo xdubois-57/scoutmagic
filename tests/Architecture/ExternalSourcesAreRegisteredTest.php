@@ -262,7 +262,9 @@ final class ExternalSourcesAreRegisteredTest extends TestCase
         }
 
         $this->assertNotNull(ExternalSources::byId(ExternalSources::FEES_PAGE_ID));
-        $this->assertTrue(ExternalSources::byId('federal-badge-placement')?->upcoming);
+        // Issue #473: registered ahead of its use, then used — so no longer
+        // exempt from the "every content source is used" check.
+        $this->assertFalse(ExternalSources::byId('federal-insignia-placement')?->upcoming);
     }
 
     // ── The shipped defaults that cannot read PHP ──────────────────────

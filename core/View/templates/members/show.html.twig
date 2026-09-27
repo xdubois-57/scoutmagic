@@ -609,6 +609,12 @@
                             <a href="{{ branch_card.explanation_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">
                                 En savoir plus <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i>
                             </a>
+                            {# Issue #473 — a discreet link, not a second
+                               button: the card is a third of the page at
+                               its widest. #}
+                            <div class="small mt-2">
+                                {% include 'partials/insignia_placement_link.html.twig' with { url: branch_card.insignia_placement_url } only %}
+                            </div>
                         </div>
                     </div>
                 {% endif %}

@@ -670,6 +670,49 @@ class PageControllerTest extends TestCase
     }
 
     /**
+     * Issue #473 — where to sew the insignia, linked ONCE at the top of
+     * /sections: in the template, not under each branch, and not in the
+     * per-section editable blocks. Two branches and two sections here, so
+     * a link that slid into the loop would be counted twice.
+     */
+    public function testSectionsPageLinksTheInsigniaGuideOnceAboveTheBranches(): void
+    {
+        $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('B1', 'Louveteaux', 1)");
+        $firstBranch = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('B2', 'Éclaireurs', 2)");
+        $secondBranch = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT INTO sections (age_branch_id, desk_code, name) VALUES ($firstBranch, 'L1', 'Meute')");
+        $this->pdo->exec("INSERT INTO sections (age_branch_id, desk_code, name) VALUES ($secondBranch, 'E1', 'Troupe')");
+
+        $body = $this->controller->sections(new Request('GET', '/sections', [], [], [], []), [])->getBody();
+
+        $link = '<a href="' . \Core\ExternalSource\ExternalSources::INSIGNIA_PLACEMENT_PAGE
+            . '" target="_blank" rel="noopener" class="insignia-placement-link">'
+            . "Où coudre les insignes sur l'uniforme ?";
+        $this->assertSame(1, substr_count($body, $link), 'The insignia guide is linked exactly once, from the register.');
+        $this->assertSame(1, substr_count($body, \Core\ExternalSource\ExternalSources::INSIGNIA_PLACEMENT_PAGE));
+
+        // At the top: before the first branch heading.
+        $this->assertLessThan(strpos($body, 'Louveteaux'), strpos($body, $link));
+        // The article, never the PDF behind it (an internal file id).
+        $this->assertStringNotContainsString('lesscouts.be/api/file/', $body);
+        // « insignes » on screen, never « badges » or « écussons ».
+        $this->assertStringNotContainsStringIgnoringCase('écussons', strip_tags($body));
+    }
+
+    /**
+     * And on the empty page too: the question comes before the first
+     * import as much as before a family has an account.
+     */
+    public function testSectionsPageLinksTheInsigniaGuideEvenWithNoSectionYet(): void
+    {
+        $body = $this->controller->sections(new Request('GET', '/sections', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('premier import', $body);
+        $this->assertSame(1, substr_count($body, \Core\ExternalSource\ExternalSources::INSIGNIA_PLACEMENT_PAGE));
+    }
+
+    /**
      * Issue #359 — a signed-in member sees « Totem (Prénom Nom) », the
      * display_name_full filter the member page already uses for this same
      * "responsable" field. A bare totem names nobody: a parent looking up
