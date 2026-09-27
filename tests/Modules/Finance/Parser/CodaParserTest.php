@@ -327,7 +327,53 @@ class CodaParserTest extends TestCase
         $this->assertLessThanOrEqual(100, strlen($first[0]->bankReference), 'finance_transactions.bank_reference is a VARCHAR(100)');
     }
 
+    /**
+     * With no bank reference, two identical payments on the same day in
+     * two statements of the file stay two movements: the sequence number
+     * restarts at 0001 with each statement, so the key cannot rest on it
+     * alone.
+     */
+    public function testWithoutABankReferenceTwoStatementsNeverShareAKey(): void
+    {
+        $records = [
+            CodaRecords::header(),
+            CodaRecords::oldBalance(self::UNIT, '012', 0, '310727'),
+            CodaRecords::movement('0001', '0000', '', 45_000, '020827', '020827', 'Cotisation', false, '0', '012'),
+            CodaRecords::newBalance(self::UNIT, '012', 45_000, '020827'),
+            CodaRecords::oldBalance(self::UNIT, '013', 45_000, '020827'),
+            CodaRecords::movement('0001', '0000', '', 45_000, '020827', '020827', 'Cotisation', false, '0', '013'),
+            CodaRecords::newBalance(self::UNIT, '013', 90_000, '020827'),
+            CodaRecords::trailer(),
+        ];
+
+        $lines = $this->parse($records);
+
+        $this->assertCount(2, $lines);
+        $this->assertNotSame($lines[0]->bankReference, $lines[1]->bankReference);
+    }
+
     // ------------------------------------------------------ malformed files
+
+    /**
+     * A statement that never reaches its record 8 is refused even when it
+     * is not the last one: its movements would otherwise go in unchecked.
+     */
+    public function testAStatementLeftOpenBeforeTheNextOneIsRefused(): void
+    {
+        $records = [
+            CodaRecords::header(),
+            CodaRecords::oldBalance(self::UNIT, '012', 0, '310727'),
+            CodaRecords::movement('0001', '0000', 'REF-1', 10_000, '020827', '020827', 'Jamais vérifié'),
+            CodaRecords::oldBalance(self::UNIT, '013', 0, '020827'),
+            CodaRecords::movement('0001', '0000', 'REF-2', 20_000, '090827', '090827', 'Vérifié'),
+            CodaRecords::newBalance(self::UNIT, '013', 20_000, '090827'),
+            CodaRecords::trailer(),
+        ];
+
+        $this->expectException(FinanceException::class);
+        $this->expectExceptionMessage("un relevé n'a pas de solde final");
+        $this->parse($records);
+    }
 
     public function testAStatementWithoutItsNewBalanceIsRefused(): void
     {

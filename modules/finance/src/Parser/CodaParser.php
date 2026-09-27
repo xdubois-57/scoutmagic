@@ -129,6 +129,14 @@ final class CodaParser implements BankStatementParserInterface
 
                 case '1':
                     $this->flush($movement, $lines);
+                    // A new statement while the previous one is still open:
+                    // that one never reached its record 8, so its movements
+                    // were never checked against a new balance.
+                    if ($account !== null) {
+                        throw new FinanceException(
+                            "Le fichier CODA est incomplet : un relevé n'a pas de solde final."
+                        );
+                    }
                     $account = $this->accountIban(self::field($record, 1, 1), self::field($record, 5, 37));
                     $statementNumber = trim(self::field($record, 2, 3));
                     $openingMillis = $this->millis(self::field($record, 42, 1), self::field($record, 43, 15), $index);
@@ -285,6 +293,7 @@ final class CodaParser implements BankStatementParserInterface
             'transactionCode' => self::field($record, 53, 8),
             'entryDate' => $this->date(self::field($record, 115, 6), $index),
             'sequence' => self::field($record, 2, 4),
+            'statementNumber' => self::field($record, 121, 3),
             'structured' => $structured,
             'communication' => $communication,
             'counterpartyAccount' => '',
@@ -353,8 +362,13 @@ final class CodaParser implements BankStatementParserInterface
     /**
      * Stable across exports and years: what identifies the movement, never
      * where the export happened to cut it. The bank's own reference when
-     * there is one; the sequence number only as a last resort, for a bank
-     * that leaves it blank.
+     * there is one. For a bank that leaves it blank, the statement number
+     * AND the sequence number: the sequence restarts at 0001 with every
+     * statement, so alone it would make two identical payments of two
+     * statements — the same fee paid by two families on the same day — one
+     * key, and insertOrSkip() would drop the second without a word. The
+     * statement number restarts every year too, which the entry date in
+     * the key already tells apart.
      *
      * @param array<string, mixed> $m
      */
@@ -365,7 +379,9 @@ final class CodaParser implements BankStatementParserInterface
         $parts = [
             $m['account'],
             $entryDate->format('Y-m-d'),
-            $m['bankReference'] !== '' ? $m['bankReference'] : 'seq:' . $m['sequence'],
+            $m['bankReference'] !== ''
+                ? $m['bankReference']
+                : 'statement:' . $m['statementNumber'] . ':seq:' . $m['sequence'],
             $m['detail'],
             (string) $m['millis'],
         ];
