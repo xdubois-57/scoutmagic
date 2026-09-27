@@ -117,7 +117,7 @@ class NewsIntegrationTest extends TestCase
     new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
 );
         $this->sectionService = $sectionService;
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/news/views';

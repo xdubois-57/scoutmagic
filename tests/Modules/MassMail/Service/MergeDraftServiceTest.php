@@ -104,7 +104,7 @@ class MergeDraftServiceTest extends TestCase
             $memberService,
             new MemberEmailService(
                 new MemberEmailRepository($this->pdo, $encryption),
-                $this->createMock(MailService::class),
+                $this->createStub(MailService::class),
                 EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createMock(\Twig\Environment::class)),
                 new JournalService(new JournalRepository($this->pdo)),
                 $sectionService,
@@ -114,7 +114,7 @@ class MergeDraftServiceTest extends TestCase
                 'Test Unité'
             ),
             $sectionService,
-            $this->createMock(MailService::class),
+            $this->createStub(MailService::class),
             new SchedulerService(new SchedulerRepository($this->pdo)),
             new JournalService(new JournalRepository($this->pdo)),
             new HtmlSanitizer(),

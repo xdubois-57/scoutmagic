@@ -41,7 +41,7 @@ class PasswordResetServiceTest extends TestCase
         $this->userRepo = new UserAccountRepository($this->pdo, $this->encryption);
 
         $this->emailSent = false;
-        $mailService = $this->createMock(\Core\Mail\MailService::class);
+        $mailService = $this->createStub(\Core\Mail\MailService::class);
         $mailService->method('send')->willReturnCallback(function (string $to, string $subject, string $bodyHtml, string $bodyText) {
             $this->emailSent = true;
             $this->capturedResetUrl = trim($bodyText);

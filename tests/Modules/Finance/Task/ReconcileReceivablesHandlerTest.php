@@ -144,7 +144,7 @@ class ReconcileReceivablesHandlerTest extends TestCase
         return new TaskContext(
             Connection::withPdo($this->pdo),
             $this->encryption,
-            $this->createMock(MailService::class),
+            $this->createStub(MailService::class),
             new JournalService(new JournalRepository($this->pdo)),
             new SettingService(new SettingRepository($this->pdo)),
             $this->createMock(UserAccountRepository::class),

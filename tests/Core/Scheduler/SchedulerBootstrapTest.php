@@ -172,7 +172,7 @@ class SchedulerBootstrapTest extends TestCase
             $moduleManager,
             Connection::withPdo($pdo),
             $encryption,
-            $this->createMock(MailService::class),
+            $this->createStub(MailService::class),
             $journalService,
             $settingService,
             new UserAccountRepository($pdo, $encryption),

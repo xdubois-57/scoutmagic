@@ -46,8 +46,15 @@ use PHPUnit\Framework\TestCase;
  */
 final class MailDoublesNameTheirRecipientTest extends TestCase
 {
-    /** How a test file gets hold of a `MailService` it can question. */
-    private const DOUBLES_IT = '/createMock\(\s*(?:\\\\?Core\\\\Mail\\\\)?MailService::class\s*\)'
+    /**
+     * How a test file gets hold of a `MailService`. A stub is counted too
+     * (issue #665): most files double it only because a constructor asks
+     * for one, and those became stubs when their mocks were found to carry
+     * no expectation. They cannot expect a send, so they add nothing to
+     * check — but the floor below counts the files this scan READS, and
+     * must not fall because a double became honest about what it is.
+     */
+    private const DOUBLES_IT = '/create(?:Mock|Stub)\(\s*(?:\\\\?Core\\\\Mail\\\\)?MailService::class\s*\)'
         . '|getMockBuilder\(\s*(?:\\\\?Core\\\\Mail\\\\)?MailService::class\s*\)'
         . '|extends\s+MailService\b/';
 

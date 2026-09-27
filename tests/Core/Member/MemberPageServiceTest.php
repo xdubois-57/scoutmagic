@@ -79,7 +79,7 @@ class MemberPageServiceTest extends TestCase
         $this->memberDocumentService = new MemberDocumentService(new MemberDocumentRepository($this->pdo));
         $this->memberEmailService = new MemberEmailService(
             new MemberEmailRepository($this->pdo, $this->encryption),
-            $this->createMock(\Core\Mail\MailService::class),
+            $this->createStub(\Core\Mail\MailService::class),
             EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createMock(\Twig\Environment::class)),
             $this->createMock(\Core\Journal\JournalService::class),
             $this->sectionService,
@@ -94,7 +94,7 @@ class MemberPageServiceTest extends TestCase
         $this->bounceStates = new \Core\Mail\Feedback\Bounce\BounceStateRepository($this->pdo, $this->encryption);
         $this->memberEmailService = new MemberEmailService(
             new MemberEmailRepository($this->pdo, $this->encryption),
-            $this->createMock(\Core\Mail\MailService::class),
+            $this->createStub(\Core\Mail\MailService::class),
             EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createMock(\Twig\Environment::class)),
             $this->createMock(\Core\Journal\JournalService::class),
             $this->sectionService,

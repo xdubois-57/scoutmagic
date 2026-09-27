@@ -89,7 +89,7 @@ class InstallUpdateHandlerLockTest extends TestCase
         $this->context = new TaskContext(
             $connection,
             $encryption,
-            $this->createMock(MailService::class),
+            $this->createStub(MailService::class),
             $journalService,
             $settings,
             $userAccountRepository,

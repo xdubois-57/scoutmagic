@@ -32,7 +32,7 @@ class TaskContextTest extends TestCase
         $pdo = DatabaseTestHelper::createTestDatabase();
         $connection = Connection::withPdo($pdo);
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
         $journal = new JournalService(new JournalRepository($pdo));
         $settings = new SettingService(new SettingRepository($pdo));
         $userAccounts = new UserAccountRepository($pdo, $encryption);
@@ -49,7 +49,7 @@ class TaskContextTest extends TestCase
         $pdo = DatabaseTestHelper::createTestDatabase();
         $connection = Connection::withPdo($pdo);
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
         $journal = new JournalService(new JournalRepository($pdo));
         $settings = new SettingService(new SettingRepository($pdo));
         $userAccounts = new UserAccountRepository($pdo, $encryption);
@@ -103,7 +103,7 @@ class TaskContextTest extends TestCase
         $context = new TaskContext(
             Connection::withPdo($pdo),
             $encryption,
-            $this->createMock(MailService::class),
+            $this->createStub(MailService::class),
             new JournalService(new JournalRepository($pdo)),
             new SettingService(new SettingRepository($pdo)),
             new UserAccountRepository($pdo, $encryption),

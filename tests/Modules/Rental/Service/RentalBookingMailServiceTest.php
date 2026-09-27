@@ -89,7 +89,7 @@ final class RentalBookingMailServiceTest extends TestCase
     public function testEveryMailAboutABookingCarriesItsSignedReplyAddress(): void
     {
         $replyTos = [];
-        $mail = $this->createMock(MailService::class);
+        $mail = $this->createStub(MailService::class);
         $mail->method('send')->willReturnCallback(
             static function (string $to, string $subject, string $html, string $text, ?string $replyTo) use (&$replyTos): void {
                 $replyTos[] = $replyTo;
@@ -131,7 +131,7 @@ final class RentalBookingMailServiceTest extends TestCase
     public function testWithoutAnAddressToMintTheMailGoesOutWithNoReplyTo(): void
     {
         $replyTos = [];
-        $mail = $this->createMock(MailService::class);
+        $mail = $this->createStub(MailService::class);
         $mail->method('send')->willReturnCallback(
             static function (string $to, string $subject, string $html, string $text, ?string $replyTo) use (&$replyTos): void {
                 $replyTos[] = $replyTo;
@@ -176,7 +176,7 @@ final class RentalBookingMailServiceTest extends TestCase
     public function testWithoutASignedAddressTheReplyGoesToRentalsOwnBox(array $addresses, ?string $expected): void
     {
         $replyTos = [];
-        $mail = $this->createMock(MailService::class);
+        $mail = $this->createStub(MailService::class);
         $mail->method('send')->willReturnCallback(
             static function (string $to, string $subject, string $html, string $text, ?string $replyTo) use (&$replyTos): void {
                 $replyTos[] = $replyTo;
@@ -217,7 +217,7 @@ final class RentalBookingMailServiceTest extends TestCase
 
     private function recordingMailService(bool $succeeds = true): MailService
     {
-        $mock = $this->createMock(MailService::class);
+        $mock = $this->createStub(MailService::class);
         $mock->method('send')->willReturnCallback(
             function (
                 string $to,

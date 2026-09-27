@@ -155,7 +155,7 @@ final class ImmediateDeliveryTest extends TestCase
             return $this->mailService;
         }
 
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
         $expectation = $mailService->method('send');
         if ($fails !== null) {
             $expectation->willThrowException($fails);
@@ -332,7 +332,7 @@ final class ImmediateDeliveryTest extends TestCase
         $admin = $this->createUserAccount();
 
         $refuses = new class (
-            $this->createMock(MailService::class),
+            $this->createStub(MailService::class),
             $this->pdo,
             $this->settings,
             new JournalService($this->journalRepository)

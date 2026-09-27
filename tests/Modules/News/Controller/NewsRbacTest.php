@@ -107,7 +107,7 @@ class NewsRbacTest extends TestCase
     new SectionRepository($connection),
     new MemberProfileRepository($connection, $encryption, new MemberBadgeRepository($this->pdo))
 );
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/news/views';

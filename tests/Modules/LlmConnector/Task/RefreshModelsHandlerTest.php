@@ -126,7 +126,7 @@ class RefreshModelsHandlerTest extends TestCase
     private function createTaskContext(): TaskContext
     {
         $connection = Connection::withPdo($this->pdo);
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
         $settingService = $this->createMock(SettingService::class);
         $userAccountRepo = $this->createMock(UserAccountRepository::class);
 

@@ -114,7 +114,7 @@ class PublicRegistrationControllerTest extends TestCase
         $slotService = new SlotService($this->pdo, $this->encryption, $this->settingService, $ageBracketRepository, $slotCapacityRepository, $requestRepository);
         $editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
         $journalService = new JournalService(new JournalRepository($this->pdo));
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
         $mailService->method('send');
 
         $registrationService = new RegistrationService(

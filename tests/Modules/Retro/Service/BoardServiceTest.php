@@ -64,7 +64,7 @@ class BoardServiceTest extends TestCase
     ): BoardService {
         return new BoardService(
             $this->boardRepository, new CommentRepository($this->pdo), $this->memberService, $this->sectionService,
-            $this->schedulerService, $this->journalService, $mailService ?? $this->createMock(MailService::class),
+            $this->schedulerService, $this->journalService, $mailService ?? $this->createStub(MailService::class),
             EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'retro'), 'Test Unit', 'https://example.test',
             $shortUrlService, $calendarEventLookup, $summaryService
         );

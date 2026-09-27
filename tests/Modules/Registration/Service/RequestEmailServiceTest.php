@@ -69,7 +69,7 @@ class RequestEmailServiceTest extends TestCase
 
     public function testBodiesAreNotReadyByDefault(): void
     {
-        $service = $this->buildService($this->createMock(MailService::class));
+        $service = $this->buildService($this->createStub(MailService::class));
 
         $this->assertFalse($service->isAcceptedBodyReady());
         $this->assertFalse($service->isRefusedBodyReady());
@@ -77,7 +77,7 @@ class RequestEmailServiceTest extends TestCase
 
     public function testSendAcceptedThrowsWhenBodyNotWritten(): void
     {
-        $service = $this->buildService($this->createMock(MailService::class));
+        $service = $this->buildService($this->createStub(MailService::class));
         $request = $this->requestRepository->findById($this->createRequest());
 
         $this->expectException(RegistrationException::class);
@@ -86,7 +86,7 @@ class RequestEmailServiceTest extends TestCase
 
     public function testSendRefusedThrowsWhenBodyNotWritten(): void
     {
-        $service = $this->buildService($this->createMock(MailService::class));
+        $service = $this->buildService($this->createStub(MailService::class));
         $request = $this->requestRepository->findById($this->createRequest());
 
         $this->expectException(RegistrationException::class);

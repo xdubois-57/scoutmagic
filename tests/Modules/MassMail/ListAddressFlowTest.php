@@ -128,7 +128,7 @@ class ListAddressFlowTest extends TestCase
             $memberService,
             $this->memberEmailService,
             $sectionService,
-            $this->createMock(MailService::class),
+            $this->createStub(MailService::class),
             new SchedulerService(new SchedulerRepository($this->pdo)),
             new JournalService(new JournalRepository($this->pdo)),
             new HtmlSanitizer(),
@@ -642,7 +642,7 @@ class ListAddressFlowTest extends TestCase
     ): MemberEmailService {
         return new MemberEmailService(
             new MemberEmailRepository($this->pdo, $this->encryption),
-            $this->createMock(MailService::class),
+            $this->createStub(MailService::class),
             EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createMock(Environment::class)),
             new JournalService(new JournalRepository($this->pdo)),
             $sectionService,

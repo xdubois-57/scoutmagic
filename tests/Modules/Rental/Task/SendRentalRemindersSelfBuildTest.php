@@ -59,7 +59,7 @@ class SendRentalRemindersSelfBuildTest extends TestCase
         return new TaskContext(
             Connection::withPdo($pdo),
             $encryption,
-            $this->createMock(MailService::class),
+            $this->createStub(MailService::class),
             new JournalService(new JournalRepository($pdo)),
             new SettingService(new SettingRepository($pdo)),
             new UserAccountRepository($pdo, $encryption),

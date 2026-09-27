@@ -38,7 +38,7 @@ class SchedulerRunnerTest extends TestCase
         // Create a mock TaskContext for handler calls
         $connection = $this->createMock(Connection::class);
         $encryption = $this->createMock(EncryptionService::class);
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
         $settingRepo = new SettingRepository($this->pdo);
         $settingService = new SettingService($settingRepo);
         $userAccounts = $this->createMock(UserAccountRepository::class);

@@ -565,7 +565,7 @@ class NotificationServiceTest extends TestCase
     {
         /** @var \ArrayObject<int, array<string, string>> $sent */
         $sent = new \ArrayObject();
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
         $expectation = $mailService->method('send');
         if ($throwOnSend !== null) {
             $expectation->willThrowException($throwOnSend);

@@ -98,7 +98,7 @@ class PurgeSeedCopiesHandlerTest extends TestCase
         return new TaskContext(
             Connection::withPdo($this->pdo),
             $encryption,
-            $this->createMock(MailService::class),
+            $this->createStub(MailService::class),
             new JournalService(new JournalRepository($this->pdo)),
             $this->settings,
             new UserAccountRepository($this->pdo, $encryption),

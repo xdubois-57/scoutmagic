@@ -223,7 +223,7 @@ class RunOperationalChecksHandlerTest extends TestCase
         return new TaskContext(
             connection: $this->connection(),
             encryption: $this->createMock(\Core\Security\EncryptionService::class),
-            mailService: $this->createMock(\Core\Mail\MailService::class),
+            mailService: $this->createStub(\Core\Mail\MailService::class),
             journal: new JournalService(new JournalRepository($this->pdo)),
             settings: $settings,
             userAccounts: $this->createMock(\Core\Security\UserAccountRepository::class),

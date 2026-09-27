@@ -80,7 +80,7 @@ class InstallUpdateHandlerTest extends TestCase
         $this->context = new TaskContext(
             $connection,
             $encryption,
-            $this->createMock(MailService::class),
+            $this->createStub(MailService::class),
             $journalService,
             $settings,
             $userAccountRepository,
@@ -922,7 +922,7 @@ class InstallUpdateHandlerTest extends TestCase
         $context = new TaskContext(
             Connection::withPdo($this->pdo),
             $encryption,
-            $this->createMock(MailService::class),
+            $this->createStub(MailService::class),
             $journalService,
             $settings,
             $userAccountRepository,

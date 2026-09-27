@@ -76,7 +76,7 @@ class EventReminderHandlerTest extends TestCase
         $this->runner->setTaskContext(new TaskContext(
             $connection,
             $encryption,
-            $this->createMock(MailService::class),
+            $this->createStub(MailService::class),
             $journalService,
             $settingService,
             $this->userAccountRepository,

@@ -123,7 +123,7 @@ class AuthServiceTest extends TestCase
         mkdir($tempDir, 0700, true);
         $dkimManager = new DkimManager($tempDir);
 
-        $this->mailService = $this->createMock(MailService::class);
+        $this->mailService = $this->createStub(MailService::class);
         $this->sentPurpose = null;
         $this->mailService->method('send')->willReturnCallback(
             /**
