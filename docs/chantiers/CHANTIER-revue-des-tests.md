@@ -2339,7 +2339,7 @@ la mutation M11 fait lever `close()` comme son docblock l'annonçait, et il
 rougit.
 
 **Preuve par mutation** : **treize** mutations ciblées, une chose à la fois,
-neuf sur le contrôleur et trois sur le service — trois sur `update()` isolant
+dix sur le contrôleur et trois sur le service — trois sur `update()` isolant
 séparément la destination, le type et le message ; le refus de `close()` changé
 en avertissement ; son succès sorti du `try` pour couvrir aussi l'échec ; la
 raison de `reopen()` remplacée par une phrase générique ; « archiver » câblé
