@@ -3834,6 +3834,28 @@ $schedulerService->seed(
     new DateTimeImmutable()
 );
 
+// The two mail-feedback retentions (issue #575). Declared in
+// CoreTaskHandlers and re-arming themselves after every run since they were
+// written — but nothing ever armed the first one, so neither ever ran: no
+// seed copy turned into « jamais arrivé », the routing that reads those
+// verdicts had nothing to read, and the ninety days the RGPD page promises
+// for DMARC reports and seed results were never enforced. Seeded
+// unconditionally, like the purges above: a retention hung off a feature
+// being in use keeps its promise only while the feature is.
+// Tests\Architecture\CoreRecurringTasksAreSeededTest refuses a third.
+$schedulerService->seed(
+    'core',
+    \Core\Mail\Feedback\Seed\Task\PurgeSeedCopiesHandler::TASK_KEY,
+    \Core\Mail\Feedback\Seed\Task\PurgeSeedCopiesHandler::REFERENCE,
+    new DateTimeImmutable()
+);
+$schedulerService->seed(
+    'core',
+    \Core\Mail\Feedback\Dmarc\Task\PurgeDmarcReportsHandler::TASK_KEY,
+    \Core\Mail\Feedback\Dmarc\Task\PurgeDmarcReportsHandler::REFERENCE,
+    new DateTimeImmutable()
+);
+
 // The deferral queue's own pass (Core\Mail\Transport\Task\
 // DrainDeferredMailHandler): the messages whose next attempt is due, and
 // the purge of the ones nobody will send any more. Runs every five
