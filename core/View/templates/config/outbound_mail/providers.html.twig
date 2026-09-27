@@ -76,7 +76,14 @@
                 </p>
             {% endif %}
 
-            {% if provider.reserve %}
+            {% if provider.reserve and provider.reserve.unavailable %}
+                {# Issue #600: « je ne sais pas » is said, never left as the silence
+                   that means « rien à signaler ». #}
+                <p class="small text-body-secondary mt-2 mb-0">
+                    <i class="bi bi-question-circle" aria-hidden="true"></i>
+                    Réserve pour les liens de connexion : état indisponible. La cause est dans le journal.
+                </p>
+            {% elseif provider.reserve %}
                 {# A reminder, not the explanation: the full sentence lives under the
                    Authentification lane on Acheminement, where somebody wondering
                    about sign-in links during a mailing goes looking. Here it answers
@@ -90,7 +97,12 @@
                 </p>
             {% endif %}
 
-            {% if provider.circuit and provider.circuit.open %}
+            {% if provider.circuit and provider.circuit.unavailable %}
+                <div class="alert alert-secondary small mt-3 mb-0">
+                    État de mise à l'écart indisponible : impossible de dire si ce fournisseur est
+                    actuellement écarté après des échecs. La cause est dans le journal.
+                </div>
+            {% elseif provider.circuit and provider.circuit.open %}
                 <div class="alert alert-warning small mt-3 mb-0">
                     Mis à l'écart jusqu'à {{ provider.circuit.until }} après
                     {{ provider.circuit.failures }} échec{{ provider.circuit.failures > 1 ? 's' : '' }}
@@ -137,7 +149,9 @@
                 <li class="d-flex justify-content-between border-bottom py-1">
                     <span>{{ lane.label }}</span>
                     <span class="text-body-secondary">
-                        {% if lane.defers %}
+                        {% if lane.defers and queue.unavailable %}
+                            état indisponible
+                        {% elseif lane.defers %}
                             {{ lane.waiting }} en attente
                         {% else %}
                             jamais différée — un lien de connexion livré demain n'en est plus un
@@ -147,7 +161,14 @@
             {% endfor %}
         </ul>
 
-        {% if queue.abandoned.total > 0 %}
+        {% if queue.unavailable %}
+            {# No count at all rather than a zero: « 0 en attente » here would be
+               the silence the sentence above promises never to be (issue #600). #}
+            <p class="small mb-0">
+                La file des messages différés n'a pas pu être lue : ni ce qui attend, ni ce qui a été
+                abandonné ne peut être affiché. La cause est dans le journal.
+            </p>
+        {% elseif queue.abandoned.total > 0 %}
             <p class="small mb-2">
                 <strong>{{ queue.abandoned.total }}</strong>
                 message{{ queue.abandoned.total > 1 ? 's ont' : ' a' }} fini par être abandonné{{ queue.abandoned.total > 1 ? 's' : '' }} :

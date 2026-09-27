@@ -12,6 +12,7 @@ use Core\Badge\BadgeException;
 use Core\Badge\BadgeService;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Config\ScoutYearService;
 use Core\Journal\JournalService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearSession;
@@ -59,14 +60,17 @@ class BadgeConfigurationController extends AbstractController
         $this->badgeService->ensureDefaults();
         $this->badgeService->syncSectionReferentBadges();
 
+        // The rail's tabs are named after the years their pages show.
+        $yearLabel = $this->scoutYearResolver->getEffectiveYear(
+            ScoutYearSession::getPreviewId(),
+            Role::fromString(AuthSession::getRole())
+        )->label;
+
         return $this->render('admin/badges/configuration.html.twig', [
             'badges' => $this->badgeService->getAll(),
             'undeletable_badge_reasons' => $this->badgeService->getUndeletableBadgeReasons(),
-            // The rail's first tab is named after the year its page shows.
-            'badges_current_year_label' => $this->scoutYearResolver->getEffectiveYear(
-                ScoutYearSession::getPreviewId(),
-                Role::fromString(AuthSession::getRole())
-            )->label,
+            'badges_current_year_label' => $yearLabel,
+            'badges_previous_year_label' => ScoutYearService::previousLabel($yearLabel),
         ]);
     }
 

@@ -231,6 +231,27 @@ class MemberEmailRepository
     }
 
     /**
+     * The login blind index of every address findValidByMember() returns,
+     * in the same order.
+     *
+     * Derived here, from the decrypted address, rather than by the caller:
+     * the purpose string `'email'` is the one part of a blind index a second
+     * layer must never write from memory, because a wrong one does not fail —
+     * it silently matches no account (issue #629). Recomputed rather than
+     * read from `email_blind_index` so the answer is the one
+     * findByMemberAndEmail() would look the address up under.
+     *
+     * @return string[]
+     */
+    public function findValidBlindIndexesByMember(int $memberId): array
+    {
+        return array_map(
+            fn(MemberEmail $email): string => $this->encryption->blindIndex(strtolower(trim($email->email)), 'email'),
+            $this->findValidByMember($memberId)
+        );
+    }
+
+    /**
      * Find-or-create the 'desk'-sourced status-override row for this
      * exact Desk address (module addendum, see schema/core.sql's
      * member_emails comment) — lazily materialized only when mass-mail

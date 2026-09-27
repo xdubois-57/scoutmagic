@@ -44,6 +44,7 @@ final class BadgesRbacTest extends TestCase
     private const ROUTES = [
         // The holders page: read only, but it names who carries which role.
         ['GET', '/admin/badges'],
+        ['GET', '/admin/badges/annee-precedente'],
         ['GET', '/admin/badges/configuration'],
         ['POST', '/admin/badges/add'],
         ['POST', '/admin/badges/update'],

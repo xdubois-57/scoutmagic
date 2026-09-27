@@ -126,8 +126,7 @@ class DashboardControllerTest extends TestCase
     new \Core\Member\Repository\MemberProfileRepository($connection, $encryption)
 ),
                 new \Core\Member\Household\HouseholdService(
-                    new \Core\Member\Household\HouseholdRepository($this->pdo, $encryption),
-                    $encryption
+                    new \Core\Member\Household\HouseholdRepository($this->pdo, $encryption)
                 )
             ),
             new \Core\ScoutYear\ScoutYearResolver(

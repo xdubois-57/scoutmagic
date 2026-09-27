@@ -267,8 +267,7 @@ class CampaignNotificationServiceTest extends TestCase
             new MemberAccountResolver(
                 new MemberYearRepository($this->pdo),
                 new MemberEmailRepository($this->pdo, $this->encryption),
-                new UserAccountRepository($this->pdo, $this->encryption),
-                $this->encryption
+                new UserAccountRepository($this->pdo, $this->encryption)
             ),
             new MemberService(
     new MemberYearRepository($this->pdo),

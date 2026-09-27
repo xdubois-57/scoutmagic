@@ -7,6 +7,7 @@ namespace Tests\Core\Http\Controller;
 use Core\Badge\BadgeHolderService;
 use Core\Badge\BadgeRepository;
 use Core\Badge\MemberBadgeRepository;
+use Core\Config\ScoutYearService;
 use Core\Database\Connection;
 use Core\Http\Controller\BadgeHoldersController;
 use Core\Http\Request;
@@ -69,7 +70,8 @@ final class BadgeHoldersControllerTest extends TestCase
         $this->controller = new BadgeHoldersController(
             $twig,
             new BadgeHolderService(new BadgeRepository($this->pdo), $memberBadges, $sections),
-            $resolver
+            $resolver,
+            new ScoutYearService($this->pdo)
         );
     }
 
@@ -100,6 +102,43 @@ final class BadgeHoldersControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('Aucun badge n&#039;est attribué pour 2026-2027.', $response->getBody());
+    }
+
+    /**
+     * GET /admin/badges/annee-precedente: the year before the one in
+     * effect, as that year knew its holders — and no action at all.
+     */
+    public function testThePreviousYearShowsItsOwnHoldersAndNothingToDo(): void
+    {
+        $nurse = (new BadgeRepository($this->pdo))->create('Infirmier', true);
+        $badges = new MemberBadgeRepository($this->pdo);
+        $badges->assign($this->memberYear('Paul', 'Ancien', $this->otherYearId), $nurse, null);
+        $badges->assign($this->memberYear('Claire', 'Renard', $this->currentYearId), $nurse, null);
+
+        $response = $this->controller->previous(new Request('GET', '/admin/badges/annee-precedente', [], [], [], []), []);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $body = $response->getBody();
+        $this->assertStringContainsString('Badges — 2025-2026', $body);
+        $this->assertStringContainsString('Paul Ancien', $body);
+        $this->assertStringNotContainsString('Claire Renard', $body, 'A holder of the year in effect leaked in.');
+        $this->assertStringNotContainsString('/chefs/staffs', $body);
+    }
+
+    /**
+     * A unit in its first year has no year before on record: the tab is
+     * still there, and the page says there is nothing — never fabricating
+     * the missing year.
+     */
+    public function testAPreviousYearNeverImportedSaysSoAndIsNotCreated(): void
+    {
+        $this->pdo->exec("DELETE FROM scout_years WHERE label = '2025-2026'");
+
+        $response = $this->controller->previous(new Request('GET', '/admin/badges/annee-precedente', [], [], [], []), []);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('Aucun badge n&#039;était attribué en 2025-2026.', $response->getBody());
+        $this->assertSame(0, (int) $this->pdo->query("SELECT COUNT(*) FROM scout_years WHERE label = '2025-2026'")->fetchColumn());
     }
 
     private function memberYear(string $firstName, string $lastName, int $yearId): int
