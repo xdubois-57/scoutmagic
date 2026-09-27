@@ -59,7 +59,7 @@ final class ReturnProbeRepositoryOnMysqlTest extends TestCase
         $second = $this->probes->issue('contact@unite.be ', 'key-two', $this->at('11:00'), $this->at('13:00'));
 
         $this->assertNotSame($first, $second);
-        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM mail_return_probes')->fetchColumn());
+        $this->assertSame(1, (int) $this->scalar('SELECT COUNT(*) FROM mail_return_probes'));
         $probe = $this->probes->findByAddress('contact@unite.be');
         $this->assertNotNull($probe);
         $this->assertSame($second, $probe->id);
@@ -88,9 +88,9 @@ final class ReturnProbeRepositoryOnMysqlTest extends TestCase
             $other = $this->secondSession();
             try {
                 $other->prepare('DELETE FROM mail_return_probes WHERE address_blind_index = ?')
-                    ->execute([(string) $this->pdo->query(
+                    ->execute([(string) $this->scalar(
                         "SELECT address_blind_index FROM mail_return_probes WHERE correlation_key = 'key-held'"
-                    )->fetchColumn()]);
+                    )]);
                 $this->fail('the second session deleted a row another transaction was replacing: ' . $address);
             } catch (\PDOException $e) {
                 // 1205: Lock wait timeout exceeded.
@@ -148,9 +148,9 @@ final class ReturnProbeRepositoryOnMysqlTest extends TestCase
 
     private function secondSession(): \PDO
     {
-        $database = (string) $this->pdo->query('SELECT DATABASE()')->fetchColumn();
+        $database = (string) $this->scalar('SELECT DATABASE()');
         $other = self::productionEngineConnection($database)->getPdo();
-        $other->exec('SET SESSION innodb_lock_wait_timeout = 1');
+        $other->prepare('SET SESSION innodb_lock_wait_timeout = 1')->execute();
         $other->beginTransaction();
 
         return $other;
@@ -164,5 +164,14 @@ final class ReturnProbeRepositoryOnMysqlTest extends TestCase
     private function at(string $time): \DateTimeImmutable
     {
         return new \DateTimeImmutable('2026-09-19 ' . $time . ':00');
+    }
+
+    /** A single value from a prepared statement: every statement here is prepared, even a fixed one. */
+    private function scalar(string $sql): mixed
+    {
+        $statement = $this->pdo->prepare($sql);
+        $statement->execute();
+
+        return $statement->fetchColumn();
     }
 }

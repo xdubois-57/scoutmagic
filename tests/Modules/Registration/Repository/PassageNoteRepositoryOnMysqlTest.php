@@ -105,8 +105,14 @@ class PassageNoteRepositoryOnMysqlTest extends TestCase
     }
 
     /**
-     * The same note saved twice in one second: the UPDATE changes nothing
-     * and MariaDB reports no row, which must neither raise nor add one.
+     * The same value written twice: the second UPDATE changes nothing and
+     * MariaDB reports no row, which must neither raise nor add one.
+     *
+     * The repeated `confirmAiSuggestion(false)` is that unchanged write. A
+     * repeated staff note is not: it is encrypted with a fresh IV, so its
+     * stored bytes differ every time. The last assertion checks that the
+     * confirm really leaves the row as it was, so the case is reached
+     * rather than assumed.
      */
     public function testSavingTheSameValueTwiceKeepsOneRow(): void
     {
@@ -117,6 +123,12 @@ class PassageNoteRepositoryOnMysqlTest extends TestCase
 
         $this->assertSame(1, $this->countNotes());
         $this->assertSame('Timide', $this->notes->find($this->memberId, $this->yearId)['staff_note'] ?? null);
+
+        $unchanged = $this->pdo->prepare(
+            'UPDATE registration_passage_notes SET ai_confirmed = 0 WHERE member_id = ? AND scout_year_id = ?'
+        );
+        $unchanged->execute([$this->memberId, $this->yearId]);
+        $this->assertSame(0, $unchanged->rowCount(), 'the repeated confirm was not an unchanged write');
     }
 
     /** A re-read of an edited comment never inherits the previous validation. */
@@ -205,6 +217,15 @@ class PassageNoteRepositoryOnMysqlTest extends TestCase
 
     private function countNotes(): int
     {
-        return (int) $this->pdo->query('SELECT COUNT(*) FROM registration_passage_notes')->fetchColumn();
+        return (int) $this->scalar('SELECT COUNT(*) FROM registration_passage_notes');
+    }
+
+    /** A single value from a prepared statement: every statement here is prepared, even a fixed one. */
+    private function scalar(string $sql): mixed
+    {
+        $statement = $this->pdo->prepare($sql);
+        $statement->execute();
+
+        return $statement->fetchColumn();
     }
 }

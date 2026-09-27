@@ -65,7 +65,7 @@ final class ProviderHealthRepositoryOnMysqlTest extends TestCase
         $this->health->recordFailure(3, 'timeout', '2026-09-19 10:01:00');
         $opened = $this->health->recordFailure(3, 'refused', '2026-09-19 10:02:00');
 
-        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM mail_provider_health')->fetchColumn());
+        $this->assertSame(1, (int) $this->scalar('SELECT COUNT(*) FROM mail_provider_health'));
 
         $stored = $this->health->forProvider(3);
         $this->assertSame(ProviderHealth::FAILURES_BEFORE_OPEN, $stored->consecutiveFailures);
@@ -98,7 +98,7 @@ final class ProviderHealthRepositoryOnMysqlTest extends TestCase
         $this->assertSame('', $closed->lastReason);
         $this->assertSame(
             '2026-09-19 10:10:00',
-            $this->pdo->query('SELECT updated_at FROM mail_provider_health WHERE provider_id = 3')->fetchColumn()
+            $this->scalar('SELECT updated_at FROM mail_provider_health WHERE provider_id = 3')
         );
 
         $this->assertFalse($this->health->recordSuccess(3, '2026-09-19 10:11:00'), 'nothing left to close');
@@ -121,5 +121,14 @@ final class ProviderHealthRepositoryOnMysqlTest extends TestCase
         $this->health->recordFailure(4, str_repeat('é', 300), '2026-09-19 10:00:00');
 
         $this->assertSame(str_repeat('é', 255), $this->health->forProvider(4)->lastReason);
+    }
+
+    /** A single value from a prepared statement: every statement here is prepared, even a fixed one. */
+    private function scalar(string $sql): mixed
+    {
+        $statement = $this->pdo->prepare($sql);
+        $statement->execute();
+
+        return $statement->fetchColumn();
     }
 }

@@ -52,7 +52,7 @@ final class EmailTemplateOverrideRepositoryOnMysqlTest extends TestCase
         $this->overrides->save('core.password_reset', 'Sujet', '<p>Un</p>', $this->authorId);
         $this->overrides->save('core.password_reset', 'Nouveau sujet', '<p>Deux</p>', null);
 
-        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM email_template_overrides')->fetchColumn());
+        $this->assertSame(1, (int) $this->scalar('SELECT COUNT(*) FROM email_template_overrides'));
         $row = $this->overrides->find('core.password_reset');
         $this->assertNotNull($row);
         $this->assertSame('Nouveau sujet', $row['subject']);
@@ -98,5 +98,14 @@ final class EmailTemplateOverrideRepositoryOnMysqlTest extends TestCase
         $this->assertTrue($this->overrides->delete('core.password_reset'));
         $this->assertFalse($this->overrides->delete('core.password_reset'));
         $this->assertNull($this->overrides->find('core.password_reset'));
+    }
+
+    /** A single value from a prepared statement: every statement here is prepared, even a fixed one. */
+    private function scalar(string $sql): mixed
+    {
+        $statement = $this->pdo->prepare($sql);
+        $statement->execute();
+
+        return $statement->fetchColumn();
     }
 }

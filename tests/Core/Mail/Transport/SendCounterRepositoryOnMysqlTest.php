@@ -63,7 +63,7 @@ final class SendCounterRepositoryOnMysqlTest extends TestCase
 
         $this->assertSame(
             1,
-            (int) $this->pdo->query('SELECT COUNT(*) FROM mail_send_counters')->fetchColumn(),
+            (int) $this->scalar('SELECT COUNT(*) FROM mail_send_counters'),
             'the unique index must fold repeated sends into the existing row, not refuse them'
         );
         $this->assertSame(3, $this->counters->totalForProvider(7, '2026-09-19'));
@@ -82,7 +82,7 @@ final class SendCounterRepositoryOnMysqlTest extends TestCase
         $this->counters->increment(7, MailLane::Bulk, '2026-09-20');
         $this->counters->increment(8, MailLane::Bulk, '2026-09-19');
 
-        $this->assertSame(4, (int) $this->pdo->query('SELECT COUNT(*) FROM mail_send_counters')->fetchColumn());
+        $this->assertSame(4, (int) $this->scalar('SELECT COUNT(*) FROM mail_send_counters'));
         $this->assertSame(3, $this->counters->totalForProvider(7, '2026-09-19'));
         $this->assertSame([7 => 3, 8 => 1], $this->counters->totalsForDay('2026-09-19'));
     }
@@ -105,5 +105,14 @@ final class SendCounterRepositoryOnMysqlTest extends TestCase
             ['2026-09-18' => 2, '2026-09-20' => 1],
             $this->counters->dailyNonBulkTotals(3, '2026-09-20')
         );
+    }
+
+    /** A single value from a prepared statement: every statement here is prepared, even a fixed one. */
+    private function scalar(string $sql): mixed
+    {
+        $statement = $this->pdo->prepare($sql);
+        $statement->execute();
+
+        return $statement->fetchColumn();
     }
 }

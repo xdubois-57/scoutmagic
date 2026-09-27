@@ -116,6 +116,15 @@ class SlotCapacityRepositoryOnMysqlTest extends TestCase
 
     private function countRows(): int
     {
-        return (int) $this->pdo->query('SELECT COUNT(*) FROM registration_slot_capacities')->fetchColumn();
+        return (int) $this->scalar('SELECT COUNT(*) FROM registration_slot_capacities');
+    }
+
+    /** A single value from a prepared statement: every statement here is prepared, even a fixed one. */
+    private function scalar(string $sql): mixed
+    {
+        $statement = $this->pdo->prepare($sql);
+        $statement->execute();
+
+        return $statement->fetchColumn();
     }
 }

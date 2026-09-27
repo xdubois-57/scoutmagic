@@ -235,16 +235,18 @@ class ReenrollmentRepositoryOnMysqlTest extends TestCase
      */
     public function testAnsweredAtIsPhpsClockOnBothBranches(): void
     {
-        $before = new \DateTimeImmutable('-1 second');
+        // Checked after each save: the update would otherwise overwrite a
+        // wrong timestamp from the insert before anything looked at it.
         foreach ([ReenrollmentAnswer::DECISION_REENROLLED, ReenrollmentAnswer::DECISION_LEAVING] as $decision) {
+            $before = new \DateTimeImmutable('-1 second');
             $this->repository->saveAnswer($this->memberId, $this->yearId, $decision, null, null, null, []);
-        }
-        $after = new \DateTimeImmutable('+1 second');
+            $after = new \DateTimeImmutable('+1 second');
 
-        $answeredAt = $this->repository->findAnswer($this->memberId, $this->yearId)?->answeredAt;
-        $this->assertNotNull($answeredAt);
-        $this->assertGreaterThanOrEqual($before->getTimestamp(), $answeredAt->getTimestamp());
-        $this->assertLessThanOrEqual($after->getTimestamp(), $answeredAt->getTimestamp());
+            $answeredAt = $this->repository->findAnswer($this->memberId, $this->yearId)?->answeredAt;
+            $this->assertNotNull($answeredAt, $decision);
+            $this->assertGreaterThanOrEqual($before->getTimestamp(), $answeredAt->getTimestamp(), $decision);
+            $this->assertLessThanOrEqual($after->getTimestamp(), $answeredAt->getTimestamp(), $decision);
+        }
     }
 
     private function saveWithOneWish(string $matchState, ?int $matchedMemberId): int
@@ -278,8 +280,17 @@ class ReenrollmentRepositoryOnMysqlTest extends TestCase
         return (int) $id;
     }
 
+    /** @param 'registration_reenrollments'|'registration_friend_wishes' $table */
     private function countRows(string $table): int
     {
-        return (int) $this->pdo->query('SELECT COUNT(*) FROM ' . $table)->fetchColumn();
+        // A table name cannot be a bound parameter, so each table this test
+        // counts has its own fixed statement rather than a concatenated one.
+        $statement = $this->pdo->prepare(match ($table) {
+            'registration_reenrollments' => 'SELECT COUNT(*) FROM registration_reenrollments',
+            'registration_friend_wishes' => 'SELECT COUNT(*) FROM registration_friend_wishes',
+        });
+        $statement->execute();
+
+        return (int) $statement->fetchColumn();
     }
 }
