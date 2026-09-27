@@ -550,11 +550,15 @@ class MaintenanceControllerTest extends TestCase
         $skipped = $this->updateHistoryRepository->create('1.1.0', '1.2.0', false, null);
         $this->updateHistoryRepository->markSkipped($skipped, 'Installation remplacée : un push plus récent est arrivé.');
 
-        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        // The history lives on the update page, the « last attempt » flag on
+        // the health page (#643 split them): each is read where it is shown.
+        $history = $this->page('updatePage');
+        $this->assertStringContainsString('>Ignorée</span>', $history);
+        $this->assertStringNotContainsString('Échouée</span>', $history, 'a skipped install shown as failed');
 
-        $this->assertStringContainsString('>Ignorée</span>', $body);
-        $this->assertStringNotContainsString('Échouée</span>', $body, 'a skipped install shown as failed');
-        $this->assertStringNotContainsString('maintenance-update-last-attempt', $body);
+        $health = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $this->assertStringContainsString('maintenance-auto-update-health', $health);
+        $this->assertStringNotContainsString('maintenance-update-last-attempt', $health);
     }
 
     public function testASkippedInstallDoesNotHideTheFailedAttemptBeforeIt(): void
