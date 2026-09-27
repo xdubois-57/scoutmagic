@@ -2394,8 +2394,15 @@ lot. Je laisse l'itération 13 telle quelle et je note la révision ici, parce
 qu'un journal qui se réécrit efface la trace de sa correction.
 
 **La cible.** `OutboundMailController` : 2 791 lignes, 20 `catch`, dont **7**
-jamais exécutés (1409, 1456, 1722, 1745, 1790, 2108, 2432). Son fichier de test
-miroir fait **3 643 lignes**. Ces sept branches sont donc celles que ce
+jamais exécutés. Son fichier de test
+miroir fait **3 643 lignes**.
+
+Les corps concernés sont aux lignes **1436, 1483, 1749, 1772, 1817, 2135 et
+2459**, telles que mesurées sur le `main` où ce lot se fusionne. Elles étaient à
+1409, 1456, 1722, 1745, 1790, 2108 et 2432 sur la base où je l'ai écrit :
+l'itération #420 a ajouté 68 lignes à ce fichier entre-temps. C'est pourquoi les
+commentaires des tests eux-mêmes nomment des méthodes et non des numéros — un
+numéro dans un commentaire est faux dès la fusion suivante. Ces sept branches sont donc celles que ce
 volume-là a laissées de côté, ce qui est plus intéressant qu'un contrôleur peu
 testé : il y a une raison structurelle, et on la trouve.
 
@@ -2435,7 +2442,8 @@ docblock de `circuitOf()` dit que le disjoncteur est montré parce que
 l'alternative est « un écran qui dit qu'un fournisseur est actif et configuré
 alors que rien ne passe par lui » — ce que son propre `catch` reconstitue.
 
-**Pourquoi 2432 a résisté à 3 643 lignes de tests.** `ReturnPathVerifier::
+**Pourquoi la branche de `verifyReturns()` a résisté à 3 643 lignes de tests.**
+`ReturnPathVerifier::
 launch()` enveloppe **tout son corps par adresse** — l'envoi et l'écriture de la
 sonde — dans son propre `catch (\Throwable)` qui n'incrémente qu'un compteur.
 Casser le service de courrier ou le stockage des sondes ne remonte donc jamais
@@ -2471,8 +2479,8 @@ sont pas. Relevé par le relecteur local.
 lecture — aucune par ma mémoire.**
 
 D'abord, **je suis retombé dans le piège du lot 4**, que j'avais nommé deux fois
-dans la même séance. `providers()` lit `mail_send_counters` à la **ligne 1238**,
-bien avant d'atteindre `reserveOf()` ligne 1722 : supprimer la table levait hors
+dans la même séance. `providers()` lit `mail_send_counters` sur sa **toute
+première ligne**, bien avant d'atteindre `reserveOf()` : supprimer la table levait hors
 du `try`, et la branche visée n'était jamais atteinte. Le test a échoué
 bruyamment plutôt que de passer au vert au mauvais endroit, mais c'est le hasard
 de la forme de l'erreur qui m'a sauvé, pas ma prudence. Corrigé en câblant une

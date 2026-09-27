@@ -3908,7 +3908,7 @@ class OutboundMailControllerTest extends TestCase
         $this->assertStringContainsString('sont gardés pour les liens de connexion', $this->providersBodyOf());
 
         // **Only the reserve's own reads are broken, not the table.**
-        // `providers()` reads `mail_send_counters` itself at line 1238, long
+        // `providers()` reads `mail_send_counters` on its very first line, long
         // before `reserveOf()` is called — dropping the table throws there,
         // OUTSIDE the block this test exists to reach. Measured: my first
         // attempt did exactly that. The chain repository stays on the live
