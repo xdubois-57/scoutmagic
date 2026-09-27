@@ -6,6 +6,7 @@ namespace Tests\Core\Http\Controller;
 
 use Core\Http\Controller\MemberEmailAddressController;
 use Core\Http\Request;
+use Core\Mail\MailException;
 use Core\Member\MemberEmailException;
 use Core\Member\MemberEmailService;
 use Core\Member\MemberNotFoundException;
@@ -66,11 +67,11 @@ class MemberEmailAddressControllerTest extends TestCase
         return $token;
     }
 
-    private function makeProfile(int $memberId): MemberProfile
+    private function makeProfile(int $memberId, ?string $email = null): MemberProfile
     {
         return new MemberProfile(
             memberYearId: 1, memberId: $memberId, deskId: 'D1', firstName: 'Jean', lastName: 'Dupont',
-            totem: null, quali: null, gender: null, birthDate: null, phone: null, mobile: null, email: null,
+            totem: null, quali: null, gender: null, birthDate: null, phone: null, mobile: null, email: $email,
             patrol: null, formationLevel: null, federationMailConsent: false, unitMailConsent: false,
             addresses: [], functions: [], scoutYearLabel: '2025-2026'
         );
@@ -138,6 +139,13 @@ class MemberEmailAddressControllerTest extends TestCase
         );
 
         $this->assertSame(302, $response->getStatusCode());
+        // The 302 alone proves only that nothing escaped: the success path
+        // returns one too. What this test is named for is the reason
+        // reaching the member, so that is what it now asserts.
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertNotNull($flash);
+        $this->assertSame('error', $flash['type']);
+        $this->assertSame('Adresse email invalide.', $flash['message']);
     }
 
     public function testDeleteIsForbiddenWhenNotLinkedToThisMemberYear(): void
@@ -446,5 +454,233 @@ class MemberEmailAddressControllerTest extends TestCase
         );
 
         $this->assertSame(200, $response->getStatusCode());
+    }
+
+    // --- what the member reads when it fails (issue #449, lot 3) ---
+    //
+    // Seven of this controller's nine catch bodies had never been executed by
+    // the suite. They exist for one purpose — a member who tried something
+    // must learn why it did not work — so each test below asserts the TYPE
+    // and the TEXT of what lands on the page, never just the redirect: a 302
+    // is also what success returns.
+    //
+    // The services stay doubled, as everywhere else in this file. For the two
+    // `MailException` branches that is not a compromise but the subject: the
+    // failure of the mail layer IS what the branch is about. For the
+    // `MemberEmailException` ones the double carries the service's own
+    // wording, and what is under test is the controller's one job — passing
+    // that reason through unchanged, as an error rather than a success.
+    // Whether those reasons are the right ones is settled where they are
+    // decided, in Tests\Core\Member\MemberEmailServiceTest.
+
+    /**
+     * **The one branch here that tells the member something the service
+     * never said.** The address IS saved; only the confirmation mail failed.
+     *
+     * Reporting a plain failure would therefore be false, and it would hide
+     * the only remedy that works. Adding the address again is not refused —
+     * `MemberEmailService::addEmail()` finds the pending row and returns it,
+     * re-sending the confirmation only once the resend cooldown has elapsed,
+     * and `MemberEmailRepository::create()` has already stamped
+     * `last_confirmation_sent_at`. So a member who retries straight away gets
+     * silence: no mail, nothing changed. « Renvoyer » is the way out, which is
+     * why the message names it.
+     */
+    public function testAddSaysTheAddressWasKeptWhenTheConfirmationMailFails(): void
+    {
+        $token = $this->startSessionWithCsrfToken();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')->willReturn($this->makeProfile(42));
+        $this->memberEmailService->method('addEmail')
+            ->willThrowException(new MailException('SMTP connect() failed'));
+
+        $response = $this->controller->add(
+            new Request('POST', '/members/1/emails', [], ['email' => 'new@example.com', '_csrf_token' => $token], [], []),
+            ['id' => '1']
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertNotNull($flash);
+        $this->assertSame('error', $flash['type']);
+        // Both halves, because either one alone lets a wrong message through:
+        // "saved AND sent" would satisfy the first two assertions while
+        // telling the member to wait for a mail nobody sent.
+        $this->assertStringContainsString('a été enregistrée', $flash['message']);
+        $this->assertStringContainsString("n'a pas pu être envoyé", $flash['message']);
+        $this->assertStringContainsString('Renvoyer', $flash['message'], 'the member is not told what to do next');
+        // The mail layer's own words stay off the page.
+        $this->assertStringNotContainsString('SMTP', $flash['message']);
+    }
+
+    public function testResendPassesTheServiceReasonOnRatherThanASilentRedirect(): void
+    {
+        $token = $this->startSessionWithCsrfToken();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')->willReturn($this->makeProfile(42));
+        $this->memberEmailService->method('resendConfirmation')
+            ->willThrowException(new MemberEmailException('Veuillez patienter avant de renvoyer un nouvel email de confirmation.'));
+
+        $this->controller->resend(
+            new Request('POST', '/members/1/emails/5/resend', [], ['_csrf_token' => $token], [], []),
+            ['id' => '1', 'email_id' => '5']
+        );
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertNotNull($flash, 'the refusal left no message, so the page looks like nothing happened');
+        $this->assertSame('error', $flash['type']);
+        $this->assertSame('Veuillez patienter avant de renvoyer un nouvel email de confirmation.', $flash['message']);
+    }
+
+    /**
+     * A resend that failed must not read like one that went out: the member
+     * would sit waiting for a mail nobody sent.
+     */
+    public function testResendSaysTheMailFailedInsteadOfClaimingItWentOut(): void
+    {
+        $token = $this->startSessionWithCsrfToken();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')->willReturn($this->makeProfile(42));
+        $this->memberEmailService->method('resendConfirmation')
+            ->willThrowException(new MailException('Connection could not be established'));
+
+        $this->controller->resend(
+            new Request('POST', '/members/1/emails/5/resend', [], ['_csrf_token' => $token], [], []),
+            ['id' => '1', 'email_id' => '5']
+        );
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertNotNull($flash);
+        $this->assertSame('error', $flash['type']);
+        $this->assertStringContainsString("n'a pas pu être envoyé", $flash['message']);
+        // Not `assertStringNotContainsString('renvoyé', …)`: that would fire
+        // on « … n'a pas pu être renvoyé », which is a correct wording. What
+        // is meant is that the success sentence is not what appears.
+        $this->assertNotSame('Email de confirmation renvoyé.', $flash['message']);
+        $this->assertStringNotContainsString('Connection', $flash['message']);
+    }
+
+    public function testDeletePassesTheServiceReasonOnRatherThanASilentRedirect(): void
+    {
+        $token = $this->startSessionWithCsrfToken();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')->willReturn($this->makeProfile(42));
+        $this->memberEmailService->method('deleteEmail')
+            ->willThrowException(new MemberEmailException("L'adresse importée depuis Desk ne peut pas être supprimée."));
+
+        $this->controller->delete(
+            new Request('POST', '/members/1/emails/5/delete', [], ['_csrf_token' => $token], [], []),
+            ['id' => '1', 'email_id' => '5']
+        );
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertNotNull($flash, 'the refusal left no message, so the address looks deleted');
+        $this->assertSame('error', $flash['type']);
+        $this->assertSame("L'adresse importée depuis Desk ne peut pas être supprimée.", $flash['message']);
+    }
+
+    public function testReactivatePassesTheServiceReasonOnRatherThanASilentRedirect(): void
+    {
+        $token = $this->startSessionWithCsrfToken();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')->willReturn($this->makeProfile(42));
+        $this->memberEmailService->method('reactivateEmail')
+            ->willThrowException(new MemberEmailException("Cette adresse n'est pas désinscrite."));
+
+        $this->controller->reactivate(
+            new Request('POST', '/members/1/emails/5/reactivate', [], ['_csrf_token' => $token], [], []),
+            ['id' => '1', 'email_id' => '5']
+        );
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertNotNull($flash, 'the refusal left no message, so the address looks reactivated');
+        $this->assertSame('error', $flash['type']);
+        $this->assertSame("Cette adresse n'est pas désinscrite.", $flash['message']);
+    }
+
+    public function testUnblockBouncePassesTheServiceReasonOnRatherThanASilentRedirect(): void
+    {
+        $token = $this->startSessionWithCsrfToken();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')->willReturn($this->makeProfile(42));
+        $this->memberEmailService->method('unblockBounce')
+            ->willThrowException(new MemberEmailException('Adresse introuvable.'));
+
+        $this->controller->unblockBounce(
+            new Request('POST', '/members/1/emails/5/bounce-unblock', [], ['_csrf_token' => $token], [], []),
+            ['id' => '1', 'email_id' => '5']
+        );
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertNotNull($flash, 'the refusal left no message, so the block looks lifted');
+        $this->assertSame('error', $flash['type']);
+        $this->assertSame('Adresse introuvable.', $flash['message']);
+    }
+
+    /**
+     * The Desk address reaches the service from the member's own profile,
+     * never from the request — an address the browser supplied would let
+     * somebody name a mailbox that is not theirs. This pins the value that
+     * actually travels, which the rest of this file cannot: its fixture
+     * profile carries no email, so `null` there proves nothing.
+     */
+    public function testTheDeskAddressHandedToTheServiceComesFromTheProfile(): void
+    {
+        $token = $this->startSessionWithCsrfToken();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')
+            ->willReturn($this->makeProfile(42, 'desk@example.com'));
+        $this->memberEmailService->expects($this->once())->method('unblockBounce')
+            ->with(42, 0, 'desk@example.com')
+            ->willReturn(true);
+
+        $this->controller->unblockBounce(
+            new Request('POST', '/members/1/emails/0/bounce-unblock', [], [
+                '_csrf_token' => $token,
+                // Supplied by the browser, and ignored on purpose.
+                'email' => 'attacker@example.com',
+            ], [], []),
+            ['id' => '1', 'email_id' => '0']
+        );
+    }
+
+    /**
+     * **A TOCTOU window, and not dead code.** `deskEmailFor()` reads the
+     * profile a second time, after `requireOwnMemberId()` has already read
+     * it — so a member deleted between the two reads lands in its `catch`.
+     * The guard turns what would be a 500 into the ordinary answer with no
+     * Desk address, which is the correct one: id 0 aside, the block is
+     * identified by its own row.
+     *
+     * Reaching it needs the double to answer differently on the second call.
+     * That is not a double lying about the system (§3 of the chantier): a
+     * member CAN be deleted mid-request, and this is what happens then.
+     */
+    public function testAProfileThatDisappearsMidRequestStillGetsAnAnswer(): void
+    {
+        $token = $this->startSessionWithCsrfToken();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $reads = 0;
+        $this->memberService->method('getMemberProfile')->willReturnCallback(
+            function () use (&$reads): MemberProfile {
+                if (++$reads === 1) {
+                    return $this->makeProfile(42, 'desk@example.com');
+                }
+
+                throw new MemberNotFoundException('deleted between the two reads');
+            }
+        );
+        // No Desk address travels, rather than no answer at all.
+        $this->memberEmailService->expects($this->once())->method('unblockBounce')
+            ->with(42, 5, null)
+            ->willReturn(true);
+
+        $response = $this->controller->unblockBounce(
+            new Request('POST', '/members/1/emails/5/bounce-unblock', [], ['_csrf_token' => $token], [], []),
+            ['id' => '1', 'email_id' => '5']
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/members/1', $response->getHeaders()['Location'] ?? null);
     }
 }
