@@ -10,7 +10,10 @@ namespace Modules\Finance\Parser;
 
 /**
  * One transaction line extracted from a bank statement export, before it
- * becomes a finance_transactions row. bankReference is whatever the bank
+ * becomes a finance_transactions row. accountIban is the unit's OWN account
+ * the line was booked on, normalized by Service\IbanNormalizer — a file may
+ * cover several accounts, and Service\ImportService sends each line to the
+ * site account carrying that IBAN. bankReference is whatever the bank
  * uses as a stable per-line identifier (dedup key); counterpartyAccount/
  * counterpartyName are the other party's IBAN/name when the export
  * provides them — Repository\TransactionRepository persists both
@@ -28,6 +31,7 @@ namespace Modules\Finance\Parser;
 final class StatementLine
 {
     public function __construct(
+        public readonly string $accountIban,
         public readonly string $bankReference,
         public readonly \DateTimeImmutable $transactionDate,
         public readonly float $amount,

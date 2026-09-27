@@ -53,6 +53,10 @@ class StatementImportRepository
     }
 
     /**
+     * $uploadId ties together the rows one uploaded file produced — a file
+     * covering several accounts writes one row per account (ImportService).
+     * Null on rows written before files could cover more than one.
+     *
      * $importedAt is written by PHP rather than left to the column's
      * CURRENT_TIMESTAMP default: that default is UTC, and this date is
      * no longer bookkeeping only — the homepage band tells families
@@ -68,17 +72,18 @@ class StatementImportRepository
         int $linesNew,
         int $linesDuplicate,
         ?int $importedBy,
-        ?string $importedAt = null
+        ?string $importedAt = null,
+        ?string $uploadId = null
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO finance_statement_imports
                 (account_id, bank_code, original_filename, lines_total, lines_new, lines_duplicate, imported_by, '
-                . 'imported_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+                . 'imported_at, upload_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $accountId, $bankCode, $originalFilename, $linesTotal, $linesNew, $linesDuplicate, $importedBy,
-            $importedAt ?? date('Y-m-d H:i:s'),
+            $importedAt ?? date('Y-m-d H:i:s'), $uploadId,
         ]);
         return (int) $this->pdo->lastInsertId();
     }
@@ -97,7 +102,8 @@ class StatementImportRepository
             linesNew: (int) $row['lines_new'],
             linesDuplicate: (int) $row['lines_duplicate'],
             importedBy: $row['imported_by'] !== null ? (int) $row['imported_by'] : null,
-            importedAt: (string) $row['imported_at']
+            importedAt: (string) $row['imported_at'],
+            uploadId: isset($row['upload_id']) ? (string) $row['upload_id'] : null
         );
     }
 }

@@ -108,8 +108,8 @@ final class ReferenceDatasetBuilderTest extends TestCase
         // through FinanceService::createAccount(), which normalises them
         // before the blind index is computed. A spaced IBAN written straight
         // to the repository produces a different index from the one
-        // BnpParser::extractSourceIban() derives, and every import fails with
-        // an "IBAN mismatch" naming two IBANs that end in the same digits.
+        // BnpParser::extractAccountIbans() derives, and every statement is set
+        // aside as belonging to an account the site does not know.
         $this->replayDesk();
         (new FinanceSeeder($this->pdo, $this->encryption, self::datasetRoot(), null))->ensureModuleDefaults();
         (new FinanceSeeder($this->pdo, $this->encryption, self::datasetRoot(), null))->seed();

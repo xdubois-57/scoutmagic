@@ -168,7 +168,7 @@ class FinanceRbacTest extends TestCase
             $this->attachmentRepository, $this->transactionRepository, $this->transactionAttachmentRepository, $this->journalService
         );
         $importService = new ImportService(
-            $this->pdo, $encryption, $parserFactory, $this->transactionRepository, $this->checkpointRepository,
+            $this->pdo, $encryption, $parserFactory, $accountRepository, $this->transactionRepository, $this->checkpointRepository,
             $statementImportRepository, $this->fiscalYearRepository, $this->categoryRuleEngine, $this->balanceService,
             $receiptMatchingService, $this->bulkCategorizationService,
             FinanceTestHelper::allocationService($this->pdo, $encryption)
@@ -293,7 +293,7 @@ class FinanceRbacTest extends TestCase
                 $this->attachmentRepository, $this->transactionAttachmentRepository, $this->receiptService,
                 $this->firstReceiptResolver, $this->journalService
             ),
-            'ImportController' => new ImportController($this->twig, $this->financeService, $this->importService, $this->parserFactory, $this->checkpointRepository),
+            'ImportController' => new ImportController($this->twig, $this->financeService, $this->importService, $this->parserFactory),
             'ReceiptController' => new ReceiptController(
                 $this->twig, $this->attachmentRepository, $this->transactionAttachmentRepository, $this->transactionRepository, $this->financeService,
                 $this->receiptService, $this->firstReceiptResolver, $this->journalService
@@ -572,12 +572,15 @@ class FinanceRbacTest extends TestCase
         $this->scopeToTreasurerOf(self::SECTION_MINE);
         AuthSession::login(1, 'tresorier@test.be', 'intendant');
 
-        $allowed = $this->importInto($mineAccount);
-        $refused = $this->importInto($theirsAccount);
+        $allowed = $this->importStatementOf($mineAccount, 'BE00000000000011');
+        $refused = $this->importStatementOf($theirsAccount, 'BE00000000000022');
 
-        // Not the same message: "no file" means the account check passed.
-        $this->assertStringNotContainsString('Accès refusé.', $allowed->getBody());
-        $this->assertStringContainsString('Accès refusé.', $refused->getBody());
+        // No account is chosen any more: the statement's own IBAN names it,
+        // and the treasurer rule decides whether its lines may land there.
+        $this->assertStringContainsString('/finance/movements?account_id=' . $mineAccount, $allowed->getBody());
+        $this->assertStringContainsString("vous n'avez pas accès au compte", $refused->getBody());
+        $this->assertSame(1, $this->countTransactionsOf($mineAccount));
+        $this->assertSame(0, $this->countTransactionsOf($theirsAccount));
     }
 
     public function testUpdatingAMovementRefusesAnAccountThisTreasurerDoesNotHold(): void
@@ -753,12 +756,39 @@ class FinanceRbacTest extends TestCase
         $this->expectedReceivableRepository->create('news', 1, $accountId, 1000, $label, $label);
     }
 
-    private function importInto(int $accountId): \Core\Http\Response
+    /**
+     * Gives the account $iban, then uploads a one-line BNP statement of that
+     * IBAN — with a typed balance, since it is the account's first import.
+     */
+    private function importStatementOf(int $accountId, string $iban): \Core\Http\Response
     {
-        return $this->instantiateController('ImportController')->upload(
-            new Request('POST', '/finance/import', [], ['account_id' => (string) $accountId, '_csrf_token' => $this->csrfToken()], [], []),
-            []
-        );
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->pdo->prepare('UPDATE finance_accounts SET iban_blind_index = ? WHERE id = ?')
+            ->execute([$encryption->blindIndex($iban, 'finance_iban'), $accountId]);
+
+        $path = (string) tempnam(sys_get_temp_dir(), 'finance_rbac_import_');
+        file_put_contents($path, "Nº de séquence;Date d'exécution;Date valeur;Montant;Devise du compte;Numéro de compte;"
+            . "Type de transaction;Contrepartie;Nom de la contrepartie;Communication;Détails;Statut;Motif du refus\n"
+            . "2026-;10/01/2026;10/01/2026;-10,00;EUR;{$iban};Virement;;;Test;REFERENCE BANQUE : {$accountId}1;Accepté;\n");
+
+        $request = $this->getMockBuilder(Request::class)
+            ->setConstructorArgs(['POST', '/finance/import', [], [
+                '_csrf_token' => $this->csrfToken(), 'bank_code' => 'bnp', 'balance' => '100',
+            ], [], []])
+            ->onlyMethods(['getFile'])
+            ->getMock();
+        $request->method('getFile')->willReturn([
+            'tmp_name' => $path, 'name' => 'releve.csv', 'error' => UPLOAD_ERR_OK, 'size' => filesize($path),
+        ]);
+
+        return $this->instantiateController('ImportController')->upload($request, []);
+    }
+
+    private function countTransactionsOf(int $accountId): int
+    {
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM finance_transactions WHERE account_id = ?');
+        $stmt->execute([$accountId]);
+        return (int) $stmt->fetchColumn();
     }
 
     private function patchMovement(int $movementId): \Core\Http\Response

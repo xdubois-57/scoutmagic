@@ -12,19 +12,63 @@
            (design.md §7.3) — no « Retour » button here. #}
         <div class="alert alert-danger">{{ error }}</div>
     {% else %}
-        <div class="alert alert-success">
-            {{ result.linesTotal }} ligne(s) lue(s), {{ result.linesNew }} nouvelle(s), {{ result.linesDuplicate }} déjà présente(s) (ignorée(s)).
-        </div>
-
-        {% if balance_discrepancy is not null %}
+        {% if result.accounts is empty %}
             <div class="alert alert-warning">
-                Écart détecté entre le solde fourni et le solde calculé à partir du dernier solde de référence et des mouvements :
-                <strong>{{ balance_discrepancy > 0 ? '+' : '' }}{{ balance_discrepancy|money }}</strong>.
-                Vérifiez qu'aucun mouvement n'a été oublié.
+                Aucun mouvement n'a été importé : aucun IBAN de ce fichier ne correspond à un compte que vous pouvez alimenter.
             </div>
         {% endif %}
 
-        <a href="/finance/movements?account_id={{ account.id }}" class="btn btn-sm btn-primary">Voir les mouvements</a>
+        {% for outcome in result.accounts %}
+            {% set import = outcome.statementImport %}
+            <section class="border rounded-3 p-3 mb-3">
+                <h2 class="h6 mb-2">{{ outcome.account.name }}</h2>
+                <p class="mb-2">
+                    {{ import.linesTotal }} ligne(s) lue(s), {{ import.linesNew }} nouvelle(s),
+                    {{ import.linesDuplicate }} déjà présente(s) (ignorée(s)).
+                </p>
+                {% if outcome.balanceDiscrepancy is not null %}
+                    <div class="alert alert-warning mb-2">
+                        Écart détecté entre le solde fourni et le solde calculé à partir du dernier solde de référence et des mouvements :
+                        <strong>{{ outcome.balanceDiscrepancy > 0 ? '+' : '' }}{{ outcome.balanceDiscrepancy|money }}</strong>.
+                        Vérifiez qu'aucun mouvement n'a été oublié.
+                    </div>
+                {% endif %}
+                <a href="/finance/movements?account_id={{ outcome.account.id }}" class="btn btn-sm btn-outline-primary">Voir les mouvements</a>
+            </section>
+        {% endfor %}
+
+        {% if result.skipped is not empty %}
+            <section class="border rounded-3 p-3 mb-3">
+                <h2 class="h6 mb-2">Lignes ignorées</h2>
+                <ul class="mb-2">
+                    {% for skipped in result.skipped %}
+                        <li>
+                            <span class="font-monospace">{{ skipped.displayIban() }}</span> — {{ skipped.lineCount }} ligne(s) :
+                            {% if skipped.reason == 'unknown' %}
+                                aucun compte du site ne porte cet IBAN.
+                            {% elseif skipped.reason == 'inactive' %}
+                                le compte qui porte cet IBAN n'est pas actif.
+                            {% elseif skipped.reason == 'ambiguous' %}
+                                plusieurs comptes actifs du site portent cet IBAN ; il faut n'en garder qu'un.
+                            {% else %}
+                                vous n'avez pas accès au compte qui porte cet IBAN.
+                            {% endif %}
+                        </li>
+                    {% endfor %}
+                </ul>
+                <p class="small text-body-secondary mb-0">
+                    Rien n'a été écrit pour ces lignes, et aucun compte n'est jamais créé à partir d'un relevé.
+                    Un compte manquant s'ajoute, avec son IBAN, dans
+                    {% if current_user_role == 'superadmin' %}
+                        <a href="/config/finance/accounts">Configuration › Comptes</a>
+                    {% else %}
+                        Configuration › Comptes (réservé au superadmin)
+                    {% endif %}
+                    ; importez ensuite à nouveau ce fichier, les mouvements déjà importés seront ignorés.
+                </p>
+            </section>
+        {% endif %}
+
         <a href="/finance/import" class="btn btn-sm btn-outline-secondary">Nouvel import</a>
     {% endif %}
 {% endblock %}

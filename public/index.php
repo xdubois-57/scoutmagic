@@ -8038,6 +8038,7 @@ if ($isEnabled('finance')) {
         $pdo,
         $encryptionService,
         $financeParserFactory,
+        $financeAccountRepo,
         $financeTransactionRepo,
         $financeCheckpointRepo,
         $financeStatementImportRepo,
@@ -8296,8 +8297,7 @@ if ($isEnabled('finance')) {
             $twig,
             $financeService,
             $financeImportService,
-            $financeParserFactory,
-            $financeCheckpointRepo
+            $financeParserFactory
         )
     );
     $frontController->registerController(
