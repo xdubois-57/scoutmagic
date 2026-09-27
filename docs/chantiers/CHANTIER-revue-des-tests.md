@@ -2135,3 +2135,115 @@ compétence `code-review` en même temps, or celle-ci exécute elle aussi PHPUni
 et les deux processus partagent la base MariaDB `test_db` de ce conteneur. Ne
 jamais faire tourner la suite entière en parallèle d'autre chose qui touche cette
 base — et capturer la sortie entière, pas sa fin.
+
+### Itération 12 — Les chemins d'échec, lot 4 : `GalleryChiefController` — 2026-09-27
+
+**Mesuré d'abord** : **845 blocs `catch` balayés, 334 corps jamais exécutés
+(39,5 %)** — sept de moins qu'au lot 3, exactement ceux qu'il a fermés.
+`MemberEmailAddressController` a disparu du tableau, comme les deux avant lui.
+`GalleryChiefController` en portait **7 sur 12**, aux lignes 226, 251, 295, 356,
+384, 447 et 470.
+
+**Une forme nouvelle, et une conséquence.** Les trois lots précédents rendaient
+un message flash ; ce contrôleur répond en **JSON 422** portant la raison —
+sauf `update()`, qui rerend le formulaire avec `submit_error` parce que cette
+route est un vrai POST de formulaire et que le chef doit retrouver ses champs.
+
+Or une raison qui voyage dans un champ JSON n'atteint personne si le
+JavaScript ne la lit pas. Vérifié avant d'écrire quoi que ce soit :
+`public/assets/js/gallery.js` lit `data.error` **sept fois**, sur **six** sites
+d'affichage — les deux lectures du chemin d'envoi (la résolution XHR puis son
+agrégation) appartiennent au même site —, chacune avec un repli français.
+(J'avais d'abord écrit « huit sites d'appel » : c'était un comptage de lignes de
+`grep`, corrigé après vérification.) C'est l'inverse du cas `recipientSentence()` du lot 1,
+devenu #579 — et cela valait la vérification plutôt que la supposition.
+
+**Zéro doublure dans ce lot.** C'est le point dont je suis le plus satisfait :
+les sept branches sont atteintes par des entrées ou des états réels.
+
+| Branche | Déclencheur réel |
+|---|---|
+| `update()` | un titre vide — la validation passe **avant** le contrôle d'accès |
+| `delete()` | une migration de stockage en cours sur l'album |
+| `uploadMedia()` | un envoi vers un album **externe**, qui ne porte pas de médias |
+| chunk, second échec | un `upload_id` qui n'est pas 32 caractères hexadécimaux |
+| fin d'envoi fragmenté | des octets qui ne sont pas une image, jugés une fois le fichier entier |
+| `deleteMedia()` | la même migration en cours, un étage plus bas |
+| `setCover()` | une couverture prise dans un **autre** album |
+
+**Deux branches méritent d'être nommées.**
+
+Le second `catch (UploadException)` du chemin fragmenté (ligne 356) n'est pas
+défensif pour rien : `ChunkedUploadStore::pathFor()` refuse un identifiant mal
+formé, donc `appendChunk()` **et** `receivedBytes()` échouent pour la même
+raison. La garde transforme cela en `received: 0` plutôt qu'en 500 — le
+navigateur apprend qu'il ne peut reprendre de nulle part, au lieu de ne rien
+apprendre. Atteignable sans doublure : l'identifiant voyage dans le corps de la
+requête.
+
+Et la ligne 384 est **le refus qui n'arrive qu'une fois tous les fragments
+transférés**. Un envoi fragmenté est autorisé à chaque fragment, mais le
+fichier n'est jugé qu'au dernier : un type non accepté coûte donc tout le
+transfert avant qu'on en apprenne la cause. C'est la branche dont la raison
+compte le plus, et elle n'était jamais exécutée.
+
+**Une erreur de ma part, que le harnais avait pourtant documentée.** Mes deux
+premiers tests passaient par `controllerDenyingEveryAlbum()`, en supposant
+qu'il ferait refuser les services. Il ne le fait pas : il remplace le garde du
+**contrôleur** et garde les services permissifs — et son propre docblock le dit
+(« the album/media services keep the permissive mock »). Je l'avais lu. Les
+deux tests rendaient 302 et 200 au lieu de 422. Réécrits sur le titre vide et
+la migration en cours, ils sont meilleurs : aucune doublure, et deux états que
+la production atteint vraiment.
+
+Et ma troisième tentative sur la ligne 384 passait **en affirmant la bonne
+chose au mauvais endroit** : pour un album externe, `assertCanUpload()` lève dès
+le premier fragment, c'est-à-dire une autre branche, déjà couverte. Le test
+était vert et ne prouvait rien de ce que son nom annonçait. Seule la mesure de
+couverture l'a montré — le vert seul ne suffit jamais.
+
+**Preuve par mutation** : **dix** mutations ciblées, une à la fois, restaurées
+après chacune — deux refus rapportés comme des succès, deux raisons remplacées
+par une phrase générique, le second échec du chemin fragmenté plus rattrapé, le
+refus inter-albums avalé, le rendu du formulaire changé en redirection, puis les
+trois ci-dessous. **Dix rouges.**
+
+**Et une table de mutations qui surestimait, relevée par le relecteur local.**
+J'avais écrit « la raison retirée du formulaire → rouge ». C'était faux, et la
+raison est instructive : ma mutation remplaçait le rendu par une redirection,
+donc c'est l'assertion de **statut** qui la tuait, pas celle du message. Or mon
+assertion de message était `assertStringContainsString('titre', …)` — satisfaite
+par le label permanent « Sous-titre (optionnel) » du formulaire. Le relecteur
+l'a démontré en supprimant l'alerte `{% if submit_error %}` du gabarit : le test
+restait vert.
+
+Trois mutations isolantes ont donc été ajoutées, chacune touchant **le message
+seul** : le `submit_error` retiré du contexte en gardant le 422, et la moitié
+actionnable « réessayez une fois celle-ci terminée » retirée des deux messages
+de migration. Les trois sont rouges, et les assertions ont été resserrées sur la
+phrase réelle — « Le titre est obligatoire » — plutôt que sur un mot qui traîne
+ailleurs dans la page.
+
+Le test de `deleteMedia()` avait le même défaut que celui relevé par CodeRabbit
+au lot 3 : son **nom** promettait « dis de revenir plus tard » et il n'assertait
+que le mot « migration ». Il assure les deux moitiés maintenant.
+
+**La leçon, qui prolonge celle du lot 3** : une mutation qui change deux choses
+à la fois ne prouve pas laquelle est gardée. Muter le statut et le message
+séparément, comme il faut muter séparément chaque affirmation d'un message
+composé.
+
+**La moitié front, fermée et mesurée honnêtement.** `tests/js/gallery.test.js`
+couvrait « reports a network failure » et « reports a non-JSON response » —
+donc les deux chemins de **repli**, jamais la raison elle-même. Deux specs
+ajoutées : un 422 portant une raison métier doit afficher **cette** raison, et
+le repli ne doit apparaître que lorsque le champ est absent.
+
+En mutant le site d'affichage pour qu'il ignore `data.error`, **trois** specs
+rougissent : les deux préexistantes et la première des miennes. La mutation est
+donc large, et je ne surinterprète pas : ce que ma spec ajoute n'est pas le site
+d'affichage, déjà couvert, mais le **cas d'entrée** — un 422 portant une raison
+métier, la forme réelle que produit le contrôleur, là où les deux autres portent
+sur des échecs de transport que le JavaScript fabrique lui-même. La seconde
+spec, qui attend le repli, **survit** à cette mutation : c'est ce qui sépare les
+deux moitiés, et c'est pourquoi elle est là.
