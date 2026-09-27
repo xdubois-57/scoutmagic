@@ -162,6 +162,10 @@ CREATE TABLE IF NOT EXISTS finance_transactions (
     counterparty_name BLOB NULL,
     counterparty_account BLOB NULL,
     extra_details BLOB NULL,
+    -- The Belgian structured communication's twelve digits, when the
+    -- statement format carries it in a field of its own (CODA) — encrypted
+    -- like the label it would otherwise be read from (issue #511).
+    structured_communication BLOB NULL,
     source ENUM('import', 'manual') NOT NULL,
     imported_at DATETIME NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

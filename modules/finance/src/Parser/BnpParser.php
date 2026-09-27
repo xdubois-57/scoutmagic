@@ -50,6 +50,36 @@ final class BnpParser implements BankStatementParserInterface
     private const COL_STATUS = 11;
 
     /**
+     * The header row this export always starts with (after its BOM) — the
+     * column names are BNP Fortis's, and nothing else writes them.
+     */
+    public function recognizes(string $filePath): bool
+    {
+        $handle = @fopen($filePath, 'r');
+        if ($handle === false) {
+            return false;
+        }
+        $first = (string) fgets($handle, 4096);
+        fclose($handle);
+
+        if (str_starts_with($first, "\xEF\xBB\xBF")) {
+            $first = substr($first, 3);
+        }
+
+        return str_contains($first, ';') && str_contains($first, 'Numéro de compte')
+            && str_contains($first, "Date d'exécution");
+    }
+
+    /**
+     * A BNP CSV states no balance: the first import of an account needs one
+     * typed by hand.
+     */
+    public function closingBalances(string $filePath): array
+    {
+        return [];
+    }
+
+    /**
      * A BNP export covers one account: its IBAN is repeated on every row.
      *
      * Normalized (uppercase, no spaces or punctuation), because

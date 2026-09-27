@@ -13,6 +13,7 @@ use Core\Scheduler\SchedulerService;
 use Core\Security\EncryptionService;
 use Modules\Finance\Parser\BankStatementParserFactory;
 use Modules\Finance\Parser\BankStatementParserInterface;
+use Modules\Finance\Parser\ClosingBalance;
 use Modules\Finance\Parser\StatementLine;
 use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\AccountRepository;
@@ -34,6 +35,7 @@ use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Service\ImportResult;
 use Modules\Finance\Service\ImportService;
 use Modules\Finance\Service\SkippedAccount;
+use Modules\Finance\Service\StatementFormatNotRecognized;
 use Modules\Finance\Service\ReceiptMatchingService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -479,7 +481,7 @@ class ImportServiceTest extends TestCase
         $this->assertCount(2, $this->transactionRepository->findByAccountId($this->account->id));
     }
 
-    public function testBalanceOptionalOnSecondImport(): void
+    public function testNoBalanceIsNeededAfterTheFirstImport(): void
     {
         $this->parserFactory->ibans = [$this->account->iban];
         $this->parserFactory->lines = [$this->line('R1', '2026-10-01', -10.0, 'Achat 1')];
@@ -492,21 +494,163 @@ class ImportServiceTest extends TestCase
         $this->assertCount(1, $this->checkpointRepository->findByAccountId($this->account->id));
     }
 
-    public function testDetectsBalanceDiscrepancyOnSecondImport(): void
+    /**
+     * A format that states no balance takes a typed one on the account's
+     * first import only: afterwards the balance is recomputed from the
+     * movements, and a typed one is refused rather than recorded.
+     */
+    public function testATypedBalanceIsRefusedOnceTheAccountHasOne(): void
     {
         $this->parserFactory->ibans = [$this->account->iban];
         $this->parserFactory->lines = [$this->line('R1', '2026-10-01', -10.0, 'Achat 1')];
-        // First checkpoint: 1000.0 as of 2026-10-01 — this is the bank's own
-        // reported closing balance for that day, so it already reflects R1.
         $this->import(1000.0, 'a.csv');
 
         $this->parserFactory->lines = [$this->line('R2', '2026-10-05', -5.0, 'Achat 2')];
-        // Calculated balance as of 2026-10-05 should be 1000.0 + (-5.0) = 995.0.
-        // We report 900.0 instead — a -95.0 discrepancy (900 - 995).
-        $result = $this->import(900.0, 'b.csv');
+
+        try {
+            $this->import(900.0, 'b.csv');
+            $this->fail('A second typed balance must be refused.');
+        } catch (FinanceException $e) {
+            $this->assertStringContainsString('déjà un solde de référence', $e->getMessage());
+        }
+
+        $this->assertCount(1, $this->checkpointRepository->findByAccountId($this->account->id));
+        $this->assertCount(1, $this->transactionRepository->findByAccountId($this->account->id));
+    }
+
+    // --- Balances stated by the file (issue #511, IT-02) -----------------
+
+    /**
+     * A file that states its balances needs none typed — not even on a
+     * first import, which is the case a multi-account file could never
+     * have met with one form field.
+     */
+    public function testAFileStatingItsBalancesRecordsEachAccountsOwnOnItsOwnDate(): void
+    {
+        $second = $this->activeAccount('Deuxième', 'BE00000000000002');
+        $this->parserFactory->ibans = ['BE00000000000001', 'BE00000000000002'];
+        $this->parserFactory->lines = [
+            $this->line('R1', '2026-10-01', -10.0, 'Premier'),
+            $this->line('R2', '2026-10-02', -20.0, 'Deuxième', 'BE00000000000002'),
+        ];
+        $this->parserFactory->balances = [
+            'BE00000000000001' => new ClosingBalance(new \DateTimeImmutable('2026-10-03'), 990.0),
+            'BE00000000000002' => new ClosingBalance(new \DateTimeImmutable('2026-10-04'), 480.0),
+        ];
+
+        $this->import(null);
+
+        $first = $this->checkpointRepository->findByAccountId($this->account->id);
+        $other = $this->checkpointRepository->findByAccountId($second->id);
+        $this->assertCount(1, $first);
+        $this->assertEqualsWithDelta(990.0, $first[0]->balance, 0.001);
+        $this->assertSame('2026-10-03', $first[0]->checkpointDate);
+        $this->assertEqualsWithDelta(480.0, $other[0]->balance, 0.001);
+        $this->assertSame('2026-10-04', $other[0]->checkpointDate);
+    }
+
+    /**
+     * The existing check does not change in nature: it compares the
+     * ledger to a balance that now comes from the file.
+     */
+    public function testTheDiscrepancyCheckComparesTheLedgerToTheFilesBalance(): void
+    {
+        $this->parserFactory->ibans = [$this->account->iban];
+        $this->parserFactory->lines = [$this->line('R1', '2026-10-01', -10.0, 'Achat 1')];
+        $this->parserFactory->balances = [$this->account->iban => new ClosingBalance(new \DateTimeImmutable('2026-10-01'), 1000.0)];
+        $this->import(null, 'a.csv');
+
+        // The ledger says 1000 − 5 = 995 on the 5th; the file says 900.
+        $this->parserFactory->lines = [$this->line('R2', '2026-10-05', -5.0, 'Achat 2')];
+        $this->parserFactory->balances = [$this->account->iban => new ClosingBalance(new \DateTimeImmutable('2026-10-05'), 900.0)];
+        $result = $this->import(null, 'b.csv');
 
         $this->assertNotNull($result->accounts[0]->balanceDiscrepancy);
         $this->assertEqualsWithDelta(-95.0, $result->accounts[0]->balanceDiscrepancy, 0.01);
+    }
+
+    public function testTheSameFileImportedTwiceWritesItsBalanceOnce(): void
+    {
+        $this->parserFactory->ibans = [$this->account->iban];
+        $this->parserFactory->lines = [$this->line('R1', '2026-10-01', -10.0, 'Achat 1')];
+        $this->parserFactory->balances = [$this->account->iban => new ClosingBalance(new \DateTimeImmutable('2026-10-01'), 1000.0)];
+
+        $this->import(null, 'a.csv');
+        $again = $this->import(null, 'a.csv');
+
+        $this->assertCount(1, $this->checkpointRepository->findByAccountId($this->account->id));
+        $this->assertNull($again->accounts[0]->balanceDiscrepancy);
+        $this->assertSame(1, $again->linesDuplicate());
+    }
+
+    /**
+     * A typed balance next to one the file states would be one of them
+     * silently ignored: refused instead, before anything is written.
+     */
+    public function testATypedBalanceIsRefusedWhenTheFileStatesItsOwn(): void
+    {
+        $this->parserFactory->ibans = [$this->account->iban];
+        $this->parserFactory->lines = [$this->line('R1', '2026-10-01', -10.0, 'Achat 1')];
+        $this->parserFactory->balances = [$this->account->iban => new ClosingBalance(new \DateTimeImmutable('2026-10-01'), 1000.0)];
+
+        try {
+            $this->import(1000.0);
+            $this->fail('The file states its own balance.');
+        } catch (FinanceException $e) {
+            $this->assertStringContainsString('indique lui-même le solde', $e->getMessage());
+        }
+
+        $this->assertSame(0, $this->countStatementImports());
+    }
+
+    // --- Format detection -------------------------------------------------
+
+    public function testTheFormatIsDetectedWhenNoneIsGiven(): void
+    {
+        $this->parserFactory->detected = 'bnp';
+        $this->parserFactory->ibans = [$this->account->iban];
+        $this->parserFactory->lines = [$this->line('R1', '2026-10-01', -10.0, 'Achat 1')];
+
+        $result = $this->service->import(null, $this->tmpCsvFile(), 'a.csv', 1000.0, 1, static fn (): bool => true);
+
+        $this->assertSame('bnp', $result->accounts[0]->statementImport->bankCode);
+    }
+
+    public function testAFileNoFormatRecognizesAsksForTheFormatAndWritesNothing(): void
+    {
+        $this->parserFactory->detected = null;
+        $path = $this->tmpCsvFile();
+
+        try {
+            $this->service->import(null, $path, 'a.csv', null, 1, static fn (): bool => true);
+            $this->fail('An unrecognized file cannot be imported.');
+        } catch (StatementFormatNotRecognized $e) {
+            $this->assertStringContainsString('Choisissez le format manuellement', $e->getMessage());
+        }
+
+        $this->assertSame(0, $this->countStatementImports());
+        $this->assertFileDoesNotExist($path);
+    }
+
+    // --- Structured communication ----------------------------------------
+
+    /**
+     * The structured communication a format carries apart is stored apart,
+     * encrypted like the label, and read back whole.
+     */
+    public function testAStructuredCommunicationIsStoredInItsOwnEncryptedField(): void
+    {
+        $this->parserFactory->ibans = [$this->account->iban];
+        $this->parserFactory->lines = [
+            new StatementLine('BE00000000000001', 'R1', new \DateTimeImmutable('2026-10-01'), 45.0, '+++126/0010/00146+++', structuredCommunication: '126001000146'),
+        ];
+
+        $this->import(1000.0);
+
+        $transaction = $this->transactionRepository->findByAccountId($this->account->id)[0];
+        $this->assertSame('126001000146', $transaction->structuredCommunication);
+        $raw = (string) $this->pdo->query('SELECT structured_communication FROM finance_transactions')->fetchColumn();
+        $this->assertStringNotContainsString('126001000146', $raw);
     }
 
     public function testAppliesCategoryRuleEngineDuringImport(): void
@@ -645,9 +789,20 @@ final class FakeStatementParser implements BankStatementParserInterface
     /**
      * @param list<string> $ibans
      * @param StatementLine[] $lines
+     * @param array<string, ClosingBalance> $balances
      */
-    public function __construct(private array $ibans, private array $lines)
+    public function __construct(private array $ibans, private array $lines, private array $balances)
     {
+    }
+
+    public function recognizes(string $filePath): bool
+    {
+        return true;
+    }
+
+    public function closingBalances(string $filePath): array
+    {
+        return $this->balances;
     }
 
     public function extractAccountIbans(string $filePath): array
@@ -676,8 +831,19 @@ final class FakeBankStatementParserFactory extends BankStatementParserFactory
     /** @var StatementLine[] */
     public array $lines = [];
 
+    /** @var array<string, ClosingBalance> */
+    public array $balances = [];
+
+    /** What detect() answers — the format name, or null for "not recognized". */
+    public ?string $detected = 'bnp';
+
     public function create(string $bankCode): BankStatementParserInterface
     {
-        return new FakeStatementParser($this->ibans, $this->lines);
+        return new FakeStatementParser($this->ibans, $this->lines, $this->balances);
+    }
+
+    public function detect(string $filePath): ?string
+    {
+        return $this->detected;
     }
 }

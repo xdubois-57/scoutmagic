@@ -1,14 +1,15 @@
 ---
 id: importer-extraits
 title: Importer un extrait bancaire
-summary: Charger le relevé de la banque — chaque ligne rejoint le compte de son IBAN — et garder les soldes justes.
+summary: Charger les extraits CODA ou le CSV BNP — chaque ligne rejoint le compte de son IBAN — et garder les soldes justes.
 category: Espace animateurs
 role_min: intendant
 discovery: 1
 question: Comment charger le relevé bancaire du mois ?
+question: Qu'est-ce qu'un fichier CODA ?
 question: Pourquoi mon solde ne correspond-il pas à celui de la banque ?
 paths: /finance/import
-related: finances, recus
+related: finances, recus, import-bancaire-refus
 ---
 
 Les mouvements n'arrivent jamais à la main : ils viennent du fichier
@@ -17,54 +18,34 @@ soldes et les paiements attendus à jour.
 
 ## Préparer le fichier
 
-Exportez l'historique du compte au format CSV depuis l'espace en ligne
-de la banque. Le module lit aujourd'hui le format BNP Paribas Fortis ;
-la liste « Banque » de la page montre les formats acceptés sur votre
-site.
+Exportez les extraits depuis l'espace en ligne de la banque, de préférence au
+format **CODA** : toutes les banques belges le proposent, et un seul fichier
+peut couvrir plusieurs comptes. Le CSV de BNP Paribas Fortis est lu aussi.
 
 ## Importer
 
-1. Choisissez la banque et le fichier. Il n'y a **pas de compte à
-   choisir** : chaque mouvement rejoint le compte du site qui porte son
-   IBAN, celui que la banque écrit dans le fichier.
-2. Au **premier import** d'un compte, indiquez le solde après ce
-   relevé — il sert de point de départ. Ensuite, le champ devient
-   facultatif : rempli, il sert de vérification.
+1. Déposez le fichier. Il n'y a **ni compte ni format à choisir** : le format
+   est reconnu tout seul, et chaque mouvement rejoint le compte du site qui
+   porte son IBAN, celui que la banque écrit dans le fichier.
+2. **Le solde** : un fichier CODA le donne lui-même pour chaque compte —
+   laissez le champ vide. Seul le CSV BNP ne le donne pas : au **premier
+   import** d'un compte, indiquez alors le solde après ce relevé, qui sert de
+   point de départ ; ensuite, il se recalcule depuis les mouvements.
 3. Touchez « Importer ».
 
+Si le format n'est pas reconnu, la page le dit et propose alors, seulement
+alors, la liste des formats : choisissez-le et déposez le fichier à nouveau.
+
 La page de résultat détaille, compte par compte, les lignes lues, les
-nouvelles et celles déjà présentes : réimporter un fichier qui recouvre
-une période déjà chargée ne crée **aucun doublon**. Si un écart de solde
-est détecté, la page vous invite à vérifier qu'aucune période ne manque.
+nouvelles et celles déjà présentes : réimporter un fichier qui recouvre une
+période déjà chargée ne crée **aucun doublon**. Si le solde du fichier ne
+correspond pas à celui que le site calcule, la page le signale : vérifiez
+qu'aucune période ne manque.
 
-## Les lignes mises de côté
+## Si quelque chose est écarté ou refusé
 
-La page de résultat nomme chaque IBAN du fichier dont les lignes n'ont
-pas été importées, et dit pourquoi :
-
-- **aucun compte du site ne porte cet IBAN** : le compte n'existe pas
-  encore sur le site. Le superadmin l'ajoute, avec son IBAN, dans
-  Configuration › Comptes ; réimportez ensuite le même fichier, les
-  lignes déjà entrées seront ignorées. Aucun compte n'est jamais créé
-  à partir d'un relevé ;
-- **le compte n'est pas actif**, ou **plusieurs comptes actifs portent
-  le même IBAN** : c'est à régler dans Configuration › Comptes ;
-- **vous n'avez pas accès au compte** : il est réservé à un rôle plus
-  élevé ou au trésorier d'une autre section.
-
-## Les refus à connaître
-
-- **Aucune année scoute ne couvre une date du fichier** : l'exercice
-  comptable est l'année scoute, et elle ne se crée jamais depuis un
-  relevé. La page nomme les dates et l'année manquante ; celle-ci se
-  prépare depuis la page « Année scoute ». Si les dates vous semblent
-  fausses, c'est le fichier qu'il faut vérifier.
-- **Le solde de départ manque** au premier import d'un compte.
-- **Un solde saisi pour un fichier qui couvre plusieurs comptes** :
-  laissez le champ vide.
-
-Dans tous ces cas, **rien n'est importé**, sur aucun compte : un
-fichier entre en entier ou pas du tout.
+La page de résultat nomme chaque IBAN mis de côté et chaque refus ; le sujet
+d'aide consacré aux lignes écartées et aux refus explique chacun.
 
 ## Après l'import
 

@@ -5,13 +5,17 @@ declare(strict_types=1);
 namespace Tests\Integration;
 
 use Core\Import\DeskCsvParser;
+use Modules\Finance\Parser\BankStatementParserFactory;
 use Modules\Finance\Parser\BnpParser;
+use Modules\Finance\Parser\CodaParser;
 use Modules\Finance\Service\StructuredCommunicationService;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\Fixtures\ReferenceDataset\BankBlueprint;
 use Tests\Fixtures\ReferenceDataset\CalendarBlueprint;
 use Tests\Fixtures\ReferenceDataset\CalendarSeeder;
+use Tests\Fixtures\ReferenceDataset\CodaBlueprint;
+use Tests\Fixtures\ReferenceDataset\CodaWriter;
 use Tests\Fixtures\ReferenceDataset\DatasetGenerator;
 use Tests\Fixtures\ReferenceDataset\PhotoLot;
 use Tests\Fixtures\ReferenceDataset\ScenarioCatalog;
@@ -461,6 +465,80 @@ final class ReferenceDatasetFormatTest extends TestCase
                 );
             }
         }
+    }
+
+    // ------------------------------------------------------------ CODA
+
+    private static function codaPath(): string
+    {
+        return self::datasetRoot() . '/' . CodaBlueprint::FILE;
+    }
+
+    /**
+     * The CODA file is recognized as what it is — the import names no
+     * format — and covers the two accounts it is there to cover: the one
+     * behaviour no other file of the dataset exercises (issue #511).
+     */
+    public function testTheCodaFileIsDetectedAndCoversItsTwoAccounts(): void
+    {
+        self::assertSame('coda', (new BankStatementParserFactory())->detect(self::codaPath()));
+        self::assertSame(
+            [
+                BankBlueprint::compactIban(BankBlueprint::ACCOUNTS[CodaBlueprint::UNIT_ACCOUNT]['iban']),
+                BankBlueprint::compactIban(BankBlueprint::sectionIban(CodaBlueprint::SECTION_INDEX)),
+            ],
+            (new CodaParser())->extractAccountIbans(self::codaPath()),
+        );
+    }
+
+    /**
+     * Written as a bank writes it: ISO-8859-1, so the accents only come out
+     * whole if the parser converts before it reads — and a globalised batch
+     * that must count once. The parser itself refuses a statement whose
+     * movements do not reach its new balance.
+     */
+    public function testTheCodaFileIsIso88591AndEveryTrapComesOutRight(): void
+    {
+        $raw = (string) file_get_contents(self::codaPath());
+        self::assertFalse(mb_check_encoding($raw, 'UTF-8'), 'the CODA file must be ISO-8859-1, as a bank writes it');
+
+        $lines = (new CodaParser())->parse(self::codaPath());
+        $expected = count(CodaBlueprint::MOVEMENTS['camps']) + count(CodaBlueprint::MOVEMENTS['section']);
+        self::assertCount($expected, $lines, 'the globalised batch must count once, its details not at all');
+
+        $names = array_map(static fn (object $line): ?string => $line->counterpartyName, $lines);
+        self::assertContains('Épicerie Sénéchal & Fils', $names);
+        self::assertContains('Boulangerie Hénin', $names);
+
+        $structured = array_values(array_filter($lines, static fn (object $line): bool => $line->structuredCommunication !== null));
+        self::assertCount(1, $structured);
+        self::assertSame(StructuredCommunicationService::format(CodaBlueprint::STRUCTURED_BASE), $structured[0]->label);
+
+        self::assertSame(CodaBlueprint::MOVEMENTS['camps'][0]['communication'], $lines[0]->label, 'the three records of a communication are sewn back together');
+    }
+
+    /**
+     * The camps account's old balance is its ledger once the BNP statements
+     * are in; the section account's is the declared opening.
+     */
+    public function testTheCodaBalancesContinueTheLedger(): void
+    {
+        $generated = (new DatasetGenerator(self::datasetRoot()))->generate();
+        $camps = BankBlueprint::compactIban(BankBlueprint::ACCOUNTS[CodaBlueprint::UNIT_ACCOUNT]['iban']);
+        $section = BankBlueprint::compactIban(BankBlueprint::sectionIban(CodaBlueprint::SECTION_INDEX));
+        $sum = static fn (string $iban): float => array_sum(array_map(
+            static fn (object $line): float => $line->amount,
+            array_filter((new CodaParser())->parse(self::codaPath()), static fn (object $line): bool => $line->accountIban === $iban),
+        ));
+
+        $balances = (new CodaParser())->closingBalances(self::codaPath());
+
+        self::assertEqualsWithDelta(
+            CodaWriter::ledgerMillis($generated, CodaBlueprint::UNIT_ACCOUNT) / 1000 + $sum($camps),
+            $balances[$camps]->amount,
+            0.001,
+        );
+        self::assertEqualsWithDelta(CodaBlueprint::SECTION_OPENING + $sum($section), $balances[$section]->amount, 0.001);
     }
 
     /**

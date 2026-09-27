@@ -26,7 +26,12 @@ namespace Modules\Finance\Parser;
  * has" without needing a new schema column per bank format. balanceAfter
  * is the bank's own running balance after this line, when the format
  * provides one (BNP Fortis does not); currently unused but kept for
- * future parsers/reconciliation.
+ * future parsers/reconciliation. structuredCommunication is the Belgian
+ * structured communication as its twelve digits, when the format carries it
+ * in a field of its own (CODA does; the BNP CSV drowns it in free text,
+ * where Service\StructuredCommunicationService::extract() still finds it) —
+ * kept apart rather than concatenated into extraDetails, so reconciliation
+ * reads it clean.
  */
 final class StatementLine
 {
@@ -39,7 +44,8 @@ final class StatementLine
         public readonly ?string $counterpartyAccount = null,
         public readonly ?string $counterpartyName = null,
         public readonly ?string $extraDetails = null,
-        public readonly ?float $balanceAfter = null
+        public readonly ?float $balanceAfter = null,
+        public readonly ?string $structuredCommunication = null
     ) {
     }
 }

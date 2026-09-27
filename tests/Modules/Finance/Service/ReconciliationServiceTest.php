@@ -176,6 +176,24 @@ class ReconciliationServiceTest extends TestCase
         $this->assertStringContainsString('ne correspond à aucune créance', $view['orphans'][0]['reason']);
     }
 
+    /**
+     * The same reading when the communication came in its own field (CODA,
+     * issue #511) rather than inside the label.
+     */
+    public function testACommunicationCarriedInItsOwnFieldIsReadForTheReasonToo(): void
+    {
+        $this->receivable('Lucie', 4500, '+++123/4567/89012+++');
+        $this->transactions->create(
+            $this->accountId, $this->scoutYearId, 'coda-1', '2026-02-18', 'Famille Martin', 45.00,
+            null, null, 'import', null, structuredCommunication: '999888877766'
+        );
+
+        $view = $this->build();
+
+        $this->assertCount(1, $view['orphans']);
+        $this->assertStringContainsString('ne correspond à aucune créance', $view['orphans'][0]['reason']);
+    }
+
     public function testAFullySettledCreditIsInNoTabAtAll(): void
     {
         $this->receivable('Lucie', 4500, '+++123/4567/89012+++');

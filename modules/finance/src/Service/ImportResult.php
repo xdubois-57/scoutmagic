@@ -31,7 +31,10 @@ final class ImportResult
 
     public function linesNew(): int
     {
-        return array_sum(array_map(static fn (AccountImportOutcome $a): int => $a->statementImport->linesNew, $this->accounts));
+        return array_sum(array_map(
+            static fn (AccountImportOutcome $a): int => $a->statementImport->linesNew,
+            $this->accounts
+        ));
     }
 
     public function linesDuplicate(): int
