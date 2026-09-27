@@ -37,7 +37,7 @@ final class OperationalAttentionProvider implements AttentionPointProvider
 {
     /** The destination that suits eleven of the thirteen checks (see AlertSurfaces::destinations()). */
     private const DEFAULT_WHY = 'Le site l\'a signalé aux administrateurs et le répète ici tant que c\'est '
-        . 'vrai. La page Maintenance en dit le détail.';
+        . 'vrai. La page Maintenance, réservée aux superadministrateurs, en dit le détail.';
 
     private const DEFAULT_ACTION_LABEL = 'Ouvrir la maintenance';
 

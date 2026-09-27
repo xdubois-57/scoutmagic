@@ -22,6 +22,21 @@ class Backup
     public const PORTABLE_TYPE = 'portable';
 
     /**
+     * The role floor of every file a backup owns — its archive and its
+     * database dump — in `files.role_min`, which is what /files/{id}
+     * checks before serving it (Core\File\FileAccessGuard).
+     *
+     * `superadmin`, the floor of every maintenance route since issue #619.
+     * It was `admin`, and it has to move with the routes: a chef d'unité
+     * turned away from the backup list would otherwise still download an
+     * archive by its file id. Written once here because eleven call sites
+     * register such files, and one of them forgetting the change would be
+     * the hole. The rows written before are raised by
+     * BackupRepository::raiseFileFloor().
+     */
+    public const FILE_ROLE = 'superadmin';
+
+    /**
      * Every value `backups.type` can hold — which is not the same as
      * every value this code still WRITES.
      *

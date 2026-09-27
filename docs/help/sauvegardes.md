@@ -3,7 +3,7 @@ id: sauvegardes
 title: Sauvegarder le site
 summary: Les sauvegardes à la demande et automatiques, et l'espace disque qui les décide.
 category: Configuration
-role_min: admin
+role_min: superadmin
 discovery: off
 question: Comment sauvegarder le site avant une opération risquée ?
 question: Pourquoi ma sauvegarde est-elle refusée faute de place ?

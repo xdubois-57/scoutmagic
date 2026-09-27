@@ -3,7 +3,7 @@ id: sante-hebergement
 title: Santé de l'hébergement
 summary: La page d'accueil de la maintenance : la tâche cron du serveur et le résultat des mises à jour automatiques.
 category: Configuration
-role_min: admin
+role_min: superadmin
 question: Comment savoir si la tâche cron du site tourne ?
 question: Où voir si la dernière mise à jour automatique a réussi ?
 paths: /config/maintenance
