@@ -2050,9 +2050,22 @@ nom la promesse d'un message qu'il ne vérifiait pas : il l'assure maintenant.
 
 **La branche qui dit ce que le service n'a pas dit.** Le `MailException` de
 `add()` est la seule où le contrôleur ajoute une information : l'adresse **est**
-enregistrée, seul le courriel a échoué. Annoncer un échec sec enverrait le
-membre la ressaisir — et la seconde tentative refuserait, l'adresse étant déjà
-là. C'est la branche la plus utile du lot, et elle n'était jamais exécutée.
+enregistrée, seul le courriel a échoué. Annoncer un échec sec serait donc faux,
+et cacherait le seul recours qui fonctionne.
+
+Ma première formulation disait « la seconde tentative refuserait, l'adresse étant
+déjà là ». **Faux**, relevé par `Claude review` et vérifié : `addEmail()` ne
+refuse un doublon que pour une ligne `SOURCE_DESK`. Pour une ligne manuelle en
+attente — exactement ce que laisse un envoi échoué — elle **rend la ligne
+existante**, en renvoyant la confirmation seulement si le délai d'attente est
+écoulé. Or `MemberEmailRepository::create()` a déjà posé
+`last_confirmation_sent_at` : le délai court, et une nouvelle tentative
+immédiate ne fait donc **rien du tout, en silence**. Le comportement réel est
+pire que celui que je décrivais, ce qui renforce l'utilité de la branche plutôt
+que de l'affaiblir : sans ce message, le membre ressaisit une adresse déjà
+présente et n'obtient aucune réaction.
+
+C'est la branche la plus utile du lot, et elle n'était jamais exécutée.
 
 **Les doublures restent, et pour deux raisons différentes.** Pour les deux
 `MailException`, l'échec de la couche courriel **est** le sujet — même

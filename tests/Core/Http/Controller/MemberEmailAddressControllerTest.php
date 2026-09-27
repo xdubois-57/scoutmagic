@@ -476,8 +476,15 @@ class MemberEmailAddressControllerTest extends TestCase
     /**
      * **The one branch here that tells the member something the service
      * never said.** The address IS saved; only the confirmation mail failed.
-     * Reporting a plain failure would send them to add it again — and a
-     * second attempt then refuses, because the address is already there.
+     *
+     * Reporting a plain failure would therefore be false, and it would hide
+     * the only remedy that works. Adding the address again is not refused —
+     * `MemberEmailService::addEmail()` finds the pending row and returns it,
+     * re-sending the confirmation only once the resend cooldown has elapsed,
+     * and `MemberEmailRepository::create()` has already stamped
+     * `last_confirmation_sent_at`. So a member who retries straight away gets
+     * silence: no mail, nothing changed. « Renvoyer » is the way out, which is
+     * why the message names it.
      */
     public function testAddSaysTheAddressWasKeptWhenTheConfirmationMailFails(): void
     {
