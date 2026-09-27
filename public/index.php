@@ -5622,6 +5622,15 @@ $router->addRoute(
     'admin',
     ['label' => 'Badges', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]],
 );
+$router->addRoute(
+    'GET',
+    '/admin/badges/annee-precedente',
+    BadgeHoldersController::class,
+    'previous',
+    'admin',
+    ['label' => 'Année précédente', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)],
+        'ancestors' => [['label' => 'Badges', 'path' => '/admin/badges']]],
+);
 // Espace chefs d'U > Badges > Configuration — badge registry (split out of
 // Configuration générale, ARCHITECTURE §8.11). It lived at /config/badges,
 // superadmin, in the Configuration menu; it moved unchanged to admin
@@ -6854,7 +6863,8 @@ $frontController->registerController(
     new BadgeHoldersController(
         $twig,
         new \Core\Badge\BadgeHolderService($badgeRepository, $memberBadgeRepository, $sectionService),
-        $scoutYearResolver
+        $scoutYearResolver,
+        $scoutYearService
     )
 );
 $frontController->registerController(

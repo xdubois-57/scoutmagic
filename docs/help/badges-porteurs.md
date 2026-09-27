@@ -6,7 +6,8 @@ category: Espace chefs d'U
 role_min: admin
 question: Qui porte le badge Infirmier cette année ?
 question: Comment voir tous les badges attribués dans l'unité ?
-paths: /admin/badges
+question: Qui portait quel badge l'année dernière ?
+paths: /admin/badges, /admin/badges/annee-precedente
 related: badges, staffs
 ---
 
@@ -27,6 +28,18 @@ renomment avec leur section.
 Un badge **désactivé** qui a encore des porteurs reste affiché, marqué
 « Désactivé » : sans cela, son porteur disparaîtrait de tous les écrans
 alors que le badge est toujours à lui retirer — ou à réactiver.
+
+## L'année précédente
+
+Le deuxième onglet, au nom de l'année d'avant, montre la même page sur
+l'année close, sans aucune action : il sert à retrouver qui tenait quel
+rôle. Chaque personne y apparaît telle qu'elle était cette année-là —
+son nom, sa section et sa fonction d'alors. Quelqu'un qui a quitté
+l'unité depuis garde son lien : sa fiche s'ouvre et montre qu'il n'est
+plus affilié.
+
+L'onglet est toujours là, même quand l'année d'avant n'a rien à
+montrer : la page le dit simplement.
 
 ## Attribuer ou retirer un badge
 
