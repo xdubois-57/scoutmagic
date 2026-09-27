@@ -34,7 +34,14 @@ class StorageBackendFactory
 {
     public function __construct(
         private StorageLocationRepository $repository,
-        private string $storagePath
+        private string $storagePath,
+        /**
+         * The client every Drive backend is built on — null in production,
+         * which means the real network. Injectable because a location's
+         * lifecycle (renamed, deleted) now reaches its Drive folder through
+         * this factory (#474), and a test of that lifecycle must not.
+         */
+        private ?GoogleDriveClient $driveClient = null
     ) {
     }
 
@@ -118,7 +125,7 @@ class StorageBackendFactory
             // refresh token, and this is the one place that turns the
             // encrypted column back into something usable.
             return new GoogleDriveBackend(
-                new GoogleDriveClient(),
+                $this->driveClient ?? new GoogleDriveClient(),
                 $config,
                 GoogleDriveSecret::fromStorage($this->repository->getSecret($location->id))
             );

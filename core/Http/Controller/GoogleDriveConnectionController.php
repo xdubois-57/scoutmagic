@@ -247,10 +247,7 @@ final class GoogleDriveConnectionController extends AbstractController
                 $code
             );
             $about = $this->client->about($tokens['access_token']);
-            $folderId = $this->client->ensureFolder(
-                $tokens['access_token'],
-                GoogleDriveLocationConfig::FOLDER_NAME
-            );
+            $folderId = $this->locationFolder($tokens['access_token'], $config, $location->label);
 
             $this->locations->update(
                 $location->id,
@@ -337,10 +334,16 @@ final class GoogleDriveConnectionController extends AbstractController
         // « leave the secret alone », which is the opposite of what this
         // button means. The empty JSON document is present and says the
         // three values are gone.
+        //
+        // **The folder id stays** (#474). The folder is found by id and
+        // never by name, so forgetting it would have the same account,
+        // reconnected, start an empty folder beside the one holding every
+        // file — while a different account simply cannot see it and gets
+        // a folder of its own ({@see locationFolder()}).
         $this->locations->update(
             $location->id,
             $location->label,
-            new GoogleDriveLocationConfig(),
+            new GoogleDriveLocationConfig('', $this->configOf($location)->folderId, ''),
             (string) json_encode(['client_secret' => '', 'refresh_token' => '', 'account' => ''])
         );
 
@@ -393,6 +396,35 @@ final class GoogleDriveConnectionController extends AbstractController
         $base = rtrim($baseUrl, '/');
 
         return $base === '' ? '' : $base . self::REDIRECT_PATH;
+    }
+
+    /**
+     * The folder this location writes into: `ScoutMagic/<label>/` (#474).
+     *
+     * **The one it already has, when the account just authorised can
+     * still see it** — a reconnection after the seven-day expiry, or after
+     * « Déraccorder », must land on the folder holding the files and not
+     * beside it. Otherwise a new one: the shared `ScoutMagic` parent is
+     * found or created, and the location's own folder is always CREATED
+     * under it, never looked up by name — two locations must never share
+     * a folder again, which is exactly what a lookup by name produced.
+     * A folder in the trash counts as gone: writing into it would put
+     * every file where Google empties it after thirty days.
+     *
+     * @throws DriveAccessException
+     */
+    private function locationFolder(string $accessToken, GoogleDriveLocationConfig $config, string $label): string
+    {
+        if ($config->folderId !== '') {
+            $existing = $this->client->describeFile($accessToken, $config->folderId);
+            if ($existing !== null && !$existing['trashed']) {
+                return $config->folderId;
+            }
+        }
+
+        $parentId = $this->client->ensureFolder($accessToken, GoogleDriveLocationConfig::PARENT_FOLDER_NAME);
+
+        return $this->client->createFolder($accessToken, $label, $parentId);
     }
 
     private function baseUrl(): string

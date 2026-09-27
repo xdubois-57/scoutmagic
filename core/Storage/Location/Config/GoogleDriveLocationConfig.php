@@ -34,16 +34,32 @@ namespace Core\Storage\Location\Config;
 final class GoogleDriveLocationConfig implements LocationConfig
 {
     /**
-     * The folder this application creates in the operator's Drive.
+     * The folder every Drive location of an account sits under, at the
+     * top of « Mon Drive » (#474).
      *
-     * Named here rather than in the backend because the backend creates it
-     * on first use and the screen names it to the operator before that
-     * ever happens — two spellings would be two folders.
+     * **Shared, and only this one.** Each location gets its own folder
+     * UNDER it, named after the location's label and remembered by id
+     * ({@see $folderId}); this parent is the one folder looked up by name,
+     * so that two locations on one account group together in the
+     * operator's Drive rather than scattering at its top level. It used to
+     * be the location's folder itself — `ScoutMagic — sauvegardes`, found
+     * by name — which is how two locations on one account ended up writing
+     * into the same folder.
      */
-    public const FOLDER_NAME = 'ScoutMagic — sauvegardes';
+    public const PARENT_FOLDER_NAME = 'ScoutMagic';
 
     public function __construct(
         public readonly string $clientId = '',
+        /**
+         * The Drive id of this location's own folder,
+         * `ScoutMagic/<label>/`, written by the connection flow.
+         *
+         * **The only way the site finds its folder.** Never its name: the
+         * folder is renamed with the location, an operator may rename or
+         * move it in Drive, and a name is what two locations used to share.
+         * A location connected before #474 holds the id of the old flat
+         * folder here, and is meant to be recreated rather than migrated.
+         */
         public readonly string $folderId = '',
         /**
          * When the grant was last obtained, ISO-8601, or '' when never.
@@ -98,22 +114,33 @@ final class GoogleDriveLocationConfig implements LocationConfig
      * is the e-mail address of a real person — which is exactly why it is
      * on the encrypted side. The screen that legitimately shows it to an
      * administrator reads it from there.
+     *
+     * The folder is named after the location's label, which this record
+     * does not hold: {@see describeFolderOf()} is what a location that
+     * knows its label says, and this is the label-less form.
      */
     public function describe(): string
     {
-        return 'Google Drive — ' . self::FOLDER_NAME;
+        return 'Google Drive — Mon Drive › ' . self::PARENT_FOLDER_NAME . ' › dossier au nom de l\'emplacement';
+    }
+
+    /** The real path of this location's folder, for a location labelled $label. */
+    public function describeFolderOf(string $label): string
+    {
+        return 'Google Drive — Mon Drive › ' . self::PARENT_FOLDER_NAME . ' › ' . $label;
     }
 
     /**
      * Whether an account has been through the consent screen at all.
      *
-     * The folder id is the proof: it is written only once Google has
-     * answered, and it is what every later call addresses. A client id on
-     * its own is an operator half way through the setup.
+     * The connection date is the proof: it is written only once Google
+     * has answered. Not the folder id any more — that one survives a
+     * disconnection on purpose, so that reconnecting the same account
+     * finds the same folder rather than starting an empty one.
      */
     public function isConnected(): bool
     {
-        return $this->folderId !== '';
+        return $this->connectedAt !== '';
     }
 
     /**
