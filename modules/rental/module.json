@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques.",
-  "version": "1.28.0",
+  "version": "1.29.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -868,6 +868,48 @@
       "menu": "notre_unite",
       "role_min": "public",
       "label": ""
+    },
+    {
+      "path": "/locations/{slug}/conditions",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalPublicController",
+      "action": "conditions",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": "",
+      "breadcrumb": {
+        "label": "Conditions de location",
+        "parents": [
+          "Notre unité"
+        ],
+        "ancestors": [
+          {
+            "label": "Locations",
+            "path": "/locations"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/locations/{slug}/conditions/{version}",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalPublicController",
+      "action": "conditionsVersion",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": "",
+      "breadcrumb": {
+        "label": "Conditions de location",
+        "parents": [
+          "Notre unité"
+        ],
+        "ancestors": [
+          {
+            "label": "Locations",
+            "path": "/locations"
+          }
+        ]
+      }
     },
     {
       "path": "/mes-locations/{slug}/conformite",

@@ -134,22 +134,19 @@
             </fieldset>
 
             {#
-              Always rendered, and never empty: Document\AssetConditions falls
-              back to the standard Belgian body the module ships. The tick-box
-              below is mandatory, so a missing text used to mean accepting
-              nothing while the acceptance hash attested to it.
+              A link, like the privacy notice below, rather than the whole text
+              in a scrolling box (issue #494): the conditions have their own
+              page now, which an email can point back to. The hidden field is
+              the version on that page when the form was drawn — the server
+              refuses a submission against any other, so the box accepts
+              exactly the text the visitor could open. Never empty either:
+              Document\AssetConditions falls back to the standard Belgian body.
             #}
-            <fieldset class="mb-4">
-                <legend class="h5">Conditions de location</legend>
-                <div class="rich-text border rounded p-3 mb-3" style="max-height: 240px; overflow-y: auto;">
-                    {{ conditions_html|raw }}
-                </div>
-            </fieldset>
-
+            <input type="hidden" name="conditions_version" value="{{ conditions.version }}">
             <div class="form-check mb-2">
                 <input class="form-check-input" type="checkbox" id="accept-conditions" name="accept_conditions" required>
                 <label class="form-check-label" for="accept-conditions">
-                    J'accepte les conditions de location
+                    J'accepte les <a href="/locations/{{ asset.slug }}/conditions/{{ conditions.version }}" target="_blank" rel="noopener">conditions de location</a>
                 </label>
             </div>
             <div class="form-check mb-4">

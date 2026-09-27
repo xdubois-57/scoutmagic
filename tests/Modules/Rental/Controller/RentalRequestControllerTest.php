@@ -36,12 +36,14 @@ use Modules\Rental\Repository\RentalAssetManagerRepository;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Repository\RentalBookingRepository;
+use Modules\Rental\Repository\RentalConditionsVersionRepository;
 use Modules\Rental\Repository\RentalConstraintsRepository;
 use Modules\Rental\Repository\RentalPricingRepository;
 use Modules\Rental\Service\RentalAvailabilityService;
 use Modules\Rental\Service\RentalBookingMailService;
 use Modules\Rental\Document\StandardTemplates;
 use Modules\Rental\Service\RentalBookingService;
+use Modules\Rental\Service\RentalConditionsService;
 use Modules\Rental\Service\RentalManagerService;
 use Modules\Rental\Service\RentalPricingService;
 use PHPUnit\Framework\TestCase;
@@ -80,6 +82,7 @@ class RentalRequestControllerTest extends TestCase
     private RentalConstraintsRepository $constraintsRepository;
     private RentalPricingService $pricingService;
     private EditableContentService $editableContentService;
+    private RentalConditionsService $conditionsService;
     private EncryptionService $encryption;
     private SettingService $settingService;
     private int $scoutYearId;
@@ -125,6 +128,10 @@ class RentalRequestControllerTest extends TestCase
         );
         $this->constraintsRepository = new RentalConstraintsRepository($this->pdo);
         $this->editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
+        $this->conditionsService = new RentalConditionsService(
+            new RentalConditionsVersionRepository($this->pdo),
+            $this->editableContentService
+        );
 
         $memberService = new MemberService(
     new MemberYearRepository($this->pdo),
@@ -200,6 +207,7 @@ class RentalRequestControllerTest extends TestCase
             $settingService,
             $this->operationsService,
             $this->changeRequestRepository,
+            $this->conditionsService,
             // §6.32: the renter's own ICS feed. Both handles are nullable
             // and null without the `calendar` module — only the generator
             // is borrowed, no calendar row is ever involved.
@@ -315,6 +323,14 @@ class RentalRequestControllerTest extends TestCase
         return ['human_check_token' => $tokenMatch[1], $trapMatch[1] => ''];
     }
 
+    private function conditionsVersionIn(string $formBody): string
+    {
+        preg_match('/name="conditions_version" value="([0-9a-f]{12})"/', $formBody, $match);
+        $this->assertNotEmpty($match, 'The request form must carry the version of the conditions it shows');
+
+        return $match[1];
+    }
+
     private function renderForm(): string
     {
         $response = $this->controller->form(
@@ -357,8 +373,13 @@ class RentalRequestControllerTest extends TestCase
             'accept_privacy' => '1',
         ];
 
+        // Harvested from the form like the HumanCheck fields: the version a
+        // browser submits is the one it was shown (issue #494).
+        $form = $this->renderForm();
+        $body['conditions_version'] = $this->conditionsVersionIn($form);
+
         if ($withHumanCheck) {
-            $body += $this->humanCheckFields($this->renderForm());
+            $body += $this->humanCheckFields($form);
             if ($waitForDelay) {
                 sleep(1);
             }
@@ -632,9 +653,73 @@ class RentalRequestControllerTest extends TestCase
         $this->createAsset();
 
         $form = $this->renderForm();
+        $version = $this->conditionsVersionIn($form);
 
-        $this->assertStringContainsString('Conditions de location', $form);
-        $this->assertStringContainsString('Ces conditions s\'appliquent à toute demande', $form);
+        // The form links to the text rather than carrying it (issue #494);
+        // what the link opens is the archived version, and it is complete.
+        $this->assertStringContainsString(
+            '/locations/local-saint-georges/conditions/' . $version . '"',
+            $form
+        );
+        $archived = $this->conditionsService->find(1, $version);
+        $this->assertNotNull($archived);
+        $this->assertStringContainsString('Ces conditions s\'appliquent à toute demande', $archived->html);
+    }
+
+    /**
+     * The defect issue #494 names first: a manager saves new conditions
+     * while a family fills in the form. The box they tick was drawn next
+     * to the OLD wording, so accepting the new one would attest to a text
+     * nobody showed them — refused, their input kept, and the form now
+     * carrying the new version.
+     */
+    public function testASubmissionAgainstConditionsChangedSinceTheFormWasShownIsRefused(): void
+    {
+        $assetId = $this->createAsset();
+        $body = $this->validBody();
+        $shown = $body['conditions_version'];
+
+        $this->conditionsService->recordSave($assetId, '<p>Nouvelles conditions.</p>', 1);
+        $response = $this->submit($body);
+        $page = (string) $response->getBody();
+
+        $this->assertSame(0, $this->bookingCount());
+        $this->assertStringContainsString('ont été modifiées pendant que vous remplissiez ce formulaire', $page);
+        $this->assertStringContainsString('Jeanne Martin', $page, 'the visitor keeps their input');
+        $this->assertNotSame($shown, $this->conditionsVersionIn($page), 'the form now shows the new version');
+    }
+
+    /** A form posted with no version at all — a stale page, a script — is the same refusal. */
+    public function testASubmissionWithoutAConditionsVersionIsRefused(): void
+    {
+        $this->createAsset();
+        $body = $this->validBody();
+        unset($body['conditions_version']);
+
+        $this->submit($body);
+
+        $this->assertSame(0, $this->bookingCount());
+    }
+
+    /**
+     * The booking points at an ARCHIVED version, and that version is still
+     * readable after the manager rewrites the conditions — the proof a
+     * booking's hash used to lose on the first edit.
+     */
+    public function testTheBookingPointsAtAVersionThatOutlivesTheNextEdit(): void
+    {
+        $assetId = $this->createAsset();
+        $this->conditionsService->recordSave($assetId, '<p>Le local est rendu balayé.</p>', 1);
+
+        $this->submit($this->validBody());
+        $this->conditionsService->recordSave($assetId, '<p>Le local est rendu lavé.</p>', 1);
+
+        $booking = $this->bookingRepository->findById(1);
+        $this->assertNotNull($booking);
+        $accepted = $this->conditionsService->find($assetId, (string) $booking->conditionsVersion);
+        $this->assertNotNull($accepted);
+        $this->assertSame('<p>Le local est rendu balayé.</p>', $accepted->html);
+        $this->assertSame($accepted->hash, $booking->conditionsHash);
     }
 
     public function testTheAcceptedTextIsTheStandardOneWhenTheUnitWroteNone(): void

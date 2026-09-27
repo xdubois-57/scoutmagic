@@ -13,16 +13,16 @@ use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Security\AuthSession;
-use Core\View\EditableContentService;
 use Core\Service\DateInput;
 use Core\View\MonthGrid\DayState;
 use Core\View\MonthGrid\DayStateGridBuilder;
-use Modules\Rental\Document\AssetConditions;
+use Modules\Rental\Document\ConditionsVersion;
 use Modules\Rental\Pricing\PricingRequest;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Service\RentalAuthorizationService;
 use Modules\Rental\Service\RentalAvailabilityService;
+use Modules\Rental\Service\RentalConditionsService;
 use Modules\Rental\Service\RentalPricingService;
 use Twig\Environment;
 
@@ -61,11 +61,11 @@ class RentalPublicController extends AbstractController
         private RentalPricingService $pricingService,
         private DayStateGridBuilder $gridBuilder,
         /**
-         * Read-only here: the conditions block below is RENDERED from the
-         * store, never edited from this page any more (§22.5,
-         * Document\AssetConditions).
+         * Read-only here: the conditions are RENDERED, never edited from
+         * this page (§22.5), and read as the version in force so the text a
+         * visitor sees is already archived (issue #494).
          */
-        private EditableContentService $editableContentService
+        private RentalConditionsService $conditionsService
     ) {
         parent::__construct($twig);
     }
@@ -143,13 +143,102 @@ class RentalPublicController extends AbstractController
                     // rather than `editable()`: they are the asset's
                     // managers' text now, edited from the asset's settings
                     // page, and the configuration mode is not their door.
-                    'conditions_html' => AssetConditions::textFor(
-                        $this->editableContentService,
-                        $asset->id
-                    ),
+                    'conditions' => $this->conditionsService->current($asset->id),
                 ]
             )
         );
+    }
+
+    /**
+     * GET /locations/{slug}/conditions — the conditions in force, at an
+     * address that can be linked to (issue #494).
+     *
+     * The same visibility as the asset's own page: public, or reachable by
+     * its managers, and a plain 404 otherwise — like every archived version
+     * below.
+     *
+     * @param array<string, string> $params
+     */
+    public function conditions(Request $request, array $params): Response
+    {
+        $asset = $this->visibleAsset((string) ($params['slug'] ?? ''));
+        if ($asset === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $current = $this->conditionsService->current($asset->id);
+
+        return $this->renderConditions($asset, $current, $current);
+    }
+
+    /**
+     * GET /locations/{slug}/conditions/{version} — one archived wording, at
+     * a permanent address: the one each email to a renter links to.
+     *
+     * **The same visibility as the asset's own page, deliberately.** It
+     * was tempting to serve an archived version even for an asset taken off
+     * the public site, so a renter's link would outlive the unpublishing —
+     * on the argument that a version, twelve hex characters of a hash, is
+     * not guessable. It is: an asset whose unit never wrote its own
+     * wording carries the shipped standard text, whose hash is the same
+     * constant on every installation and is printed on every other such
+     * asset's page. A 200 for it would tell anybody holding a slug that a
+     * hidden asset exists, which is the disclosure `show()` refuses with a
+     * plain 404. A renter of an asset put back on the site finds their link
+     * working again; an asset kept hidden keeps its managers' access.
+     *
+     * @param array<string, string> $params
+     */
+    public function conditionsVersion(Request $request, array $params): Response
+    {
+        $asset = $this->visibleAsset((string) ($params['slug'] ?? ''));
+        $version = $asset === null
+            ? null
+            : $this->conditionsService->find($asset->id, (string) ($params['version'] ?? ''));
+
+        if ($asset === null || $version === null) {
+            return new Response('Not Found', 404);
+        }
+
+        return $this->renderConditions($asset, $version, $this->conditionsService->current($asset->id));
+    }
+
+    private function renderConditions(
+        RentalAsset $asset,
+        ConditionsVersion $shown,
+        ConditionsVersion $current
+    ): Response {
+        return $this->render('@rental/public/conditions.html.twig', [
+            'asset' => $asset,
+            'breadcrumb_trail' => [
+                ['label' => $asset->name, 'url' => '/locations/' . $asset->slug],
+            ],
+            'shown' => $shown,
+            'current' => $current,
+            'is_current' => $shown->hash === $current->hash,
+        ]);
+    }
+
+    /**
+     * The asset by its slug, when this visitor may see it: public, or one
+     * they manage. The rule `show()` applies, in one place.
+     */
+    private function visibleAsset(string $slug): ?RentalAsset
+    {
+        $asset = $this->assetRepository->findBySlug($slug);
+        if ($asset === null) {
+            return null;
+        }
+
+        if ($asset->isPubliclyVisible()) {
+            return $asset;
+        }
+
+        $scoutYearId = $this->scoutYearResolver->getAuthorizationYear()->id;
+
+        return $this->authorizationService->canManageAsset(AuthSession::getEmail(), $scoutYearId, $asset)
+            ? $asset
+            : null;
     }
 
     /**

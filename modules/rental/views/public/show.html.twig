@@ -118,7 +118,10 @@
         <div class="card">
             <div class="card-body">
                 <h2 class="h5 mb-3">Conditions de location</h2>
-                <div class="rich-text">{{ conditions_html|raw }}</div>
+                <div class="rich-text">{{ conditions.html|raw }}</div>
+                <p class="small text-muted mb-0 mt-3">
+                    <a href="/locations/{{ asset.slug }}/conditions/{{ conditions.version }}">Adresse permanente de cette version</a>
+                </p>
             </div>
         </div>
     </div>
