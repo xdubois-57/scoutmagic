@@ -6,6 +6,8 @@ namespace Tests\Modules\Camps\Service;
 
 use Core\Audit\AuditRepository;
 use Core\Audit\AuditService;
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
 use Core\Security\EncryptionService;
 use Modules\Camps\Repository\Camp;
 use Modules\Camps\Repository\CampRepository;
@@ -29,19 +31,19 @@ use Tests\Modules\Camps\CampsTestHelper;
  * file existed — because no file tested this class at all.
  *
  * **Four absorb** — `albumIdFor()`, `existingAlbumIdFor()`, `listMedia()`
- * and `movePhotos()` answer null, null, [] and 0. Surviving is the point: the
+ * and `movePhotos()` answer null, null, null and 0. Surviving is the point: the
  * class docblock argues it (« a module whose main job is not photos must not
  * become unusable because the gallery is disabled ») and `albumIdFor()` names
  * a legitimate refusal to survive — a storage location that cannot host a
  * delegated album at all.
  *
- * **But the page draws a false conclusion from that null, which is issue
- * #637.** `CampsAttachmentController` computes `album_available` as
- * `isAvailable() && $albumId !== null`, so an absorbed `GalleryException`
- * makes `photos.html.twig` print « le module Galerie est désactivé sur ce
- * site » while the module is enabled. Absorbing is right; naming a cause
- * that is not the cause is not. The tests below pin the surviving page AND
- * record that conflation rather than blessing it.
+ * **And the two a page is built on leave a trace** (issue #637). The photos
+ * page used to read an absorbed null as « le module Galerie est désactivé »
+ * while the module was on, and nothing anywhere kept the real reason. The
+ * page now tells the three states apart (`CampPhotosPageTest`), and
+ * `albumIdFor()` and `listMedia()` journal the gallery's own sentence;
+ * `listMedia()` also answers null for « could not read », no longer the
+ * empty list that meant « no photo ».
  *
  * **Two translate** — `addPhoto()` and `deletePhoto()` re-throw
  * `CampsException($e->getMessage(), 0, $e)`. Three things matter there and
@@ -110,7 +112,7 @@ class CampAlbumServiceTest extends TestCase
         $gallery->method('deleteMedia')->willThrowException(new GalleryException($reason));
         $gallery->method('moveMedia')->willThrowException(new GalleryException($reason));
 
-        return new CampAlbumService($this->audit, $gallery);
+        return new CampAlbumService($this->audit, $gallery, new JournalService(new JournalRepository($this->pdo)));
     }
 
     /** A gallery that works, for the half of each test that gives the other half its meaning. */
@@ -130,7 +132,16 @@ class CampAlbumServiceTest extends TestCase
             new DelegatedMedia(7, 'photo', 'done', 1, 'feu-de-camp.jpg', '2028-07-20 10:00:00')
         );
 
-        return new CampAlbumService($this->audit, $gallery);
+        return new CampAlbumService($this->audit, $gallery, new JournalService(new JournalRepository($this->pdo)));
+    }
+
+    /** @return array<string, mixed> */
+    private function lastJournalEntry(): array
+    {
+        $row = $this->pdo->query('SELECT event_type AS event, description AS message, context FROM event_log ORDER BY id DESC LIMIT 1')->fetch(\PDO::FETCH_ASSOC);
+        self::assertIsArray($row, 'the refusal left no trace in the journal');
+
+        return $row;
     }
 
     private function auditTotal(int $campId): int
@@ -151,10 +162,13 @@ class CampAlbumServiceTest extends TestCase
 
         // Reaching this line at all is the assertion: without the catch the
         // GalleryException would leave the method and take the camp page with
-        // it. What the page then SAYS about that null is issue #637 — it reads
-        // it as « the gallery module is disabled », which is a cause and not
-        // the cause. Absorbing here is right; the sentence upstairs is not.
+        // it. And the refusal is not lost (issue #637): the journal keeps the
+        // gallery's own reason, against the stay's id.
         $this->assertNull($refused);
+        $entry = $this->lastJournalEntry();
+        $this->assertSame('camp_album_unavailable', $entry['event']);
+        $this->assertStringContainsString('ne peut pas héberger un album délégué', $entry['message']);
+        $this->assertSame(['camp_id' => $camp->id], json_decode($entry['context'], true));
     }
 
     public function testAskingWhetherAStayHasPhotosAnswersNoWhenTheGalleryCannotBeAsked(): void
@@ -168,11 +182,18 @@ class CampAlbumServiceTest extends TestCase
         $this->assertNull($this->serviceRefusing('La galerie est indisponible.')->existingAlbumIdFor($camp));
     }
 
-    public function testAPhotoListThatCannotBeReadIsEmptyRatherThanFatal(): void
+    public function testAPhotoListThatCannotBeReadSaysSoRatherThanLookingEmpty(): void
     {
         $this->assertCount(1, $this->serviceAnswering()->listMedia(42));
 
-        $this->assertSame([], $this->serviceRefusing('Album introuvable.')->listMedia(42));
+        // Null, not []: « could not read » and « no photo » are two answers,
+        // and the page says different things for them (issue #637).
+        $this->assertNull($this->serviceRefusing('Album introuvable.')->listMedia(42));
+        $this->assertSame('camp_album_unreadable', $this->lastJournalEntry()['event']);
+
+        // No album, or no gallery: nothing to read, which IS the empty list.
+        $this->assertSame([], $this->serviceAnswering()->listMedia(null));
+        $this->assertSame([], (new CampAlbumService($this->audit, null))->listMedia(42));
     }
 
     public function testAMergeWhosePhotosCannotBeMovedReportsNoneMovedRatherThanFailing(): void

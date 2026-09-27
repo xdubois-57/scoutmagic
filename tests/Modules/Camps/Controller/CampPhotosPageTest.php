@@ -1,0 +1,94 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Modules\Camps\Controller;
+
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\TestCase;
+use Tests\TestTwig;
+use Twig\Environment;
+
+/**
+ * What the photos page of a stay says, in each of the states it can be in
+ * (issue #637).
+ *
+ * The page used to know two states, and the second of them — the gallery
+ * module is on, but it refused this stay an album — was announced as the
+ * first: « le module Galerie est désactivé sur ce site ». A chief sent to
+ * the module settings found the gallery enabled and had nowhere left to
+ * look. And a photo list that could not be read looked exactly like a stay
+ * with no photo.
+ *
+ * `CampsAttachmentController::photos()` now hands the template the pieces
+ * separately; this pins what each combination reads as.
+ */
+final class CampPhotosPageTest extends TestCase
+{
+    private const MODULE_OFF = 'le module Galerie est désactivé';
+    private const ALBUM_REFUSED = 'Les photos ne sont pas disponibles pour ce séjour.';
+    private const UNREADABLE = 'pas pu être affichées';
+    private const NO_PHOTO = 'Aucune photo pour ce séjour.';
+    private const UPLOAD_FORM = 'Ajouter une photo';
+
+    private Environment $twig;
+
+    protected function setUp(): void
+    {
+        $this->twig = TestTwig::create(['camps']);
+    }
+
+    /**
+     * @return array<string, array{array<string, mixed>, list<string>, list<string>}>
+     */
+    public static function states(): array
+    {
+        return [
+            'the gallery module is off' => [
+                ['gallery_enabled' => false, 'album_available' => false, 'media_unreadable' => false],
+                [self::MODULE_OFF],
+                [self::ALBUM_REFUSED, self::UNREADABLE, self::NO_PHOTO, self::UPLOAD_FORM],
+            ],
+            // The case #637 is about: never « désactivé » while it is on.
+            'the gallery is on but refused an album' => [
+                ['gallery_enabled' => true, 'album_available' => false, 'media_unreadable' => false],
+                [self::ALBUM_REFUSED],
+                [self::MODULE_OFF, self::UNREADABLE, self::NO_PHOTO, self::UPLOAD_FORM],
+            ],
+            // Not « no photo »: the photos exist, they could not be read.
+            'the album is there but could not be read' => [
+                ['gallery_enabled' => true, 'album_available' => true, 'media_unreadable' => true],
+                [self::UNREADABLE, self::UPLOAD_FORM],
+                [self::MODULE_OFF, self::ALBUM_REFUSED, self::NO_PHOTO],
+            ],
+            'the album is there and empty' => [
+                ['gallery_enabled' => true, 'album_available' => true, 'media_unreadable' => false],
+                [self::NO_PHOTO, self::UPLOAD_FORM],
+                [self::MODULE_OFF, self::ALBUM_REFUSED, self::UNREADABLE],
+            ],
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $state
+     * @param list<string> $says
+     * @param list<string> $neverSays
+     */
+    #[DataProvider('states')]
+    public function testEachStateSaysWhatIsTrueAndNothingElse(array $state, array $says, array $neverSays): void
+    {
+        $html = $this->twig->render('@camps/photos.html.twig', $state + [
+            'camp' => (object) ['id' => 12],
+            'camp_label' => 'Juillet 2028',
+            'place' => null,
+            'media' => [],
+        ]);
+
+        foreach ($says as $sentence) {
+            $this->assertStringContainsString($sentence, $html);
+        }
+        foreach ($neverSays as $sentence) {
+            $this->assertStringNotContainsString($sentence, $html);
+        }
+    }
+}
