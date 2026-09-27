@@ -99,17 +99,23 @@ final class EncryptedCoreColumnsAreAccountedForTest extends TestCase
         // rather than inventing one. A column added to any of these three is
         // a change to what the unit collects about its members, which is the
         // heart of the document.
-        'member_years' => [27, 'les sections d\'ouverture (données collectées sur un membre)'],
-        'member_addresses' => [11, 'les sections d\'ouverture (données collectées sur un membre)'],
-        'member_emails' => [12, 'les sections d\'ouverture (données collectées sur un membre)'],
-        'user_accounts' => [17, 'les sections d\'ouverture (compte d\'un membre ou d\'un responsable)'],
+        'member_years' => [27, 'the opening sections (what the unit collects about a member)'],
+        'member_addresses' => [11, 'the opening sections (what the unit collects about a member)'],
+        'member_emails' => [12, 'the opening sections (what the unit collects about a member)'],
+        'user_accounts' => [17, 'the opening sections (a member\'s or a leader\'s account)'],
 
         // Encrypted, and NOT the reader's personal data. Each of these is a
         // secret or an address the unit itself owns, and the reason is the
         // decision this list exists to record.
-        'storage_locations' => [10, 'aucune : `secret_encrypted` est un identifiant de stockage distant'],
-        'mail_return_probes' => [8, 'aucune : l\'adresse est celle du site, pas celle d\'un membre'],
-        'mail_seed_copies' => [9, 'aucune : une boîte témoin louée à un service de mesure'],
+        'storage_locations' => [10, 'none: `secret_encrypted` is a remote storage credential'],
+        'mail_return_probes' => [8, 'none: the address is the site\'s own, never a member\'s'],
+        // Rule 35 « Boîtes témoins de délivrabilité » documents this table at
+        // length — the hosting providers as full sub-processors, the copy
+        // deleted once its folder has been read, the option off by default.
+        // An earlier note here said « none », which sent a future author to
+        // read nothing: the judgement that the address is not a member's is
+        // right, and it is rule 35 that says why and bounds it.
+        'mail_seed_copies' => [9, 'rule 35 « Boîtes témoins de délivrabilité » (the box is the unit\'s own)'],
 
         // The domain half of every address the mailing lane writes to, noted
         // by `DomainPreferences::reorder()` so a scheduled task can read its
@@ -122,13 +128,13 @@ final class EncryptedCoreColumnsAreAccountedForTest extends TestCase
         // l'adresse », and that it keeps only the matching.
         'mail_domain_providers' => [
             9,
-            'la règle 35, paragraphe « Rattachement d\'un domaine à son fournisseur de messagerie »',
+            'rule 35, paragraph « Rattachement d\'un domaine à son fournisseur de messagerie »',
         ],
 
         // A shortened link's target. Encrypted because a target can name a
         // person (a member page, a document), never because the link itself
         // is one.
-        'short_urls' => [5, 'aucune section dédiée : la cible est chiffrée parce qu\'elle peut nommer une page de membre'],
+        'short_urls' => [5, 'no section of its own: the target is encrypted because it can name a member\'s page'],
     ];
 
     public function testEveryEncryptedCoreTableIsInTheInventory(): void
