@@ -1,0 +1,101 @@
+{#
+  « Bailleur » — who the contract and the invoice name as landlord for this
+  asset (issue #497).
+
+  The card shows the landlord IN FORCE and where it comes from, not only
+  what this asset overrides: a manager reading « l'unité » under a hall the
+  ASBL owns is the one who can fix it, and an empty form would not tell
+  them there was anything to fix.
+
+  Requires `asset`; `landlord` is the resolved Document\Landlord, or null
+  when the documents are not available.
+#}
+<div class="card mb-4" id="bailleur">
+    <div class="card-body">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-1">
+            <h2 class="h5 mb-0">Bailleur</h2>
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    data-bs-toggle="modal" data-bs-target="#bailleur-edit">
+                <i class="bi bi-pencil" aria-hidden="true"></i>
+                Modifier
+            </button>
+        </div>
+        <p class="text-body-secondary small mb-3">
+            La partie nommée comme bailleur en tête du contrat et de la facture. Renseignez-la ici
+            seulement si ce bien appartient à quelqu'un d'autre que le bailleur habituel, par exemple
+            une ASBL propriétaire des locaux.
+        </p>
+
+        {% if landlord %}
+            <dl class="row mb-0">
+                <dt class="col-sm-5 col-lg-4">Nom</dt>
+                <dd class="col-sm-7 col-lg-8">{{ landlord.name }}</dd>
+
+                <dt class="col-sm-5 col-lg-4">Adresse</dt>
+                <dd class="col-sm-7 col-lg-8">
+                    {% if landlord.address %}
+                        {{ landlord.address|nl2br }}
+                    {% else %}
+                        <span class="text-danger">Aucune : les documents impriment « — ».</span>
+                    {% endif %}
+                </dd>
+
+                <dt class="col-sm-5 col-lg-4">Numéro d'entreprise</dt>
+                <dd class="col-sm-7 col-lg-8">{{ landlord.enterpriseNumber ?? '—' }}</dd>
+
+                <dt class="col-sm-5 col-lg-4">Origine</dt>
+                <dd class="col-sm-7 col-lg-8">
+                    {% if landlord.source == 'asset' %}
+                        Le bailleur propre à ce bien.
+                    {% elseif landlord.source == 'module' %}
+                        Le bailleur des réglages du module Locations.
+                    {% else %}
+                        L'unité elle-même : son nom et son adresse postale, réglés dans les
+                        paramètres du site.
+                    {% endif %}
+                </dd>
+            </dl>
+        {% endif %}
+    </div>
+</div>
+
+{# Outside the card: a modal nested in one inherits its stacking context. #}
+{% embed 'partials/modal.html.twig' with {
+    id: 'bailleur-edit',
+    title: 'Bailleur de ce bien',
+    section_editor: true,
+    asset: asset,
+} only %}
+    {% block body %}
+        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/bailleur" id="landlord-form">
+            {{ csrf_field()|raw }}
+
+            <p class="text-body-secondary small">
+                Laissez tout vide pour reprendre le bailleur des réglages du module, ou à défaut
+                l'unité.
+            </p>
+
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'landlord-name', field_name: 'landlord_name',
+                label: 'Nom', maxlength: 255,
+                help: 'Vide avec une adresse : l\'unité, à cette adresse.',
+                value: asset.landlordName ?? '',
+            } only %}
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'landlord-address', field_name: 'landlord_address', type: 'textarea', rows: 3,
+                label: 'Adresse', maxlength: 500,
+                value: asset.landlordAddress ?? '',
+            } only %}
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'landlord-enterprise-number', field_name: 'landlord_enterprise_number',
+                label: 'Numéro d\'entreprise (BCE)', maxlength: 20,
+                help: 'Facultatif, par exemple 0123.456.789.',
+                value: asset.landlordEnterpriseNumber ?? '',
+            } only %}
+        </form>
+    {% endblock %}
+    {% block footer %}
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="submit" form="landlord-form" class="btn btn-primary">Enregistrer le bailleur</button>
+    {% endblock %}
+{% endembed %}

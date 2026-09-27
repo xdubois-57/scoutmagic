@@ -271,6 +271,28 @@ class RentalAssetRepository
     }
 
     /**
+     * The asset's own landlord (issue #497), or none: three nulls hand the
+     * asset back to the module's landlord. Written together, because a
+     * landlord is taken whole — a name kept from one and an address from
+     * another is the defect the setting exists to prevent.
+     */
+    public function saveLandlord(int $assetId, ?string $name, ?string $address, ?string $enterpriseNumber): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE rental_assets
+                SET landlord_name = ?, landlord_address = ?, landlord_enterprise_number = ?, updated_at = ?
+              WHERE id = ?'
+        );
+        $stmt->execute([
+            self::optionalText($name) !== null ? mb_substr((string) self::optionalText($name), 0, 255) : null,
+            self::optionalText($address) !== null ? mb_substr((string) self::optionalText($address), 0, 500) : null,
+            self::optionalText($enterpriseNumber),
+            (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+            $assetId,
+        ]);
+    }
+
+    /**
      * The asset's calendar publication settings (§6.30).
      *
      * Its own tiny write, like the VAT note: every section of the
@@ -463,7 +485,17 @@ class RentalAssetRepository
             calendarIds: $calendarIds,
             calendarPublishFrom: \Modules\Rental\Calendar\PublishFrom::tryFrom(
                 (string) ($row['calendar_publish_from'] ?? '')
-            ) ?? \Modules\Rental\Calendar\PublishFrom::CONFIRMATION
+            ) ?? \Modules\Rental\Calendar\PublishFrom::CONFIRMATION,
+            landlordName: self::optionalText($row['landlord_name'] ?? null),
+            landlordAddress: self::optionalText($row['landlord_address'] ?? null),
+            landlordEnterpriseNumber: self::optionalText($row['landlord_enterprise_number'] ?? null)
         );
+    }
+
+    private static function optionalText(mixed $value): ?string
+    {
+        $text = is_scalar($value) ? trim((string) $value) : '';
+
+        return $text === '' ? null : $text;
     }
 }

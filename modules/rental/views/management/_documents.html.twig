@@ -24,9 +24,28 @@
   own — the fold's header is the heading, and it is where the figure that
   says whether this box wants opening lives.
 
-  Requires `asset`, `booking`, `documents` and `uploadable_types`.
+  Requires `asset`, `booking`, `documents` and `uploadable_types`; optional
+  `landlord`, the resolved Document\Landlord.
 #}
 <div class="card-body pt-0">
+        {#
+          Said before a contract is generated, not after: a contract whose
+          landlord has no address prints « — » where it belongs, and once
+          sent it is locked. The link goes to the one setting every manager
+          can reach — this asset's own landlord — and names the others,
+          which need an administrator (issue #497).
+        #}
+        {% if landlord is defined and landlord and not landlord.address %}
+            <output class="alert alert-warning small d-block" data-landlord-address-missing>
+                <strong>L'adresse du bailleur est vide.</strong> Le contrat et la facture de ce
+                bien imprimeront « — » à sa place.
+                <a href="/mes-locations/{{ asset.slug }}/reglages#bailleur">Renseigner le bailleur de ce
+                bien</a>{% if landlord.source == 'module' %}, ou demandez à un administrateur de compléter
+                le bailleur dans les paramètres du module Locations{% elseif landlord.source == 'unit' %},
+                ou demandez à un administrateur de renseigner l'adresse postale de l'unité dans les
+                paramètres du site{% endif %}.
+            </output>
+        {% endif %}
         {#
           Two sentences, and the second carries the links that used to be
           buttons (§22.6). « Rédiger le contrat » and « Rédiger la facture »

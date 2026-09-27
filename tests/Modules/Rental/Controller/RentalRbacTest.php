@@ -1075,6 +1075,8 @@ class RentalRbacTest extends TestCase
             // The conditions a renter ticks moved here from the
             // configuration mode (§22.5) and read as a card like the rest.
             '#conditions-edit',
+            // Who the contract names as landlord (issue #497).
+            '#bailleur-edit',
         ] as $target) {
             $this->assertStringContainsString('data-bs-target="' . $target . '"', $body, $target);
         }
@@ -1089,13 +1091,14 @@ class RentalRbacTest extends TestCase
             'reglages/categorie' => 'category-form',
             'reglages/frais' => 'fee-form',
             'reglages/conditions' => 'conditions-form',
+            'reglages/bailleur' => 'landlord-form',
         ] as $action => $formId) {
             $this->assertStringContainsString('action="/mes-locations/local/' . $action . '" id="' . $formId . '"', $body, $action);
             $this->assertStringContainsString('form="' . $formId . '"', $body, $formId);
         }
 
         // And every dialog is one section-editor.js knows about.
-        $this->assertSame(7, substr_count($body, 'data-section-editor'), $body);
+        $this->assertSame(8, substr_count($body, 'data-section-editor'), $body);
     }
 
     public function testTheSettingsPageShowsNoPrimaryOfItsOwn(): void
