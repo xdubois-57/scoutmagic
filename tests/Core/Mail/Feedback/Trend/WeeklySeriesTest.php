@@ -203,10 +203,15 @@ class WeeklySeriesTest extends TestCase
      */
     public function testAnEdgeInTheMiddleOfAWeekStillStartsOnThatWeeksMonday(): void
     {
-        // A Thursday, and a row from the Tuesday BEFORE it — inside the same
-        // ISO week, outside the 90 days.
+        // A Thursday edge, and a row from the Friday AFTER it. **Shaped the
+        // way a caller can actually shape it**: every repository filters
+        // `>= $edge` and the purge has deleted the rest, so a row from earlier
+        // in the edge's week cannot reach this class. An earlier version of
+        // this test fed exactly such a row and asserted it was counted — it
+        // passed for a reason production could not produce, and it is what
+        // hid the truncation asserted below.
         $series = WeeklySeries::build(
-            [['at' => new \DateTimeImmutable('2026-09-22 10:00:00'), 'sample' => 6, 'hits' => 3, 'total' => 6]],
+            [['at' => new \DateTimeImmutable('2026-09-25 10:00:00'), 'sample' => 6, 'hits' => 3, 'total' => 6]],
             5,
             new \DateTimeImmutable('2026-09-24 13:45:00'),
             new \DateTimeImmutable('2026-10-01 09:00:00')
@@ -215,7 +220,7 @@ class WeeklySeriesTest extends TestCase
         $this->assertSame(
             ['2026-W39', '2026-W40'],
             array_column($series->points, 'week'),
-            'the edge week is drawn whole, from its Monday'
+            'the edge week is drawn, from its Monday'
         );
         $this->assertSame(
             '2026-09-21',
@@ -225,8 +230,67 @@ class WeeklySeriesTest extends TestCase
         $this->assertSame(
             0.5,
             $series->points[0]['value'],
-            'a row earlier in the edge week counts, rather than falling in an undrawn bucket'
+            'the rows that DO reach it are counted in that week'
         );
+    }
+
+    /**
+     * **The first week is short, and says so** — the other end of the same
+     * problem `partial` solves. The walk starts on the Monday of the edge's
+     * week while the rows start at the edge, so a Thursday edge leaves Monday
+     * to Wednesday out of a bucket labelled « the week of the 21st ». Drawn
+     * unmarked it understates its own week: a short sample can fall under the
+     * threshold, and the ratio covers fewer days than the label claims.
+     */
+    public function testTheFirstWeekIsFlaggedTruncatedWhenTheEdgeIsNotAMonday(): void
+    {
+        $series = WeeklySeries::build(
+            [['at' => new \DateTimeImmutable('2026-09-25 10:00:00'), 'sample' => 6, 'hits' => 3, 'total' => 6]],
+            5,
+            new \DateTimeImmutable('2026-09-24 13:45:00'),
+            new \DateTimeImmutable('2026-10-01 09:00:00')
+        );
+
+        $this->assertTrue($series->points[0]['truncated'], 'Monday to Wednesday were purged');
+        $this->assertFalse($series->points[0]['partial'], 'and that week is long over — it will not grow');
+        $this->assertFalse($series->points[1]['truncated'], 'the following week is whole');
+        $this->assertTrue($series->points[1]['partial'], 'and is the one still filling up');
+    }
+
+    /**
+     * **An edge exactly on a Monday midnight truncates nothing**, which is
+     * what keeps the flag from being permanently on: it marks a real loss of
+     * days, not the mere fact of being first.
+     */
+    public function testAnEdgeOnAMondayMidnightIsNotTruncated(): void
+    {
+        $series = WeeklySeries::build(
+            [],
+            5,
+            new \DateTimeImmutable('2026-09-21 00:00:00'),
+            new \DateTimeImmutable('2026-10-01 09:00:00')
+        );
+
+        $this->assertFalse($series->points[0]['truncated']);
+    }
+
+    /**
+     * A window entirely inside one week is both: still filling AND missing
+     * its earlier days. Two flags rather than one precisely so neither has to
+     * win — a screen can say both.
+     */
+    public function testAWindowInsideASingleWeekIsBothPartialAndTruncated(): void
+    {
+        $series = WeeklySeries::build(
+            [],
+            5,
+            new \DateTimeImmutable('2026-09-23 08:00:00'),
+            new \DateTimeImmutable('2026-09-25 17:00:00')
+        );
+
+        $this->assertCount(1, $series->points);
+        $this->assertTrue($series->points[0]['partial']);
+        $this->assertTrue($series->points[0]['truncated']);
     }
 
     /**

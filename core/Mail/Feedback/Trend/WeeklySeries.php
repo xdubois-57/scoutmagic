@@ -23,8 +23,15 @@ namespace Core\Mail\Feedback\Trend;
  * (maintainer's arbitration on #420). A point is « the week of the 14th »,
  * which a rolling seven-day slice cannot name; the admitted price is that
  * the last point — the one somebody is looking at — still moves. It is
- * flagged {@see self::$partial} so a screen can say so rather than let a
- * half-week read as a drop.
+ * flagged `partial` so a screen can say so rather than let a half-week read
+ * as a drop.
+ *
+ * **Both ends of the curve are short, and for different reasons.** The last
+ * week has not finished; the first one had its earlier days purged, because
+ * the walk begins on the Monday of the edge's week while the rows begin at
+ * the edge itself. Each carries its own flag — `partial` and `truncated` —
+ * because a screen has to say « this will grow » about one and « this never
+ * will » about the other.
  *
  * **Below the threshold there is NO point, and the line breaks.** A hole
  * says « we do not know », which is the truth, and nothing can be read
@@ -52,7 +59,7 @@ final class WeeklySeries
 
     /**
      * @param list<array{week: string, from: \DateTimeImmutable, value: ?float, sample: int,
-     *     partial: bool}> $points
+     *     partial: bool, truncated: bool}> $points
      */
     private function __construct(public readonly array $points)
     {
@@ -135,6 +142,25 @@ final class WeeklySeries
                 'value' => $sample >= $minimumSample && $total >= 1 ? (float) $hits / $total : null,
                 'sample' => $sample,
                 'partial' => $week['key'] === $current,
+                // **The FIRST week is short too, and for the other reason.**
+                // The walk starts on the Monday of the edge's week, while
+                // every caller asks its rows for `>= $edge` and the purge has
+                // already deleted what came before — so an edge on a Thursday
+                // leaves Monday to Wednesday out of a bucket labelled « the
+                // week of the 21st ». Drawn unmarked, that point understates
+                // its own week: its sample is short, which can push it under
+                // the threshold, and its ratio covers half the days its label
+                // claims.
+                //
+                // **Kept as a second flag rather than folded into
+                // `partial`**, because the two say different things to
+                // somebody reading the chart: the last point will grow, and
+                // this one never will — what is missing from it was purged.
+                // One boolean would have made the tooltip say « semaine en
+                // cours » about a week that ended months ago. Both can be
+                // true at once when the whole window sits inside one week,
+                // and then both are worth saying.
+                'truncated' => $week['from'] < $edge,
             ];
         }
 

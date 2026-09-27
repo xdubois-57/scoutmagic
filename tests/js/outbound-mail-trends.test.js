@@ -15,19 +15,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** Three weeks: one measured, one nobody measured, one still filling up. */
 const DMARC = [
-    { label: '7 septembre 2026', value: 0.9231, sample: 130, partial: false },
-    { label: '14 septembre 2026', value: null, sample: 4, partial: false },
-    { label: '21 septembre 2026', value: 1, sample: 60, partial: true },
+    { label: '7 septembre 2026', value: 0.9231, sample: 130, partial: false, truncated: true },
+    { label: '14 septembre 2026', value: null, sample: 4, partial: false, truncated: false },
+    { label: '21 septembre 2026', value: 1, sample: 60, partial: true, truncated: false },
 ];
 
 const SEEDS = {
     'gmail.com': [
-        { label: '7 septembre 2026', value: 1, sample: 6, partial: false },
-        { label: '14 septembre 2026', value: 0.5, sample: 8, partial: false },
+        { label: '7 septembre 2026', value: 1, sample: 6, partial: false, truncated: false },
+        { label: '14 septembre 2026', value: 0.5, sample: 8, partial: false, truncated: false },
     ],
     'outlook.com': [
-        { label: '7 septembre 2026', value: null, sample: 2, partial: false },
-        { label: '14 septembre 2026', value: 0.25, sample: 5, partial: false },
+        { label: '7 septembre 2026', value: null, sample: 2, partial: false, truncated: false },
+        { label: '14 septembre 2026', value: 0.25, sample: 5, partial: false, truncated: false },
     ],
 };
 
@@ -184,7 +184,28 @@ describe('outbound-mail-trends.js', () => {
             dmarcPage();
             await boot();
 
-            expect(afterBody('dmarc-trend-chart', 0)).toBe('130 messages rapportés');
+            expect(afterBody('dmarc-trend-chart', 1)).toBe('4 messages rapportés');
+        });
+
+        // The other end of the curve, and it must NOT read « en cours »: that
+        // week ended months ago and will never grow. What is missing from it
+        // was purged.
+        it('says when the first week had its earlier days purged', async () => {
+            dmarcPage();
+            await boot();
+
+            expect(afterBody('dmarc-trend-chart', 0)).toBe(
+                '130 messages rapportés — semaine entamée : les jours précédents ont été purgés'
+            );
+        });
+
+        it('says both when a window sits inside one week', async () => {
+            dmarcPage([{ label: '21 septembre 2026', value: 0.5, sample: 9, partial: true, truncated: true }]);
+            await boot();
+
+            expect(afterBody('dmarc-trend-chart', 0)).toBe(
+                '9 messages rapportés — semaine en cours, semaine entamée : les jours précédents ont été purgés'
+            );
         });
 
         // The last point moves while the week fills. Said out loud, so a

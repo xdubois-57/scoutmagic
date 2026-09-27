@@ -2560,7 +2560,8 @@ class OutboundMailController extends AbstractController
      * flattened to `0` on the way out: the whole arbitration is that a hole
      * and a zero are different claims.
      *
-     * @return list<array{label: string, value: ?float, sample: int, partial: bool}>
+     * @return list<array{label: string, value: ?float, sample: int, partial: bool,
+     *     truncated: bool}>
      */
     private static function trendForView(\Core\Mail\Feedback\Trend\WeeklySeries $series): array
     {
@@ -2581,6 +2582,7 @@ class OutboundMailController extends AbstractController
                 'value' => $point['value'],
                 'sample' => $point['sample'],
                 'partial' => $point['partial'],
+                'truncated' => $point['truncated'],
             ],
             $series->points
         );

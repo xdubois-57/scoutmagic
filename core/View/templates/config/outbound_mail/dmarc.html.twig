@@ -306,7 +306,7 @@
                         <tbody>
                             {% for point in authentication_trend|filter(p => p.value is not null) %}
                                 <tr>
-                                    <td>{{ point.label }}{% if point.partial %} (en cours){% endif %}</td>
+                                    <td>{{ point.label }}{% if point.partial %} (en cours){% endif %}{% if point.truncated %} (semaine entamée){% endif %}</td>
                                     <td>{{ point.sample }}</td>
                                     <td>{{ (point.value * 100)|round }} %</td>
                                 </tr>

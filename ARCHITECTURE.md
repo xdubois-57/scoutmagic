@@ -4994,6 +4994,17 @@ admitted price is that the last point still moves, so it is flagged
 `partial` and the tooltip says « semaine en cours » rather than letting a
 half-week read as a drop.
 
+*Both ends are short, and the two are not the same claim.* The walk begins
+on the Monday of the edge's week while every caller asks its rows for
+`>= $edge`, so an edge on a Thursday leaves Monday to Wednesday out of a
+bucket labelled « the week of the 21st » — a short sample that can fall
+under the threshold, and a ratio covering fewer days than its label. That
+first point carries its own flag, `truncated`, and not `partial`: one
+boolean would have made the tooltip say « semaine en cours » about a week
+that ended months ago. The last point will grow; the first never will,
+because what is missing from it was purged. A window inside a single week
+is both, and says both.
+
 *A provider measured too thinly is left off the chart.*
 `LandingTrend::drawable()` drops a series with no drawable week, because a
 legend entry with no line beside it reads as « this provider delivered

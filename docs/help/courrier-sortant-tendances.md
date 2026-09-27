@@ -29,11 +29,17 @@ la page DMARC et « Depuis quand ? » sur la page des boîtes témoins.
 ## Une semaine est une semaine du calendrier
 
 Un point, c'est la semaine du 14, du lundi au dimanche — pas les sept
-derniers jours, qui ne se nomment pas. Le dernier
-point est donc **la semaine en cours, qui n'est pas finie** : il bougera
-encore. Le graphique le dit quand vous posez le curseur dessus, et
-c'est la seule raison pour laquelle un dernier point plus bas que les
-autres ne veut rien dire du tout.
+derniers jours, qui ne se nomment pas.
+
+**Les deux bouts de la courbe sont plus courts qu'une semaine, pour deux
+raisons différentes**, et chacun le dit. Le premier point est marqué
+« semaine entamée » : ses premiers jours sont tombés hors des
+quatre-vingt-dix jours conservés, ils ont été purgés, et il ne grandira
+plus. Le dernier
+point, lui, est **la semaine en cours, qui n'est pas finie** : il bougera
+encore. Le graphique nomme les deux cas quand vous posez le curseur
+dessus, et c'est la raison pour laquelle un premier ou un dernier point
+plus bas que les autres ne veut rien dire du tout.
 
 ## Une courbe coupée ne dit pas « zéro »
 

@@ -28,7 +28,8 @@
      * than fitted to the data — an axis that rescaled itself would make a
      * one-point dip look like a collapse.
      *
-     * @param {Array<{label: string, sample: number, partial: boolean}>} reference
+     * @param {Array<{label: string, sample: number, partial: boolean,
+     *     truncated: boolean}>} reference
      * @param {string} sampleNoun
      * @returns {object}
      */
@@ -52,7 +53,20 @@
                             if (!point) {
                                 return '';
                             }
-                            var suffix = point.partial ? ' — semaine en cours' : '';
+                            // Two different kinds of short week, and the
+                            // tooltip may not confuse them: the last point
+                            // will still grow, while the first one never
+                            // will — what is missing from it was purged. A
+                            // window inside one week is both.
+                            var notes = [];
+                            if (point.partial) {
+                                notes.push('semaine en cours');
+                            }
+                            if (point.truncated) {
+                                notes.push('semaine entamée : les jours précédents ont été purgés');
+                            }
+                            var suffix = notes.length > 0 ? ' — ' + notes.join(', ') : '';
+
                             return point.sample + ' ' + sampleNoun + suffix;
                         }
                     }
