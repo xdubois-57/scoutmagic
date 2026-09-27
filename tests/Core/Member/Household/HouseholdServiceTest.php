@@ -53,10 +53,14 @@ class HouseholdServiceTest extends TestCase
     public function testTheHouseholdKeyIsTheOneTheFeeEstimationUses(): void
     {
         $normalized = AddressNormalizer::normalize('Rue de la Station', '5', null, '1000');
+        $household = (new HouseholdRepository($this->pdo, $this->encryption))
+            ->keyForAddress('Rue de la Station', '5', null, '1000');
 
-        $this->assertSame(
-            (new \Core\Member\FeeEstimationRepository($this->pdo, $this->encryption))->householdKeyFor($normalized),
-            (new HouseholdRepository($this->pdo, $this->encryption))->householdKeyFor($normalized)
+        $this->assertNotNull($household);
+        $this->assertTrue(
+            (new \Core\Member\FeeEstimationRepository($this->pdo, $this->encryption))
+                ->householdKeyFor($normalized)
+                ->equals($household)
         );
     }
 
@@ -264,18 +268,18 @@ class HouseholdServiceTest extends TestCase
             public int $batchCalls = 0;
             public int $singleCalls = 0;
 
-            public function countAtAddress(string $addressBlindIndex, int $scoutYearId, ?int $excludeRequestId): int
+            public function countInHousehold(\Core\Member\Household\HouseholdKey $household, int $scoutYearId, ?int $excludeRequestId): int
             {
                 $this->singleCalls++;
 
                 return 1;
             }
 
-            public function countsAtAddresses(array $addressBlindIndexes, int $scoutYearId): array
+            public function countsInHouseholds(array $households, int $scoutYearId): array
             {
                 $this->batchCalls++;
 
-                return array_fill_keys($addressBlindIndexes, 1);
+                return array_fill_keys(array_map(static fn(\Core\Member\Household\HouseholdKey $h): string => $h->storable(), $households), 1);
             }
         };
         $service = new HouseholdService(new HouseholdRepository($this->pdo, $this->encryption), $provider);
@@ -316,14 +320,14 @@ class HouseholdServiceTest extends TestCase
             {
             }
 
-            public function countAtAddress(string $addressBlindIndex, int $scoutYearId, ?int $excludeRequestId): int
+            public function countInHousehold(\Core\Member\Household\HouseholdKey $household, int $scoutYearId, ?int $excludeRequestId): int
             {
                 return $this->count;
             }
 
-            public function countsAtAddresses(array $addressBlindIndexes, int $scoutYearId): array
+            public function countsInHouseholds(array $households, int $scoutYearId): array
             {
-                return array_fill_keys($addressBlindIndexes, $this->count);
+                return array_fill_keys(array_map(static fn(\Core\Member\Household\HouseholdKey $h): string => $h->storable(), $households), $this->count);
             }
         };
     }

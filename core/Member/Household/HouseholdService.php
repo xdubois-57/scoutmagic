@@ -8,7 +8,6 @@ declare(strict_types=1);
 
 namespace Core\Member\Household;
 
-use Core\Member\AddressNormalizer;
 use Modules\Registration\Api\HouseholdRegistrationCountProvider;
 
 /**
@@ -51,7 +50,13 @@ class HouseholdService
             return $households;
         }
 
-        $counts = $this->registrationCount->countsAtAddresses(array_keys($households), $scoutYearId);
+        $counts = $this->registrationCount->countsInHouseholds(
+            array_map(
+                static fn(string $blindIndex): HouseholdKey => HouseholdKey::fromStorable($blindIndex),
+                array_map('strval', array_keys($households))
+            ),
+            $scoutYearId
+        );
         foreach ($counts as $blindIndex => $count) {
             if (!isset($households[$blindIndex])) {
                 continue;
@@ -88,20 +93,19 @@ class HouseholdService
         int $scoutYearId,
         ?int $excludeRegistrationRequestId = null
     ): ?Household {
-        $normalized = AddressNormalizer::normalize($street, $number, $box, $postalCode);
-        if ($normalized === '') {
+        $key = $this->repository->keyForAddress($street, $number, $box, $postalCode);
+        if ($key === null) {
             return null;
         }
 
-        $blindIndex = $this->repository->householdKeyFor($normalized);
-        $members = $this->repository->findMembersAtAddress($blindIndex, $scoutYearId);
-        $incoming = $this->registrationCount?->countAtAddress(
-            $blindIndex,
+        $members = $this->repository->findMembersAtAddress($key->storable(), $scoutYearId);
+        $incoming = $this->registrationCount?->countInHousehold(
+            $key,
             $scoutYearId,
             $excludeRegistrationRequestId
         ) ?? 0;
 
-        return new Household($blindIndex, $members, $incoming);
+        return new Household($key->storable(), $members, $incoming);
     }
 
     /**

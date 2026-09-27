@@ -8,7 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Registration\Repository;
 
-use Core\Member\AddressNormalizer;
+use Core\Member\Household\HouseholdKey;
+use Core\Member\Household\HouseholdRepository;
 use Core\Member\NameDobKey;
 use Core\Security\CapabilityToken;
 use Core\Security\EncryptionService;
@@ -26,10 +27,20 @@ use Core\Service\DateInput;
  */
 class RegistrationRequestRepository
 {
+    private HouseholdRepository $households;
+
+    /**
+     * $households is the core's, and the only thing here that knows how an
+     * address becomes a household (issue #630). Built from the same
+     * connection when the caller passes none, so the repository cannot be
+     * constructed in a state where it would have to derive a key itself.
+     */
     public function __construct(
         private \PDO $pdo,
-        private EncryptionService $encryption
+        private EncryptionService $encryption,
+        ?HouseholdRepository $households = null
     ) {
+        $this->households = $households ?? new HouseholdRepository($pdo, $encryption);
     }
 
     /**
@@ -69,13 +80,17 @@ class RegistrationRequestRepository
             'registration_name_dob'
         );
 
-        $addressNormalized = AddressNormalizer::normalize(
+        // The household is the core's to derive (issue #630): this module
+        // stores the identity it is handed and never learns how an address
+        // becomes one. It used to normalize and blind-index the address
+        // itself, a second derivation of the core's key that would have
+        // stopped matching, silently, the day either side changed.
+        $addressBlind = $this->households->keyForAddress(
             $fields['street'],
             $fields['number'],
             null,
             $fields['postal_code']
-        );
-        $addressBlind = $addressNormalized !== '' ? $this->encryption->blindIndex($addressNormalized, 'address') : null;
+        )?->storable();
 
         // The request row and its sibling links are one single unit of work:
         // a failing link (a member id that vanished between the form being
@@ -343,18 +358,18 @@ class RegistrationRequestRepository
     }
 
     /**
-     * Count of 'accepted'/'encoded' requests whose submitted address
-     * matches this blind index, for $scoutYearId, excluding
+     * Count of 'accepted'/'encoded' requests submitted from $household,
+     * for $scoutYearId, excluding
      * $excludeRequestId (a request must never count itself while its own
      * fiche is being estimated) — Api\HouseholdRegistrationCountProvider's
      * implementation, injected nullable into Core\Member\
      * FeeEstimationService (ARCHITECTURE.md §7.5).
      */
-    public function countHouseholdAtAddress(string $addressBlindIndex, int $scoutYearId, ?int $excludeRequestId): int
+    public function countRequestsInHousehold(HouseholdKey $household, int $scoutYearId, ?int $excludeRequestId): int
     {
         $sql = "SELECT COUNT(*) FROM registration_requests
                 WHERE address_normalized_blind_index = ? AND scout_year_id = ? AND status IN ('accepted', 'encoded')";
-        $params = [$addressBlindIndex, $scoutYearId];
+        $params = [$household->storable(), $scoutYearId];
         if ($excludeRequestId !== null) {
             $sql .= ' AND id != ?';
             $params[] = $excludeRequestId;
@@ -368,19 +383,19 @@ class RegistrationRequestRepository
 
     /**
      * The same count for a batch of addresses, in one query — Api\
-     * HouseholdRegistrationCountProvider::countsAtAddresses(), which
+     * HouseholdRegistrationCountProvider::countsInHouseholds(), which
      * Core\Member\Household\HouseholdService calls once for a whole
      * scout year rather than once per household.
      *
-     * @param string[] $addressBlindIndexes
-     * @return array<string, int> blind index => count (addresses with no
-     *         matching request are absent)
+     * @param HouseholdKey[] $households
+     * @return array<string, int> {@see HouseholdKey::storable()} => count
+     *         (households with no matching request are absent)
      */
-    public function countHouseholdsAtAddresses(array $addressBlindIndexes, int $scoutYearId): array
+    public function countRequestsInHouseholds(array $households, int $scoutYearId): array
     {
-        $addressBlindIndexes = array_values(array_unique(array_filter(
-            $addressBlindIndexes,
-            static fn(string $index): bool => $index !== ''
+        $addressBlindIndexes = array_values(array_unique(array_map(
+            static fn(HouseholdKey $household): string => $household->storable(),
+            $households
         )));
         if ($addressBlindIndexes === []) {
             return [];
