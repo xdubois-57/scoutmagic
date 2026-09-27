@@ -30,6 +30,7 @@ use Core\Storage\Location\Protection\StorageProtectionService;
 use Core\Storage\Location\Protection\Task\RepatriateFromCopyHandler;
 use Core\Storage\Location\Diagnostics\ObjectStorageErrorExplainer;
 use Core\Storage\Location\Diagnostics\ObjectStorageTestFailure;
+use Core\Storage\Location\RootFolderOutcome;
 use Core\Storage\Location\StorageConsequence;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationConsumerRegistry;
@@ -696,7 +697,11 @@ class StorageConfigController extends AbstractController
             'storage_location_deleted',
             'security',
             "Emplacement de stockage « {$location->label} » supprimé",
-            ['type' => $location->type->value, 'folder_trashed' => $folder->isDone()],
+            [
+                'type' => $location->type->value,
+                'folder_trashed' => $folder->isDone(),
+                'folder_shared_with' => $folder->isShared() ? $folder->reason : null,
+            ],
             (int) AuthSession::getUserAccountId()
         );
 
@@ -721,12 +726,28 @@ class StorageConfigController extends AbstractController
             return $this->redirect(self::LOCATIONS_URL);
         }
 
-        FlashMessage::set('success', $folder->isDone()
-            ? "Emplacement « {$location->label} » supprimé. Son dossier a été placé dans la corbeille de "
-                . 'Google Drive, où vous pouvez le récupérer pendant 30 jours.'
-            : "Emplacement « {$location->label} » supprimé.");
+        FlashMessage::set('success', $this->deletedLocationMessage($location->label, $folder));
 
         return $this->redirect(self::LOCATIONS_URL);
+    }
+
+    /** What the administrator reads once a location is gone, folder included. */
+    private function deletedLocationMessage(string $label, RootFolderOutcome $folder): string
+    {
+        if ($folder->isDone()) {
+            return "Emplacement « {$label} » supprimé. Son dossier a été placé dans la corbeille de "
+                . 'Google Drive, où vous pouvez le récupérer pendant 30 jours.';
+        }
+        if ($folder->isDisconnected()) {
+            return "Emplacement « {$label} » supprimé. Il n'était plus raccordé à Google Drive : son dossier "
+                . "y est resté ; supprimez-le vous-même dans Google Drive si vous n'en avez plus besoin.";
+        }
+        if ($folder->isShared()) {
+            return "Emplacement « {$label} » supprimé. Son dossier sur Google Drive est aussi celui de "
+                . "l'emplacement « {$folder->reason} » : il est resté en place.";
+        }
+
+        return "Emplacement « {$label} » supprimé.";
     }
 
     /**

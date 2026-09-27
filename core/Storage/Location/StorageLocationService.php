@@ -220,6 +220,33 @@ class StorageLocationService
     }
 
     /**
+     * Another Drive location whose folder is this one's, or null.
+     *
+     * **Only possible for locations connected before #474.** The old
+     * connection looked the folder up by its NAME, so two locations on
+     * the same account were given the same folder id — and nothing
+     * migrates them. Since #474 each connection creates its own folder,
+     * so a location connected today never matches.
+     */
+    private function otherLocationOnTheSameFolder(StorageLocation $location): ?StorageLocation
+    {
+        if (!$location->config instanceof Config\GoogleDriveLocationConfig) {
+            return null;
+        }
+        foreach ($this->repository->findAll() as $other) {
+            if ($other->id !== $location->id
+                && $other->type === StorageLocationType::GoogleDrive
+                && $other->config instanceof Config\GoogleDriveLocationConfig
+                && $other->config->folderId === $location->config->folderId
+            ) {
+                return $other;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * The backend of $location when it owns its folder — or the outcome
      * to report instead: nothing to do for every other kind, a failure
      * when the backend cannot even be built (an unreadable secret).
@@ -235,6 +262,20 @@ class StorageLocationService
             // Never connected: there is no folder, and saying one was put
             // in the trash would be untrue.
             return RootFolderOutcome::nothingToDo();
+        }
+        if ($location->config instanceof Config\GoogleDriveLocationConfig && !$location->config->isConnected()) {
+            // Disconnected: « Déraccorder » keeps the folder id so that a
+            // reconnection finds the folder again, but there is no grant
+            // left to reach Google with. Asking anyway would fail, and
+            // report an ordinary state as a Drive fault.
+            return RootFolderOutcome::disconnected();
+        }
+        $sharer = $this->otherLocationOnTheSameFolder($location);
+        if ($sharer !== null) {
+            // Renaming it would rename the other location's folder, and
+            // trashing it would hide — then, after thirty days, destroy —
+            // the other location's live files.
+            return RootFolderOutcome::sharedWith($sharer->label);
         }
 
         try {

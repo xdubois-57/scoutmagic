@@ -416,6 +416,62 @@ class StorageLocationServiceTest extends TestCase
         $this->assertSame(0, $drive->requests);
     }
 
+    /**
+     * **A folder two locations share is never trashed nor renamed** (#474
+     * review). Before #474 the connection found its folder by NAME, so two
+     * Drive locations on one account were given the same folder id, and
+     * nothing migrates them: trashing it for one would hide — then, after
+     * thirty days, destroy — the other's live files.
+     */
+    public function testAFolderAnotherLocationStillUsesIsNeitherTrashedNorRenamed(): void
+    {
+        [$drive, $service, $id] = $this->connectedDriveLocation();
+        $service->create(
+            StorageLocationType::GoogleDrive,
+            'Sauvegardes hors site',
+            $this->driveConfig($drive),
+            (string) (new GoogleDriveSecret('secret-1', 'refresh-1', 'unite@example.org'))->toStorage()
+        );
+        $before = $drive->requests;
+
+        $renamed = $service->update($id, 'Galeries du groupe', $this->driveConfig($drive), null);
+        $deleted = $service->delete($id);
+
+        $this->assertTrue($renamed->isShared());
+        $this->assertTrue($deleted->isShared());
+        $this->assertSame('Sauvegardes hors site', $deleted->reason);
+        $this->assertFalse($deleted->isDone());
+        $this->assertFalse($deleted->isFailed());
+        $this->assertNull($this->repository->findById($id));
+        $this->assertFalse($drive->files['folder-1']['trashed'], 'a shared folder was put in the trash');
+        $this->assertSame('Photos des galeries', $drive->files['folder-1']['name']);
+        $this->assertSame($before, $drive->requests, 'Google was asked to touch a shared folder');
+    }
+
+    /**
+     * **A disconnected location is renamed and deleted without reaching
+     * Google** (#474 review). « Déraccorder » keeps the folder id so a
+     * reconnection finds it again, but with no grant left, asking Google
+     * would fail and report an ordinary state as a Drive fault.
+     */
+    public function testADisconnectedLocationLeavesItsFolderWithoutClaimingAFault(): void
+    {
+        [$drive, $service, $id] = $this->connectedDriveLocation();
+        $disconnected = new GoogleDriveLocationConfig('', (string) $drive->folderId, '');
+        $service->update($id, 'Photos des galeries', $disconnected, null);
+        $before = $drive->requests;
+
+        $renamed = $service->update($id, 'Galeries du groupe', $disconnected, null);
+        $deleted = $service->delete($id);
+
+        $this->assertTrue($renamed->isDisconnected());
+        $this->assertTrue($deleted->isDisconnected());
+        $this->assertFalse($deleted->isFailed());
+        $this->assertNull($this->repository->findById($id));
+        $this->assertFalse($drive->files['folder-1']['trashed']);
+        $this->assertSame($before, $drive->requests, 'Google was asked without a grant');
+    }
+
     /** A local folder was named by the administrator and is never touched. */
     public function testDeletingALocalLocationLeavesItsFolderAlone(): void
     {

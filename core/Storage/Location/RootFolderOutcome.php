@@ -29,6 +29,8 @@ final class RootFolderOutcome
     private const NOTHING = 'nothing';
     private const DONE = 'done';
     private const FAILED = 'failed';
+    private const SHARED = 'shared';
+    private const DISCONNECTED = 'disconnected';
 
     private function __construct(
         private readonly string $state,
@@ -50,6 +52,38 @@ final class RootFolderOutcome
     public static function failed(string $reason, string $detail): self
     {
         return new self(self::FAILED, $reason, $detail);
+    }
+
+    /**
+     * The folder is also another location's, so it was left alone
+     * (#474): a location connected before each got its own folder found
+     * the old one by NAME, and two of them on one account share it still.
+     * $reason carries the other location's label.
+     */
+    public static function sharedWith(string $otherLabel): self
+    {
+        return new self(self::SHARED, $otherLabel);
+    }
+
+    /**
+     * The location was disconnected from Google Drive: its folder is
+     * still there (« Déraccorder » keeps its id, so a reconnection finds
+     * it), but the site has no grant left to rename or trash it. Not a
+     * fault — an ordinary state the administrator put it in.
+     */
+    public static function disconnected(): self
+    {
+        return new self(self::DISCONNECTED);
+    }
+
+    public function isDisconnected(): bool
+    {
+        return $this->state === self::DISCONNECTED;
+    }
+
+    public function isShared(): bool
+    {
+        return $this->state === self::SHARED;
     }
 
     public function isDone(): bool

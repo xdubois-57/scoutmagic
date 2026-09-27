@@ -720,6 +720,46 @@ class StorageConfigControllerTest extends TestCase
         $this->assertStringContainsString('n\'a pas pu être placé dans la corbeille', $this->flashMessage());
     }
 
+    /**
+     * Two locations connected before #474 can share one folder: deleting
+     * one leaves it in place, and says which location still uses it.
+     */
+    public function testDeletingALocationWhoseFolderIsSharedLeavesItAndSaysWhy(): void
+    {
+        $drive = new FakeDrive('dossier-1', 'Google Drive');
+        $id = $this->declareDrive();
+        $this->declareDrive('Sauvegardes hors site');
+
+        $this->driveController($drive)->delete($this->formRequest([]), ['id' => (string) $id]);
+
+        $this->assertNull($this->repository->findById($id));
+        $this->assertFalse($drive->files['dossier-1']['trashed']);
+        $this->assertStringContainsString('« Sauvegardes hors site » : il est resté en place', $this->flashMessage());
+    }
+
+    /**
+     * Deleting a location the administrator disconnected first is an
+     * ordinary action: no warning in the journal, and the message says
+     * the folder stayed on Drive.
+     */
+    public function testDeletingADisconnectedLocationSaysTheFolderStayedWithoutAWarning(): void
+    {
+        $drive = new FakeDrive('dossier-1', 'Google Drive');
+        $id = $this->repository->create(
+            StorageLocationType::GoogleDrive,
+            'Google Drive',
+            new GoogleDriveLocationConfig('', 'dossier-1', ''),
+            (string) json_encode(['client_secret' => '', 'refresh_token' => '', 'account' => ''])
+        );
+
+        $this->driveController($drive)->delete($this->formRequest([]), ['id' => (string) $id]);
+
+        $this->assertNull($this->repository->findById($id));
+        $this->assertFalse($drive->files['dossier-1']['trashed']);
+        $this->assertSame(0, $this->journalCount('storage_location_folder_trash_failed'));
+        $this->assertStringContainsString("n'était plus raccordé à Google Drive", $this->flashMessage());
+    }
+
     public function testRenamingADriveLocationRenamesItsFolder(): void
     {
         $drive = new FakeDrive('dossier-1', 'Google Drive');

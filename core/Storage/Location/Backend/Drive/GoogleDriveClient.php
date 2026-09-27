@@ -358,12 +358,13 @@ final class GoogleDriveClient
             self::FOLDER_MIME,
             self::quoted($name)
         );
-        $decoded = $this->apiJson('GET', self::API_BASE . '/files?' . http_build_query([
+        $url = self::API_BASE . '/files?' . http_build_query([
             'q' => $query,
             'fields' => 'files(id)',
             'orderBy' => 'createdTime',
             'pageSize' => 1,
-        ]), $accessToken);
+        ]);
+        $decoded = $this->apiJson('GET', $url, $accessToken);
 
         $files = is_array($decoded['files'] ?? null) ? $decoded['files'] : [];
         $id = is_array($files[0] ?? null) ? (string) ($files[0]['id'] ?? '') : '';

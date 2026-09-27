@@ -69,4 +69,6 @@ Un emplacement Drive raccordé avant cette organisation écrit encore dans
 l'ancien dossier unique, que le site ne sait plus lire. Rien n'est
 déplacé automatiquement : créez un nouvel emplacement et raccordez-le.
 Supprimer l'ancien placera son dossier dans la corbeille : récupérez-y
-d'abord ce que vous voulez garder.
+d'abord ce que vous voulez garder. Si deux anciens emplacements du même
+compte partageaient ce dossier, supprimer l'un le laisse en place tant que
+l'autre existe : le message de suppression le précise.
