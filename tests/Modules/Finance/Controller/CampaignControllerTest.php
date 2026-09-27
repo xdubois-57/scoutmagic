@@ -296,7 +296,7 @@ class CampaignControllerTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('refusé', $body);
         $this->assertStringContainsString('4821', $body);
-        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM finance_campaigns')->fetchColumn());
+        $this->assertSame(0, $this->countFrom('SELECT COUNT(*) FROM finance_campaigns'));
     }
 
     public function testTheDetailPageSaysHowManyLinesTheExportWillTake(): void
@@ -687,10 +687,10 @@ class CampaignControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('Donnez un nom à la campagne.', $response->getBody());
-        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM finance_campaigns')->fetchColumn());
+        $this->assertSame(0, $this->countFrom('SELECT COUNT(*) FROM finance_campaigns'));
         $this->assertSame(
             0,
-            (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn(),
+            $this->countFrom('SELECT COUNT(*) FROM files'),
             'the spreadsheet was stored for a campaign that was never created'
         );
     }
@@ -888,6 +888,22 @@ class CampaignControllerTest extends TestCase
             'the receivable was waived from outside its account'
         );
         $this->assertSame("Cette campagne n'existe pas.", FlashMessage::get()['message'] ?? null);
+    }
+
+    /**
+     * A count, prepared like every other statement in this repository
+     * (`AGENTS.md` § SQL), and read without letting a failed fetch pass
+     * for a zero: `(int) false` is `0`, which would make every assertion
+     * below it unfalsifiable — the defect this whole chantier is about.
+     */
+    private function countFrom(string $sql): int
+    {
+        $statement = $this->pdo->prepare($sql);
+        $statement->execute();
+        $count = $statement->fetchColumn();
+        self::assertIsNumeric($count, 'the count query returned nothing: ' . $sql);
+
+        return (int) $count;
     }
 
     private function createCampaign(): int
