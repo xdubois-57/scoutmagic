@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette — Maintenance : sous-pages, sauvegardes et chiffrement</title>
+<style>
+:root{color-scheme:light}
+body{margin:0;background:#f1f3f5;color:#212529;font-family:system-ui,-apple-system,"Segoe UI",Helvetica,sans-serif}
+a{color:#0a58ca}
+.page{max-width:1200px;margin:0 auto;padding:24px 16px 64px}
+h1{font-size:28px;line-height:1.2;margin:0 0 8px}
+.lede{font-size:15px;color:#495057;margin:0 0 8px;max-width:70ch}
+.meta{font-size:13px;color:#6c757d;margin:0 0 32px}
+.ecran{margin:0 0 40px}
+.ecran h2{font-size:19px;margin:0 0 6px}
+.ecran p{font-size:14px;color:#495057;margin:0 0 14px;max-width:70ch}
+.cadre{width:390px;max-width:100%;border:1px solid #ced4da;border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.sommaire{margin:0 0 36px;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:8px}
+.sommaire a{display:inline-block;padding:8px 12px;background:#fff;border:1px solid #ced4da;border-radius:999px;text-decoration:none;font-size:14px}
+</style>
+</head>
+<body>
+<div class="page">
+<h1>Maintenance : sous-pages, sauvegardes et chiffrement</h1>
+<p class="lede">Maquette de référence du chantier <code>CHANTIER-maintenance.md</code>. Elle fait autorité sur la hiérarchie des écrans, les libellés français et les états d'interaction — et sur rien d'autre. Le produit est en Bootstrap 5 et suit <code>design.md</code> §7 : les styles ci-dessous sont en ligne pour rendre le fichier autonome, ils ne sont pas un modèle à recopier.</p>
+<p class="meta">Largeur de référence : 390 px. Aucune dépendance externe, aucun script. Le rail de sous-pages représente <code>partials/page_picker.html.twig</code>.</p>
+<ul class="sommaire">
+<li><a href="#ecran-Accueil">Santé de l&#x27;hébergement (page d&#x27;accueil)</a></li>
+<li><a href="#ecran-Sante">Mise à jour</a></li>
+<li><a href="#ecran-Main">Sauvegarde manuelle</a></li>
+<li><a href="#ecran-Automatiques">Sauvegarde automatique</a></li>
+<li><a href="#ecran-Liste">Sauvegardes récentes</a></li>
+<li><a href="#ecran-MotDePasse">Le mot de passe, au téléchargement</a></li>
+<li><a href="#ecran-Reinitialisation">Réinitialisation</a></li>
+</ul>
+<section class="ecran" id="ecran-Accueil">
+<h2>Santé de l&#x27;hébergement (page d&#x27;accueil)</h2>
+<p>Première sous-page, à /config/maintenance, comme « Tableau de bord » l&#x27;est pour /finance. Chaque dépendance dit son état, ce qui cesse de marcher sans elle, et quoi demander à l&#x27;hébergeur.</p>
+<div class="cadre">
+<div style="width: 390px; height: 1600px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 16px; background: #ffffff; color: #212529;">
+
+  <nav aria-label="Pages Maintenance" style="border-bottom: 1px solid #dee2e6; overflow-x: auto; margin: 0 -16px; padding: 0 16px;">
+    <div style="display: flex; gap: 2px; flex-wrap: nowrap; min-width: max-content;">
+      <a href="#ecran-Accueil" aria-current="page" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #0a58ca; font-weight: 600; border-bottom: 2px solid #0d6efd;">Santé de l'hébergement</a>
+      <a href="#ecran-Sante" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Mise à jour</a>
+      <a href="#ecran-Main" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Sauvegarde manuelle</a>
+      <a href="#ecran-Automatiques" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Sauvegarde automatique</a>
+      <a href="#ecran-Liste" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Sauvegardes récentes</a>
+      <a href="#ecran-Reinitialisation" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Réinitialisation</a>
+    </div>
+  </nav>
+
+  <div style="display: flex; flex-direction: column; gap: 4px;">
+    <h1 style="margin: 0; font-size: 22px; line-height: 1.2; font-weight: 600;">Santé de l'hébergement</h1>
+    <div style="font-size: 13px; color: #5c636a;">Ce dont ce site a besoin de la part de votre hébergeur, et ce qui cesse de marcher sans.</div>
+  </div>
+
+  <div style="border: 1px solid #f5c2c7; background: #f8d7da; border-radius: 8px; padding: 12px; font-size: 13px; color: #58151c;">
+    <strong>Une dépendance manque.</strong> Les vidéos ne peuvent pas être ajoutées à la galerie tant
+    que ffmpeg est absent. Tout le reste fonctionne.
+  </div>
+
+
+  <div style="border: 1px solid #dee2e6; border-radius: 8px; overflow: hidden;">
+
+    <div style="padding: 12px; border-bottom: 1px solid #e9ecef; display: flex; gap: 10px; align-items: flex-start;">
+      <span style="flex: 0 0 auto; color: #146c43; margin-top: 2px;" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 9.5l3.5 3.5L14.5 5.5"></path></svg></span>
+      <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0;">
+        <span style="font-size: 15px; font-weight: 600;">Tâche planifiée (cron)</span>
+        <span style="font-size: 13px; color: #5c636a;">Dernière exécution il y a 4 minutes.</span>
+        <span style="font-size: 13px; color: #5c636a;">Sans elle : plus de sauvegarde automatique, plus de rappel, plus d'envoi de courrier.</span>
+      </span>
+    </div>
+
+    <div style="padding: 12px; border-bottom: 1px solid #e9ecef; display: flex; gap: 10px; align-items: flex-start;">
+      <span style="flex: 0 0 auto; color: #b02a37; margin-top: 2px;" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5l8 8"></path><path d="M13 5l-8 8"></path></svg></span>
+      <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0;">
+        <span style="font-size: 15px; font-weight: 600;">ffmpeg et ffprobe</span>
+        <span style="font-size: 13px; color: #b02a37;">Absents.</span>
+        <span style="font-size: 13px; color: #5c636a;">Sans eux : les vidéos sont refusées à l'ajout dans la galerie. Les photos ne sont pas concernées.</span>
+        <span style="font-size: 13px; color: #212529; background: #f8f9fa; border-radius: 6px; padding: 8px; margin-top: 2px;">À demander : l'installation des binaires <code>ffmpeg</code> et <code>ffprobe</code>, et leur autorisation d'exécution depuis PHP.</span>
+      </span>
+    </div>
+
+    <div style="padding: 12px; border-bottom: 1px solid #e9ecef; display: flex; gap: 10px; align-items: flex-start;">
+      <span style="flex: 0 0 auto; color: #146c43; margin-top: 2px;" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 9.5l3.5 3.5L14.5 5.5"></path></svg></span>
+      <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0;">
+        <span style="font-size: 15px; font-weight: 600;">Chiffrement des archives</span>
+        <span style="font-size: 13px; color: #5c636a;">openssl disponible — le site chiffre lui-même.</span>
+        <span style="font-size: 13px; color: #5c636a;">Sans lui : les sauvegardes partiraient en clair, et la sauvegarde portable serait indisponible.</span>
+      </span>
+    </div>
+
+    <div style="padding: 12px; border-bottom: 1px solid #e9ecef; display: flex; gap: 10px; align-items: flex-start;">
+      <span style="flex: 0 0 auto; color: #997404; margin-top: 2px;" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4.5v5"></path><path d="M9 12.5h.01"></path><circle cx="9" cy="9" r="6.5"></circle></svg></span>
+      <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0;">
+        <span style="font-size: 15px; font-weight: 600;">libsodium</span>
+        <span style="font-size: 13px; color: #997404;">Absent — un repli est utilisé.</span>
+        <span style="font-size: 13px; color: #5c636a;">Sert à dériver la phrase de passe des sauvegardes portables. Le repli fonctionne, mais résiste moins bien à une attaque par force brute.</span>
+        <span style="font-size: 13px; color: #212529; background: #f8f9fa; border-radius: 6px; padding: 8px; margin-top: 2px;">À demander : l'activation de l'extension PHP <code>sodium</code>.</span>
+      </span>
+    </div>
+
+    <div style="padding: 12px; border-bottom: 1px solid #e9ecef; display: flex; gap: 10px; align-items: flex-start;">
+      <span style="flex: 0 0 auto; color: #146c43; margin-top: 2px;" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 9.5l3.5 3.5L14.5 5.5"></path></svg></span>
+      <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0;">
+        <span style="font-size: 15px; font-weight: 600;">GD</span>
+        <span style="font-size: 13px; color: #5c636a;">Disponible.</span>
+        <span style="font-size: 13px; color: #5c636a;">Sans lui : plus de vignettes, ni d'icônes d'application, ni de photos de section redimensionnées.</span>
+      </span>
+    </div>
+
+    <div style="padding: 12px; border-bottom: 1px solid #e9ecef; display: flex; gap: 10px; align-items: flex-start;">
+      <span style="flex: 0 0 auto; color: #146c43; margin-top: 2px;" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 9.5l3.5 3.5L14.5 5.5"></path></svg></span>
+      <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0;">
+        <span style="font-size: 15px; font-weight: 600;">imap</span>
+        <span style="font-size: 13px; color: #5c636a;">Disponible.</span>
+        <span style="font-size: 13px; color: #5c636a;">Sans elle : le courrier entrant n'est plus relevé.</span>
+      </span>
+    </div>
+
+    <div style="padding: 12px; display: flex; gap: 10px; align-items: flex-start;">
+      <span style="flex: 0 0 auto; color: #146c43; margin-top: 2px;" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 9.5l3.5 3.5L14.5 5.5"></path></svg></span>
+      <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0;">
+        <span style="font-size: 15px; font-weight: 600;">PHP, base de données, écriture</span>
+        <span style="font-size: 13px; color: #5c636a;">PHP 8.3 · MySQL joignable · <code>storage/</code> accessible en écriture.</span>
+      </span>
+    </div>
+
+  </div>
+
+  <p style="margin: 0; font-size: 13px; color: #5c636a;">
+    La place disponible n'est pas mesurée ici : elle se lit volume par volume sur
+    <a href="#stockage">Configuration › Stockage</a>.
+  </p>
+
+</div>
+</div>
+</section>
+<section class="ecran" id="ecran-Sante">
+<h2>Mise à jour</h2>
+<p>La version installée et ses notes, et le bloc des mises à jour automatiques déplacé tel quel — rien n&#x27;est retiré ni redessiné.</p>
+<div class="cadre">
+<div style="width: 390px; height: 1220px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 16px; background: #ffffff; color: #212529;">
+
+  <nav aria-label="Pages Maintenance" style="border-bottom: 1px solid #dee2e6; overflow-x: auto; margin: 0 -16px; padding: 0 16px;">
+    <div style="display: flex; gap: 2px; flex-wrap: nowrap; min-width: max-content;">
+      <a href="#ecran-Accueil" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Santé de l'hébergement</a>
+      <a href="#ecran-Sante" aria-current="page" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #0a58ca; font-weight: 600; border-bottom: 2px solid #0d6efd;">Mise à jour</a>
+      <a href="#ecran-Main" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Sauvegarde manuelle</a>
+      <a href="#ecran-Automatiques" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Sauvegarde automatique</a>
+      <a href="#ecran-Liste" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Sauvegardes récentes</a>
+      <a href="#ecran-Reinitialisation" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Réinitialisation</a>
+    </div>
+  </nav>
+
+  <div style="display: flex; flex-direction: column; gap: 4px;">
+    <h1 style="margin: 0; font-size: 22px; line-height: 1.2; font-weight: 600;">Mise à jour</h1>
+  </div>
+
+  <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+    <div style="display: flex; align-items: baseline; gap: 8px;">
+      <span style="font-size: 15px; font-weight: 600; flex-grow: 1;">Version installée : 1.0.42</span>
+      <span style="font-size: 13px; background: #d1e7dd; color: #0a3622; border-radius: 999px; padding: 2px 8px;">À jour</span>
+    </div>
+    <a href="#notes" style="font-size: 13px;">Notes de version</a>
+    <div style="font-size: 13px; color: #5c636a; line-height: 1.6;">
+      Rapprochement bancaire : les lignes déjà affectées ne sont plus reproposées. Correction de
+      l'export des présences sur une année scoute close. Deux corrections de sécurité sur le
+      téléversement de fichiers.
+      <a href="#plus" style="display: block; margin-top: 4px;">Afficher plus</a>
+    </div>
+    <div style="font-size: 13px; color: #5c636a;">Dernière vérification : aujourd'hui à 7 h 58.</div>
+    <button type="button" style="display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 16px; border: 1px solid #6c757d; border-radius: 6px; background: #ffffff; color: #343a40; font-size: 15px; font-family: inherit; align-self: flex-start;">Vérifier maintenant</button>
+  </div>
+
+  <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+    <h2 style="margin: 0; font-size: 16px; font-weight: 600;">Mises à jour automatiques</h2>
+    <div style="border: 1px dashed #adb5bd; border-radius: 6px; padding: 14px; font-size: 13px; color: #495057; line-height: 1.6;">
+      <strong>Déplacée telle quelle depuis la page Maintenance actuelle.</strong>
+      Rien n'est retiré, rien n'est redessiné : l'activation, les quatre niveaux avec leurs
+      avertissements, l'explication de X, Y et Z, le créneau jour et heure, la section webhook du
+      mode développement avec la raison du dernier rejet, l'avertissement de silence et la dernière
+      installation réussie arrivent ici dans leur état actuel.
+    </div>
+  </div>
+
+  <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px;">
+    <h2 style="margin: 0; font-size: 16px; font-weight: 600;">Historique</h2>
+    <div style="font-size: 13px; color: #212529;">14 septembre · 1.0.41 → 1.0.42 · réussie</div>
+    <div style="font-size: 13px; color: #212529;">7 septembre · 1.0.40 → 1.0.41 · réussie</div>
+    <div style="font-size: 13px; color: #b02a37;">31 août · 1.0.39 → 1.0.40 · échouée, site restauré</div>
+    <a href="#historique" style="font-size: 14px;">Voir tout l'historique</a>
+  </div>
+
+</div>
+</div>
+</section>
+<section class="ecran" id="ecran-Main">
+<h2>Sauvegarde manuelle</h2>
+<p>Une seule section, quatre portées en liste à bulles avec leur description, un seul bouton, aucun champ de mot de passe. L&#x27;avertissement jaune n&#x27;apparaît que sur un serveur incapable de chiffrer.</p>
+<div class="cadre">
+<div style="width: 390px; height: 1180px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 16px; background: #ffffff; color: #212529;">
+
+  <nav aria-label="Pages Maintenance" style="border-bottom: 1px solid #dee2e6; overflow-x: auto; margin: 0 -16px; padding: 0 16px;">
+    <div style="display: flex; gap: 2px; flex-wrap: nowrap; min-width: max-content;">
+      <a href="#ecran-Accueil" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Santé de l'hébergement</a>
+      <a href="#ecran-Sante" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Mise à jour</a>
+      <a href="#ecran-Main" aria-current="page" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #0a58ca; font-weight: 600; border-bottom: 2px solid #0d6efd;">Sauvegarde manuelle</a>
+      <a href="#ecran-Automatiques" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Sauvegarde automatique</a>
+      <a href="#ecran-Liste" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Sauvegardes récentes</a>
+      <a href="#ecran-Reinitialisation" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Réinitialisation</a>
+    </div>
+  </nav>
+
+  <div style="display: flex; flex-direction: column; gap: 4px;">
+    <h1 style="margin: 0; font-size: 22px; line-height: 1.2; font-weight: 600;">Sauvegardes manuelles</h1>
+  </div>
+
+  <p style="margin: 0; font-size: 13px; color: #5c636a;">
+    La place disponible se lit sur <a href="#stockage">Configuration › Stockage</a>, mesurée volume
+    par volume.
+  </p>
+
+  <fieldset style="border: 1px solid #dee2e6; border-radius: 8px; padding: 14px; margin: 0; display: flex; flex-direction: column; gap: 14px;">
+    <legend style="font-size: 14px; font-weight: 600; padding: 0 6px;">Que faut-il sauvegarder&nbsp;?</legend>
+
+    <div style="display: flex; align-items: flex-start; gap: 10px;">
+      <input type="radio" name="portee" id="p-config" checked style="width: 20px; height: 20px; margin-top: 2px;">
+      <label for="p-config" style="font-size: 15px; flex-grow: 1;">Configuration seule<br>
+        <span style="font-size: 13px; color: #5c636a;">Les paramètres et la structure du site, sans aucune donnée de membre. De quoi remonter un site identique et y réimporter les membres ensuite.</span>
+      </label>
+    </div>
+
+    <div style="display: flex; align-items: flex-start; gap: 10px;">
+      <input type="radio" name="portee" id="p-complet" style="width: 20px; height: 20px; margin-top: 2px;">
+      <label for="p-complet" style="font-size: 15px; flex-grow: 1;">Site complet<br>
+        <span style="font-size: 13px; color: #5c636a;">Tout le site et toutes ses données, hors emplacements de stockage. Sans les clés de chiffrement : se restaure ici, reste illisible ailleurs.</span>
+      </label>
+    </div>
+
+    <div style="display: flex; align-items: flex-start; gap: 10px;">
+      <input type="radio" name="portee" id="p-base" style="width: 20px; height: 20px; margin-top: 2px;">
+      <label for="p-base" style="font-size: 15px; flex-grow: 1;">Base de données seule<br>
+        <span style="font-size: 13px; color: #5c636a;">L'export SQL, sans les fichiers. Pour inspecter ou rejouer les données ailleurs. Les champs personnels y restent chiffrés.</span>
+      </label>
+    </div>
+
+    <div style="display: flex; align-items: flex-start; gap: 10px;">
+      <input type="radio" name="portee" id="p-portable" style="width: 20px; height: 20px; margin-top: 2px;">
+      <label for="p-portable" style="font-size: 15px; flex-grow: 1;">Sauvegarde portable<br>
+        <span style="font-size: 13px; color: #5c636a;">Tout, <strong>clés de chiffrement comprises</strong>. La seule qui se restaure sur une installation neuve, chez un autre hébergeur. Une seule est conservée : la nouvelle remplace la précédente.</span>
+      </label>
+    </div>
+
+  </fieldset>
+
+  <div style="border: 1px solid #b6d4fe; background: #f5f9ff; border-radius: 8px; padding: 12px; font-size: 13px; color: #212529;">
+    Rien à saisir : l'archive est chiffrée avec un mot de passe que le site génère. Il vous sera
+    affiché au moment du téléchargement.
+  </div>
+
+  <button type="button" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 16px; border: 0; border-radius: 6px; background: #0d6efd; color: #ffffff; font-size: 15px; font-weight: 500; font-family: inherit; align-self: flex-start;">
+    <svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2.5v8"></path><path d="M5.5 7.5L9 11l3.5-3.5"></path><path d="M3 14.5h12"></path></svg>
+    Générer la sauvegarde
+  </button>
+
+  <p style="margin: 0; font-size: 13px; color: #5c636a;">
+    Elle est préparée en arrière-plan. Vous recevrez une notification quand elle sera prête, et elle
+    apparaîtra dans la liste ci-dessous.
+  </p>
+
+  <div style="border: 1px solid #ffe69c; background: #fff3cd; border-radius: 8px; padding: 12px; font-size: 13px; color: #664d03;">
+    <strong>Ce serveur ne sait pas chiffrer les archives.</strong>
+    La configuration seule, le site complet et la base de données partiront <strong>sans
+    chiffrement</strong> — ne les laissez pas traîner. La sauvegarde portable est indisponible :
+    elle contient les clés du site et ne peut pas partir en clair.
+    <br><br>
+    À demander à votre hébergeur : activer l'extension <strong>openssl</strong> de PHP — elle
+    suffit à ce site pour chiffrer lui-même. À défaut, que l'extension <code>zip</code> soit
+    compilée contre <strong>libzip 1.2 ou plus avec le support du chiffrement</strong>.
+  </div>
+
+  <p style="margin: 0; font-size: 13px; color: #5c636a;">
+    Aucune archive ne reprend le contenu d'un emplacement de stockage — ni la galerie photo, ni les
+    autres. Chaque emplacement a son propre cycle de vie : <a href="#stockage">Configuration ›
+    Stockage</a>.
+  </p>
+
+</div>
+</div>
+</section>
+<section class="ecran" id="ecran-Automatiques">
+<h2>Sauvegarde automatique</h2>
+<p>Une boîte, deux protections nommées par l&#x27;accident dont elles protègent. La rétention hors site est écrite en toutes lettres, avec l&#x27;état réel en dessous.</p>
+<div class="cadre">
+<div style="width: 390px; height: 1560px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 16px; background: #ffffff; color: #212529;">
+
+  <nav aria-label="Pages Maintenance" style="border-bottom: 1px solid #dee2e6; overflow-x: auto; margin: 0 -16px; padding: 0 16px;">
+    <div style="display: flex; gap: 2px; flex-wrap: nowrap; min-width: max-content;">
+      <a href="#ecran-Accueil" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Santé de l'hébergement</a>
+      <a href="#ecran-Sante" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Mise à jour</a>
+      <a href="#ecran-Main" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Sauvegarde manuelle</a>
+      <a href="#ecran-Automatiques" aria-current="page" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #0a58ca; font-weight: 600; border-bottom: 2px solid #0d6efd;">Sauvegarde automatique</a>
+      <a href="#ecran-Liste" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Sauvegardes récentes</a>
+      <a href="#ecran-Reinitialisation" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Réinitialisation</a>
+    </div>
+  </nav>
+
+  <div style="display: flex; flex-direction: column; gap: 4px;">
+    <h1 style="margin: 0; font-size: 22px; line-height: 1.2; font-weight: 600;">Sauvegardes automatiques</h1>
+  </div>
+
+  <p style="margin: 0; font-size: 13px; color: #5c636a;">
+    Deux protections différentes, contre deux accidents différents. Elles ne se remplacent pas.
+  </p>
+
+  <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 12px;">
+    <h2 style="margin: 0; font-size: 16px; font-weight: 600;">Sur ce serveur</h2>
+    <p style="margin: 0; font-size: 13px; color: #5c636a;">
+      Pour revenir en arrière après une fausse manœuvre, quand le site est toujours debout.
+      Rapide, mais elle disparaît avec le serveur.
+    </p>
+
+    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+      <label for="freq-locale" style="font-size: 14px;">Fréquence</label>
+      <select id="freq-locale" style="min-height: 44px; border: 1px solid #ced4da; border-radius: 6px; padding: 0 8px; font-size: 14px; background: #ffffff; font-family: inherit;">
+        <option>Aucune</option>
+        <option selected>Quotidienne</option>
+        <option>Hebdomadaire</option>
+        <option>Toutes les 2 semaines</option>
+        <option>Mensuelle</option>
+      </select>
+    </div>
+
+    <div style="font-size: 13px; color: #5c636a;">
+      Dernière : hier à 3 h 12. Les 7 dernières sont conservées, sans compter celles que vous créez
+      vous-même.
+    </div>
+  </div>
+
+  <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 12px;">
+    <h2 style="margin: 0; font-size: 16px; font-weight: 600;">Hors site</h2>
+    <p style="margin: 0; font-size: 13px; color: #5c636a;">
+      Pour le jour où le serveur n'existe plus et où tout est à réinstaller de zéro. Ce sont des
+      sauvegardes portables : on les renseigne à l'installation d'un site neuf, à condition de
+      connaître la phrase de passe.
+    </p>
+
+    <div style="display: flex; flex-direction: column; gap: 6px;">
+      <label for="dest" style="font-size: 14px;">Destination</label>
+      <select id="dest" style="min-height: 44px; border: 1px solid #ced4da; border-radius: 6px; padding: 0 8px; font-size: 14px; background: #ffffff; font-family: inherit;">
+        <option value="0">Aucune — ne rien envoyer hors site</option>
+        <option selected>Drive de l'unité — Google Drive</option>
+      </select>
+      <span style="font-size: 13px; color: #5c636a;">Envoi toutes les 24 heures. Dernier envoi réussi : ce matin à 4 h 08.</span>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 6px;">
+      <span style="font-size: 14px;">Phrase de passe <span style="font-size: 13px; color: #5c636a;">— génération 2, créée le 4 mars 2026</span></span>
+      <code style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; background: #f8f9fa; border-radius: 6px; padding: 10px; letter-spacing: 0.04em;">AB3DE-F7HJK-MNP24-QRS58-TUV9W-XYZ37</code>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <button type="button" style="min-height: 44px; padding: 0 14px; border: 1px solid #6c757d; border-radius: 6px; background: #ffffff; color: #343a40; font-size: 14px; font-family: inherit;">Masquer</button>
+        <button type="button" style="min-height: 44px; padding: 0 14px; border: 1px solid #6c757d; border-radius: 6px; background: #ffffff; color: #343a40; font-size: 14px; font-family: inherit;">Copier</button>
+        <button type="button" style="min-height: 44px; padding: 0 14px; border: 1px solid #b02a37; border-radius: 6px; background: #ffffff; color: #b02a37; font-size: 14px; font-family: inherit;">Régénérer</button>
+      </div>
+      <span style="font-size: 13px; color: #5c636a;">Notez-la ailleurs que sur ce site. Régénérer rend illisibles toutes les archives déjà déposées ; leur nom porte le numéro de génération pour qu'on s'y retrouve.</span>
+    </div>
+
+    <div style="border-top: 1px solid #e9ecef; padding-top: 12px; display: flex; flex-direction: column; gap: 8px;">
+      <h3 style="margin: 0; font-size: 14px; font-weight: 600;">Ce qui est conservé là-bas</h3>
+      <div style="font-size: 13px; color: #212529; line-height: 1.6;">
+        La dernière · une par semaine sur le mois écoulé · une par mois au-delà
+      </div>
+      <div style="font-size: 13px; color: #5c636a;">
+        Dans la limite de 30 archives et de 10 Go, la borne la plus stricte l'emportant. Aujourd'hui :
+        16 archives, 3,4 Go, la plus ancienne du 12 octobre 2025.
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>
+</section>
+<section class="ecran" id="ecran-Liste">
+<h2>Sauvegardes récentes</h2>
+<p>Téléchargement immédiat, et la restauration rapatriée depuis la carte « Réinitialisation ».</p>
+<div class="cadre">
+<div style="width: 390px; height: 1620px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 16px; background: #ffffff; color: #212529;">
+
+  <nav aria-label="Pages Maintenance" style="border-bottom: 1px solid #dee2e6; overflow-x: auto; margin: 0 -16px; padding: 0 16px;">
+    <div style="display: flex; gap: 2px; flex-wrap: nowrap; min-width: max-content;">
+      <a href="#ecran-Accueil" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Santé de l'hébergement</a>
+      <a href="#ecran-Sante" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Mise à jour</a>
+      <a href="#ecran-Main" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Sauvegarde manuelle</a>
+      <a href="#ecran-Automatiques" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Sauvegarde automatique</a>
+      <a href="#ecran-Liste" aria-current="page" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #0a58ca; font-weight: 600; border-bottom: 2px solid #0d6efd;">Sauvegardes récentes</a>
+      <a href="#ecran-Reinitialisation" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Réinitialisation</a>
+    </div>
+  </nav>
+
+  <div style="display: flex; flex-direction: column; gap: 4px;">
+    <h1 style="margin: 0; font-size: 22px; line-height: 1.2; font-weight: 600;">Sauvegardes récentes</h1>
+  </div>
+
+  <div style="border: 1px solid #dee2e6; border-radius: 8px; overflow: hidden;">
+
+    <div style="padding: 12px; border-bottom: 1px solid #e9ecef; display: flex; gap: 8px; align-items: center;">
+      <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0;">
+        <span style="font-size: 15px; font-weight: 600;">Site complet</span>
+        <span style="font-size: 13px; color: #5c636a;">Aujourd'hui à 9 h 41 · 412 Mo</span>
+        <span style="font-size: 13px; color: #0a3622; background: #d1e7dd; border-radius: 999px; padding: 2px 8px; align-self: flex-start;">Manuelle</span>
+      </span>
+      <a href="#ecran-MotDePasse" aria-label="Télécharger la sauvegarde du jour" title="Télécharger" style="flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid #0d6efd; border-radius: 6px; color: #0a58ca;">
+        <svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2.5v8"></path><path d="M5.5 7.5L9 11l3.5-3.5"></path><path d="M3 14.5h12"></path></svg>
+      </a>
+      <button type="button" aria-label="Supprimer la sauvegarde du jour" title="Supprimer" style="flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid #b02a37; border-radius: 6px; background: #ffffff; color: #b02a37;">
+        <svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4.5h12"></path><path d="M6.5 4.5V3h5v1.5"></path><path d="M4.5 4.5l.8 10h7.4l.8-10"></path></svg>
+      </button>
+    </div>
+
+    <div style="padding: 12px; border-bottom: 1px solid #e9ecef; display: flex; gap: 8px; align-items: center;">
+      <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0;">
+        <span style="font-size: 15px; font-weight: 600;">Sauvegarde portable</span>
+        <span style="font-size: 13px; color: #5c636a;">Hier à 21 h 07 · 438 Mo · contient les clés</span>
+        <span style="font-size: 13px; color: #0a3622; background: #d1e7dd; border-radius: 999px; padding: 2px 8px; align-self: flex-start;">Manuelle</span>
+      </span>
+      <a href="#ecran-MotDePasse" aria-label="Télécharger la sauvegarde portable" title="Télécharger" style="flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid #0d6efd; border-radius: 6px; color: #0a58ca;">
+        <svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2.5v8"></path><path d="M5.5 7.5L9 11l3.5-3.5"></path><path d="M3 14.5h12"></path></svg>
+      </a>
+      <button type="button" aria-label="Supprimer la sauvegarde portable" title="Supprimer" style="flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid #b02a37; border-radius: 6px; background: #ffffff; color: #b02a37;">
+        <svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4.5h12"></path><path d="M6.5 4.5V3h5v1.5"></path><path d="M4.5 4.5l.8 10h7.4l.8-10"></path></svg>
+      </button>
+    </div>
+
+    <div style="padding: 12px; display: flex; gap: 8px; align-items: center;">
+      <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0;">
+        <span style="font-size: 15px; font-weight: 600;">Site complet</span>
+        <span style="font-size: 13px; color: #5c636a;">Hier à 3 h 12 · 409 Mo</span>
+        <span style="font-size: 13px; color: #41464b; background: #e9ecef; border-radius: 999px; padding: 2px 8px; align-self: flex-start;">Planifiée</span>
+      </span>
+      <a href="#ecran-MotDePasse" aria-label="Télécharger la sauvegarde planifiée d'hier" title="Télécharger" style="flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid #0d6efd; border-radius: 6px; color: #0a58ca;">
+        <svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2.5v8"></path><path d="M5.5 7.5L9 11l3.5-3.5"></path><path d="M3 14.5h12"></path></svg>
+      </a>
+      <button type="button" aria-label="Supprimer la sauvegarde planifiée d'hier" title="Supprimer" style="flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid #b02a37; border-radius: 6px; background: #ffffff; color: #b02a37;">
+        <svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4.5h12"></path><path d="M6.5 4.5V3h5v1.5"></path><path d="M4.5 4.5l.8 10h7.4l.8-10"></path></svg>
+      </button>
+    </div>
+
+  </div>
+
+  <p style="margin: 0; font-size: 13px; color: #5c636a;">
+    Toutes sont chiffrées. Le mot de passe de chacune s'affiche au moment du téléchargement.
+  </p>
+
+  <div style="border: 1px solid #f5c2c7; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 12px;">
+    <h2 style="margin: 0; font-size: 17px; font-weight: 600; color: #b02a37;">Restaurer une sauvegarde</h2>
+    <p style="margin: 0; font-size: 13px; color: #5c636a;">
+      Remet la base de données et les fichiers dans l'état de la sauvegarde choisie. Une sauvegarde
+      de sécurité est prise automatiquement juste avant.
+    </p>
+
+    <fieldset style="border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px;">
+      <legend style="font-size: 14px; font-weight: 500; padding: 0;">D'où vient l'archive&nbsp;?</legend>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <input type="radio" name="src" id="src-serveur" checked style="width: 20px; height: 20px;">
+        <label for="src-serveur" style="font-size: 15px; flex-grow: 1;">De ce serveur</label>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <input type="radio" name="src" id="src-fichier" style="width: 20px; height: 20px;">
+        <label for="src-fichier" style="font-size: 15px; flex-grow: 1;">D'un fichier que je téléverse</label>
+      </div>
+    </fieldset>
+
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <label for="quelle" style="font-size: 14px;">Laquelle</label>
+      <select id="quelle" style="min-height: 44px; border: 1px solid #ced4da; border-radius: 6px; padding: 0 8px; font-size: 14px; background: #ffffff; font-family: inherit;">
+        <option selected>Site complet — aujourd'hui à 9 h 41</option>
+        <option>Site complet — hier à 3 h 12</option>
+        <option>Configuration seule — 12 septembre</option>
+      </select>
+      <span style="font-size: 13px; color: #5c636a;">Rien à saisir : le site connaît le mot de passe de ses propres archives. Les sauvegardes portables ne sont pas proposées — elles servent à repartir sur une installation neuve, pas à écraser celle-ci.</span>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <label for="motcle" style="font-size: 14px;">Tapez <strong>RESTAURER</strong> pour confirmer</label>
+      <input type="text" id="motcle" autocomplete="off" style="min-height: 44px; border: 1px solid #ced4da; border-radius: 6px; padding: 0 10px; font-size: 15px; font-family: inherit;">
+    </div>
+
+    <button type="button" disabled style="display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 16px; border: 1px solid #b02a37; border-radius: 6px; background: #ffffff; color: #b02a37; font-size: 15px; font-family: inherit; align-self: flex-start; opacity: 0.55;">
+      Restaurer
+    </button>
+  </div>
+
+
+</div>
+</div>
+</section>
+<section class="ecran" id="ecran-MotDePasse">
+<h2>Le mot de passe, au téléchargement</h2>
+<p>Le seul moment où le mot de passe généré existe pour un humain.</p>
+<div class="cadre">
+<div style="width: 390px; height: 640px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; justify-content: center; background: #e9ecef;">
+  <div style="background: #ffffff; border-radius: 10px; padding: 20px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 8px 24px rgba(0,0,0,0.15);">
+
+    <h2 style="margin: 0; font-size: 18px; font-weight: 600;">Le mot de passe de cette archive</h2>
+
+    <p style="margin: 0; font-size: 14px; color: #343a40;">
+      Sauvegarde portable d'hier à 21 h 07. Sans ce mot de passe, le fichier que vous allez
+      télécharger est illisible.
+    </p>
+
+    <code style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 15px; background: #f8f9fa; border-radius: 6px; padding: 12px; letter-spacing: 0.04em; text-align: center;">K7MJP-4RXQA-92VBN-HT35E</code>
+
+    <button type="button" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 16px; border: 1px solid #6c757d; border-radius: 6px; background: #ffffff; color: #343a40; font-size: 15px; font-family: inherit;">
+      <svg width="16" height="16" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="9" height="9" rx="1.5"></rect><path d="M12 6V4.5A1.5 1.5 0 0010.5 3h-6A1.5 1.5 0 003 4.5v6A1.5 1.5 0 004.5 12H6"></path></svg>
+      Copier le mot de passe
+    </button>
+
+    <div style="border: 1px solid #ffe69c; background: #fff3cd; border-radius: 6px; padding: 12px; font-size: 13px; color: #664d03;">
+      Notez-le ailleurs que sur ce site. Le jour où vous aurez besoin de cette archive, ce serveur
+      ne sera peut-être plus là pour vous le redire.
+    </div>
+
+    <div style="display: flex; gap: 8px; justify-content: flex-end;">
+      <a href="#ecran-Liste" style="display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 16px; border: 1px solid #6c757d; border-radius: 6px; text-decoration: none; font-size: 15px; color: #343a40;">Annuler</a>
+      <a href="#ecran-Liste" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 16px; border-radius: 6px; background: #0d6efd; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 500;">
+        <svg width="16" height="16" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2.5v8"></path><path d="M5.5 7.5L9 11l3.5-3.5"></path><path d="M3 14.5h12"></path></svg>
+        Télécharger
+      </a>
+    </div>
+
+  </div>
+</div>
+</div>
+</section>
+<section class="ecran" id="ecran-Reinitialisation">
+<h2>Réinitialisation</h2>
+<p>Déplacée telle quelle, moins la restauration.</p>
+<div class="cadre">
+<div style="width: 390px; height: 1120px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 16px; background: #ffffff; color: #212529;">
+
+  <nav aria-label="Pages Maintenance" style="border-bottom: 1px solid #dee2e6; overflow-x: auto; margin: 0 -16px; padding: 0 16px;">
+    <div style="display: flex; gap: 2px; flex-wrap: nowrap; min-width: max-content;">
+      <a href="#ecran-Accueil" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Santé de l'hébergement</a>
+      <a href="#ecran-Sante" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Mise à jour</a>
+      <a href="#ecran-Main" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Sauvegarde manuelle</a>
+      <a href="#ecran-Automatiques" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Sauvegarde automatique</a>
+      <a href="#ecran-Liste" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Sauvegardes récentes</a>
+      <a href="#ecran-Reinitialisation" aria-current="page" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #0a58ca; font-weight: 600; border-bottom: 2px solid #0d6efd;">Réinitialisation</a>
+    </div>
+  </nav>
+
+  <div style="display: flex; flex-direction: column; gap: 4px;">
+    <h1 style="margin: 0; font-size: 22px; line-height: 1.2; font-weight: 600; color: #b02a37;">Réinitialisation</h1>
+    <div style="font-size: 13px; color: #5c636a;">Ces actions sont irréversibles sans restauration manuelle. Une sauvegarde de sécurité est prise automatiquement avant chaque action.</div>
+  </div>
+
+  <div style="border: 1px dashed #adb5bd; border-radius: 6px; padding: 12px; font-size: 13px; color: #495057; line-height: 1.6;">
+    <strong>Déplacée telle quelle depuis la page Maintenance actuelle</strong>, moins la restauration,
+    qui rejoint « Sauvegardes récentes ». Les deux blocs ci-dessous arrivent dans leur état actuel.
+  </div>
+
+  <div style="border: 1px solid #f5c2c7; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+    <h2 style="margin: 0; font-size: 16px; font-weight: 600;">Paramètres par défaut</h2>
+    <p style="margin: 0; font-size: 13px; color: #5c636a;">
+      Réinitialise tous les paramètres, généraux et modules, à leurs valeurs par défaut. Ne touche ni
+      aux comptes, ni aux membres, ni aux contenus, ni aux fichiers.
+    </p>
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <label for="mot-reinit" style="font-size: 14px;">Tapez <strong>REINITIALISER</strong> pour confirmer</label>
+      <input type="text" id="mot-reinit" autocomplete="off" style="min-height: 44px; border: 1px solid #ced4da; border-radius: 6px; padding: 0 10px; font-size: 15px; font-family: inherit;">
+    </div>
+    <button type="button" disabled style="display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 16px; border: 1px solid #b02a37; border-radius: 6px; background: #ffffff; color: #b02a37; font-size: 15px; font-family: inherit; align-self: flex-start; opacity: 0.55;">Réinitialiser les paramètres</button>
+  </div>
+
+  <div style="border: 1px solid #b02a37; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+    <h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #b02a37;">Réinitialisation complète</h2>
+    <p style="margin: 0; font-size: 13px; color: #5c636a;">
+      Efface définitivement toutes les données du site. Le prochain accès déclenchera l'assistant
+      d'installation, comme pour un site neuf.
+    </p>
+    <p style="margin: 0; font-size: 13px; color: #5c636a;">
+      Les dossiers déclarés comme <a href="#stockage">emplacements de stockage</a> ne sont pas
+      effacés : leur contenu n'est repris dans aucune archive, il serait donc perdu sans retour. Le
+      site ne les référencera plus ; supprimez-les vous-même si vous vouliez repartir d'un disque vide.
+    </p>
+    <div style="display: flex; align-items: flex-start; gap: 10px;">
+      <input type="checkbox" id="compris" style="width: 20px; height: 20px; margin-top: 2px;">
+      <label for="compris" style="font-size: 14px; flex-grow: 1;">Je comprends que toutes les données seront définitivement supprimées</label>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <label for="mot-effacer" style="font-size: 14px;">Tapez <strong>EFFACER</strong> pour confirmer</label>
+      <input type="text" id="mot-effacer" autocomplete="off" style="min-height: 44px; border: 1px solid #ced4da; border-radius: 6px; padding: 0 10px; font-size: 15px; font-family: inherit;">
+    </div>
+    <button type="button" disabled style="display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 16px; border: 0; border-radius: 6px; background: #b02a37; color: #ffffff; font-size: 15px; font-family: inherit; align-self: flex-start; opacity: 0.55;">Tout effacer</button>
+  </div>
+
+</div>
+</div>
+</section>
+</div>
+</body>
+</html>
