@@ -56,7 +56,7 @@ class FeeAccuracyServiceTest extends TestCase
         $this->familyFeeId = $feeCategories->create('N_F_COTISATION FAMILLE', 'Cotisation famille');
         $this->unrecognisedFeeId = $feeCategories->create('Cotisation invités', 'Cotisation invités');
 
-        $this->households = new HouseholdService(new HouseholdRepository($this->pdo), $this->encryption);
+        $this->households = new HouseholdService(new HouseholdRepository($this->pdo, $this->encryption));
         $this->tariffs = new HouseholdTariffService(new HouseholdTariffRepository($this->pdo), $feeCategories);
         $this->ignored = new IgnoredHouseholdRepository($this->pdo, $this->encryption);
         $this->service = new FeeAccuracyService(

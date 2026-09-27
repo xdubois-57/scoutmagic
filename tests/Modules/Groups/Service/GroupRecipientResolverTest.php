@@ -342,7 +342,6 @@ class GroupRecipientResolverTest extends TestCase
             new MemberYearRepository($this->pdo),
             new MemberEmailRepository($this->pdo, $this->encryption),
             new UserAccountRepository($this->pdo, $this->encryption),
-            $this->encryption,
             $roleResolver,
             $scoutYearService
         );

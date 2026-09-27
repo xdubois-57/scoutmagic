@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Member\Household;
 
+use Core\Security\EncryptionService;
+
 /**
  * Reads households out of member_addresses.address_normalized_blind_index
  * (ARCHITECTURE.md §8.34) — never out of a readable address, which is
@@ -20,8 +22,27 @@ namespace Core\Member\Household;
  */
 class HouseholdRepository
 {
-    public function __construct(private \PDO $pdo)
+    public function __construct(
+        private \PDO $pdo,
+        private EncryptionService $encryption
+    ) {
+    }
+
+    /**
+     * The key a household is stored and looked up under, for an address
+     * already normalized by Core\Member\AddressNormalizer.
+     *
+     * The purpose string `'address'` lives here rather than in
+     * HouseholdService because a purpose string is the one part of a blind
+     * index that must never be written from memory by a second layer: the
+     * lookup does not fail when it is wrong, it silently finds nobody
+     * (issue #629). Returned rather than kept private because
+     * {@see \Modules\Registration\Api\HouseholdRegistrationCountProvider}
+     * keys its counts on this very value.
+     */
+    public function householdKeyFor(string $normalizedAddress): string
     {
+        return $this->encryption->blindIndex($normalizedAddress, 'address');
     }
 
     /**
