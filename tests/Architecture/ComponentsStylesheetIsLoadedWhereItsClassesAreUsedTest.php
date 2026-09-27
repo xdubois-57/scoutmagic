@@ -31,8 +31,12 @@ use PHPUnit\Framework\TestCase;
  * every page reaching `base.html.twig` through `extends`, together with
  * everything it extends, includes, embeds or imports, recursively: a class
  * used in a partial needs the stylesheet on each page that pulls the
- * partial in. A template named through a variable cannot be followed; none
- * of the pages below depends on one for these classes.
+ * partial in. A template named through a variable is followed too, by the
+ * string that names it: any quoted literal in a template that is the name
+ * of a known template counts as an edge. `camps/unsorted_mail.html.twig`
+ * hands `picker_template: '@camps/partials/triage_picker.html.twig'` to a
+ * partial that does `{% include ui.picker_template %}`; following only the
+ * literal `include` lost that page's stay picker (found in review of #602).
  */
 final class ComponentsStylesheetIsLoadedWhereItsClassesAreUsedTest extends TestCase
 {
@@ -111,6 +115,17 @@ final class ComponentsStylesheetIsLoadedWhereItsClassesAreUsedTest extends TestC
             self::classesUsedIn("{% include 'partials/drop_zone.html.twig' with { class_extra: 'receipt-drop-zone' } %}")
         );
         $this->assertSame(['is-open'], self::classesUsedIn("{% set row_class = 'is-open' %}"));
+
+        // An include through a variable is followed by the string naming the
+        // template, the way camps/unsorted_mail.html.twig reaches its picker.
+        $this->assertEqualsCanonicalizing(
+            ['page', 'picker', 'partial'],
+            self::reachable('page', [
+                'page' => "{% include 'partial' with { ui: { picker_template: 'picker' } } %}",
+                'partial' => '{% include ui.picker_template %}',
+                'picker' => '<div class="x"></div>',
+            ])
+        );
         $this->assertSame(['a', 'b'], self::simpleClassesIn('.a, .b:hover { x: 1 } .c .d { } .e > .f { }'));
     }
 
@@ -247,7 +262,10 @@ final class ComponentsStylesheetIsLoadedWhereItsClassesAreUsedTest extends TestC
     }
 
     /**
-     * The template and everything it extends, includes, embeds or imports.
+     * The template and everything it extends, includes, embeds or imports —
+     * or merely names in a quoted string, for the include that takes a
+     * variable. Over-approximating is the safe side: a template named but
+     * not rendered costs at worst a stylesheet link it did not need.
      *
      * @param array<string, string> $templates
      * @return list<string>
@@ -269,6 +287,11 @@ final class ComponentsStylesheetIsLoadedWhereItsClassesAreUsedTest extends TestC
             );
             foreach ($matches[1] as $next) {
                 $queue[] = $next;
+            }
+            foreach (self::quotedStringsIn($templates[$current]) as $literal) {
+                if (isset($templates[$literal])) {
+                    $queue[] = $literal;
+                }
             }
         }
 
