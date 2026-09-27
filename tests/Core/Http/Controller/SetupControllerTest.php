@@ -15,10 +15,13 @@ use Core\Security\SecretManager;
 use Core\View\TwigFactory;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class SetupControllerTest extends TestCase
 {
+    use UsesProductionEngine;
+
     private string $tempDir;
     private SecretManager $secretManager;
     private DkimManager $dkimManager;
@@ -1073,30 +1076,26 @@ class SetupControllerTest extends TestCase
     }
 
     /**
+     * The `TEST_DB_*` server, emptied, and the database fields of the setup
+     * form filled in to point at it — the wizard then builds the whole
+     * schema there itself, which is what these tests are about, so an
+     * EMPTY database rather than `productionEngine()`'s migrated one.
+     *
      * @return array{0: \PDO, 1: array<string, string>}
      */
     private function connectToTestDatabase(): array
     {
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = getenv('TEST_DB_PORT') ?: '3306';
-        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
-        $user = getenv('TEST_DB_USER') ?: 'root';
-        $password = getenv('TEST_DB_PASSWORD') ?: '';
+        $pdo = self::productionEngineConnection()->getPdo();
+        $this->dropAllTables($pdo);
 
-        try {
-            $dsn = sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4', $host, $port, $dbName);
-            $pdo = new \PDO($dsn, $user, $password);
-            $this->dropAllTables($pdo);
-        } catch (\PDOException $e) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database not available: ' . $e->getMessage());
-        }
+        $credentials = self::productionEngineCredentials();
 
         return [$pdo, [
-            'db_host' => $host,
-            'db_port' => $port,
-            'db_name' => $dbName,
-            'db_user' => $user,
-            'db_password' => $password,
+            'db_host' => $credentials['host'],
+            'db_port' => (string) $credentials['port'],
+            'db_name' => $credentials['dbName'],
+            'db_user' => $credentials['user'],
+            'db_password' => $credentials['password'],
         ]];
     }
 
@@ -1278,20 +1277,8 @@ class SetupControllerTest extends TestCase
     #[\PHPUnit\Framework\Attributes\Group('database')]
     public function testSaveWithValidDataCreatesAllFiles(): void
     {
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = getenv('TEST_DB_PORT') ?: '3306';
-        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
-        $user = getenv('TEST_DB_USER') ?: 'root';
-        $password = getenv('TEST_DB_PASSWORD') ?: '';
-
         // Clean up tables from previous test runs
-        try {
-            $dsn = sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4', $host, $port, $dbName);
-            $pdo = new \PDO($dsn, $user, $password);
-            $this->dropAllTables($pdo);
-        } catch (\PDOException $e) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database not available: ' . $e->getMessage());
-        }
+        [$pdo, $databaseFields] = $this->connectToTestDatabase();
 
         $token = \Core\Security\CsrfGuard::generateToken();
 
@@ -1299,11 +1286,7 @@ class SetupControllerTest extends TestCase
         $this->writeCronHeartbeat();
         $request = new Request('POST', '/setup/save', [], [
             '_csrf_token' => $token,
-            'db_host' => $host,
-            'db_port' => $port,
-            'db_name' => $dbName,
-            'db_user' => $user,
-            'db_password' => $password,
+            ...$databaseFields,
             'site_name' => 'Test Unité',
             'short_name' => '25SV',
             'base_url' => 'https://test.example.com',
@@ -1366,19 +1349,8 @@ class SetupControllerTest extends TestCase
     #[\PHPUnit\Framework\Attributes\Group('database')]
     public function testSaveSucceedsWhenDkimKeyWasAlreadyGeneratedAheadOfTime(): void
     {
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = getenv('TEST_DB_PORT') ?: '3306';
-        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
-        $user = getenv('TEST_DB_USER') ?: 'root';
-        $password = getenv('TEST_DB_PASSWORD') ?: '';
-
-        try {
-            $dsn = sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4', $host, $port, $dbName);
-            $pdo = new \PDO($dsn, $user, $password);
-            $this->dropAllTables($pdo);
-        } catch (\PDOException $e) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database not available: ' . $e->getMessage());
-        }
+        // Clean up tables from previous test runs
+        [$pdo, $databaseFields] = $this->connectToTestDatabase();
 
         $preGeneratedPublicKey = $this->dkimManager->generateKey();
 
@@ -1388,11 +1360,7 @@ class SetupControllerTest extends TestCase
         $this->writeCronHeartbeat();
         $request = new Request('POST', '/setup/save', [], [
             '_csrf_token' => $token,
-            'db_host' => $host,
-            'db_port' => $port,
-            'db_name' => $dbName,
-            'db_user' => $user,
-            'db_password' => $password,
+            ...$databaseFields,
             'site_name' => 'Test Unité',
             'short_name' => '25SV',
             'base_url' => 'https://test.example.com',

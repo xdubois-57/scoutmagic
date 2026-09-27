@@ -11,7 +11,7 @@ use Core\Database\SchemaIntrospector;
 use Core\Database\SqlParser;
 use Core\Journal\JournalService;
 use PHPUnit\Framework\TestCase;
-use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 /**
  * @group database
@@ -19,29 +19,23 @@ use Tests\DatabaseTestHelper;
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class MigrationRunnerTest extends TestCase
 {
+    use UsesProductionEngine;
+
     private ?Connection $connection = null;
     private ?SchemaIntrospector $introspector = null;
 
     protected function setUp(): void
     {
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('TEST_DB_PORT') ?: 3306);
-        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
-        $user = getenv('TEST_DB_USER') ?: 'root';
-        $password = getenv('TEST_DB_PASSWORD') ?: '';
-
-        // Assigned only once the server has answered: tearDown() runs even
-        // after markTestSkipped(), and dereferencing an unusable Connection
-        // there turned a clean skip into a PDOException on every one of
-        // this class's tests wherever no MySQL is running.
-        $connection = new Connection($host, $port, $dbName, $user, $password);
-
-        $result = $connection->testConnection();
-        if ($result !== true) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database connection not available: ' . $result);
-        }
-
-        $this->connection = $connection;
+        // Assigned only once the server has answered — the fixture skips or
+        // fails before returning otherwise: tearDown() runs even after
+        // markTestSkipped(), and dereferencing an unusable Connection there
+        // turned a clean skip into a PDOException on every one of this
+        // class's tests wherever no MySQL is running.
+        //
+        // TEST_DB_NAME itself rather than productionEngine(): every test
+        // here measures a migration against an EMPTY database, not one the
+        // whole schema was already migrated into.
+        $this->connection = self::productionEngineConnection();
 
         $this->introspector = new SchemaIntrospector($this->connection->getPdo());
 
@@ -655,16 +649,10 @@ class MigrationRunnerTest extends TestCase
      */
     public function testMigrateYieldsImmediatelyWhenAnotherProcessHoldsTheLock(): void
     {
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('TEST_DB_PORT') ?: 3306);
-        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
-        $user = getenv('TEST_DB_USER') ?: 'root';
-        $password = getenv('TEST_DB_PASSWORD') ?: '';
-
         // A second connection is a second MySQL session, which is what
         // GET_LOCK() is scoped to — the same connection would just be
         // granted the lock it already holds.
-        $other = new Connection($host, $port, $dbName, $user, $password);
+        $other = self::productionEngineConnection();
         $holder = $other->getPdo()->query("SELECT GET_LOCK('scoutmagic_schema_migration', 0)");
         $this->assertSame(1, (int) $holder->fetchColumn());
         $holder->closeCursor();

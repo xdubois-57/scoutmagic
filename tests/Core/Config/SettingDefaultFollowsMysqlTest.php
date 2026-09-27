@@ -9,11 +9,9 @@ declare(strict_types=1);
 namespace Tests\Core\Config;
 
 use Core\Config\SettingRepository;
-use Core\Database\SchemaComparator;
-use Core\Database\SqlParser;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
-use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 /**
  * A never-customised setting value follows its moved default (issue #355),
@@ -29,57 +27,20 @@ use Tests\DatabaseTestHelper;
  *   it compares against the NEW default. SQLite gives every assignment the
  *   old row and would hide that too.
  *
- * The table is built from schema/core.sql through the application's own
- * parser and comparator, so it cannot drift from the real definition.
+ * The table is the one the real migration builds from schema/core.sql
+ * (`Tests\UsesProductionEngine`), collation included, so it cannot drift
+ * from what an installed site has — and the connection is the site's.
  */
 #[Group('database')]
 class SettingDefaultFollowsMysqlTest extends TestCase
 {
-    private \PDO $pdo;
+    use UsesProductionEngine;
+
     private SettingRepository $repository;
 
     protected function setUp(): void
     {
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('TEST_DB_PORT') ?: 3306);
-        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
-        $user = getenv('TEST_DB_USER') ?: 'root';
-        $password = getenv('TEST_DB_PASSWORD') ?: '';
-
-        try {
-            $this->pdo = new \PDO(
-                sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', $host, $port, $dbName),
-                $user,
-                $password,
-                [
-                    \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
-                    \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
-                    \PDO::ATTR_EMULATE_PREPARES => false,
-                ]
-            );
-        } catch (\PDOException $e) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised(
-                'No MySQL server configured (TEST_DB_HOST): ' . $e->getMessage()
-            );
-        }
-
-        $this->pdo->exec('DROP TABLE IF EXISTS settings');
-        foreach ((new SqlParser())->parseFile(dirname(__DIR__, 3) . '/schema/core.sql') as $table) {
-            if ($table->name === 'settings') {
-                foreach ((new SchemaComparator())->compareOneDeclaredTable($table, null) as $statement) {
-                    $this->pdo->exec($statement);
-                }
-            }
-        }
-
-        $this->repository = new SettingRepository($this->pdo);
-    }
-
-    protected function tearDown(): void
-    {
-        if (isset($this->pdo)) {
-            $this->pdo->exec('DROP TABLE IF EXISTS settings');
-        }
+        $this->repository = new SettingRepository($this->productionEngine());
     }
 
     private function valueOf(?string $moduleId, string $key): mixed

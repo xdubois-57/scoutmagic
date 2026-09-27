@@ -10,10 +10,6 @@ declare(strict_types=1);
 namespace Tests\Core\Maintenance\Portable;
 
 use Core\Database\Connection;
-use Core\Database\MigrationRunner;
-use Core\Database\SchemaComparator;
-use Core\Database\SchemaIntrospector;
-use Core\Database\SqlParser;
 use Core\Maintenance\BackupException;
 use Core\Maintenance\BackupService;
 use Core\Maintenance\Portable\PortableArchive;
@@ -21,7 +17,7 @@ use Core\Maintenance\Portable\PortableKeys;
 use Core\Maintenance\Portable\PortableManifest;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
-use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 /**
  * The reader, tested against archives the writer actually produced.
@@ -43,6 +39,8 @@ use Tests\DatabaseTestHelper;
 #[Group('database')]
 final class PortableArchiveTest extends TestCase
 {
+    use UsesProductionEngine;
+
     private const PASSPHRASE = 'quatre mots parfaitement ordinaires';
     private const MASTER_KEY = 'trente-deux-octets-de-clef-maitre';
     private const SECRETS_BLOB = 'le blob chiffre des identifiants';
@@ -378,24 +376,16 @@ final class PortableArchiveTest extends TestCase
         @rmdir($dir);
     }
 
+    /**
+     * This class's own database, migrated with the whole production
+     * schema and emptied, rather than `TEST_DB_NAME`: the archive holds a
+     * dump of every table, and a dump taken while another class changes
+     * the shared database is refused by the engine (error 1412).
+     */
     private function realDbConnection(): Connection
     {
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('TEST_DB_PORT') ?: '3306');
-        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
-        $user = getenv('TEST_DB_USER') ?: 'root';
-        $password = getenv('TEST_DB_PASSWORD') ?: '';
+        $this->productionEngine();
 
-        $connection = new Connection($host, $port, $dbName, $user, $password);
-        $result = $connection->testConnection();
-        if ($result !== true) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database not available: ' . (is_string($result) ? $result : 'unknown error'));
-        }
-
-        $introspector = new SchemaIntrospector($connection->getPdo());
-        $runner = new MigrationRunner($connection, $introspector, new SchemaComparator(), new SqlParser());
-        $runner->migrate([dirname(__DIR__, 4) . '/schema/core.sql']);
-
-        return $connection;
+        return $this->productionEngineSchemaConnection();
     }
 }
