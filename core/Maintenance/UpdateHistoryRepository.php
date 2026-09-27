@@ -311,6 +311,22 @@ class UpdateHistoryRepository
         $stmt->execute([substr($errorMessage, 0, 500), self::now(), $id]);
     }
 
+    /**
+     * A queued install closed before it ever started, on purpose (issue
+     * #622): superseded by a newer push or release that contains it, or
+     * called off by a change of preferences. Nothing failed and the site
+     * was never touched, so it is not `failed` — that status put an
+     * « Échouée » badge on the history for every push that arrived while
+     * the previous one was still waiting for its build. The reason goes in
+     * `error_message`, the column every status uses for its sentence.
+     */
+    public function markSkipped(int $id, string $reason): void
+    {
+        $stmt = $this->pdo->prepare("UPDATE update_history SET status = 'skipped', error_message = ?, completed_at = ? "
+            . "WHERE id = ?");
+        $stmt->execute([substr($reason, 0, 500), self::now(), $id]);
+    }
+
     public function markRolledBack(int $id, string $errorMessage): void
     {
         $stmt = $this->pdo->prepare("UPDATE update_history SET status = 'rolled_back', error_message = ?, "

@@ -443,6 +443,24 @@ describe('maintenance.js: wireInstallForm() — wired for both update forms', ()
         expect(window.location.reload).toHaveBeenCalled();
     });
 
+    // Issue #622: a newer version replaced this install before it started.
+    // Terminal, not an error — the reloaded page's history says « Ignorée ».
+    it('reloads, and shows no error, on a skipped install', async () => {
+        buildDom('update-install-form');
+        global.fetch = vi.fn()
+            .mockResolvedValueOnce({ json: () => Promise.resolve({ success: true, history_id: 7 }) })
+            .mockResolvedValueOnce({ json: () => Promise.resolve({ status: 'skipped', error_message: 'Installation remplacée.' }) });
+        Object.defineProperty(window, 'location', { configurable: true, value: { reload: vi.fn() } });
+        vi.useFakeTimers();
+        await boot();
+
+        document.getElementById('update-install-form').dispatchEvent(new Event('submit', { cancelable: true }));
+        await vi.advanceTimersByTimeAsync(3000);
+
+        expect(window.location.reload).toHaveBeenCalled();
+        expect(document.getElementById('update-install-form-error').textContent).toBe('');
+    });
+
     it('shows an error and stops polling on a rolled_back install (a state full-backup polling does not have)', async () => {
         buildDom('update-install-form');
         global.fetch = vi.fn()
