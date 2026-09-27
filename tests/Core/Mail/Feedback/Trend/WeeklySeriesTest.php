@@ -14,6 +14,12 @@ use PHPUnit\Framework\TestCase;
  */
 class WeeklySeriesTest extends TestCase
 {
+    /**
+     * The ordinary case, and the one thing it pins: **rows are summed into
+     * their week before the threshold is applied**, not judged one by one.
+     * Two reports in the same week carry ten between them and the week is
+     * drawn; either alone would be under the five asked for.
+     */
     public function testAWeekWithEnoughEvidenceIsDrawnAsItsRatio(): void
     {
         $series = WeeklySeries::build(
@@ -261,6 +267,11 @@ class WeeklySeriesTest extends TestCase
         $this->assertTrue($empty->isEmpty(), 'one measurement under the threshold draws nothing');
     }
 
+    /**
+     * The other side of `isEmpty()`, and it is a ratio of **zero** on
+     * purpose: a week where nothing landed is a measurement, not an absence.
+     * Reading that as empty would hide the very week somebody needs to see.
+     */
     public function testASeriesWithOneDrawablePointIsNotEmpty(): void
     {
         $drawn = WeeklySeries::build(
