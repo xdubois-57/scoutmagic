@@ -56,10 +56,13 @@ use PHPUnit\Framework\TestCase;
  * enough to satisfy it, and there is always one. A guard on section NUMBERS
  * would not have caught that case either: the section it named existed — the
  * page's own « section 2.9 » — and it was that section's CONTENT which had
- * drifted. So the gap stays open and named rather than covered by a check
- * that reports success. A tripwire on a count can be trusted because
- * counting is exact; a tripwire on prose cannot, and one that passes when it
- * should fail is worse than the absence it replaced.
+ * drifted. So the gap is **issue #616** rather than a check that reports
+ * success — a docblock is not a backlog (`AGENTS.md`: « a trap you documented
+ * in a comment rather than removed »), and the measurement above is recorded
+ * there so the next attempt starts from it instead of repeating it. A tripwire
+ * on a count can be trusted because counting is exact; a tripwire on prose
+ * cannot, and one that passes when it should fail is worse than the absence it
+ * replaced.
  *
  * **« rule N », never « §N », and the distinction is not cosmetic.** What
  * this file points at are the numbered items under « RÈGLES CRITIQUES » in
@@ -296,13 +299,33 @@ final class EncryptedCoreColumnsAreAccountedForTest extends TestCase
     }
 
     /**
-     * The rules this inventory points at are really in the page.
+     * The rules this inventory points at are really in the page — number and
+     * words both.
      *
      * Cheap, and it catches the failure mode the rest of this file cannot: a
      * rule renumbered or retitled, leaving every note above pointing at
-     * nothing. Only the entries naming a `rule N` are checked — the others
-     * say in words that there is no rule, or point at a section of the
-     * rendered page, neither of which is a reference to resolve here.
+     * nothing. Only the entries naming a `rule N` are checked for a number —
+     * the others say in words that there is no rule, or point at a section of
+     * the rendered page, neither of which is a reference to resolve here.
+     *
+     * **Anchored, because a substring search resolved rules that do not
+     * exist.** The first version asked whether the page CONTAINED `'5. **'`,
+     * and « 35. **Boîtes témoins… » contains exactly that: delete rule 5 and
+     * the check still passed, reporting « which RgpdContentService does not
+     * define » about a rule it had never looked for. The same collision waited
+     * for 1 against 11/21/31/41, for 2 against 22/32, and for every lettered
+     * variant. A citation's number now has to begin a line, which is where the
+     * page puts a rule.
+     *
+     * **And the number was only half of what a note claims.** « renumbered or
+     * retitled » is what this method promised to catch, and a number says
+     * nothing about a title: the earlier version passed on
+     * `rule 4sexies « Notes internes sur un membre »` however that rule came
+     * to be retitled. So every « … » quotation in a note is resolved too, as
+     * literal text, whether it is a rule's title, a paragraph's name or a
+     * phrase quoted from its body — which is also why they are not matched
+     * against the rule's own line: `mail_domain_providers` quotes a paragraph
+     * that lives further down rule 35.
      *
      * **One spelling, and an earlier version had two.** Three entries said
      * « §4octies » and two « rule 35 », for the same kind of target; this
@@ -314,19 +337,38 @@ final class EncryptedCoreColumnsAreAccountedForTest extends TestCase
     {
         $page = $this->read(self::RGPD);
         $claimed = 0;
+        $quoted = 0;
 
         foreach (self::ACCOUNTED_FOR as $table => [, $where]) {
+            foreach (self::quotationsIn($where) as $quotation) {
+                ++$quoted;
+                $this->assertStringContainsString(
+                    $quotation,
+                    $page,
+                    sprintf('`%s` quotes « %s », which %s does not say.', $table, $quotation, self::RGPD)
+                );
+            }
+
             if (preg_match('/\brule (\d+[a-z]*)/u', $where, $marker) !== 1) {
                 continue;
             }
 
             $claimed++;
-            $this->assertStringContainsString(
-                $marker[1] . '. **',
+            $this->assertMatchesRegularExpression(
+                '/(?:^|\n)' . preg_quote($marker[1], '/') . '\. \*\*/',
                 $page,
                 sprintf('`%s` points at rule %s, which %s does not define.', $table, $marker[1], self::RGPD)
             );
         }
+
+        // Nine quotations today, and a floor for the same reason as below: a
+        // reader that stopped finding « … » would approve every retitling.
+        $this->assertGreaterThanOrEqual(
+            9,
+            $quoted,
+            $quoted . ' inventory quotations were resolved, and nine were. A note lost its « … », so a rule '
+                . 'retitled under it would no longer be reported.'
+        );
 
         // A floor, so a sweep that stopped finding rules cannot pass for
         // agreement: ten tables name one today. It reports the drift rather
@@ -357,7 +399,14 @@ final class EncryptedCoreColumnsAreAccountedForTest extends TestCase
                 label VARCHAR(50) NOT NULL,
                 secret_encrypted BLOB NULL,
                 UNIQUE INDEX idx_one (label),
-                CONSTRAINT fk_two FOREIGN KEY (id) REFERENCES elsewhere(id)
+                CONSTRAINT fk_two FOREIGN KEY (id) REFERENCES elsewhere(id),
+                -- The multi-line style `schema/core.sql` uses for a long
+                -- constraint (storage_protections, help_topics_seen,
+                -- mail_dmarc_sources). Its continuation line begins with a
+                -- word, so it is a column to any reader that skips only the
+                -- keywords opening a constraint.
+                CONSTRAINT fk_three FOREIGN KEY (label)
+                    REFERENCES elsewhere(label) ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
             CREATE TABLE plain_as_day (
@@ -408,6 +457,24 @@ final class EncryptedCoreColumnsAreAccountedForTest extends TestCase
         );
     }
 
+    /**
+     * The « … » quotations in a note, in order.
+     *
+     * Guillemets, not straight quotes: the notes are English prose that quotes
+     * French page text, and the sigil is what tells one from the other. A
+     * nested pair never occurs, and would be read as one span if it did — the
+     * failure would be a quotation reported as unresolved, which is the safe
+     * direction.
+     *
+     * @return list<string>
+     */
+    private static function quotationsIn(string $note): array
+    {
+        preg_match_all('/«\s*(.+?)\s*»/u', $note, $matches);
+
+        return $matches[1];
+    }
+
     /** @return array<string, int> table => column count, ciphertext-shaped tables only */
     private function ciphertextTablesInSchema(): array
     {
@@ -433,7 +500,7 @@ final class EncryptedCoreColumnsAreAccountedForTest extends TestCase
 
             foreach (explode("\n", $body) as $line) {
                 $line = trim($line);
-                if (preg_match('/^(?:PRIMARY|UNIQUE|INDEX|KEY|CONSTRAINT|FOREIGN)\b/i', $line) === 1) {
+                if (preg_match('/^(?:PRIMARY|UNIQUE|INDEX|KEY|CONSTRAINT|FOREIGN|REFERENCES)\b/i', $line) === 1) {
                     continue;
                 }
                 // **Anchored, and that anchor is the only thing standing
