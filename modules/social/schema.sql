@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS social_connections (
     token_expires_at DATETIME NULL,
     checked_at DATETIME NULL,
     check_ok TINYINT NULL,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- social_cards: the images composed for publication (CardService), each

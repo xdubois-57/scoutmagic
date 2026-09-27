@@ -901,8 +901,10 @@ class RentalBookingRepository
             // than a stylistic one. Nothing about the booking changed for
             // its manager, and moving the timestamp would put every
             // upgraded booking at the top of a list ordered by it — but
-            // rental_bookings.updated_at is declared
-            // `ON UPDATE CURRENT_TIMESTAMP`, so MySQL bumps it on any
+            // where rental_bookings.updated_at carries
+            // `ON UPDATE CURRENT_TIMESTAMP` (no schema declares it since
+            // issue #590, a database built by hand from an older
+            // schema.sql may), MySQL bumps it on any
             // UPDATE that changes another column and does not assign it.
             // Simply not naming the column therefore achieved the exact
             // opposite of what the comment here used to claim, on the
