@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Registration\Repository;
 
+use Core\Database\ConstraintViolation;
 use Core\Security\EncryptionService;
 
 /**
@@ -200,11 +201,16 @@ class PassageNoteRepository
     }
 
     /**
-     * INSERT … then UPDATE, rather than one upsert: MySQL's
-     * `ON DUPLICATE KEY` and SQLite's `ON CONFLICT` are different
-     * statements, and this module's schema is exercised on both engines
-     * (`scripts/test-engines.sh`). A failed insert on the unique index is
-     * the ordinary path here, not an error.
+     * SELECT, then INSERT when there is no row, then the caller's UPDATE —
+     * rather than one upsert: MySQL's `ON DUPLICATE KEY` and SQLite's
+     * `ON CONFLICT` are different statements, and this module's schema is
+     * exercised on both engines (`scripts/test-engines.sh`).
+     *
+     * Two saves on the same child can both find no row and both insert.
+     * The unique index on (member, year) refuses the second, and that
+     * refusal is caught: the row this method exists to guarantee is there,
+     * so the caller's UPDATE goes ahead (issue #592). Any other failure of
+     * the INSERT is still thrown.
      */
     private function ensureRow(int $memberId, int $scoutYearId): void
     {
@@ -216,10 +222,16 @@ class PassageNoteRepository
             return;
         }
 
-        $insert = $this->pdo->prepare(
-            'INSERT INTO registration_passage_notes (member_id, scout_year_id, updated_at) VALUES (?, ?, ?)'
-        );
-        $insert->execute([$memberId, $scoutYearId, $this->now()]);
+        try {
+            $insert = $this->pdo->prepare(
+                'INSERT INTO registration_passage_notes (member_id, scout_year_id, updated_at) VALUES (?, ?, ?)'
+            );
+            $insert->execute([$memberId, $scoutYearId, $this->now()]);
+        } catch (\PDOException $e) {
+            if (!ConstraintViolation::isDuplicateKey($e)) {
+                throw $e;
+            }
+        }
     }
 
     private function now(): string

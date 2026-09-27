@@ -302,6 +302,30 @@ class FileAccessGuardTest extends TestCase
     }
 
     /**
+     * An owner type with no owner id — a row `EncryptedFileStorageService::
+     * store()` accepts, before `assignOwner()` completes it — is refused,
+     * never a TypeError (issue #605). The checker would allow it: the
+     * refusal is the guard's own.
+     */
+    public function testAnOwnerTypeWithNoOwnerIdIsDeniedRatherThanCrashing(): void
+    {
+        $id = $this->repo->create('f.pdf', 'f.pdf', 'application/pdf', 100, 'identified', null, null, false, null, 'section_document', null);
+
+        $guard = new FileAccessGuard($this->repo, Role::SUPERADMIN, [], [$this->fakeChecker('section_document', true)]);
+        $this->assertNull($guard->check($id));
+    }
+
+    public function testAnOwnerTypeWithNoOwnerIdIsNotIndexable(): void
+    {
+        $id = $this->repo->create('f.pdf', 'f.pdf', 'application/pdf', 100, 'identified', null, null, false, null, 'section_document', null);
+        $file = $this->repo->findById($id);
+        $this->assertNotNull($file);
+
+        $guard = new FileAccessGuard($this->repo, Role::SUPERADMIN, [], [$this->indexingChecker('section_document', true)]);
+        $this->assertFalse($guard->isIndexable($file));
+    }
+
+    /**
      * Fail-safe: an owner_type with no registered checker at all must
      * deny, not silently fall through to "allowed" — same posture as
      * RBAC's own "no role_min = no access" default.

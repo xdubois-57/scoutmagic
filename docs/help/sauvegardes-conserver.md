@@ -7,7 +7,7 @@ role_min: admin
 discovery: off
 question: Où télécharger la dernière sauvegarde du site ?
 question: Combien de sauvegardes le site conserve-t-il ?
-paths: /config/maintenance
+paths: /config/maintenance/sauvegardes-recentes
 related: sauvegardes, mises-a-jour, reinitialisation
 ---
 

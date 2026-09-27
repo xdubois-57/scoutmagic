@@ -631,15 +631,24 @@ class RentalDocumentService
     }
 
     /**
-     * The configurable exemption sentence (§6.27).
+     * The mention an invoice with no VAT on it needs, stating the legal
+     * basis of the exemption.
      *
      * **No VAT is ever computed** — prices are what the renter pays. A unit
      * letting a hall is not a VAT-registered business in the general case,
      * and a module that computed VAT would be quietly wrong for almost
      * every installation. What a Belgian invoice with no VAT on it does
      * need is a sentence saying why, so that sentence is configurable per
-     * asset with a sane default.
+     * asset with a default.
+     *
+     * **Two levels, not three** (issue #613). A unit-wide level used to be
+     * read from `rental_vat_exemption_note`, a setting nothing declared, so
+     * no unit could ever fill it in. The read is gone; the default is the
+     * standard mention for a letting exempted by article 44 of the Belgian
+     * VAT Code, the basis the asset's own field already suggests.
      */
+    public const DEFAULT_VAT_NOTE = 'Exemption de TVA — article 44 du Code de la TVA.';
+
     public function vatNote(RentalAsset $asset): string
     {
         $configured = $asset->vatExemptionNote;
@@ -647,8 +656,7 @@ class RentalDocumentService
             return trim($configured);
         }
 
-        return (string) ($this->settingService->get('rental_vat_exemption_note', 'rental')
-            ?: 'Opération exonérée de TVA — association sans but lucratif.');
+        return self::DEFAULT_VAT_NOTE;
     }
 
     // ── Internals ───────────────────────────────────────────────────────

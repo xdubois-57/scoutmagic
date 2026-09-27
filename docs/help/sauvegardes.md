@@ -7,7 +7,7 @@ role_min: admin
 discovery: off
 question: Comment sauvegarder le site avant une opération risquée ?
 question: Pourquoi ma sauvegarde est-elle refusée faute de place ?
-paths: /config/maintenance
+paths: /config/maintenance/sauvegarde-manuelle, /config/maintenance/sauvegarde-automatique
 related: sauvegarde-portable, sauvegardes-conserver, mises-a-jour, reinitialisation
 ---
 

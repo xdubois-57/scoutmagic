@@ -317,7 +317,7 @@ class StatisticsSender
         try {
             $stmt = $this->pdo->prepare(
                 "SELECT COUNT(*) FROM update_history
-                 WHERE status NOT IN ('completed', 'failed', 'rolled_back')
+                 WHERE status NOT IN ('completed', 'failed', 'rolled_back', 'skipped')
                    AND started_at >= ?"
             );
             $stmt->execute([

@@ -549,7 +549,7 @@ final class ReferenceDatasetImportTest extends TestCase
      */
     public function testEveryHouseholdSizeIsRepresentedWithVolume(): void
     {
-        $repository = new HouseholdRepository($this->pdo);
+        $repository = new HouseholdRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
 
         foreach (UnitBlueprint::YEARS as $label) {
             $households = $repository->findHouseholdsForYear($this->yearIds[$label]);
@@ -585,7 +585,7 @@ final class ReferenceDatasetImportTest extends TestCase
      */
     public function testAGoodThirdOfTheUnitSharesAHomeWithSomebody(): void
     {
-        $repository = new HouseholdRepository($this->pdo);
+        $repository = new HouseholdRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
 
         foreach (UnitBlueprint::YEARS as $label) {
             $sharing = [];
@@ -641,7 +641,7 @@ final class ReferenceDatasetImportTest extends TestCase
      */
     public function testSomeHouseholdsCarryATariffNobodyUpdated(): void
     {
-        $repository = new HouseholdRepository($this->pdo);
+        $repository = new HouseholdRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
 
         foreach (UnitBlueprint::YEARS as $label) {
             // What the generator undertook, on the Domicile grouping it

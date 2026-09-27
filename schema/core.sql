@@ -1211,7 +1211,7 @@ CREATE TABLE notification_preferences (
     in_app TINYINT(1),
     push TINYINT(1),
     email TINYINT(1),
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE INDEX idx_np_user_type (user_account_id, type_id),
     CONSTRAINT fk_np_user FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -1282,7 +1282,7 @@ CREATE TABLE update_history (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     version_from VARCHAR(20) NOT NULL,
     version_to VARCHAR(20) NOT NULL,
-    status ENUM('pending', 'backing_up', 'downloading', 'installing', 'migrating', 'completed', 'failed', 'rolled_back') NOT NULL DEFAULT 'pending',
+    status ENUM('pending', 'backing_up', 'downloading', 'installing', 'migrating', 'completed', 'failed', 'rolled_back', 'skipped') NOT NULL DEFAULT 'pending',
     dependencies_changed BOOLEAN NOT NULL DEFAULT FALSE,
     error_message VARCHAR(500),
     backup_id INT UNSIGNED,

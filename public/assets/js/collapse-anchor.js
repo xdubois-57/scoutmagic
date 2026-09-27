@@ -11,7 +11,7 @@
 // with no hint that what they were sent to see is three boxes down,
 // closed. Configuration > Maintenance sends itself such links on every
 // round trip through Google — `Http\Controller\RemoteBackupController`
-// redirects to `/config/maintenance#remote-backup` after connecting,
+// redirects to `/config/maintenance/sauvegarde-automatique#remote-backup` after connecting,
 // disconnecting, testing and regenerating — and the operational alerts
 // link to the same page to show a reading.
 //

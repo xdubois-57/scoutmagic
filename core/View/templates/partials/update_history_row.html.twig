@@ -13,6 +13,9 @@
         {% elseif entry.status == 'failed' %}
             {# title tooltips (error detail) — kept out of the shared partial, which carries none #}
             <span class="badge text-bg-danger" title="{{ entry.errorMessage }}">Échouée</span>
+        {% elseif entry.status == 'skipped' %}
+            {# Never started, on purpose: a newer version replaced it (issue #622). #}
+            <span class="badge text-bg-secondary" title="{{ entry.errorMessage }}">Ignorée</span>
         {% elseif entry.status == 'rolled_back' %}
             <span class="badge text-bg-warning" title="{{ entry.errorMessage }}">Échouée — restaurée automatiquement</span>
         {% else %}

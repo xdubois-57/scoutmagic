@@ -25,12 +25,18 @@ use Core\Module\ModuleManager;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Security\AuthSession;
+use Core\Security\Role;
 use Core\Security\EncryptionService;
 use Core\Security\SecretManager;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\TestTwig;
 use Twig\Environment;
+
+if (!defined('AUTHZ_SUPPORT_TEST')) {
+    define('AUTHZ_SUPPORT_TEST', true);
+}
+require_once dirname(__DIR__, 4) . '/scripts/authz-support.php';
 
 /**
  * @group database
@@ -227,9 +233,32 @@ class MaintenanceControllerTest extends TestCase
         return $request;
     }
 
+    /**
+     * The body of one or several Maintenance sub-pages, by controller
+     * action — the blocks a test reads moved to their own page with issue
+     * #619, and a test reading two of them reads both pages.
+     */
+    private function page(string ...$actions): string
+    {
+        $body = '';
+        foreach ($actions as $action) {
+            $body .= $this->pageResponse($action)->getBody();
+        }
+
+        return $body;
+    }
+
+    private function pageResponse(string $action, string $path = '/config/maintenance'): \Core\Http\Response
+    {
+        $response = $this->controller->{$action}(new Request('GET', $path, [], [], [], []), []);
+        $this->assertInstanceOf(\Core\Http\Response::class, $response);
+
+        return $response;
+    }
+
     public function testIndexRendersEmptyState(): void
     {
-        $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+        $response = $this->pageResponse('recentBackupsPage');
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('Maintenance', $response->getBody());
@@ -237,54 +266,72 @@ class MaintenanceControllerTest extends TestCase
     }
 
     /**
-     * Every box folds, and only the two the page is opened for arrive
-     * open.
+     * Every box still folds, and on its own sub-page every box arrives
+     * open (issue #619).
      *
-     * The page carries eight cards, three of which are used once a year
-     * and one of which nobody wants to open at all; flat, it is read with
-     * the scroll wheel. The assertion is on the state as rendered,
-     * because that is the whole promise: a collapse that ships `show` on
-     * all eight is a page that folds nothing, and one that ships it on
-     * none hides the cron verdict an administrator came to check.
+     * The page used to carry eight boxes in one screen, so six arrived
+     * folded. Cut in six, a box is the reason the visitor opened its page:
+     * one that arrived folded would be a page showing nothing but a title.
+     * The folding header itself is unchanged — the heading wraps the
+     * button, so each box keeps its <h3> sections under a parent in the
+     * document outline, and the h5 sizing sits on the span because `.btn`
+     * fixes its own font-size.
      */
-    public function testOnlyTheFirstTwoBoxesArriveOpen(): void
+    public function testEveryBoxArrivesOpenOnItsOwnSubPage(): void
     {
-        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $boxes = [
+            'index' => ['maintenance-health'],
+            'updatePage' => ['maintenance-update', 'maintenance-auto-update'],
+            'manualBackupPage' => ['maintenance-backups'],
+            'automaticBackupPage' => ['maintenance-backups-automatic', 'remote-backup'],
+            'recentBackupsPage' => ['maintenance-backups-list'],
+            'resetPage' => ['maintenance-reset'],
+        ];
 
-        foreach (['maintenance-health', 'maintenance-update'] as $open) {
-            $this->assertStringContainsString(
-                '<div class="collapse show mt-3" id="' . $open . '-body">',
-                $body,
-                "« {$open} » must arrive open."
-            );
-            $this->assertStringContainsString('aria-controls="' . $open . '-body">', $body);
+        foreach ($boxes as $action => $ids) {
+            $body = $this->page($action);
+            foreach ($ids as $id) {
+                $this->assertStringContainsString(
+                    '<div class="collapse show mt-3" id="' . $id . '-body">',
+                    $body,
+                    "« {$id} » must arrive open on its sub-page."
+                );
+                $this->assertStringContainsString('aria-controls="' . $id . '-body">', $body);
+            }
+            $this->assertMatchesRegularExpression('~<h2 class="mb-0">\s*<button type="button"~', $body);
+            // Each sub-page carries its own boxes and no other.
+            $this->assertSame(count($ids), substr_count($body, '<h2 class="mb-0">'), "{$action} carries a foreign box.");
         }
+        $this->assertStringContainsString('<span class="h5 mb-0 flex-grow-1">État</span>', $this->page('index'));
+    }
 
-        foreach ([
-            'maintenance-auto-update',
-            'maintenance-backups',
-            'maintenance-backups-automatic',
-            'maintenance-backups-list',
-            'remote-backup',
-            'maintenance-reset',
-        ] as $folded) {
-            $this->assertStringContainsString(
-                '<div class="collapse mt-3" id="' . $folded . '-body">',
+    /**
+     * The six sub-pages share one rail, each selecting itself, and each
+     * has its own title (issue #619).
+     */
+    public function testEverySubPageCarriesTheSharedRailWithItselfSelected(): void
+    {
+        $pages = [
+            'index' => ['/config/maintenance', "Santé de l'hébergement"],
+            'updatePage' => ['/config/maintenance/mise-a-jour', 'Mise à jour'],
+            'manualBackupPage' => ['/config/maintenance/sauvegarde-manuelle', 'Sauvegarde manuelle'],
+            'automaticBackupPage' => ['/config/maintenance/sauvegarde-automatique', 'Sauvegarde automatique'],
+            'recentBackupsPage' => ['/config/maintenance/sauvegardes-recentes', 'Sauvegardes récentes'],
+            'resetPage' => ['/config/maintenance/reinitialisation', 'Réinitialisation'],
+        ];
+
+        foreach ($pages as $action => [$path, $title]) {
+            $this->twig->addGlobal('current_path', $path);
+            $body = $this->pageResponse($action, $path)->getBody();
+            $this->assertStringContainsString('id="maintenance-page-picker"', $body);
+            $this->assertSame(6, preg_match_all('~<a href="/config/maintenance[a-z/-]*"[^>]*class="nav-link~', $body), $action);
+            $this->assertMatchesRegularExpression(
+                '~<a href="' . preg_quote($path, '~') . '"[^>]*aria-current="page"~',
                 $body,
-                "« {$folded} » must arrive folded."
+                "{$action} does not select itself in the rail."
             );
+            $this->assertStringContainsString(htmlspecialchars($title, ENT_QUOTES), $body);
         }
-
-        // The heading is not replaced by the button, it wraps it: each
-        // box contains <h3> sections that would otherwise lose their
-        // parent in the document outline. The h5 sizing sits on the span
-        // inside, because `.btn` fixes its own font-size and would eat it
-        // on the <h2>.
-        $this->assertMatchesRegularExpression('~<h2 class="mb-0">\s*<button type="button"~', $body);
-        $this->assertStringContainsString('<span class="h5 mb-0 flex-grow-1">État</span>', $body);
-        // Eight boxes, eight headings: the page still has one <h1> and
-        // no section left without a title.
-        $this->assertSame(8, substr_count($body, '<h2 class="mb-0">'));
     }
 
     /**
@@ -299,7 +346,7 @@ class MaintenanceControllerTest extends TestCase
      */
     public function testTheBackupBoxesSayWhichOneTheyGovern(): void
     {
-        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $body = $this->page('manualBackupPage', 'automaticBackupPage');
 
         $this->assertStringContainsString('Sauvegarde manuelle', $body);
         $this->assertStringContainsString('Sauvegarde automatique</span>', $body);
@@ -338,7 +385,7 @@ class MaintenanceControllerTest extends TestCase
         $fileId = $files->create('backups/sauvegarde.zip', 'sauvegarde.zip', 'application/zip', 1024, 'admin', null, null);
         $backups->markCompleted($backupId, $fileId, null);
 
-        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $body = $this->page('recentBackupsPage');
 
         $this->assertStringContainsString('aria-label="Télécharger la sauvegarde « Complète (sans galerie) »', $body);
         $this->assertStringContainsString('aria-label="Supprimer la sauvegarde « Complète (sans galerie) »', $body);
@@ -358,7 +405,7 @@ class MaintenanceControllerTest extends TestCase
      */
     public function testThePageSaysTheArchiveCarriesNoEncryptionKey(): void
     {
-        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $body = $this->page('manualBackupPage', 'resetPage');
 
         $this->assertStringContainsString("Les clés de chiffrement ne sont pas dans l'archive", $body);
         $this->assertStringContainsString('storage/keys/', $body);
@@ -424,7 +471,7 @@ class MaintenanceControllerTest extends TestCase
      */
     public function testThePortableBlockCarriesItsWarningAndItsLengthRule(): void
     {
-        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $body = $this->page('manualBackupPage');
 
         $this->assertStringContainsString('Sauvegarde portable', $body);
         $this->assertStringContainsString('Contient les clés de chiffrement du site.', $body);
@@ -454,7 +501,7 @@ class MaintenanceControllerTest extends TestCase
      */
     public function testTheEncryptedBlockStillSaysItLeavesTheSecretsBehind(): void
     {
-        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $body = $this->page('manualBackupPage');
 
         $this->assertStringContainsString('Sans les secrets', $body);
         $this->assertStringContainsString('se restaure sur cette installation', $body);
@@ -491,6 +538,54 @@ class MaintenanceControllerTest extends TestCase
         $this->assertStringContainsString('restauré automatiquement', $body);
     }
 
+    /**
+     * An install skipped before it started is not an attempt (issue #622):
+     * it neither raises the alarm on its own, nor hides the failure of the
+     * attempt before it.
+     */
+    public function testASkippedInstallIsShownAsIgnoredAndIsNotTheLastAttempt(): void
+    {
+        $succeeded = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, null);
+        $this->updateHistoryRepository->markCompleted($succeeded);
+        $skipped = $this->updateHistoryRepository->create('1.1.0', '1.2.0', false, null);
+        $this->updateHistoryRepository->markSkipped($skipped, 'Installation remplacée : un push plus récent est arrivé.');
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('>Ignorée</span>', $body);
+        $this->assertStringNotContainsString('Échouée</span>', $body, 'a skipped install shown as failed');
+        $this->assertStringNotContainsString('maintenance-update-last-attempt', $body);
+    }
+
+    public function testASkippedInstallDoesNotHideTheFailedAttemptBeforeIt(): void
+    {
+        $failed = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, null);
+        $this->updateHistoryRepository->markRolledBack($failed, 'migration KO');
+        $skipped = $this->updateHistoryRepository->create('1.1.0', '1.2.0', false, null);
+        $this->updateHistoryRepository->markSkipped($skipped, 'Installation remplacée.');
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('maintenance-update-last-attempt', $body);
+        $this->assertStringContainsString('restauré automatiquement', $body);
+    }
+
+    /** More skipped rows than the history shows still leave the failure behind them visible. */
+    public function testAFailureBehindMoreSkippedInstallsThanTheTableShowsIsStillFlagged(): void
+    {
+        $failed = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, null);
+        $this->updateHistoryRepository->markRolledBack($failed, 'migration KO');
+        for ($i = 0; $i < 25; $i++) {
+            $skipped = $this->updateHistoryRepository->create('1.1.0', '1.2.' . $i, false, null);
+            $this->updateHistoryRepository->markSkipped($skipped, 'Installation remplacée.');
+        }
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('maintenance-update-last-attempt', $body);
+        $this->assertStringContainsString('restauré automatiquement', $body);
+    }
+
     public function testTheHealthBlockStaysQuietWhenTheMostRecentAttemptSucceeded(): void
     {
         $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, null);
@@ -515,7 +610,7 @@ class MaintenanceControllerTest extends TestCase
             $this->updateHistoryRepository->markCompleted($id);
         }
 
-        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $body = $this->page('updatePage');
 
         // Counted on the "version de départ" column, which only the
         // history table renders — the newest target version also appears
@@ -539,7 +634,7 @@ class MaintenanceControllerTest extends TestCase
         $id = $this->updateHistoryRepository->create('dev-aaaaaaa', 'dev-bbbbbbb', false, null);
         $this->updateHistoryRepository->markCompleted($id);
 
-        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $body = $this->page('updatePage');
 
         $this->assertStringContainsString('Dernière mise à jour automatique installée', $body);
         $this->assertStringContainsString('dev-bbbbbbb', $body);
@@ -547,7 +642,7 @@ class MaintenanceControllerTest extends TestCase
 
     public function testMaintenancePageSaysSoWhenNoAutomaticUpdateEverInstalled(): void
     {
-        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $body = $this->page('updatePage');
 
         $this->assertStringContainsString('Dernière mise à jour automatique installée', $body);
         $this->assertStringContainsString('aucune', $body);
@@ -562,7 +657,7 @@ class MaintenanceControllerTest extends TestCase
         $this->settingService->set('auto_update_enabled', '1');
         $this->settingService->set('auto_update_level', 'dev');
 
-        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $body = $this->page('updatePage');
 
         $this->assertStringContainsString('auto-update-silence-warning', $body);
     }
@@ -580,7 +675,7 @@ class MaintenanceControllerTest extends TestCase
         $this->updateHistoryRepository->markCompleted($id);
         $this->ageCompletedAt($id, 30);
 
-        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $body = $this->page('updatePage');
 
         $this->assertStringContainsString('auto-update-silence-warning', $body);
         $this->assertStringContainsString('30 jours', $body);
@@ -598,7 +693,7 @@ class MaintenanceControllerTest extends TestCase
         $this->updateHistoryRepository->markCompleted($id);
         $this->ageCompletedAt($id, 3);
 
-        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $body = $this->page('updatePage');
 
         $this->assertStringNotContainsString('auto-update-silence-warning', $body);
     }
@@ -613,7 +708,7 @@ class MaintenanceControllerTest extends TestCase
         $this->settingService->set('auto_update_enabled', '1');
         $this->settingService->set('auto_update_level', 'minor');
 
-        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $body = $this->page('updatePage');
 
         $this->assertStringNotContainsString('auto-update-silence-warning', $body);
     }
@@ -629,34 +724,40 @@ class MaintenanceControllerTest extends TestCase
         $id = $this->updateHistoryRepository->create('dev-aaaaaaa', 'dev-bbbbbbb', false, null);
         $this->updateHistoryRepository->markCompleted($id);
 
-        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $body = $this->page('updatePage');
 
         $this->assertStringNotContainsString('auto-update-silence-warning', $body);
     }
 
     public function testDatabaseBackupButtonIsLabeledGenerer(): void
     {
-        $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+        $response = $this->pageResponse('manualBackupPage');
 
         $this->assertStringContainsString('Générer', $response->getBody());
     }
 
     /**
      * The restore dropdown and the recent-backups table must both show the
-     * human-readable type label ("Base de données seule"), never the raw
-     * internal type string ("database").
+     * human-readable type label (Backup::typeLabel(), « Base de données »),
+     * never the raw internal type string ("database").
+     *
+     * Each page is read on its own since issue #619 split them: on the old
+     * single screen, the « Base de données seule » heading of the manual
+     * backup box satisfied this test whatever the list and the picker
+     * printed.
      */
     public function testBackupTypeIsShownAsAHumanReadableLabelEverywhere(): void
     {
         $id = $this->backupRepository->create('database', 1);
         $this->backupRepository->markCompleted($id, 42, null);
 
-        $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
-        $body = $response->getBody();
+        foreach (['recentBackupsPage', 'resetPage'] as $action) {
+            $body = $this->page($action);
 
-        $this->assertStringContainsString('Base de données seule', $body);
-        $this->assertStringNotContainsString('>database<', $body);
-        $this->assertStringNotContainsString('>database —', $body);
+            $this->assertStringContainsString('Base de données', $body, $action);
+            $this->assertStringNotContainsString('>database<', $body, $action);
+            $this->assertStringNotContainsString('>database —', $body, $action);
+        }
     }
 
     // --- Suppression manuelle d'une sauvegarde (IT-04) ---
@@ -675,6 +776,7 @@ class MaintenanceControllerTest extends TestCase
         $response = $this->controller->deleteBackup($this->deleteRequest($id), ['id' => (string) $id]);
 
         $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/config/maintenance/sauvegardes-recentes', $response->getHeaders()['Location'] ?? '', 'Back to the list the backup was deleted from.');
         $this->assertNull($this->backupRepository->findById($id));
         $this->assertFileDoesNotExist($this->storagePath . '/maintenance/x.zip');
         $this->assertFileDoesNotExist($this->storagePath . '/maintenance/x.sql');
@@ -752,7 +854,7 @@ class MaintenanceControllerTest extends TestCase
             $this->backupRepository->create('database', 1);
         }
 
-        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $body = $this->page('recentBackupsPage');
 
         $this->assertStringContainsString('Voir plus (2)', $body);
     }
@@ -768,7 +870,7 @@ class MaintenanceControllerTest extends TestCase
         $this->backupRepository->create('auto_update', 1);
         $this->backupRepository->create('database', 1);
 
-        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $body = $this->page('recentBackupsPage');
 
         $this->assertStringContainsString('retour en arrière automatique reste possible', $body);
         $this->assertSame(
@@ -1052,7 +1154,7 @@ class MaintenanceControllerTest extends TestCase
         $this->settingService->setInternal('update_latest_version', '99.0.0');
         $this->settingService->setInternal('update_release_html_url', 'https://github.com/x/y/releases/tag/v99.0.0');
 
-        $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+        $response = $this->pageResponse('updatePage');
 
         $this->assertStringContainsString('99.0.0', $response->getBody());
         $this->assertStringContainsString('Installer la mise à jour', $response->getBody());
@@ -1060,7 +1162,7 @@ class MaintenanceControllerTest extends TestCase
 
     public function testIndexHidesUpdateSectionWhenAlreadyUpToDate(): void
     {
-        $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+        $response = $this->pageResponse('updatePage');
 
         $this->assertStringContainsString('Le site est à jour', $response->getBody());
     }
@@ -1078,7 +1180,7 @@ class MaintenanceControllerTest extends TestCase
         file_put_contents($versionFile, "dev-a1b2c3d\n");
 
         try {
-            $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+            $response = $this->pageResponse('updatePage');
             $body = $response->getBody();
 
             $this->assertStringContainsString('Version installée : <strong>dev</strong>', $body);
@@ -1094,7 +1196,7 @@ class MaintenanceControllerTest extends TestCase
 
     public function testIndexShowsNoParenthesesForANormalReleaseVersion(): void
     {
-        $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+        $response = $this->pageResponse('updatePage');
 
         $this->assertStringNotContainsString('<span class="text-body-secondary">(', $response->getBody());
     }
@@ -1108,7 +1210,7 @@ class MaintenanceControllerTest extends TestCase
             null
         );
 
-        $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+        $response = $this->pageResponse('updatePage');
 
         $this->assertStringContainsString('Corrige un bug important dans le module Finances.', $response->getBody());
         $this->assertStringContainsString('https://github.com/x/y/releases/tag/v0.0.0', $response->getBody());
@@ -1126,7 +1228,7 @@ class MaintenanceControllerTest extends TestCase
         );
 
         try {
-            $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+            $response = $this->pageResponse('updatePage');
             $body = $response->getBody();
 
             $this->assertStringContainsString('Corrige la pagination du Trombinoscope', $body);
@@ -1145,7 +1247,7 @@ class MaintenanceControllerTest extends TestCase
     {
         $this->fakeReleaseClient->releaseByTag = new ReleaseInfo('v0.0.0', 'Notes originales.', 'https://example.test/1', null);
 
-        $first = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+        $first = $this->pageResponse('updatePage');
         $this->assertStringContainsString('Notes originales.', $first->getBody());
 
         // Same installed version, different fake response — a second load
@@ -1153,7 +1255,7 @@ class MaintenanceControllerTest extends TestCase
         // the setting instead of calling the GitHub client again.
         $this->fakeReleaseClient->releaseByTag = new ReleaseInfo('v0.0.0', 'Notes remplacees.', 'https://example.test/2', null);
 
-        $second = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+        $second = $this->pageResponse('updatePage');
         $this->assertStringContainsString('Notes originales.', $second->getBody());
         $this->assertStringNotContainsString('Notes remplacees.', $second->getBody());
     }
@@ -1176,7 +1278,7 @@ class MaintenanceControllerTest extends TestCase
         $this->settingService->clearCache();
 
         try {
-            $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+            $response = $this->pageResponse('updatePage');
             $body = $response->getBody();
 
             $this->assertStringNotContainsString('Une nouvelle version est disponible', $body);
@@ -1207,7 +1309,7 @@ class MaintenanceControllerTest extends TestCase
         $this->settingService->clearCache();
 
         try {
-            $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+            $response = $this->pageResponse('updatePage');
             $body = $response->getBody();
 
             $this->assertStringContainsString('Une nouvelle version est disponible', $body);
@@ -1229,7 +1331,7 @@ class MaintenanceControllerTest extends TestCase
         $this->settingService->set('auto_update_level', 'dev');
         $this->settingService->clearCache();
 
-        $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+        $response = $this->pageResponse('updatePage');
         $body = $response->getBody();
 
         $this->assertStringContainsString('Réservé aux environnements de test', $body);
@@ -1350,7 +1452,7 @@ class MaintenanceControllerTest extends TestCase
         $runner->expects($this->never())->method('migrate');
         $controller = $this->controllerWithRunner($runner);
 
-        foreach (['pending', 'backing_up', 'downloading', 'installing', 'completed', 'failed', 'rolled_back'] as $status) {
+        foreach (['pending', 'backing_up', 'downloading', 'installing', 'completed', 'failed', 'rolled_back', 'skipped'] as $status) {
             $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, 1);
             $this->updateHistoryRepository->setStatus($id, $status);
 
@@ -1585,7 +1687,7 @@ class MaintenanceControllerTest extends TestCase
         $stmt = $this->pdo->prepare("UPDATE backups SET status = 'completed' WHERE id IN (?, ?)");
         $stmt->execute([$portableId, $ordinaryId]);
 
-        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $body = $this->page('resetPage');
 
         // The ordinary one is offered; the portable one is listed in
         // « Sauvegardes récentes » but never as a restore option.
@@ -1662,6 +1764,8 @@ class MaintenanceControllerTest extends TestCase
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertStringContainsString('restore_id=', $response->getHeaders()['Location'] ?? '');
+        // Back to the sub-page the restore is started from (issue #619).
+        $this->assertStringStartsWith('/config/maintenance/reinitialisation?restore_id=', $response->getHeaders()['Location'] ?? '');
         $tasks = $this->schedulerRepository->findByModuleAndTaskKey('core', 'restore_backup');
         $this->assertCount(1, $tasks);
         $payload = json_decode((string) $tasks[0]['payload'], true);
@@ -1848,7 +1952,7 @@ class MaintenanceControllerTest extends TestCase
 
         $this->assertTrue(json_decode($response->getBody(), true)['success']);
         $this->assertSame('canceled', $this->schedulerRepository->findById($actionId)['status']);
-        $this->assertSame('failed', $this->updateHistoryRepository->findById($historyId)->status);
+        $this->assertSame('skipped', $this->updateHistoryRepository->findById($historyId)->status);
     }
 
     public function testSaveAutoUpdatePreferencesDisablingAutoUpdatesCancelsThePendingScheduledInstall(): void
@@ -1860,7 +1964,7 @@ class MaintenanceControllerTest extends TestCase
 
         $this->assertTrue(json_decode($response->getBody(), true)['success']);
         $this->assertSame('canceled', $this->schedulerRepository->findById($actionId)['status']);
-        $this->assertSame('failed', $this->updateHistoryRepository->findById($historyId)->status);
+        $this->assertSame('skipped', $this->updateHistoryRepository->findById($historyId)->status);
     }
 
     public function testSaveAutoUpdatePreferencesMovesThePendingScheduledInstallToTheNewSlot(): void
@@ -1902,7 +2006,7 @@ class MaintenanceControllerTest extends TestCase
 
         $this->assertTrue(json_decode($response->getBody(), true)['success']);
         $this->assertSame('canceled', $this->schedulerRepository->findById($actionId)['status']);
-        $this->assertSame('failed', $this->updateHistoryRepository->findById($historyId)->status);
+        $this->assertSame('skipped', $this->updateHistoryRepository->findById($historyId)->status);
     }
 
     // --- "Vérifier maintenant" (POST /config/maintenance/update/check-now) ---
@@ -2196,7 +2300,7 @@ class MaintenanceControllerTest extends TestCase
         // pushed the install button below the fold.
         $this->seedUpdateHistory(8);
 
-        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $body = $this->page('updatePage');
 
         // The extra rows ARE rendered — the controller already fetched
         // them, so opening the list must not cost a round trip — but they
@@ -2217,7 +2321,10 @@ class MaintenanceControllerTest extends TestCase
     {
         $this->seedUpdateHistory(4);
 
-        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $body = $this->page('updatePage');
+        // The page under test must be the one that renders this block,
+        // or an absence assertion below passes whatever the code does.
+        $this->assertStringContainsString('id="maintenance-update"', $body);
 
         $this->assertStringNotContainsString('id="update-history-more"', $body);
         $this->assertStringNotContainsString('précédentes', $body);
@@ -2233,7 +2340,7 @@ class MaintenanceControllerTest extends TestCase
         $this->settingService->set('update_release_notes', str_repeat("Une ligne de notes.\n\n", 40));
         $this->settingService->clearCache();
 
-        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $body = $this->page('updatePage');
 
         $this->assertStringContainsString('data-notes-clamp="update-release-notes-toggle"', $body);
         $this->assertStringContainsString('Voir la description complète', $body);
@@ -2246,14 +2353,17 @@ class MaintenanceControllerTest extends TestCase
         $this->settingService->set('auto_update_level', 'dev');
         $this->settingService->clearCache();
 
-        $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+        $response = $this->pageResponse('updatePage');
 
         $this->assertStringContainsString('webhook GitHub n\'est pas configuré', $response->getBody());
     }
 
     public function testIndexDoesNotShowTheWebhookWarningWhenAutoUpdateDisabled(): void
     {
-        $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+        $response = $this->pageResponse('updatePage');
+        // The page under test must be the one that renders this block,
+        // or an absence assertion below passes whatever the code does.
+        $this->assertStringContainsString('id="maintenance-auto-update"', $response->getBody());
 
         $this->assertStringNotContainsString('webhook GitHub n\'est pas configuré', $response->getBody());
     }
@@ -2267,7 +2377,10 @@ class MaintenanceControllerTest extends TestCase
         $this->settingService->set('auto_update_level', 'minor');
         $this->settingService->clearCache();
 
-        $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+        $response = $this->pageResponse('updatePage');
+        // The page under test must be the one that renders this block,
+        // or an absence assertion below passes whatever the code does.
+        $this->assertStringContainsString('id="maintenance-auto-update"', $response->getBody());
 
         $this->assertStringNotContainsString('webhook GitHub n\'est pas configuré', $response->getBody());
     }
@@ -2277,7 +2390,10 @@ class MaintenanceControllerTest extends TestCase
         $this->controller->generateWebhookSecret($this->jsonRequest(['_csrf_token' => $this->csrfToken()]), []);
         $secrets = $this->secretManager->readSecrets();
 
-        $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+        $response = $this->pageResponse('updatePage');
+        // The page under test must be the one that renders this block,
+        // or an absence assertion below passes whatever the code does.
+        $this->assertStringContainsString('id="auto-update-webhook-section"', $response->getBody());
 
         $this->assertStringNotContainsString($secrets['github_webhook_secret'], $response->getBody());
     }
@@ -2331,6 +2447,65 @@ class MaintenanceControllerTest extends TestCase
         $response = $this->buildFrontController()->handle(new Request('GET', '/config/maintenance', [], [], [], []));
 
         $this->assertSame(200, $response->getStatusCode());
+    }
+
+    /**
+     * The six sub-pages (issue #619) through the real Router and this real
+     * controller, each at the floor `public/index.php` declares for it —
+     * read from the file rather than restated, so the day the floor moves
+     * this follows it — allowed at that floor and refused one level
+     * below (AGENTS.md § Tests).
+     */
+    public function testEverySubPageIsServedAtItsDeclaredFloorAndRefusedBelowIt(): void
+    {
+        $pages = [
+            '/config/maintenance' => 'index',
+            '/config/maintenance/mise-a-jour' => 'updatePage',
+            '/config/maintenance/sauvegarde-manuelle' => 'manualBackupPage',
+            '/config/maintenance/sauvegarde-automatique' => 'automaticBackupPage',
+            '/config/maintenance/sauvegardes-recentes' => 'recentBackupsPage',
+            '/config/maintenance/reinitialisation' => 'resetPage',
+        ];
+        $floors = [];
+        foreach (\authzCoreRoutes() as $route) {
+            if ($route['method'] === 'GET' && isset($pages[$route['path']])) {
+                $floors[$route['path']] = $route['role_min'];
+            }
+        }
+        $this->assertSame(array_keys($pages), array_keys(array_intersect_key($pages, $floors)), 'A sub-page is not registered.');
+
+        $router = new Router();
+        foreach ($pages as $path => $action) {
+            $router->addRoute('GET', $path, MaintenanceController::class, $action, $floors[$path]);
+        }
+        $configFile = sys_get_temp_dir() . '/test_maintenance_config_' . uniqid() . '.php';
+        file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
+        $frontController = new FrontController($router, $this->twig, new AppConfig($configFile));
+        $frontController->registerController(MaintenanceController::class, $this->controller);
+
+        foreach ($pages as $path => $action) {
+            $floor = Role::fromString($floors[$path]);
+            $below = self::oneLevelBelow($floor);
+
+            AuthSession::login(1, 'floor@test.be', $floor->value);
+            $this->assertSame(200, $frontController->handle(new Request('GET', $path, [], [], [], []))->getStatusCode(), "{$path} at {$floor->value}");
+
+            AuthSession::login(1, 'below@test.be', $below->value);
+            $this->assertSame(403, $frontController->handle(new Request('GET', $path, [], [], [], []))->getStatusCode(), "{$path} at {$below->value}");
+        }
+    }
+
+    private static function oneLevelBelow(Role $role): Role
+    {
+        $below = null;
+        foreach (Role::cases() as $candidate) {
+            if ($candidate->level() < $role->level() && ($below === null || $candidate->level() > $below->level())) {
+                $below = $candidate;
+            }
+        }
+        self::assertNotNull($below);
+
+        return $below;
     }
 
     private function ageCompletedAt(int $id, int $daysAgo): void

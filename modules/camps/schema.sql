@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS camp_places (
     geocoded_at DATETIME NULL,
 
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     INDEX idx_camp_places_archived (is_archived, name),
     INDEX idx_camp_places_geocoding (coordinates_are_manual, geocoded_at)
@@ -127,7 +127,7 @@ CREATE TABLE IF NOT EXISTS camp_camps (
     review_notified_at DATETIME NULL,
 
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     INDEX idx_camp_camps_place (place_id, end_date),
     INDEX idx_camp_camps_dates (end_date, year_only),
@@ -186,7 +186,7 @@ CREATE TABLE IF NOT EXISTS camp_contacts (
     other_details BLOB NULL,
 
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     INDEX idx_camp_contacts_camp (camp_id),
     INDEX idx_camp_contacts_blind (email_blind_index),
@@ -283,7 +283,7 @@ CREATE TABLE IF NOT EXISTS camp_reviews (
     author_member_id INT UNSIGNED NULL,
 
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     UNIQUE INDEX idx_camp_reviews_camp (camp_id),
     CONSTRAINT fk_camp_reviews_camp FOREIGN KEY (camp_id) REFERENCES camp_camps(id) ON DELETE CASCADE,

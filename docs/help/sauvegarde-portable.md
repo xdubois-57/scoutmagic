@@ -7,7 +7,7 @@ role_min: admin
 discovery: off
 question: Comment restaurer mon site chez un autre hébergeur ?
 question: Pourquoi ma sauvegarde est-elle illisible sur une installation neuve ?
-paths: /config/maintenance
+paths: /config/maintenance/sauvegarde-manuelle
 related: sauvegardes, sauvegardes-conserver, reinitialisation
 ---
 

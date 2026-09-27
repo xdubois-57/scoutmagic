@@ -1,0 +1,25 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The rail of the Maintenance sub-pages (issue #619) — through
+  partials/page_picker.html.twig, never a copy of its markup. Santé de
+  l'hébergement is the landing page at /config/maintenance, as « Tableau
+  de bord » is at /finance: there is no separate hub.
+
+  Requires `current_path` in scope.
+#}
+{% include 'partials/page_picker.html.twig' with {
+    picker_id: 'maintenance-page-picker',
+    pages: [
+        {'url': '/config/maintenance', 'label': "Santé de l'hébergement"},
+        {'url': '/config/maintenance/mise-a-jour', 'label': 'Mise à jour'},
+        {'url': '/config/maintenance/sauvegarde-manuelle', 'label': 'Sauvegarde manuelle'},
+        {'url': '/config/maintenance/sauvegarde-automatique', 'label': 'Sauvegarde automatique'},
+        {'url': '/config/maintenance/sauvegardes-recentes', 'label': 'Sauvegardes récentes'},
+        {'url': '/config/maintenance/reinitialisation', 'label': 'Réinitialisation'},
+    ],
+    current_path: current_path,
+    aria_label: 'Pages Maintenance',
+} only %}

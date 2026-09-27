@@ -72,7 +72,7 @@ final class BackupIntegrityCheck implements OperationalCheck
             why: 'Le site a relu ces sauvegardes et leur contenu ne correspond plus à ce qui avait été écrit, '
                 . 'ou le fichier a disparu. Elles ne se restaureront pas. Vérifiez l\'espace disque, supprimez '
                 . 'les sauvegardes illisibles, et créez-en une nouvelle tout de suite.',
-            actionUrl: '/config/maintenance',
+            actionUrl: '/config/maintenance/sauvegardes-recentes',
             actionLabel: 'Voir les sauvegardes'
         );
     }

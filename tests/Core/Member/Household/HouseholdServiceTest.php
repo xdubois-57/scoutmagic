@@ -33,12 +33,31 @@ class HouseholdServiceTest extends TestCase
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $this->service = new HouseholdService(new HouseholdRepository($this->pdo), $this->encryption);
+        $this->service = new HouseholdService(new HouseholdRepository($this->pdo, $this->encryption));
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2025-2026', '2025-09-01', '2026-08-31')");
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2024-2025', '2024-09-01', '2025-08-31')");
         $this->otherYearId = (int) $this->pdo->lastInsertId();
+    }
+
+    /**
+     * The household key and the fee estimation's key are one value.
+     *
+     * Two repositories derive it now, each from the purpose string it owns,
+     * and a household statement that disagreed with the fee estimate about
+     * who lives together would be two answers to one question. If either
+     * spelling drifts, this is the test that says so rather than a lookup
+     * that silently finds nobody (issue #629).
+     */
+    public function testTheHouseholdKeyIsTheOneTheFeeEstimationUses(): void
+    {
+        $normalized = AddressNormalizer::normalize('Rue de la Station', '5', null, '1000');
+
+        $this->assertSame(
+            (new \Core\Member\FeeEstimationRepository($this->pdo, $this->encryption))->householdKeyFor($normalized),
+            (new HouseholdRepository($this->pdo, $this->encryption))->householdKeyFor($normalized)
+        );
     }
 
     /** @return int member_year id */
@@ -223,8 +242,7 @@ class HouseholdServiceTest extends TestCase
     {
         $this->createMember('Rue de la Station', '5', null, '1000');
         $service = new HouseholdService(
-            new HouseholdRepository($this->pdo),
-            $this->encryption,
+            new HouseholdRepository($this->pdo, $this->encryption),
             $this->providerReturning(2)
         );
 
@@ -260,7 +278,7 @@ class HouseholdServiceTest extends TestCase
                 return array_fill_keys($addressBlindIndexes, 1);
             }
         };
-        $service = new HouseholdService(new HouseholdRepository($this->pdo), $this->encryption, $provider);
+        $service = new HouseholdService(new HouseholdRepository($this->pdo, $this->encryption), $provider);
 
         $households = $service->householdsForYear($this->scoutYearId);
 
@@ -286,7 +304,7 @@ class HouseholdServiceTest extends TestCase
     public function testHouseholdsForYearOnAnEmptyYearAsksTheProviderNothing(): void
     {
         $provider = $this->providerReturning(3);
-        $service = new HouseholdService(new HouseholdRepository($this->pdo), $this->encryption, $provider);
+        $service = new HouseholdService(new HouseholdRepository($this->pdo, $this->encryption), $provider);
 
         $this->assertSame([], $service->householdsForYear($this->scoutYearId));
     }

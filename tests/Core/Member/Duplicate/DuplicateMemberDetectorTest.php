@@ -6,6 +6,7 @@ namespace Tests\Core\Member\Duplicate;
 
 use Core\Member\Duplicate\DuplicateMemberDetector;
 use Core\Member\Duplicate\DuplicateMemberRepository;
+use Core\Member\NameDobKey;
 use Core\Security\EncryptionService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -31,12 +32,30 @@ class DuplicateMemberDetectorTest extends TestCase
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->repository = new DuplicateMemberRepository($this->pdo, $this->encryption);
-        $this->detector = new DuplicateMemberDetector($this->repository, $this->encryption);
+        $this->detector = new DuplicateMemberDetector($this->repository);
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2024-2025', '2024-09-01', '2025-08-31', 0)");
         $this->lastYear = (int) $this->pdo->lastInsertId();
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
         $this->thisYear = (int) $this->pdo->lastInsertId();
+    }
+
+    /**
+     * The key is the one registration requests are matched under.
+     *
+     * The detector no longer derives it: the repository does, from
+     * NameDobKey's purpose string (issue #629). A different purpose would
+     * not fail — every member would simply become their own group, and no
+     * duplicate would ever be proposed again.
+     */
+    public function testTheComparisonKeyIsTheNameAndBirthDateBlindIndex(): void
+    {
+        $normalized = NameDobKey::normalize('Dupont', 'Jean', '2012-03-04');
+
+        $this->assertSame(
+            $this->encryption->blindIndex($normalized, NameDobKey::BLIND_INDEX_CONTEXT),
+            $this->repository->nameDobKeyFor($normalized)
+        );
     }
 
     public function testAReturningMemberRecreatedUnderANewCodeIsProposed(): void

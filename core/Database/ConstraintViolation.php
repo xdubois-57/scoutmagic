@@ -144,4 +144,31 @@ final class ConstraintViolation
             : 'Cette action n\'a pas pu être enregistrée : une des valeurs envoyées n\'est pas acceptée. '
                 . 'Vérifiez le formulaire et réessayez.';
     }
+
+    /**
+     * Whether $e is a unique index refusing a row that is already there —
+     * and nothing else under SQLSTATE 23000, which covers a foreign key or
+     * a NOT NULL just as well (the same reason `classify()` reads driver
+     * codes). 1062 on MySQL and MariaDB. SQLite, which the test suite runs
+     * every repository on, reports all its constraints as 19 and names the
+     * kind only in its message, so there the message decides.
+     *
+     * For the SELECT-then-INSERT that loses a race to a concurrent request:
+     * the row it meant to create now exists, which is usually what it
+     * wanted anyway (issue #592).
+     */
+    public static function isDuplicateKey(\PDOException $e): bool
+    {
+        $errorInfo = is_array($e->errorInfo) ? $e->errorInfo : [];
+
+        if (($errorInfo[0] ?? null) !== '23000') {
+            return false;
+        }
+
+        return match ($errorInfo[1] ?? null) {
+            1062 => true,
+            19 => str_starts_with((string) ($errorInfo[2] ?? ''), 'UNIQUE constraint failed'),
+            default => false,
+        };
+    }
 }

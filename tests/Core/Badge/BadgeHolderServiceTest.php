@@ -146,6 +146,29 @@ final class BadgeHolderServiceTest extends TestCase
         $this->assertFalse($groups[0]->isAutomatic(), 'A default badge is not an automatic one.');
     }
 
+    /**
+     * The previous year shows people as that year knew them — a name,
+     * a section, a function may all have changed since.
+     */
+    public function testAPastYearShowsThePersonAsThatYearKnewThem(): void
+    {
+        $lut = $this->section('LUT', 'Lutins', branchOrder: 1);
+        $staff = $this->section('STU', "Staff d'U", branchOrder: 9);
+        $nurse = $this->badge('Infirmier', default: true);
+        $then = $this->memberYear('Claire', 'Renard', $this->otherYearId, $lut, 'Animatrice');
+        $memberId = (int) $this->pdo->query("SELECT member_id FROM member_years WHERE id = {$then}")->fetchColumn();
+        $now = $this->memberYear('Claire', 'Lecomte', $this->yearId, $staff, 'Intendante', $memberId);
+        $this->memberBadges->assign($then, $nurse, null);
+        $this->memberBadges->assign($now, $nurse, null);
+
+        $past = $this->service->holdersForYear($this->otherYearId)[0]->holders[0];
+
+        $this->assertSame('Claire Renard', $past->name);
+        $this->assertSame('Lutins', $past->sectionName);
+        $this->assertSame('Animatrice', $past->functionLabel);
+        $this->assertSame($then, $past->memberYearId);
+    }
+
     public function testHoldersAreListedByName(): void
     {
         $section = $this->section('LUT', 'Lutins');
@@ -181,10 +204,18 @@ final class BadgeHolderServiceTest extends TestCase
         return (int) $this->pdo->lastInsertId();
     }
 
-    private function memberYear(string $firstName, string $lastName, int $yearId, int $sectionId, string $function): int
-    {
-        $this->pdo->prepare('INSERT INTO members (desk_id) VALUES (?)')->execute(['D-' . bin2hex(random_bytes(4))]);
-        $memberId = (int) $this->pdo->lastInsertId();
+    private function memberYear(
+        string $firstName,
+        string $lastName,
+        int $yearId,
+        int $sectionId,
+        string $function,
+        ?int $memberId = null
+    ): int {
+        if ($memberId === null) {
+            $this->pdo->prepare('INSERT INTO members (desk_id) VALUES (?)')->execute(['D-' . bin2hex(random_bytes(4))]);
+            $memberId = (int) $this->pdo->lastInsertId();
+        }
         $this->pdo->prepare(
             'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted) VALUES (?, ?, ?, ?)'
         )->execute([

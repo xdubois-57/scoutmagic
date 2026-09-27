@@ -2568,8 +2568,7 @@ $memberEmailRepository = new \Core\Member\MemberEmailRepository($pdo, $encryptio
 $memberAccountResolver = new \Core\Member\MemberAccountResolver(
     $memberYearRepo,
     $memberEmailRepository,
-    $userAccountRepo,
-    $encryptionService
+    $userAccountRepo
 );
 $roleResolver = new RoleResolver($memberYearRepo, $encryptionService, $pdo, $memberEmailRepository);
 
@@ -2824,8 +2823,7 @@ $rosterSnapshotRepository = new \Core\Import\RosterSnapshotRepository($pdo);
 $importDiffCalculator = new \Core\Import\ImportDiffCalculator($rosterSnapshotRepository);
 $duplicateMemberRepository = new \Core\Member\Duplicate\DuplicateMemberRepository($pdo, $encryptionService);
 $duplicateMemberDetector = new \Core\Member\Duplicate\DuplicateMemberDetector(
-    $duplicateMemberRepository,
-    $encryptionService
+    $duplicateMemberRepository
 );
 $memberMergeService = new \Core\Member\Duplicate\MemberMergeService($pdo, $duplicateMemberRepository, $journalService);
 $rosterReplacementGuard = new \Core\Import\RosterReplacementGuard(
@@ -5174,6 +5172,11 @@ $router->addRoute(
     'superadmin',
     ['label' => 'Actions planifiées', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
 );
+// Configuration > Maintenance — six sub-pages sharing one rail (issue #619,
+// docs/chantiers/CHANTIER-maintenance.md), Santé de l'hébergement being the
+// landing one at /config/maintenance. The five below take the page's own
+// floor for now; the whole set moves to `superadmin` in the next step of
+// the same issue.
 $router->addRoute(
     'GET',
     '/config/maintenance',
@@ -5181,6 +5184,51 @@ $router->addRoute(
     'index',
     'admin',
     ['label' => 'Maintenance', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+);
+$router->addRoute(
+    'GET',
+    '/config/maintenance/mise-a-jour',
+    MaintenanceController::class,
+    'updatePage',
+    'admin',
+    ['label' => 'Mise à jour', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Maintenance', 'path' => '/config/maintenance']]],
+);
+$router->addRoute(
+    'GET',
+    '/config/maintenance/sauvegarde-manuelle',
+    MaintenanceController::class,
+    'manualBackupPage',
+    'admin',
+    ['label' => 'Sauvegarde manuelle', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Maintenance', 'path' => '/config/maintenance']]],
+);
+$router->addRoute(
+    'GET',
+    '/config/maintenance/sauvegarde-automatique',
+    MaintenanceController::class,
+    'automaticBackupPage',
+    'admin',
+    ['label' => 'Sauvegarde automatique', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Maintenance', 'path' => '/config/maintenance']]],
+);
+$router->addRoute(
+    'GET',
+    '/config/maintenance/sauvegardes-recentes',
+    MaintenanceController::class,
+    'recentBackupsPage',
+    'admin',
+    ['label' => 'Sauvegardes récentes', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Maintenance', 'path' => '/config/maintenance']]],
+);
+$router->addRoute(
+    'GET',
+    '/config/maintenance/reinitialisation',
+    MaintenanceController::class,
+    'resetPage',
+    'admin',
+    ['label' => 'Réinitialisation', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Maintenance', 'path' => '/config/maintenance']]],
 );
 $router->addRoute(
     'POST',
@@ -5571,6 +5619,15 @@ $router->addRoute(
     'current',
     'admin',
     ['label' => 'Badges', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]],
+);
+$router->addRoute(
+    'GET',
+    '/admin/badges/annee-precedente',
+    BadgeHoldersController::class,
+    'previous',
+    'admin',
+    ['label' => 'Année précédente', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)],
+        'ancestors' => [['label' => 'Badges', 'path' => '/admin/badges']]],
 );
 // Espace chefs d'U > Badges > Configuration — badge registry (split out of
 // Configuration générale, ARCHITECTURE §8.11). It lived at /config/badges,
@@ -5984,8 +6041,7 @@ $feeEstimationService = new \Core\Member\FeeEstimationService(
 // they are the roster's. Built here so a module can consume it without
 // owning it.
 $householdService = new \Core\Member\Household\HouseholdService(
-    new \Core\Member\Household\HouseholdRepository($pdo),
-    $encryptionService,
+    new \Core\Member\Household\HouseholdRepository($pdo, $encryptionService),
     $householdRegistrationCountForOthers
 );
 
@@ -6804,7 +6860,8 @@ $frontController->registerController(
     new BadgeHoldersController(
         $twig,
         new \Core\Badge\BadgeHolderService($badgeRepository, $memberBadgeRepository, $sectionService),
-        $scoutYearResolver
+        $scoutYearResolver,
+        $scoutYearService
     )
 );
 $frontController->registerController(
@@ -9445,7 +9502,6 @@ if ($isEnabled('groups')) {
         $memberYearRepo,
         $memberEmailRepository,
         $userAccountRepo,
-        $encryptionService,
         $roleResolver,
         $scoutYearService
     );
