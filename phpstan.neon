@@ -19,6 +19,14 @@ parameters:
     # path this narrow: widening it to tests/ would pull in hundreds of
     # test doubles and pressure the baseline.
     - tests/fixtures/reference-dataset
+    # And the other hand-composed root, for exactly the reason above: this
+    # script provisions the E2E instance by newing core services up one by
+    # one. Issue #551 moved four Services onto repositories and missed the
+    # site here; the full suite reported it as a fatal error inside
+    # ReferenceDatasetBuildTest, several minutes in, with the real message
+    # buried in a provisioning transcript. Analysed, it is one line of
+    # argument.type. Adding the path cost two fixes, both real.
+    - scripts/e2e-support.php
   tmpDir: storage/temp/phpstan
   excludePaths:
     - modules/*/vendor/*
