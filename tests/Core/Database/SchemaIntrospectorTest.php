@@ -6,7 +6,7 @@ namespace Tests\Core\Database;
 
 use Core\Database\SchemaIntrospector;
 use PHPUnit\Framework\TestCase;
-use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 /**
  * @group database
@@ -14,27 +14,17 @@ use Tests\DatabaseTestHelper;
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class SchemaIntrospectorTest extends TestCase
 {
+    use UsesProductionEngine;
+
     private ?\PDO $pdo = null;
     private ?SchemaIntrospector $introspector = null;
 
     protected function setUp(): void
     {
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('TEST_DB_PORT') ?: 3306);
-        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
-        $user = getenv('TEST_DB_USER') ?: 'root';
-        $password = getenv('TEST_DB_PASSWORD') ?: '';
-
-        try {
-            $dsn = sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', $host, $port, $dbName);
-            $this->pdo = new \PDO($dsn, $user, $password, [
-                \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
-                \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
-            ]);
-            $this->introspector = new SchemaIntrospector($this->pdo);
-        } catch (\PDOException $e) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database connection not available: ' . $e->getMessage());
-        }
+        // TEST_DB_NAME, opened the way the site opens it: the tables here
+        // are this class's own, created and dropped per test.
+        $this->pdo = self::productionEngineConnection()->getPdo();
+        $this->introspector = new SchemaIntrospector($this->pdo);
     }
 
     protected function tearDown(): void

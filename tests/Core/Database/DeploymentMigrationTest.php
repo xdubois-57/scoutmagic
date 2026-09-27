@@ -8,7 +8,7 @@ use Core\Database\Connection;
 use Core\Database\DeploymentMigration;
 use Core\Database\SchemaFiles;
 use PHPUnit\Framework\TestCase;
-use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 /**
  * `public/cron.php` is never executed by any test and never reached by a
@@ -22,24 +22,16 @@ use Tests\DatabaseTestHelper;
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class DeploymentMigrationTest extends TestCase
 {
+    use UsesProductionEngine;
+
     private ?Connection $connection = null;
     private string $tmpDir = '';
 
     protected function setUp(): void
     {
-        $connection = new Connection(
-            getenv('TEST_DB_HOST') ?: '127.0.0.1',
-            (int) (getenv('TEST_DB_PORT') ?: 3306),
-            getenv('TEST_DB_NAME') ?: 'test_db',
-            getenv('TEST_DB_USER') ?: 'root',
-            getenv('TEST_DB_PASSWORD') ?: ''
-        );
-
-        $result = $connection->testConnection();
-        if ($result !== true) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database connection not available: ' . $result);
-        }
-
+        // TEST_DB_NAME emptied, rather than productionEngine(): run() is
+        // measured against a database holding nothing but what it creates.
+        $connection = self::productionEngineConnection();
         $this->connection = $connection;
         $this->dropAllTables($connection->getPdo());
 

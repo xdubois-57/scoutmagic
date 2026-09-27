@@ -6,7 +6,7 @@ namespace Tests\Core\Scheduler;
 
 use Core\Scheduler\CronPassLock;
 use PHPUnit\Framework\TestCase;
-use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 /**
  * The lock has to be real to be worth anything: what it protects against
@@ -22,6 +22,8 @@ use Tests\DatabaseTestHelper;
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class CronPassLockTest extends TestCase
 {
+    use UsesProductionEngine;
+
     private ?\PDO $first = null;
     private ?\PDO $second = null;
 
@@ -42,24 +44,13 @@ class CronPassLockTest extends TestCase
         $this->second = null;
     }
 
+    /**
+     * A fresh connection — so a fresh MySQL session, which is what a named
+     * lock belongs to — opened the way the site opens one.
+     */
     private function connect(): \PDO
     {
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('TEST_DB_PORT') ?: 3306);
-        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
-
-        try {
-            $pdo = new \PDO(
-                "mysql:host={$host};port={$port};dbname={$dbName}",
-                getenv('TEST_DB_USER') ?: 'root',
-                getenv('TEST_DB_PASSWORD') ?: '',
-                [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
-            );
-        } catch (\PDOException $e) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database connection not available: ' . $e->getMessage());
-        }
-
-        return $pdo;
+        return self::productionEngineConnection()->getPdo();
     }
 
     /**

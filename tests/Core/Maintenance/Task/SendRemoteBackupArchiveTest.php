@@ -10,10 +10,6 @@ declare(strict_types=1);
 namespace Tests\Core\Maintenance\Task;
 
 use Core\Database\Connection;
-use Core\Database\MigrationRunner;
-use Core\Database\SchemaComparator;
-use Core\Database\SchemaIntrospector;
-use Core\Database\SqlParser;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
@@ -35,7 +31,7 @@ use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\Core\Maintenance\Remote\InMemorySettingService;
 use Tests\Core\Storage\Location\Backend\RefusingBackend;
-use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 /**
  * The archive the recurring send actually builds — built for real.
@@ -57,6 +53,8 @@ use Tests\DatabaseTestHelper;
 #[Group('database')]
 final class SendRemoteBackupArchiveTest extends TestCase
 {
+    use UsesProductionEngine;
+
     private string $basePath;
     private string $storagePath;
     private Connection $connection;
@@ -306,29 +304,17 @@ final class SendRemoteBackupArchiveTest extends TestCase
         }
     }
 
+    /**
+     * This class's own database, migrated with the whole production
+     * schema and emptied, rather than `TEST_DB_NAME`: the archive holds a
+     * dump of every table, and a dump taken while another class changes
+     * the shared database is refused by the engine (error 1412).
+     */
     private function realConnection(): Connection
     {
-        $connection = new Connection(
-            getenv('TEST_DB_HOST') ?: '127.0.0.1',
-            (int) (getenv('TEST_DB_PORT') ?: '3306'),
-            getenv('TEST_DB_NAME') ?: 'test_db',
-            getenv('TEST_DB_USER') ?: 'root',
-            getenv('TEST_DB_PASSWORD') ?: ''
-        );
-        $result = $connection->testConnection();
-        if ($result !== true) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database not available: ' . (is_string($result) ? $result : 'unknown error'));
-        }
+        $this->productionEngine();
 
-        $runner = new MigrationRunner(
-            $connection,
-            new SchemaIntrospector($connection->getPdo()),
-            new SchemaComparator(),
-            new SqlParser()
-        );
-        $runner->migrate([dirname(__DIR__, 4) . '/schema/core.sql']);
-
-        return $connection;
+        return $this->productionEngineSchemaConnection();
     }
 
     private function context(): TaskContext
