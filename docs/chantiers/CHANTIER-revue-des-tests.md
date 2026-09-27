@@ -2618,3 +2618,99 @@ second de la même famille.
 **Vérifié par la couverture, pas par le vert.** Les sept lignes sont couvertes,
 mesurées après écriture. `OutboundMailController` passe de 7 branches non
 couvertes à **0**.
+
+### Itération 15 — Les chemins d'échec, lot 7 : `CampAlbumService` — 2026-09-27
+
+**Mesuré d'abord** : **856 blocs `catch` balayés, 319 corps jamais exécutés
+(37,3 %)**, contre 323 au lot 6. Et la soustraction, faite avec soin cette fois :
+le lot 6 en a fermé sept, on attendrait 316, j'en mesure 319. Le total monte de
+852 à 856, donc `main` a gagné **quatre** `catch` et **trois** arrivent non
+couverts.
+
+C'est la deuxième fenêtre observée — 7 nouveaux dont 2 non couverts au lot 5,
+4 dont 3 ici. Deux fenêtres ne font pas une loi, mais la direction est la même :
+**environ la moitié des nouveaux `catch` arrivent non couverts**. L'argument pour
+une porte de release n'a pas besoin d'être exagéré pour porter.
+
+**Une cible choisie contre les autres agents autant que sur les chiffres.** Sept
+à huit sessions travaillent en parallèle sur ce dépôt. Trois candidats ont été
+écartés non pour leurs chiffres mais pour leur voisinage : `MemberSearchController`
+est dans le périmètre de la PR #628, qui touche 47 fichiers de `core/Member/` ;
+`MaintenanceController` sera réécrit par les six itérations du chantier dont #614
+vient de déposer la roadmap ; `RentalManagementController` venait d'être touché
+par #612. Écrire des tests sur du code qu'un autre réécrit est du travail jeté, et
+le vérifier coûte deux appels.
+
+**Le lot où il n'y avait rien à compléter.** `CampAlbumService` fait 180 lignes et
+porte six `catch` — et **aucun fichier de test ne le visait**. Six branches non
+couvertes sur six, pour la raison la plus simple du chantier : personne ne testait
+cette classe. C'est donc le premier lot qui **crée** un fichier plutôt que d'en
+allonger un.
+
+**Une frontière de module, et deux traductions.** Ce service est le côté camps du
+contrat `Gallery\Api` : il enveloppe `DelegatedAlbumManager` et transforme
+`GalleryException` en deux choses distinctes.
+
+| Famille | Méthodes | Réponse |
+|---|---|---|
+| **Absorbée** | `albumIdFor`, `existingAlbumIdFor`, `listMedia`, `movePhotos` | `null`, `null`, `[]`, `0` |
+| **Traduite** | `addPhoto`, `deletePhoto` | `CampsException($e->getMessage(), 0, $e)` |
+
+**Et la conclusion que j'ai tirée trop vite, corrigée par le relecteur local.**
+Les quatre branches absorbées rendent exactement ce que rend l'absence du module :
+la même valeur pour « la galerie a refusé » et pour « il n'y a pas de galerie ».
+J'ai écrit ici que ce n'était **pas** un défaut, et qu'« une issue ouverte par
+analogie aurait été fausse » — en m'appuyant sur les seuls docblocks, qui assument
+effectivement l'absorption et nomment un refus légitime à survivre.
+
+C'était faux, et précisément à côté de la question. L'absorption **est** légitime ;
+le défaut est un étage au-dessus. `CampsAttachmentController` calcule
+`album_available` comme `isAvailable() && $albumId !== null`, et `isAvailable()`
+ne teste que la présence du module. Donc un `GalleryException` absorbé fait
+afficher à `photos.html.twig` « Les photos ne sont pas disponibles : le module
+Galerie est désactivé sur ce site. » **alors que le module est activé** — une cause
+précise et fausse, qui envoie le chef vérifier des réglages où il ne trouvera
+rien. Ouvert en **#637**, même famille que #600.
+
+**Et la règle que j'ai enfreinte, je l'avais écrite à l'itération précédente** :
+« vérifier dans le gabarit plutôt que déduire du `catch` ». J'ai déduit du
+docblock, qui est une source plus crédible et tout aussi indirecte. Une règle
+écrite un lot plus tôt n'a pas suffi ; c'est la seconde fois de la séance qu'une
+règle de ce journal ne survit pas au lot qui la suit — après le SQL non préparé du
+lot 2 refait au lot 6. Ce qui suggère que le journal seul ne porte pas : les règles
+qui ont tenu sont celles qui étaient aussi dans le skill steward ou dans un point
+de contrôle.
+
+**Chaque test porte son contraste, comme le lot 6 l'a imposé.** Une galerie qui
+répond d'abord — un album 42, un média, trois photos déplacées — puis la galerie
+refusante. Sans cette première moitié, le `null` prouverait seulement que la
+méthode peut rendre `null`.
+
+**L'invariant d'état de ce lot est l'audit.** `$this->audit->record()` est **après**
+le `try` dans les deux méthodes traduites : un envoi refusé ne laisse donc pas
+« Photo ajoutée » dans la trace d'un séjour qui n'a gagné aucune photo. C'est la
+seule chose que le `catch` change vraiment, et c'est donc la seule assertion d'état
+qui vaille — application directe de la règle du lot 6.
+
+**Preuve** : **onze** mutations du produit, une chose à la fois, **onze tuées** —
+les quatre absorptions retirées, le motif de la galerie remplacé par une phrase
+générique sur les deux méthodes traduites, le chaînage retiré séparément, l'échec
+rendu non bloquant pour que l'audit s'écrive, et l'asymétrie sans galerie
+intervertie dans les deux sens. Plus **deux retraits de mise en scène** : la
+galerie refusante remplacée par une galerie qui répond, et la galerie absente
+remplacée par une galerie présente. Les deux rougissent.
+
+**Et un doute que j'ai levé moi-même, ce qui est nouveau.** J'ai soupçonné mon
+`assertSame(0, auditTotal(...))` du test sans galerie d'être infalsifiable — ni
+`addPhoto()` ni `deletePhoto()` n'atteignent `record()` quand la galerie est
+absente, donc le zéro paraissait structurellement garanti. Le premier contrôle que
+j'ai conçu ne prouvait rien : **retirer une assertion ne peut jamais faire échouer
+un test**, et la suite restait verte comme il se doit. La bonne question était
+« quelle régression plausible rendrait ce total non nul ? » — la trace d'audit
+écrite avant le garde de disponibilité, ce qu'un réordonnancement produit sans
+mauvaise intention. Mutée ainsi, elle tue deux tests. L'assertion tient, et je le
+sais au lieu de le supposer.
+
+La leçon de méthode, qui prolonge celle du lot 6 : **pour mettre une assertion en
+doute, il faut nommer la régression qu'elle est censée attraper, puis l'écrire.**
+La retirer ne teste rien, et la garder sans y penser ne prouve rien non plus.
