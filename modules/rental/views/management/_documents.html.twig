@@ -36,7 +36,7 @@
           which need an administrator (issue #497).
         #}
         {% if landlord is defined and landlord and not landlord.address %}
-            <div class="alert alert-warning small" role="status" data-landlord-address-missing>
+            <output class="alert alert-warning small d-block" data-landlord-address-missing>
                 <strong>L'adresse du bailleur est vide.</strong> Le contrat et la facture de ce
                 bien imprimeront « — » à sa place.
                 <a href="/mes-locations/{{ asset.slug }}/reglages#bailleur">Renseigner le bailleur de ce
@@ -44,7 +44,7 @@
                 le bailleur dans les paramètres du module Locations{% elseif landlord.source == 'unit' %},
                 ou demandez à un administrateur de renseigner l'adresse postale de l'unité dans les
                 paramètres du site{% endif %}.
-            </div>
+            </output>
         {% endif %}
         {#
           Two sentences, and the second carries the links that used to be
