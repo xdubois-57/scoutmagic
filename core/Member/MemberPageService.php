@@ -239,7 +239,8 @@ class MemberPageService
      * sources, which the weekly check watches, rather than a setting.
      *
      * @param array{age_branch_id: int, branch_name: string, branch_sort_order: int} $section
-     * @return array{label: string, logo_file_id: ?int, default_logo: ?string, explanation_url: string, insignia_placement_url: string}|null
+     * @return array{label: string, logo_file_id: ?int, default_logo: ?string, explanation_url: string,
+     *     insignia_placement_url: string}|null
      */
     private function buildBranchCard(array $section): ?array
     {
