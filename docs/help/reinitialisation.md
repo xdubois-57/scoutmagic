@@ -3,7 +3,7 @@ id: reinitialisation
 title: Réinitialiser ou restaurer le site
 summary: La zone de danger : paramètres par défaut, restauration d'une sauvegarde, remise à zéro.
 category: Configuration
-role_min: admin
+role_min: superadmin
 discovery: off
 question: Comment restaurer le site à partir d'une sauvegarde ?
 question: Comment remettre le site complètement à zéro ?

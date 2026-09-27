@@ -23,12 +23,16 @@ class NotificationRegistry
     public static function getCoreTypes(): array
     {
         return [
+            // `superadmin`, the floor of the routes that start a backup
+            // since every maintenance route moved to it (issue #619): a
+            // preference row for a notification nobody below can cause
+            // would be a switch that does nothing.
             new NotificationType(
                 id: 'core.backup_completed',
                 label: 'Sauvegarde terminée',
                 description: 'Quand une sauvegarde que tu as demandée est prête au téléchargement',
                 group: 'Maintenance',
-                roleMin: 'admin',
+                roleMin: 'superadmin',
                 channels: ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off']
             ),
             new NotificationType(
@@ -36,7 +40,7 @@ class NotificationRegistry
                 label: 'Échec de sauvegarde',
                 description: 'Quand une sauvegarde que tu as demandée a échoué',
                 group: 'Maintenance',
-                roleMin: 'admin',
+                roleMin: 'superadmin',
                 channels: ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off']
             ),
             // Restoring a backup and resetting the settings were this
@@ -44,10 +48,9 @@ class NotificationRegistry
             // the two operations that UNDO one had none, so they reached
             // their requester through NotificationService::notify() — no
             // type, no channel resolution, no row on
-            // /notifications/preferences to switch off. Same shape as the
-            // backup pair above, one role tighter, because that is what
-            // the routes are: /config/maintenance/reset/* is superadmin
-            // while /config/maintenance/backup/* is admin.
+            // /notifications/preferences to switch off. Same shape and
+            // same role as the backup pair above: every maintenance route
+            // is superadmin.
             new NotificationType(
                 id: 'core.restore_completed',
                 label: 'Restauration terminée',
@@ -85,23 +88,22 @@ class NotificationRegistry
             // NOBODY requested — a webhook-triggered release or dev-branch
             // build (update_history.requested_by null). A manual
             // "Installer maintenant" still notifies its own requester
-            // directly and only them, so an admin who watched the install
+            // directly and only them, so whoever watched the install
             // happen is never told about it twice.
             //
-            // role_min 'admin' with default_on_role_min 'superadmin':
-            // whoever runs the site wants to know unprompted that its code
-            // changed under it, while an admin gets the same switches on
-            // /notifications/preferences with nothing switched on for them
-            // (NotificationType::defaultsOnForRole()).
+            // role_min 'superadmin', like every other Maintenance type:
+            // both link to /config/maintenance/mise-a-jour, which is
+            // superadmin-only (issue #619). They used to be offered to
+            // admins too, switched off (default_on_role_min), which now
+            // would only hand a chef d'unité a link to a refusal.
             new NotificationType(
                 id: 'core.update_installed',
                 label: 'Mise à jour installée',
                 description: 'Quand une mise à jour du site s\'installe automatiquement (nouvelle version ou build de '
                     . 'développement)',
                 group: 'Maintenance',
-                roleMin: 'admin',
-                channels: ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off'],
-                defaultOnRoleMin: 'superadmin'
+                roleMin: 'superadmin',
+                channels: ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off']
             ),
             new NotificationType(
                 id: 'core.update_failed',
@@ -109,9 +111,8 @@ class NotificationRegistry
                 description: 'Quand une mise à jour automatique du site échoue, avec ou sans restauration de la '
                     . 'version précédente',
                 group: 'Maintenance',
-                roleMin: 'admin',
-                channels: ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off'],
-                defaultOnRoleMin: 'superadmin'
+                roleMin: 'superadmin',
+                channels: ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off']
             ),
             new NotificationType(
                 id: 'core.support_package_ready',
