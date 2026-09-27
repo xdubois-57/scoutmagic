@@ -23,7 +23,7 @@ class WebhookControllerTest extends TestCase
     private \PDO $pdo;
     private WebhookController $controller;
     private GitHubWebhookService&\PHPUnit\Framework\MockObject\MockObject $webhookService;
-    private SecretManager&\PHPUnit\Framework\MockObject\MockObject $secretManager;
+    private SecretManager&\PHPUnit\Framework\MockObject\Stub $secretManager;
 
     protected function setUp(): void
     {

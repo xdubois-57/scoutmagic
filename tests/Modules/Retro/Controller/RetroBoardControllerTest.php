@@ -37,7 +37,7 @@ class RetroBoardControllerTest extends TestCase
     private BoardRepository $boardRepository;
     private CommentRepository $commentRepository;
     private RetroBoardController $controller;
-    private \PHPUnit\Framework\MockObject\MockObject $boardService;
+    private BoardService&\PHPUnit\Framework\MockObject\Stub $boardService;
     private Environment $twig;
     private RateLimitService $rateLimitService;
     private SettingService $settingService;

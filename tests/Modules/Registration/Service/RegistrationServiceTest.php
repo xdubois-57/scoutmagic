@@ -37,7 +37,7 @@ class RegistrationServiceTest extends TestCase
     private ScoutYearService $scoutYearService;
     private ScoutYearResolver $scoutYearResolver;
     private MailService&\PHPUnit\Framework\MockObject\MockObject $mailService;
-    private JournalService&\PHPUnit\Framework\MockObject\MockObject $journalService;
+    private JournalService&\PHPUnit\Framework\MockObject\Stub $journalService;
     private int $publicYearId;
 
     protected function setUp(): void

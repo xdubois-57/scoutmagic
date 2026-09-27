@@ -36,7 +36,7 @@ use Twig\Environment;
  */
 final class HealthSheetControllerTest extends TestCase
 {
-    private Environment&\PHPUnit\Framework\MockObject\MockObject $twig;
+    private Environment&\PHPUnit\Framework\MockObject\Stub $twig;
     private MemberService&\PHPUnit\Framework\MockObject\MockObject $memberService;
     private HealthSheetRepository&\PHPUnit\Framework\MockObject\MockObject $repository;
     private HealthSheetController $controller;
