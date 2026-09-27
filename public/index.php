@@ -68,6 +68,7 @@ use Core\Http\Controller\PasswordResetController;
 use Core\Http\Controller\ConfigGeneralController;
 use Core\Http\Controller\ConfigModulesController;
 use Core\Http\Controller\BadgeConfigurationController;
+use Core\Http\Controller\BadgeHoldersController;
 use Core\Http\Controller\RgpdConfigController;
 use Core\Http\Controller\FunctionsController;
 use Core\Http\Controller\CookieController;
@@ -3347,7 +3348,7 @@ $menuBuilder->addPage(
 $menuBuilder->addPage(
     MenuBuilder::MENU_ESPACE_ADMIN,
     'Badges',
-    '/admin/badges/configuration',
+    '/admin/badges',
     'admin',
     45,
     false,
@@ -5561,6 +5562,16 @@ $router->addRoute(
     'superadmin',
 );
 
+// Espace chefs d'U > Badges — who wears which badge (issue #621). Read
+// only: assigning stays on /chefs/staffs.
+$router->addRoute(
+    'GET',
+    '/admin/badges',
+    BadgeHoldersController::class,
+    'current',
+    'admin',
+    ['label' => 'Badges', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]],
+);
 // Espace chefs d'U > Badges > Configuration — badge registry (split out of
 // Configuration générale, ARCHITECTURE §8.11). It lived at /config/badges,
 // superadmin, in the Configuration menu; it moved unchanged to admin
@@ -5571,7 +5582,8 @@ $router->addRoute(
     BadgeConfigurationController::class,
     'index',
     'admin',
-    ['label' => 'Configuration des badges', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]],
+    ['label' => 'Configuration des badges', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)],
+        'ancestors' => [['label' => 'Badges', 'path' => '/admin/badges']]],
 );
 $router->addRoute('POST', '/admin/badges/add', BadgeConfigurationController::class, 'addBadge', 'admin');
 $router->addRoute('POST', '/admin/badges/update', BadgeConfigurationController::class, 'updateBadge', 'admin');
@@ -6785,7 +6797,15 @@ $frontController->registerController(
 );
 $frontController->registerController(
     BadgeConfigurationController::class,
-    new BadgeConfigurationController($twig, $badgeService, $journalService)
+    new BadgeConfigurationController($twig, $badgeService, $journalService, $scoutYearResolver)
+);
+$frontController->registerController(
+    BadgeHoldersController::class,
+    new BadgeHoldersController(
+        $twig,
+        new \Core\Badge\BadgeHolderService($badgeRepository, $memberBadgeRepository, $sectionService),
+        $scoutYearResolver
+    )
 );
 $frontController->registerController(
     SuperAdminAccountsController::class,

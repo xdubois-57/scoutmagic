@@ -1,0 +1,77 @@
+{% extends "base.html.twig" %}
+
+{#
+  Espace chefs d'U > Badges — who wore which badge in one scout year
+  (issue #621). Grouped by badge, only the badges somebody wore, in the
+  order Core\Badge\BadgeHolderService gives them. Read only: assigning
+  stays on /chefs/staffs.
+
+  Each name links to /admin/members/{member_year id}: that route takes a
+  member_year and opens the person's most recent sheet itself — see
+  Core\Badge\BadgeHolder.
+#}
+
+{% block title %}Badges — {{ year_label }} — {{ site_name }}{% endblock %}
+
+{# .min-w-0 lives in components.css, which base.html.twig does not load. #}
+{% block stylesheets %}
+    <link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">
+{% endblock %}
+
+{% block content %}
+    {% include 'admin/badges/_nav.html.twig' %}
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Badges — ' ~ year_label,
+        subtitle: 'Les badges portés cette année, et par qui.',
+    } only %}
+
+    {% if groups is empty %}
+        <p class="text-body-secondary" data-badge-holders-empty>
+            Aucun badge n'est attribué pour {{ year_label }}.
+        </p>
+    {% endif %}
+
+    {% set any_inactive = false %}
+    <div class="d-flex flex-column gap-3 mb-3">
+        {% for group in groups %}
+            {% if not group.badge.isActive %}{% set any_inactive = true %}{% endif %}
+            {% set count = group.holders|length %}
+            <section class="border rounded-3 p-3" data-badge-holders="{{ group.badge.id }}" aria-labelledby="badge-holders-{{ group.badge.id }}">
+                <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                    <h2 class="h6 fw-semibold mb-0 flex-grow-1" id="badge-holders-{{ group.badge.id }}">{{ group.badge.name }}</h2>
+                    {% if group.isAutomatic %}
+                        <span class="badge rounded-pill text-bg-light border" title="Créé et renommé avec sa section, attribuable au seul Staff d'U">Automatique</span>
+                    {% endif %}
+                    {% if not group.badge.isActive %}
+                        <span class="badge rounded-pill text-bg-warning">Désactivé</span>
+                    {% endif %}
+                    <span class="small text-body-secondary text-nowrap">{{ count }} {{ count > 1 ? 'porteurs' : 'porteur' }}</span>
+                </div>
+                <div class="list-group list-group-flush">
+                    {% for holder in group.holders %}
+                        {% set detail = [holder.sectionName, holder.functionLabel]|filter(v => v is not null and v != '')|join(' · ') %}
+                        <a href="/admin/members/{{ holder.memberYearId }}" class="list-group-item list-group-item-action tap-target d-flex align-items-center gap-2 px-0">
+                            <span class="flex-grow-1 d-flex flex-column min-w-0">
+                                <span class="text-break">{{ holder.name }}</span>
+                                {% if detail %}<span class="small text-body-secondary">{{ detail }}</span>{% endif %}
+                            </span>
+                            <i class="bi bi-chevron-right text-body-tertiary" aria-hidden="true"></i>
+                        </a>
+                    {% endfor %}
+                </div>
+            </section>
+        {% endfor %}
+    </div>
+
+    <p class="small text-body-secondary mb-2">
+        Cette page ne fait que lire. Pour attribuer ou retirer un badge, allez sur
+        <a href="/chefs/staffs">Staffs</a>, où chaque membre porte ses interrupteurs.
+    </p>
+    <p class="small text-body-secondary">
+        {% if any_inactive %}
+            Un badge désactivé qui garde des porteurs reste affiché ici : il reste à leur retirer, ou le
+            badge est à réactiver.
+        {% endif %}
+        Les badges sans aucun porteur n'apparaissent pas ici.
+    </p>
+{% endblock %}

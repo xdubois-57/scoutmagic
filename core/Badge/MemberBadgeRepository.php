@@ -86,6 +86,38 @@ class MemberBadgeRepository
         return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
     }
 
+    /**
+     * Every badge worn in one scout year, and by whom — the Badges holders
+     * pages (issue #621), in one query for the whole year.
+     *
+     * Active or not, on both sides. A deactivated badge still worn is
+     * exactly what those pages must keep showing (its holder would
+     * otherwise vanish from every screen with the badge still to take
+     * off), and a member_year Desk no longer lists is still somebody who
+     * wore the badge that year.
+     *
+     * @return list<array{badge_id: int, member_year_id: int}>
+     */
+    public function findHoldingsForScoutYear(int $scoutYearId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT mb.badge_id, mb.member_year_id
+             FROM member_badges mb
+             JOIN member_years my ON my.id = mb.member_year_id
+             WHERE my.scout_year_id = ?
+             ORDER BY mb.badge_id, mb.member_year_id'
+        );
+        $stmt->execute([$scoutYearId]);
+
+        return array_map(
+            static fn(array $row): array => [
+                'badge_id' => (int) $row['badge_id'],
+                'member_year_id' => (int) $row['member_year_id'],
+            ],
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
+    }
+
     public function isAssigned(int $memberYearId, int $badgeId): bool
     {
         $stmt = $this->pdo->prepare(
