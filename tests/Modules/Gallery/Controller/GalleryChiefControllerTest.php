@@ -869,11 +869,14 @@ class GalleryChiefControllerTest extends TestCase
     // travelling in that field IS what a chief reads, and each test below
     // asserts it, never just the status.
     //
-    // No double throws anything here. `controllerDenyingEveryAlbum()` above
-    // wires a REAL AlbumService and MediaService to an access service that
-    // manages no section, and the rest use ordinary bad input: a media upload
-    // aimed at an external album, a cover taken from another album, a chunk
-    // posted with a malformed upload id.
+    // No double throws anything here. Every test below reaches its branch
+    // through ordinary bad input or a real row state: an emptied title, an
+    // album mid-migration, a media upload aimed at an external album, a cover
+    // taken from another album, a chunk posted with a malformed upload id.
+    //
+    // In particular none of them goes through `controllerDenyingEveryAlbum()`,
+    // which swaps the controller's own guard and keeps the permissive services
+    // (its docblock says so) — see the note on the first test below.
 
     /**
      * `update()` is the odd one out: it re-renders the form with the reason

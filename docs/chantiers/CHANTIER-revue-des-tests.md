@@ -2204,6 +2204,13 @@ deux tests rendaient 302 et 200 au lieu de 422. Réécrits sur le titre vide et
 la migration en cours, ils sont meilleurs : aucune doublure, et deux états que
 la production atteint vraiment.
 
+Le reliquat de cette erreur a survécu à sa propre correction : l'en-tête du
+fichier de test a continué d'affirmer que ce helper câble des services refusants,
+**quinze lignes au-dessus** de l'explication exacte que j'avais écrite pour la
+corriger. J'avais réparé les tests, le journal, la langue de l'en-tête et son
+affirmation sur les codes de statut — et laissé celle-là. Relevé par
+`Claude review` sur la troisième tête de la PR.
+
 Et ma troisième tentative sur la ligne 384 passait **en affirmant la bonne
 chose au mauvais endroit** : pour un album externe, `assertCanUpload()` lève dès
 le premier fragment, c'est-à-dire une autre branche, déjà couverte. Le test
