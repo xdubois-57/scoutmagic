@@ -44,19 +44,31 @@ final class Carpool
     }
 
     /**
-     * The sections whose staff sees this carpool's passengers (D3): those
-     * of the linked events, or the one chosen at creation when there is
-     * none.
+     * The sections whose staff sees this carpool's passengers (D3): its
+     * creator's own section AND those of its linked events.
+     *
+     * **It used to be one or the other** — the events' sections, or the
+     * section a chief chose by hand on a carpool with no event. Issue #650
+     * removed that field and made this a union, which is what widens D3:
+     * the staff of the creator's section now sees the passengers of a
+     * carpool whose events belong to other sections. That is the intent —
+     * a chief organising a trip for their own section should not lose
+     * sight of it because the outing is an Unit-wide event.
+     *
+     * Carpools created before #650 are unchanged by the same expression:
+     * those with events carry no section of their own, and those without
+     * carry no event.
      *
      * @return list<int>
      */
     public function sectionIds(): array
     {
-        if ($this->events === []) {
-            return $this->sectionId !== null ? [$this->sectionId] : [];
-        }
-
+        // The creator's section first: it is the carpool's own, the events'
+        // are borrowed. Order has no effect on access, only on display.
         $ids = [];
+        if ($this->sectionId !== null) {
+            $ids[$this->sectionId] = $this->sectionId;
+        }
         foreach ($this->events as $event) {
             if ($event->sectionId !== null) {
                 $ids[$event->sectionId] = $event->sectionId;

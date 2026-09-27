@@ -25,6 +25,13 @@ use Modules\Covoiturage\Repository\SeatRequest;
  * | staff of a linked section    | every offer and passenger of that carpool    |
  * | Staff d'U and super-admin    | everything                                   |
  *
+ * **« A linked section » means two things since issue #650**: the sections
+ * of the carpool's events, AND its creator's own section, frozen when they
+ * created it. Carpool::sectionIds() returns the union, so a chief keeps
+ * sight of a trip they organised even when its events belong to other
+ * sections — and a carpool with no event is managed by its creator's
+ * section instead of by one chosen from a list that no longer exists.
+ *
  * Everybody identified sees the carpools and the offers themselves — the
  * driver's name, the meeting point, the time, the seats left: that is what
  * the page is for. What is gated is WHO RIDES, and the phone numbers.
@@ -57,7 +64,11 @@ final class CarpoolViewer
         return $this->role->hasAccess(Role::ADMIN);
     }
 
-    /** Staff of one of the sections this carpool concerns (D3). */
+    /**
+     * Staff of one of the sections this carpool concerns (D3): an event's
+     * section, or the creator's own — Carpool::sectionIds() unions them
+     * (issue #650).
+     */
     public function isStaffOf(Carpool $carpool): bool
     {
         if (!$this->role->hasAccess(Role::CHIEF)) {

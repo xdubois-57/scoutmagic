@@ -9,10 +9,12 @@ declare(strict_types=1);
 namespace Modules\Covoiturage\Service;
 
 use Core\Geo\GeoPoint;
+use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\Service\DateInput;
 use Core\Service\TextNormalizerService;
 use Core\View\SearchPickerResult;
+use Core\View\SectionPickerHelper;
 use Modules\Calendar\Api\CalendarEventLookupInterface;
 use Modules\Calendar\Api\EventSummary;
 use Modules\Covoiturage\Repository\Carpool;
@@ -26,9 +28,9 @@ use Modules\Covoiturage\Repository\OfferRepository;
  * creates one).
  *
  * The calendar is an OPTIONAL dependency (ARCHITECTURE.md §7.5): without
- * it there is no event to link, and every carpool carries the section
- * chosen at creation instead — which is exactly the case D3 describes for a
- * carpool with no event at all.
+ * it there is no event to link, and a carpool is simply managed by its
+ * creator's own section — which is what {@see creatorSectionId()} answers,
+ * and why no screen has to ask.
  */
 class CarpoolService
 {
@@ -46,8 +48,39 @@ class CarpoolService
         private CarpoolRepository $carpools,
         private OfferRepository $offers,
         private SectionService $sections,
+        private MemberService $members,
         private ?CalendarEventLookupInterface $calendar = null
     ) {
+    }
+
+    /**
+     * The section a carpool created by this viewer is managed by, beside the
+     * sections of its events — the answer that replaced the « Section
+     * concernée » field of the organiser form (issue #650).
+     *
+     * It is the viewer's OWN section: among the members linked to their
+     * address, the highest-role one, then that member's main function's
+     * section — the same reading every other screen of the site starts from
+     * (Core\View\SectionPickerHelper).
+     *
+     * **Null is a real answer and is stored as such.** An account linked to
+     * no member, or to one with no main function, creates a carpool with no
+     * section: it is managed by its creator, by the Staff d'U, and by the
+     * sections of its events. No section is chosen in its place — the
+     * variant used here refuses the « first available section » fallback for
+     * exactly that reason, because a section picked at random would be
+     * handed the passengers of children it does not follow.
+     *
+     * Read at creation ONLY, never on update: see validate(). A chief who
+     * changes section next year leaves the carpool where it was, and a
+     * carpool edited by somebody else keeps its creator's section.
+     */
+    public function creatorSectionId(CarpoolViewer $viewer): ?int
+    {
+        return SectionPickerHelper::resolveMainSection(
+            $this->members->getLinkedMembers($viewer->email, $viewer->scoutYearId),
+            $this->sections->getAllWithBranches()
+        );
     }
 
     public function hasCalendar(): bool
@@ -122,7 +155,9 @@ class CarpoolService
             $data['address'],
             $data['outbound'],
             $data['return'],
-            $data['section_id'],
+            // Taken HERE and nowhere else: the one write of this column
+            // (issue #650), which is what « figée à la création » means.
+            $this->creatorSectionId($viewer),
             $viewer->accountId
         );
         $this->carpools->replaceEvents($id, $data['events']);
@@ -155,8 +190,7 @@ class CarpoolService
             $carpool->id,
             $data['address'],
             $data['outbound'],
-            $data['return'],
-            $data['section_id']
+            $data['return']
         );
         $this->carpools->replaceEvents($carpool->id, $data['events']);
 
@@ -208,7 +242,13 @@ class CarpoolService
 
     /**
      * @param array<string, mixed> $input
-     * @return array{address: string, outbound: string, return: ?string, section_id: ?int,
+     * The section is deliberately absent: it is never read from the form
+     * (issue #650 removed the field, and honouring a hand-built
+     * `section_id` would let the sender choose who sees the passengers),
+     * and it is never written by an edit. create() takes it from the
+     * creator instead.
+     *
+     * @return array{address: string, outbound: string, return: ?string,
      *               events: list<CarpoolEvent>, point: ?GeoPoint, point_given: bool}
      * @throws CarpoolException
      */
@@ -272,16 +312,6 @@ class CarpoolService
             throw new CarpoolException('Le retour ne peut pas précéder l\'aller.');
         }
 
-        $sectionId = null;
-        if ($events === []) {
-            $sectionId = (int) ($input['section_id'] ?? 0);
-            if ($sectionId <= 0 || $this->sections->getSection($sectionId) === null) {
-                throw new CarpoolException(
-                    'Sans évènement, choisissez la section concernée : c\'est son staff qui verra les voitures '
-                    . 'et les passagers.'
-                );
-            }
-        }
 
         $pointGiven = array_key_exists('latitude', $input) || array_key_exists('longitude', $input);
         $point = GeoPoint::fromInput(
@@ -293,7 +323,6 @@ class CarpoolService
             'address' => $address,
             'outbound' => $outbound,
             'return' => $return,
-            'section_id' => $sectionId,
             'events' => array_map(
                 static fn(EventSummary $e): CarpoolEvent
                     => new CarpoolEvent($e->id, $e->title, $e->sectionId, $e->sectionName),

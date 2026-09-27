@@ -87,11 +87,8 @@ final class CovoiturageRbacTest extends TestCase
         $carpools = new CarpoolRepository($this->pdo);
         $offers = new OfferRepository($this->pdo, $encryption);
         $requests = new SeatRequestRepository($this->pdo, $encryption);
-        $sections = new SectionService(
-    new SectionRepository(Connection::withPdo($this->pdo)),
-    new MemberProfileRepository(Connection::withPdo($this->pdo), $encryption, new MemberBadgeRepository($this->pdo))
-);
-        $board = new CarpoolBoard($carpools, $offers, $requests, $settings);
+        $sections = H::sections($this->pdo);
+        $board = new CarpoolBoard($carpools, $offers, $requests, $settings, $sections);
         $viewers = new CarpoolViewerResolver(new ScoutYearResolver(
             new ScoutYearService($this->pdo),
             $settings,
@@ -110,7 +107,7 @@ final class CovoiturageRbacTest extends TestCase
         $this->organizer = new CarpoolOrganizerController(
             $twig,
             $carpools,
-            new CarpoolService($carpools, $offers, $sections, new FakeCalendar([])),
+            new CarpoolService($carpools, $offers, $sections, H::members($this->pdo), new FakeCalendar([])),
             $board,
             $sections,
             $viewers
