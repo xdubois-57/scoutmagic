@@ -91,7 +91,7 @@ class SosAdminControllerTest extends TestCase
             new SosSettingsRepository($this->pdo),
             $sectionService,
             $memberYearRepository,
-            new UnitStaffSectionService($this->pdo),
+            new UnitStaffSectionService(new \Core\Member\Repository\UnitStaffSectionRepository($this->pdo)),
             $settingService
         );
 
@@ -174,7 +174,7 @@ class SosAdminControllerTest extends TestCase
     private function createStaffduMember(string $totem, string $mobile): int
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $staffduId = (new UnitStaffSectionService($this->pdo))->ensureSection();
+        $staffduId = (new UnitStaffSectionService(new \Core\Member\Repository\UnitStaffSectionRepository($this->pdo)))->ensureSection();
 
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK_" . uniqid() . "')");
         $memberId = (int) $this->pdo->lastInsertId();

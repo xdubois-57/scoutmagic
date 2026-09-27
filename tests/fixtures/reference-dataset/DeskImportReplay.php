@@ -176,7 +176,7 @@ final class DeskImportReplay
     public function confirmFunctionRoles(array $yearIds): array
     {
         $repository = new FunctionRepository($this->pdo);
-        $unitStaff = new UnitStaffSectionService($this->pdo);
+        $unitStaff = new UnitStaffSectionService(new \Core\Member\Repository\UnitStaffSectionRepository($this->pdo));
 
         $unconfirmed = [];
         foreach ($repository->findAll() as $function) {
@@ -233,7 +233,7 @@ final class DeskImportReplay
             new MemberYearRepository($this->pdo),
             new ImportJournalRepository($this->pdo),
             new UserAccountRepository($this->pdo, $this->encryption),
-            new UnitStaffSectionService($this->pdo),
+            new UnitStaffSectionService(new \Core\Member\Repository\UnitStaffSectionRepository($this->pdo)),
             new SectionMembershipService(
                 new SectionMembershipRepository($this->pdo),
                 new ScoutYearService($this->pdo),

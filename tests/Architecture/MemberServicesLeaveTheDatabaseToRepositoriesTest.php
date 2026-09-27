@@ -49,35 +49,35 @@ final class MemberServicesLeaveTheDatabaseToRepositoriesTest extends TestCase
      */
     private const AT_LEAST_THIS_MANY_FILES_ARE_READ = 8;
 
-    /**
-     * The four that still offend, and the calls each is allowed for now.
+    /*
+     * **There is no exemption list any more, and that is what « done » meant**
+     * (issue #551).
      *
-     * **This list is the finding, not the concession.** Issue #413 named two
-     * Services and said « les deux Services métier qui lisent des données de
-     * membres » — this guard, written for those two, immediately reported
-     * four more. The rule was broken in three times as many places as the
-     * ticket that describes it knew about, which is what a rule nobody
-     * checks does.
+     * There was one: `STILL_TO_MOVE`, naming four Services and the calls each
+     * was allowed. It is worth saying what it did, because the shape is
+     * reusable. Issue #413 named TWO Services — « les deux Services métier qui
+     * lisent des données de membres » — and this guard, written for those two,
+     * immediately reported four more. The rule was broken in three times as
+     * many places as the ticket describing it knew about, which is what a rule
+     * nobody checks does.
      *
-     * They are not fixed here on purpose. This change already rewrites 240
-     * construction sites across 159 files; four more Services, each with its
-     * own read model, would double it and make one review round cover two
-     * unrelated pieces of reasoning. They are tracked separately.
+     * The four were parked rather than fixed, because #413 already rewrote 240
+     * construction sites across 159 files and four more read models would have
+     * made one review round carry two unrelated pieces of reasoning. The list
+     * was asserted in BOTH directions, so a file that stopped offending had to
+     * leave it and a test failed until it did — it could only shrink, and
+     * parking a fifth Service there cost a line the next reader would ask
+     * about.
      *
-     * **Asserted in both directions**, which is what makes it a ratchet
-     * rather than a blanket: a file that stops offending must LEAVE this
-     * list, and the test below fails until it does. Nobody can quietly park
-     * a fifth Service here either — adding a name costs a line in a list
-     * that the next reader will ask about.
-     *
-     * @var array<string, list<string>>
+     * It shrank to nothing. `FeeEstimationService` and `SectionRosterService`
+     * gave their purpose strings back to the repositories that own the
+     * encryption dependency; `UnitStaffSectionService` and
+     * `SectionStaffAuthorizationService` gave their statements to
+     * `Core\Member\Repository\UnitStaffSectionRepository` and
+     * `StaffedSectionRepository`. The exemption machinery went with the last
+     * line: an empty allowlist still teaches the next author that there is a
+     * place to put a name.
      */
-    private const STILL_TO_MOVE = [
-        'core/Member/SectionStaffAuthorizationService.php' => ['prepare(', 'getPdo()', '->blindIndex('],
-        'core/Member/UnitStaffSectionService.php' => ['prepare('],
-        'core/Member/FeeEstimationService.php' => ['->blindIndex('],
-        'core/Member/SectionRosterService.php' => ['->decrypt('],
-    ];
 
     public function testNoServiceInMemberPreparesItsOwnStatements(): void
     {
@@ -88,9 +88,6 @@ final class MemberServicesLeaveTheDatabaseToRepositoriesTest extends TestCase
             ++$read;
             foreach (['prepare(', '->query(', '->exec(', 'getPdo()'] as $call) {
                 if (!str_contains(self::withoutComments($source), $call)) {
-                    continue;
-                }
-                if (in_array($call, self::STILL_TO_MOVE[$path] ?? [], true)) {
                     continue;
                 }
                 $offenders[] = $path . ' uses ' . $call;
@@ -121,9 +118,6 @@ final class MemberServicesLeaveTheDatabaseToRepositoriesTest extends TestCase
                 if (!str_contains($code, $call)) {
                     continue;
                 }
-                if (in_array($call, self::STILL_TO_MOVE[$path] ?? [], true)) {
-                    continue;
-                }
                 $offenders[] = $path . ' calls ' . $call;
             }
         }
@@ -137,41 +131,6 @@ final class MemberServicesLeaveTheDatabaseToRepositoriesTest extends TestCase
         );
     }
 
-    /**
-     * Every exemption still earns its place, every run.
-     *
-     * The direction nobody writes by default, and the one that makes a list
-     * shrink instead of settle: a file that has been cleaned up must be
-     * REMOVED from it, and until somebody does, this fails. An exemption
-     * nobody re-checks is how a rule quietly stops applying to a file.
-     */
-    public function testEveryFileStillWaitingToBeMovedStillOffends(): void
-    {
-        $sources = self::servicesInMember();
-        $dead = [];
-
-        foreach (self::STILL_TO_MOVE as $path => $calls) {
-            if (!isset($sources[$path])) {
-                $dead[] = $path . ' is no longer a Service in core/Member/';
-                continue;
-            }
-
-            $code = self::withoutComments($sources[$path]);
-            foreach ($calls as $call) {
-                if (!str_contains($code, $call)) {
-                    $dead[] = $path . ' no longer uses ' . $call;
-                }
-            }
-        }
-
-        $this->assertSame(
-            [],
-            $dead,
-            "these exemptions name something that is no longer true. Remove the line — an exemption\n"
-            . "kept past its need is a blanket over whatever gets written there next:\n  "
-            . implode("\n  ", $dead) . "\n"
-        );
-    }
 
     /**
      * And the repositories the rule points at still exist.

@@ -275,17 +275,23 @@ function e2eWaitHttp(string $url, int $timeoutSeconds): bool
     ]);
 
     while (microtime(true) < $deadline) {
+        // Seeded empty on every attempt, and that is the point: the HTTP
+        // wrapper writes $http_response_header into this scope, so without
+        // the reset one attempt's headers would still be readable on the
+        // next — a server that answered once and then stopped listening
+        // would keep reporting itself up.
+        $http_response_header = [];
         $stream = @fopen($url, 'r', false, $context);
         if ($stream !== false) {
             fclose($stream);
 
             return true;
         }
-        // $http_response_header is populated by the HTTP wrapper even when
-        // fopen() itself returns false on a 4xx/5xx — that still means the
-        // server accepted the connection and answered, which is all this
-        // probe is asking about.
-        if (isset($http_response_header) && $http_response_header !== []) {
+        // The wrapper populates those headers even when fopen() itself
+        // returns false on a 4xx/5xx — that still means the server
+        // accepted the connection and answered, which is all this probe is
+        // asking about.
+        if ($http_response_header !== []) {
             return true;
         }
         usleep(100_000);
@@ -1705,7 +1711,9 @@ function e2eSeedUnitChiefFunctionForAdmin(Core\Database\Connection $connection):
     $scoutYear = (new Core\Config\ScoutYearService($pdo))->getCurrentYear();
     $scoutYearId = $scoutYear['id'];
 
-    $staffSectionId = (new Core\Member\UnitStaffSectionService($pdo))->ensureSection();
+    $staffSectionId = (new Core\Member\UnitStaffSectionService(
+        new Core\Member\Repository\UnitStaffSectionRepository($pdo)
+    ))->ensureSection();
     $statement = $pdo->prepare('SELECT age_branch_id FROM sections WHERE id = ?');
     $statement->execute([$staffSectionId]);
     $staffBranchId = (int) $statement->fetchColumn();
@@ -1855,8 +1863,11 @@ function e2eMergeCoverage(string $repoRoot, string $coverageDir, string $outputP
         return false;
     }
 
-    /** @var list<string> $fragments */
-    $fragments = array_values((array) glob($coverageDir . '/*.cov'));
+    // Not `(array) glob(...)`: glob() answers false on an unreadable
+    // directory, and casting that gives [false] — one fragment that is not
+    // a path, carried all the way to file_get_contents().
+    $found = glob($coverageDir . '/*.cov');
+    $fragments = $found === false ? [] : $found;
     if ($fragments === []) {
         fwrite(STDERR, "E2E coverage: no fragments in {$coverageDir} — was the server started with the collector?\n");
 

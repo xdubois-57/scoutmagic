@@ -77,7 +77,7 @@ class PageControllerTest extends TestCase
     new \Core\Member\Repository\SectionRepository($connection),
     new MemberProfileRepository($connection, $encryption, $memberBadgeRepository)
 );
-        $unitStaffSectionService = new UnitStaffSectionService($this->pdo);
+        $unitStaffSectionService = new UnitStaffSectionService(new \Core\Member\Repository\UnitStaffSectionRepository($this->pdo));
         $scoutYearService = new ScoutYearService($this->pdo);
 
         $settingService = $this->createMock(SettingService::class);

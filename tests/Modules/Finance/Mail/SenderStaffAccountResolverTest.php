@@ -57,16 +57,22 @@ class SenderStaffAccountResolverTest extends TestCase
         $connection = Connection::withPdo($this->pdo);
         $this->resolver = new SenderStaffAccountResolver(
             new SectionStaffAuthorizationService(
-                $connection,
-                $this->encryption,
+                // The member-email repository is never omitted: without it an
+                // animateur writing from a confirmed secondary address staffs
+                // no section at all.
+                new \Core\Member\Repository\StaffedSectionRepository(
+                    $connection,
+                    $this->encryption,
+                    new \Core\Member\MemberEmailRepository($this->pdo, $this->encryption)
+                ),
                 new SectionService(
-    new SectionRepository($connection),
-    new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
-),
-                // Never omitted: without it an animateur writing from a
-                // confirmed secondary address staffs no section at all, and
-                // their receipt lands in the sorting pile for no reason.
-                new MemberEmailRepository($this->pdo, $this->encryption)
+                    new SectionRepository($connection),
+                    new MemberProfileRepository(
+                        $connection,
+                        $this->encryption,
+                        new MemberBadgeRepository($this->pdo)
+                    )
+                )
             ),
             $this->accounts,
             $this->scoutYearId

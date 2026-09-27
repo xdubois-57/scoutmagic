@@ -527,7 +527,7 @@ class PersonalFeedServiceTest extends TestCase
 
         // Sync membership into the real "Staff d'U" section (mirrors what
         // DeskImportService/FunctionsController trigger in production).
-        $unitStaffSectionService = new UnitStaffSectionService($this->pdo);
+        $unitStaffSectionService = new UnitStaffSectionService(new \Core\Member\Repository\UnitStaffSectionRepository($this->pdo));
         $unitStaffSectionService->syncMembership($this->scoutYearId);
 
         $this->calendarService->ensureSectionCalendars();

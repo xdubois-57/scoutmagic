@@ -33,9 +33,10 @@ class SectionRosterServiceTest extends TestCase
         $memberEmailRepository = new MemberEmailRepository($this->pdo, $this->encryption);
         $scoutYearService = new ScoutYearService($this->pdo);
         $movementClassifier = new MemberMovementClassifierService(new MemberMovementRepository($this->pdo), $scoutYearService);
+        // The repository decrypts now (#551), so the Service takes no
+        // EncryptionService: it cannot read an encrypted column at all.
         $this->service = new SectionRosterService(
-            new SectionRosterRepository($this->pdo),
-            $this->encryption,
+            new SectionRosterRepository($this->pdo, $this->encryption),
             $memberEmailRepository,
             $movementClassifier
         );

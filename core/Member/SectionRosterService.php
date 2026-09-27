@@ -11,7 +11,6 @@ namespace Core\Member;
 use Core\Member\Movement\MemberMovementClassifierService;
 use Core\Member\Movement\MemberMovementResult;
 use Core\Member\Movement\MemberMovementStatus;
-use Core\Security\EncryptionService;
 use Core\Service\TextNormalizerService;
 
 /**
@@ -25,7 +24,6 @@ final class SectionRosterService
 {
     public function __construct(
         private SectionRosterRepository $repository,
-        private EncryptionService $encryption,
         private MemberEmailRepository $memberEmailRepository,
         private MemberMovementClassifierService $movementClassifier
     ) {
@@ -57,7 +55,9 @@ final class SectionRosterService
         $memberYearIds = array_values(array_unique(array_map(fn(SectionRosterEntry $e) => $e->memberYearId, $entries)));
         $memberIds = array_values(array_unique(array_map(fn(SectionRosterEntry $e) => $e->memberId, $entries)));
 
-        $memberYearRows = $this->repository->findMemberYearRows($memberYearIds);
+        // Decrypted by the repository (issue #551): this Service holds no
+        // purpose string and no EncryptionService at all.
+        $contacts = $this->repository->findRosterContacts($memberYearIds);
         $validEmailsByMember = $this->memberEmailRepository->findValidByMemberIds($memberIds);
 
         $currentRoster = array_map(
@@ -73,7 +73,7 @@ final class SectionRosterService
         foreach ($entries as $entry) {
             $row = $this->buildRow(
                 $entry,
-                $memberYearRows[$entry->memberYearId] ?? null,
+                $contacts[$entry->memberYearId] ?? null,
                 $validEmailsByMember[$entry->memberId] ?? [],
                 $movementByMemberId[$entry->memberId] ?? new MemberMovementResult(MemberMovementStatus::UNKNOWN)
             );
@@ -100,23 +100,22 @@ final class SectionRosterService
     }
 
     /**
-     * @param array<string, mixed>|null $memberYearRow
      * @param MemberEmail[] $validSecondaryEmails
      */
     private function buildRow(
         SectionRosterEntry $entry,
-        ?array $memberYearRow,
+        ?RosterContact $contact,
         array $validSecondaryEmails,
         MemberMovementResult $movement
     ): ?MemberRosterRow
     {
-        if ($memberYearRow === null) {
+        if ($contact === null) {
             return null;
         }
 
         $emails = [];
-        if (!empty($memberYearRow['email_encrypted'])) {
-            $emails[] = $this->encryption->decrypt($memberYearRow['email_encrypted'], 'member_years.email');
+        if ($contact->email !== null && $contact->email !== '') {
+            $emails[] = $contact->email;
         }
         foreach ($validSecondaryEmails as $secondary) {
             if (!in_array($secondary->email, $emails, true)) {
@@ -125,33 +124,25 @@ final class SectionRosterService
         }
 
         $phones = [];
-        if (!empty($memberYearRow['phone_encrypted'])) {
+        if ($contact->phone !== null && $contact->phone !== '') {
             $phones[] = [
                 'label' => 'Téléphone',
-                'value' => TextNormalizerService::normalizePhone($this->encryption->decrypt(
-                    $memberYearRow['phone_encrypted'],
-                    'member_years.phone'
-                ))
+                'value' => TextNormalizerService::normalizePhone($contact->phone)
             ];
         }
-        if (!empty($memberYearRow['mobile_encrypted'])) {
+        if ($contact->mobile !== null && $contact->mobile !== '') {
             $phones[] = [
                 'label' => 'GSM',
-                'value' => TextNormalizerService::normalizePhone($this->encryption->decrypt(
-                    $memberYearRow['mobile_encrypted'],
-                    'member_years.mobile'
-                ))
+                'value' => TextNormalizerService::normalizePhone($contact->mobile)
             ];
         }
 
         return new MemberRosterRow(
             memberYearId: $entry->memberYearId,
             memberId: $entry->memberId,
-            firstName: $this->encryption->decrypt($memberYearRow['first_name_encrypted'], 'member_years.first_name'),
-            lastName: $this->encryption->decrypt($memberYearRow['last_name_encrypted'], 'member_years.last_name'),
-            totem: !empty($memberYearRow['totem_encrypted'])
-                ? $this->encryption->decrypt($memberYearRow['totem_encrypted'], 'member_years.totem')
-                : null,
+            firstName: $contact->firstName,
+            lastName: $contact->lastName,
+            totem: $contact->totem,
             functionLabel: $entry->functionLabel,
             bucket: $entry->bucket,
             emails: $emails,

@@ -93,11 +93,9 @@ class PresencesTestHelper
     public static function authorization(\PDO $pdo, EncryptionService $encryption): PresenceAuthorizationService
     {
         return new PresenceAuthorizationService(new SectionStaffAuthorizationService(
-            Connection::withPdo($pdo),
-            $encryption,
-            self::sectionService($pdo, $encryption),
-            new MemberEmailRepository($pdo, $encryption)
-        ));
+    new \Core\Member\Repository\StaffedSectionRepository(Connection::withPdo($pdo), $encryption, new MemberEmailRepository($pdo, $encryption)),
+    self::sectionService($pdo, $encryption)
+));
     }
 
     public static function sheetService(

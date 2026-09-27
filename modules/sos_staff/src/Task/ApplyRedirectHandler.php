@@ -60,7 +60,7 @@ class ApplyRedirectHandler implements TaskHandlerInterface
             new SosSettingsRepository($pdo),
             $sectionService,
             $memberYearRepository,
-            new UnitStaffSectionService($pdo),
+            new UnitStaffSectionService(new \Core\Member\Repository\UnitStaffSectionRepository($pdo)),
             $context->settings
         );
 

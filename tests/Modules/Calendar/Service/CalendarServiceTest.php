@@ -45,7 +45,7 @@ class CalendarServiceTest extends TestCase
     new SectionRepository(Connection::withPdo($this->pdo)),
     new MemberProfileRepository(Connection::withPdo($this->pdo), new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), new MemberBadgeRepository($this->pdo))
 );
-        $this->unitStaffSectionService = new UnitStaffSectionService($this->pdo);
+        $this->unitStaffSectionService = new UnitStaffSectionService(new \Core\Member\Repository\UnitStaffSectionRepository($this->pdo));
         $this->service = new CalendarService($this->calendarRepository, $this->eventRepository, $sectionService, new CalendarUnitFeedTokenRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))));
     }
 

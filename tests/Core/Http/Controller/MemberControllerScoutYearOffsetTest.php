@@ -77,7 +77,10 @@ class MemberControllerScoutYearOffsetTest extends TestCase
             $journalService,
             $this->createMock(MemberPageService::class),
             new DepartureService(new DepartureRepository($this->pdo, $this->encryption), $journalService),
-            new SectionStaffAuthorizationService($connection, $this->encryption, $sectionService)
+            new SectionStaffAuthorizationService(
+    new \Core\Member\Repository\StaffedSectionRepository($connection, $this->encryption),
+    $sectionService
+)
         );
 
         // Scout year 2025-2026 → reference year 2025.

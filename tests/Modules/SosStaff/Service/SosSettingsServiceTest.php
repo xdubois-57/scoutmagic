@@ -52,7 +52,7 @@ class SosSettingsServiceTest extends TestCase
     new MemberProfileRepository($connection, $this->encryption, $memberBadgeRepository)
 );
         $this->memberYearRepository = new MemberYearRepository($this->pdo);
-        $this->unitStaffSectionService = new UnitStaffSectionService($this->pdo);
+        $this->unitStaffSectionService = new UnitStaffSectionService(new \Core\Member\Repository\UnitStaffSectionRepository($this->pdo));
         $this->settingService = new SettingService(new SettingRepository($this->pdo));
         $this->settingService->register('transition_hour', '10:00', 'text', 'Heure', 'desc', 'sos_staff');
         $this->settingService->register('email_notifications_enabled', '1', 'boolean', 'Emails', 'desc', 'sos_staff');

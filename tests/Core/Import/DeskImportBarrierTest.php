@@ -86,7 +86,7 @@ class DeskImportBarrierTest extends TestCase
             $memberYearRepo,
             new ImportJournalRepository($this->pdo),
             new UserAccountRepository($this->pdo, $encryption),
-            new UnitStaffSectionService($this->pdo),
+            new UnitStaffSectionService(new \Core\Member\Repository\UnitStaffSectionRepository($this->pdo)),
             new SectionMembershipService(new SectionMembershipRepository($this->pdo), new ScoutYearService($this->pdo)),
             new RosterReplacementGuard(
                 new RosterComparisonRepository($this->pdo),

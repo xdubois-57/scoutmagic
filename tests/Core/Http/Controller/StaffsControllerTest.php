@@ -116,15 +116,13 @@ class StaffsControllerTest extends TestCase
             $scoutYearResolver,
             $journalService,
             $this->badgeService,
-            new UnitStaffSectionService($this->pdo),
+            new UnitStaffSectionService(new \Core\Member\Repository\UnitStaffSectionRepository($this->pdo)),
             $this->sectionDocumentService,
             $settingService,
             new \Core\Member\SectionStaffAuthorizationService(
-                $connection,
-                $this->encryption,
-                $this->sectionService,
-                new \Core\Member\MemberEmailRepository($this->pdo, $this->encryption)
-            )
+    new \Core\Member\Repository\StaffedSectionRepository($connection, $this->encryption, new \Core\Member\MemberEmailRepository($this->pdo, $this->encryption)),
+    $this->sectionService
+)
         );
 
         // Set up session as chief

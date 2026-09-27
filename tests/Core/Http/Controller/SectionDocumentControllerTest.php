@@ -88,11 +88,9 @@ class SectionDocumentControllerTest extends TestCase
             $this->createMock(\Twig\Environment::class),
             $service,
             new SectionStaffAuthorizationService(
-                $connection,
-                $encryption,
-                $sectionService,
-                new MemberEmailRepository($this->pdo, $encryption)
-            ),
+    new \Core\Member\Repository\StaffedSectionRepository($connection, $encryption, new MemberEmailRepository($this->pdo, $encryption)),
+    $sectionService
+),
             new ScoutYearResolver(new \Core\Config\ScoutYearService($this->pdo), $settingService, new MemberYearRepository($this->pdo)),
             new JournalService(new JournalRepository($this->pdo))
         );

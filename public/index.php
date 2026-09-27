@@ -2525,7 +2525,7 @@ $csvParser = new DeskCsvParser($journalService);
 // read by Correspondances Desk, by the support package, and by nothing
 // that writes (issue #356).
 $deskMappingGapService = new \Core\Import\DeskMappingGapService($pdo, $scoutYearService);
-$unitStaffSectionService = new UnitStaffSectionService($pdo);
+$unitStaffSectionService = new UnitStaffSectionService(new \Core\Member\Repository\UnitStaffSectionRepository($pdo));
 $sectionMembershipRepository = new \Core\Member\SectionMembershipRepository($pdo);
 $sectionMembershipService = new \Core\Member\SectionMembershipService($sectionMembershipRepository, $scoutYearService);
 
@@ -2653,10 +2653,8 @@ $badgeService = new BadgeService($badgeRepository, $memberBadgeRepository, $sect
 // $memberEmailRepository silently staffs fewer sections), and this
 // question must have exactly one answer site-wide.
 $sectionStaffAuthorizationService = new \Core\Member\SectionStaffAuthorizationService(
-    $connection,
-    $encryptionService,
-    $sectionService,
-    $memberEmailRepository
+    new \Core\Member\Repository\StaffedSectionRepository($connection, $encryptionService, $memberEmailRepository),
+    $sectionService
 );
 
 // Member page (Espace membres) "Documents privés" storage — see
@@ -2706,10 +2704,9 @@ $memberMovementClassifier = new \Core\Member\Movement\MemberMovementClassifierSe
     $memberMovementRepository,
     $scoutYearService
 );
-$sectionRosterRepository = new \Core\Member\SectionRosterRepository($pdo);
+$sectionRosterRepository = new \Core\Member\SectionRosterRepository($pdo, $encryptionService);
 $sectionRosterService = new \Core\Member\SectionRosterService(
     $sectionRosterRepository,
-    $encryptionService,
     $memberEmailRepository,
     $memberMovementClassifier
 );
@@ -5936,8 +5933,7 @@ if ($isEnabled('registration')) {
     );
 }
 $feeEstimationService = new \Core\Member\FeeEstimationService(
-    new \Core\Member\FeeEstimationRepository($pdo),
-    $encryptionService,
+    new \Core\Member\FeeEstimationRepository($pdo, $encryptionService),
     $householdRegistrationCountForOthers
 );
 // Its twin, and core for the same reason: the two counts a household has

@@ -105,7 +105,7 @@ class MemberSearchControllerTest extends TestCase
     new \Core\Member\Repository\MemberProfileRepository($connection, $this->enc, new \Core\Badge\MemberBadgeRepository($this->pdo))
 );
         $exportRowBuilder = new \Core\Member\Export\MemberExportRowBuilder(
-            new \Core\Member\SectionRosterRepository($this->pdo),
+            new \Core\Member\SectionRosterRepository($this->pdo, $this->enc),
             $sectionService,
             $scoutYearService,
             $this->enc,
@@ -160,10 +160,9 @@ class MemberSearchControllerTest extends TestCase
             // ::staffsAnimeMemberYear()). The signed-in account below is
             // an admin, which staffs every section.
             new \Core\Member\SectionStaffAuthorizationService(
-                \Core\Database\Connection::withPdo($this->pdo),
-                $this->enc,
-                $sectionService
-            )
+    new \Core\Member\Repository\StaffedSectionRepository(\Core\Database\Connection::withPdo($this->pdo), $this->enc),
+    $sectionService
+)
         );
 
         if (session_status() !== PHP_SESSION_ACTIVE) {

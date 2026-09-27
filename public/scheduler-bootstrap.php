@@ -657,8 +657,11 @@ function scoutmagicBootstrapScheduler(
                         // nothing.
                         new \Modules\Finance\Mail\SenderStaffAccountResolver(
                             new \Core\Member\SectionStaffAuthorizationService(
-                                \Core\Database\Connection::withPdo($pdo),
-                                $encryptionService,
+                                new \Core\Member\Repository\StaffedSectionRepository(
+                                    \Core\Database\Connection::withPdo($pdo),
+                                    $encryptionService,
+                                    new \Core\Member\MemberEmailRepository($pdo, $encryptionService)
+                                ),
                                 new \Core\Member\SectionService(
                                     new \Core\Member\Repository\SectionRepository(
                                         \Core\Database\Connection::withPdo($pdo)
@@ -668,9 +671,8 @@ function scoutmagicBootstrapScheduler(
                                         $encryptionService,
                                         new \Core\Badge\MemberBadgeRepository($pdo)
                                     )
-                                ),
-                                new \Core\Member\MemberEmailRepository($pdo, $encryptionService)
-                            ),
+                                )
+),
                             $financeAccountRepository,
                             $financeScoutYearId
                         ),

@@ -40,7 +40,7 @@ class MemberExportRowBuilderTest extends TestCase
         $scoutYearService = new ScoutYearService($this->pdo);
         $memberEmailRepository = new MemberEmailRepository($this->pdo, $this->encryption);
         $movementClassifier = new MemberMovementClassifierService(new MemberMovementRepository($this->pdo), $scoutYearService);
-        $rosterRepository = new SectionRosterRepository($this->pdo);
+        $rosterRepository = new SectionRosterRepository($this->pdo, $this->encryption);
 
         $this->builder = new MemberExportRowBuilder(
             $rosterRepository, $sectionService, $scoutYearService, $this->encryption, $memberEmailRepository, $movementClassifier

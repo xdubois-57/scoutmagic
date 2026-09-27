@@ -15,8 +15,53 @@ namespace Core\Member;
  */
 final class SectionRosterRepository
 {
-    public function __construct(private \PDO $pdo)
+    public function __construct(
+        private \PDO $pdo,
+        private \Core\Security\EncryptionService $encryption
+    ) {
+    }
+
+    /**
+     * Identity and contact details for each member_year, **decrypted here**
+     * (issue #551).
+     *
+     * `SectionRosterService` used to take {@see findMemberYearRows()}' raw
+     * rows and decrypt six columns itself, which put six purpose strings in a
+     * Service (SECURITY.md §5, ARCHITECTURE.md §13). They are spelled once,
+     * here, beside the query that reads the columns they name.
+     *
+     * The raw reader stays for {@see \Core\Member\Export\MemberExportRowBuilder},
+     * which needs four more encrypted columns than the roster shows; this
+     * method reuses the same fetch rather than adding a second SELECT over the
+     * same table.
+     *
+     * @param int[] $memberYearIds
+     * @return array<int, \Core\Member\RosterContact> keyed by member_year id
+     */
+    public function findRosterContacts(array $memberYearIds): array
     {
+        $contacts = [];
+        foreach ($this->findMemberYearRows($memberYearIds) as $memberYearId => $row) {
+            $contacts[$memberYearId] = new \Core\Member\RosterContact(
+                memberYearId: $memberYearId,
+                firstName: $this->encryption->decrypt($row['first_name_encrypted'], 'member_years.first_name'),
+                lastName: $this->encryption->decrypt($row['last_name_encrypted'], 'member_years.last_name'),
+                totem: empty($row['totem_encrypted'])
+                    ? null
+                    : $this->encryption->decrypt($row['totem_encrypted'], 'member_years.totem'),
+                email: empty($row['email_encrypted'])
+                    ? null
+                    : $this->encryption->decrypt($row['email_encrypted'], 'member_years.email'),
+                phone: empty($row['phone_encrypted'])
+                    ? null
+                    : $this->encryption->decrypt($row['phone_encrypted'], 'member_years.phone'),
+                mobile: empty($row['mobile_encrypted'])
+                    ? null
+                    : $this->encryption->decrypt($row['mobile_encrypted'], 'member_years.mobile')
+            );
+        }
+
+        return $contacts;
     }
 
     /**
