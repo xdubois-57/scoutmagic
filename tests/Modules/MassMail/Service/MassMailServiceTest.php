@@ -736,6 +736,9 @@ class MassMailServiceTest extends TestCase
                 $capturedSubject = $args[1];
                 $capturedBody = $args[2];
             });
+        // The shape getDefaultSender() really answers — see siteMailService().
+        $mailServiceMock->method('getDefaultSender')
+            ->willReturn(['address' => 'unite@test.be', 'name' => 'Test Unité']);
         $service = $this->buildServiceWithMailService($mailServiceMock);
 
         $service->sendTestEmail($email->id, 'chief@test.be', 1);

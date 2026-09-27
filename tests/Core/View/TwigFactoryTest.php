@@ -234,7 +234,7 @@ class TwigFactoryTest extends TestCase
         // current year (999) but returns a file that actually lives in an
         // earlier year internally — the point is that the *key* must still
         // use 999, not whatever year the file was originally uploaded in.
-        $service->method('resolveFileId')->with(42, 999)->willReturn(7);
+        $service->expects($this->once())->method('resolveFileId')->with(42, 999)->willReturn(7);
         $twig->addGlobal('_member_photo_service', $service);
         $twig->addGlobal('effective_scout_year_id', 999);
         $twig->addGlobal('config_mode', false);
