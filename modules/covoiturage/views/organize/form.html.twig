@@ -4,6 +4,11 @@
 {% block stylesheets %}
     {# Leaflet is vendored, never a CDN (ARCHITECTURE.md §8.119). #}
     <link rel="stylesheet" href="{{ asset('/assets/vendor/leaflet/leaflet.css') }}">
+    {# The map's height lives in components.css (.carpool-point-map), which
+       base.html.twig deliberately does not load. Without this link the map
+       box is zero pixels tall and « Placer le point sur la carte » shows
+       nothing at all (issue #570). #}
+    <link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">
 {% endblock %}
 {#
   Creating or editing a carpool. The events are chosen with the core's
