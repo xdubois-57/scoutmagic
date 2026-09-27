@@ -1125,8 +1125,8 @@ tous les membres et ne doit pas être une adresse personnelle ; (e) qu'un covoit
 après sa dernière date, au bout d'un délai réglable (30 jours par défaut, sauf réglage contraire), avec tout ce qu'il
 contient. Le géocodage du lieu d'une sortie relève du paragraphe "Fond de carte et géocodage" (règle 22bis) — il a lieu
 en tâche de fond ET pendant qu'un animateur saisit ce lieu, toujours depuis le serveur du site, jamais depuis le
-navigateur, et conserve-le tel quel : ce n'est jamais une donnée personnelle qui part. Ce module ne fait **aucun appel à une IA** et n'introduit aucun autre
-sous-traitant.
+navigateur, avec un cache qui ne conserve pas l'adresse elle-même : ce n'est jamais une donnée personnelle qui part.
+Ce module ne fait **aucun appel à une IA** et n'introduit aucun autre sous-traitant.
 
 33quater. **Module Réseaux sociaux (module social)** : Si "social" ne figure PAS dans la liste des modules actifs
 ({$modulesText}), ou si les réseaux sociaux raccordés indiquent « {$socialPublishing} » et que cette valeur est « Non
