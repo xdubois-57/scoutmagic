@@ -311,7 +311,11 @@ class MaintenanceController extends AbstractController
         // very page. Taken from the list the table below already fetched
         // (newest first) rather than a second query for the same row.
         $updateHistory = $this->updateHistoryRepository->findRecent(self::UPDATE_HISTORY_SHOWN);
-        $lastAttempt = $updateHistory[0] ?? null;
+        // An install skipped before it started was never an attempt
+        // (issue #622): the last one is the newest that actually ran or
+        // is still to run — asked of the table rather than of the rows
+        // shown, which a burst of skipped pushes can fill entirely.
+        $lastAttempt = $this->updateHistoryRepository->findLatestAttempt();
         $lastAttemptFailed = $lastAttempt !== null
             && in_array($lastAttempt->status, ['failed', 'rolled_back'], true);
 
@@ -1633,8 +1637,9 @@ class MaintenanceController extends AbstractController
         $this->schedulerService->cancel((int) $pending['id']);
         if ($history !== null && $history->status === 'pending') {
             // Terminal status so the "Historique des mises à jour" table
-            // doesn't show this abandoned row as "En cours" forever.
-            $this->updateHistoryRepository->markFailed(
+            // doesn't show this abandoned row as "En cours" forever —
+            // skipped, not failed: it never started (issue #622).
+            $this->updateHistoryRepository->markSkipped(
                 $historyId,
                 'Installation planifiée annulée suite au changement des préférences de mise à jour automatique.'
             );

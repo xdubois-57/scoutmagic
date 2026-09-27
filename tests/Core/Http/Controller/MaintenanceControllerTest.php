@@ -538,6 +538,54 @@ class MaintenanceControllerTest extends TestCase
         $this->assertStringContainsString('restauré automatiquement', $body);
     }
 
+    /**
+     * An install skipped before it started is not an attempt (issue #622):
+     * it neither raises the alarm on its own, nor hides the failure of the
+     * attempt before it.
+     */
+    public function testASkippedInstallIsShownAsIgnoredAndIsNotTheLastAttempt(): void
+    {
+        $succeeded = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, null);
+        $this->updateHistoryRepository->markCompleted($succeeded);
+        $skipped = $this->updateHistoryRepository->create('1.1.0', '1.2.0', false, null);
+        $this->updateHistoryRepository->markSkipped($skipped, 'Installation remplacée : un push plus récent est arrivé.');
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('>Ignorée</span>', $body);
+        $this->assertStringNotContainsString('Échouée</span>', $body, 'a skipped install shown as failed');
+        $this->assertStringNotContainsString('maintenance-update-last-attempt', $body);
+    }
+
+    public function testASkippedInstallDoesNotHideTheFailedAttemptBeforeIt(): void
+    {
+        $failed = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, null);
+        $this->updateHistoryRepository->markRolledBack($failed, 'migration KO');
+        $skipped = $this->updateHistoryRepository->create('1.1.0', '1.2.0', false, null);
+        $this->updateHistoryRepository->markSkipped($skipped, 'Installation remplacée.');
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('maintenance-update-last-attempt', $body);
+        $this->assertStringContainsString('restauré automatiquement', $body);
+    }
+
+    /** More skipped rows than the history shows still leave the failure behind them visible. */
+    public function testAFailureBehindMoreSkippedInstallsThanTheTableShowsIsStillFlagged(): void
+    {
+        $failed = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, null);
+        $this->updateHistoryRepository->markRolledBack($failed, 'migration KO');
+        for ($i = 0; $i < 25; $i++) {
+            $skipped = $this->updateHistoryRepository->create('1.1.0', '1.2.' . $i, false, null);
+            $this->updateHistoryRepository->markSkipped($skipped, 'Installation remplacée.');
+        }
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('maintenance-update-last-attempt', $body);
+        $this->assertStringContainsString('restauré automatiquement', $body);
+    }
+
     public function testTheHealthBlockStaysQuietWhenTheMostRecentAttemptSucceeded(): void
     {
         $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, null);
@@ -1404,7 +1452,7 @@ class MaintenanceControllerTest extends TestCase
         $runner->expects($this->never())->method('migrate');
         $controller = $this->controllerWithRunner($runner);
 
-        foreach (['pending', 'backing_up', 'downloading', 'installing', 'completed', 'failed', 'rolled_back'] as $status) {
+        foreach (['pending', 'backing_up', 'downloading', 'installing', 'completed', 'failed', 'rolled_back', 'skipped'] as $status) {
             $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, 1);
             $this->updateHistoryRepository->setStatus($id, $status);
 
@@ -1904,7 +1952,7 @@ class MaintenanceControllerTest extends TestCase
 
         $this->assertTrue(json_decode($response->getBody(), true)['success']);
         $this->assertSame('canceled', $this->schedulerRepository->findById($actionId)['status']);
-        $this->assertSame('failed', $this->updateHistoryRepository->findById($historyId)->status);
+        $this->assertSame('skipped', $this->updateHistoryRepository->findById($historyId)->status);
     }
 
     public function testSaveAutoUpdatePreferencesDisablingAutoUpdatesCancelsThePendingScheduledInstall(): void
@@ -1916,7 +1964,7 @@ class MaintenanceControllerTest extends TestCase
 
         $this->assertTrue(json_decode($response->getBody(), true)['success']);
         $this->assertSame('canceled', $this->schedulerRepository->findById($actionId)['status']);
-        $this->assertSame('failed', $this->updateHistoryRepository->findById($historyId)->status);
+        $this->assertSame('skipped', $this->updateHistoryRepository->findById($historyId)->status);
     }
 
     public function testSaveAutoUpdatePreferencesMovesThePendingScheduledInstallToTheNewSlot(): void
@@ -1958,7 +2006,7 @@ class MaintenanceControllerTest extends TestCase
 
         $this->assertTrue(json_decode($response->getBody(), true)['success']);
         $this->assertSame('canceled', $this->schedulerRepository->findById($actionId)['status']);
-        $this->assertSame('failed', $this->updateHistoryRepository->findById($historyId)->status);
+        $this->assertSame('skipped', $this->updateHistoryRepository->findById($historyId)->status);
     }
 
     // --- "Vérifier maintenant" (POST /config/maintenance/update/check-now) ---
