@@ -1952,3 +1952,31 @@ code — après la ligne `files` du lot 1, la boîte de dénombrement du lot 1, 
 le compte de portes de `release.sh`. Le chantier existe pour retirer des tests
 les affirmations que le code ne tient pas ; il faut le lire aussi sur les
 commentaires écrits pour les accompagner.
+
+**Et une cinquième fois, dans le correctif de la quatrième.** La phrase qui
+remplaçait l'affirmation fausse en portait une autre : elle disait que le
+contrôle côté créance (`ReceivableAllocationService::requireReceivable()`)
+était « asserté par
+`testACampaignOnAnAccountOutOfReachCannotBeClosedNotedOrNotified` ». Il ne
+l'était pas. Ce test relève le plancher du compte **de la campagne**, donc
+`requireCampaign()` lève d'abord et le service d'allocation n'est jamais
+atteint — l'assertion du test le dit elle-même, puisqu'elle attend « Cette
+campagne n'existe pas. » et non « Cette créance n'existe pas. ». Relevé par
+`Claude review`, en commentaire en ligne.
+
+La réponse n'a pas été d'adoucir la phrase mais de la rendre vraie :
+`testAReceivableOnAnAccountOutOfReachIsRefusedThroughACampaignInReach` nomme
+une campagne **à portée** et, à côté d'elle, la créance d'une autre campagne
+sur un compte qui ne l'est pas. `requireCampaign()` passe — c'est #582 — et le
+refus vient du contrôle côté créance, ce que son message prouve.
+
+Retirer ce contrôle rend ce test rouge **et lui seul** dans ce fichier
+(vérifié, les deux moitiés de l'affirmation), et la créance est alors
+réellement abandonnée depuis l'extérieur de son compte : « La créance a été
+abandonnée. » C'est ce garde-fou qui fait de #582 une question d'honnêteté de
+route et non un trou de privilège — et il n'était, jusqu'ici, asserté par
+aucun test passant par cette route.
+
+La leçon de méthode, pour la suite du chantier : une phrase qui dit « ceci est
+couvert ailleurs » est une affirmation vérifiable, et se vérifie comme le
+reste — en cassant ce qu'elle nomme pour voir qui rougit.

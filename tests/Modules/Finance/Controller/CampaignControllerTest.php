@@ -752,9 +752,11 @@ class CampaignControllerTest extends TestCase
      *
      * What this does **not** show, because the route does not do it: that
      * the receivable belongs to this campaign. Nothing compares the two
-     * (issue #582). The check that does hold is on the receivable's own
-     * account, inside the allocation service, and it is asserted below by
-     * testACampaignOnAnAccountOutOfReachCannotBeClosedNotedOrNotified.
+     * (issue #582). `requireCampaign()` resolves and throws first here, so
+     * the allocation service is never reached at all — the check that does
+     * hold, on the receivable's own account, is asserted by
+     * testAReceivableOnAnAccountOutOfReachIsRefusedThroughACampaignInReach,
+     * which gets past this one by naming a campaign that IS in reach.
      */
     public function testWaivingThroughAnUnknownCampaignLeavesTheReceivableStanding(): void
     {
@@ -911,6 +913,77 @@ class CampaignControllerTest extends TestCase
         return (int) $count;
     }
 
+    /**
+     * **The guard that keeps issue #582 from being a security hole, and the
+     * reason that issue is about a route's honesty rather than about
+     * privilege.** The campaign named in the URL is in reach; the receivable
+     * named beside it belongs to another campaign, on an account that is
+     * not. Nothing in `waive()` compares the two, so `requireCampaign()`
+     * passes — and the refusal comes from the receivable's OWN account
+     * check, inside `ReceivableAllocationService::requireReceivable()`,
+     * which is why the message is the receivable's and not the campaign's.
+     *
+     * Remove that check and this test goes red while every other test here
+     * stays green: it is the only one that reaches it through this route.
+     */
+    public function testAReceivableOnAnAccountOutOfReachIsRefusedThroughACampaignInReach(): void
+    {
+        $inReach = $this->createCampaign();
+        [$foreignCampaignId, $foreignAccountId] = $this->createCampaignOnItsOwnAccount();
+        $foreignRowId = $this->rows->findByCampaignId($foreignCampaignId)[0]->id;
+        $foreignReceivableId = $this->receivables
+            ->findBySource(CampaignService::SOURCE_MODULE, $foreignRowId)[0]->id;
+        $this->pdo->prepare("UPDATE finance_accounts SET role_min_view = 'admin' WHERE id = ?")
+            ->execute([$foreignAccountId]);
+        FlashMessage::get();
+
+        $response = $this->controller->waive(
+            new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken(), 'waived' => '1'], [], []),
+            ['id' => (string) $inReach, 'receivableId' => (string) $foreignReceivableId]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            "Cette créance n'existe pas.",
+            FlashMessage::get()['message'] ?? null,
+            'the refusal did not come from the receivable-side account check'
+        );
+        $this->assertFalse(
+            $this->receivables->findById($foreignReceivableId)?->isWaived(),
+            "a treasurer waived a receivable on an account they may not see"
+        );
+    }
+
+    /**
+     * A second campaign, booked against an account of its own, so a test can
+     * cross the two. The account is created within reach — `createFromFile()`
+     * checks visibility too — and a caller may restrict it afterwards.
+     *
+     * @return array{0: int, 1: int} the campaign's id and its account's
+     */
+    private function createCampaignOnItsOwnAccount(): array
+    {
+        $accounts = $this->controllerParts['accounts'];
+        \assert($accounts instanceof AccountRepository);
+        $accountId = $accounts->create(
+            'Compte Section',
+            Account::TYPE_BANK,
+            null,
+            'BE00000000000002',
+            'Titulaire',
+            'intendant'
+        );
+        $this->pdo->prepare("UPDATE finance_accounts SET status = 'active' WHERE id = ?")->execute([$accountId]);
+
+        $response = $this->upload('Camp 2025', [[$this->memberIds['D-200'], '60,00']], $accountId);
+        self::assertSame(302, $response->getStatusCode(), $response->getBody());
+        $location = (string) ($response->getHeaders()['Location'] ?? '');
+        $campaignId = (int) substr($location, (int) strrpos($location, '/') + 1);
+        self::assertGreaterThan(0, $campaignId, 'the second campaign was not created: ' . $location);
+
+        return [$campaignId, $accountId];
+    }
+
     private function createCampaign(): int
     {
         $response = $this->upload('Cotisations 2025-2026', [
@@ -925,7 +998,7 @@ class CampaignControllerTest extends TestCase
     /**
      * @param array<int, array<int, string|int>> $lines
      */
-    private function upload(string $label, array $lines): \Core\Http\Response
+    private function upload(string $label, array $lines, ?int $accountId = null): \Core\Http\Response
     {
         $path = $this->spreadsheet($lines);
 
@@ -949,7 +1022,7 @@ class CampaignControllerTest extends TestCase
                         '_csrf_token' => $this->csrfToken(),
                         'label' => $label,
                         'scout_year_id' => (string) $this->scoutYearId,
-                        'account_id' => (string) $this->accountId,
+                        'account_id' => (string) ($accountId ?? $this->accountId),
                     ],
                     [],
                     []
