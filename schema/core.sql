@@ -2378,7 +2378,7 @@ CREATE TABLE IF NOT EXISTS storage_protections (
 --   * the APPLICATION key, for « Télécharger » and the image preview:
 --     GET /document/telecharger/{token}, only to the session that caused
 --     the hold (session_hash), so that it never consumes the browser key.
--- A daily task (PurgeHeldDocumentsHandler) deletes the file and the row
+-- An hourly task (PurgeHeldDocumentsHandler) deletes the file and the row
 -- once expires_at has passed, opened or not. SECURITY.md § 6 describes
 -- this as a deliberate exception to « every download goes through
 -- /files/{id} ».
