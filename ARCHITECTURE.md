@@ -4888,6 +4888,73 @@ into mailboxes hosted by third parties the unit chooses. The routing
 itself introduces no processor: it only says which already-declared relay
 is tried first.
 
+#### A trend is one class for both screens (`Core\Mail\Feedback\Trend`, issue #420)
+
+**Both feedback screens answered « where am I today » and neither
+answered « was it already like this last month ».** A 92 % authentication
+rate is excellent coming up from 70 % and alarming coming down from
+100 %; a provider filing half the mailings aside may have always done so.
+Acting on either figure needs the week before it.
+
+*One `WeeklySeries` for both, because the three decisions are the same
+three decisions.* The week, the threshold and the left edge shape any
+trend here, and DMARC and the seed boxes differ only in what they count.
+Two copies would be two chances to answer « is this week finished »
+differently, and the two screens would eventually disagree about the same
+week.
+
+*A hole is not a zero, and that is the whole arbitration.* Below the
+threshold there is no point at all and the line breaks (`spanGaps:
+false`): a hole says « we do not know », which is true and cannot be read
+across, while a zeroed or greyed point is eventually read like the
+others. It is also the answer to two different absences at once — a week
+whose rows were purged and a week before the site existed are both « not
+measured », the only thing the series can honestly assert.
+
+*The left edge is read from the purge, never restated.* Each trend
+subtracts its own retention constant (`PurgeDmarcReportsHandler`,
+`PurgeSeedCopiesHandler`) and hands the edge in. A curve reaching further
+would promise a « before » that was deleted; one starting at the first row
+would promise that nothing was sent before. The constant cannot drift
+from the curve because there is only one of it.
+
+*The threshold lives beside the data it judges, and there are two because
+they count different things.* `AuthenticationTrend::MINIMUM_MESSAGES` is
+twenty **messages** — what a DMARC report actually carries, a report
+saying nothing about which messages belonged to one mailing.
+`LandingTrend` has no constant of its own: it is `DomainRouting::
+MINIMUM_RUNS`, the five **mailings** the automatic routing is already
+gated on, because it is the same judgement about the same evidence. This
+is why `WeeklySeries` keeps `sample` and `total` apart: for the seed boxes
+the evidence is mailings while the ratio stays inbox copies over answered
+copies — the share the ranking screen already shows.
+
+*The ISO week is bucketed in PHP, not in SQL.* MySQL's `YEARWEEK(…, 3)`
+is the ISO week and SQLite has none — `strftime('%W')` starts on Sunday —
+so a `GROUP BY` would answer one way under the engine CI runs and another
+under a local fallback. One `DateTimeImmutable` and one `'o-\WW'` key
+cannot drift that way (`o` is the ISO year: a key built from `Y` files
+week 1 of 2027 under 2026).
+
+*The current week is drawn as it fills, and says so.* A point is « the
+week of the 14th », which a rolling seven-day slice cannot name; the
+admitted price is that the last point still moves, so it is flagged
+`partial` and the tooltip says « semaine en cours » rather than letting a
+half-week read as a drop.
+
+*A provider measured too thinly is left off the chart.*
+`LandingTrend::drawable()` drops a series with no drawable week, because a
+legend entry with no line beside it reads as « this provider delivered
+nothing » — the opposite of « we have not measured it enough to say ».
+For the same reason the controller hands the view an empty list rather
+than a list of holes: nothing drawable means no chart, not an empty frame.
+
+*And the figures are in text beside every chart.* Each card carries a
+`<details>` table of the same weeks, holes omitted, for a reader who
+cannot see a line. The labels reach Chart.js as data and never as markup
+(SECURITY.md § 28).
+
+
 ### 8.107 Storage locations (`Core\Storage\Location`)
 
 **One declared destination for bytes, and every consumer picks one.** The same idea used to be written twice, with two incompatible models: the gallery had `gallery_storage_locations` — N rows, a `StorageBackendInterface`, a cached health column — while the off-site backup had a dozen flat `SettingService` keys, a `RemoteBackupTarget` interface and a `remote_backup_last_error` setting. A single destination in flat settings on one side, N destinations in a table on the other. The second form is the right one, and this is it, generalised. **Both halves have now arrived**: the gallery moved here in IT-01 and the off-site backup in IT-05, which is where `RemoteBackupTarget` disappeared and a Drive folder became a location like any other (§8.104).
