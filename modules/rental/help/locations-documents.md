@@ -31,6 +31,14 @@ taper : ils forment un bloc insécable, qu'une mise en forme ne peut plus
 couper en deux. Si un mot-clé n'est pas reconnu, la page vous le dit avant
 que le document ne parte.
 
+## Le bailleur
+
+L'en-tête du contrat et de la facture nomme le bailleur. Par défaut,
+c'est l'unité : son nom et son adresse postale (Paramètres, cœur du
+site). Si les locaux appartiennent à une ASBL distincte, renseignez son
+nom, son adresse et son numéro d'entreprise dans Paramètres › Locations.
+Les documents générés ensuite la nomment à la place de l'unité.
+
 ## Générer, puis envoyer
 
 Générer produit un PDF. Chaque génération crée une version de plus **sans

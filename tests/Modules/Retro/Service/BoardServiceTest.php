@@ -599,7 +599,7 @@ class BoardServiceTest extends TestCase
      */
     public function testIsUnitChiefDelegatesToMemberService(): void
     {
-        $this->memberService->method('isUnitChief')->with('unit-chief@example.com', 1)->willReturn(true);
+        $this->memberService->expects($this->once())->method('isUnitChief')->with('unit-chief@example.com', 1)->willReturn(true);
 
         $this->assertTrue($this->service()->isUnitChief('unit-chief@example.com', 1));
     }

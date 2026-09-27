@@ -337,7 +337,7 @@ de 50 Mpx et le filtre `chief`/`admin` de `getSectionStaff()`.
 - **Six fichiers commités**, deux comptes × trois exercices, 137 lignes
   exploitables au total.
 - **Onze tests de format ajoutés** à `ReferenceDatasetFormatTest` : chaque
-  relevé passe `BnpParser::parse()` et `extractSourceIban()`, chaque date tombe
+  relevé passe `BnpParser::parse()` et `extractAccountIbans()`, chaque date tombe
   dans l'un des trois exercices, aucune référence n'est répétée à l'intérieur
   d'un fichier, trois le sont entre deux fichiers successifs, les deux formats
   de montant délicats sont lus correctement, la ligne refusée n'atteint jamais

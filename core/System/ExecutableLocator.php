@@ -80,7 +80,7 @@ final class ExecutableLocator
     {
         $result = ShellExecutor::run('command -v ' . escapeshellarg($name) . ' 2>/dev/null');
         $firstLine = strtok($result['output'], "\n");
-        if ($result['returnCode'] === 0 && $firstLine !== false && $firstLine !== '') {
+        if ($result['returnCode'] === 0 && $firstLine !== false) {
             return $firstLine;
         }
 

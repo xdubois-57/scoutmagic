@@ -16,7 +16,6 @@ use Core\Http\Response;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\HtmlSanitizer;
-use Core\View\EditableContentService;
 use Core\Service\IntegerInput;
 use Modules\Rental\Document\AssetConditions;
 use Modules\Rental\Payment\DepositMode;
@@ -28,6 +27,7 @@ use Modules\Rental\Repository\RentalAssetReminderRepository;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Service\RentalAuthorizationService;
 use Modules\Rental\Service\RentalAvailabilityService;
+use Modules\Rental\Service\RentalConditionsService;
 use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalPaymentService;
 use Modules\Rental\Service\RentalPricingService;
@@ -62,11 +62,12 @@ class RentalPricingController extends AbstractController
         private RentalAssetRepository $assetRepository,
         private ScoutYearResolver $scoutYearResolver,
         /**
-         * The asset's rental conditions live in the generic
-         * editable-content store (Document\AssetConditions), which is what
-         * sanitizes them on the way in.
+         * The asset's rental conditions, as versions (issue #494). The text
+         * still lives in the generic editable-content store
+         * (Document\AssetConditions); every save now also archives it, so
+         * a renter who accepted the old wording can still read it.
          */
-        private EditableContentService $editableContentService,
+        private RentalConditionsService $conditionsService,
         /**
          * Optional (§6.19): null on an installation without the Finance
          * module, where the payments block explains that instead of
@@ -343,12 +344,7 @@ class RentalPricingController extends AbstractController
                 );
             }
 
-            $this->editableContentService->set(
-                AssetConditions::key($asset->id),
-                $body,
-                'rich_text',
-                AuthSession::getUserAccountId() ?? 0
-            );
+            $this->conditionsService->recordSave($asset->id, $body, AuthSession::getUserAccountId() ?? 0);
 
             return 'Les conditions de location ont été enregistrées.';
         });

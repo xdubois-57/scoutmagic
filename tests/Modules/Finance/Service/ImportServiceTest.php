@@ -31,7 +31,9 @@ use Modules\Finance\Service\BalanceService;
 use Modules\Finance\Service\BulkCategorizationService;
 use Modules\Finance\Service\CategoryRuleEngine;
 use Modules\Finance\Api\FinanceException;
+use Modules\Finance\Service\ImportResult;
 use Modules\Finance\Service\ImportService;
+use Modules\Finance\Service\SkippedAccount;
 use Modules\Finance\Service\ReceiptMatchingService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -90,14 +92,13 @@ class ImportServiceTest extends TestCase
         );
 
         $this->service = new ImportService(
-            $this->pdo, $encryption, $this->parserFactory, $this->transactionRepository,
+            $this->pdo, $encryption, $this->parserFactory, $this->accountRepository, $this->transactionRepository,
             $this->checkpointRepository, $statementImportRepository, $this->fiscalYearRepository, $ruleEngine, $balanceService,
             $receiptMatchingService, $this->bulkCategorizationService,
             FinanceTestHelper::allocationService($this->pdo, $encryption)
         );
 
-        $accountId = $this->accountRepository->create('Compte', Account::TYPE_BANK, null, 'BE00000000000001', 'Titulaire', 'intendant');
-        $this->account = $this->accountRepository->findById($accountId);
+        $this->account = $this->activeAccount('Compte', 'BE00000000000001');
 
         FinanceTestHelper::createScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
     }
@@ -109,9 +110,39 @@ class ImportServiceTest extends TestCase
         return $path;
     }
 
-    private function line(string $ref, string $date, float $amount, string $label): StatementLine
+    private function line(string $ref, string $date, float $amount, string $label, string $iban = 'BE00000000000001'): StatementLine
     {
-        return new StatementLine($ref, new \DateTimeImmutable($date), $amount, $label);
+        return new StatementLine($iban, $ref, new \DateTimeImmutable($date), $amount, $label);
+    }
+
+    private function activeAccount(string $name, string $iban, string $roleMinView = 'intendant'): Account
+    {
+        $id = $this->accountRepository->create($name, Account::TYPE_BANK, null, $iban, 'Titulaire', $roleMinView);
+        $this->pdo->prepare("UPDATE finance_accounts SET status = 'active' WHERE id = ?")->execute([$id]);
+        $account = $this->accountRepository->findById($id);
+        \assert($account !== null);
+
+        return $account;
+    }
+
+    /**
+     * @param \Closure(Account): bool|null $mayImportInto
+     */
+    private function import(?float $balance, string $file = 'a.csv', ?\Closure $mayImportInto = null, ?string $path = null): ImportResult
+    {
+        return $this->service->import(
+            'bnp',
+            $path ?? $this->tmpCsvFile(),
+            $file,
+            $balance,
+            1,
+            $mayImportInto ?? static fn (): bool => true
+        );
+    }
+
+    private function countStatementImports(): int
+    {
+        return (int) $this->pdo->query('SELECT COUNT(*) FROM finance_statement_imports')->fetchColumn();
     }
 
     private function createPendingReceipt(?float $suggestedAmount, ?string $suggestedDate, string $uploadedAt): int
@@ -130,100 +161,352 @@ class ImportServiceTest extends TestCase
         return $attachmentId;
     }
 
-    public function testRejectsIbanMismatch(): void
-    {
-        $this->parserFactory->iban = 'BE99999999999999';
-        $this->parserFactory->lines = [];
+    // --- The file's IBANs decide (issue #511, IT-01) --------------------
 
-        $this->expectException(FinanceException::class);
-        $this->service->import($this->account, 'bnp', $this->tmpCsvFile(), 'a.csv', 1000.0, 1);
+    public function testEachLineJoinsTheAccountCarryingItsIban(): void
+    {
+        $second = $this->activeAccount('Deuxième', 'BE00000000000002');
+        $this->parserFactory->ibans = ['BE00000000000001', 'BE00000000000002'];
+        $this->parserFactory->lines = [
+            $this->line('R1', '2026-10-01', -10.0, 'Premier'),
+            $this->line('R2', '2026-10-02', -20.0, 'Deuxième', 'BE00000000000002'),
+            $this->line('R3', '2026-10-03', -30.0, 'Deuxième encore', 'BE00000000000002'),
+        ];
+        $this->checkpointRepository->create($this->account->id, '2026-09-01', 0.0, 'manual');
+        $this->checkpointRepository->create($second->id, '2026-09-01', 0.0, 'manual');
+
+        $result = $this->import(null);
+
+        $this->assertSame([$this->account->id, $second->id], array_map(static fn ($o) => $o->account->id, $result->accounts));
+        $this->assertSame(['Premier'], array_map(static fn ($t) => $t->label, $this->transactionRepository->findByAccountId($this->account->id)));
+        $this->assertCount(2, $this->transactionRepository->findByAccountId($second->id));
+        $this->assertSame(3, $result->linesNew());
+        $this->assertSame([], $result->skipped);
     }
 
-    public function testIbanMismatchLeavesNoTransactionsInserted(): void
+    /**
+     * One file, one upload id — shared by the bookkeeping row of every
+     * account it fed, and different from the next file's.
+     */
+    public function testEveryAccountGetsItsOwnBookkeepingRowTiedToTheSameUpload(): void
     {
-        $this->parserFactory->iban = 'BE99999999999999';
-        $this->parserFactory->lines = [$this->line('R1', '2026-10-01', -10.0, 'Test')];
+        $second = $this->activeAccount('Deuxième', 'BE00000000000002');
+        $this->parserFactory->ibans = ['BE00000000000001', 'BE00000000000002'];
+        $this->parserFactory->lines = [
+            $this->line('R1', '2026-10-01', -10.0, 'Premier'),
+            $this->line('R2', '2026-10-02', -20.0, 'Deuxième', 'BE00000000000002'),
+        ];
+        $this->checkpointRepository->create($this->account->id, '2026-09-01', 0.0, 'manual');
+        $this->checkpointRepository->create($second->id, '2026-09-01', 0.0, 'manual');
+
+        $first = $this->import(null);
+        $again = $this->import(null, 'b.csv');
+
+        [$a, $b] = [$first->accounts[0]->statementImport, $first->accounts[1]->statementImport];
+        $this->assertSame([$this->account->id, $second->id], [$a->accountId, $b->accountId]);
+        $this->assertNotNull($a->uploadId);
+        $this->assertSame($a->uploadId, $b->uploadId);
+        $this->assertNotSame($a->uploadId, $again->accounts[0]->statementImport->uploadId);
+        $this->assertSame(4, $this->countStatementImports());
+    }
+
+    /**
+     * An IBAN no site account carries is set aside and named — never
+     * written, and never the occasion to create an account.
+     */
+    public function testAnUnknownIbanIsSkippedAndReportedWithoutCreatingAnything(): void
+    {
+        $this->parserFactory->ibans = ['BE00000000000001', 'BE99999999999999'];
+        $this->parserFactory->lines = [
+            $this->line('R1', '2026-10-01', -10.0, 'Connu'),
+            $this->line('R2', '2026-10-02', -20.0, 'Inconnu', 'BE99999999999999'),
+            $this->line('R3', '2026-10-03', -30.0, 'Inconnu', 'BE99999999999999'),
+        ];
+        $accountsBefore = count($this->accountRepository->findAllOrdered());
+
+        $result = $this->import(1000.0);
+
+        $this->assertCount(1, $result->accounts);
+        $this->assertCount(1, $this->transactionRepository->findByAccountId($this->account->id));
+        $this->assertEquals([new SkippedAccount('BE99999999999999', SkippedAccount::REASON_UNKNOWN, 2)], $result->skipped);
+        $this->assertSame($accountsBefore, count($this->accountRepository->findAllOrdered()));
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM finance_transactions')->fetchColumn());
+    }
+
+    public function testAFileWhoseOnlyIbanIsUnknownWritesNothingAtAll(): void
+    {
+        $this->parserFactory->ibans = ['BE99999999999999'];
+        $this->parserFactory->lines = [$this->line('R1', '2026-10-01', -10.0, 'Inconnu', 'BE99999999999999')];
+
+        $result = $this->import(1000.0);
+
+        $this->assertSame([], $result->accounts);
+        $this->assertSame(SkippedAccount::REASON_UNKNOWN, $result->skipped[0]->reason);
+        $this->assertSame(0, $this->countStatementImports());
+        $this->assertFalse($this->checkpointRepository->hasAnyForAccount($this->account->id));
+    }
+
+    /**
+     * The RBAC boundary, now that no account is chosen: an account the
+     * caller's rule refuses is skipped — no line, no checkpoint, no
+     * bookkeeping row — and its neighbour in the same file still imports.
+     */
+    public function testAnAccountTheCallerMayNotUseIsSkippedAndNothingIsWrittenIntoIt(): void
+    {
+        $restricted = $this->activeAccount('Réservé', 'BE00000000000002', 'admin');
+        $this->parserFactory->ibans = ['BE00000000000001', 'BE00000000000002'];
+        $this->parserFactory->lines = [
+            $this->line('R1', '2026-10-01', -10.0, 'Permis'),
+            $this->line('R2', '2026-10-02', -20.0, 'Refusé', 'BE00000000000002'),
+        ];
+        $this->checkpointRepository->create($this->account->id, '2026-09-01', 0.0, 'manual');
+
+        $result = $this->import(null, 'a.csv', fn (Account $account): bool => $account->id !== $restricted->id);
+
+        $this->assertSame([$this->account->id], array_map(static fn ($o) => $o->account->id, $result->accounts));
+        $this->assertSame(SkippedAccount::REASON_FORBIDDEN, $result->skipped[0]->reason);
+        $this->assertCount(0, $this->transactionRepository->findByAccountId($restricted->id));
+        $this->assertFalse($this->checkpointRepository->hasAnyForAccount($restricted->id));
+    }
+
+    /**
+     * Visibility is judged before status: an archived account the caller
+     * may not use reads as forbidden, not as archived.
+     */
+    public function testAnInactiveAccountIsSkippedAndSaysSoOnlyToWhoeverMayUseIt(): void
+    {
+        $this->pdo->prepare("UPDATE finance_accounts SET status = 'archived' WHERE id = ?")->execute([$this->account->id]);
+        $this->parserFactory->ibans = ['BE00000000000001'];
+        $this->parserFactory->lines = [$this->line('R1', '2026-10-01', -10.0, 'Archivé')];
+
+        $visible = $this->import(1000.0);
+        $hidden = $this->import(1000.0, 'b.csv', static fn (): bool => false);
+
+        $this->assertSame(SkippedAccount::REASON_INACTIVE, $visible->skipped[0]->reason);
+        $this->assertSame(SkippedAccount::REASON_FORBIDDEN, $hidden->skipped[0]->reason);
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM finance_transactions')->fetchColumn());
+    }
+
+    /**
+     * Nothing makes an IBAN unique across accounts: the account that
+     * replaced an archived one inherits its statements…
+     */
+    public function testTheActiveAccountWinsOverAnArchivedOneSharingItsIban(): void
+    {
+        $this->pdo->prepare("UPDATE finance_accounts SET status = 'archived' WHERE id = ?")->execute([$this->account->id]);
+        $replacement = $this->activeAccount('Remplaçant', 'BE00000000000001');
+        $this->parserFactory->ibans = ['BE00000000000001'];
+        $this->parserFactory->lines = [$this->line('R1', '2026-10-01', -10.0, 'Achat')];
+
+        $result = $this->import(1000.0);
+
+        $this->assertSame($replacement->id, $result->accounts[0]->account->id);
+        $this->assertCount(0, $this->transactionRepository->findByAccountId($this->account->id));
+    }
+
+    /**
+     * …and two ACTIVE accounts sharing one are not settled by chance.
+     */
+    public function testTwoActiveAccountsSharingAnIbanAreAmbiguousAndGetNothing(): void
+    {
+        $twin = $this->activeAccount('Jumeau', 'BE00000000000001');
+        $this->parserFactory->ibans = ['BE00000000000001'];
+        $this->parserFactory->lines = [$this->line('R1', '2026-10-01', -10.0, 'Achat')];
+
+        $result = $this->import(1000.0);
+
+        $this->assertSame([], $result->accounts);
+        $this->assertSame(SkippedAccount::REASON_AMBIGUOUS, $result->skipped[0]->reason);
+        $this->assertCount(0, $this->transactionRepository->findByAccountId($twin->id));
+    }
+
+    public function testATypedBalanceIsRefusedForAFileCoveringSeveralAccounts(): void
+    {
+        $second = $this->activeAccount('Deuxième', 'BE00000000000002');
+        $this->parserFactory->ibans = ['BE00000000000001', 'BE00000000000002'];
+        $this->parserFactory->lines = [
+            $this->line('R1', '2026-10-01', -10.0, 'Premier'),
+            $this->line('R2', '2026-10-02', -20.0, 'Deuxième', 'BE00000000000002'),
+        ];
 
         try {
-            $this->service->import($this->account, 'bnp', $this->tmpCsvFile(), 'a.csv', 1000.0, 1);
-        } catch (FinanceException) {
+            $this->import(1000.0);
+            $this->fail('A typed balance cannot be attributed to one of several accounts.');
+        } catch (FinanceException $e) {
+            $this->assertStringContainsString('plusieurs comptes', $e->getMessage());
         }
 
-        $this->assertCount(0, $this->transactionRepository->findByAccountId($this->account->id));
+        $this->assertSame(0, $this->countStatementImports());
+        $this->assertFalse($this->checkpointRepository->hasAnyForAccount($second->id));
+    }
+
+    public function testAFirstImportOfAnyAccountInTheFileStillNeedsItsBalance(): void
+    {
+        $second = $this->activeAccount('Deuxième', 'BE00000000000002');
+        $this->checkpointRepository->create($this->account->id, '2026-09-01', 0.0, 'manual');
+        $this->parserFactory->ibans = ['BE00000000000001', 'BE00000000000002'];
+        $this->parserFactory->lines = [
+            $this->line('R1', '2026-10-01', -10.0, 'Premier'),
+            $this->line('R2', '2026-10-02', -20.0, 'Deuxième', 'BE00000000000002'),
+        ];
+
+        try {
+            $this->import(null);
+            $this->fail('The second account has never been imported: its opening balance is missing.');
+        } catch (FinanceException $e) {
+            $this->assertStringContainsString('« Deuxième »', $e->getMessage());
+        }
+
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM finance_transactions')->fetchColumn());
+        $this->assertFalse($this->checkpointRepository->hasAnyForAccount($second->id));
+    }
+
+    /**
+     * All or nothing across accounts: the second account's bad date takes
+     * the first account's perfectly good lines down with it.
+     */
+    public function testADateNoScoutYearCoversRefusesTheWholeFileAcrossAccounts(): void
+    {
+        $second = $this->activeAccount('Deuxième', 'BE00000000000002');
+        $this->checkpointRepository->create($this->account->id, '2026-09-01', 0.0, 'manual');
+        $this->checkpointRepository->create($second->id, '2026-09-01', 0.0, 'manual');
+        $this->parserFactory->ibans = ['BE00000000000001', 'BE00000000000002'];
+        $this->parserFactory->lines = [
+            $this->line('R1', '2026-10-01', -10.0, 'Bon'),
+            $this->line('R2', '2099-01-05', -20.0, 'Hors année', 'BE00000000000002'),
+            $this->line('R3', '2099-01-02', -30.0, 'Hors année', 'BE00000000000002'),
+        ];
+
+        try {
+            $this->import(null);
+            $this->fail('A date outside every scout year refuses the file.');
+        } catch (FinanceException $e) {
+            $this->assertStringContainsString('2 dates, du 02/01/2099 au 05/01/2099', $e->getMessage());
+            $this->assertStringContainsString('année scoute 2098-2099', $e->getMessage());
+        }
+
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM finance_transactions')->fetchColumn());
+        $this->assertSame(0, $this->countStatementImports());
+    }
+
+    /**
+     * The year is never created from a statement date: a one-byte shift in
+     * a file makes plausible, wrong dates.
+     */
+    public function testAMissingScoutYearIsNeverCreated(): void
+    {
+        $this->parserFactory->ibans = ['BE00000000000001'];
+        $this->parserFactory->lines = [$this->line('R1', '2099-01-05', -10.0, 'Hors année')];
+        $yearsBefore = (int) $this->pdo->query('SELECT COUNT(*) FROM scout_years')->fetchColumn();
+
+        try {
+            $this->import(1000.0);
+            $this->fail('A date outside every scout year refuses the file.');
+        } catch (FinanceException $e) {
+            $this->assertStringContainsString('la date du 05/01/2099', $e->getMessage());
+        }
+
+        $this->assertSame($yearsBefore, (int) $this->pdo->query('SELECT COUNT(*) FROM scout_years')->fetchColumn());
+    }
+
+    /**
+     * A date on a line of a SKIPPED account decides nothing: those lines
+     * are never written, so they cannot refuse the file.
+     */
+    public function testADateOnASkippedAccountsLineDoesNotRefuseTheFile(): void
+    {
+        $this->parserFactory->ibans = ['BE00000000000001', 'BE99999999999999'];
+        $this->parserFactory->lines = [
+            $this->line('R1', '2026-10-01', -10.0, 'Bon'),
+            $this->line('R2', '2099-01-05', -20.0, 'Inconnu', 'BE99999999999999'),
+        ];
+
+        $result = $this->import(1000.0);
+
+        $this->assertSame(1, $result->linesNew());
+    }
+
+    public function testALineClaimingAnAccountTheFileNeverAnnouncedIsRefused(): void
+    {
+        $this->parserFactory->ibans = ['BE00000000000001'];
+        $this->parserFactory->lines = [$this->line('R1', '2026-10-01', -10.0, 'Égarée', 'BE00000000000002')];
+
+        $this->expectException(FinanceException::class);
+        $this->import(1000.0);
     }
 
     public function testRequiresBalanceOnFirstImport(): void
     {
-        $this->parserFactory->iban = $this->account->iban;
+        $this->parserFactory->ibans = [$this->account->iban];
         $this->parserFactory->lines = [$this->line('R1', '2026-10-01', -10.0, 'Test')];
 
         $this->expectException(FinanceException::class);
-        $this->service->import($this->account, 'bnp', $this->tmpCsvFile(), 'a.csv', null, 1);
+        $this->import(null, 'a.csv');
     }
 
     public function testFirstImportSucceedsWithBalanceAndCreatesCheckpoint(): void
     {
-        $this->parserFactory->iban = $this->account->iban;
+        $this->parserFactory->ibans = [$this->account->iban];
         $this->parserFactory->lines = [
             $this->line('R1', '2026-10-01', -10.0, 'Achat 1'),
             $this->line('R2', '2026-10-02', -20.0, 'Achat 2'),
         ];
 
-        $result = $this->service->import($this->account, 'bnp', $this->tmpCsvFile(), 'a.csv', 1000.0, 1);
+        $result = $this->import(1000.0, 'a.csv');
 
-        $this->assertSame(2, $result->statementImport->linesTotal);
-        $this->assertSame(2, $result->statementImport->linesNew);
-        $this->assertSame(0, $result->statementImport->linesDuplicate);
+        $this->assertSame(2, $result->accounts[0]->statementImport->linesTotal);
+        $this->assertSame(2, $result->accounts[0]->statementImport->linesNew);
+        $this->assertSame(0, $result->accounts[0]->statementImport->linesDuplicate);
         $this->assertTrue($this->checkpointRepository->hasAnyForAccount($this->account->id));
         $this->assertCount(2, $this->transactionRepository->findByAccountId($this->account->id));
     }
 
     public function testDeduplicatesOnSecondImport(): void
     {
-        $this->parserFactory->iban = $this->account->iban;
+        $this->parserFactory->ibans = [$this->account->iban];
         $this->parserFactory->lines = [$this->line('R1', '2026-10-01', -10.0, 'Achat 1')];
-        $this->service->import($this->account, 'bnp', $this->tmpCsvFile(), 'a.csv', 1000.0, 1);
+        $this->import(1000.0, 'a.csv');
 
         $this->parserFactory->lines = [
             $this->line('R1', '2026-10-01', -10.0, 'Achat 1'),
             $this->line('R2', '2026-10-05', -5.0, 'Achat 2'),
         ];
-        $result = $this->service->import($this->account, 'bnp', $this->tmpCsvFile(), 'b.csv', null, 1);
+        $result = $this->import(null, 'b.csv');
 
-        $this->assertSame(2, $result->statementImport->linesTotal);
-        $this->assertSame(1, $result->statementImport->linesNew);
-        $this->assertSame(1, $result->statementImport->linesDuplicate);
+        $this->assertSame(2, $result->accounts[0]->statementImport->linesTotal);
+        $this->assertSame(1, $result->accounts[0]->statementImport->linesNew);
+        $this->assertSame(1, $result->accounts[0]->statementImport->linesDuplicate);
         $this->assertCount(2, $this->transactionRepository->findByAccountId($this->account->id));
     }
 
     public function testBalanceOptionalOnSecondImport(): void
     {
-        $this->parserFactory->iban = $this->account->iban;
+        $this->parserFactory->ibans = [$this->account->iban];
         $this->parserFactory->lines = [$this->line('R1', '2026-10-01', -10.0, 'Achat 1')];
-        $this->service->import($this->account, 'bnp', $this->tmpCsvFile(), 'a.csv', 1000.0, 1);
+        $this->import(1000.0, 'a.csv');
 
         $this->parserFactory->lines = [$this->line('R2', '2026-10-05', -5.0, 'Achat 2')];
-        $result = $this->service->import($this->account, 'bnp', $this->tmpCsvFile(), 'b.csv', null, 1);
+        $result = $this->import(null, 'b.csv');
 
-        $this->assertSame(1, $result->statementImport->linesNew);
+        $this->assertSame(1, $result->accounts[0]->statementImport->linesNew);
         $this->assertCount(1, $this->checkpointRepository->findByAccountId($this->account->id));
     }
 
     public function testDetectsBalanceDiscrepancyOnSecondImport(): void
     {
-        $this->parserFactory->iban = $this->account->iban;
+        $this->parserFactory->ibans = [$this->account->iban];
         $this->parserFactory->lines = [$this->line('R1', '2026-10-01', -10.0, 'Achat 1')];
         // First checkpoint: 1000.0 as of 2026-10-01 — this is the bank's own
         // reported closing balance for that day, so it already reflects R1.
-        $this->service->import($this->account, 'bnp', $this->tmpCsvFile(), 'a.csv', 1000.0, 1);
+        $this->import(1000.0, 'a.csv');
 
         $this->parserFactory->lines = [$this->line('R2', '2026-10-05', -5.0, 'Achat 2')];
         // Calculated balance as of 2026-10-05 should be 1000.0 + (-5.0) = 995.0.
         // We report 900.0 instead — a -95.0 discrepancy (900 - 995).
-        $result = $this->service->import($this->account, 'bnp', $this->tmpCsvFile(), 'b.csv', 900.0, 1);
+        $result = $this->import(900.0, 'b.csv');
 
-        $this->assertNotNull($result->balanceDiscrepancy);
-        $this->assertEqualsWithDelta(-95.0, $result->balanceDiscrepancy, 0.01);
+        $this->assertNotNull($result->accounts[0]->balanceDiscrepancy);
+        $this->assertEqualsWithDelta(-95.0, $result->accounts[0]->balanceDiscrepancy, 0.01);
     }
 
     public function testAppliesCategoryRuleEngineDuringImport(): void
@@ -231,10 +514,10 @@ class ImportServiceTest extends TestCase
         $categoryId = $this->categoryRepository->create('Alimentation');
         $this->categoryRuleRepository->create($categoryId, 0, 'delhaize', null, null);
 
-        $this->parserFactory->iban = $this->account->iban;
+        $this->parserFactory->ibans = [$this->account->iban];
         $this->parserFactory->lines = [$this->line('R1', '2026-10-01', -10.0, 'VIR Delhaize')];
 
-        $this->service->import($this->account, 'bnp', $this->tmpCsvFile(), 'a.csv', 1000.0, 1);
+        $this->import(1000.0, 'a.csv');
 
         $transaction = $this->transactionRepository->findByAccountId($this->account->id)[0];
         $this->assertSame($categoryId, $transaction->categoryId);
@@ -242,38 +525,38 @@ class ImportServiceTest extends TestCase
 
     public function testImportSchedulesBackgroundCategorizationRunWhenNewLinesAreInserted(): void
     {
-        $this->parserFactory->iban = $this->account->iban;
+        $this->parserFactory->ibans = [$this->account->iban];
         $this->parserFactory->lines = [$this->line('R1', '2026-10-01', -10.0, 'Achat 1')];
 
-        $this->service->import($this->account, 'bnp', $this->tmpCsvFile(), 'a.csv', 1000.0, 1);
+        $this->import(1000.0, 'a.csv');
 
         $this->assertTrue($this->bulkCategorizationService->isRunning());
     }
 
     public function testImportDoesNotScheduleBackgroundRunWhenEverythingWasADuplicate(): void
     {
-        $this->parserFactory->iban = $this->account->iban;
+        $this->parserFactory->ibans = [$this->account->iban];
         $this->parserFactory->lines = [$this->line('R1', '2026-10-01', -10.0, 'Achat 1')];
-        $this->service->import($this->account, 'bnp', $this->tmpCsvFile(), 'a.csv', 1000.0, 1);
+        $this->import(1000.0, 'a.csv');
         // Clear the flag the first (real) import set, so the second
         // (all-duplicate) import's own behavior can be observed cleanly.
         $this->bulkCategorizationService->runInBackground();
 
-        $this->service->import($this->account, 'bnp', $this->tmpCsvFile(), 'b.csv', null, 1);
+        $this->import(null, 'b.csv');
 
         $this->assertFalse($this->bulkCategorizationService->isRunning());
     }
 
     public function testThrowsWhenNoFiscalYearCoversDateAndRollsBackWholeImport(): void
     {
-        $this->parserFactory->iban = $this->account->iban;
+        $this->parserFactory->ibans = [$this->account->iban];
         $this->parserFactory->lines = [
             $this->line('R1', '2026-10-01', -10.0, 'Dans exercice'),
             $this->line('R2', '2099-01-01', -20.0, 'Hors exercice'),
         ];
 
         try {
-            $this->service->import($this->account, 'bnp', $this->tmpCsvFile(), 'a.csv', 1000.0, 1);
+            $this->import(1000.0, 'a.csv');
             $this->fail('Expected a FinanceException');
         } catch (FinanceException) {
         }
@@ -284,27 +567,27 @@ class ImportServiceTest extends TestCase
 
     public function testDeletesTemporaryFileAfterSuccessfulImport(): void
     {
-        $this->parserFactory->iban = $this->account->iban;
+        $this->parserFactory->ibans = [$this->account->iban];
         $this->parserFactory->lines = [$this->line('R1', '2026-10-01', -10.0, 'Achat')];
 
         $path = $this->tmpCsvFile();
         $this->assertFileExists($path);
 
-        $this->service->import($this->account, 'bnp', $path, 'a.csv', 1000.0, 1);
+        $this->import(1000.0, 'a.csv', null, $path);
 
         $this->assertFileDoesNotExist($path);
     }
 
     public function testDeletesTemporaryFileEvenOnFailure(): void
     {
-        $this->parserFactory->iban = 'BE99999999999999';
-        $this->parserFactory->lines = [];
+        $this->parserFactory->ibans = [$this->account->iban];
+        $this->parserFactory->lines = [$this->line('R1', '2099-01-01', -10.0, 'Hors année')];
 
         $path = $this->tmpCsvFile();
 
         try {
-            $this->service->import($this->account, 'bnp', $path, 'a.csv', 1000.0, 1);
-            $this->fail('The import was expected to fail on the IBAN mismatch.');
+            $this->import(1000.0, 'a.csv', null, $path);
+            $this->fail('The import was expected to fail on the missing scout year.');
         } catch (FinanceException) {
             // The failure is this test's premise: without it, the deletion
             // below is only the success path's, which its neighbour above
@@ -318,22 +601,22 @@ class ImportServiceTest extends TestCase
     {
         $attachmentId = $this->createPendingReceipt(10.0, '2026-10-01', '2026-10-01 12:00:00');
 
-        $this->parserFactory->iban = $this->account->iban;
+        $this->parserFactory->ibans = [$this->account->iban];
         $this->parserFactory->lines = [$this->line('R1', '2026-10-02', -10.0, 'Achat')];
 
-        $this->service->import($this->account, 'bnp', $this->tmpCsvFile(), 'a.csv', 1000.0, 1);
+        $this->import(1000.0, 'a.csv');
 
         $this->assertNotSame([], $this->transactionAttachmentRepository->findTransactionIdsForAttachment($attachmentId));
     }
 
     public function testImportPersistsCounterpartyAndExtraDetailsFromStatementLine(): void
     {
-        $this->parserFactory->iban = $this->account->iban;
+        $this->parserFactory->ibans = [$this->account->iban];
         $this->parserFactory->lines = [
-            new StatementLine('R1', new \DateTimeImmutable('2026-10-01'), -10.0, 'Achat', 'BE00000000000009', 'Jean Dupont', 'Type : Virement en euros'),
+            new StatementLine('BE00000000000001', 'R1', new \DateTimeImmutable('2026-10-01'), -10.0, 'Achat', 'BE00000000000009', 'Jean Dupont', 'Type : Virement en euros'),
         ];
 
-        $this->service->import($this->account, 'bnp', $this->tmpCsvFile(), 'a.csv', 1000.0, 1);
+        $this->import(1000.0, 'a.csv');
 
         $transaction = $this->transactionRepository->findByAccountId($this->account->id)[0];
         $this->assertSame('Jean Dupont', $transaction->counterpartyName);
@@ -345,10 +628,10 @@ class ImportServiceTest extends TestCase
     {
         $attachmentId = $this->createPendingReceipt(null, null, '2026-10-01 12:00:00');
 
-        $this->parserFactory->iban = $this->account->iban;
+        $this->parserFactory->ibans = [$this->account->iban];
         $this->parserFactory->lines = [$this->line('R1', '2026-10-02', -10.0, 'Achat')];
 
-        $this->service->import($this->account, 'bnp', $this->tmpCsvFile(), 'a.csv', 1000.0, 1);
+        $this->import(1000.0, 'a.csv');
 
         $this->assertSame([], $this->transactionAttachmentRepository->findTransactionIdsForAttachment($attachmentId));
     }
@@ -360,15 +643,16 @@ class ImportServiceTest extends TestCase
 final class FakeStatementParser implements BankStatementParserInterface
 {
     /**
+     * @param list<string> $ibans
      * @param StatementLine[] $lines
      */
-    public function __construct(private string $iban, private array $lines)
+    public function __construct(private array $ibans, private array $lines)
     {
     }
 
-    public function extractSourceIban(string $filePath): string
+    public function extractAccountIbans(string $filePath): array
     {
-        return $this->iban;
+        return $this->ibans;
     }
 
     /**
@@ -382,17 +666,18 @@ final class FakeStatementParser implements BankStatementParserInterface
 
 /**
  * @internal test double — overrides create() so ImportServiceTest never
- * touches a real bank format, only the configured fake lines/IBAN.
+ * touches a real bank format, only the configured fake lines/IBANs.
  */
 final class FakeBankStatementParserFactory extends BankStatementParserFactory
 {
-    public string $iban = '';
+    /** @var list<string> */
+    public array $ibans = [];
 
     /** @var StatementLine[] */
     public array $lines = [];
 
     public function create(string $bankCode): BankStatementParserInterface
     {
-        return new FakeStatementParser($this->iban, $this->lines);
+        return new FakeStatementParser($this->ibans, $this->lines);
     }
 }

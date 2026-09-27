@@ -82,10 +82,21 @@ class ModuleManifestTest extends TestCase
      *
      * 1.28.0 offers the booking's « Courrier » page only with exactly one mailbox dedicated to
      * rentals, and replies to it (issue #462, IT-04).
+     *
+     * 1.29.0 archives every wording of an asset's conditions
+     * (`rental_conditions_versions`) and publishes each one at its own
+     * address (issue #494).
+     *
+     * 1.30.0 ends every e-mail to the renter with a link to the version of
+     * the conditions they accepted (issue #494).
+     *
+     * 1.31.0 names the landlord of a contract and an invoice: three new
+     * settings (`landlord_*`) and three keywords, and the unit's legal
+     * address in place of a setting nothing declared (issue #497).
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.28.0', $this->manifest->version);
+        $this->assertSame('1.31.0', $this->manifest->version);
     }
 
     /**

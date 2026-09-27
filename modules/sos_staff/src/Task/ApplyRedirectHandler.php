@@ -103,8 +103,8 @@ class ApplyRedirectHandler implements TaskHandlerInterface
             $context->notifications
         );
 
-        $memberId = isset($payload['member_id']) && $payload['member_id'] !== null ? (int) $payload['member_id'] : null;
-        $previousMemberId = isset($payload['previous_member_id']) && $payload['previous_member_id'] !== null
+        $memberId = isset($payload['member_id']) ? (int) $payload['member_id'] : null;
+        $previousMemberId = isset($payload['previous_member_id'])
             ? (int) $payload['previous_member_id']
             : null;
         $scoutYearId = (int) ($payload['scout_year_id'] ?? 0);

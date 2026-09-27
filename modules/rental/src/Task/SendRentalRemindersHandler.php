@@ -164,7 +164,13 @@ class SendRentalRemindersHandler implements TaskHandlerInterface
                 $context->mailService,
                 self::emailTemplateRenderer($context),
                 $context->settings,
-                $context->journal
+                $context->journal,
+                // The practical-info email is one of the renter's, so it
+                // links to the conditions they accepted (issue #494).
+                conditions: new \Modules\Rental\Service\RentalConditionsService(
+                    new \Modules\Rental\Repository\RentalConditionsVersionRepository($pdo),
+                    new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($pdo))
+                )
             ),
             // The per-asset reminder overrides and the unit's defaults
             // (§6.29). Without them every asset runs on the shipped

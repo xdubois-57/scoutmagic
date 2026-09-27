@@ -111,7 +111,7 @@ class MemberEmailControllerTest extends TestCase
     {
         AuthSession::login(1, 'member@test.example', 'identified');
         $massMailQuery = $this->createMock(MassMailQueryInterface::class);
-        $massMailQuery->method('findEmailDetailForMember')
+        $massMailQuery->expects($this->once())->method('findEmailDetailForMember')
             ->with($this->memberId, 5)
             ->willReturn(['subject' => 'Sujet', 'body_html' => '<p>Corps</p>', 'sent_at' => '2026-01-01 10:00:00', 'section_name' => 'Meute A', 'merge_purged' => false]);
 

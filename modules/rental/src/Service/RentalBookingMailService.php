@@ -48,7 +48,14 @@ class RentalBookingMailService
          * `inbound_mail`, and nothing is remembered — which is exactly
          * true on a site that collects no mail.
          */
-        private ?\Modules\InboundMail\Api\InboundMailInterface $inboundMail = null
+        private ?\Modules\InboundMail\Api\InboundMailInterface $inboundMail = null,
+        /**
+         * The archive of the conditions (issue #494), so every email to the
+         * renter ends with a link to the version THEY accepted. Nullable so
+         * the service stays constructible where nothing is sent to a renter;
+         * both composition roots wire it.
+         */
+        private ?RentalConditionsService $conditions = null
     ) {
     }
 
@@ -574,7 +581,7 @@ class RentalBookingMailService
     {
         $email = $this->emailTemplateRenderer->render(
             $templateId,
-            $context + [
+            $context + $this->acceptedConditionsNote($booking, $asset, $templateId) + [
                 'reference' => $booking->reference,
                 'asset_name' => $asset->name,
                 'renter_name' => $booking->renterName,
@@ -589,6 +596,62 @@ class RentalBookingMailService
             bodyHtml: $email->bodyHtml,
             bodyText: $email->bodyText
         );
+    }
+
+    /**
+     * The e-mails that go to the renter, and so carry the link to the
+     * conditions they accepted (issue #494). Not the managers' notification:
+     * they have the settings page, and the note would read as addressed to
+     * the wrong person. Not the tracking-link resend either: it answers a
+     * « j'ai perdu mon lien » and nothing else.
+     */
+    private const RENTER_TEMPLATES = [
+        'rental.acknowledgement',
+        'rental.decision',
+        'rental.document',
+        'rental.practical_info',
+    ];
+
+    /**
+     * « Conditions de location acceptées le … » and the permanent address of
+     * THAT version — never today's, which may say something else by the
+     * time the renter clicks.
+     *
+     * Through the frame's footer note (email/base.html.twig) rather than a
+     * declared variable: the frame is code, so an administrator rewording
+     * one of these e-mails cannot drop the one line a renter may need to
+     * prove what they agreed to.
+     *
+     * Nothing at all when the booking's version is not in the archive —
+     * a booking whose conditions were overwritten before the archive
+     * existed. A link to some other text would be worse than none.
+     *
+     * @return array{footer_note?: string, footer_link?: string}
+     */
+    private function acceptedConditionsNote(RentalBooking $booking, RentalAsset $asset, string $templateId): array
+    {
+        if ($this->conditions === null
+            || !in_array($templateId, self::RENTER_TEMPLATES, true)
+            || $booking->conditionsVersion === null
+            || $booking->conditionsAcceptedAt === null
+        ) {
+            return [];
+        }
+
+        $version = $this->conditions->find($asset->id, $booking->conditionsVersion);
+        if ($version === null
+            || $booking->conditionsHash === null
+            || !hash_equals($version->hash, $booking->conditionsHash)
+        ) {
+            return [];
+        }
+
+        return [
+            'footer_note' => 'Conditions de location acceptées le '
+                . $booking->conditionsAcceptedAt->format('d/m/Y') . ' :',
+            'footer_link' => rtrim($this->baseUrl(), '/')
+                . '/locations/' . $asset->slug . '/conditions/' . $version->version,
+        ];
     }
 
     /**

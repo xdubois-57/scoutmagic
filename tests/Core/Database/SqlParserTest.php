@@ -115,6 +115,30 @@ class SqlParserTest extends TestCase
         $this->assertSame('CASCADE', $fk->onDelete);
     }
 
+    /**
+     * An ON UPDATE without an ON DELETE leaves the ON DELETE group unmatched
+     * in the middle of the pattern — the one position where preg_match()
+     * answers '' rather than leaving the key out. Both FK spellings.
+     */
+    public function testParsingForeignKeyWithOnUpdateButNoOnDelete(): void
+    {
+        $sql = "CREATE TABLE orders (
+            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            user_id INT UNSIGNED NOT NULL,
+            shop_id INT UNSIGNED NOT NULL,
+            CONSTRAINT fk_orders_user FOREIGN KEY (user_id) REFERENCES users (id) ON UPDATE CASCADE,
+            FOREIGN KEY (shop_id) REFERENCES shops (id) ON UPDATE CASCADE
+        ) ENGINE=InnoDB;";
+
+        $foreignKeys = $this->parser->parse($sql)[0]->foreignKeys;
+
+        $this->assertCount(2, $foreignKeys);
+        foreach ($foreignKeys as $fk) {
+            $this->assertNull($fk->onDelete, $fk->name);
+            $this->assertSame('CASCADE', $fk->onUpdate, $fk->name);
+        }
+    }
+
     public function testParsingIndexDefinitions(): void
     {
         $sql = "CREATE TABLE logs (

@@ -44,6 +44,92 @@ class DmarcReportRepositoryTest extends TestCase
         );
     }
 
+    // ── The rows the weekly trend is built from (issue #420) ──────────
+
+    /**
+     * **One row per report, summed over its source lines** — not one row per
+     * line. The trend buckets these in PHP, so what this returns is what it
+     * has to hold in memory, and a report of two hundred sources would
+     * otherwise arrive as two hundred rows saying one thing.
+     */
+    public function testTheTrendRowsAreSummedPerReportAndNotPerSourceLine(): void
+    {
+        $this->assertTrue($this->reports->record($this->report(), new \DateTimeImmutable()));
+
+        $rows = $this->reports->messagesPerReportSince(new \DateTimeImmutable('-30 days'));
+
+        $this->assertCount(1, $rows, 'two source lines are one report');
+        $this->assertSame(45, $rows[0]['sample'], '42 + 3 messages');
+        $this->assertSame(42, $rows[0]['hits'], 'and only the authenticated ones are hits');
+        $this->assertSame(
+            45,
+            $rows[0]['total'],
+            'for DMARC the evidence and the denominator are the same figure, both passed'
+        );
+    }
+
+    /**
+     * **Dated by the period the report describes, never by its arrival.** A
+     * report can turn up days after its window — the purge already deletes on
+     * `period_end` for that reason — and dating a point by arrival would file
+     * it under a week it says nothing about.
+     */
+    public function testATrendRowIsDatedByThePeriodItDescribes(): void
+    {
+        $this->assertTrue($this->reports->record($this->report(), new \DateTimeImmutable()));
+
+        $rows = $this->reports->messagesPerReportSince(new \DateTimeImmutable('-30 days'));
+
+        $this->assertSame(
+            (new \DateTimeImmutable('-1 day'))->format('Y-m-d'),
+            $rows[0]['at']->format('Y-m-d'),
+            'the fixture ends yesterday and arrived today'
+        );
+    }
+
+    /** Reports outside the window are not rows, which is what bounds the curve. */
+    public function testATrendRowOlderThanTheWindowIsNotReturned(): void
+    {
+        $old = new DmarcReport(
+            organisation: 'google.com',
+            reportId: 'r-old',
+            domain: 'unite.be',
+            begin: new \DateTimeImmutable('-100 days'),
+            end: new \DateTimeImmutable('-99 days'),
+            policy: 'none',
+            records: [new DmarcRecord('185.12.80.100', 10, 'none', true, true, 'unite.be')]
+        );
+
+        $this->assertTrue($this->reports->record($old, new \DateTimeImmutable()));
+        $this->assertTrue($this->reports->record($this->report(), new \DateTimeImmutable()));
+
+        $rows = $this->reports->messagesPerReportSince(new \DateTimeImmutable('-90 days'));
+
+        $this->assertCount(1, $rows, 'only the report inside the retention window');
+        $this->assertSame(45, $rows[0]['sample']);
+    }
+
+    /** Several reports in the window stay several rows, ordered oldest first. */
+    public function testEachReportIsItsOwnRowOldestFirst(): void
+    {
+        $earlier = new DmarcReport(
+            organisation: 'outlook.com',
+            reportId: 'r-2',
+            domain: 'unite.be',
+            begin: new \DateTimeImmutable('-5 days'),
+            end: new \DateTimeImmutable('-4 days'),
+            policy: 'none',
+            records: [new DmarcRecord('185.12.80.100', 7, 'none', true, true, 'unite.be')]
+        );
+
+        $this->assertTrue($this->reports->record($this->report(), new \DateTimeImmutable()));
+        $this->assertTrue($this->reports->record($earlier, new \DateTimeImmutable()));
+
+        $rows = $this->reports->messagesPerReportSince(new \DateTimeImmutable('-30 days'));
+
+        $this->assertSame([7, 45], array_column($rows, 'sample'), 'oldest first');
+    }
+
     public function testAReportIsWrittenWithItsLines(): void
     {
         $this->assertTrue($this->reports->record($this->report(), new \DateTimeImmutable()));

@@ -3,7 +3,9 @@
          xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
          bootstrap="tests/bootstrap.php"
          colors="true"
-         failOnRisky="true">
+         failOnRisky="true"
+         failOnWarning="true"
+         failOnPhpunitDeprecation="true">
     <!--
         failOnRisky, because a risky test is a test saying the code it
         exercises broke the state of the process, and without this the
@@ -16,9 +18,12 @@
         careless, but because the only place it appeared was a line in the
         middle of a passing run.
 
-        failOnWarning is deliberately NOT set with it: six warnings remain
-        in the suite, and turning them red is a separate piece of work
-        rather than a switch to flip in passing.
+        failOnWarning and failOnPhpunitDeprecation joined it once the suite
+        reached zero of each: the seven PHP warnings were test doubles
+        answering a shape the real method never returns, and the nineteen
+        deprecations were with() without expects(), which PHPUnit 14
+        removes. At zero, the next one is a red run rather than a line
+        nobody reads.
     -->
     <testsuites>
         <testsuite name="Core">

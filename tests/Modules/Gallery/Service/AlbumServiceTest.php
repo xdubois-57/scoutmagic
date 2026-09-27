@@ -77,7 +77,11 @@ class AlbumServiceTest extends TestCase
         $mediaRepository = $this->mediaRepository;
         $this->accessService = $this->createMock(GalleryAccessService::class);
         $this->accessService->method('canManageAlbum')->willReturn(true);
-        $ogScraperService = $this->createMock(OgScraperService::class);
+        // A page carrying no Open Graph tag: the shape fetch() answers then,
+        // where an unconfigured double would answer [] and leave every key
+        // undefined.
+        $ogScraperService = $this->createStub(OgScraperService::class);
+        $ogScraperService->method('fetch')->willReturn(['title' => null, 'description' => null, 'image' => null]);
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->storageLocationRepository = new StorageLocationRepository($this->pdo, $encryption);
         $this->storageBackendFactory = $this->createMock(StorageBackendFactory::class);
@@ -192,7 +196,7 @@ class AlbumServiceTest extends TestCase
 
         $ogScraperService = $this->createMock(OgScraperService::class);
         $ogScraperService->method('fetch')->willReturn(['title' => 'Titre', 'description' => 'Desc', 'image' => 'https://example.com/img.jpg']);
-        $ogScraperService->method('fetchImageBytes')->with('https://example.com/img.jpg')->willReturn($jpegBytes);
+        $ogScraperService->expects($this->once())->method('fetchImageBytes')->with('https://example.com/img.jpg')->willReturn($jpegBytes);
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $this->accessService,
             $ogScraperService, $this->storageBackendFactory, $this->storageLocationRepository,

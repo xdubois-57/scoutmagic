@@ -266,7 +266,8 @@
       "token": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
     },
     "/locations/{slug}": {
-      "slug": "salle-des-fetes"
+      "slug": "salle-des-fetes",
+      "version": "0123456789ab"
     },
     "/mass-mail/attachments/{id}": {
       "id": "1"

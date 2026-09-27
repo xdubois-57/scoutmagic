@@ -797,8 +797,8 @@ class CalendarService implements
                     $viewerEmail,
                     $scoutYearId
                 );
-                $data['retro-link'] = $link?->url ?? '';
-                $data['retro-link-title'] = $link?->title ?? '';
+                $data['retro-link'] = $link->url ?? '';
+                $data['retro-link-title'] = $link->title ?? '';
             }
 
             return new GridEvent(

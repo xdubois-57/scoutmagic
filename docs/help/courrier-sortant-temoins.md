@@ -8,7 +8,7 @@ question: Comment savoir si mes emails tombent dans les indésirables ?
 question: Qu'est-ce qu'une boîte témoin ?
 question: Pourquoi mes publipostages partent-ils aussi vers d'autres adresses ?
 paths: /config/courrier-sortant/temoins
-related: courrier-sortant-temoins-reglage, courrier-sortant, courrier-sortant-sonde, courrier-sortant-dmarc, courrier-sortant-rebonds
+related: courrier-sortant-temoins-reglage, courrier-sortant-tendances, courrier-sortant, courrier-sortant-sonde, courrier-sortant-dmarc, courrier-sortant-rebonds
 ---
 
 ## Le problème que ça règle

@@ -731,7 +731,7 @@ class PassageService
         return $result;
     }
 
-    private function decryptName($firstNameEncrypted, $lastNameEncrypted): string
+    private function decryptName(?string $firstNameEncrypted, ?string $lastNameEncrypted): string
     {
         $first = $firstNameEncrypted !== null
             ? $this->encryption->decrypt($firstNameEncrypted, 'member_years.first_name')

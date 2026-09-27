@@ -102,7 +102,7 @@ class ImportControllerTest extends TestCase
             $transactionRepository, $ruleEngine, $aiService, $settingService, new SchedulerService(new SchedulerRepository($this->pdo))
         );
         $importService = new ImportService(
-            $this->pdo, $encryption, $parserFactory, $transactionRepository,
+            $this->pdo, $encryption, $parserFactory, $this->accountRepository, $transactionRepository,
             $this->checkpointRepository, $statementImportRepository, $fiscalYearRepository, $ruleEngine, $balanceService,
             $receiptMatchingService, $bulkCategorizationService,
             FinanceTestHelper::allocationService($this->pdo, $encryption)
@@ -119,7 +119,7 @@ class ImportControllerTest extends TestCase
         $twig->addGlobal('current_path', '/finance/import');
         $twig->addGlobal('csp_nonce', 'test-nonce');
 
-        $this->controller = new ImportController($twig, $financeService, $importService, $parserFactory, $this->checkpointRepository);
+        $this->controller = new ImportController($twig, $financeService, $importService, $parserFactory);
 
         $accountId = $this->accountRepository->create('Compte', Account::TYPE_BANK, null, 'BE00000000000001', 'Titulaire', 'intendant');
         $this->pdo->prepare("UPDATE finance_accounts SET status = 'active' WHERE id = ?")->execute([$accountId]);
@@ -140,11 +140,16 @@ class ImportControllerTest extends TestCase
         AuthSession::logout();
     }
 
-    public function testFormMarksAccountAsFirstImport(): void
+    /**
+     * There is no account to choose any more: the file's own IBANs decide.
+     */
+    public function testTheFormOffersNoAccountToChoose(): void
     {
         $response = $this->controller->form(new Request('GET', '/finance/import', [], [], [], []), []);
 
         $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringNotContainsString('name="account_id"', $response->getBody());
+        $this->assertStringContainsString('name="statement"', $response->getBody());
     }
 
     private function tmpCopyOfFixture(): string
@@ -165,12 +170,11 @@ class ImportControllerTest extends TestCase
         return $token;
     }
 
-    private function uploadRequest(int $accountId, ?float $balance, string $tmpFilePath, ?string $csrfToken = null): Request
+    private function uploadRequest(?float $balance, string $tmpFilePath, ?string $csrfToken = null): Request
     {
         $request = $this->getMockBuilder(Request::class)
             ->setConstructorArgs(['POST', '/finance/import', [], [
                 '_csrf_token' => $csrfToken ?? $this->csrfToken(),
-                'account_id' => (string) $accountId,
                 'bank_code' => 'bnp',
                 'balance' => $balance !== null ? (string) $balance : '',
             ], [], []])
@@ -189,38 +193,35 @@ class ImportControllerTest extends TestCase
     {
         $tmp = $this->tmpCopyOfFixture();
 
-        $response = $this->controller->upload($this->uploadRequest($this->accountId, 1000.0, $tmp), []);
+        $response = $this->controller->upload($this->uploadRequest(1000.0, $tmp), []);
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('nouvelle', $response->getBody());
         $this->assertFileDoesNotExist($tmp);
     }
 
-    public function testUploadRejectsIbanMismatch(): void
+    /**
+     * The file's IBAN (the fixture's BE00000000000001) belongs to no site
+     * account: its lines are set aside and named, nothing is written.
+     */
+    public function testUploadReportsAnIbanNoAccountCarries(): void
     {
-        $otherAccountId = $this->accountRepository->create('Autre compte', Account::TYPE_BANK, null, 'BE99999999999999', 'Titulaire', 'intendant');
-        $this->pdo->prepare("UPDATE finance_accounts SET status = 'active' WHERE id = ?")->execute([$otherAccountId]);
+        $this->pdo->prepare('UPDATE finance_accounts SET iban_blind_index = NULL WHERE id = ?')->execute([$this->accountId]);
 
-        $tmp = $this->tmpCopyOfFixture();
-        $response = $this->controller->upload($this->uploadRequest($otherAccountId, 1000.0, $tmp), []);
+        $response = $this->controller->upload($this->uploadRequest(1000.0, $this->tmpCopyOfFixture()), []);
 
-        $this->assertStringContainsString('ne correspond pas', $response->getBody());
+        $this->assertStringContainsString('BE00 0000 0000 0001', $response->getBody());
+        $this->assertStringContainsString('aucun compte du site ne porte cet IBAN', $response->getBody());
+        $this->assertStringContainsString("Aucun mouvement n'a été importé", $response->getBody());
+        $this->assertSame(0, $this->countTransactions());
     }
 
     public function testUploadRejectsMissingBalanceOnFirstImport(): void
     {
         $tmp = $this->tmpCopyOfFixture();
-        $response = $this->controller->upload($this->uploadRequest($this->accountId, null, $tmp), []);
+        $response = $this->controller->upload($this->uploadRequest(null, $tmp), []);
 
         $this->assertStringContainsString('obligatoire', $response->getBody());
-    }
-
-    public function testUploadRejectsUnknownAccount(): void
-    {
-        $tmp = $this->tmpCopyOfFixture();
-        $response = $this->controller->upload($this->uploadRequest(9999, 1000.0, $tmp), []);
-
-        $this->assertStringContainsString('introuvable', $response->getBody());
     }
 
     /**
@@ -231,7 +232,7 @@ class ImportControllerTest extends TestCase
     public function testUploadRejectsAMissingCsrfToken(): void
     {
         $tmp = $this->tmpCopyOfFixture();
-        $request = $this->uploadRequest($this->accountId, 1000.0, $tmp, '');
+        $request = $this->uploadRequest(1000.0, $tmp, '');
 
         $response = $this->controller->upload($request, []);
 
@@ -243,7 +244,7 @@ class ImportControllerTest extends TestCase
     {
         $tmp = $this->tmpCopyOfFixture();
         $this->csrfToken();
-        $request = $this->uploadRequest($this->accountId, 1000.0, $tmp, str_repeat('f', 64));
+        $request = $this->uploadRequest(1000.0, $tmp, str_repeat('f', 64));
 
         $response = $this->controller->upload($request, []);
 
@@ -252,26 +253,23 @@ class ImportControllerTest extends TestCase
     }
 
     /**
-     * Regression: the route's role_min is 'intendant', but each account
-     * carries its own role_min_view on top of it. upload() resolved the
-     * account by raw id and never checked it, so an intendant could import
-     * a statement — and write a balance checkpoint — into an admin-only
-     * account by posting its id directly.
+     * The route's role_min is 'intendant', but each account carries its own
+     * role_min_view on top of it. With no account chosen any more, the
+     * boundary moves into the import itself: a file whose IBAN belongs to an
+     * admin-only account imports nothing — no movement, no checkpoint — and
+     * says the account is out of reach, without naming it.
      */
-    public function testUploadRefusesAnAccountAboveTheCallersRole(): void
+    public function testUploadWritesNothingIntoAnAccountAboveTheCallersRole(): void
     {
-        $adminOnlyAccountId = $this->accountRepository->create(
-            'Compte réservé admin', Account::TYPE_BANK, null, 'BE00000000000001', 'Titulaire', 'admin'
-        );
-        $this->pdo->prepare("UPDATE finance_accounts SET status = 'active' WHERE id = ?")->execute([$adminOnlyAccountId]);
+        $this->pdo->prepare("UPDATE finance_accounts SET role_min_view = 'admin' WHERE id = ?")->execute([$this->accountId]);
 
-        $tmp = $this->tmpCopyOfFixture();
-        $response = $this->controller->upload($this->uploadRequest($adminOnlyAccountId, 1000.0, $tmp), []);
+        $response = $this->controller->upload($this->uploadRequest(1000.0, $this->tmpCopyOfFixture()), []);
 
-        $this->assertStringContainsString('refusé', $response->getBody());
+        $this->assertStringContainsString("vous n'avez pas accès au compte", $response->getBody());
+        $this->assertStringNotContainsString('Voir les mouvements', $response->getBody());
         $this->assertSame(0, $this->countTransactions());
         $this->assertFalse(
-            $this->checkpointRepository->hasAnyForAccount($adminOnlyAccountId),
+            $this->checkpointRepository->hasAnyForAccount($this->accountId),
             'no balance checkpoint may be written into an account the caller cannot see'
         );
     }
@@ -280,12 +278,12 @@ class ImportControllerTest extends TestCase
      * The boundary's other side: at the account's own floor the import
      * goes through, so the guard above rejects on role, not by accident.
      */
-    public function testUploadAllowsAnAccountAtTheCallersOwnRole(): void
+    public function testUploadImportsIntoAnAccountAtTheCallersOwnRole(): void
     {
-        $tmp = $this->tmpCopyOfFixture();
-        $response = $this->controller->upload($this->uploadRequest($this->accountId, 1000.0, $tmp), []);
+        $response = $this->controller->upload($this->uploadRequest(1000.0, $this->tmpCopyOfFixture()), []);
 
-        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('Compte', $response->getBody());
+        $this->assertStringContainsString('/finance/movements?account_id=' . $this->accountId, $response->getBody());
         $this->assertGreaterThan(0, $this->countTransactions());
     }
 

@@ -470,7 +470,7 @@ Generic key-value with type, label, description (NOT NULL), optional regex valid
 
 **A setting the code writes must be declared in the composition root, and an unregistered one fails silently.** `SettingService::setInternal()` throws on a key it does not know — that is the right behaviour, since a typo must not create a row nobody declared. But a service that records what it just did (« l'archive est partie », « la sonde portait cette clé ») has no business turning bookkeeping into a failure the administrator would repeat, so it catches that throw — also the right behaviour. The two together are how `support_last_ticket_archive_reference` and its three neighbours were written from the first day, never registered, and never stored: the archive left, the confirmation was truthful, and Configuration > Diagnostic went on saying « Archive non transmise » for ever, because the reference it compares against did not exist. **A unit test cannot catch this**, because every one of them registers in `setUp()` the settings it needs — which is exactly the assumption that was false in production. Only a check against `public/index.php` itself can, which is what `Tests\Architecture\SupportSettingsAreRegisteredTest` does: it reflects the `*_SETTING` constants off the services that write them and fails if the composition root does not declare each one. Adding a written setting means adding a `register()` line in the same commit.
 
-**A module's setting is read with the module's id, and a call that omits it answers the default in silence.** `SettingService` files every setting under a scope — `module_id` for a module's, `_core_` for core's — and every scoped method takes it as an *optional* argument (`get(string $key, ?string $moduleId = null, …)`), which is exactly what makes the omission invisible: `($moduleId ?? '_core_') . '::' . $key` looks up a scope nothing ever wrote to, finds nothing, and hands back the default. Nothing throws, nothing logs, and the feature behaves as though nobody had configured it. `Modules\OfficialDocuments\Service\ParentalAuthorizationService::unitLabel()` read `official_documents_unit_code` that way for three iterations: the federation code a chief typed into the module's settings screen never once reached the parental authorization, while the screen went on showing it as saved (#433). What makes it easy is that these keys are prefixed with their own module's name — they read like global keys, and `'official_documents_unit_code'` looks fully qualified already. **And the service's own unit tests were green over it**, because they registered the setting with no module id either: both halves of one mistake, cancelling out. A fixture can always agree with the code it tests; only a check against the manifests can disagree, which is what `Tests\Architecture\ModuleSettingsAreReadInTheirScopeTest` does — it reads every `settings` key out of every `module.json`, resolves each call's key (literal or class constant, **per fully qualified class**: `SETTING_KEY` is declared in a dozen unrelated classes, and thirteen basenames are declared twice or more under the scanned roots, so a map keyed by bare name lets one namesake overwrite another's constants — `Modules\Groups\Service\ModerationService` and its counterpart in `retro` were one commit away from that) and fails on any of the seven scoped methods called without the scope. It cannot see a key built at runtime, and that blind spot is occupied: **37** `SettingService` calls pass a key known only at run time, seventeen of them in module code (`ReenrollmentCampaignService`, `GroupLifecycleService::months()`, `RegistrationConfigController`, `OpenRegistrationHandler`, `RetroChiefController`, `SupportDashboardService`, `RentalReminderService`, and their like). All seventeen pass their module's scope correctly today — verified, not assumed — and an earlier version of this paragraph claimed there was nothing there at all, which is the failure this very section describes, committed in its own text. **The blind spot is now closed from the other side** (#443): a second check asks the one question that does not need the key — a call in a module, on a `SettingService`, that names **no scope at all** — because whatever that key is, the call will read `_core_`, where a module's setting is not. It covers two families the first scan drops, and the second was found in review after being assumed away: the 17 calls whose key never resolves, **and the 20 whose key resolves to a literal or a constant that no manifest declares** (`Modules\Finance\Service\BulkCategorizationService` holds four). Core's own keys are read from the two composition roots that register them — `public/index.php` and `public/cron.php`, because `cron_last_run` lives only in the second — so a module reading `site_name` without a scope is right and is not reported. That harvest is gated twice, and both gates were found missing in review: on the **receiver**, since `register()` is not `SettingService`'s alone (`$auditAccessResolver->register(…)` would have entered phantom keys), and on `register()`'s own `?string $moduleId`, since a module's setting declared from the composition root — `register('news_field_capacity_backfilled', …, 'news')` — is not core's. Thirty-six of the thirty-seven pass; the thirty-seventh is `unit_address`, which **nothing** declares, so the rental contract has always printed an empty landlord address (#497) — found by this check on its first run, which is more than it was written for. What stays uncovered is a call that DOES name a scope under an unreadable key: judging that one means knowing which module the key belongs to, which means resolving the key. The receiver is found by name, so `testEverySettingServiceReceiverIsRecognisable()` holds the naming: a `SettingService` held as `$config` would be read by neither check.
+**A module's setting is read with the module's id, and a call that omits it answers the default in silence.** `SettingService` files every setting under a scope — `module_id` for a module's, `_core_` for core's — and every scoped method takes it as an *optional* argument (`get(string $key, ?string $moduleId = null, …)`), which is exactly what makes the omission invisible: `($moduleId ?? '_core_') . '::' . $key` looks up a scope nothing ever wrote to, finds nothing, and hands back the default. Nothing throws, nothing logs, and the feature behaves as though nobody had configured it. `Modules\OfficialDocuments\Service\ParentalAuthorizationService::unitLabel()` read `official_documents_unit_code` that way for three iterations: the federation code a chief typed into the module's settings screen never once reached the parental authorization, while the screen went on showing it as saved (#433). What makes it easy is that these keys are prefixed with their own module's name — they read like global keys, and `'official_documents_unit_code'` looks fully qualified already. **And the service's own unit tests were green over it**, because they registered the setting with no module id either: both halves of one mistake, cancelling out. A fixture can always agree with the code it tests; only a check against the manifests can disagree, which is what `Tests\Architecture\ModuleSettingsAreReadInTheirScopeTest` does — it reads every `settings` key out of every `module.json`, resolves each call's key (literal or class constant, **per fully qualified class**: `SETTING_KEY` is declared in a dozen unrelated classes, and thirteen basenames are declared twice or more under the scanned roots, so a map keyed by bare name lets one namesake overwrite another's constants — `Modules\Groups\Service\ModerationService` and its counterpart in `retro` were one commit away from that) and fails on any of the seven scoped methods called without the scope. It cannot see a key built at runtime, and that blind spot is occupied: **37** `SettingService` calls pass a key known only at run time, seventeen of them in module code (`ReenrollmentCampaignService`, `GroupLifecycleService::months()`, `RegistrationConfigController`, `OpenRegistrationHandler`, `RetroChiefController`, `SupportDashboardService`, `RentalReminderService`, and their like). All seventeen pass their module's scope correctly today — verified, not assumed — and an earlier version of this paragraph claimed there was nothing there at all, which is the failure this very section describes, committed in its own text. **The blind spot is now closed from the other side** (#443): a second check asks the one question that does not need the key — a call in a module, on a `SettingService`, that names **no scope at all** — because whatever that key is, the call will read `_core_`, where a module's setting is not. It covers two families the first scan drops, and the second was found in review after being assumed away: the 17 calls whose key never resolves, **and the 20 whose key resolves to a literal or a constant that no manifest declares** (`Modules\Finance\Service\BulkCategorizationService` holds four). Core's own keys are read from the two composition roots that register them — `public/index.php` and `public/cron.php`, because `cron_last_run` lives only in the second — so a module reading `site_name` without a scope is right and is not reported. That harvest is gated twice, and both gates were found missing in review: on the **receiver**, since `register()` is not `SettingService`'s alone (`$auditAccessResolver->register(…)` would have entered phantom keys), and on `register()`'s own `?string $moduleId`, since a module's setting declared from the composition root — `register('news_field_capacity_backfilled', …, 'news')` — is not core's. Thirty-six of the thirty-seven passed; the thirty-seventh was `unit_address`, which **nothing** declared, so the rental contract had always printed an empty landlord address — found by this check on its first run, which is more than it was written for. Issue #497 replaced it with the unit's declared addresses (`Core\Config\UnitAddresses`, whose `register()` the scan reads alongside the two roots, since `public/index.php` delegates to it) and a rental landlord of the module's own. What stays uncovered is a call that DOES name a scope under an unreadable key: judging that one means knowing which module the key belongs to, which means resolving the key. The receiver is found by name, so `testEverySettingServiceReceiverIsRecognisable()` holds the naming: a `SettingService` held as `$config` would be read by neither check.
 
 ### 8.5 Scheduler
 
@@ -4939,6 +4939,113 @@ real message, so it carries the same personal data as the mailing itself,
 into mailboxes hosted by third parties the unit chooses. The routing
 itself introduces no processor: it only says which already-declared relay
 is tried first.
+
+#### A trend is one class for both screens (`Core\Mail\Feedback\Trend`, issue #420)
+
+**Both feedback screens answered « where am I today » and neither
+answered « was it already like this last month ».** A 92 % authentication
+rate is excellent coming up from 70 % and alarming coming down from
+100 %; a provider filing half the mailings aside may have always done so.
+Acting on either figure needs the week before it.
+
+*One `WeeklySeries` for both, because the three decisions are the same
+three decisions.* The week, the threshold and the left edge shape any
+trend here, and DMARC and the seed boxes differ only in what they count.
+Two copies would be two chances to answer « is this week finished »
+differently, and the two screens would eventually disagree about the same
+week.
+
+*A hole is not a zero, and that is the whole arbitration.* Below the
+threshold there is no point at all and the line breaks (`spanGaps:
+false`): a hole says « we do not know », which is true and cannot be read
+across, while a zeroed or greyed point is eventually read like the
+others. It is also the answer to two different absences at once — a week
+whose rows were purged and a week before the site existed are both « not
+measured », the only thing the series can honestly assert.
+
+*The left edge is read from the purge, never restated.* Each trend
+subtracts its own retention constant (`PurgeDmarcReportsHandler`,
+`PurgeSeedCopiesHandler`) and hands the edge in. A curve reaching further
+would promise a « before » that was deleted; one starting at the first row
+would promise that nothing was sent before. The constant cannot drift
+from the curve because there is only one of it.
+
+*The threshold lives beside the data it judges, and there are two because
+they count different things.* `AuthenticationTrend::MINIMUM_MESSAGES` is
+twenty **messages** — what a DMARC report actually carries, a report
+saying nothing about which messages belonged to one mailing.
+`LandingTrend::MINIMUM_MAILINGS` is one **mailing**, and the first version
+of it got this wrong in an instructive way: it reused
+`DomainRouting::MINIMUM_RUNS` on the argument that the same evidence
+deserves the same judgement, which ignored the window. Those five mailings
+are five per THIRTY DAYS (`SEEDS_WINDOW`); as a per-ISO-week threshold they
+are four times stricter than the constant ever meant, and at this site's
+own stated volume — three to five boxes and a few mailings a year — no
+week reaches five, so every series was empty and the card could only
+render its own empty state. **A threshold calibrated for one window is not
+a threshold for another**, however much the same evidence it judges. The
+one that replaced it refuses zero evidence rather than demanding five,
+because `MINIMUM_RUNS` guards an automatic action while this only shows a
+figure to somebody who can weigh it — and `sample` reaches the tooltip so
+they can. This is also why `WeeklySeries` keeps `sample` and `total` apart:
+for the seed boxes the evidence is mailings while the ratio stays inbox
+copies over answered copies — the share the ranking screen already shows.
+
+*The ISO week is bucketed in PHP, not in SQL.* MySQL's `YEARWEEK(…, 3)`
+is the ISO week and SQLite has none — `strftime('%W')` starts on Sunday —
+so a `GROUP BY` would answer one way under the engine CI runs and another
+under a local fallback. One `DateTimeImmutable` and one `'o-\WW'` key
+cannot drift that way (`o` is the ISO year: a key built from `Y` files
+week 1 of 2027 under 2026).
+
+*The current week is drawn as it fills, and says so.* A point is « the
+week of the 14th », which a rolling seven-day slice cannot name; the
+admitted price is that the last point still moves, so it is flagged
+`partial` and the tooltip says « semaine en cours » rather than letting a
+half-week read as a drop.
+
+*Both ends are short, and the two are not the same claim.* The walk begins
+on the Monday of the edge's week while every caller asks its rows for
+`>= $edge`, so an edge on a Thursday leaves Monday to Wednesday out of a
+bucket labelled « the week of the 21st » — a short sample that can fall
+under the threshold, and a ratio covering fewer days than its label. That
+first point carries its own flag, `truncated`, and not `partial`: one
+boolean would have made the tooltip say « semaine en cours » about a week
+that ended months ago. The last point will grow; the first never will,
+because what is missing from it was purged. A window inside a single week
+is both, and says both.
+
+*A provider with nothing measured is left off the chart, and no filter does
+it.* `LandingTrend` carried a `drawable()` guard for exactly one revision;
+its mutation survived, which is the proof it could never fire. The reason is
+structural: `landingsPerRunSince()` excludes pending copies, so a provider
+reaches the map only with at least one ANSWERED mailing, which lands in a
+walked week where `sample` and `total` are both at least one — clearing
+`MINIMUM_MAILINGS`. The provider the guard was meant to drop, one whose every
+copy is still pending, never reaches the map at all. A second mechanism for a
+boundary the query already holds is the shape whose mutation survives because
+each copy hides the other's absence, so the guard is gone and a test pins the
+invariant. What remains is the view's own question: `trendForView()` hands the
+template an empty list rather than a list of holes when a series has no drawn
+week — still reachable for DMARC, where twenty messages a week is a real bar —
+because a legend entry with no line beside it reads as « this provider
+delivered nothing », the opposite of « we have not measured it enough to
+say ».
+
+*The seed trend groups on the attributed provider, like the ranking above
+it.* Folding the MX attribution (issue #422) at read time means two of a
+provider's domains can hold the same mailing, so those rows are merged
+rather than appended: one mailing at a provider is one unit of evidence
+whatever the number of its boxes, which is what `MINIMUM_RUNS` counts.
+Grouping on the stored column instead would draw a line for
+`famille-durand.be` beside `gmail.com` while the table above it counts that
+box under Google — the two screens disagreeing about the same provider.
+
+*And the figures are in text beside every chart.* Each card carries a
+`<details>` table of the same weeks, holes omitted, for a reader who
+cannot see a line. The labels reach Chart.js as data and never as markup
+(SECURITY.md § 28).
+
 
 ### 8.107 Storage locations (`Core\Storage\Location`)
 

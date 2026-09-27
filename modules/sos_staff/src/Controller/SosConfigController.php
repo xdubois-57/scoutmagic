@@ -54,7 +54,7 @@ class SosConfigController extends AbstractController
     public function index(Request $request, array $params): Response
     {
         $credential = $this->providerConfigService->getOvhCredential();
-        $config = $credential?->config ?? [];
+        $config = $credential->config ?? [];
 
         // getExcludedSectionIds() ensures the STAFFDU section exists — it
         // must run before getAllWithBranches() so STAFFDU is actually in
@@ -72,7 +72,7 @@ class SosConfigController extends AbstractController
             'billing_account' => $config['billing_account'] ?? null,
             'service_name' => $config['service_name'] ?? null,
             'sos_number' => $config['sos_number'] ?? null,
-            'is_active' => $credential?->isActive ?? false,
+            'is_active' => $credential->isActive ?? false,
             'sections' => $allSections,
             'excluded_section_ids' => $excludedIds,
             'staffdu_desk_code' => UnitStaffSectionService::DESK_CODE,

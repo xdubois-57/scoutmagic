@@ -199,7 +199,9 @@ CREATE TABLE IF NOT EXISTS finance_balance_checkpoints (
 -- finance_statement_imports: bookkeeping for every bank statement import
 -- run (module spec follow-up "itération 3") — shown on the import
 -- result page and kept as an audit trail; never contains bank data
--- itself, only counts and the original filename.
+-- itself, only counts and the original filename. upload_id is shared by
+-- the rows one uploaded file wrote — a file covering several accounts
+-- writes one row per account (issue #511); NULL on older rows.
 CREATE TABLE IF NOT EXISTS finance_statement_imports (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     account_id INT UNSIGNED NOT NULL,
@@ -210,6 +212,7 @@ CREATE TABLE IF NOT EXISTS finance_statement_imports (
     lines_duplicate INT UNSIGNED NOT NULL DEFAULT 0,
     imported_by INT UNSIGNED NULL,
     imported_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    upload_id CHAR(32) NULL,
     CONSTRAINT fk_fsi_account FOREIGN KEY (account_id) REFERENCES finance_accounts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

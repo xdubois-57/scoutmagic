@@ -314,12 +314,13 @@ final class ReferenceDatasetFormatTest extends TestCase
 
         $parser = new BnpParser();
 
-        // The IBAN carried on every row must be the account's own:
-        // ImportService::verifyIban() compares its blind index to the
-        // account's and refuses the whole file otherwise.
+        // The IBAN carried on every row must be the account's own, and only
+        // it: ImportService sends each line to the site account carrying
+        // that IBAN, so a wrong one would put the statement in another
+        // ledger or set it aside.
         self::assertSame(
-            BankBlueprint::compactIban(BankBlueprint::ACCOUNTS[$account]['iban']),
-            $parser->extractSourceIban($path),
+            [BankBlueprint::compactIban(BankBlueprint::ACCOUNTS[$account]['iban'])],
+            $parser->extractAccountIbans($path),
             "The {$year}/{$account} statement does not carry its own account's IBAN.",
         );
 

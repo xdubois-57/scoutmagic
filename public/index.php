@@ -632,6 +632,9 @@ $settingService->register(
     'Nom de l\'unité',
     'Nom complet de l\'unité, affiché dans le header et le titre du site.'
 );
+// The unit's legal postal address and its premises (issue #497). Declared
+// by the class that reads them, so a test registers the real thing.
+\Core\Config\UnitAddresses::register($settingService);
 // The site-wide cut-out for contact synchronisation (Core\Contact\Device,
 // ARCHITECTURE.md §8.117). Default '1': it is a cut-out, not an opt-in —
 // nothing synchronises until an administrator has registered a device
@@ -8038,6 +8041,7 @@ if ($isEnabled('finance')) {
         $pdo,
         $encryptionService,
         $financeParserFactory,
+        $financeAccountRepo,
         $financeTransactionRepo,
         $financeCheckpointRepo,
         $financeStatementImportRepo,
@@ -8296,8 +8300,7 @@ if ($isEnabled('finance')) {
             $twig,
             $financeService,
             $financeImportService,
-            $financeParserFactory,
-            $financeCheckpointRepo
+            $financeParserFactory
         )
     );
     $frontController->registerController(
@@ -11434,6 +11437,13 @@ if ($isEnabled('rental')) {
             $rentalPricingService
         )
     );
+    // Every wording of an asset's conditions, archived (issue #494): the
+    // settings save, the public conditions pages and the request form all
+    // read the version in force through it.
+    $rentalConditionsService = new \Modules\Rental\Service\RentalConditionsService(
+        new \Modules\Rental\Repository\RentalConditionsVersionRepository($pdo),
+        $editableContentService
+    );
     $frontController->registerController(
         \Modules\Rental\Controller\RentalPricingController::class,
         new \Modules\Rental\Controller\RentalPricingController(
@@ -11446,10 +11456,11 @@ if ($isEnabled('rental')) {
             $rentalAuthorizationService,
             $rentalAssetRepository,
             $scoutYearResolver,
-            // The conditions a renter ticks live in the generic
+            // The conditions a renter ticks: still stored in the generic
             // editable-content store, which sanitizes them on the way in
-            // (Modules\Rental\Document\AssetConditions, §22.5).
-            $editableContentService,
+            // (Modules\Rental\Document\AssetConditions, §22.5), and now
+            // archived on every save (issue #494).
+            $rentalConditionsService,
             $rentalPaymentService,
             // The « Rappels » section of the asset's settings (§6.29).
             $rentalAssetReminderRepository
@@ -11466,8 +11477,9 @@ if ($isEnabled('rental')) {
             $rentalPricingService,
             new \Core\View\MonthGrid\DayStateGridBuilder(),
             // Read-only: the public asset page RENDERS the conditions, and
-            // no longer offers to edit them in place (§22.5).
-            $editableContentService
+            // no longer offers to edit them in place (§22.5); the two
+            // conditions pages serve them by version (issue #494).
+            $rentalConditionsService
         )
     );
     // Documents: contracts, invoices and whatever a manager attaches
@@ -11495,7 +11507,10 @@ if ($isEnabled('rental')) {
         $journalService,
         // So the Message-IDs it mints are remembered and a renter's reply
         // threads onto the booking (§7.6). Null without `inbound_mail`.
-        $inboundMailForOthers
+        $inboundMailForOthers,
+        // Each email to the renter ends with the link to the version of
+        // the conditions they accepted (issue #494).
+        $rentalConditionsService
     );
 
     // The asset paperwork register (§6.33). A reminder list, never a
@@ -11712,6 +11727,9 @@ if ($isEnabled('rental')) {
             $settingService,
             $rentalOperationsService,
             $rentalChangeRequestRepository,
+            // The form carries the version of the conditions it shows, and a
+            // submission is accepted against that version only (issue #494).
+            $rentalConditionsService,
             // The renter's own ICS feed (§6.32): only the generator is
             // borrowed from `calendar`, never a calendar row. Without the
             // module the link simply is not offered.

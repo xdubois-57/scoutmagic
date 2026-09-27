@@ -108,7 +108,10 @@ final class TemporaryDirectoryWatch
      */
     private static function entries(string $directory): array
     {
-        $entries = scandir($directory);
+        // Silenced because the failure is asserted just below, with a
+        // message that says what was not checked; the bare warning only
+        // repeated it in PHPUnit's summary.
+        $entries = @scandir($directory);
 
         Assert::assertNotFalse(
             $entries,

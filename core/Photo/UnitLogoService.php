@@ -223,7 +223,7 @@ class UnitLogoService
     }
 
     /**
-     * @param array<string, string> $icons size key (incl. 'ico') => bytes
+     * @param array<int|string, string> $icons size key (incl. 'ico') => bytes
      */
     private function writeDerivatives(array $icons): void
     {

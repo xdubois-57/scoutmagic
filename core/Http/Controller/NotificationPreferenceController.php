@@ -45,7 +45,7 @@ class NotificationPreferenceController extends AbstractController
     {
         $userId = (int) AuthSession::getUserAccountId();
         $account = $this->userAccountRepository->findById($userId);
-        $viewerRole = $this->viewerRole($account?->email ?? '');
+        $viewerRole = $this->viewerRole($account->email ?? '');
 
         $preferences = $this->preferenceRepository->findAllForUser($userId);
 
@@ -69,7 +69,7 @@ class NotificationPreferenceController extends AbstractController
         return $this->render('notifications/preferences.html.twig', [
             'groups' => $groups,
             'vapid_public_key' => $this->twig->getGlobals()['vapid_public_key'] ?? '',
-            'notification_discretion' => $account?->notificationDiscretion ?? false,
+            'notification_discretion' => $account->notificationDiscretion ?? false,
             'quiet_hours_start' => $account?->quietHoursStart,
             'quiet_hours_end' => $account?->quietHoursEnd,
         ]);
@@ -103,7 +103,7 @@ class NotificationPreferenceController extends AbstractController
 
         $userId = (int) AuthSession::getUserAccountId();
         $account = $this->userAccountRepository->findById($userId);
-        $viewerRole = $this->viewerRole($account?->email ?? '');
+        $viewerRole = $this->viewerRole($account->email ?? '');
         if (!$viewerRole->hasAccess(Role::fromString($type->roleMin))) {
             return $this->json(['success' => false, 'error' => 'Non autorisé.'], 403);
         }

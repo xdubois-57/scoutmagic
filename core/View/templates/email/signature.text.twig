@@ -1,9 +1,19 @@
 {#- The plain-text twin of the signature email/base.html.twig adds to every
     HTML e-mail. Included by every shipped `.text.twig` so both halves of a
     message are signed the same way; a customised e-mail has only one body
-    and gets its text half derived from the HTML, signature included. -#}
+    and gets its text half derived from the HTML, signature included.
+
+    Twig swallows the newline right after a `%}`, so every line break in
+    the footer note below is one that follows a `}}`: the note and its
+    link on two lines. -#}
 Bien à vous,
 {{ site_name }}
+{% if footer_note is defined and footer_note %}
+
+{{ footer_note }}
+{% if footer_link is defined and footer_link %}{{ footer_link }}
+{% endif %}
+{% endif %}
 
 --
 Message envoyé automatiquement par {{ site_name }}.
