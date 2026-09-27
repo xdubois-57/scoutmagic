@@ -518,6 +518,26 @@ class ReceivableAllocationService
      *
      * @throws FinanceException
      */
+    /**
+     * Where a receivable came from, once its own visibility is settled.
+     *
+     * Exposed so a caller can refuse a receivable that does not belong to
+     * the thing its URL names, without ever learning of one it may not see:
+     * the visibility predicate runs first, and an invisible receivable is
+     * reported as absent here exactly as it is everywhere else. The caller
+     * gets the source and decides — this service knows nothing of campaigns
+     * and is not about to (issue #582).
+     *
+     * @return array{0: string, 1: int} the source module, then its reference
+     * @throws FinanceException
+     */
+    public function sourceOfReceivable(int $receivableId, Role $viewerRole): array
+    {
+        $receivable = $this->requireReceivable($receivableId, $viewerRole);
+
+        return [$receivable->sourceModule, $receivable->sourceReferenceId];
+    }
+
     public function waive(int $receivableId, Role $viewerRole, ?int $actorUserAccountId): void
     {
         $receivable = $this->requireReceivable($receivableId, $viewerRole);
