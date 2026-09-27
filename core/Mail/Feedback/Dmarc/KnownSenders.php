@@ -40,8 +40,19 @@ use Core\Service\DateInput;
  * never taken therefore places nothing, rather than guessing.
  *
  * **The host itself never reaches a screen.** What is shown is the
- * provider's name — « Brevo » — because a relay hostname is infrastructure
- * and SECURITY.md §11 keeps that out of anything a screenshot can carry.
+ * provider's name — « Brevo » — and that is this screen's own judgement
+ * rather than a rule it obeys: a relay hostname tells a volunteer nothing
+ * they can act on, while « Brevo » tells them which account to go and look
+ * at. It also keeps one more piece of this deployment's plumbing out of the
+ * screenshots that travel with a support request.
+ *
+ * An earlier version of this paragraph credited that to « SECURITY.md §11 ».
+ * It does not say it: §11 is the event journal, and it governs what an
+ * ENTRY may carry — no personal data, a stack rebuilt frame by frame rather
+ * than taken from `getTraceAsString()`. Nothing there is about screens. The
+ * reason above stands without the citation, and a wrong reference is worse
+ * than none: the next reader follows it, finds another subject, and learns
+ * to distrust the ones that are right.
  */
 class KnownSenders
 {

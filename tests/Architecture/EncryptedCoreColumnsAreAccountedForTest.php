@@ -26,6 +26,22 @@ use PHPUnit\Framework\TestCase;
  * arrives with the name of the section to go and read. The author still
  * decides; they simply cannot forget to.
  *
+ * **And a second guard was built for that page and abandoned, on evidence.**
+ * The RGPD page has two halves — the numbered rules that say what each
+ * section must keep, and the content itself — and nothing holds them
+ * together, which is a real gap. The attempt was a vocabulary check: flag a
+ * rule whose distinctive words appear nowhere in the section it governs. It
+ * was measured against the case that motivated it and **did not fire**: one
+ * word shared by accident between a rule and an unrelated paragraph is
+ * enough to satisfy it, and there is always one. A guard on section NUMBERS
+ * would not have caught that case either: the section it named existed — the
+ * page's own « section 2.9 », in the numbering the page uses for its rendered
+ * content rather than the `§N.M` this repository's documents use — and it was
+ * that section's CONTENT which had drifted. So the gap stays open and named rather than covered by a
+ * check that reports success. A tripwire on a count can be trusted because
+ * counting is exact; a tripwire on prose cannot, and one that passes when it
+ * should fail is worse than the absence it replaced.
+ *
  * **`*_encrypted` is not a marker of personal data, and that is the first
  * thing this inventory had to settle.** Encryption at rest is applied to
  * secrets as much as to people: `storage_locations.secret_encrypted` is a
@@ -69,7 +85,12 @@ final class EncryptedCoreColumnsAreAccountedForTest extends TestCase
         // own numbered section. These are the entries a new column will most
         // often land in, and the ones whose section is unambiguous.
         'mail_deferred_messages' => [11, '§4octies « Messages en attente d\'envoi »'],
-        'mail_probes' => [9, '§4nonies « Sonde de délivrabilité »'],
+        // Twelve since issue #419 added the traced bounce: the category, the
+        // enhanced status code and the moment. §4nonies already carries all
+        // three, and says in the same breath that the server's diagnostic text
+        // is never kept because it recites the address — so the count moved
+        // and the prose did not have to.
+        'mail_probes' => [12, '§4nonies « Sonde de délivrabilité »'],
         'mail_bounce_states' => [12, '§4decies « Rebonds d\'adresses »'],
 
         // The member data itself. The page describes it in its opening
@@ -89,6 +110,20 @@ final class EncryptedCoreColumnsAreAccountedForTest extends TestCase
         'storage_locations' => [10, 'aucune : `secret_encrypted` est un identifiant de stockage distant'],
         'mail_return_probes' => [8, 'aucune : l\'adresse est celle du site, pas celle d\'un membre'],
         'mail_seed_copies' => [9, 'aucune : une boîte témoin louée à un service de mesure'],
+
+        // The domain half of every address the mailing lane writes to, noted
+        // by `DomainPreferences::reorder()` so a scheduled task can read its
+        // MX records. **Encrypted because it can name a family**: most rows
+        // are `gmail.com`, but a household with its own domain is one row of
+        // its own, which is exactly the case the encryption is for. The page
+        // made this decision when the table arrived (issue #422) — rule 35's
+        // paragraph says the site reads the PUBLIC MX records of the domains
+        // it writes to, that « seul le nom de domaine est interrogé, jamais
+        // l'adresse », and that it keeps only the matching.
+        'mail_domain_providers' => [
+            9,
+            'la règle 35, paragraphe « Rattachement d\'un domaine à son fournisseur de messagerie »',
+        ],
 
         // A shortened link's target. Encrypted because a target can name a
         // person (a member page, a document), never because the link itself
