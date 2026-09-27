@@ -126,6 +126,16 @@ final class ComponentsStylesheetIsLoadedWhereItsClassesAreUsedTest extends TestC
                 'picker' => '<div class="x"></div>',
             ])
         );
+        // And an apostrophe in a Twig comment does not shift the pairing, so
+        // the literal after it is still found (review of #602).
+        $this->assertContains(
+            'picker',
+            self::reachable('page', [
+                'page' => "{# the manager's own box #}\n{% include 'partial' with { ui: { picker_template: 'picker' } } %}",
+                'partial' => '{% include ui.picker_template %}',
+                'picker' => '',
+            ])
+        );
         $this->assertSame(['a', 'b'], self::simpleClassesIn('.a, .b:hover { x: 1 } .c .d { } .e > .f { }'));
     }
 
@@ -193,6 +203,7 @@ final class ComponentsStylesheetIsLoadedWhereItsClassesAreUsedTest extends TestC
      */
     private static function classesUsedIn(string $source): array
     {
+        $source = self::withoutTwigComments($source);
         $values = [];
 
         preg_match_all('/\bclass="([^"]*)"/', $source, $attributes);
@@ -288,7 +299,7 @@ final class ComponentsStylesheetIsLoadedWhereItsClassesAreUsedTest extends TestC
             foreach ($matches[1] as $next) {
                 $queue[] = $next;
             }
-            foreach (self::quotedStringsIn($templates[$current]) as $literal) {
+            foreach (self::quotedStringsIn(self::withoutTwigComments($templates[$current])) as $literal) {
                 if (isset($templates[$literal])) {
                     $queue[] = $literal;
                 }
@@ -337,6 +348,20 @@ final class ComponentsStylesheetIsLoadedWhereItsClassesAreUsedTest extends TestC
         }
 
         return $files;
+    }
+
+    /**
+     * A template without its `{# … #}` comments.
+     *
+     * Quoted strings are paired left to right, so one apostrophe in prose
+     * (« the manager's ») shifts every pair after it: in
+     * `rental/management/booking_mail.html.twig` it swallowed the literal
+     * naming `_triage_picker.html.twig`, and the page's picker left the scan
+     * without a word (found in review of #602). Comments are prose; they go.
+     */
+    private static function withoutTwigComments(string $source): string
+    {
+        return (string) preg_replace('/\{#.*?#\}/s', '', $source);
     }
 
     private static function withoutComments(string $css): string
