@@ -264,9 +264,10 @@ class CarpoolOrganizerController extends AbstractController
     }
 
     /**
-     * Whether the pin the form shows was placed by a human. A form shown
-     * again after a refusal carries the answer itself: a point it posted
-     * without `point_automatic` was dragged, clicked or typed.
+     * Whether the pin the form shows was placed — or removed — by a human.
+     * A form shown again after a refusal carries the answer itself: the
+     * script posts `point_manual`; without the script, a point posted
+     * without `point_automatic` was typed.
      *
      * @param array<string, mixed> $submitted
      */
@@ -277,6 +278,9 @@ class CarpoolOrganizerController extends AbstractController
         }
         if ($submitted === []) {
             return false;
+        }
+        if ((string) ($submitted['point_manual'] ?? '') === '1') {
+            return true;
         }
 
         return trim((string) ($submitted['latitude'] ?? '')) !== ''

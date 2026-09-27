@@ -265,6 +265,33 @@ final class CovoiturageRbacTest extends TestCase
         $this->assertStringNotContainsString('data-locate-url', $form);
     }
 
+    public function testAPointRemovedByHandStaysRemovedWhenTheFormComesBackRefused(): void
+    {
+        // « Retirer » posts empty coordinates and point_manual=1; a refusal
+        // for another reason (here, the dates) must show the form with the
+        // point still marked as a human's decision, or the page's lookup
+        // would put the pin straight back on the address.
+        AuthSession::login($this->accountId, 'parent@test.be', Role::ADMIN->value);
+        $body = [
+            '_csrf_token' => \Core\Security\CsrfGuard::generateToken(),
+            'address' => 'Gîte de Han, rue des Grottes 12',
+            'outbound_date' => '2027-05-10',
+            'return_date' => '2027-05-01',
+            'latitude' => '',
+            'longitude' => '',
+            'point_automatic' => '0',
+            'point_manual' => '1',
+        ];
+
+        $page = $this->frontController('POST', '/covoiturage/organiser/{id}/modifier', 'update', 'chief')
+            ->handle(new Request('POST', '/covoiturage/organiser/' . $this->carpoolId . '/modifier', [], $body, [], []))
+            ->getBody();
+
+        $this->assertStringContainsString('Le retour ne peut pas précéder', $page);
+        $this->assertStringContainsString('data-manual="1"', $page);
+        $this->assertStringContainsString('name="point_manual" value="1"', $page);
+    }
+
     /** @param array{latitude: float, longitude: float}|null $answer */
     private function organizerWithLocator(?array $answer): CarpoolOrganizerController
     {

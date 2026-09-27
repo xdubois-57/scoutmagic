@@ -112,6 +112,7 @@
         var placeButton = /** @type {HTMLButtonElement|null} */ (box.querySelector('[data-carpool-point-place]'));
         var removeButton = /** @type {HTMLButtonElement|null} */ (box.querySelector('[data-carpool-point-remove]'));
         var automatic = /** @type {HTMLInputElement|null} */ (box.querySelector('[data-carpool-point-automatic]'));
+        var manualField = /** @type {HTMLInputElement|null} */ (box.querySelector('[data-carpool-point-manual]'));
         var line = box.querySelector('[data-carpool-point-line]');
         var origin = box.querySelector('[data-carpool-point-origin]');
         var lat = /** @type {HTMLInputElement|null} */ (document.getElementById('carpool-latitude'));
@@ -143,6 +144,9 @@
             lng.value = longitude === null ? '' : longitude.toFixed(6);
             if (automatic) {
                 automatic.value = !manual && latitude !== null ? '1' : '0';
+            }
+            if (manualField) {
+                manualField.value = manual ? '1' : '0';
             }
             if (line) {
                 line.textContent = latitude === null ? '' : lat.value + ', ' + lng.value;

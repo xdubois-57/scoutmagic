@@ -15,6 +15,7 @@ function buildForm({ lat = '', lng = '', manual = '0', address = '', locate = fa
         </div>
         <fieldset data-carpool-point data-manual="${manual}" ${locateUrl}>
             <input type="hidden" name="point_automatic" value="0" data-carpool-point-automatic>
+            <input type="hidden" name="point_manual" value="${manual}" data-carpool-point-manual>
             <div data-carpool-point-fields>
                 <input id="carpool-latitude" name="latitude" value="${lat}">
                 <input id="carpool-longitude" name="longitude" value="${lng}">
@@ -312,6 +313,7 @@ describe('covoiturage-organize', () => {
 
             expect(document.querySelector('[data-carpool-point-map-box]').classList.contains('d-none')).toBe(true);
             expect(value('carpool-latitude')).toBe('');
+            expect(document.querySelector('[data-carpool-point-manual]').value).toBe('1');
 
             /** @type {HTMLButtonElement} */ (document.querySelector('[data-carpool-point-place]')).click();
             expect(leaflet.views.at(-1)).toEqual({ center: [50.125, 5.187], zoom: 15 });

@@ -266,6 +266,31 @@ final class CarpoolServiceTest extends TestCase
         $this->assertNull($this->carpools->findNextToGeocode());
     }
 
+    public function testAnAutomaticPinLeftOnTheOldAddressIsNotWrittenBack(): void
+    {
+        // The address changed and the page's lookup of the new one found
+        // nothing: the untouched pin still says `point_automatic`, but it is
+        // the OLD address's point. It must stay cleared, for the task.
+        $id = $this->service->create($this->input(), H::viewer(1, Role::CHIEF));
+        $this->carpools->points()->recordGeocoding($id, new \Core\Geo\GeoPoint(50.7, 4.6), new \DateTimeImmutable());
+        $carpool = $this->carpools->findById($id);
+        $this->assertNotNull($carpool);
+
+        $this->service->update(
+            $carpool,
+            $this->input([
+                'address' => 'Gîte de Han, rue des Grottes 12',
+                'latitude' => '50.700000',
+                'longitude' => '4.600000',
+                'point_automatic' => '1',
+            ]),
+            H::viewer(1, Role::CHIEF)
+        );
+
+        $this->assertNull($this->carpools->findById($id)?->point);
+        $this->assertSame($id, $this->carpools->findNextToGeocode()?->id, 'back in the background queue');
+    }
+
     public function testTheFormCannotTurnAHandPlacedPointBackIntoAnAutomaticOne(): void
     {
         $id = $this->service->create(

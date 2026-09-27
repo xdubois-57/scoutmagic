@@ -104,6 +104,9 @@
                   {% if address_lookup %}data-locate-url="/covoiturage/organiser/adresse"{% endif %}>
             <legend class="form-label fs-6">Point sur la carte (facultatif)</legend>
             <input type="hidden" name="point_automatic" value="{{ values.point_automatic|default('0') }}" data-carpool-point-automatic>
+            {# Read back only when the form is shown again after a refusal:
+               a point removed by hand must not be put back by the lookup. #}
+            <input type="hidden" name="point_manual" value="{{ point_is_manual ? '1' : '0' }}" data-carpool-point-manual>
             <div class="row g-2" data-carpool-point-fields>
                 <div class="col-6">
                     {% include 'partials/form_field.html.twig' with {
