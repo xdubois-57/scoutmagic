@@ -75,6 +75,7 @@ class SwitchAriaCheckedTest extends TestCase
             'badges' => $badges,
             'undeletable_badge_reasons' => [],
             'badges_current_year_label' => '2026-2027',
+            'badges_previous_year_label' => '2025-2026',
         ]);
 
         $this->assertSwitchAriaChecked($html, 'id="badge-active-1"', true);

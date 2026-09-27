@@ -2,9 +2,11 @@
 
 {#
   Espace chefs d'U > Badges — who wore which badge in one scout year
-  (issue #621). Grouped by badge, only the badges somebody wore, in the
-  order Core\Badge\BadgeHolderService gives them. Read only: assigning
-  stays on /chefs/staffs.
+  (issue #621): the year in effect, or the one before when
+  `is_previous_year`. Grouped by badge, only the badges somebody wore, in
+  the order Core\Badge\BadgeHolderService gives them. Read only:
+  assigning stays on /chefs/staffs, and a closed year offers nothing at
+  all to do.
 
   Each name links to /admin/members/{member_year id}: that route takes a
   member_year and opens the person's most recent sheet itself — see
@@ -22,20 +24,30 @@
     {% include 'admin/badges/_nav.html.twig' %}
     {% include 'partials/page_header.html.twig' with {
         title: 'Badges — ' ~ year_label,
-        subtitle: 'Les badges portés cette année, et par qui.',
+        subtitle: is_previous_year
+            ? 'Qui portait quoi l\'année dernière.'
+            : 'Les badges portés cette année, et par qui.',
     } only %}
 
     {% if groups is empty %}
-        {# design.md §7.7: the one way the site says there is nothing. The
-           reader may assign a badge — on Staffs, not here — so the state
-           offers the way there. #}
+        {# design.md §7.7: the one way the site says there is nothing. On
+           the year in effect the reader may assign a badge — on Staffs, not
+           here — so the state offers the way there; a closed year offers
+           nothing to do, so it says only what it is. #}
         <div data-badge-holders-empty>
-            {% include 'partials/empty_state.html.twig' with {
-                message: 'Aucun badge n\'est attribué pour ' ~ year_label ~ '.',
-                action_label: 'Attribuer sur Staffs',
-                action_url: '/chefs/staffs',
-                icon: 'bi-award',
-            } only %}
+            {% if is_previous_year %}
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Aucun badge n\'était attribué en ' ~ year_label ~ '.',
+                    icon: 'bi-award',
+                } only %}
+            {% else %}
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Aucun badge n\'est attribué pour ' ~ year_label ~ '.',
+                    action_label: 'Attribuer sur Staffs',
+                    action_url: '/chefs/staffs',
+                    icon: 'bi-award',
+                } only %}
+            {% endif %}
         </div>
     {% endif %}
 
@@ -71,10 +83,16 @@
         {% endfor %}
     </div>
 
-    <p class="small text-body-secondary mb-2">
-        Cette page ne fait que lire. Pour attribuer ou retirer un badge, allez sur
-        <a href="/chefs/staffs">Staffs</a>, où chaque membre porte ses interrupteurs.
-    </p>
+    {% if is_previous_year %}
+        <p class="small text-body-secondary mb-2">
+            Année close : rien ne s'y attribue ni ne s'y retire. Elle sert à retrouver qui tenait quel rôle.
+        </p>
+    {% else %}
+        <p class="small text-body-secondary mb-2">
+            Cette page ne fait que lire. Pour attribuer ou retirer un badge, allez sur
+            <a href="/chefs/staffs">Staffs</a>, où chaque membre porte ses interrupteurs.
+        </p>
+    {% endif %}
     <p class="small text-body-secondary">
         {% if any_inactive %}
             Un badge désactivé qui garde des porteurs reste affiché ici : il reste à leur retirer, ou le
