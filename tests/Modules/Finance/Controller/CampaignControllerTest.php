@@ -716,7 +716,8 @@ class CampaignControllerTest extends TestCase
      */
     public function testClosingAnUnknownCampaignSaysSoInsteadOfFailing(): void
     {
-        $campaignId = $this->createCampaign();
+        // a real campaign exists, and the request names another one
+        $this->createCampaign();
         FlashMessage::get();
 
         $response = $this->controller->updateStatus(
@@ -837,7 +838,8 @@ class CampaignControllerTest extends TestCase
 
     public function testNotifyingAnUnknownCampaignSaysSoInsteadOfFailing(): void
     {
-        $campaignId = $this->createCampaign();
+        // a real campaign exists, and the request names another one
+        $this->createCampaign();
         FlashMessage::get();
 
         $response = $this->controller->notify(
@@ -852,14 +854,20 @@ class CampaignControllerTest extends TestCase
     /**
      * The refusal that could actually write, and therefore the one whose
      * state is worth asserting: the campaign exists, and the account it is
-     * booked against has since been restricted above this treasurer. Every
-     * write route resolves it through the same predicate first
-     * (Service\CampaignService::requireCampaign), and the three gestures
-     * that change something must all leave it exactly as it was — this is
-     * the per-account decision the controller's own docblock states, not
-     * `role_min: intendant` on the route.
+     * booked against has since been restricted above this treasurer. The
+     * four gestures that change something must all leave it exactly as it
+     * was — this is the per-account decision the controller's own docblock
+     * states, not `role_min: intendant` on the route.
+     *
+     * All four end at `Service\CampaignService::requireCampaign()`, though
+     * not all by the same road: `saveNote()` resolves the ROW first and
+     * reaches the predicate through `$row->campaignId`, which is why its
+     * refusal is asserted here one gesture at a time rather than once at the
+     * end — `FlashMessage` is a single overwritten slot, so a lone assertion
+     * after all four would pin only the last one's reason and let the other
+     * three be refused for something else entirely.
      */
-    public function testACampaignOnAnAccountOutOfReachCannotBeClosedNotedOrNotified(): void
+    public function testNothingCanBeChangedOnACampaignWhoseAccountIsOutOfReach(): void
     {
         $campaignId = $this->createCampaign();
         $rowId = $this->rows->findByCampaignId($campaignId)[0]->id;
@@ -869,32 +877,48 @@ class CampaignControllerTest extends TestCase
             ->execute([$this->accountId]);
 
         $params = ['id' => (string) $campaignId];
+        $refusals = [];
         $this->controller->updateStatus(
             new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken(), 'status' => 'closed'], [], []),
             $params
         );
+        $refusals['clôture'] = FlashMessage::get()['message'] ?? null;
         $this->controller->saveNote(
             new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken(), 'note' => 'Payé en liquide'], [], []),
             $params + ['rowId' => (string) $rowId]
         );
+        $refusals['note'] = FlashMessage::get()['message'] ?? null;
         $this->controller->notify(
             new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken()], [], []),
             $params
         );
+        $refusals['notification'] = FlashMessage::get()['message'] ?? null;
         $this->controller->waive(
             new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken(), 'waived' => '1'], [], []),
             $params + ['receivableId' => (string) $receivableId]
         );
+        $refusals['abandon'] = FlashMessage::get()['message'] ?? null;
+
+        foreach ($refusals as $gesture => $message) {
+            $this->assertSame(
+                "Cette campagne n'existe pas.",
+                $message,
+                'the ' . $gesture . ' was refused, but not by the per-account check'
+            );
+        }
 
         $campaign = $this->campaigns->findById($campaignId);
         $this->assertTrue($campaign?->isOpen(), 'the campaign was closed from outside its account');
         $this->assertFalse($campaign?->isNotified(), 'the families were marked notified from outside its account');
-        $this->assertNull($this->rows->findById($rowId)?->note, 'the note was written from outside its account');
+        // Not `findById($rowId)?->note`: a vanished row would satisfy that,
+        // and "the row is gone" is not "the note was not written".
+        $row = $this->rows->findById($rowId);
+        $this->assertNotNull($row, 'the campaign line itself disappeared');
+        $this->assertNull($row->note, 'the note was written from outside its account');
         $this->assertFalse(
             $this->receivables->findById($receivableId)?->isWaived(),
             'the receivable was waived from outside its account'
         );
-        $this->assertSame("Cette campagne n'existe pas.", FlashMessage::get()['message'] ?? null);
     }
 
     /**
@@ -975,13 +999,12 @@ class CampaignControllerTest extends TestCase
         );
         $this->pdo->prepare("UPDATE finance_accounts SET status = 'active' WHERE id = ?")->execute([$accountId]);
 
-        $response = $this->upload('Camp 2025', [[$this->memberIds['D-200'], '60,00']], $accountId);
-        self::assertSame(302, $response->getStatusCode(), $response->getBody());
-        $location = (string) ($response->getHeaders()['Location'] ?? '');
-        $campaignId = (int) substr($location, (int) strrpos($location, '/') + 1);
-        self::assertGreaterThan(0, $campaignId, 'the second campaign was not created: ' . $location);
-
-        return [$campaignId, $accountId];
+        return [
+            $this->campaignIdCreatedBy(
+                $this->upload('Camp 2025', [[$this->memberIds['D-200'], '60,00']], $accountId)
+            ),
+            $accountId,
+        ];
     }
 
     private function createCampaign(): int
@@ -990,9 +1013,21 @@ class CampaignControllerTest extends TestCase
             [$this->memberIds['D-100'], '45,00'],
             [$this->memberIds['D-200'], '38,25'],
         ]);
-        self::assertSame(302, $response->getStatusCode(), $response->getBody());
 
-        return 1;
+        // Read from the redirect rather than assumed to be 1: this file can
+        // now hold two campaigns, and a hardcoded id would quietly hand back
+        // the wrong one depending on which helper ran first.
+        return $this->campaignIdCreatedBy($response);
+    }
+
+    private function campaignIdCreatedBy(\Core\Http\Response $response): int
+    {
+        self::assertSame(302, $response->getStatusCode(), $response->getBody());
+        $location = (string) ($response->getHeaders()['Location'] ?? '');
+        $campaignId = (int) substr($location, (int) strrpos($location, '/') + 1);
+        self::assertGreaterThan(0, $campaignId, 'no campaign id in the redirect: ' . $location);
+
+        return $campaignId;
     }
 
     /**
