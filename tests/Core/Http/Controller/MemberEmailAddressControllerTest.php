@@ -496,7 +496,11 @@ class MemberEmailAddressControllerTest extends TestCase
         $flash = \Core\Http\FlashMessage::get();
         $this->assertNotNull($flash);
         $this->assertSame('error', $flash['type']);
+        // Both halves, because either one alone lets a wrong message through:
+        // "saved AND sent" would satisfy the first two assertions while
+        // telling the member to wait for a mail nobody sent.
         $this->assertStringContainsString('a été enregistrée', $flash['message']);
+        $this->assertStringContainsString("n'a pas pu être envoyé", $flash['message']);
         $this->assertStringContainsString('Renvoyer', $flash['message'], 'the member is not told what to do next');
         // The mail layer's own words stay off the page.
         $this->assertStringNotContainsString('SMTP', $flash['message']);

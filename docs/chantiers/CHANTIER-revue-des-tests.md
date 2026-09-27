@@ -2072,10 +2072,23 @@ du `catch` n'était observable qu'en donnant au profil une adresse Desk — le
 fixture du fichier n'en portait pas, si bien que le `null` du chemin normal et
 celui du chemin fautif étaient indistinguables.
 
-**Preuve par mutation** : huit mutations, une à la fois, restaurées après
+**Preuve par mutation** : neuf mutations, une à la fois, restaurées après
 chacune — le succès partiel changé en échec sec, quatre raisons de service
 avalées, un échec d'envoi présenté comme un succès, l'adresse Desk prise dans la
-requête, le profil disparu plus rattrapé. **Huit rouges.**
+requête, le profil disparu plus rattrapé. **Neuf rouges.**
+
+La neuvième a été ajoutée après coup, et elle dit quelque chose sur la méthode :
+CodeRabbit a relevé — sous l'étiquette « Trivial » — que les assertions du
+message de succès partiel laissaient passer « l'adresse a été enregistrée **et**
+l'email de confirmation a été envoyé ». Exact. Ma mutation d'origine supprimait
+« a été enregistrée », donc elle était attrapée ; une mutation qui garde cette
+phrase et prétend l'envoi réussi ne l'était pas. Démontré dans les deux sens :
+avant le correctif elle survit, après elle est tuée.
+
+**Une table de mutations ne vaut que par les mutations qu'on a imaginées.** La
+leçon vaut pour la suite du chantier : quand une assertion porte sur un texte
+composé de deux affirmations, muter chacune séparément — pas seulement celle qui
+vient à l'esprit.
 
 **Corrigé au passage, dans le fichier de production** : un docblock attaché à la
 mauvaise méthode. Il décrivait `requireOwnMemberId()` — « Returns the persistent
