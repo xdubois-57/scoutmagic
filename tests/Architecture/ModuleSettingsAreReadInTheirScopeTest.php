@@ -1063,15 +1063,11 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
      * @var list<string> file:line, with the reason on the line
      */
     private const CORE_KEYS_IN_MODULES = [
-        // `unit_address` is declared by no manifest, no composition root
-        // and no schema — the only place in this repository that registers
-        // it is a fixture in RentalDocumentServiceTest. So the contract's
-        // `adresse_bailleur` is the empty string on every real
-        // installation, while its own description promises « l'adresse de
-        // l'unité, telle que configurée ». Found by this very check on its
-        // first real run; whether the setting belongs to core or to the
-        // rental module is a decision, and it is issue #497's.
-        'modules/rental/src/Service/RentalDocumentService.php:613',
+        // Empty since issue #497. Its one entry was `unit_address`, read by
+        // the rental contract and declared by no manifest, no composition
+        // root and no schema — only by the contract's own test fixture —
+        // so every real contract printed an empty landlord address. This
+        // check found it on its first real run.
     ];
 
     /**
@@ -1303,12 +1299,7 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
         // are read that way from eleven modules. Judging those as
         // offences would not close a gap, it would make the check wrong
         // about thirty-one call sites that are right.
-        //
-        // `unit_address` is NOT one of them, however it reads: nothing
-        // registers it anywhere, which is why it is listed as the one
-        // exception in CORE_KEYS_IN_MODULES rather than passing through
-        // here. Naming it among core's own keys would tell a reader the
-        // opposite of what that list says about it.
+
         return isset(self::declaredModuleKeys()[$key]) || isset(self::declaredCoreKeys()[$key]);
     }
 
@@ -1337,7 +1328,12 @@ class ModuleSettingsAreReadInTheirScopeTest extends TestCase
         }
 
         $keys = [];
-        foreach (['public/index.php', 'public/cron.php'] as $root) {
+        // Plus the one class that declares core keys on the composition
+        // root's behalf (issue #497): `public/index.php` calls
+        // `UnitAddresses::register()` rather than repeating its four
+        // `register()` calls, so that tests go through the real
+        // declarations.
+        foreach (['public/index.php', 'public/cron.php', 'core/Config/UnitAddresses.php'] as $root) {
             foreach (self::registeredIn(self::root() . '/' . $root) as $key) {
                 $keys[$key] = true;
             }

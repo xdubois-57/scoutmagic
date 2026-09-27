@@ -50,32 +50,68 @@ final class BnpParser implements BankStatementParserInterface
     private const COL_STATUS = 11;
 
     /**
-     * Normalized (uppercase, no spaces or punctuation), because
-     * Service\ImportService::verifyIban() compares its blind index to the
-     * account's own IBAN — which Service\IbanNormalizer already stored in
-     * exactly that form. A trim() alone was enough only as long as this
-     * column happens to arrive unformatted; the "Détails" column of the
-     * same export does write IBANs as "BE00 0000 0000 0002", and a
-     * space-separated value here would have failed every import of the
-     * right file with a misleading "IBAN mismatch" and no way to override.
+     * The header row this export always starts with (after its BOM) — the
+     * column names are BNP Fortis's, and nothing else writes them.
      */
-    public function extractSourceIban(string $filePath): string
+    public function recognizes(string $filePath): bool
     {
-        foreach ($this->readRows($filePath) as $row) {
-            $iban = IbanNormalizer::normalize($row[self::COL_ACCOUNT_NUMBER] ?? '');
-            if ($iban !== '') {
-                return $iban;
-            }
+        $handle = @fopen($filePath, 'r');
+        if ($handle === false) {
+            return false;
+        }
+        $first = (string) fgets($handle, 4096);
+        fclose($handle);
+
+        if (str_starts_with($first, "\xEF\xBB\xBF")) {
+            $first = substr($first, 3);
         }
 
-        throw new FinanceException("Impossible de trouver l'IBAN du compte dans le fichier BNP.");
+        return str_contains($first, ';') && str_contains($first, 'Numéro de compte')
+            && str_contains($first, "Date d'exécution");
+    }
+
+    /**
+     * A BNP CSV states no balance: the first import of an account needs one
+     * typed by hand.
+     */
+    public function closingBalances(string $filePath): array
+    {
+        return [];
+    }
+
+    /**
+     * A BNP export covers one account: its IBAN is repeated on every row.
+     *
+     * Normalized (uppercase, no spaces or punctuation), because
+     * Service\ImportService looks the account up by the blind index of
+     * the IBAN Service\IbanNormalizer stored in exactly that form. A trim()
+     * alone was enough only as long as this column happens to arrive
+     * unformatted; the "Détails" column of the same export does write
+     * IBANs as "BE00 0000 0000 0002", and a space-separated value here
+     * once failed every import of the right file with a misleading "IBAN
+     * mismatch".
+     */
+    public function extractAccountIbans(string $filePath): array
+    {
+        $iban = $this->findAccountIban($this->readRows($filePath));
+        if ($iban === null) {
+            throw new FinanceException("Impossible de trouver l'IBAN du compte dans le fichier BNP.");
+        }
+
+        return [$iban];
     }
 
     public function parse(string $filePath): array
     {
+        $rows = $this->readRows($filePath);
+        $accountIban = $this->findAccountIban($rows);
+        if ($accountIban === null) {
+            throw new FinanceException("Impossible de trouver l'IBAN du compte dans le fichier BNP.");
+        }
+
         $lines = [];
 
-        foreach ($this->readRows($filePath) as $row) {
+        foreach ($rows as $row) {
             $status = trim($row[self::COL_STATUS] ?? '');
             if ($status !== '' && $status !== 'Accepté') {
                 // Refused/pending lines never happened on the account — skip them.
@@ -100,6 +136,7 @@ final class BnpParser implements BankStatementParserInterface
             $counterpartyName = trim($row[self::COL_COUNTERPARTY_NAME] ?? '');
 
             $lines[] = new StatementLine(
+                accountIban: $accountIban,
                 bankReference: $this->extractBankReference((string) ($row[self::COL_DETAILS] ?? '')),
                 transactionDate: $date,
                 amount: $amount,
@@ -169,6 +206,25 @@ final class BnpParser implements BankStatementParserInterface
         }
 
         return (float) $normalized;
+    }
+
+    /**
+     * The first non-empty "Numéro de compte" — the column the counterparty
+     * columns (COL_COUNTERPARTY_ACCOUNT, COL_COUNTERPARTY_NAME) sit next
+     * to and must never be confused with.
+     *
+     * @param array<int, array<int, string>> $rows
+     */
+    private function findAccountIban(array $rows): ?string
+    {
+        foreach ($rows as $row) {
+            $iban = IbanNormalizer::normalize($row[self::COL_ACCOUNT_NUMBER] ?? '');
+            if ($iban !== '') {
+                return $iban;
+            }
+        }
+
+        return null;
     }
 
     private function extractBankReference(string $details): string

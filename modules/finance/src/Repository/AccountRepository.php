@@ -50,6 +50,20 @@ class AccountRepository
         return $row !== false ? $this->hydrate($row) : null;
     }
 
+    /**
+     * Every account carrying this IBAN — nothing in the schema makes it
+     * unique, and an archived account and the one that replaced it can
+     * legitimately share it. Service\ImportService decides among them.
+     *
+     * @return Account[] oldest first
+     */
+    public function findAllByIbanBlindIndex(string $blindIndex): array
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM finance_accounts WHERE iban_blind_index = ? ORDER BY id');
+        $stmt->execute([$blindIndex]);
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
     public function create(
         string $name,
         string $accountType,

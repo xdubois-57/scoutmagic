@@ -31,7 +31,8 @@ final class Transaction
         public readonly ?string $counterpartyName = null,
         public readonly ?string $counterpartyAccount = null,
         public readonly ?string $extraDetails = null,
-        public readonly ?string $categorySource = null
+        public readonly ?string $categorySource = null,
+        public readonly ?string $structuredCommunication = null
     ) {
     }
 

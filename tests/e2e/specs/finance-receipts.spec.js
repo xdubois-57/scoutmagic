@@ -32,7 +32,10 @@ import { pngBuffer } from '../support/png.js';
 import { scaled } from '../support/timeouts.js';
 
 const ACCOUNT_NAME = `Compte reçus E2E ${Date.now()}`;
-const ACCOUNT_IBAN = 'BE71 0961 2345 6769';
+// Its own, not the BE71 0961 2345 6769 two other specs give THEIR accounts:
+// the import sends a statement to the account carrying its IBAN, and two
+// active accounts sharing one are ambiguous — the lines would be set aside.
+const ACCOUNT_IBAN = 'BE21 0012 3456 7803';
 
 /** A BNP Fortis export whose "Numéro de compte" matches the account. */
 /**
@@ -136,19 +139,12 @@ test('a statement imports, a receipt uploads through the client-side resize, and
     await expect(page.getByRole('row', { name: new RegExp(ACCOUNT_NAME) })).toBeVisible();
 
     // ---------------------------------------------------------------
-    // The statement: the real BNP parser, the real IBAN check, and the
-    // first import's mandatory closing balance.
+    // The statement: the real BNP parser, the real IBAN lookup — there is
+    // no account to choose, the file's own IBAN sends it to ACCOUNT_NAME —
+    // and the first import's mandatory closing balance.
     // ---------------------------------------------------------------
     await page.goto('/finance/import', { waitUntil: 'load' });
-    // `exact`, here and on the receipts page below, because « Compte » is a
-    // substring of half the labels this module ships. The receipts page
-    // grew a « Changer le compte du reçu » dialog with its own « Nouveau
-    // compte » select, and a loose match then resolved to three elements
-    // and failed as a strict-mode violation — on a page this spec was not
-    // even testing the dialog of. Exact costs nothing and does not rot
-    // when a page gains a control.
-    await page.getByLabel('Compte', { exact: true }).selectOption({ label: ACCOUNT_NAME });
-    await page.getByLabel('Fichier CSV').setInputFiles({
+    await page.getByLabel('Fichier du relevé').setInputFiles({
         name: 'releve-bnp.csv',
         mimeType: 'text/csv',
         buffer: Buffer.from(bnpStatement(), 'utf8'),
@@ -176,6 +172,12 @@ test('a statement imports, a receipt uploads through the client-side resize, and
     // stored file is the browser's, not ours.
     // ---------------------------------------------------------------
     await page.goto(`/finance/receipts`, { waitUntil: 'load' });
+    // `exact`, because « Compte » is a substring of half the labels this
+    // module ships. The receipts page grew a « Changer le compte du reçu »
+    // dialog with its own « Nouveau compte » select, and a loose match then
+    // resolved to three elements and failed as a strict-mode violation — on
+    // a page this spec was not even testing the dialog of. Exact costs
+    // nothing and does not rot when a page gains a control.
     await page.getByLabel('Compte', { exact: true }).selectOption({ label: ACCOUNT_NAME });
     await page.waitForURL(/\/finance\/receipts\?account_id=\d+/, { waitUntil: 'load' });
 

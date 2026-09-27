@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques.",
-  "version": "1.29.0",
+  "version": "1.31.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -934,6 +934,28 @@
       "type": "text",
       "label": "Types de biens proposés",
       "description": "Liste, séparée par des virgules, des types proposés à la création d'un bien. C'est une liste fermée : la création d'un bien propose exactement ces types et rien d'autre. Pour louer quelque chose qui n'y figure pas, ajoutez-le ici d'abord — le type est repris sur la page publique et sur le contrat, donc un type saisi librement produisait « Local », « local » et « Local scout » comme trois choses différentes."
+    },
+    {
+      "key": "landlord_name",
+      "default_value": "",
+      "type": "text",
+      "label": "Bailleur : nom",
+      "description": "Le nom imprimé comme bailleur en tête des contrats et des factures, par exemple l'ASBL propriétaire des locaux. Vide = l'unité elle-même (son nom et son adresse postale). Un bien peut avoir son propre bailleur, qui remplace celui-ci."
+    },
+    {
+      "key": "landlord_address",
+      "default_value": "",
+      "type": "textarea",
+      "label": "Bailleur : adresse",
+      "description": "L'adresse du bailleur, imprimée sous son nom. Quand le nom et l'adresse sont tous deux vides, les documents reprennent l'unité et son adresse postale."
+    },
+    {
+      "key": "landlord_enterprise_number",
+      "default_value": "",
+      "type": "text",
+      "label": "Bailleur : numéro d'entreprise (BCE)",
+      "description": "Facultatif, par exemple 0123.456.789. La plupart des unités n'en ont pas ; le contrat imprime alors « — ».",
+      "validation_regex": "^(BE)?\\s?[01][0-9]{3}[.\\s]?[0-9]{3}[.\\s]?[0-9]{3}$"
     },
     {
       "key": "automatic_hold_hours",

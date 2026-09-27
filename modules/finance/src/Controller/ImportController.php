@@ -15,19 +15,24 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
 use Modules\Finance\Parser\BankStatementParserFactory;
-use Modules\Finance\Repository\BalanceCheckpointRepository;
+use Modules\Finance\Repository\Account;
 use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Service\FinanceService;
 use Modules\Finance\Service\ImportService;
+use Modules\Finance\Service\StatementFormatNotRecognized;
 
+/**
+ * The bank statement import screen. There is no account to choose: the
+ * file's own IBANs decide where each line goes (Service\ImportService), and
+ * the result page reports what happened, account by account.
+ */
 class ImportController extends AbstractController
 {
     public function __construct(
         protected \Twig\Environment $twig,
         private FinanceService $financeService,
         private ImportService $importService,
-        private BankStatementParserFactory $parserFactory,
-        private BalanceCheckpointRepository $checkpointRepository
+        private BankStatementParserFactory $parserFactory
     ) {
     }
 
@@ -36,21 +41,7 @@ class ImportController extends AbstractController
      */
     public function form(Request $request, array $params): Response
     {
-        $role = Role::fromString(AuthSession::getRole());
-        $accounts = $this->financeService->getAccountsForUser($role);
-        $selectedAccount = $this->financeService->resolveSelectedAccount($role, $request->getQuery('account_id'));
-
-        $firstImportByAccountId = [];
-        foreach ($accounts as $account) {
-            $firstImportByAccountId[$account->id] = !$this->checkpointRepository->hasAnyForAccount($account->id);
-        }
-
-        return $this->render('@finance/import/form.html.twig', [
-            'accounts' => $accounts,
-            'selected_account' => $selectedAccount,
-            'bank_codes' => $this->parserFactory->getSupportedBankCodes(),
-            'first_import_by_account_id' => $firstImportByAccountId,
-        ]);
+        return $this->renderForm(null);
     }
 
     /**
@@ -62,49 +53,55 @@ class ImportController extends AbstractController
             return $this->renderResult(['error' => self::SESSION_EXPIRED_MESSAGE]);
         }
 
-        $account = $this->financeService->getAccount((int) $request->getBody('account_id', 0));
-        $bankCode = (string) $request->getBody('bank_code', '');
+        // Empty unless the list was offered, after detection failed.
+        $bankCode = trim((string) $request->getBody('bank_code', ''));
         $file = $request->getFile('statement');
-        $balanceRaw = (string) $request->getBody('balance', '');
+        $balanceRaw = trim((string) $request->getBody('balance', ''));
         $balance = $balanceRaw !== '' ? (float) str_replace(',', '.', $balanceRaw) : null;
 
-        if ($account === null) {
-            return $this->renderResult(['error' => 'Compte introuvable.']);
-        }
-        // The route's own role_min ('intendant') is only the module floor —
-        // each account carries its own role_min_view AND, since the
-        // treasurer rule, its own section, and form() above only ever
-        // *renders* the accounts that pass both. Without this check a
-        // request crafted directly against the endpoint could import
-        // movements (and a balance checkpoint) into an account the caller
-        // is not allowed to see at all.
-        $role = Role::fromString(AuthSession::getRole());
-        if (!$this->financeService->isAccountVisibleTo($account, $role)) {
-            return $this->renderResult(['error' => 'Accès refusé.']);
-        }
         if ($file === null || (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
             return $this->renderResult(['error' => 'Aucun fichier fourni ou erreur lors du téléversement.']);
         }
 
+        // The route's own role_min ('intendant') is only the module floor —
+        // each account carries its own role_min_view AND, since the
+        // treasurer rule, its own section. A file naming an account this
+        // session may not use has that account's lines set aside, exactly
+        // as if its IBAN were unknown: nothing is written into it, not even
+        // a balance checkpoint.
+        $role = Role::fromString(AuthSession::getRole());
+
         try {
             $result = $this->importService->import(
-                $account,
-                $bankCode,
+                $bankCode !== '' ? $bankCode : null,
                 (string) $file['tmp_name'],
                 (string) $file['name'],
                 $balance,
-                AuthSession::getUserAccountId()
+                AuthSession::getUserAccountId(),
+                fn (Account $account): bool => $this->financeService->isAccountVisibleTo($account, $role)
             );
+        } catch (StatementFormatNotRecognized $e) {
+            return $this->renderForm($e->getMessage());
         } catch (FinanceException $e) {
             return $this->renderResult(['error' => $e->getMessage()]);
         }
 
-        return $this->renderResult([
-            'result' => $result->statementImport,
-            'balance_discrepancy' => $result->balanceDiscrepancy,
-            'account' => $account,
+        return $this->renderResult(['result' => $result]);
+    }
+
+    /**
+     * The format list is only ever on screen after a failed detection
+     * ($unrecognized set): a choice always offered would be taken out of
+     * habit, including wrongly — BNP picked for a CODA file.
+     */
+    private function renderForm(?string $unrecognized): Response
+    {
+        return $this->render('@finance/import/form.html.twig', [
+            'unrecognized' => $unrecognized,
+            'formats' => $unrecognized !== null ? $this->parserFactory->getFormatLabels() : [],
         ]);
     }
+
     /**
      * Every outcome of upload() — error or success — renders the same
      * result page; the breadcrumb trail back to the import form is added

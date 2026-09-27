@@ -19,7 +19,8 @@ final class StatementImport
         public readonly int $linesNew,
         public readonly int $linesDuplicate,
         public readonly ?int $importedBy,
-        public readonly string $importedAt
+        public readonly string $importedAt,
+        public readonly ?string $uploadId = null
     ) {
     }
 }

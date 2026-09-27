@@ -72,6 +72,7 @@ class FinanceTestHelper
             counterparty_name TEXT,
             counterparty_account TEXT,
             extra_details TEXT,
+            structured_communication TEXT,
             source TEXT NOT NULL,
             imported_at TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -101,6 +102,7 @@ class FinanceTestHelper
             lines_duplicate INTEGER NOT NULL DEFAULT 0,
             imported_by INTEGER,
             imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            upload_id TEXT,
             FOREIGN KEY (account_id) REFERENCES finance_accounts(id)
         )');
 

@@ -38,6 +38,8 @@ use Modules\Finance\Service\BalanceService;
 use Modules\Finance\Service\BulkCategorizationService;
 use Modules\Finance\Service\CategoryRuleEngine;
 use Modules\Finance\Service\FinanceService;
+use Modules\Finance\Service\AccountImportOutcome;
+use Modules\Finance\Service\ImportResult;
 use Modules\Finance\Service\ImportService;
 use Modules\Finance\Service\ReceivableAllocationService;
 use Modules\Finance\Service\ReceiptMatchingService;
@@ -87,19 +89,17 @@ final class FinanceSeeder
     public function seed(): array
     {
         $this->ensureAccounts();
+        // The CODA file covers a section account, which only a completed
+        // section account (its IBAN) can receive. Idempotent: build.php has
+        // usually done it already, and then this completes nothing.
+        $this->completeSectionAccounts();
 
         $imported = 0;
         $duplicates = 0;
         $importService = $this->buildImportService();
-        $accountRepository = new AccountRepository($this->pdo, $this->encryption);
 
         foreach (UnitBlueprint::YEARS as $index => $year) {
             foreach (array_keys(BankBlueprint::ACCOUNTS) as $handle) {
-                $account = $accountRepository->findById($this->accountIds[$handle]);
-                if ($account === null) {
-                    throw new \RuntimeException("Le compte {$handle} vient d'être créé et reste introuvable.");
-                }
-
                 $path = $this->datasetRoot . '/' . BankBlueprint::fileFor($year, $handle);
                 if (!is_file($path)) {
                     throw new \RuntimeException("Relevé introuvable : {$path}");
@@ -113,7 +113,6 @@ final class FinanceSeeder
 
                 try {
                     $result = $importService->import(
-                        $account,
                         BankBlueprint::BANK_CODE,
                         $copy,
                         basename($path),
@@ -122,6 +121,7 @@ final class FinanceSeeder
                         // second checkpoint for the same account.
                         $index === 0 ? BankBlueprint::ACCOUNTS[$handle]['opening'] : null,
                         $this->importedBy,
+                        static fn (): bool => true,
                     );
                 } finally {
                     if (is_file($copy)) {
@@ -129,24 +129,28 @@ final class FinanceSeeder
                     }
                 }
 
-                $imported += $result->statementImport->linesNew;
-                $duplicates += $result->statementImport->linesDuplicate;
+                $this->assertLandedIn($handle, $result, basename($path));
+                $imported += $result->linesNew();
+                $duplicates += $result->linesDuplicate();
             }
         }
+
+        $coda = $this->importCodaStatement($importService);
+        $imported += $coda->linesNew();
+        $duplicates += $coda->linesDuplicate();
 
         return ['accounts' => count($this->accountIds), 'imported' => $imported, 'duplicates' => $duplicates];
     }
 
     /**
      * The unit's own accounts, with their IBANs — which is what lets
-     * ImportService::verifyIban() accept the matching statement and refuse
-     * every other one.
+     * ImportService send each statement to its account and nowhere else.
      *
      * Created through FinanceService::createAccount(), never through the
      * repository: the service is what normalises the IBAN (IbanNormalizer —
      * uppercase, spaces stripped) before it is encrypted and blind-indexed,
-     * and the blind index is exactly what verifyIban() compares against the
-     * one BnpParser::extractSourceIban() derives from the file. Writing the
+     * and the blind index is exactly what ImportService looks up from the
+     * IBAN BnpParser::extractAccountIbans() derives from the file. Writing the
      * spaced form straight to the repository produced two different blind
      * indexes for the same account and an import that failed with "IBAN
      * mismatch" naming two IBANs ending in the same four digits.
@@ -196,9 +200,7 @@ final class FinanceSeeder
      */
     public function importExtraStatement(string $handle, string $path, string $originalName): array
     {
-        $accountRepository = new AccountRepository($this->pdo, $this->encryption);
-        $account = $accountRepository->findById($this->accountIds[$handle] ?? 0);
-        if ($account === null) {
+        if (!isset($this->accountIds[$handle])) {
             throw new \RuntimeException("Le compte {$handle} est introuvable : les relevés ont-ils été importés ?");
         }
 
@@ -207,12 +209,12 @@ final class FinanceSeeder
 
         try {
             $result = $this->buildImportService()->import(
-                $account,
                 BankBlueprint::BANK_CODE,
                 $copy,
                 $originalName,
                 null,
                 $this->importedBy,
+                static fn (): bool => true,
             );
         } finally {
             if (is_file($copy)) {
@@ -220,10 +222,73 @@ final class FinanceSeeder
             }
         }
 
+        $this->assertLandedIn($handle, $result, $originalName);
+
         return [
-            'imported' => $result->statementImport->linesNew,
-            'duplicates' => $result->statementImport->linesDuplicate,
+            'imported' => $result->linesNew(),
+            'duplicates' => $result->linesDuplicate(),
         ];
+    }
+
+    /**
+     * The CODA file (CodaBlueprint): one download split across the camps
+     * account and the first section account by their IBANs. No format is
+     * named — the import detects it, as it does for a treasurer — and no
+     * balance is typed: the file states both, and the section account's
+     * first import takes its opening balance from it.
+     */
+    private function importCodaStatement(ImportService $importService): ImportResult
+    {
+        $path = $this->datasetRoot . '/' . CodaBlueprint::FILE;
+        if (!is_file($path)) {
+            throw new \RuntimeException("Relevé introuvable : {$path}");
+        }
+
+        $copy = (string) tempnam(sys_get_temp_dir(), 'refdataset-coda');
+        copy($path, $copy);
+
+        try {
+            $result = $importService->import(null, $copy, basename($path), null, $this->importedBy, static fn (): bool => true);
+        } finally {
+            if (is_file($copy)) {
+                @unlink($copy);
+            }
+        }
+
+        $section = (new AccountRepository($this->pdo, $this->encryption))->findByIbanBlindIndex(
+            $this->encryption->blindIndex(
+                BankBlueprint::compactIban(BankBlueprint::sectionIban(CodaBlueprint::SECTION_INDEX)),
+                'finance_iban',
+            ),
+        );
+        $landed = array_map(static fn (AccountImportOutcome $outcome): int => $outcome->account->id, $result->accounts);
+        if ($section === null || $landed !== [$this->accountIds[CodaBlueprint::UNIT_ACCOUNT], $section->id] || $result->skipped !== []) {
+            throw new \RuntimeException('Le fichier CODA n\'a pas rejoint le compte camps et le premier compte de section, et eux seuls.');
+        }
+        // CodaWriter took the camps opening from the ledger itself: a
+        // discrepancy means the two have drifted apart, and the dataset
+        // would show an alert it invented.
+        foreach ($result->accounts as $outcome) {
+            if ($outcome->balanceDiscrepancy !== null) {
+                throw new \RuntimeException("Le solde CODA du compte {$outcome->account->name} ne correspond pas à son grand livre.");
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * The file's own IBAN decides where its lines go (ImportService). A
+     * statement written for one account and sent anywhere else — or set
+     * aside — is a dataset that no longer means what BankBlueprint says, so
+     * the build stops instead of carrying on with the wrong ledgers.
+     */
+    private function assertLandedIn(string $handle, ImportResult $result, string $file): void
+    {
+        $landed = array_map(static fn (AccountImportOutcome $outcome): int => $outcome->account->id, $result->accounts);
+        if ($landed !== [$this->accountIds[$handle]] || $result->skipped !== []) {
+            throw new \RuntimeException("Le relevé {$file} n'a pas rejoint le compte {$handle}, et lui seul.");
+        }
     }
 
     /**
@@ -359,6 +424,7 @@ final class FinanceSeeder
             $this->pdo,
             $this->encryption,
             new BankStatementParserFactory(),
+            $accountRepository,
             $transactionRepository,
             $checkpointRepository,
             new StatementImportRepository($this->pdo),
