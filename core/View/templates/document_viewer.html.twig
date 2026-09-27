@@ -56,20 +56,21 @@
     </div>
 
     <div class="d-flex flex-column flex-sm-row gap-2">
-        {% if document is not null %}
-            <a href="{{ document.browserPath }}" class="btn btn-primary w-100 w-sm-auto"
-               target="_blank" rel="noopener" data-document-viewer-browser>
+        {# One « Ouvrir dans le navigateur », whichever address it opens: the
+           one-use key of a held document, or the public address itself —
+           which stays usable, hence `reusable`. #}
+        {% set browser_href = document is not null ? document.browserPath : direct_url %}
+        {% if browser_href is not null %}
+            <a href="{{ browser_href }}" class="btn btn-primary w-100 w-sm-auto"
+               target="_blank" rel="noopener" data-document-viewer-browser{% if document is null %} data-document-viewer-reusable{% endif %}>
                 <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i> Ouvrir dans le navigateur
             </a>
+        {% endif %}
+        {% if document is not null %}
             <a href="{{ document.appPath }}" class="btn btn-outline-secondary w-100 w-sm-auto"
                download="{{ name }}" data-document-viewer-download data-file-link-raw
                data-file-name="{{ name }}" data-file-type="{{ document.mimeType }}">
                 <i class="bi bi-download" aria-hidden="true"></i> Télécharger
-            </a>
-        {% elseif direct_url is not null %}
-            <a href="{{ direct_url }}" class="btn btn-primary w-100 w-sm-auto"
-               target="_blank" rel="noopener" data-document-viewer-browser data-document-viewer-reusable>
-                <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i> Ouvrir dans le navigateur
             </a>
         {% endif %}
         <a href="{{ back_url }}" class="btn btn-outline-secondary w-100 w-sm-auto" data-document-viewer-back>
