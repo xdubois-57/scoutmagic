@@ -257,16 +257,24 @@ class CampaignService
      * a campaign the receivable does not belong to, and the redirect sent the
      * treasurer to a screen where the effect is invisible.
      *
-     * **The refusal reuses « Cette créance n'existe pas. », deliberately.**
-     * Issue #582 offered a distinct sentence, and a distinct sentence is
-     * friendlier to a treasurer who mistyped a URL. It is not taken, because
-     * {@see requireCampaign()} and `ReceivableAllocationService`'s own guard
-     * already answer an invisible subject with « n'existe pas » rather than
-     * « vous n'y avez pas droit » — the conflation is this module's standing
-     * posture against enumeration, and a receivable that is not this
-     * campaign's does not exist AS FAR AS THIS ROUTE IS CONCERNED. Reusing it
-     * also means the order of the two checks cannot leak: whichever runs
-     * first, the caller learns the same thing.
+     * **The sentence is the issue's own, and deliberately NOT « Cette créance
+     * n'existe pas. »** — the sentence {@see requireCampaign()} and
+     * `ReceivableAllocationService`'s own guard use for a subject the caller
+     * may not see, this module's standing posture against enumeration. That
+     * posture does not reach this case, for a reason that follows from the
+     * order the controller calls these in: the receivable's visibility is
+     * settled BEFORE this method runs, so reaching this refusal at all proves
+     * the caller may see the receivable — it is on their reconciliation page.
+     * Denying the existence of something they are looking at conceals nothing
+     * and states something false, which is the very defect that opened this
+     * issue. Nor can the order leak: the strictly narrower check answers
+     * first, so a caller who may NOT see the receivable is told « n'existe
+     * pas » whether or not the campaign mismatches too. That ordering carries
+     * the argument, so a test pins it rather than a comment asserting it
+     * (`CampaignControllerTest::testAReceivableOutOfReachAndOfAnotherCampaignIsRefusedForBeingOutOfReach`).
+     *
+     * The campaign is resolved FROM the row, the direction {@see setNote()}
+     * already uses and the one an id pairing cannot fool.
      *
      * @throws FinanceException
      */
@@ -275,17 +283,15 @@ class CampaignService
         string $sourceModule,
         int $sourceReferenceId
     ): void {
+        // A receivable booked by another module has no campaign row at all,
+        // and its reference id would otherwise be read against the wrong table.
         if ($sourceModule !== self::SOURCE_MODULE) {
-            throw new FinanceException("Cette créance n'existe pas.");
+            throw new FinanceException("Cette créance n'appartient pas à cette campagne.");
         }
 
-        // Resolved FROM the row, the way setNote() does it — not by trusting
-        // the campaign id in the URL. `source_reference_id` is a campaign row
-        // id for this module, which is exactly how findBySourceReferenceIds()
-        // reads a campaign's receivables.
         $row = $this->rows->findById($sourceReferenceId);
         if ($row === null || $row->campaignId !== $campaignId) {
-            throw new FinanceException("Cette créance n'existe pas.");
+            throw new FinanceException("Cette créance n'appartient pas à cette campagne.");
         }
     }
 

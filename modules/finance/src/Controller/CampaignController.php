@@ -342,6 +342,14 @@ class CampaignController extends AbstractController
             // it: cancelWaiver is not another route, it is this one with
             // `waived=0`, and a check placed inside only one of them would
             // hold for half the requests.
+            //
+            // The ORDER of the last two is load-bearing, not incidental. The
+            // receivable's own guard is the narrower one, and it answers with
+            // « n'existe pas » — so settling visibility first is what allows
+            // the membership refusal to name the receivable openly without
+            // confirming its existence to someone who may not see it. A test
+            // pins the order; see CampaignService::requireReceivableSource-
+            // OfCampaign()'s docblock for why the two sentences may differ.
             $this->campaignService->requireCampaign($campaignId, $role);
             [$sourceModule, $sourceReferenceId] = $this->allocationService->sourceOfReceivable(
                 $receivableId,

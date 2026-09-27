@@ -946,17 +946,16 @@ class CampaignControllerTest extends TestCase
      * campaign-membership guard added for #582 passes too — its source still
      * points at a row of this campaign — and the only thing left to refuse is
      * `ReceivableAllocationService::requireReceivable()`. Remove that check
-     * and this test goes red on its own.
+     * and this test goes red — along with the ordering test below, which the
+     * same deletion also breaks, and nothing else in the file.
      *
      * **It used to be built the other way round**, with a receivable of a
      * FOREIGN campaign on an out-of-reach account, back when nothing compared
-     * the campaign to the receivable and the account check was the only guard
-     * standing. That construction stopped isolating anything the moment #582
-     * was fixed: the membership guard would refuse it first, with the same
-     * sentence, so the test would have stayed green with the account check
-     * deleted — two mechanisms for one boundary, each hiding the other's
-     * mutation, which is the failure this repository keeps naming. The cross
-     * case it used to cover has a test of its own below.
+     * the campaign to the receivable. That construction no longer isolates
+     * this check: the membership guard added for #582 refuses it too. It has
+     * not been deleted — it pins the ORDER of the two guards instead, in the
+     * test below, which is the whole reason the two refusals may differ in
+     * wording.
      *
      * A receivable sitting on an account other than its campaign's does not
      * arise from the screens — `createFromFile()` books both against the same
@@ -1054,7 +1053,7 @@ class CampaignControllerTest extends TestCase
 
         $this->waiveThrough($otherCampaignId, $ownerReceivableId, '0');
         $this->assertSame(
-            "Cette créance n'existe pas.",
+            "Cette créance n'appartient pas à cette campagne.",
             FlashMessage::get()['message'] ?? null,
             'cancelling a waiver through a foreign campaign was not refused'
         );
@@ -1065,13 +1064,55 @@ class CampaignControllerTest extends TestCase
 
         $this->waiveThrough($ownerCampaignId, $otherReceivableId, '1');
         $this->assertSame(
-            "Cette créance n'existe pas.",
+            "Cette créance n'appartient pas à cette campagne.",
             FlashMessage::get()['message'] ?? null,
             'waiving through a foreign campaign was not refused'
         );
         $this->assertFalse(
             $this->receivables->findById($otherReceivableId)?->isWaived(),
             "a receivable was waived through a campaign it does not belong to"
+        );
+    }
+
+    /**
+     * **Both guards violated at once, and the narrower one must answer.**
+     *
+     * The receivable belongs to another campaign AND sits on an account out of
+     * reach — the construction the visibility test above used to have. The
+     * caller must be told « Cette créance n'existe pas. », not that it is not
+     * this campaign's: the second sentence would confirm the receivable exists
+     * to someone who may not see it, and enumeration is what this module's
+     * shared « n'existe pas » exists to prevent.
+     *
+     * This is what lets the two refusals differ in wording at all. The
+     * membership refusal names the receivable openly, which is only safe
+     * because it is unreachable until visibility has been settled; swap the
+     * two calls in `CampaignController::waive()` and this test goes red while
+     * the two above stay green, since neither of them violates more than one
+     * guard.
+     */
+    public function testAReceivableOutOfReachAndOfAnotherCampaignIsRefusedForBeingOutOfReach(): void
+    {
+        $inReach = $this->createCampaign();
+        [$foreignCampaignId, $foreignAccountId] = $this->createCampaignOnItsOwnAccount();
+        $foreignRowId = $this->rows->findByCampaignId($foreignCampaignId)[0]->id;
+        $foreignReceivableId = $this->receivables
+            ->findBySource(CampaignService::SOURCE_MODULE, $foreignRowId)[0]->id;
+        $this->pdo->prepare("UPDATE finance_accounts SET role_min_view = 'admin' WHERE id = ?")
+            ->execute([$foreignAccountId]);
+        FlashMessage::get();
+
+        $this->waiveThrough($inReach, $foreignReceivableId, '1');
+
+        $this->assertSame(
+            "Cette créance n'existe pas.",
+            FlashMessage::get()['message'] ?? null,
+            'the wider refusal answered first, telling a caller who may not see '
+            . 'this receivable that it exists'
+        );
+        $this->assertFalse(
+            $this->receivables->findById($foreignReceivableId)?->isWaived(),
+            'a receivable both out of reach and of another campaign was waived'
         );
     }
 
