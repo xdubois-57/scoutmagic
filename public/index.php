@@ -11504,7 +11504,10 @@ if ($isEnabled('rental')) {
         $journalService,
         // So the Message-IDs it mints are remembered and a renter's reply
         // threads onto the booking (§7.6). Null without `inbound_mail`.
-        $inboundMailForOthers
+        $inboundMailForOthers,
+        // Each email to the renter ends with the link to the version of
+        // the conditions they accepted (issue #494).
+        $rentalConditionsService
     );
 
     // The asset paperwork register (§6.33). A reminder list, never a
