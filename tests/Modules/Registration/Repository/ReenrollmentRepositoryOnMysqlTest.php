@@ -231,10 +231,16 @@ class ReenrollmentRepositoryOnMysqlTest extends TestCase
      * `answered_at` carries `DEFAULT CURRENT_TIMESTAMP` in the schema,
      * and the server's clock is not PHP's on a shared host. The column is
      * written from PHP on both branches; this pins that the stored moment
-     * is PHP's, whether or not the server agrees.
+     * is PHP's, whether or not the server agrees — and the server is made
+     * to disagree by hours first, or the test could not tell the two apart.
      */
     public function testAnsweredAtIsPhpsClockOnBothBranches(): void
     {
+        $this->assertGreaterThan(
+            5 * 3600,
+            $this->skewProductionEngineClock(),
+            'the server clock could not be moved away from PHP\'s, so this test could not tell them apart'
+        );
         // Checked after each save: the update would otherwise overwrite a
         // wrong timestamp from the insert before anything looked at it.
         foreach ([ReenrollmentAnswer::DECISION_REENROLLED, ReenrollmentAnswer::DECISION_LEAVING] as $decision) {

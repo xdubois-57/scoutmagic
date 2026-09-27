@@ -142,7 +142,41 @@ trait UsesProductionEngine
             self::emptyProductionEngineTables(self::$productionEngineSchema->getPdo());
         }
 
-        return self::$productionEngineSchema->getPdo();
+        $pdo = self::$productionEngineSchema->getPdo();
+        // Back on PHP's offset, as `Connection` opened it: a test that
+        // skewed the clock (below) does not skew the next one's.
+        $pdo->prepare('SET time_zone = ?')->execute([(new \DateTimeImmutable('now'))->format('P')]);
+
+        return $pdo;
+    }
+
+    /**
+     * Put the server's clock six hours away from PHP's for this session,
+     * and return the gap it now reports, in seconds.
+     *
+     * `Connection` aligns the session time zone on PHP's offset, so on the
+     * test engine `NOW()` and PHP's clock agree to the second — and a test
+     * meaning to prove a timestamp is PHP's, not a column default's or a
+     * `NOW()`, would pass either way (the first review of issue #481's
+     * part D caught three that did). Skewed, the two are hours apart and
+     * a stored value says which clock wrote it. The next
+     * {@see productionEngine()} puts the offset back.
+     */
+    protected function skewProductionEngineClock(): int
+    {
+        $pdo = $this->productionEngineSchemaConnection()->getPdo();
+        $php = new \DateTimeImmutable('now');
+        $skewed = $php->getOffset() + ($php->getOffset() >= 0 ? -6 : 6) * 3600;
+        $hours = intdiv(abs($skewed), 3600);
+        $minutes = intdiv(abs($skewed) % 3600, 60);
+        $pdo->prepare('SET time_zone = ?')
+            ->execute([sprintf('%s%02d:%02d', $skewed < 0 ? '-' : '+', $hours, $minutes)]);
+
+        $now = $pdo->prepare('SELECT NOW()');
+        $now->execute();
+        $server = new \DateTimeImmutable((string) $now->fetchColumn());
+
+        return abs($server->getTimestamp() - (new \DateTimeImmutable('now'))->getTimestamp());
     }
 
     /**

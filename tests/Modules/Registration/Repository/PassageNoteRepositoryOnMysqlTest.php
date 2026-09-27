@@ -162,10 +162,16 @@ class PassageNoteRepositoryOnMysqlTest extends TestCase
     /**
      * `updated_at` has `DEFAULT CURRENT_TIMESTAMP`, the server's clock;
      * the repository writes PHP's on the INSERT and on every UPDATE that
-     * stamps it, and records who saved.
+     * stamps it, and records who saved. The server's clock is moved hours
+     * away first, or the two would agree and the test could not tell.
      */
     public function testUpdatedAtIsPhpsClockAndTheActorIsRecorded(): void
     {
+        $this->assertGreaterThan(
+            5 * 3600,
+            $this->skewProductionEngineClock(),
+            'the server clock could not be moved away from PHP\'s, so this test could not tell them apart'
+        );
         $before = new \DateTimeImmutable('-1 second');
         $this->notes->setStaffNote($this->memberId, $this->yearId, 'Timide', $this->chiefAccountId);
         $after = new \DateTimeImmutable('+1 second');

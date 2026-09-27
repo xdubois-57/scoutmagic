@@ -100,8 +100,14 @@ class SectionTransferRepositoryOnMysqlTest extends TestCase
         $this->assertSame(1, $this->countTransfers());
     }
 
+    /** The server's clock is moved hours away first, or the two would agree and the test could not tell. */
     public function testUpdatedAtIsPhpsClockOnInsertAndOnUpdate(): void
     {
+        $this->assertGreaterThan(
+            5 * 3600,
+            $this->skewProductionEngineClock(),
+            'the server clock could not be moved away from PHP\'s, so this test could not tell them apart'
+        );
         $before = new \DateTimeImmutable('-1 second');
         $this->transfers->setDestination($this->memberId, $this->yearId, $this->firstSectionId);
         $this->assertStampedBetween($before, new \DateTimeImmutable('+1 second'));
