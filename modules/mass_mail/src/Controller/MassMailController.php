@@ -600,6 +600,9 @@ class MassMailController extends AbstractController
         }
 
         try {
+            // Before the upload, not only after it: a refusal once the file
+            // is stored would leave an orphan behind (issue #578).
+            $this->massMailService->assertAcceptsAttachments($emailId);
             $fileId = $this->uploadHandler->handle(
                 $uploadedFile,
                 'mass_mail/attachments',

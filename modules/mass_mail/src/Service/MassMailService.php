@@ -1367,14 +1367,27 @@ class MassMailService
     }
 
     /**
+     * Refuses an email that can no longer take an attachment — asked BEFORE
+     * the file is uploaded (issue #578). Checked only after, the refusal
+     * came once the bytes were stored and the `files` row inserted, and
+     * left behind an upload that no screen would ever show nor any email
+     * deletion ever reach.
+     *
+     * @throws MassMailException when the email doesn't exist or isn't a draft
+     */
+    public function assertAcceptsAttachments(int $emailId): void
+    {
+        if (!$this->requireEmail($emailId)->isEditable()) {
+            throw new MassMailException('Des pièces jointes ne peuvent être ajoutées qu\'à un brouillon.');
+        }
+    }
+
+    /**
      * @throws MassMailException when the email doesn't exist or isn't a draft
      */
     public function addAttachment(int $emailId, int $fileId): void
     {
-        $email = $this->requireEmail($emailId);
-        if (!$email->isEditable()) {
-            throw new MassMailException('Des pièces jointes ne peuvent être ajoutées qu\'à un brouillon.');
-        }
+        $this->assertAcceptsAttachments($emailId);
 
         $this->attachmentRepository->create($emailId, $fileId);
     }
