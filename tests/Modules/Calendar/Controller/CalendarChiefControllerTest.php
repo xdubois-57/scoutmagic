@@ -244,6 +244,20 @@ class CalendarChiefControllerTest extends TestCase
         $this->assertSame('Rue du Local 1, 1000 Bruxelles', $this->defaultLocationOnThePage());
     }
 
+    /**
+     * Every site that enabled the calendar before 1.10.0 still stores the
+     * old default « Local »: `register()` does not move a text setting's
+     * value along with its default. That value must not hide the premises,
+     * or the change reaches new installations only.
+     */
+    public function testTheOldStoredDefaultGivesWayToThePremises(): void
+    {
+        $this->settingService->set('event_default_location', 'Local', 'calendar');
+        $this->settingService->set(UnitAddresses::PREMISES_ADDRESS, 'Rue du Local 1, 1000 Bruxelles');
+
+        $this->assertSame('Rue du Local 1, 1000 Bruxelles', $this->defaultLocationOnThePage());
+    }
+
     /** A place the calendar's own setting names still wins: it was chosen. */
     public function testALocationWrittenForTheCalendarWinsOverThePremises(): void
     {

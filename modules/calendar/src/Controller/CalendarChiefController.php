@@ -206,18 +206,31 @@ class CalendarChiefController extends AbstractController
      *
      * The premises' coordinates are not passed on: an event carries a free
      * text location and nothing else, so the address is what it can hold.
+     *
+     * **« Local » counts as nobody having chosen.** It was the shipped
+     * default until 1.10.0, and every installation that ever enabled the
+     * calendar still stores it: `SettingService::register()` moves a
+     * never-customised value along with a new default only for `url`
+     * settings (`SettingRepository::updateDefaultValue()`), so the empty
+     * default reaches new sites only. Read here rather than migrated once,
+     * because a stored « Local » and the old default are the same word —
+     * and a unit that typed it by hand while filling in its premises is
+     * asking for the same thing anyway.
      */
     private function defaultLocation(): string
     {
         $configured = trim((string) $this->settingService->get('event_default_location', 'calendar', ''));
-        if ($configured !== '') {
+        if ($configured !== '' && $configured !== self::LEGACY_DEFAULT_LOCATION) {
             return $configured;
         }
 
         $premises = UnitAddresses::premisesAddress($this->settingService);
 
-        return $premises !== null ? UnitAddresses::oneLine($premises) : 'Local';
+        return $premises !== null ? UnitAddresses::oneLine($premises) : self::LEGACY_DEFAULT_LOCATION;
     }
+
+    /** The default location shipped until calendar 1.10.0 (issue #497). */
+    private const LEGACY_DEFAULT_LOCATION = 'Local';
 
     /**
      * POST /chefs/calendar/event-create (AJAX, JSON).
