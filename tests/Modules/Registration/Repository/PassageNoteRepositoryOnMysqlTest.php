@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Registration\Repository;
 
+use Core\Database\ConstraintViolation;
 use Core\Security\EncryptionService;
 use Modules\Registration\Repository\PassageNoteRepository;
 use PHPUnit\Framework\Attributes\Group;
@@ -78,6 +79,7 @@ class PassageNoteRepositoryOnMysqlTest extends TestCase
         } catch (\PDOException $e) {
             // 1062 = duplicate entry for a UNIQUE key.
             $this->assertSame('1062', (string) ($e->errorInfo[1] ?? ''), $e->getMessage());
+            $this->assertTrue(ConstraintViolation::isDuplicateKey($e), 'issue #592: the race fallback would not catch this');
         }
     }
 

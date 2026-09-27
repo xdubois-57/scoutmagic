@@ -63,7 +63,7 @@ CREATE TABLE discussion_groups (
     -- Service\GroupAccessService::canModerate() already allows for.
     created_by_member_id INT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     -- The group's delegated gallery album (Modules\Gallery\Api\
     -- DelegatedAlbumManager, owner_type 'discussion_group' — see
     -- File\GroupFileOwnershipChecker::OWNER_TYPE — owner_id = this

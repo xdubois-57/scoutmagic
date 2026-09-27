@@ -109,7 +109,7 @@ class ReconciliationControllerTest extends TestCase
                 $accountVisibility,
                 $this->allocations,
                 $memberService,
-                new HouseholdService(new HouseholdRepository($this->pdo, $this->encryption), $this->encryption)
+                new HouseholdService(new HouseholdRepository($this->pdo, $this->encryption))
             ),
             $this->allocations,
             $this->receivables,

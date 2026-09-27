@@ -3,11 +3,11 @@ id: sauvegarde-hors-site
 title: Déposer les sauvegardes sur Google Drive
 summary: Créer le projet Google de l'unité, raccorder le compte, et l'étape que tout le monde oublie.
 category: Configuration
-role_min: admin
+role_min: superadmin
 discovery: off
 question: Comment envoyer mes sauvegardes sur Google Drive ?
 question: Pourquoi mon raccordement Google Drive s'arrête-t-il au bout d'une semaine ?
-paths: /config/stockage/emplacements, /config/maintenance
+paths: /config/stockage/emplacements, /config/maintenance/sauvegarde-automatique
 related: sauvegardes-distantes, sauvegarde-portable, sauvegardes, restaurer-ailleurs
 ---
 

@@ -22,9 +22,9 @@ use Twig\Environment;
 
 /**
  * The role boundary of `POST /config/maintenance/backup/{id}/delete`:
- * allowed at `admin`, refused one level below.
+ * allowed at `superadmin`, refused one level below.
  *
- * `admin` and not `superadmin`, deliberately: it is the same floor as
+ * The floor of every maintenance route since issue #619, and the same as
  * every other write in the « Sauvegardes » section — the person who can
  * create a backup and download the archive can also remove one. The
  * dangerous case here is not a role at all, it is deleting the safety net
@@ -34,7 +34,8 @@ use Twig\Environment;
  * `BackupSafetyNetTest` the second).
  *
  * The guard is the Router's, never the controller's, so a stub is what
- * proves it.
+ * proves it; the floor production declares is Tests\Core\Http\
+ * MaintenanceRbacTest's to read.
  */
 final class MaintenanceBackupDeleteRbacTest extends TestCase
 {
@@ -68,15 +69,7 @@ final class MaintenanceBackupDeleteRbacTest extends TestCase
         $_SESSION = [];
     }
 
-    public function testAnAdminIsAllowed(): void
-    {
-        $this->startTestSession();
-        AuthSession::login(1, 'admin@test.be', 'admin');
-
-        $this->assertSame(200, $this->handle()->getStatusCode());
-    }
-
-    public function testASuperAdminIsAllowedToo(): void
+    public function testASuperAdminIsAllowed(): void
     {
         $this->startTestSession();
         AuthSession::login(1, 'root@test.be', 'superadmin');
@@ -85,21 +78,29 @@ final class MaintenanceBackupDeleteRbacTest extends TestCase
     }
 
     /**
-     * One level below the floor. `chief` is a unit leader who reads the
-     * same pages an admin does in several places — which is exactly why
-     * the boundary has to be pinned rather than assumed: a backup is the
-     * installation's only way back, and losing one is not a mistake a
-     * chief should be able to make from a list of dates.
+     * One level below the floor. An `admin` is a chef d'unité, who used to
+     * reach this route by its address without ever seeing the menu that
+     * leads to it — which is exactly why the boundary has to be pinned
+     * rather than assumed: a backup is the installation's only way back,
+     * and losing one is not a mistake to make from a list of dates.
      */
-    public function testAChiefIsRefused(): void
+    public function testAnAdminIsRefused(): void
     {
         $this->startTestSession();
-        AuthSession::login(1, 'chef@test.be', 'chief');
+        AuthSession::login(1, 'admin@test.be', 'admin');
 
         $response = $this->handle();
 
         $this->assertNotSame(200, $response->getStatusCode());
         $this->assertStringNotContainsString('supprimée', $response->getBody());
+    }
+
+    public function testAChiefIsRefused(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(1, 'chef@test.be', 'chief');
+
+        $this->assertNotSame(200, $this->handle()->getStatusCode());
     }
 
     public function testAVisitorWithNoAccountIsRefused(): void
@@ -120,7 +121,7 @@ final class MaintenanceBackupDeleteRbacTest extends TestCase
             '/config/maintenance/backup/{id}/delete',
             MaintenanceDeleteStubController::class,
             'deleteBackup',
-            'admin'
+            'superadmin'
         );
 
         $frontController = new FrontController($router, $this->twig, $this->config);

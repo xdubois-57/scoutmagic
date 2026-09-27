@@ -111,7 +111,7 @@ final class RemoteQuotaCheck implements OperationalCheck
                 title: 'Aucun espace distant n\'est mesurable.',
                 why: 'Aucune destination hors site n\'est choisie, ou celle qui l\'est ne sait pas dire ce qu\'il '
                     . 'lui reste de place.',
-                actionUrl: '/config/maintenance',
+                actionUrl: '/config/maintenance/sauvegarde-automatique#remote-backup',
                 actionLabel: 'Voir les sauvegardes'
             );
         }
@@ -142,7 +142,7 @@ final class RemoteQuotaCheck implements OperationalCheck
             why: 'Quand il sera plein, les envois seront refusés et plus aucune copie du site ne quittera le '
                 . 'serveur — sans que rien d\'autre ne cesse de fonctionner. Faites de la place sur le compte '
                 . 'distant, ou réduisez le nombre d\'archives conservées.',
-            actionUrl: '/config/maintenance',
+            actionUrl: '/config/maintenance/sauvegarde-automatique#remote-backup',
             actionLabel: 'Voir les envois hors site'
         );
     }

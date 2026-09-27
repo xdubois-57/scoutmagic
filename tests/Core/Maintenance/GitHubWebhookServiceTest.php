@@ -783,7 +783,7 @@ class GitHubWebhookServiceTest extends TestCase
             $byVersion[$row->versionTo] = $row;
         }
 
-        $this->assertSame('failed', $byVersion['dev-aaaaaaa']->status);
+        $this->assertSame('skipped', $byVersion['dev-aaaaaaa']->status);
         $this->assertStringContainsString('push plus récent', (string) $byVersion['dev-aaaaaaa']->errorMessage);
         $this->assertSame('pending', $byVersion['dev-bbbbbbb']->status, 'the newest push is the one still to install');
     }
@@ -804,7 +804,7 @@ class GitHubWebhookServiceTest extends TestCase
         }
 
         // The tag's leading "v" is stripped on the way into update_history.
-        $this->assertSame('failed', $byVersion['2.5.0']->status);
+        $this->assertSame('skipped', $byVersion['2.5.0']->status);
         $this->assertStringContainsString('release plus récente', (string) $byVersion['2.5.0']->errorMessage);
         $this->assertSame('pending', $byVersion['2.6.0']->status);
     }

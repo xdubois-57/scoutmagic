@@ -76,6 +76,35 @@ class MemberEmailRepositoryTest extends TestCase
         $this->assertSame([], $this->repository->findValidByBlindIndex($this->blindIndex('nobody@test.com')));
     }
 
+    /**
+     * The login keys of a member's confirmed secondary addresses, derived by
+     * the repository that owns the purpose string (issue #629) — and derived
+     * from the address as findByMemberAndEmail() normalizes it, so a stray
+     * capital or space in what was stored cannot give a key no account has.
+     * Pending, inactive and Desk-override rows are not addresses the member
+     * reads mail at through this path.
+     */
+    public function testFindValidBlindIndexesByMemberGivesTheLoginKeyOfEachConfirmedAddress(): void
+    {
+        $this->insert(4, ' Alias@Test.com ', MemberEmail::STATUS_VALID);
+        $this->insert(4, 'second@test.com', MemberEmail::STATUS_VALID);
+        $this->insert(4, 'pending@test.com', MemberEmail::STATUS_PENDING);
+        $this->insert(4, 'gone@test.com', MemberEmail::STATUS_INACTIVE);
+        $this->insert(5, 'someone-else@test.com', MemberEmail::STATUS_VALID);
+        $this->pdo->prepare(
+            "INSERT INTO member_emails (member_id, email_encrypted, email_blind_index, source, status)
+             VALUES (4, ?, ?, 'desk', 'valid')"
+        )->execute([
+            $this->encryption->encrypt('desk@test.com', 'member_emails.email'),
+            $this->blindIndex('desk@test.com'),
+        ]);
+
+        $this->assertEqualsCanonicalizing(
+            [$this->blindIndex('alias@test.com'), $this->blindIndex('second@test.com')],
+            $this->repository->findValidBlindIndexesByMember(4)
+        );
+    }
+
     private function insert(int $memberId, string $email, string $status): void
     {
         $stmt = $this->pdo->prepare(

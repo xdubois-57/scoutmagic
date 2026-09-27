@@ -173,7 +173,7 @@ CREATE TABLE IF NOT EXISTS rental_assets (
     minimum_amount_cents INT UNSIGNED NULL,
     minimum_persons INT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uniq_rental_assets_slug (slug),
     -- The public index page's own query: public, not archived, by name.
     KEY idx_rental_assets_public (is_public, is_archived, name),
@@ -239,7 +239,7 @@ CREATE TABLE IF NOT EXISTS rental_asset_managers (
     -- Core\Import\MappingResolver::deactivateAllSections().
     is_active TINYINT(1) NOT NULL DEFAULT 1,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     -- One row per (asset, member): granting twice is the same grant, and
     -- the unique key is what makes reactivation an UPDATE rather than a
     -- duplicate.
@@ -320,7 +320,7 @@ CREATE TABLE IF NOT EXISTS rental_price_grid (
     period_id INT UNSIGNED NULL,
     category_id INT UNSIGNED NULL,
     unit_price_cents INT UNSIGNED NOT NULL,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY idx_rental_price_grid_asset (asset_id),
     CONSTRAINT fk_rental_price_grid_asset
         FOREIGN KEY (asset_id) REFERENCES rental_assets (id) ON DELETE CASCADE,
@@ -565,7 +565,7 @@ CREATE TABLE IF NOT EXISTS rental_bookings (
     tracking_token_encrypted BLOB NOT NULL,
 
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     UNIQUE KEY uniq_rental_bookings_reference (reference),
     -- The availability query: everything holding one asset over a window.
@@ -592,7 +592,7 @@ CREATE TABLE IF NOT EXISTS rental_reference_sequences (
     -- request.
     year SMALLINT UNSIGNED NOT NULL PRIMARY KEY,
     last_sequence INT UNSIGNED NOT NULL DEFAULT 0,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ─────────────────────────────────────────────────────────────────────
@@ -852,7 +852,7 @@ CREATE TABLE IF NOT EXISTS rental_booking_document_texts (
     last_version SMALLINT UNSIGNED NOT NULL DEFAULT 0,
 
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     UNIQUE KEY uniq_rental_booking_document_text (booking_id, document_type),
     CONSTRAINT fk_rental_booking_document_texts_booking
@@ -973,7 +973,7 @@ CREATE TABLE IF NOT EXISTS rental_booking_inventory (
     departure_state VARCHAR(20) NOT NULL DEFAULT 'not_checked',
     arrival_note VARCHAR(255) NULL,
     departure_note VARCHAR(255) NULL,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     KEY idx_rental_booking_inventory (booking_id, sort_order),
     CONSTRAINT fk_rental_booking_inventory_booking

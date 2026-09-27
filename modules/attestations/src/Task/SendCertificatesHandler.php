@@ -68,8 +68,7 @@ class SendCertificatesHandler implements TaskHandlerInterface
             new MemberAccountResolver(
                 new MemberYearRepository($pdo),
                 new MemberEmailRepository($pdo, $context->encryption),
-                $context->userAccounts,
-                $context->encryption
+                $context->userAccounts
             ),
             $context->journal,
             $context->notifications

@@ -25,7 +25,7 @@ use Tests\UsesProductionEngine;
  * about the booking changed for its manager, and bumping it would put every
  * upgraded booking at the top of any list ordered by it. The first version
  * kept that promise by simply not naming the column, which is precisely how
- * to break it: `rental_bookings.updated_at` is declared
+ * to break it: `rental_bookings.updated_at` was declared
  * `ON UPDATE CURRENT_TIMESTAMP`, and MySQL bumps such a column on any
  * UPDATE that changes another one and does not assign it. The carry-over
  * changes two. So on the production engine every upgraded booking's
@@ -45,13 +45,14 @@ use Tests\UsesProductionEngine;
  * Borrowing the shared `TEST_DB_NAME` would make the result depend on what
  * else the suite happened to be doing.
  *
- * The `DATETIME … ON UPDATE CURRENT_TIMESTAMP` clause is copied from
- * `modules/rental/schema.sql` verbatim, because it IS the subject — and it
- * is why this class does not stand on `Tests\UsesProductionEngine`'s
- * migrated schema like its neighbours: the table the migration builds
- * today lacks the clause (issue #590), so this covers a table the site
- * does not build yet and will once #590 is fixed. Only the connections
- * come from that fixture.
+ * The `DATETIME … ON UPDATE CURRENT_TIMESTAMP` clause is written here by
+ * hand, because it IS the subject — and it is why this class does not
+ * stand on `Tests\UsesProductionEngine`'s migrated schema like its
+ * neighbours. The migration never built the clause, and since issue #590
+ * no schema declares it: `updated_at` is written from PHP. The class stays
+ * for a database that carries it anyway — one built by hand from an older
+ * `schema.sql` — where the carry-over must still leave the timestamp
+ * alone. Only the connections come from that fixture.
  */
 #[Group('database')]
 final class BillingCountryCarryOverOnTheRealEngineTest extends TestCase

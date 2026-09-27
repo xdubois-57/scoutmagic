@@ -78,8 +78,7 @@ class BatchDistributionServiceTest extends TestCase
             new MemberAccountResolver(
                 new MemberYearRepository($this->pdo),
                 new MemberEmailRepository($this->pdo, $encryption),
-                new \Core\Security\UserAccountRepository($this->pdo, $encryption),
-                $encryption
+                new \Core\Security\UserAccountRepository($this->pdo, $encryption)
             ),
             new JournalService(new JournalRepository($this->pdo)),
             null
@@ -408,8 +407,7 @@ class BatchDistributionServiceTest extends TestCase
             new MemberAccountResolver(
                 new MemberYearRepository($this->pdo),
                 new MemberEmailRepository($this->pdo, $encryption),
-                $accounts,
-                $encryption
+                $accounts
             ),
             $journal,
             $notifications

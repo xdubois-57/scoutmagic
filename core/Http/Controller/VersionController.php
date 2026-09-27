@@ -16,7 +16,7 @@ use Twig\Environment;
 /**
  * GET /api/version — public, unauthenticated. Exposes the same
  * version/commit already shown to a logged-in admin on Configuration >
- * Maintenance (Core\Http\Controller\MaintenanceController::index()),
+ * Maintenance > Mise à jour (Core\Http\Controller\MaintenanceController::updatePage()),
  * purely so scripts/release.sh's deployment gate can verify a previous
  * release actually reached production before starting a new one, via a
  * plain `curl`. role_min: public — the repository is public (AGPL) and

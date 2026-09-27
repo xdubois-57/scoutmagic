@@ -8,12 +8,22 @@ declare(strict_types=1);
 
 namespace Core\Member;
 
+use Core\Database\Connection;
 use Core\Service\DateInput;
 
 class SectionDocumentRepository
 {
     public function __construct(private \PDO $pdo)
     {
+    }
+
+    /**
+     * Built from a task's connection, so a handler never has to reach for
+     * the PDO itself: in `core/Member/`, only a Repository does (issue #629).
+     */
+    public static function fromConnection(Connection $connection): self
+    {
+        return new self($connection->getPdo());
     }
 
     public function findById(int $id): ?SectionDocument

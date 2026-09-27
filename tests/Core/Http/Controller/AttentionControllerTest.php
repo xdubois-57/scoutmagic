@@ -12,8 +12,10 @@ use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Http\Controller\AttentionController;
 use Core\Http\Request;
+use Core\Http\Router;
 use Core\Import\MemberYearRepository;
 use Core\ScoutYear\ScoutYearResolver;
+use Core\Security\AuthSession;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\TestTwig;
@@ -84,6 +86,49 @@ class AttentionControllerTest extends TestCase
         $this->assertStringContainsString('catégorie tarifaire devenue fausse', $body);
         $this->assertStringContainsString('Ouvrir la justesse des tarifs', $body);
         $this->assertStringContainsString('/admin/fees/tarifs', $body);
+    }
+
+    /**
+     * This page is `admin`; a Maintenance sub-page is `superadmin` since
+     * issue #619. A chef d'unité keeps the fact and loses only the button,
+     * which would have answered « accès refusé »; a super-administrator
+     * keeps both. The floor is the target route's, read from the router —
+     * fragment and query set aside.
+     */
+    public function testAnActionLeadingAboveTheReadersRoleIsDroppedButTheFactStays(): void
+    {
+        $router = new Router();
+        $router->addRoute('GET', '/config/maintenance/sauvegarde-automatique', AttentionController::class, 'index', 'superadmin');
+        $router->addRoute('GET', '/admin/fees/tarifs', AttentionController::class, 'index', 'admin');
+        $service = new AttentionService([
+            new StubAttentionProvider('Cœur', [
+                new AttentionPoint(
+                    'La sauvegarde hors site a plus de trois jours',
+                    'Parce que',
+                    'Ouvrir la maintenance',
+                    '/config/maintenance/sauvegarde-automatique#remote-backup'
+                ),
+                new AttentionPoint('Un foyer mal classé', 'Parce que', 'Ouvrir la justesse des tarifs', '/admin/fees/tarifs'),
+            ]),
+        ]);
+        $controller = new AttentionController($this->twig, $service, $this->scoutYearResolver, $router);
+        $request = new Request('GET', '/admin/points-attention', [], [], [], []);
+
+        try {
+            AuthSession::login(1, 'cu@test.com', 'admin');
+            $body = $controller->index($request, [])->getBody();
+            $this->assertStringContainsString('La sauvegarde hors site a plus de trois jours', $body);
+            $this->assertStringNotContainsString('Ouvrir la maintenance', $body);
+            $this->assertStringNotContainsString('/config/maintenance/sauvegarde-automatique', $body);
+            $this->assertStringContainsString('/admin/fees/tarifs', $body, 'A link the reader can open stays.');
+
+            AuthSession::login(1, 'root@test.com', 'superadmin');
+            $body = $controller->index($request, [])->getBody();
+            $this->assertStringContainsString('Ouvrir la maintenance', $body);
+            $this->assertStringContainsString('/config/maintenance/sauvegarde-automatique#remote-backup', $body);
+        } finally {
+            AuthSession::logout();
+        }
     }
 
     public function testADeadlineIsRenderedAsADelay(): void

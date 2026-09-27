@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Member\Duplicate;
 
+use Core\Member\NameDobKey;
 use Core\Security\EncryptionService;
 
 /**
@@ -24,6 +25,20 @@ class DuplicateMemberRepository
         private \PDO $pdo,
         private EncryptionService $encryption
     ) {
+    }
+
+    /**
+     * The blind index two identities are compared on, for a key already
+     * built by {@see NameDobKey::normalize()}.
+     *
+     * Derived here rather than by the detector because it is the only
+     * layer that holds the encryption dependency, and a purpose string
+     * spelled in two layers is how an index silently stops matching: a
+     * wrong one does not fail, it finds no duplicate (issue #629).
+     */
+    public function nameDobKeyFor(string $normalizedNameDob): string
+    {
+        return $this->encryption->blindIndex($normalizedNameDob, NameDobKey::BLIND_INDEX_CONTEXT);
     }
 
     /**

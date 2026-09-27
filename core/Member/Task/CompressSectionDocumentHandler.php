@@ -67,14 +67,13 @@ class CompressSectionDocumentHandler implements TaskHandlerInterface
             return;
         }
 
-        $pdo = $context->connection->getPdo();
-        $documentRepository = new SectionDocumentRepository($pdo);
+        $documentRepository = SectionDocumentRepository::fromConnection($context->connection);
         $document = $documentRepository->findById($documentId);
         if ($document === null) {
             return;
         }
 
-        $fileRepository = new FileRepository($pdo);
+        $fileRepository = FileRepository::fromConnection($context->connection);
         $file = $fileRepository->findById($document->fileId);
 
         if ($file === null || $file->mimeType !== 'application/pdf') {

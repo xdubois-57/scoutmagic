@@ -87,8 +87,17 @@ class FileAccessGuard
         }
 
         if ($file->ownerType !== null) {
-            \assert($file->ownerId !== null);
-            if (!$this->isAllowedByRegistry($file->ownerType, $file->ownerId)) {
+            // A type with no owner names nobody the registry could ask
+            // about: refused, like a type no checker knows (issue #605).
+            // The assert() that stood here is a no-op in production, and
+            // the null went on to isAllowedByRegistry(int) as a TypeError
+            // — a 500 in place of the journalled 403 SECURITY.md §6
+            // promises. EncryptedFileStorageService::store() takes the
+            // two independently and assignOwner() sets the owner after
+            // the fact, so the row is one missing argument away.
+            if ($file->ownerId === null
+                || !$this->isAllowedByRegistry($file->ownerType, $file->ownerId)
+            ) {
                 return null;
             }
         }
@@ -130,11 +139,17 @@ class FileAccessGuard
         if ($file->ownerType === null) {
             return true;
         }
+        // An owner type with no owner: refused by check(), and not
+        // indexable either — `(int) null` used to ask the checker about
+        // owner 0 (issue #605).
+        if ($file->ownerId === null) {
+            return false;
+        }
 
         foreach ($this->ownershipCheckers as $checker) {
             if ($checker->supports($file->ownerType)) {
                 return !$checker instanceof FileIndexingPolicyInterface
-                    || $checker->isIndexable((int) $file->ownerId);
+                    || $checker->isIndexable($file->ownerId);
             }
         }
 
