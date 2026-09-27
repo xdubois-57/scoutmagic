@@ -63,7 +63,27 @@ final class DocumentViewerTemplateTest extends TestCase
         $this->assertStringContainsString('data-document-viewer-back', $html);
     }
 
-    private function render(?HeldDocument $document): string
+    public function testAVisitorWhoIsNotSignedInIsSentToThePublicAddressWhichStaysUsable(): void
+    {
+        $html = $this->render(null, '/locations/suivi/1/abc/calendrier.ics', 'unavailable');
+
+        $this->assertMatchesRegularExpression(
+            '~<a href="/locations/suivi/1/abc/calendrier.ics"[^>]*data-document-viewer-browser data-document-viewer-reusable>~',
+            $html
+        );
+        $this->assertStringNotContainsString('data-document-viewer-download', $html);
+        $this->assertStringNotContainsString('trop volumineux', $html);
+    }
+
+    public function testNothingHeldAndNoAddressSaysSo(): void
+    {
+        $html = $this->render(null, null, 'unavailable');
+
+        $this->assertStringContainsString('ne peut pas être ouvert depuis l&#039;application installée', $html);
+        $this->assertStringNotContainsString('data-document-viewer-browser', $html);
+    }
+
+    private function render(?HeldDocument $document, ?string $directUrl = null, string $reason = 'too_large'): string
     {
         $twig = TestTwig::create();
         $twig->addGlobal('site_name', 'Test Unité');
@@ -77,6 +97,8 @@ final class DocumentViewerTemplateTest extends TestCase
 
         return $twig->render('document_viewer.html.twig', [
             'document' => $document,
+            'direct_url' => $directUrl,
+            'reason' => $reason,
             'name' => $document?->name ?? 'album.zip',
             'type_label' => $document === null ? 'Archive ZIP' : 'Document PDF',
             'size_bytes' => $document?->sizeBytes ?? 700 * 1024 * 1024,

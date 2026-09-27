@@ -88,6 +88,19 @@ describe('document-viewer', () => {
         });
     });
 
+    it('keeps a public address usable: it is not a one-use key', async () => {
+        document.body.innerHTML = `<div data-document-viewer>
+          <a id="browser" href="/locations/suivi/1/abc/calendrier.ics" data-document-viewer-browser data-document-viewer-reusable>x</a>
+          <output class="d-none" data-document-viewer-status></output></div>`;
+        await load();
+
+        click('browser');
+        click('browser');
+
+        expect(window.open).toHaveBeenCalledTimes(2);
+        expect(document.getElementById('browser').hasAttribute('aria-disabled')).toBe(false);
+    });
+
     describe('« Télécharger »', () => {
         it('opens the share sheet on an iPhone, with the file fetched in advance', async () => {
             const { share } = pretendIphone();

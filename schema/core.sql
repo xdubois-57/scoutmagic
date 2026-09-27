@@ -2394,5 +2394,7 @@ CREATE TABLE IF NOT EXISTS held_documents (
     browser_opened_at DATETIME NULL,
     UNIQUE KEY uq_held_documents_browser (browser_token_hash),
     UNIQUE KEY uq_held_documents_app (app_token_hash),
-    KEY idx_held_documents_expiry (expires_at)
+    KEY idx_held_documents_expiry (expires_at),
+    -- HeldDocumentService::canHold(): how many one session has aside.
+    KEY idx_held_documents_session (session_hash, expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

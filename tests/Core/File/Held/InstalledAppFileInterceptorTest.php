@@ -54,7 +54,8 @@ final class InstalledAppFileInterceptorTest extends TestCase
         );
         $twig = new Environment(new ArrayLoader([
             'document_viewer.html.twig' => 'VIEWER name={{ name }} type={{ type_label }} size={{ size_bytes }}'
-                . ' back={{ back_url }} held={{ document is null ? "no" : document.browserPath ~ "," ~ document.appPath }}',
+                . ' back={{ back_url }} held={{ document is null ? "no" : document.browserPath ~ "," ~ document.appPath }}'
+                . ' direct={{ direct_url ?? "none" }} reason={{ reason }}',
         ]));
         $this->interceptor = new InstalledAppFileInterceptor($service, $twig);
     }
@@ -144,6 +145,92 @@ final class InstalledAppFileInterceptorTest extends TestCase
             $this->assertSame($response, $this->intercept($request, $response));
         }
         $this->assertSame(0, $this->heldCount());
+    }
+
+    /**
+     * Review of #609: the cookie and the navigation header are the
+     * client's own to send, so a visitor who is not signed in must not be
+     * able to make every public file answer write to the disk and the
+     * database. Nothing is held for them — and nothing needs to be: the
+     * route is public, so their browser can ask for it again itself.
+     */
+    public function testNothingIsHeldForAVisitorWhoIsNotSignedIn(): void
+    {
+        $get = $this->request('GET', '/locations/suivi/1/abc/calendrier.ics', ['REQUEST_URI' => '/locations/suivi/1/abc/calendrier.ics?v=2']);
+        $ics = (new Response('BEGIN:VCALENDAR'))->setHeader('Content-Type', 'text/calendar');
+
+        $out = $this->intercept($get, $ics, null);
+
+        $this->assertStringContainsString('held=no', $out->getBody());
+        $this->assertStringContainsString('direct=/locations/suivi/1/abc/calendrier.ics?v=2', $out->getBody());
+        $this->assertSame(0, $this->heldCount());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM event_log')->fetchColumn());
+    }
+
+    public function testAPublicPostCannotBeAskedAgainSoTheViewerSaysSo(): void
+    {
+        $out = $this->intercept($this->request('POST', '/public/form'), $this->pdf(), null);
+
+        $this->assertStringContainsString('held=no', $out->getBody());
+        $this->assertStringContainsString('direct=none', $out->getBody());
+        $this->assertStringContainsString('reason=unavailable', $out->getBody());
+        $this->assertSame(0, $this->heldCount());
+    }
+
+    public function testASignedInSessionIsBoundedInWhatItPutsAside(): void
+    {
+        for ($i = 0; $i < HeldDocumentService::MAX_LIVE_PER_SESSION; $i++) {
+            $this->intercept($this->request('GET', '/trombinoscope/pdf'), $this->pdf());
+        }
+
+        $out = $this->intercept($this->request('GET', '/trombinoscope/pdf'), $this->pdf());
+
+        $this->assertStringContainsString('held=no', $out->getBody());
+        $this->assertStringContainsString('reason=unavailable', $out->getBody());
+        $this->assertSame(HeldDocumentService::MAX_LIVE_PER_SESSION, $this->heldCount());
+    }
+
+    public function testJsonIsAnApiAnswerAndNeverADocument(): void
+    {
+        $json = (new Response('{"version":"1.0"}'))->setHeader('Content-Type', 'application/json');
+
+        $this->assertSame($json, $this->intercept($this->request('GET', '/api/version'), $json));
+        $this->assertSame(0, $this->heldCount());
+    }
+
+    /**
+     * Review of #609: a streamed temporary file is deleted only once the
+     * viewer rendered. If rendering throws, public/index.php sends the
+     * original response, and that file must still be there to send.
+     */
+    public function testATemporaryFileSurvivesAViewerThatFailedToRender(): void
+    {
+        $temporary = tempnam(sys_get_temp_dir(), 'held_zip_');
+        file_put_contents($temporary, 'PK zip bytes');
+        $zip = (new Response())
+            ->setHeader('Content-Type', 'application/zip')
+            ->setHeader('Content-Disposition', 'attachment; filename="album.zip"')
+            ->setBodyFile($temporary, true);
+        $files = new FileRepository($this->pdo);
+        $broken = new InstalledAppFileInterceptor(
+            new HeldDocumentService(
+                new HeldDocumentRepository($this->pdo),
+                new EncryptedFileStorageService($files, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath),
+                $files,
+                new JournalService(new JournalRepository($this->pdo))
+            ),
+            new Environment(new ArrayLoader([]))
+        );
+
+        try {
+            $broken->intercept($this->request('GET', '/gallery/4/download'), $zip, 's', 7, new \DateTimeImmutable());
+            $this->fail('A missing viewer template renders nothing.');
+        } catch (\Twig\Error\LoaderError) {
+            $this->assertFileExists($temporary, 'The fallback would send an empty file.');
+        } finally {
+            @unlink($temporary);
+        }
     }
 
     public function testTheHeldDocumentsOwnRoutesAreNeverIntercepted(): void
@@ -277,9 +364,15 @@ final class InstalledAppFileInterceptorTest extends TestCase
         $this->assertLessThan($sent, $intercepted);
     }
 
-    private function intercept(Request $request, Response $response): Response
+    private function intercept(Request $request, Response $response, ?int $userAccountId = 7): Response
     {
-        return $this->interceptor->intercept($request, $response, 'the-session', null, new \DateTimeImmutable('2026-09-27 10:00:00'));
+        return $this->interceptor->intercept(
+            $request,
+            $response,
+            'the-session',
+            $userAccountId,
+            new \DateTimeImmutable('2026-09-27 10:00:00')
+        );
     }
 
     /**

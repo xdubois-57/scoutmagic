@@ -173,6 +173,25 @@ final class HeldDocumentServiceTest extends TestCase
         $this->assertNull($guard->check($fileId), '/files/{id} would serve a held document.');
     }
 
+    public function testASessionMayHoldOnlySoManyDocumentsAtOnce(): void
+    {
+        for ($i = 0; $i < HeldDocumentService::MAX_LIVE_PER_SESSION - 1; $i++) {
+            $this->hold();
+        }
+        $this->assertTrue($this->service->canHold(self::SESSION, $this->now));
+
+        $this->hold();
+
+        $this->assertFalse($this->service->canHold(self::SESSION, $this->now));
+        $this->assertTrue($this->service->canHold('another-session', $this->now));
+        $this->assertFalse($this->service->canHold('', $this->now));
+        // Expired ones no longer count.
+        $this->assertTrue($this->service->canHold(
+            self::SESSION,
+            $this->now->modify('+' . HeldDocumentService::LIFETIME_MINUTES . ' minutes')
+        ));
+    }
+
     public function testThePurgeDeletesExpiredDocumentsOpenedOrNotAndKeepsTheOthers(): void
     {
         $opened = $this->hold();

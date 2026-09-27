@@ -68,6 +68,10 @@
                 return;
             }
             win.open(opener.href, '_blank');
+            if ('documentViewerReusable' in opener.dataset) {
+                // The page's own public address, not a one-use key.
+                return;
+            }
             opener.classList.add('disabled');
             opener.setAttribute('aria-disabled', 'true');
             say('Le fichier s’est ouvert dans votre navigateur. Ce lien ne sert qu’une fois.');

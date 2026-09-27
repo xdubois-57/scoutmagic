@@ -98,6 +98,17 @@ class HeldDocumentRepository
     }
 
     /**
+     * How many documents this session still has aside.
+     */
+    public function countLiveForSession(string $sessionHash, \DateTimeImmutable $now): int
+    {
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM held_documents WHERE session_hash = ? AND expires_at > ?');
+        $stmt->execute([$sessionHash, self::format($now)]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
      * @return list<array{id: int, file_id: int}>
      */
     public function findExpired(\DateTimeImmutable $now): array

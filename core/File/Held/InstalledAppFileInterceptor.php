@@ -101,8 +101,11 @@ class InstalledAppFileInterceptor
 
         $type = strtolower(trim(self::header($response, 'Content-Type')));
 
-        // No declared type is PHP's own default, text/html: a page.
-        return $type !== '' && !str_starts_with($type, 'text/html');
+        // No declared type is PHP's own default, text/html: a page. JSON is
+        // an API's answer, never a document somebody opens.
+        return $type !== ''
+            && !str_starts_with($type, 'text/html')
+            && !str_starts_with($type, 'application/json');
     }
 
     /**
@@ -127,8 +130,26 @@ class InstalledAppFileInterceptor
             ? (int) @filesize($response->getBodyFilePath())
             : strlen($response->getBody());
 
+        // **Only a signed-in session puts anything aside.** The cookie and
+        // the navigation header are the client's own to send, so without
+        // this any visitor could make every public file answer write an
+        // encrypted file, a row and a journal line, as fast as they can
+        // ask. A visitor who is not signed in needs no aside anyway: the
+        // route that answered them is public, so the phone's browser can
+        // ask for it again itself — `direct_url` — whenever it was a GET.
+        // A signed-in session is bounded too
+        // (HeldDocumentService::MAX_LIVE_PER_SESSION).
         $document = null;
-        if ($size <= HeldDocumentService::MAX_BYTES) {
+        $directUrl = null;
+        $reason = 'too_large';
+        if ($userAccountId === null) {
+            $directUrl = $request->getMethod() === 'GET' ? self::requestUri($request) : null;
+            $reason = 'unavailable';
+        } elseif ($size > HeldDocumentService::MAX_BYTES) {
+            $reason = 'too_large';
+        } elseif (!$this->documents->canHold($sessionId, $now)) {
+            $reason = 'unavailable';
+        } else {
             $document = $this->documents->hold(
                 $response->getBody(),
                 $mimeType,
@@ -139,20 +160,24 @@ class InstalledAppFileInterceptor
             );
         }
 
-        // A file streamed from a temporary file (an archive, a
-        // spreadsheet) would have been deleted once sent. It is not sent
-        // now, so it is deleted here.
-        if ($response->getBodyFilePath() !== null && $response->deletesBodyFileAfterSend()) {
-            @unlink($response->getBodyFilePath());
-        }
-
         $html = $this->twig->render('document_viewer.html.twig', [
             'document' => $document,
+            'direct_url' => $directUrl,
+            'reason' => $reason,
             'name' => $name,
             'type_label' => self::typeLabel($mimeType),
             'size_bytes' => $size,
             'back_url' => self::backUrl($request),
         ]);
+
+        // A file streamed from a temporary file (an archive, a
+        // spreadsheet) would have been deleted once sent. It is not sent
+        // now, so it is deleted here — only once the viewer rendered, so
+        // that a failure above still falls back to the file itself
+        // (public/index.php sends $response when this method throws).
+        if ($response->getBodyFilePath() !== null && $response->deletesBodyFileAfterSend()) {
+            @unlink($response->getBodyFilePath());
+        }
 
         return (new Response($html))
             ->setHeader('Content-Type', 'text/html; charset=utf-8')
@@ -237,6 +262,20 @@ class InstalledAppFileInterceptor
         }
 
         return $path . (isset($parts['query']) ? '?' . $parts['query'] : '');
+    }
+
+    /**
+     * This request's own address, path and query, for the phone's browser
+     * to ask again — or null when it is not a plain same-site path.
+     */
+    private static function requestUri(Request $request): ?string
+    {
+        $uri = (string) $request->getServer('REQUEST_URI', '');
+        if (!str_starts_with($uri, '/') || str_starts_with($uri, '//')) {
+            return null;
+        }
+
+        return $uri;
     }
 
     /**

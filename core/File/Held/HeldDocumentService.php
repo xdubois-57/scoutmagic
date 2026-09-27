@@ -66,6 +66,13 @@ class HeldDocumentService
      */
     public const MAX_BYTES = 64 * 1024 * 1024;
 
+    /**
+     * How many documents one session may have put aside at once. Far above
+     * what a person opening files does in half an hour, and what bounds a
+     * session that asks in a loop.
+     */
+    public const MAX_LIVE_PER_SESSION = 20;
+
     /** Where the encrypted files live, under the site's storage/. */
     public const DIRECTORY = 'held-documents';
 
@@ -135,6 +142,15 @@ class HeldDocumentService
         );
 
         return new HeldDocument($id, $browserToken, $appToken, $name, $mimeType, strlen($content));
+    }
+
+    /**
+     * Whether $sessionId may put one more document aside now.
+     */
+    public function canHold(string $sessionId, \DateTimeImmutable $now): bool
+    {
+        return $sessionId !== ''
+            && $this->documents->countLiveForSession(self::hash($sessionId), $now) < self::MAX_LIVE_PER_SESSION;
     }
 
     /**

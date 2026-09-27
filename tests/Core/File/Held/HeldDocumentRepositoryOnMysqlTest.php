@@ -95,6 +95,15 @@ final class HeldDocumentRepositoryOnMysqlTest extends TestCase
         $this->assertSame([$opened, $unopened], array_column($expired, 'id'));
     }
 
+    public function testTheLiveCountIsPerSessionAndIgnoresTheExpired(): void
+    {
+        $this->hold('b1', 'a1');
+        $this->hold('b2', 'a2', $this->now->modify('-40 minutes'));
+
+        $this->assertSame(1, $this->documents->countLiveForSession(self::hash('session'), $this->now));
+        $this->assertSame(0, $this->documents->countLiveForSession(self::hash('other'), $this->now));
+    }
+
     private function hold(string $browser, string $app, ?\DateTimeImmutable $at = null): int
     {
         $at ??= $this->now;
