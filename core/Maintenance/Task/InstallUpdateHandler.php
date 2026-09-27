@@ -799,7 +799,12 @@ class InstallUpdateHandler implements TaskHandlerInterface
     ): void {
         try {
             if ($history->requestedBy !== null) {
-                $context->notifications?->notify($history->requestedBy, $title, $body, '/config/maintenance/mise-a-jour');
+                $context->notifications?->notify(
+                    $history->requestedBy,
+                    $title,
+                    $body,
+                    '/config/maintenance/mise-a-jour'
+                );
                 return;
             }
 

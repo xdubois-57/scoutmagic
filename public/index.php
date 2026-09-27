@@ -5269,7 +5269,13 @@ $router->addRoute(
     'createDatabaseBackup',
     'superadmin',
 );
-$router->addRoute('POST', '/config/maintenance/backup/full', MaintenanceController::class, 'createFullBackup', 'superadmin');
+$router->addRoute(
+    'POST',
+    '/config/maintenance/backup/full',
+    MaintenanceController::class,
+    'createFullBackup',
+    'superadmin'
+);
 // The one archive that packages the master key. Its floor is no higher
 // than its neighbours' — every maintenance route is `superadmin`, and a
 // stricter floor here alone would suggest the others are safe. What
@@ -5302,7 +5308,13 @@ $router->addRoute(
     'deleteBackup',
     'superadmin'
 );
-$router->addRoute('GET', '/api/maintenance/backup-status/{id}', MaintenanceController::class, 'backupStatus', 'superadmin');
+$router->addRoute(
+    'GET',
+    '/api/maintenance/backup-status/{id}',
+    MaintenanceController::class,
+    'backupStatus',
+    'superadmin'
+);
 $router->addRoute(
     'POST',
     '/config/maintenance/update/install',
@@ -5317,7 +5329,13 @@ $router->addRoute(
     'checkForUpdatesNow',
     'superadmin',
 );
-$router->addRoute('GET', '/api/maintenance/update-status/{id}', MaintenanceController::class, 'updateStatus', 'superadmin');
+$router->addRoute(
+    'GET',
+    '/api/maintenance/update-status/{id}',
+    MaintenanceController::class,
+    'updateStatus',
+    'superadmin'
+);
 $router->addRoute(
     'POST',
     '/config/maintenance/reset/settings',
@@ -5340,7 +5358,13 @@ $router->addRoute(
     'restoreUploadChunk',
     'superadmin',
 );
-$router->addRoute('GET', '/api/maintenance/reset-status/{id}', MaintenanceController::class, 'resetStatus', 'superadmin');
+$router->addRoute(
+    'GET',
+    '/api/maintenance/reset-status/{id}',
+    MaintenanceController::class,
+    'resetStatus',
+    'superadmin'
+);
 $router->addRoute(
     'POST',
     '/config/maintenance/auto-update/save',
