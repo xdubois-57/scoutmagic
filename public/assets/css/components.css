@@ -1236,6 +1236,17 @@
     box-shadow: var(--bs-box-shadow, 0 .5rem 1rem rgba(0, 0, 0, .15));
 }
 
+/* Each result keeps the height of its content (issue #645). The list is a
+   Bootstrap list-group, so a flex column; once its rows add up to more than
+   max-height, WebKit shrinks them to fit instead of letting the list scroll
+   — every row the same, too short height, the date line cut off by the next
+   row. Chrome and Firefox honour min-height: auto and never showed it. */
+.receivable-picker__results > *,
+.stay-picker__results > *,
+.search-picker__results > * {
+    flex-shrink: 0;
+}
+
 /* ---------------------------------------------------------------------
    La visionneuse de fichiers (assets/js/file-viewer.js).
 
