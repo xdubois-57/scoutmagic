@@ -328,9 +328,14 @@ class CampaignController extends AbstractController
         $receivableId = (int) ($params['receivableId'] ?? 0);
 
         try {
-            // The campaign is resolved first so a receivable id from
-            // another campaign — or another account — cannot be waived
-            // through this route.
+            // Resolved first so the route refuses before touching
+            // anything when the campaign is unknown or out of this
+            // caller's reach. It does NOT tie the receivable to this
+            // campaign: nothing here compares the two, and a receivable
+            // of another campaign on an account the caller may see is
+            // waivable through this route (issue #582). What does hold is
+            // the receivable's OWN account check, inside
+            // Service\ReceivableAllocationService::requireReceivable().
             $this->campaignService->requireCampaign($campaignId, $role);
 
             if ((string) $request->getBody('waived', '1') === '0') {
