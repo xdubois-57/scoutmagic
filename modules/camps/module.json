@@ -2,7 +2,7 @@
   "id": "camps",
   "name": "Camps",
   "description": "Les lieux de camp de l'unité et les séjours qui s'y sont tenus.",
-  "version": "1.17.1",
+  "version": "1.17.2",
   "enabled_by_default": false,
   "routes": [
     {

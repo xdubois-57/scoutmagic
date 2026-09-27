@@ -10221,7 +10221,8 @@ if ($isEnabled('camps')) {
     );
     $campsAlbumService = new \Modules\Camps\Service\CampAlbumService(
         $auditService,
-        $galleryDelegatedAlbumManager ?? null
+        $galleryDelegatedAlbumManager ?? null,
+        $journalService
     );
     $campsReviewService = new \Modules\Camps\Service\ReviewService($campsReviewRepo, $auditService, $campsPlaceRepo);
     $campsSummaryService = new \Modules\Camps\Service\PlaceSummaryService(
