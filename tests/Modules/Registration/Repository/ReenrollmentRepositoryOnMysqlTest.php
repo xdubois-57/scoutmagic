@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Registration\Repository;
 
+use Core\Database\ConstraintViolation;
 use Core\Security\EncryptionService;
 use Modules\Registration\Repository\FriendWish;
 use Modules\Registration\Repository\ReenrollmentAnswer;
@@ -29,7 +30,8 @@ use Tests\UsesProductionEngine;
  *   a second tab — changes nothing, and only the `wishExists()` fallback
  *   keeps that from reading as « this wish does not exist » and a 404.
  * - **`saveAnswer()` is an insert-or-update** behind the UNIQUE index on
- *   (member, year): a family answering again must land on the same row,
+ *   (member, year), which also settles two answers that cross (issue
+ *   #592): a family answering again must land on the same row,
  *   with the friend wishes rewritten and the `applied_leaving` the
  *   « Départs » link owns left alone — against the real table, foreign
  *   keys included, which the SQLite fixture declares without any.
@@ -118,6 +120,34 @@ class ReenrollmentRepositoryOnMysqlTest extends TestCase
         $this->pdo->prepare('DELETE FROM registration_reenrollments WHERE id = ?')->execute([$answerId]);
 
         $this->assertFalse($this->repository->resolveWish($wishId, $this->friendId));
+    }
+
+    /**
+     * The premise `saveAnswer()`'s race fallback rests on (issue #592): on
+     * this engine, a second answer for the same member and year is refused
+     * by the unique index, and the refusal is one
+     * `ConstraintViolation::isDuplicateKey()` recognises. If the index went,
+     * or the engine reported it otherwise, the fallback would stop catching
+     * anything and the SQLite race test would keep passing for free.
+     */
+    public function testTheEngineRefusesASecondAnswerForTheSameMemberAndYear(): void
+    {
+        $insert = $this->pdo->prepare(
+            'INSERT INTO registration_reenrollments (member_id, scout_year_id, decision, answered_at) '
+                . 'VALUES (?, ?, ?, ?)'
+        );
+        $insert->execute([$this->memberId, $this->yearId, 'staying', '2026-09-01 10:00:00']);
+
+        try {
+            $insert->execute([$this->memberId, $this->yearId, 'leaving', '2026-09-01 10:00:00']);
+            $this->fail('a second answer for the same member and year was accepted.');
+        } catch (\PDOException $e) {
+            $this->assertSame('1062', (string) ($e->errorInfo[1] ?? ''), $e->getMessage());
+            $this->assertTrue(
+                ConstraintViolation::isDuplicateKey($e),
+                'the refusal saveAnswer() catches is not recognised as a duplicate: ' . $e->getMessage()
+            );
+        }
     }
 
     /**
