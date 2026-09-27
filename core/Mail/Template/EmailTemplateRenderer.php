@@ -117,22 +117,19 @@ class EmailTemplateRenderer
     private function renderCustomised(EmailTemplate $template, array $override, array $context): RenderedEmail
     {
         $bodyHtml = $this->substituteIntoHtml($template, $override['body_html'], $context);
+        $frame = self::frameContext($context);
 
         return new RenderedEmail(
             subject: $this->substitute($template, $override['subject'], $context, false),
             // Through custom.html.twig so the frame — header, footer, the
             // unit's name — is the same code every other e-mail uses. The
             // body itself is a finished string by now, never a template.
-            bodyHtml: $this->twig->render('email/custom.html.twig', self::frameContext($context) + [
-                'body_html' => $bodyHtml,
-            ]),
+            bodyHtml: $this->twig->render('email/custom.html.twig', $frame + ['body_html' => $bodyHtml]),
             // The signature too: the HTML half gets it from the frame, and
             // a plain-text half that stopped short of it would be the one
             // version of the message that arrives unsigned.
-            bodyText: self::toPlainText($bodyHtml) . "\n\n" . $this->twig->render(
-                'email/signature.text.twig',
-                self::frameContext($context)
-            ),
+            bodyText: self::toPlainText($bodyHtml) . "\n\n"
+                . $this->twig->render('email/signature.text.twig', $frame),
         );
     }
 
