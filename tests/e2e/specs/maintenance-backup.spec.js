@@ -125,7 +125,38 @@ test('maintenance backups run to completion, the auto-save saves, and the danger
     await page.locator('#scope-config').check();
     await page.locator('#full-backup-password').fill(ARCHIVE_PASSWORD);
     await page.locator('#full-backup-submit').click();
-    await expect(page.locator('#full-backup-progress')).toBeVisible();
+
+    // **Waiting on the pair, not on the progress bar alone — because a
+    // refusal hides the progress bar too.** `maintenance.js` removes the
+    // bar's `d-none` synchronously on submit, then, if the launch comes
+    // back refused, puts the server's sentence in `#full-backup-error`
+    // and puts `d-none` BACK. So the state « progress hidden » is the
+    // state of a refusal, and a spec that asserts only `toBeVisible()`
+    // reports « Expected: visible / Received: hidden » while the page is
+    // displaying the reason two lines below. That is what happened on
+    // pull request #607, where this line failed and the run said nothing
+    // about why (issue #623).
+    //
+    // `#full-backup-error` is read here rather than at the end of the
+    // scenario — where it is also asserted hidden — because that later
+    // assertion never runs: this one fails first and the test stops.
+    await expect
+        .poll(
+            async () => {
+                if (await page.locator('#full-backup-progress').isVisible()) {
+                    return 'launched';
+                }
+
+                const refusal = ((await page.locator('#full-backup-error').textContent()) ?? '').trim();
+
+                return refusal === '' ? 'nothing happened yet' : `refused: ${refusal}`;
+            },
+            {
+                message: 'the backup launch must be accepted, and say why if it is not',
+                timeout: scaled(10_000),
+            },
+        )
+        .toBe('launched');
 
     // The backup itself is a scheduled task, and public/cron.php is the
     // only thing that runs one — the application does not turn its own
