@@ -239,6 +239,57 @@ class CampaignService
     }
 
     /**
+     * Refuses a receivable that came from somewhere other than this campaign.
+     *
+     * **The route carried both ids and compared neither** (issue #582).
+     * `POST /finance/campaigns/{id}/receivables/{receivableId}/waive` resolved
+     * the campaign, then waived the receivable, and nothing tied the two: a
+     * receivable of campaign B was waivable through campaign A's route as soon
+     * as the caller could see B's account — which two campaigns booked against
+     * the unit's account share. The controller's own comment claimed the
+     * opposite from the start, which is how it lasted.
+     *
+     * **It was never an escalation**, and that is why it needed a test rather
+     * than an alarm: `Service\ReceivableAllocationService` applies the same
+     * `AccountVisibility` predicate as every other finance screen, so this
+     * route reached nothing the reconciliation page would have refused. What
+     * broke was the route's own promise — the journal recorded a waiver « in »
+     * a campaign the receivable does not belong to, and the redirect sent the
+     * treasurer to a screen where the effect is invisible.
+     *
+     * **The refusal reuses « Cette créance n'existe pas. », deliberately.**
+     * Issue #582 offered a distinct sentence, and a distinct sentence is
+     * friendlier to a treasurer who mistyped a URL. It is not taken, because
+     * {@see requireCampaign()} and `ReceivableAllocationService`'s own guard
+     * already answer an invisible subject with « n'existe pas » rather than
+     * « vous n'y avez pas droit » — the conflation is this module's standing
+     * posture against enumeration, and a receivable that is not this
+     * campaign's does not exist AS FAR AS THIS ROUTE IS CONCERNED. Reusing it
+     * also means the order of the two checks cannot leak: whichever runs
+     * first, the caller learns the same thing.
+     *
+     * @throws FinanceException
+     */
+    public function requireReceivableSourceOfCampaign(
+        int $campaignId,
+        string $sourceModule,
+        int $sourceReferenceId
+    ): void {
+        if ($sourceModule !== self::SOURCE_MODULE) {
+            throw new FinanceException("Cette créance n'existe pas.");
+        }
+
+        // Resolved FROM the row, the way setNote() does it — not by trusting
+        // the campaign id in the URL. `source_reference_id` is a campaign row
+        // id for this module, which is exactly how findBySourceReferenceIds()
+        // reads a campaign's receivables.
+        $row = $this->rows->findById($sourceReferenceId);
+        if ($row === null || $row->campaignId !== $campaignId) {
+            throw new FinanceException("Cette créance n'existe pas.");
+        }
+    }
+
+    /**
      * @throws FinanceException
      */
     public function requireCampaign(int $campaignId, Role $viewerRole): Campaign

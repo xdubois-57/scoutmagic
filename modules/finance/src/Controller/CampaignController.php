@@ -328,15 +328,30 @@ class CampaignController extends AbstractController
         $receivableId = (int) ($params['receivableId'] ?? 0);
 
         try {
-            // Resolved first so the route refuses before touching
-            // anything when the campaign is unknown or out of this
-            // caller's reach. It does NOT tie the receivable to this
-            // campaign: nothing here compares the two, and a receivable
-            // of another campaign on an account the caller may see is
-            // waivable through this route (issue #582). What does hold is
-            // the receivable's OWN account check, inside
-            // Service\ReceivableAllocationService::requireReceivable().
+            // Three things are required, and each is required by whoever
+            // owns it. The campaign: known, and within this caller's reach.
+            // The receivable: visible to them, which its own service settles
+            // through the same AccountVisibility predicate as every finance
+            // screen. And now the link between the two — which nothing
+            // checked until issue #582, so `id=A&receivableId=B` waived B's
+            // receivable through A's route as soon as the caller could see
+            // B's account, two campaigns on the unit's account being the
+            // ordinary case.
+            //
+            // The source is read before either waive branch because both need
+            // it: cancelWaiver is not another route, it is this one with
+            // `waived=0`, and a check placed inside only one of them would
+            // hold for half the requests.
             $this->campaignService->requireCampaign($campaignId, $role);
+            [$sourceModule, $sourceReferenceId] = $this->allocationService->sourceOfReceivable(
+                $receivableId,
+                $role
+            );
+            $this->campaignService->requireReceivableSourceOfCampaign(
+                $campaignId,
+                $sourceModule,
+                $sourceReferenceId
+            );
 
             if ((string) $request->getBody('waived', '1') === '0') {
                 $this->allocationService->cancelWaiver($receivableId, $role);
