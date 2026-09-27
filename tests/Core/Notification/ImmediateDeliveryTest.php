@@ -290,8 +290,11 @@ final class ImmediateDeliveryTest extends TestCase
     public function testQuietHoursStillHoldThePushBackWhileTheMailGoesNow(): void
     {
         $admin = $this->createUserAccount();
-        $this->settings->register('notifications_quiet_hours_start', '00:00', 'text', 'L', 'D');
-        $this->settings->register('notifications_quiet_hours_end', '23:59', 'text', 'L', 'D');
+        // A window around "now", so it is inside it at any hour. 00:00–23:59
+        // was not: it left out the minute before midnight, and CI met it.
+        $now = new \DateTimeImmutable();
+        $this->settings->register('notifications_quiet_hours_start', $now->modify('-1 hour')->format('H:i'), 'text', 'L', 'D');
+        $this->settings->register('notifications_quiet_hours_end', $now->modify('+1 hour')->format('H:i'), 'text', 'L', 'D');
 
         $this->dispatchAlert($this->service(), $admin);
 

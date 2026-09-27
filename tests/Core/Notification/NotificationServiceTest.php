@@ -655,9 +655,11 @@ class NotificationServiceTest extends TestCase
     {
         $userId = $this->createUserAccount();
         $this->enableEmailChannel($userId, self::TEST_TYPE);
-        // A window covering the whole day, so "now" is always inside it.
-        $this->settingService->register('notifications_quiet_hours_start', '00:00', 'text', 'L', 'D');
-        $this->settingService->register('notifications_quiet_hours_end', '23:59', 'text', 'L', 'D');
+        // A window around "now", so it is inside it at any hour. 00:00–23:59
+        // was not: it left out the minute before midnight, and CI met it.
+        $now = new \DateTimeImmutable();
+        $this->settingService->register('notifications_quiet_hours_start', $now->modify('-1 hour')->format('H:i'), 'text', 'L', 'D');
+        $this->settingService->register('notifications_quiet_hours_end', $now->modify('+1 hour')->format('H:i'), 'text', 'L', 'D');
 
         $this->service->dispatch(self::TEST_TYPE, [
             ['userAccountId' => $userId, 'memberId' => null],
