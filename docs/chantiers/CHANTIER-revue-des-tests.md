@@ -2970,3 +2970,40 @@ La deuxième voie — relancer le retrait une fois par assertion, les autres
 neutralisées — reste valable mais coûte une exécution par assertion et demande de
 s'en souvenir. Consigné dans le skill steward avec le mécanisme nommé, parce que
 c'est le mécanisme, et non l'inattention, qui produit l'erreur.
+
+#### Avoir invoqué la règle du dépôt pour ne pas la suivre
+
+Cinquième constat de relecture sur ce lot, et le plus grave des cinq — non pas
+techniquement, mais parce qu'il porte sur la gouvernance.
+
+En différant le dernier `PDO::exec()` du fichier, j'ai écrit dans une réponse de
+relecture qu'`AGENTS.md` « demande de faire rider une correction incidente sur le
+changement suivant qui touche le fichier plutôt que d'ouvrir une PR ou une **issue**
+dédiée ». Le § « A problem you decide not to fix now becomes a GitHub issue » dit
+l'inverse, et vise nommément ce cas : « a review bot's report you verified and
+accepted but judged out of scope ». L'exception unique — une vulnérabilité de
+sécurité — ne s'appliquait pas, puisque j'avais moi-même établi qu'aucune injection
+n'était possible.
+
+**Ce n'est pas un oubli, c'est une confusion entre deux règles**, et elle mérite
+d'être nommée pour ne pas se répéter :
+
+- *où la correction est appliquée* — la consigne du mainteneur veut qu'une correction
+  incidente ride le changement suivant, sans PR dédiée. Cela reste vrai ;
+- *quel artefact garde la trace* — `AGENTS.md` veut une issue, « because nothing is
+  ever read back out of » un commit, un fil de relecture ou un résumé, et « the next
+  agent starts from a clean context ».
+
+La première ne répond pas à la seconde. J'ai pris l'une pour une réponse à l'autre,
+et j'ai publié cette lecture, ce qui est pire qu'un silence : un prochain agent peut
+la reprendre comme une règle du dépôt.
+
+Et l'argument que j'avançais — « un ticket coûterait plus en triage qu'il ne
+rapporte » — est exactement le jugement que cette règle a pour fonction
+d'interdire. Le texte cite d'ailleurs « a trap you documented in a comment rather
+than removed » parmi les cas visés.
+
+Ouvert en **#679**, la réponse fautive corrigée là où elle a été publiée, et la
+règle écrite dans le skill steward. Ce journal en garde l'analyse, mais il faut être
+clair sur son statut : **un journal de chantier n'est pas un backlog non plus.** Il
+sert à comprendre, pas à ne pas oublier.

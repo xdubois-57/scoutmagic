@@ -426,6 +426,19 @@ So, before pushing a fix for review findings:
     was corrected for it — while the two above, resting on the same
     premise, were left as they were. Correcting the place you were looking
     at is not correcting the premise.
+- **A finding you accept but defer becomes a GitHub issue, and no reasoning
+  of yours overrides that.** `AGENTS.md` § « A problem you decide not to fix
+  now becomes a GitHub issue » names this exact case — « a review bot's
+  report you verified and accepted but judged out of scope » — and the only
+  exception is a security vulnerability. Measured on #449's batch 8: a
+  deferred `PDO::exec()` was recorded in a review reply and in the chantier
+  journal, and **the reply cited `AGENTS.md` as the reason NOT to open one**,
+  which is worse than forgetting because it publishes a false reading the
+  next agent can pick up. The confusion to avoid: « where the fix is
+  applied » (it rides the next change touching the file, no dedicated PR)
+  and « which artefact keeps the trace » (an issue) are two rules, and the
+  first does not answer the second. « A ticket would cost more in triage
+  than it returns » is precisely the judgement the rule exists to forbid.
 - **Read the template and the controller, never deduce behaviour from a
   docblock.** A `catch` that returns the neutral value is usually right; what
   breaks is the sentence the layer above builds on it. #600 and #637 are both
