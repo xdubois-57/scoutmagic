@@ -228,6 +228,26 @@ class MemberPageServiceTest extends TestCase
         $this->assertSame('https://lesscouts.be/fr/site-parents/le-parcours-scout', $data['branch_card']['explanation_url']);
     }
 
+    /**
+     * Issue #473 — where to sew the insignia: the federation's article,
+     * from the register of external sources, whatever the branch. A unit
+     * that customised its branch link does not move this one: the article
+     * is the same for every unit, so it is no setting.
+     */
+    public function testBranchCardCarriesTheInsigniaPlacementArticleFromTheRegister(): void
+    {
+        $profile = $this->createMemberInSection();
+        $this->ageBranchRepository->setExplanationUrl($this->branchId, 'https://example.test/louveteaux');
+
+        $data = $this->buildService()->buildPageData($profile, $this->scoutYearId, true, false, Role::IDENTIFIED);
+
+        $this->assertNotNull($data['branch_card']);
+        $this->assertSame(
+            \Core\ExternalSource\ExternalSources::INSIGNIA_PLACEMENT_PAGE,
+            $data['branch_card']['insignia_placement_url']
+        );
+    }
+
     public function testBranchCardUsesUploadedLogoAndCustomUrlWhenSet(): void
     {
         $profile = $this->createMemberInSection();

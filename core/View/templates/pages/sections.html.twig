@@ -6,6 +6,17 @@
     {% include 'partials/page_header.html.twig' with { title: 'Sections' } only %}
         {{ editable('sections.intro', '<p>Voici les sections de notre unité.</p>') }}
 
+        {# Issue #473 — once, at the top, and in the template rather than in
+           an editable block: every unit needs it, and the per-section
+           texts below are the unit's own. Outside the empty-state branch
+           on purpose: the question comes before a family has an account,
+           and before the first import too. #}
+        <p class="small mb-0">
+            <i class="bi bi-info-circle text-body-secondary" aria-hidden="true"></i>
+            {% include 'partials/insignia_placement_link.html.twig' with { url: insignia_placement_url } only %}
+            <span class="text-body-secondary">— le guide de la fédération Les Scouts, branche par branche.</span>
+        </p>
+
         {% if section_groups is empty %}
         {% include 'partials/empty_state.html.twig' with {
             message: 'Aucune section pour le moment. Les sections apparaîtront ici après le premier import depuis Desk.',

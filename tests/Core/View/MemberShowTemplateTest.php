@@ -6,8 +6,9 @@ namespace Tests\Core\View;
 
 use Core\Member\MemberProfile;
 use Core\Module\FormationPathView;
-use Core\View\TwigFactory;
+use Core\ExternalSource\ExternalSources;
 use PHPUnit\Framework\TestCase;
+use Tests\TestTwig;
 
 /**
  * Full-page render of core/View/templates/members/show.html.twig (the
@@ -30,8 +31,7 @@ class MemberShowTemplateTest extends TestCase
      */
     private function render(MemberProfile $member, bool $isSelf = true, array $extraContext = []): string
     {
-        $templateDir = dirname(__DIR__, 3) . '/core/View/templates';
-        $twig = TwigFactory::create($templateDir, true);
+        $twig = TestTwig::create();
         $twig->addGlobal('site_name', 'Test Unité');
         $twig->addGlobal('menus', null);
         $twig->addGlobal('is_authenticated', true);
@@ -80,6 +80,52 @@ class MemberShowTemplateTest extends TestCase
 
         // Through the asset() cache-busting helper, so the href carries ?v=….
         $this->assertMatchesRegularExpression('~<link rel="stylesheet" href="/assets/css/components\.css\?v=[^"]+">~', $html);
+    }
+
+    /**
+     * @return array{label: string, logo_file_id: ?int, default_logo: ?string, explanation_url: string, insignia_placement_url: string}
+     */
+    private function branchCard(): array
+    {
+        return [
+            'label' => 'Louveteaux',
+            'logo_file_id' => null,
+            'default_logo' => null,
+            'explanation_url' => 'https://lesscouts.be/fr/site-parents/le-parcours-scout',
+            'insignia_placement_url' => ExternalSources::INSIGNIA_PLACEMENT_PAGE,
+        ];
+    }
+
+    /**
+     * Issue #473 — where to sew the insignia, on the branch card, UNDER
+     * « En savoir plus » and as a discreet link rather than a second
+     * button: the card is a third of the page at its widest.
+     */
+    public function testTheBranchCardLinksTheInsigniaGuideUnderTheButtonAsAPlainLink(): void
+    {
+        $html = $this->render($this->makeMember(), true, ['branch_card' => $this->branchCard()]);
+
+        $this->assertSame(1, preg_match(
+            '#<a href="([^"]+)" target="_blank" rel="noopener" class="([^"]*)">Où coudre les insignes sur l\'uniforme \?#u',
+            $html,
+            $m
+        ), 'The insignia link is on the branch card, once.');
+        $this->assertSame(ExternalSources::INSIGNIA_PLACEMENT_PAGE, $m[1]);
+        $this->assertStringNotContainsString('btn', $m[2], 'A discreet link, not a second button.');
+
+        $button = strpos($html, 'En savoir plus');
+        $link = strpos($html, 'Où coudre les insignes');
+        $this->assertNotFalse($button);
+        $this->assertGreaterThan($button, $link, 'The link sits under « En savoir plus ».');
+        // Inside the same card: no card boundary between the two.
+        $this->assertStringNotContainsString('class="card', substr($html, $button, $link - $button));
+    }
+
+    public function testNoInsigniaLinkWithoutABranchCard(): void
+    {
+        $html = $this->render($this->makeMember());
+
+        $this->assertStringNotContainsString(ExternalSources::INSIGNIA_PLACEMENT_PAGE, $html);
     }
 
     public function testHeaderPhotoPlaceholderUsesTheSizedHeaderClass(): void
