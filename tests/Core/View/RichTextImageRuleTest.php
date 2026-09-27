@@ -54,8 +54,9 @@ final class RichTextImageRuleTest extends TestCase
         'core/View/templates/partials/help_panel.html.twig' => 'help-content rich-text',
         // The public RGPD page, whose whole body is one rich-text block.
         'core/View/templates/pages/rgpd.html.twig' => '<div class="rich-text">{{ rgpd_content|raw }}</div>',
-        // A rental's conditions, shown inside the public request form.
-        'modules/rental/views/public/request.html.twig' => 'rich-text border rounded',
+        // A rental's conditions, on their own page since issue #494 (the
+        // request form links to it rather than embedding the text).
+        'modules/rental/views/public/conditions.html.twig' => 'card-body rich-text',
         // A camp's note.
         'modules/camps/views/camp.html.twig' => 'card-body rich-text',
     ];

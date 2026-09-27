@@ -395,6 +395,18 @@ class RentalTestHelper
             UNIQUE (booking_id, email_blind_index),
             FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
         )');
+
+        $pdo->exec('CREATE TABLE rental_conditions_versions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            asset_id INTEGER NOT NULL,
+            version TEXT NOT NULL,
+            text_hash TEXT NOT NULL,
+            body_html TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            created_by_user_account_id INTEGER NULL,
+            UNIQUE (asset_id, text_hash),
+            FOREIGN KEY (asset_id) REFERENCES rental_assets(id) ON DELETE CASCADE
+        )');
     }
 
     /**

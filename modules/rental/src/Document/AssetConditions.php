@@ -58,9 +58,19 @@ final class AssetConditions
      * or the shipped standard while nobody has written any.
      *
      * This is what makes the shipped body a real DEFAULT rather than a
-     * button, and it is the single source both the public page and the
-     * acceptance hash read — so what a renter ticks is literally what they
-     * were shown.
+     * button, and the single source every reader goes through.
+     *
+     * **« What a renter ticks is what they were shown » was a promise this
+     * alone could not keep**, and until issue #494 it did not: the hash was
+     * taken from the text in force when the form was SUBMITTED, and this
+     * one entry is rewritten in place, so a manager's edit made mid-form
+     * had the renter « accept » unseen words, and the next edit erased the
+     * text their hash attested to. It holds now because of
+     * `Service\RentalConditionsService`: every wording read through it is
+     * archived as a version that never changes, the form carries the
+     * version it links to, a submission against any other is refused, and
+     * the booking keeps that version — readable at
+     * `/locations/{slug}/conditions/{version}` for as long as it matters.
      */
     public static function textFor(EditableContentService $store, int $assetId): string
     {

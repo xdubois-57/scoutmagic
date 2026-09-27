@@ -1184,3 +1184,38 @@ CREATE TABLE IF NOT EXISTS rental_booking_aggregates (
     KEY idx_rental_aggregate_asset_month (asset_id, stay_month),
     KEY idx_rental_aggregate_year (scout_year_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- rental_conditions_versions: every wording of an asset's conditions that
+-- was ever in force, kept unchanged (issue #494).
+--
+-- The text itself lives in ONE editable entry (`rental_asset_{id}_conditions`,
+-- Modules\Rental\Document\AssetConditions) that a manager rewrites — so a
+-- booking's `conditions_hash` used to prove nothing the first time somebody
+-- edited it: the text it hashed was gone. Each version here is written once
+-- and never updated, and a booking points at one through `conditions_version`
+-- (the first twelve characters of the hash, exactly as it always has been, so
+-- bookings older than this table reach the right version without their own
+-- rows being migrated).
+--
+-- Unique on (asset, hash): the same text saved twice is one version, however
+-- many managers press « Enregistrer » and however many visitors open the page
+-- at once — the loser of that race reads the winner's row back.
+CREATE TABLE IF NOT EXISTS rental_conditions_versions (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    asset_id INT UNSIGNED NOT NULL,
+    version CHAR(12) NOT NULL,
+    text_hash CHAR(64) NOT NULL,
+    body_html MEDIUMTEXT NOT NULL,
+    -- From PHP's clock, like every date the module shows: the page says
+    -- « en vigueur depuis le … » from this column.
+    created_at DATETIME NOT NULL,
+    -- Null for the shipped standard text and for a version archived on
+    -- first read rather than on a save.
+    created_by_user_account_id INT UNSIGNED NULL,
+    UNIQUE KEY uq_rental_conditions_versions_hash (asset_id, text_hash),
+    KEY idx_rental_conditions_versions_version (asset_id, version),
+    CONSTRAINT fk_rental_conditions_versions_asset
+        FOREIGN KEY (asset_id) REFERENCES rental_assets (id) ON DELETE CASCADE,
+    CONSTRAINT fk_rental_conditions_versions_author
+        FOREIGN KEY (created_by_user_account_id) REFERENCES user_accounts (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

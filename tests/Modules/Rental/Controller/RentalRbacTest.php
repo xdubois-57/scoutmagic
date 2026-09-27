@@ -202,7 +202,10 @@ class RentalRbacTest extends TestCase
             $availabilityService,
             $pricingService,
             new DayStateGridBuilder(),
-            new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo))
+            new \Modules\Rental\Service\RentalConditionsService(
+                new \Modules\Rental\Repository\RentalConditionsVersionRepository($this->pdo),
+                new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo))
+            )
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -370,7 +373,10 @@ class RentalRbacTest extends TestCase
                     $this->authorizationService,
                     $this->assetRepository,
                     $this->scoutYearResolver,
-                    new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo)),
+                    new \Modules\Rental\Service\RentalConditionsService(
+                        new \Modules\Rental\Repository\RentalConditionsVersionRepository($this->pdo),
+                        new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo))
+                    ),
                     null,
                     new \Modules\Rental\Repository\RentalAssetReminderRepository($this->pdo)
                 ),
@@ -391,6 +397,33 @@ class RentalRbacTest extends TestCase
     private function dispatchPublicAsset(string $slug): Response
     {
         return $this->dispatch('/locations/{slug}', '/locations/' . $slug, RentalPublicController::class, 'show', 'public');
+    }
+
+    private function dispatchConditions(string $slug, ?string $version = null): Response
+    {
+        return $version === null
+            ? $this->dispatch(
+                '/locations/{slug}/conditions',
+                '/locations/' . $slug . '/conditions',
+                RentalPublicController::class,
+                'conditions',
+                'public'
+            )
+            : $this->dispatch(
+                '/locations/{slug}/conditions/{version}',
+                '/locations/' . $slug . '/conditions/' . $version,
+                RentalPublicController::class,
+                'conditionsVersion',
+                'public'
+            );
+    }
+
+    private function conditionsService(): \Modules\Rental\Service\RentalConditionsService
+    {
+        return new \Modules\Rental\Service\RentalConditionsService(
+            new \Modules\Rental\Repository\RentalConditionsVersionRepository($this->pdo),
+            new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo))
+        );
     }
 
     private function dispatchAssetFragment(string $slug): Response
@@ -545,6 +578,72 @@ class RentalRbacTest extends TestCase
         $response = $this->dispatchPublicAsset('local-prive');
 
         $this->assertSame(200, $response->getStatusCode());
+    }
+
+    // ── The conditions pages (issue #494) ──────────────────────────────
+
+    /** Never empty: an asset nobody wrote conditions for serves the shipped standard, dated. */
+    public function testTheConditionsInForceHaveTheirOwnPage(): void
+    {
+        $this->createAsset('Local Saint-Georges', 'local-saint-georges');
+
+        $response = $this->dispatchConditions('local-saint-georges');
+        $body = (string) $response->getBody();
+
+        $this->assertSame(200, $response->getStatusCode(), $body);
+        $this->assertStringContainsString('Conditions en vigueur depuis le', $body);
+        $this->assertStringContainsString('Ces conditions s\'appliquent à toute demande', $body);
+        $this->assertStringNotContainsString('ne sont plus celles en vigueur', $body);
+    }
+
+    /**
+     * The point of the archive: a manager rewrites the conditions, and the
+     * wording a renter accepted before is still at its address — marked as
+     * no longer in force, with the way to the current one.
+     */
+    public function testAnEarlierVersionStaysReadableAndSaysItIsNoLongerInForce(): void
+    {
+        $assetId = $this->createAsset('Local Saint-Georges', 'local-saint-georges');
+        $conditions = $this->conditionsService();
+        $first = $conditions->recordSave($assetId, '<p>Le local est rendu balayé.</p>', 1);
+        $conditions->recordSave($assetId, '<p>Le local est rendu lavé.</p>', 1);
+
+        $body = (string) $this->dispatchConditions('local-saint-georges', $first->version)->getBody();
+
+        $this->assertStringContainsString('Le local est rendu balayé.', $body);
+        $this->assertStringNotContainsString('rendu lavé', $body);
+        $this->assertStringContainsString('ne sont plus celles en vigueur', $body);
+        $this->assertStringContainsString('href="/locations/local-saint-georges/conditions"', $body);
+
+        $current = (string) $this->dispatchConditions('local-saint-georges')->getBody();
+        $this->assertStringContainsString('Le local est rendu lavé.', $current);
+    }
+
+    public function testAnUnknownOrMalformedConditionsVersionIs404(): void
+    {
+        $this->createAsset('Local Saint-Georges', 'local-saint-georges');
+
+        $this->assertSame(404, $this->dispatchConditions('local-saint-georges', 'abcdef012345')->getStatusCode());
+        $this->assertSame(404, $this->dispatchConditions('local-saint-georges', 'pas-une-version')->getStatusCode());
+        $this->assertSame(404, $this->dispatchConditions('inconnu')->getStatusCode());
+    }
+
+    /**
+     * The page in force follows the asset's own visibility; an archived
+     * version does not. A renter keeps the link to what they accepted after
+     * the asset leaves the public site, and a twelve-hex version is not
+     * something an outsider guesses.
+     */
+    public function testAHiddenAssetHidesItsCurrentConditionsButKeepsAcceptedVersionsReadable(): void
+    {
+        $assetId = $this->createAsset('Local privé', 'local-prive', isPublic: false);
+        $version = $this->conditionsService()->recordSave($assetId, '<p>Texte accepté.</p>', 1);
+
+        $this->assertSame(404, $this->dispatchConditions('local-prive')->getStatusCode());
+
+        $response = $this->dispatchConditions('local-prive', $version->version);
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('Texte accepté.', (string) $response->getBody());
     }
 
     // ── The public calendar (specifications.md §22.2) ──────────────────────────────────────

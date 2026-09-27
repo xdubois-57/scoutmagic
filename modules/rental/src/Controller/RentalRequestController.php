@@ -25,7 +25,6 @@ use Modules\Rental\Booking\ChangeRequestKind;
 use Modules\Rental\Booking\ChangeRequestOrigin;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Calendar\RenterFeedBuilder;
-use Modules\Rental\Document\AssetConditions;
 use Modules\Rental\Pricing\PricingRequest;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetRepository;
@@ -33,6 +32,7 @@ use Modules\Rental\Repository\RentalChangeRequestRepository;
 use Modules\Rental\Service\RentalAvailabilityService;
 use Modules\Rental\Service\RentalBookingMailService;
 use Modules\Rental\Service\RentalBookingService;
+use Modules\Rental\Service\RentalConditionsService;
 use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalManagerService;
 use Modules\Rental\Service\RentalOperationsService;
@@ -76,6 +76,12 @@ class RentalRequestController extends AbstractController
         private SettingService $settingService,
         private RentalOperationsService $operationsService,
         private RentalChangeRequestRepository $changeRequestRepository,
+        /**
+         * The conditions as versions (issue #494): the form shows the one
+         * in force and carries its version, and a submission is accepted
+         * only against that same version.
+         */
+        private RentalConditionsService $conditionsService,
         /**
          * Optional (§6.32): null without the `calendar` module, in which
          * case the renter's page simply offers no ICS link. Only the ICS
@@ -222,6 +228,18 @@ class RentalRequestController extends AbstractController
             $errors[] = 'Vous devez accepter les conditions de location.';
         }
 
+        // The version the visitor was SHOWN, not the one in force now: a
+        // manager may have saved new conditions while the form was open, and
+        // ticking the box then accepted a text nobody displayed. The box
+        // proves acceptance of one version only, so a different one is a
+        // refusal — with the input kept, and the form now showing the new
+        // text to read (issue #494).
+        $conditions = $this->conditionsService->current($asset->id);
+        if ((string) $request->getBody('conditions_version', '') !== $conditions->version) {
+            $errors[] = 'Les conditions de location ont été modifiées pendant que vous remplissiez ce formulaire. '
+                . 'Relisez-les avant d\'envoyer votre demande.';
+        }
+
         if (!$this->acceptedBox($request, 'accept_privacy')) {
             $errors[] = 'Vous devez confirmer avoir pris connaissance de la politique de confidentialité.';
         }
@@ -276,8 +294,10 @@ class RentalRequestController extends AbstractController
                 ],
                 $quote,
                 [
-                    'conditions_version' => $this->conditionsVersion($asset),
-                    'conditions_text' => $this->conditionsText($asset),
+                    // The archived version itself: its text is what the hash
+                    // is taken from, and it stays readable at its address.
+                    'conditions_version' => $conditions->version,
+                    'conditions_text' => $conditions->html,
                     'privacy_version' => $this->privacyVersion(),
                     'privacy_text' => $this->privacyText(),
                 ],
@@ -700,7 +720,9 @@ class RentalRequestController extends AbstractController
             ],
             'categories' => $pricing->categories,
             'errors' => $errors,
-            'conditions_html' => $this->conditionsText($asset),
+            // Read, and so archived, before the form shows it: the version it
+            // carries is one a renter can always come back to (issue #494).
+            'conditions' => $this->conditionsService->current($asset->id),
             // Null for an identified session — the partial then renders
             // nothing, which is the documented contract.
             'human_check' => AuthSession::isAuthenticated()
@@ -805,34 +827,6 @@ class RentalRequestController extends AbstractController
     private function acceptedBox(Request $request, string $field): bool
     {
         return $request->getBody($field) !== null;
-    }
-
-    /**
-     * The conditions text a renter is accepting, per asset — the same text
-     * the public page shows, so what they tick is literally what they read
-     * (§6.13).
-     *
-     * Through `Document\AssetConditions`, which falls back to the standard
-     * Belgian body the module ships: the tick-box is mandatory, and it used
-     * to be possible to accept an empty string and have the hash attest to
-     * it.
-     */
-    private function conditionsText(RentalAsset $asset): string
-    {
-        return AssetConditions::textFor($this->editableContentService, $asset->id);
-    }
-
-    /**
-     * A version derived from the text itself.
-     *
-     * Deliberately not a number somebody has to remember to bump: a version
-     * that only moves when a human remembers is a version that is wrong
-     * exactly when it matters. The stored hash proves what was accepted; this
-     * gives it a short, readable label.
-     */
-    private function conditionsVersion(RentalAsset $asset): string
-    {
-        return substr(RentalBookingService::hashAcceptedText($this->conditionsText($asset)), 0, 12);
     }
 
     private function privacyText(): string
