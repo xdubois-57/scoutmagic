@@ -168,7 +168,7 @@ class StorageBackendFactoryTest extends TestCase
 
         // A key that reaches a real file proves the base survived: with an
         // empty base every key is refused as an escape from it.
-        $this->assertSame('/etc/hostname', $backend->localPath('etc/hostname'));
+        $this->assertSame('/etc/hosts', $backend->localPath('etc/hosts'));
     }
 
     public function testAnAbsolutePathThatClimbsIsNormalisedRatherThanRefused(): void
@@ -179,7 +179,7 @@ class StorageBackendFactoryTest extends TestCase
         // rejected.
         $backend = $this->factory->create($this->localLocation(5, '/etc/../etc'));
 
-        $this->assertSame('/etc/hostname', $backend->localPath('hostname'));
+        $this->assertSame('/etc/hosts', $backend->localPath('hosts'));
     }
 
     /**
