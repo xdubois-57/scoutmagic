@@ -2273,7 +2273,10 @@ class MaintenanceControllerTest extends TestCase
     {
         $this->seedUpdateHistory(4);
 
-        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $body = $this->page('updatePage');
+        // The page under test must be the one that renders this block,
+        // or an absence assertion below passes whatever the code does.
+        $this->assertStringContainsString('id="maintenance-update"', $body);
 
         $this->assertStringNotContainsString('id="update-history-more"', $body);
         $this->assertStringNotContainsString('précédentes', $body);
@@ -2309,7 +2312,10 @@ class MaintenanceControllerTest extends TestCase
 
     public function testIndexDoesNotShowTheWebhookWarningWhenAutoUpdateDisabled(): void
     {
-        $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+        $response = $this->pageResponse('updatePage');
+        // The page under test must be the one that renders this block,
+        // or an absence assertion below passes whatever the code does.
+        $this->assertStringContainsString('id="maintenance-auto-update"', $response->getBody());
 
         $this->assertStringNotContainsString('webhook GitHub n\'est pas configuré', $response->getBody());
     }
@@ -2323,7 +2329,10 @@ class MaintenanceControllerTest extends TestCase
         $this->settingService->set('auto_update_level', 'minor');
         $this->settingService->clearCache();
 
-        $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+        $response = $this->pageResponse('updatePage');
+        // The page under test must be the one that renders this block,
+        // or an absence assertion below passes whatever the code does.
+        $this->assertStringContainsString('id="maintenance-auto-update"', $response->getBody());
 
         $this->assertStringNotContainsString('webhook GitHub n\'est pas configuré', $response->getBody());
     }
@@ -2333,7 +2342,10 @@ class MaintenanceControllerTest extends TestCase
         $this->controller->generateWebhookSecret($this->jsonRequest(['_csrf_token' => $this->csrfToken()]), []);
         $secrets = $this->secretManager->readSecrets();
 
-        $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+        $response = $this->pageResponse('updatePage');
+        // The page under test must be the one that renders this block,
+        // or an absence assertion below passes whatever the code does.
+        $this->assertStringContainsString('id="auto-update-webhook-section"', $response->getBody());
 
         $this->assertStringNotContainsString($secrets['github_webhook_secret'], $response->getBody());
     }
