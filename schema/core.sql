@@ -1211,7 +1211,7 @@ CREATE TABLE notification_preferences (
     in_app TINYINT(1),
     push TINYINT(1),
     email TINYINT(1),
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE INDEX idx_np_user_type (user_account_id, type_id),
     CONSTRAINT fk_np_user FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
