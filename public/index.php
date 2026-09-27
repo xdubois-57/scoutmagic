@@ -2511,7 +2511,7 @@ $csvParser = new DeskCsvParser($journalService);
 // read by Correspondances Desk, by the support package, and by nothing
 // that writes (issue #356).
 $deskMappingGapService = new \Core\Import\DeskMappingGapService($pdo, $scoutYearService);
-$unitStaffSectionService = new UnitStaffSectionService($pdo);
+$unitStaffSectionService = new UnitStaffSectionService(new \Core\Member\Repository\UnitStaffSectionRepository($pdo));
 $sectionMembershipRepository = new \Core\Member\SectionMembershipRepository($pdo);
 $sectionMembershipService = new \Core\Member\SectionMembershipService($sectionMembershipRepository, $scoutYearService);
 

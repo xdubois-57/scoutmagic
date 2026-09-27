@@ -116,7 +116,7 @@ class StaffsControllerTest extends TestCase
             $scoutYearResolver,
             $journalService,
             $this->badgeService,
-            new UnitStaffSectionService($this->pdo),
+            new UnitStaffSectionService(new \Core\Member\Repository\UnitStaffSectionRepository($this->pdo)),
             $this->sectionDocumentService,
             $settingService,
             new \Core\Member\SectionStaffAuthorizationService(

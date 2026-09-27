@@ -21,7 +21,7 @@ class UnitStaffSectionServiceTest extends TestCase
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
-        $this->service = new UnitStaffSectionService($this->pdo);
+        $this->service = new UnitStaffSectionService(new \Core\Member\Repository\UnitStaffSectionRepository($this->pdo));
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2025-2026', '2025-09-01', '2026-08-31')");
         $this->scoutYearId = (int) $this->pdo->lastInsertId();

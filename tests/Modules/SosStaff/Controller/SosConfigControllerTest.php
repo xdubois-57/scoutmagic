@@ -68,7 +68,7 @@ class SosConfigControllerTest extends TestCase
             new SosSettingsRepository($this->pdo),
             $this->sectionService,
             new MemberYearRepository($this->pdo),
-            new UnitStaffSectionService($this->pdo),
+            new UnitStaffSectionService(new \Core\Member\Repository\UnitStaffSectionRepository($this->pdo)),
             $settingService
         );
 

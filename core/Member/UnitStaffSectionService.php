@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Member;
 
+use Core\Member\Repository\UnitStaffSectionRepository;
+
 /**
  * "Staff d'U" (chef d'unité staff) is a real, generic section like any
  * other — not a virtual/derived query — so it appears everywhere a section
@@ -23,7 +25,13 @@ class UnitStaffSectionService
     public const DESK_CODE = 'STAFFDU';
     private const BRANCH_LABEL = "Staff d'U";
 
-    public function __construct(private \PDO $pdo)
+    /**
+     * The canonical « Staff d'U » slot, between Pionniers (40) and Route
+     * (60) — see `AgeBranchRepository::canonicalSortOrder()`.
+     */
+    private const BRANCH_SORT_ORDER = 50;
+
+    public function __construct(private UnitStaffSectionRepository $repository)
     {
     }
 
@@ -38,41 +46,24 @@ class UnitStaffSectionService
     {
         $branchId = $this->ensureBranch();
 
-        $stmt = $this->pdo->prepare('SELECT id FROM sections WHERE desk_code = ?');
-        $stmt->execute([self::DESK_CODE]);
-        $existingId = $stmt->fetchColumn();
-
-        if ($existingId === false) {
-            $stmt = $this->pdo->prepare(
-                'INSERT INTO sections (desk_code, age_branch_id, name) VALUES (?, ?, ?)'
-            );
-            $stmt->execute([self::DESK_CODE, $branchId, self::BRANCH_LABEL]);
-            return (int) $this->pdo->lastInsertId();
+        $existingId = $this->repository->sectionIdByDeskCode(self::DESK_CODE);
+        if ($existingId === null) {
+            return $this->repository->insertSection(self::DESK_CODE, $branchId, self::BRANCH_LABEL);
         }
 
-        $sectionId = (int) $existingId;
-        $stmt = $this->pdo->prepare('UPDATE sections SET is_active = 1 WHERE id = ?');
-        $stmt->execute([$sectionId]);
+        $this->repository->activateSection($existingId);
 
-        return $sectionId;
+        return $existingId;
     }
 
     private function ensureBranch(): int
     {
-        $stmt = $this->pdo->prepare('SELECT id FROM age_branches WHERE desk_code = ?');
-        $stmt->execute([self::DESK_CODE]);
-        $branchId = $stmt->fetchColumn();
-        if ($branchId !== false) {
-            return (int) $branchId;
-        }
-
-        // sort_order 50 is the canonical "Staff d'U" slot, between Pionniers
-        // (40) and Route (60) — see AgeBranchRepository::canonicalSortOrder().
-        $stmt = $this->pdo->prepare(
-            'INSERT INTO age_branches (desk_code, label, sort_order) VALUES (?, ?, 50)'
-        );
-        $stmt->execute([self::DESK_CODE, self::BRANCH_LABEL]);
-        return (int) $this->pdo->lastInsertId();
+        return $this->repository->ageBranchIdByDeskCode(self::DESK_CODE)
+            ?? $this->repository->insertAgeBranch(
+                self::DESK_CODE,
+                self::BRANCH_LABEL,
+                self::BRANCH_SORT_ORDER
+            );
     }
 
     /**
@@ -87,51 +78,16 @@ class UnitStaffSectionService
     {
         $staffduId = $this->ensureSection();
 
-        $toAssign = $this->findFunctionIds(
-            'SELECT mf.id
-             FROM member_functions mf
-             JOIN member_years my ON mf.member_year_id = my.id
-             JOIN functions f ON mf.function_id = f.id
-             WHERE f.role = \'admin\' AND mf.section_id IS NULL
-               AND my.scout_year_id = ? AND my.is_active = 1',
-            [$scoutYearId]
+        // Both directions, and the order does not matter: the two sets are
+        // disjoint by construction — one is « role admin, no section », the
+        // other « in this section, role no longer admin ».
+        $this->repository->assignSection(
+            $this->repository->functionIdsToAssign($scoutYearId),
+            $staffduId
         );
-        $this->updateSectionId($toAssign, $staffduId);
-
-        $toClear = $this->findFunctionIds(
-            'SELECT mf.id
-             FROM member_functions mf
-             JOIN member_years my ON mf.member_year_id = my.id
-             JOIN functions f ON mf.function_id = f.id
-             WHERE mf.section_id = ? AND f.role != \'admin\'
-               AND my.scout_year_id = ? AND my.is_active = 1',
-            [$staffduId, $scoutYearId]
+        $this->repository->assignSection(
+            $this->repository->functionIdsToClear($staffduId, $scoutYearId),
+            null
         );
-        $this->updateSectionId($toClear, null);
-    }
-
-    /**
-     * @param array<int, mixed> $params
-     * @return int[]
-     */
-    private function findFunctionIds(string $sql, array $params): array
-    {
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute($params);
-        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
-    }
-
-    /**
-     * @param int[] $memberFunctionIds
-     */
-    private function updateSectionId(array $memberFunctionIds, ?int $sectionId): void
-    {
-        if (count($memberFunctionIds) === 0) {
-            return;
-        }
-
-        $placeholders = implode(',', array_fill(0, count($memberFunctionIds), '?'));
-        $stmt = $this->pdo->prepare("UPDATE member_functions SET section_id = ? WHERE id IN ({$placeholders})");
-        $stmt->execute([$sectionId, ...$memberFunctionIds]);
     }
 }

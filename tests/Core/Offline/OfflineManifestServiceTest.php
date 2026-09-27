@@ -92,7 +92,7 @@ class OfflineManifestServiceTest extends TestCase
             $this->memberPhotoService,
             $this->sectionPhotoService,
             $this->sectionService,
-            new UnitStaffSectionService($this->pdo),
+            new UnitStaffSectionService(new \Core\Member\Repository\UnitStaffSectionRepository($this->pdo)),
             new \Core\ScoutYear\ScoutYearResolver(
                 new \Core\Config\ScoutYearService($this->pdo),
                 new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),
@@ -284,7 +284,7 @@ class OfflineManifestServiceTest extends TestCase
     public function testContactStaffduPhotoUsesTheMdVariant(): void
     {
         $fileId = $this->createFile();
-        $unitStaffSectionService = new UnitStaffSectionService($this->pdo);
+        $unitStaffSectionService = new UnitStaffSectionService(new \Core\Member\Repository\UnitStaffSectionRepository($this->pdo));
         $staffduId = $unitStaffSectionService->ensureSection();
         $stmt = $this->pdo->prepare('INSERT INTO section_staff_photos (section_id, scout_year_id, file_id) VALUES (?, ?, ?)');
         $stmt->execute([$staffduId, $this->scoutYearId, $fileId]);
