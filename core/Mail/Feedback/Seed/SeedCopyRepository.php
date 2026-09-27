@@ -298,6 +298,65 @@ class SeedCopyRepository
         return $tally;
     }
 
+    /**
+     * One row per (provider × mailing), with that mailing's answered copies
+     * and how many reached an inbox — the shape
+     * {@see \Core\Mail\Feedback\Trend\WeeklySeries} consumes (issue #420).
+     *
+     * **`sample` is 1 and `total` is the answered copies, and the difference
+     * is the whole point.** The evidence a week carries is counted in
+     * MAILINGS, for the reason {@see \Core\Mail\Feedback\Seed\DomainRouting::MINIMUM_RUNS}
+     * gives — five copies of one mailing to five boxes say one thing five
+     * times — while the share stays inbox copies over answered copies,
+     * because that is what {@see self::tallyByProviderSince()} already puts on
+     * the ranking screen. A trend that computed the share per mailing instead
+     * would be a second answer to the same question, and the two screens would
+     * eventually disagree about the same provider.
+     *
+     * **Pending copies are excluded from both**, exactly as the ranking does:
+     * a copy nobody has answered for is not evidence yet, and counting it
+     * either way would make the curve move as the sweep runs rather than as
+     * delivery changes. A mailing whose every copy is still pending therefore
+     * contributes no row at all — not a row of zeros, which would read as a
+     * mailing that landed nowhere.
+     *
+     * **Dated by `sent_at`, like the purge**, so the points and the edge the
+     * curve stops at cannot disagree about which week a mailing belongs to.
+     *
+     * @return array<string, list<array{at: \DateTimeImmutable, sample: int, hits: int, total: int}>>
+     *   keyed by provider, each list ordered oldest first
+     */
+    public function landingsPerRunSince(\DateTimeImmutable $since): array
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT provider,
+                    run_reference,
+                    MIN(sent_at) AS sent_at,
+                    COUNT(*) AS answered,
+                    SUM(CASE WHEN verdict = \'inbox\' THEN 1 ELSE 0 END) AS inbox
+               FROM mail_seed_copies
+              WHERE sent_at >= :since
+                AND verdict <> \'pending\'
+              GROUP BY provider, run_reference
+              ORDER BY provider ASC, sent_at ASC'
+        );
+        $statement->bindValue(':since', $since->format('Y-m-d H:i:s'));
+        $statement->execute();
+
+        $byProvider = [];
+        foreach ($statement->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $byProvider[(string) $row['provider']][] = [
+                'at' => new \DateTimeImmutable((string) $row['sent_at']),
+                // One mailing, however many boxes it reached at this provider.
+                'sample' => 1,
+                'hits' => (int) $row['inbox'],
+                'total' => (int) $row['answered'],
+            ];
+        }
+
+        return $byProvider;
+    }
+
     /** Operational data, so it purges — on the send, which is its only date. */
     public function purgeBefore(\DateTimeImmutable $cut): int
     {

@@ -397,4 +397,112 @@ class SeedCopyRepositoryTest extends TestCase
 
         $this->assertSame(SeedVerdict::Missing, $this->copies->forRun('envoi')[0]->verdict);
     }
+
+    // ── The rows the weekly trend is built from (issue #420) ──────────
+
+    /**
+     * **One row per mailing, not per copy, and the two numbers on it count
+     * different things.** `sample` is 1 — one mailing, however many boxes it
+     * reached — because five copies of one mailing say one thing five times;
+     * `total` is the answered copies, because that is the denominator the
+     * ranking screen already divides by.
+     */
+    public function testATrendRowIsOneMailingWithItsAnsweredCopies(): void
+    {
+        $now = new \DateTimeImmutable('2026-09-21 09:00:00');
+        $this->copies->claim('envoi-1', 'a@gmail.com', $now);
+        $this->copies->claim('envoi-1', 'b@gmail.com', $now);
+        $this->copies->claim('envoi-1', 'c@gmail.com', $now);
+        $this->copies->recordLanding('envoi-1', 'a@gmail.com', 'INBOX', $now->modify('+5 minutes'));
+        $this->copies->recordLanding('envoi-1', 'b@gmail.com', 'INBOX', $now->modify('+5 minutes'));
+        $this->copies->recordLanding('envoi-1', 'c@gmail.com', 'Indésirables', $now->modify('+5 minutes'));
+
+        $rows = $this->copies->landingsPerRunSince(new \DateTimeImmutable('2026-09-01 00:00:00'));
+
+        $this->assertSame(['gmail.com'], array_keys($rows), 'keyed by provider');
+        $this->assertCount(1, $rows['gmail.com'], 'three copies of one mailing are one row');
+        $this->assertSame(1, $rows['gmail.com'][0]['sample'], 'one mailing of evidence');
+        $this->assertSame(3, $rows['gmail.com'][0]['total'], 'three answered copies');
+        $this->assertSame(2, $rows['gmail.com'][0]['hits'], 'two of them reached an inbox');
+    }
+
+    /**
+     * **A copy nobody has answered for is not evidence yet**, exactly as the
+     * ranking treats it: counting it would make the curve move as the sweep
+     * runs rather than as delivery changes.
+     */
+    public function testAPendingCopyCountsInNeitherNumber(): void
+    {
+        $now = new \DateTimeImmutable('2026-09-21 09:00:00');
+        $this->copies->claim('envoi-1', 'a@gmail.com', $now);
+        $this->copies->claim('envoi-1', 'b@gmail.com', $now);
+        $this->copies->recordLanding('envoi-1', 'a@gmail.com', 'INBOX', $now->modify('+5 minutes'));
+
+        $rows = $this->copies->landingsPerRunSince(new \DateTimeImmutable('2026-09-01 00:00:00'));
+
+        $this->assertSame(1, $rows['gmail.com'][0]['total'], 'the pending copy is not in the denominator');
+        $this->assertSame(1, $rows['gmail.com'][0]['hits']);
+    }
+
+    /**
+     * And a mailing whose every copy is still pending contributes **no row at
+     * all** — never a row of zeros, which would read as a mailing that landed
+     * nowhere rather than one nobody has looked for yet.
+     */
+    public function testAMailingStillEntirelyPendingIsNotARow(): void
+    {
+        $now = new \DateTimeImmutable('2026-09-21 09:00:00');
+        $this->copies->claim('envoi-1', 'a@gmail.com', $now);
+        $this->copies->claim('envoi-1', 'b@gmail.com', $now);
+
+        $this->assertSame(
+            [],
+            $this->copies->landingsPerRunSince(new \DateTimeImmutable('2026-09-01 00:00:00')),
+            'nothing answered is nothing to plot, not a zero'
+        );
+    }
+
+    /** Two providers are two series, each ordered oldest first. */
+    public function testEachProviderGetsItsOwnSeriesOldestFirst(): void
+    {
+        $first = new \DateTimeImmutable('2026-09-14 09:00:00');
+        $second = new \DateTimeImmutable('2026-09-21 09:00:00');
+
+        foreach ([['envoi-1', $first], ['envoi-2', $second]] as [$run, $at]) {
+            $this->copies->claim($run, 'a@gmail.com', $at);
+            $this->copies->claim($run, 'b@orange.fr', $at);
+            $this->copies->recordLanding($run, 'a@gmail.com', 'INBOX', $at->modify('+5 minutes'));
+            $this->copies->recordLanding($run, 'b@orange.fr', 'Indésirables', $at->modify('+5 minutes'));
+        }
+
+        $rows = $this->copies->landingsPerRunSince(new \DateTimeImmutable('2026-09-01 00:00:00'));
+
+        $this->assertSame(['gmail.com', 'orange.fr'], array_keys($rows));
+        $this->assertSame(
+            ['2026-09-14', '2026-09-21'],
+            array_map(
+                static fn(array $row): string => $row['at']->format('Y-m-d'),
+                $rows['gmail.com']
+            ),
+            'dated by the send, oldest first'
+        );
+        $this->assertSame(
+            [0, 0],
+            array_column($rows['orange.fr'], 'hits'),
+            'the provider that filtered both times has no inbox hit'
+        );
+    }
+
+    /** Mailings older than the window are not rows, which is what bounds the curve. */
+    public function testAMailingOlderThanTheWindowIsNotReturned(): void
+    {
+        $old = new \DateTimeImmutable('2026-06-01 09:00:00');
+        $this->copies->claim('envoi-vieux', 'a@gmail.com', $old);
+        $this->copies->recordLanding('envoi-vieux', 'a@gmail.com', 'INBOX', $old->modify('+5 minutes'));
+
+        $this->assertSame(
+            [],
+            $this->copies->landingsPerRunSince(new \DateTimeImmutable('2026-09-01 00:00:00'))
+        );
+    }
 }
