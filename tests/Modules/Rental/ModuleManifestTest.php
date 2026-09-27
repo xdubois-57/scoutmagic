@@ -98,12 +98,15 @@ class ModuleManifestTest extends TestCase
      * columns, a « Bailleur » section and its route), and warns on the
      * Documents page when the landlord has no address (issue #497).
      *
-     * 1.32.1 loads components.css on the two pages whose select bar and
+     * 1.32.1 states the legal basis in the default VAT mention of an
+     * invoice, and stops reading an undeclared unit-wide one (issue #613).
+     *
+     * 1.32.2 loads components.css on the two pages whose select bar and
      * rich-text surface used its classes without it (issue #602).
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.32.1', $this->manifest->version);
+        $this->assertSame('1.32.2', $this->manifest->version);
     }
 
     /**
