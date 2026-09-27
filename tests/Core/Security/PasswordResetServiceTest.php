@@ -53,7 +53,7 @@ class PasswordResetServiceTest extends TestCase
         ]));
         $twig->addGlobal('site_name', 'Test Unit');
 
-        $connection = $this->createMock(Connection::class);
+        $connection = $this->createStub(Connection::class);
         $connection->method('getPdo')->willReturn($this->pdo);
 
         $this->service = new PasswordResetService(

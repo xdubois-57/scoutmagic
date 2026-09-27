@@ -108,7 +108,7 @@ class MailingListPreviewCountTest extends TestCase
 );
 
         $this->controller = new MailingListController(
-            $this->createMock(Environment::class),
+            $this->createStub(Environment::class),
             new MailingListService(
                 new MailingListRepository($this->pdo),
                 new MemberResolutionRepository($this->pdo, $this->encryption),
@@ -129,7 +129,7 @@ class MailingListPreviewCountTest extends TestCase
                 new ListAddressRepository($this->pdo, $this->encryption),
                 new MailingListRepository($this->pdo),
                 new SettingService(new SettingRepository($this->pdo)),
-                $this->createMock(\Core\Journal\JournalService::class)
+                $this->createStub(\Core\Journal\JournalService::class)
             ),
             new \Modules\MassMail\Service\ListAddressImportService(
                 new ListAddressRepository($this->pdo, $this->encryption),
@@ -137,9 +137,9 @@ class MailingListPreviewCountTest extends TestCase
                     new ListAddressRepository($this->pdo, $this->encryption),
                     new MailingListRepository($this->pdo),
                     new SettingService(new SettingRepository($this->pdo)),
-                    $this->createMock(\Core\Journal\JournalService::class)
+                    $this->createStub(\Core\Journal\JournalService::class)
                 ),
-                $this->createMock(\Core\Journal\JournalService::class)
+                $this->createStub(\Core\Journal\JournalService::class)
             )
         );
 

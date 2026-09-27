@@ -50,7 +50,7 @@ final class HealthSheetControllerTest extends TestCase
 
         // A mock rather than a stub: what the screen is HANDED is the
         // assertion in `testTheOverflowWarningIsFrenchAndNeverAFieldName`.
-        $this->twig = $this->createMock(Environment::class);
+        $this->twig = $this->createStub(Environment::class);
         $this->twig->method('render')->willReturn('<html></html>');
 
         $this->memberService = $this->createMock(MemberService::class);

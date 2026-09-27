@@ -103,7 +103,7 @@ class SosAdminControllerTest extends TestCase
         $providerConfigService = new ProviderConfigService(new ProviderCredentialRepository($this->pdo, $encryption));
         $journalService = new JournalService(new JournalRepository($this->pdo));
 
-        $this->redirectService = $this->createMock(RedirectService::class);
+        $this->redirectService = $this->createStub(RedirectService::class);
 
         $scoutYearService = new ScoutYearService($this->pdo);
         $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepository);

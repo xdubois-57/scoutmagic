@@ -30,7 +30,7 @@ class PasswordAuthMethodTest extends TestCase
 
         $this->userRepo = new UserAccountRepository($this->pdo, $this->encryption);
 
-        $connection = $this->createMock(Connection::class);
+        $connection = $this->createStub(Connection::class);
         $connection->method('getPdo')->willReturn($this->pdo);
 
         $this->throttler = new LoginThrottler($connection);

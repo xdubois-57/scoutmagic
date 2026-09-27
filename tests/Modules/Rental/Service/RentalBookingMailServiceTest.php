@@ -67,7 +67,7 @@ final class RentalBookingMailServiceTest extends TestCase
             ['rental' => dirname(__DIR__, 4) . '/modules/rental/views', 'inbound_mail' => dirname(__DIR__, 4) . '/modules/inbound_mail/views']
         );
 
-        $settings = $this->createMock(SettingService::class);
+        $settings = $this->createStub(SettingService::class);
         $settings->method('get')->willReturnCallback(
             static fn (string $key): ?string => match ($key) {
                 'site_name' => 'Unité Test',
@@ -80,7 +80,7 @@ final class RentalBookingMailServiceTest extends TestCase
             $this->recordingMailService(),
             EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'rental'),
             $settings,
-            $this->createMock(JournalService::class)
+            $this->createStub(JournalService::class)
         );
     }
 
@@ -103,7 +103,7 @@ final class RentalBookingMailServiceTest extends TestCase
                 return 'locations+' . $consumerId . '.' . $businessReference . '.9f3a1b2c4d5e@unite.be';
             }
         };
-        $settings = $this->createMock(SettingService::class);
+        $settings = $this->createStub(SettingService::class);
         $settings->method('get')->willReturnCallback(
             static fn (string $key): ?string => match ($key) {
                 'site_name' => 'Unité Test',
@@ -115,7 +115,7 @@ final class RentalBookingMailServiceTest extends TestCase
             $mail,
             EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'rental'),
             $settings,
-            $this->createMock(JournalService::class),
+            $this->createStub(JournalService::class),
             $inboundMail
         );
 
@@ -137,13 +137,13 @@ final class RentalBookingMailServiceTest extends TestCase
                 $replyTos[] = $replyTo;
             }
         );
-        $settings = $this->createMock(SettingService::class);
+        $settings = $this->createStub(SettingService::class);
         $settings->method('get')->willReturn(null);
         $service = new RentalBookingMailService(
             $mail,
             EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'rental'),
             $settings,
-            $this->createMock(JournalService::class)
+            $this->createStub(JournalService::class)
         );
 
         $service->sendAcknowledgement($this->booking(), $this->asset(), str_repeat('a', 64));
@@ -200,13 +200,13 @@ final class RentalBookingMailServiceTest extends TestCase
                 );
             }
         };
-        $settings = $this->createMock(SettingService::class);
+        $settings = $this->createStub(SettingService::class);
         $settings->method('get')->willReturn(null);
         $service = new RentalBookingMailService(
             $mail,
             EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'rental'),
             $settings,
-            $this->createMock(JournalService::class),
+            $this->createStub(JournalService::class),
             $inboundMail
         );
 
@@ -700,8 +700,8 @@ final class RentalBookingMailServiceTest extends TestCase
         $service = new RentalBookingMailService(
             $this->recordingMailService(succeeds: false),
             EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'rental'),
-            $this->createMock(SettingService::class),
-            $this->createMock(JournalService::class)
+            $this->createStub(SettingService::class),
+            $this->createStub(JournalService::class)
         );
 
         // The decision is already recorded by the time this runs: an SMTP

@@ -61,14 +61,14 @@ class MemberControllerDepartureTest extends TestCase
         $this->departureService = new DepartureService(new DepartureRepository($this->pdo, $this->encryption), $journalService);
 
         $this->controller = new MemberController(
-            $this->createMock(Environment::class),
+            $this->createStub(Environment::class),
             $memberService,
             new MemberYearService(),
             $journalService,
-            $this->createMock(MemberPageService::class),
+            $this->createStub(MemberPageService::class),
             $this->departureService,
-            $this->createMock(SectionStaffAuthorizationService::class),
-            $this->createMock(SectionService::class)
+            $this->createStub(SectionStaffAuthorizationService::class),
+            $this->createStub(SectionService::class)
         );
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");

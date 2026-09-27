@@ -338,10 +338,10 @@ class PersonalFeedServiceTest extends TestCase
             $sectionCalendar->id, 'Réunion', '2026-03-15', null, null, null, null, 'Grand jeu dans le bois.', null
         );
 
-        $retro = $this->createMock(\Modules\Retro\Api\RetroEventLinkLookupInterface::class);
+        $retro = $this->createStub(\Modules\Retro\Api\RetroEventLinkLookupInterface::class);
         $retro->method('findLinkedBoardLink')
             ->willReturn(new \Modules\Retro\Api\RetroLinkSummary('https://example.test/r/abc123', 'Rétro'));
-        $presences = $this->createMock(\Modules\Presences\Api\PresenceSheetLinkLookupInterface::class);
+        $presences = $this->createStub(\Modules\Presences\Api\PresenceSheetLinkLookupInterface::class);
         $presences->method('findSheetLink')
             ->willReturn(new \Modules\Presences\Api\PresenceSheetLink('https://example.test/s/K7m2Qa'));
 

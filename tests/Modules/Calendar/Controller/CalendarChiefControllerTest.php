@@ -135,7 +135,7 @@ class CalendarChiefControllerTest extends TestCase
 
         $calendarPickerService = new CalendarPickerService($this->calendarService, $personalFeedService);
 
-        $moduleManager = $this->createMock(\Core\Module\ModuleManager::class);
+        $moduleManager = $this->createStub(\Core\Module\ModuleManager::class);
         $moduleManager->method('getEnabledModuleIds')->willReturn([]);
 
         $this->controller = new CalendarChiefController(

@@ -351,7 +351,7 @@ final class TicketDnsSnapshotTest extends TestCase
         $storagePath = sys_get_temp_dir() . '/ticket_dns_' . uniqid();
         @mkdir($storagePath . '/keys', 0o777, true);
 
-        $connection = $this->createMock(Connection::class);
+        $connection = $this->createStub(Connection::class);
         $connection->method('getPdo')->willReturn($this->pdo);
 
         return new TaskContext(

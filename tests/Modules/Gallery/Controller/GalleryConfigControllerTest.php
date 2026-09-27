@@ -87,17 +87,17 @@ class GalleryConfigControllerTest extends TestCase
             );
         $this->storageLocationService = $storageWiring->locationService;
         $this->galleryLocationService = $storageWiring->galleryLocations;
-        $ffmpegAvailability = $this->createMock(FfmpegAvailability::class);
+        $ffmpegAvailability = $this->createStub(FfmpegAvailability::class);
         $ffmpegAvailability->method('check')->willReturn(false);
         $journalService = new JournalService(new JournalRepository($this->pdo));
 
-        $accessService = $this->createMock(GalleryAccessService::class);
+        $accessService = $this->createStub(GalleryAccessService::class);
         $accessService->method('canManageAlbum')->willReturn(true);
         $schedulerService = new SchedulerService(new SchedulerRepository($this->pdo));
         $uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
         $this->albumService = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $accessService,
-            $this->createMock(OgScraperService::class), $storageBackendFactory, $this->storageLocationRepository,
+            $this->createStub(OgScraperService::class), $storageBackendFactory, $this->storageLocationRepository,
             $this->storageLocationService, $this->galleryLocationService, new ScoutYearService($this->pdo), $this->settingService, $schedulerService,
             $uploadHandler
         );
@@ -607,13 +607,13 @@ class GalleryConfigControllerTest extends TestCase
      */
     public function testSaveShowsAWrittenSentenceRatherThanAThrowablesOwnMessage(): void
     {
-        $settingService = $this->createMock(SettingService::class);
+        $settingService = $this->createStub(SettingService::class);
         $settingService->method('set')->willThrowException(
             new \PDOException("SQLSTATE[42S22]: Column not found: 1054 Unknown column 'value' in 'field list'")
         );
 
         $controller = new GalleryConfigController(
-            $this->twig, $settingService, $this->createMock(FfmpegAvailability::class),
+            $this->twig, $settingService, $this->createStub(FfmpegAvailability::class),
             new JournalService(new JournalRepository($this->pdo)),
             $this->storageLocationService, $this->galleryLocationService, $this->storageLocationRepository, $this->albumService
         );

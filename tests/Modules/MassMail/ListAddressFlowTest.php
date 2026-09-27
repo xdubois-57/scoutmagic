@@ -103,7 +103,7 @@ class ListAddressFlowTest extends TestCase
             $this->addressRepository,
             $listRepository,
             new SettingService(new SettingRepository($this->pdo)),
-            $this->createMock(JournalService::class),
+            $this->createStub(JournalService::class),
             new SuppressedAddressRepository($this->pdo)
         );
         $this->listService = new MailingListService(
@@ -628,7 +628,7 @@ class ListAddressFlowTest extends TestCase
     private function unsubscribeController(): UnsubscribeController
     {
         return new UnsubscribeController(
-            $this->createMock(Environment::class),
+            $this->createStub(Environment::class),
             $this->recipientRepository,
             $this->memberEmailService,
             $this->suppressedRepository,
@@ -643,7 +643,7 @@ class ListAddressFlowTest extends TestCase
         return new MemberEmailService(
             new MemberEmailRepository($this->pdo, $this->encryption),
             $this->createStub(MailService::class),
-            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createMock(Environment::class)),
+            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createStub(Environment::class)),
             new JournalService(new JournalRepository($this->pdo)),
             $sectionService,
             $memberService,

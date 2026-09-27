@@ -97,12 +97,12 @@ class GalleryControllerTest extends TestCase
     new MemberProfileRepository($connection, $encryption)
 );
         $this->scoutYearService = new ScoutYearService($this->pdo);
-        $settingService = $this->createMock(SettingService::class);
+        $settingService = $this->createStub(SettingService::class);
         $settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);
 
         $accessService = new GalleryAccessService($this->memberService, $this->sectionService, $this->scoutYearService);
         $this->storageLocationRepository = new StorageLocationRepository($this->pdo, $encryption);
-        $this->storageBackendFactory = $this->createMock(StorageBackendFactory::class);
+        $this->storageBackendFactory = $this->createStub(StorageBackendFactory::class);
         $storageWiring = GalleryStorageWiring::build(
                 $this->pdo, $encryption, $settingService, sys_get_temp_dir(), $this->albumRepository
             );
@@ -199,7 +199,7 @@ class GalleryControllerTest extends TestCase
         $backend->expects($this->never())->method('get');
         $this->storageBackendFactory->method('create')->willReturn($backend);
 
-        $galleryLocations = $this->createMock(GalleryLocationService::class);
+        $galleryLocations = $this->createStub(GalleryLocationService::class);
         $galleryLocations->method('resolveLocationForAlbum')->willReturn(
             $this->locationWhoseConfigServesPublicly($locationId)
         );
@@ -268,7 +268,7 @@ class GalleryControllerTest extends TestCase
 
     private function allowingRegistry(): DelegatedAlbumAccessRegistry
     {
-        $checker = $this->createMock(DelegatedAlbumAccessChecker::class);
+        $checker = $this->createStub(DelegatedAlbumAccessChecker::class);
         $checker->method('supports')->willReturn(true);
         $checker->method('isAllowed')->willReturn(true);
         return new DelegatedAlbumAccessRegistry([$checker]);
@@ -276,7 +276,7 @@ class GalleryControllerTest extends TestCase
 
     private function denyingRegistry(): DelegatedAlbumAccessRegistry
     {
-        $checker = $this->createMock(DelegatedAlbumAccessChecker::class);
+        $checker = $this->createStub(DelegatedAlbumAccessChecker::class);
         $checker->method('supports')->willReturn(true);
         $checker->method('isAllowed')->willReturn(false);
         return new DelegatedAlbumAccessRegistry([$checker]);

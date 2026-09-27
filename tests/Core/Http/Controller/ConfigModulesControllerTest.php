@@ -47,7 +47,7 @@ class ConfigModulesControllerTest extends TestCase
         $this->registryRepo = new ModuleRegistryRepository($this->pdo);
         $router = new Router();
 
-        $migrationRunner = $this->createMock(MigrationRunner::class);
+        $migrationRunner = $this->createStub(MigrationRunner::class);
         $journalRepo = new JournalRepository($this->pdo);
         $journalService = new JournalService($journalRepo);
 

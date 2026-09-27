@@ -78,7 +78,7 @@ class MemberEmailServiceTest extends TestCase
         $this->mailService = $this->createMock(MailService::class);
         $connection = Connection::withPdo($this->pdo);
 
-        $twig = $this->createMock(\Twig\Environment::class);
+        $twig = $this->createStub(\Twig\Environment::class);
         $twig->method('render')->willReturn('<html></html>');
 
         // Always-true stub — these tests exercise addEmail()'s own logic,

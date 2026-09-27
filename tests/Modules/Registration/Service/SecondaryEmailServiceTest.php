@@ -37,7 +37,7 @@ class SecondaryEmailServiceTest extends TestCase
 
         $this->repository = new RegistrationSecondaryEmailRepository($this->pdo, $encryption);
         $this->mailService = $this->createMock(MailService::class);
-        $journalService = $this->createMock(JournalService::class);
+        $journalService = $this->createStub(JournalService::class);
 
         // The real renderer over the shipped templates, not a mock: this
         // e-mail is declared `editable: false`, and a mocked renderer

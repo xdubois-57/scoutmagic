@@ -137,7 +137,7 @@ class NewsRbacTest extends TestCase
 );
 
         $uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
-        $journalService = $this->createMock(JournalService::class);
+        $journalService = $this->createStub(JournalService::class);
 
         $this->newsController = new NewsController(
             $twig, $articleService, $formService, $responseService, new SeoKeywordService(null),

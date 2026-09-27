@@ -1143,7 +1143,7 @@ class NewsIntegrationTest extends TestCase
 
     private function receivablesStub(): \Modules\Finance\Api\ExpectedReceivableInterface
     {
-        $stub = $this->createMock(\Modules\Finance\Api\ExpectedReceivableInterface::class);
+        $stub = $this->createStub(\Modules\Finance\Api\ExpectedReceivableInterface::class);
         $stub->method('getReceivableStatus')->willReturnCallback(
             static fn (int $id): array => in_array($id, [11, 13], true)
                 ? ['amount_due' => 3000, 'amount_received' => 3000, 'status' => 'paid']
@@ -1672,7 +1672,7 @@ class NewsIntegrationTest extends TestCase
 
     private function stubDraftProvider(): \Modules\MassMail\Api\MassMailDraftInterface
     {
-        $stub = $this->createMock(\Modules\MassMail\Api\MassMailDraftInterface::class);
+        $stub = $this->createStub(\Modules\MassMail\Api\MassMailDraftInterface::class);
         $stub->method('createMergeDraft')->willReturn('/mass-mail/7');
 
         return $stub;
@@ -1683,7 +1683,7 @@ class NewsIntegrationTest extends TestCase
      */
     private function recordingDraftProvider(array &$captured): \Modules\MassMail\Api\MassMailDraftInterface
     {
-        $stub = $this->createMock(\Modules\MassMail\Api\MassMailDraftInterface::class);
+        $stub = $this->createStub(\Modules\MassMail\Api\MassMailDraftInterface::class);
         $stub->method('createMergeDraft')->willReturnCallback(
             function (
                 string $label,
@@ -2103,7 +2103,7 @@ class NewsIntegrationTest extends TestCase
         $csrfToken = CsrfGuard::generateToken();
         $_FILES['image'] = $this->fakeUploadedImage();
 
-        $uploadHandler = $this->createMock(UploadHandler::class);
+        $uploadHandler = $this->createStub(UploadHandler::class);
         $uploadHandler->method('handle')->willThrowException(
             new \Core\File\UploadException('Le fichier dépasse la taille maximale de 5 Mo.')
         );

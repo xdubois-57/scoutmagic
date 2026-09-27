@@ -51,7 +51,7 @@ class PasswordResetControllerTest extends TestCase
         $twig->addGlobal('site_name', 'Test Unit');
         $twig->addGlobal('csp_nonce', 'x');
 
-        $connection = $this->createMock(Connection::class);
+        $connection = $this->createStub(Connection::class);
         $connection->method('getPdo')->willReturn($this->pdo);
 
         $this->service = new PasswordResetService($connection, $this->encryption, $mailService, EmailTemplateRendererFactory::overTestDatabase($this->pdo, $twig), 'https://example.com', 'Test Unit');

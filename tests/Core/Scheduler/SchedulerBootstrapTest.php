@@ -144,7 +144,7 @@ class SchedulerBootstrapTest extends TestCase
         // that have no registry row yet, and activation runs their schema
         // migration — answered here by a mock reporting "complete, nothing
         // done", since this SQLite database has no module tables to write.
-        $migrationRunner = $this->createMock(MigrationRunner::class);
+        $migrationRunner = $this->createStub(MigrationRunner::class);
         $migrationRunner->method('migrate')->willReturn(new \Core\Database\MigrationResult([], []));
 
         $moduleManager = new ModuleManager(

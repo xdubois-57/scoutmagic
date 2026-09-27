@@ -829,7 +829,7 @@ class FunctionsControllerTest extends TestCase
 
         $sectionId = $this->createSection('BAL01', 'Baladins', 'Renards');
 
-        $sectionService = $this->createMock(\Core\Member\SectionService::class);
+        $sectionService = $this->createStub(\Core\Member\SectionService::class);
         $sectionService->method('getSection')->willReturn(['id' => $sectionId, 'desk_code' => 'BAL01', 'branch_sort_order' => 10, 'color' => null]);
         $sectionService->method('updateSectionColor')
             ->willThrowException(new \InvalidArgumentException('json_decode(): Argument #1 must be of type string'));

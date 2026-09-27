@@ -118,7 +118,7 @@ class GroupFeedServiceTest extends TestCase
             new \Core\Member\SectionMembershipRepository($this->pdo)
         );
 
-        $memberService = $this->createMock(MemberService::class);
+        $memberService = $this->createStub(MemberService::class);
         $memberService->method('findDisplayNamesByMemberIds')->willReturn([3 => 'Akéla']);
         $accountRepo = $this->createMock(UserAccountRepository::class);
         $accountRepo->method('findNamesByIds')->willReturn([7 => ['first_name' => 'Marie', 'last_name' => 'Dupont']]);
@@ -344,7 +344,7 @@ class GroupFeedServiceTest extends TestCase
             ->willReturn([$this->authorAccountId => ['first_name' => 'Marie', 'last_name' => 'Dupont']]);
         $accountRepo->expects($this->once())->method('findEmailBlindIndexesByIds')->willReturn([]);
 
-        $memberService = $this->createMock(MemberService::class);
+        $memberService = $this->createStub(MemberService::class);
         $memberService->method('findDisplayNamesByMemberIds')->willReturn([]);
 
         $identityService = new \Modules\Groups\Service\MemberIdentityService(

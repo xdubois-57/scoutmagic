@@ -74,7 +74,7 @@ class ScoutYearAdminServiceTest extends TestCase
 
     public function testCountBlockingRegistrationRequestsDelegatesToProvider(): void
     {
-        $veto = $this->createMock(ScoutYearTransitionVetoProvider::class);
+        $veto = $this->createStub(ScoutYearTransitionVetoProvider::class);
         $veto->method('countBlockingRequests')->willReturn(3);
         $adminService = new ScoutYearAdminService($this->settingService, $veto);
 
@@ -88,7 +88,7 @@ class ScoutYearAdminServiceTest extends TestCase
      */
     public function testActivatePublicYearThrowsWhenProviderReportsBlockingRequests(): void
     {
-        $veto = $this->createMock(ScoutYearTransitionVetoProvider::class);
+        $veto = $this->createStub(ScoutYearTransitionVetoProvider::class);
         $veto->method('countBlockingRequests')->willReturn(2);
         $adminService = new ScoutYearAdminService($this->settingService, $veto);
 
@@ -104,7 +104,7 @@ class ScoutYearAdminServiceTest extends TestCase
 
     public function testActivatePublicYearSucceedsWhenProviderReportsZero(): void
     {
-        $veto = $this->createMock(ScoutYearTransitionVetoProvider::class);
+        $veto = $this->createStub(ScoutYearTransitionVetoProvider::class);
         $veto->method('countBlockingRequests')->willReturn(0);
         $adminService = new ScoutYearAdminService($this->settingService, $veto);
 
@@ -115,7 +115,7 @@ class ScoutYearAdminServiceTest extends TestCase
 
     public function testVetoedExceptionCarriesBlockingCount(): void
     {
-        $veto = $this->createMock(ScoutYearTransitionVetoProvider::class);
+        $veto = $this->createStub(ScoutYearTransitionVetoProvider::class);
         $veto->method('countBlockingRequests')->willReturn(5);
         $adminService = new ScoutYearAdminService($this->settingService, $veto);
 

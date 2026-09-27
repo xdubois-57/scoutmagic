@@ -154,7 +154,7 @@ class AuthServiceTest extends TestCase
         $twig->addGlobal('site_name', 'Test Unit');
 
         // Create a mock connection that returns our PDO
-        $connection = $this->createMock(Connection::class);
+        $connection = $this->createStub(Connection::class);
         $connection->method('getPdo')->willReturn($this->pdo);
 
         $this->authService = new AuthService(

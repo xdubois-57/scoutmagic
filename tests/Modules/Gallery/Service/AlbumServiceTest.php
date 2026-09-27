@@ -75,7 +75,7 @@ class AlbumServiceTest extends TestCase
         $this->albumRepository = new AlbumRepository($this->pdo);
         $this->mediaRepository = new MediaRepository($this->pdo);
         $mediaRepository = $this->mediaRepository;
-        $this->accessService = $this->createMock(GalleryAccessService::class);
+        $this->accessService = $this->createStub(GalleryAccessService::class);
         $this->accessService->method('canManageAlbum')->willReturn(true);
         // A page carrying no Open Graph tag: the shape fetch() answers then,
         // where an unconfigured double would answer [] and leave every key
@@ -85,7 +85,7 @@ class AlbumServiceTest extends TestCase
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->storageLocationRepository = new StorageLocationRepository($this->pdo, $encryption);
         $this->storageBackendFactory = $this->createMock(StorageBackendFactory::class);
-        $settingService = $this->createMock(SettingService::class);
+        $settingService = $this->createStub(SettingService::class);
         $settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);
         $storageWiring = GalleryStorageWiring::build(
                 $this->pdo, $encryption, $settingService, sys_get_temp_dir(), $this->albumRepository
@@ -260,7 +260,7 @@ class AlbumServiceTest extends TestCase
 
     public function testCreateRejectsWhenTheChiefDoesNotManageTheSection(): void
     {
-        $accessService = $this->createMock(GalleryAccessService::class);
+        $accessService = $this->createStub(GalleryAccessService::class);
         $accessService->method('canManageAlbum')->willReturn(false);
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $accessService,
@@ -651,7 +651,7 @@ class AlbumServiceTest extends TestCase
 
     private function settingServiceAllowingEverything(): SettingService
     {
-        $settingService = $this->createMock(SettingService::class);
+        $settingService = $this->createStub(SettingService::class);
         $settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);
         return $settingService;
     }

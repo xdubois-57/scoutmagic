@@ -65,7 +65,7 @@ class PurgeTicketsHandlerTest extends TestCase
         $this->storage = new EncryptedFileStorageService($this->files, $encryption, $this->storagePath);
 
         $settings = new SettingService(new SettingRepository($this->pdo));
-        $connection = $this->createMock(Connection::class);
+        $connection = $this->createStub(Connection::class);
         $connection->method('getPdo')->willReturn($this->pdo);
 
         $this->context = new TaskContext(

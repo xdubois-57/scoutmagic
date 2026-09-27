@@ -67,11 +67,11 @@ class ListAddressImportRoutesTest extends TestCase
             $this->repository,
             $listRepository,
             $settings,
-            $this->createMock(JournalService::class)
+            $this->createStub(JournalService::class)
         );
 
         $this->controller = new MailingListController(
-            $this->createMock(Environment::class),
+            $this->createStub(Environment::class),
             new MailingListService(
                 $listRepository,
                 new MemberResolutionRepository($this->pdo, $encryption),
@@ -92,7 +92,7 @@ class ListAddressImportRoutesTest extends TestCase
             new ListAddressImportService(
                 $this->repository,
                 $this->addressService,
-                $this->createMock(JournalService::class)
+                $this->createStub(JournalService::class)
             )
         );
 

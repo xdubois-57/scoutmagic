@@ -106,7 +106,7 @@ class MaintenanceControllerTest extends TestCase
         $this->secretManager->generateMasterKey();
         $this->secretManager->writeSecrets([]);
 
-        $moduleManager = $this->createMock(ModuleManager::class);
+        $moduleManager = $this->createStub(ModuleManager::class);
         $moduleManager->method('getEnabledModuleIds')->willReturn([]);
 
         // Built through the real factory, not a bare Environment: this page

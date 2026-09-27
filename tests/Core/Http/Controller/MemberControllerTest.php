@@ -57,7 +57,7 @@ class MemberControllerTest extends TestCase
         $twig->addGlobal('config_mode', false);
         $twig->addGlobal('menus', null);
 
-        $memberService = $this->createMock(MemberService::class);
+        $memberService = $this->createStub(MemberService::class);
         $this->controller = $this->newController($twig, $memberService);
     }
 
@@ -68,7 +68,7 @@ class MemberControllerTest extends TestCase
 
     private function newController(Environment $twig, MemberService $memberService): MemberController
     {
-        $memberPageService = $this->createMock(MemberPageService::class);
+        $memberPageService = $this->createStub(MemberPageService::class);
         $memberPageService->method('buildPageData')->willReturn([]);
 
         return new MemberController(
@@ -124,7 +124,7 @@ class MemberControllerTest extends TestCase
     {
         $profile = $this->makeProfile(['totem' => 'Baloo']);
 
-        $memberService = $this->createMock(MemberService::class);
+        $memberService = $this->createStub(MemberService::class);
         $memberService->method('canAccess')->willReturn(true);
         $memberService->method('getMemberProfile')->willReturn($profile);
 
@@ -148,7 +148,7 @@ class MemberControllerTest extends TestCase
 
         $profile = $this->makeProfile(['totem' => 'Mowgli']);
 
-        $memberService = $this->createMock(MemberService::class);
+        $memberService = $this->createStub(MemberService::class);
         $memberService->method('canAccess')->willReturn(true);
         $memberService->method('getMemberProfile')->willReturn($profile);
 
@@ -169,7 +169,7 @@ class MemberControllerTest extends TestCase
     public function testShowPageReturns403ForIdentifiedUserViewingSomeoneElsesMember(): void
     {
         // Mock member service to deny access
-        $memberService = $this->createMock(MemberService::class);
+        $memberService = $this->createStub(MemberService::class);
         $memberService->method('canAccess')->willReturn(false);
 
         $twig = $this->createMock(Environment::class);
@@ -195,7 +195,7 @@ class MemberControllerTest extends TestCase
 
     public function testShowPageReturns404ForNonExistentMemberYear(): void
     {
-        $memberService = $this->createMock(MemberService::class);
+        $memberService = $this->createStub(MemberService::class);
         $memberService->method('canAccess')->willReturn(true);
         $memberService->method('getMemberProfile')
             ->willThrowException(new MemberNotFoundException());
@@ -213,7 +213,7 @@ class MemberControllerTest extends TestCase
     {
         $profile = $this->makeProfile(['totem' => 'Baloo']);
 
-        $memberService = $this->createMock(MemberService::class);
+        $memberService = $this->createStub(MemberService::class);
         $memberService->method('canAccess')->willReturn(true);
         $memberService->method('getMemberProfile')->willReturn($profile);
 
@@ -248,7 +248,7 @@ class MemberControllerTest extends TestCase
 
         $profile = $this->makeProfile(['totem' => 'Mowgli']);
 
-        $memberService = $this->createMock(MemberService::class);
+        $memberService = $this->createStub(MemberService::class);
         $memberService->method('canAccess')->willReturn(true);
         $memberService->method('getMemberProfile')->willReturn($profile);
 
@@ -274,7 +274,7 @@ class MemberControllerTest extends TestCase
     public function testAddressesAreHiddenFromIdentifiedUsersViewingViaAnotherRoute(): void
     {
         // Mock canAccess to return true for the email match but not for chief role
-        $memberService = $this->createMock(MemberService::class);
+        $memberService = $this->createStub(MemberService::class);
         $memberService->method('canAccess')->willReturn(true);
         $memberService->method('getMemberProfile')->willReturn($this->makeProfile());
 
@@ -301,7 +301,7 @@ class MemberControllerTest extends TestCase
     {
         $profile = $this->makeProfile(['totem' => 'Baloo']);
 
-        $memberService = $this->createMock(MemberService::class);
+        $memberService = $this->createStub(MemberService::class);
         $memberService->method('canAccess')->willReturn(true);
         $memberService->method('getMemberProfile')->willReturn($profile);
 
@@ -328,7 +328,7 @@ class MemberControllerTest extends TestCase
     {
         $profile = $this->makeProfile(['firstName' => 'Jean', 'totem' => null]);
 
-        $memberService = $this->createMock(MemberService::class);
+        $memberService = $this->createStub(MemberService::class);
         $memberService->method('canAccess')->willReturn(true);
         $memberService->method('getMemberProfile')->willReturn($profile);
 
@@ -355,7 +355,7 @@ class MemberControllerTest extends TestCase
     {
         $profile = $this->makeProfile(['firstName' => 'John']);
 
-        $memberService = $this->createMock(MemberService::class);
+        $memberService = $this->createStub(MemberService::class);
         $memberService->method('canAccess')->willReturn(true);
         $memberService->method('getMemberProfile')->willReturn($profile);
 

@@ -306,7 +306,7 @@ class RentalManagementControllerTest extends TestCase
      */
     private function recordingMailService(): \Modules\Rental\Service\RentalBookingMailService
     {
-        $mock = $this->createMock(\Modules\Rental\Service\RentalBookingMailService::class);
+        $mock = $this->createStub(\Modules\Rental\Service\RentalBookingMailService::class);
         $mock->method('sendDecision')->willReturnCallback(
             function (
                 \Modules\Rental\Booking\RentalBooking $booking,

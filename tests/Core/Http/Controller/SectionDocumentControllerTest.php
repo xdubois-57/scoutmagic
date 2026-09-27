@@ -85,7 +85,7 @@ class SectionDocumentControllerTest extends TestCase
 
         $this->encryption = $encryption;
         $this->controller = new SectionDocumentController(
-            $this->createMock(\Twig\Environment::class),
+            $this->createStub(\Twig\Environment::class),
             $service,
             new SectionStaffAuthorizationService(
     new \Core\Member\Repository\StaffedSectionRepository($connection, $encryption, new MemberEmailRepository($this->pdo, $encryption)),

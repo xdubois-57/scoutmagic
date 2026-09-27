@@ -177,7 +177,7 @@ class StorageConfigControllerTest extends TestCase
     private function webDavController(): StorageConfigController
     {
         $this->share = new FakeWebDavServer('https://example.org/dav/scoutmagic');
-        $factory = $this->createMock(StorageBackendFactory::class);
+        $factory = $this->createStub(StorageBackendFactory::class);
         $factory->method('create')->willReturnCallback(
             fn (StorageLocation $location): WebDavBackend => new WebDavBackend(
                 new WebDavClient($this->share->transport()),

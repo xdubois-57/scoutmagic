@@ -61,7 +61,7 @@ class RegistrationServiceTest extends TestCase
         $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->publicYearId);
 
         $this->mailService = $this->createMock(MailService::class);
-        $this->journalService = $this->createMock(JournalService::class);
+        $this->journalService = $this->createStub(JournalService::class);
         $editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
 
         $this->service = new RegistrationService(

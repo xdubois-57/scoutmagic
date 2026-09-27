@@ -545,7 +545,7 @@ class SendBatchHandlerTest extends TestCase
         $mailService = $this->mailServiceDouble();
         $mailService->method('send')->willThrowException(new MailException('554 5.7.1 Relay access denied'));
 
-        $journal = $this->createMock(JournalService::class);
+        $journal = $this->createStub(JournalService::class);
         $logged = [];
         $journal->method('log')->willReturnCallback(
             function (string $category, string $type, string $level, string $description, array $context = [], ?int $userId = null) use (&$logged): void {
@@ -580,7 +580,7 @@ class SendBatchHandlerTest extends TestCase
     public function testEveryCopyThatLeavesWritesItsOwnJournalLine(): void
     {
         $logged = [];
-        $journal = $this->createMock(JournalService::class);
+        $journal = $this->createStub(JournalService::class);
         $journal->method('log')->willReturnCallback(
             function (string $category, string $type, string $level, string $description, array $context = [], ?int $userId = null) use (&$logged): void {
                 $logged[] = ['type' => $type, 'level' => $level, 'description' => $description, 'context' => $context];
@@ -630,7 +630,7 @@ class SendBatchHandlerTest extends TestCase
         $mailService->method('send')->willThrowException(new MailException('554 5.7.1 Relay access denied'));
 
         $logged = [];
-        $journal = $this->createMock(JournalService::class);
+        $journal = $this->createStub(JournalService::class);
         $journal->method('log')->willReturnCallback(
             function (string $category, string $type, string $level, string $description, array $context = [], ?int $userId = null) use (&$logged): void {
                 $logged[] = ['type' => $type, 'level' => $level, 'description' => $description];

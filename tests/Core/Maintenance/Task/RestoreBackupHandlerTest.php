@@ -76,7 +76,7 @@ class RestoreBackupHandlerTest extends TestCase
                 new NotificationRepository($this->pdo, $encryption),
                 new PushSubscriptionRepository($this->pdo, $encryption),
                 new NotificationPreferenceRepository($this->pdo),
-                $this->createMock(WebPush::class),
+                $this->createStub(WebPush::class),
                 $settingService,
                 $journalService,
                 new SchedulerService(new SchedulerRepository($this->pdo)),

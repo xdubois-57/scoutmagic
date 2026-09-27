@@ -98,7 +98,7 @@ class InstallUpdateHandlerLockTest extends TestCase
                 new NotificationRepository($pdo, $encryption),
                 new PushSubscriptionRepository($pdo, $encryption),
                 new NotificationPreferenceRepository($pdo),
-                $this->createMock(WebPush::class),
+                $this->createStub(WebPush::class),
                 $settings,
                 $journalService,
                 new SchedulerService(new SchedulerRepository($pdo)),

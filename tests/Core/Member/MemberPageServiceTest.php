@@ -388,7 +388,7 @@ class MemberPageServiceTest extends TestCase
     public function testSectionInfoIncludesNextEventWhenCalendarEnabled(): void
     {
         $event = new EventSummary(1, 'Grand jeu', 'Meute A', '2099-01-01', '2099-01-01');
-        $lookup = $this->createMock(CalendarEventLookupInterface::class);
+        $lookup = $this->createStub(CalendarEventLookupInterface::class);
         $lookup->method('findEventsInWindow')->willReturn([$event]);
 
         $profile = $this->createMemberInSection();
@@ -521,7 +521,7 @@ class MemberPageServiceTest extends TestCase
 
         $massMailQuery = $this->createMock(MassMailQueryInterface::class);
         $massMailQuery->method('getRecentEmailsForMember')->willReturn([]);
-        $galleryProvider = $this->createMock(GalleryAlbumProvider::class);
+        $galleryProvider = $this->createStub(GalleryAlbumProvider::class);
         $galleryProvider->method('getAlbumsForMember')->willReturn([]);
 
         $dataEnabled = $this->buildService(null, $massMailQuery, $galleryProvider)->buildPageData($profile, $this->scoutYearId, true, false, Role::IDENTIFIED);

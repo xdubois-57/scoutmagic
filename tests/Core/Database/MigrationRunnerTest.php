@@ -522,7 +522,7 @@ class MigrationRunnerTest extends TestCase
         file_put_contents($schema, "CREATE TABLE race_test (\n    id INT PRIMARY KEY,\n    already_here VARCHAR(20) NULL\n);");
 
         try {
-            $lying = $this->createMock(SchemaIntrospector::class);
+            $lying = $this->createStub(SchemaIntrospector::class);
             $lying->method('getTables')->willReturn(['race_test']);
             $lying->method('getTableDefinitions')->willReturn([
                 'race_test' => new \Core\Database\TableDefinition(

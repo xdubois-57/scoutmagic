@@ -182,7 +182,7 @@ class PurgeCampaignFilesHandlerTest extends TestCase
             $this->createStub(MailService::class),
             new JournalService(new JournalRepository($this->pdo)),
             new SettingService(new SettingRepository($this->pdo)),
-            $this->createMock(UserAccountRepository::class),
+            $this->createStub(UserAccountRepository::class),
             $this->storagePath
         );
     }

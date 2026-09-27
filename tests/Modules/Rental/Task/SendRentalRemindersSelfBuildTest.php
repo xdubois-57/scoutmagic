@@ -46,7 +46,7 @@ class SendRentalRemindersSelfBuildTest extends TestCase
         $pdo = DatabaseTestHelper::createTestDatabase();
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
-        $moduleManager = $this->createMock(ModuleManager::class);
+        $moduleManager = $this->createStub(ModuleManager::class);
         $moduleManager->method('getEnabledModuleIds')
             ->willReturn($financeAndInboundMail ? ['rental', 'finance', 'inbound_mail'] : ['rental']);
         $capabilities = new TaskCapabilities($moduleManager);

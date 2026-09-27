@@ -44,10 +44,10 @@ class AuthControllerPasskeyTest extends TestCase
             'https://localhost'
         );
 
-        $twig = $this->createMock(Environment::class);
+        $twig = $this->createStub(Environment::class);
         $twig->method('render')->willReturn('<html></html>');
 
-        $authService = $this->createMock(AuthService::class);
+        $authService = $this->createStub(AuthService::class);
 
         $this->controller = new AuthController($twig, $authService);
         $this->controller->setWebAuthnService($webAuthnService);

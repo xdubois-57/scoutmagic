@@ -50,7 +50,7 @@ class AccountControllerTest extends TestCase
             'https://localhost'
         );
 
-        $twig = $this->createMock(Environment::class);
+        $twig = $this->createStub(Environment::class);
         $twig->method('render')->willReturn('<html></html>');
 
         $this->accountPhotoService = new \Core\Photo\AccountPhotoService(
@@ -435,7 +435,7 @@ class AccountControllerTest extends TestCase
         // Simulate raw body for JSON request
         $controller = $this->getMockBuilder(AccountController::class)
             ->setConstructorArgs([
-                $this->createMock(Environment::class),
+                $this->createStub(Environment::class),
                 $this->userRepo,
                 $this->webAuthnRepo,
                 new WebAuthnService($this->webAuthnRepo, $this->userRepo, 'localhost', 'Test', 'https://localhost')

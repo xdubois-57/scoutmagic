@@ -88,15 +88,15 @@ class GalleryChiefControllerTest extends TestCase
     new MemberProfileRepository($connection, $encryption)
 );
         $scoutYearService = new ScoutYearService($this->pdo);
-        $settingService = $this->createMock(SettingService::class);
+        $settingService = $this->createStub(SettingService::class);
         $settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);
 
-        $accessService = $this->createMock(GalleryAccessService::class);
+        $accessService = $this->createStub(GalleryAccessService::class);
         $accessService->method('canManageAlbum')->willReturn(true);
         $accessService->method('getManagedSectionIds')->willReturn([]);
         $this->storageLocationRepository = new StorageLocationRepository($this->pdo, $encryption);
         $storageLocationRepository = $this->storageLocationRepository;
-        $storageBackendFactory = $this->createMock(StorageBackendFactory::class);
+        $storageBackendFactory = $this->createStub(StorageBackendFactory::class);
         $storageWiring = GalleryStorageWiring::build(
                 $this->pdo, $encryption, $settingService, sys_get_temp_dir(), $this->albumRepository
             );
@@ -106,13 +106,13 @@ class GalleryChiefControllerTest extends TestCase
         $schedulerService = new SchedulerService(new SchedulerRepository($this->pdo));
         $uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
         $albumService = new AlbumService(
-            $this->albumRepository, $this->mediaRepository, $accessService, $this->createMock(OgScraperService::class),
+            $this->albumRepository, $this->mediaRepository, $accessService, $this->createStub(OgScraperService::class),
             $storageBackendFactory, $storageLocationRepository, $storageLocationService, $this->galleryLocationService, $scoutYearService, $settingService,
             $schedulerService, $uploadHandler
         );
         $mediaService = new MediaService(
             $this->mediaRepository, $this->albumRepository, $uploadHandler, $schedulerService,
-            $settingService, $accessService, $storageBackendFactory, $this->galleryLocationService, $this->createMock(FfmpegAvailability::class)
+            $settingService, $accessService, $storageBackendFactory, $this->galleryLocationService, $this->createStub(FfmpegAvailability::class)
         );
         $this->albumService = $albumService;
         $this->mediaService = $mediaService;
@@ -189,7 +189,7 @@ class GalleryChiefControllerTest extends TestCase
      */
     private function controllerDenyingEveryAlbum(): GalleryChiefController
     {
-        $accessService = $this->createMock(GalleryAccessService::class);
+        $accessService = $this->createStub(GalleryAccessService::class);
         $accessService->method('canManageAlbum')->willReturn(false);
         $accessService->method('getManagedSectionIds')->willReturn([]);
 
@@ -535,7 +535,7 @@ class GalleryChiefControllerTest extends TestCase
     {
         $id = $this->createLocalAlbum();
         $token = $this->csrfToken();
-        $backend = $this->createMock(\Core\Storage\Location\Backend\StorageBackendInterface::class);
+        $backend = $this->createStub(\Core\Storage\Location\Backend\StorageBackendInterface::class);
 
         $response = $this->controller->delete($this->jsonRequest(['_csrf_token' => $token]), ['id' => (string) $id]);
 
@@ -801,15 +801,15 @@ class GalleryChiefControllerTest extends TestCase
         // MediaService::assertCanUpload() is the chunk path's gate, so the
         // DENYING access service must sit inside MediaService here (the
         // shared setUp keeps a permissive one there).
-        $accessService = $this->createMock(GalleryAccessService::class);
+        $accessService = $this->createStub(GalleryAccessService::class);
         $accessService->method('canManageAlbum')->willReturn(false);
         $accessService->method('getManagedSectionIds')->willReturn([]);
         $denyingMediaService = new MediaService(
             $this->mediaRepository, $this->albumRepository,
             new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir()),
             new SchedulerService(new SchedulerRepository($this->pdo)),
-            $this->settingService, $accessService, $this->createMock(StorageBackendFactory::class),
-            $this->galleryLocationService, $this->createMock(FfmpegAvailability::class)
+            $this->settingService, $accessService, $this->createStub(StorageBackendFactory::class),
+            $this->galleryLocationService, $this->createStub(FfmpegAvailability::class)
         );
         $denying = new GalleryChiefController(
             $this->twig, $this->albumService, $denyingMediaService, $this->mediaRepository, $accessService,

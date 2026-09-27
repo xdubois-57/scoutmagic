@@ -28,7 +28,7 @@ class SosVirtualEventProviderTest extends TestCase
         ?int $defaultCalendarId = self::DEFAULT_CALENDAR_ID,
         array $profilesByMemberId = []
     ): SosVirtualEventProvider {
-        $onCallRepository = $this->createMock(OnCallRepository::class);
+        $onCallRepository = $this->createStub(OnCallRepository::class);
         $onCallRepository->method('findForRange')->willReturnCallback(
             function (string $from, string $to): array {
                 $this->lastRequestedRange = [$from, $to];
@@ -36,12 +36,12 @@ class SosVirtualEventProviderTest extends TestCase
             }
         );
 
-        $memberService = $this->createMock(MemberService::class);
+        $memberService = $this->createStub(MemberService::class);
         $memberService->method('findProfileByMemberAndYear')->willReturnCallback(
             fn(int $memberId, int $scoutYearId) => $profilesByMemberId[$memberId] ?? null
         );
 
-        $directory = $this->createMock(CalendarDirectoryInterface::class);
+        $directory = $this->createStub(CalendarDirectoryInterface::class);
         $directory->method('defaultCalendarId')->willReturn($defaultCalendarId);
 
         return new SosVirtualEventProvider($onCallRepository, $memberService, $directory);

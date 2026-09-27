@@ -31,7 +31,7 @@ class WebhookControllerTest extends TestCase
         $journalService = new JournalService(new JournalRepository($this->pdo));
 
         $this->webhookService = $this->createMock(GitHubWebhookService::class);
-        $this->secretManager = $this->createMock(SecretManager::class);
+        $this->secretManager = $this->createStub(SecretManager::class);
         $this->secretManager->method('readSecrets')->willReturn(['github_webhook_secret' => 'test-secret']);
 
         $twig = TestTwig::create();

@@ -47,7 +47,7 @@ class PushSubscriptionControllerTest extends TestCase
 
         $this->subscriptionRepository = new PushSubscriptionRepository($this->pdo, $encryption);
         $notificationRepository = new NotificationRepository($this->pdo, $encryption);
-        $webPush = $this->createMock(WebPush::class);
+        $webPush = $this->createStub(WebPush::class);
         $journalService = new JournalService(new JournalRepository($this->pdo));
         $settingService = new SettingService(new SettingRepository($this->pdo));
         $notificationService = new NotificationService(

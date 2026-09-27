@@ -38,7 +38,7 @@ class CalendarRetroAutoCreateServiceTest extends TestCase
 
     public function testSchedulesATaskWhenAutoCreateIsSetAndNoBoardIsLinked(): void
     {
-        $lookup = $this->createMock(RetroEventLinkLookupInterface::class);
+        $lookup = $this->createStub(RetroEventLinkLookupInterface::class);
         $lookup->method('hasLinkedBoard')->willReturn(false);
         $service = new CalendarRetroAutoCreateService($this->schedulerService, $lookup);
 
@@ -50,7 +50,7 @@ class CalendarRetroAutoCreateServiceTest extends TestCase
 
     public function testDoesNotScheduleWhenAutoCreateIsUnchecked(): void
     {
-        $lookup = $this->createMock(RetroEventLinkLookupInterface::class);
+        $lookup = $this->createStub(RetroEventLinkLookupInterface::class);
         $lookup->method('hasLinkedBoard')->willReturn(false);
         $service = new CalendarRetroAutoCreateService($this->schedulerService, $lookup);
 
@@ -61,7 +61,7 @@ class CalendarRetroAutoCreateServiceTest extends TestCase
 
     public function testDoesNotScheduleWhenABoardIsAlreadyLinked(): void
     {
-        $lookup = $this->createMock(RetroEventLinkLookupInterface::class);
+        $lookup = $this->createStub(RetroEventLinkLookupInterface::class);
         $lookup->method('hasLinkedBoard')->willReturn(true);
         $service = new CalendarRetroAutoCreateService($this->schedulerService, $lookup);
 
@@ -83,7 +83,7 @@ class CalendarRetroAutoCreateServiceTest extends TestCase
 
     public function testUncheckingOnUpdateCancelsAPreviouslyScheduledTask(): void
     {
-        $lookup = $this->createMock(RetroEventLinkLookupInterface::class);
+        $lookup = $this->createStub(RetroEventLinkLookupInterface::class);
         $lookup->method('hasLinkedBoard')->willReturn(false);
         $service = new CalendarRetroAutoCreateService($this->schedulerService, $lookup);
 
@@ -97,7 +97,7 @@ class CalendarRetroAutoCreateServiceTest extends TestCase
 
     public function testResavingNeverLeavesAStaleDuplicateTask(): void
     {
-        $lookup = $this->createMock(RetroEventLinkLookupInterface::class);
+        $lookup = $this->createStub(RetroEventLinkLookupInterface::class);
         $lookup->method('hasLinkedBoard')->willReturn(false);
         $service = new CalendarRetroAutoCreateService($this->schedulerService, $lookup);
 
@@ -113,7 +113,7 @@ class CalendarRetroAutoCreateServiceTest extends TestCase
 
     public function testCancelAutoCreateForEventCancelsAPendingTask(): void
     {
-        $lookup = $this->createMock(RetroEventLinkLookupInterface::class);
+        $lookup = $this->createStub(RetroEventLinkLookupInterface::class);
         $lookup->method('hasLinkedBoard')->willReturn(false);
         $service = new CalendarRetroAutoCreateService($this->schedulerService, $lookup);
         $service->syncAutoCreateForEvent($this->event());

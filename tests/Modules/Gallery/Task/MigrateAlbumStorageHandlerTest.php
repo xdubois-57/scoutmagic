@@ -372,7 +372,7 @@ class MigrateAlbumStorageHandlerTest extends TestCase
         $sourceId = $this->sourceId;
         $storagePath = $this->storagePath;
 
-        $factory = $this->createMock(StorageBackendFactory::class);
+        $factory = $this->createStub(StorageBackendFactory::class);
         $factory->method('create')->willReturnCallback(
             function (StorageLocation $location) use ($sourceId, $storagePath): StorageBackendInterface {
                 if ($location->id === $sourceId) {
@@ -420,7 +420,7 @@ class MigrateAlbumStorageHandlerTest extends TestCase
         $sourceId = $this->sourceId;
         $storagePath = $this->storagePath;
 
-        $factory = $this->createMock(StorageBackendFactory::class);
+        $factory = $this->createStub(StorageBackendFactory::class);
         $factory->method('create')->willReturnCallback(
             function (StorageLocation $location) use ($sourceId, $storagePath, $decorate) {
                 if ($location->id === $sourceId) {

@@ -58,7 +58,7 @@ class SupportRedactionTest extends TestCase
      */
     private function context(array $secrets = []): SupportCollectorContext
     {
-        $connection = $this->createMock(Connection::class);
+        $connection = $this->createStub(Connection::class);
         $connection->method('getPdo')->willReturn($this->pdo);
 
         return new SupportCollectorContext(

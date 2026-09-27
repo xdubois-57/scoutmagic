@@ -281,7 +281,7 @@ class CalendarConfigControllerTest extends TestCase
         $_SESSION['_csrf_token'] = $token;
 
         $failure = new SettingException("Setting 'event_default_title' is not editable.");
-        $settingService = $this->createMock(SettingService::class);
+        $settingService = $this->createStub(SettingService::class);
         $settingService->method('set')->willThrowException($failure);
         $controller = new CalendarConfigController(
             $this->twig, $this->calendarService, $this->sectionService,

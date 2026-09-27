@@ -55,7 +55,7 @@ class RetroBoardControllerTest extends TestCase
         $this->rateLimitService = new RateLimitService(new RateLimitRepository($this->pdo), $encryption);
         $commentService = new CommentService($this->commentRepository, null, $this->rateLimitService);
         $voteService = new VoteService($voteRepository, $this->commentRepository, $encryption);
-        $this->boardService = $this->createMock(BoardService::class);
+        $this->boardService = $this->createStub(BoardService::class);
         $this->boardService->method('publicUrl')->willReturn('/r/dummy-token');
         $this->settingService = new SettingService(new SettingRepository($this->pdo));
         $this->scoutYearService = new \Core\ScoutYear\ScoutYearResolver(

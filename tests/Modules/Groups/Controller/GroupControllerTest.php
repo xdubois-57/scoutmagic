@@ -146,7 +146,7 @@ class GroupControllerTest extends TestCase
             $this->groupRepo, $sectionRepo, $memberRepo, new SectionMembershipRepository($this->pdo), $readRepo
         );
 
-        $this->memberService = $this->createMock(MemberService::class);
+        $this->memberService = $this->createStub(MemberService::class);
         $this->memberService->method('getLinkedMembers')->willReturn(
             array_map(fn(int $id) => $this->profile($id), $linkedMemberIds)
         );
@@ -154,7 +154,7 @@ class GroupControllerTest extends TestCase
             array_combine($linkedMemberIds, array_map(fn(int $id) => 'Akéla ' . $id, $linkedMemberIds))
         );
 
-        $accountRepo = $this->createMock(UserAccountRepository::class);
+        $accountRepo = $this->createStub(UserAccountRepository::class);
         $accountRepo->method('findById')->willReturn(new UserAccount(
             1,
             'parent@test.be',
@@ -166,10 +166,10 @@ class GroupControllerTest extends TestCase
         ));
         $accountRepo->method('findNamesByIds')->willReturn([1 => ['first_name' => 'Marie', 'last_name' => 'Dupont']]);
 
-        $resolver = $this->createMock(ScoutYearResolver::class);
+        $resolver = $this->createStub(ScoutYearResolver::class);
         $resolver->method('getEffectiveYear')->willReturn(new EffectiveScoutYear($this->currentYearId, '2025-2026', null));
 
-        $sectionService = $this->createMock(SectionService::class);
+        $sectionService = $this->createStub(SectionService::class);
         $sectionService->method('getAllWithBranches')->willReturn([]);
         $sectionService->method('getSection')->willReturn(['id' => $this->sectionId, 'name' => 'Louveteaux', 'desk_code' => 'LOU']);
 

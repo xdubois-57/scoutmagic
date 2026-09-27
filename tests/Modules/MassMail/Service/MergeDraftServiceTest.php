@@ -105,7 +105,7 @@ class MergeDraftServiceTest extends TestCase
             new MemberEmailService(
                 new MemberEmailRepository($this->pdo, $encryption),
                 $this->createStub(MailService::class),
-                EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createMock(\Twig\Environment::class)),
+                EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createStub(\Twig\Environment::class)),
                 new JournalService(new JournalRepository($this->pdo)),
                 $sectionService,
                 $memberService,

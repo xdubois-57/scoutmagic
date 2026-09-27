@@ -58,7 +58,7 @@ class AutoCreateRetroHandlerTest extends TestCase
      */
     private function buildContext(array $enabledModuleIds): TaskContext
     {
-        $moduleManager = $this->createMock(\Core\Module\ModuleManager::class);
+        $moduleManager = $this->createStub(\Core\Module\ModuleManager::class);
         $moduleManager->method('getEnabledModuleIds')->willReturn($enabledModuleIds);
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 

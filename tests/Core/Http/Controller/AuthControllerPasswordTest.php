@@ -41,16 +41,16 @@ class AuthControllerPasswordTest extends TestCase
 
         $this->userRepo = new UserAccountRepository($this->pdo, $this->encryption);
 
-        $connection = $this->createMock(Connection::class);
+        $connection = $this->createStub(Connection::class);
         $connection->method('getPdo')->willReturn($this->pdo);
 
         $throttler = new LoginThrottler($connection);
         $passwordAuth = new PasswordAuthMethod($this->userRepo, $this->encryption, $throttler);
 
-        $twig = $this->createMock(Environment::class);
+        $twig = $this->createStub(Environment::class);
         $twig->method('render')->willReturn('<html></html>');
 
-        $authService = $this->createMock(AuthService::class);
+        $authService = $this->createStub(AuthService::class);
 
         $this->controller = new AuthController($twig, $authService);
         $this->controller->setPasswordAuth($passwordAuth);

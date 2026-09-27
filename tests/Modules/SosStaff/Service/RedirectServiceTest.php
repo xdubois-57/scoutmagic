@@ -41,10 +41,10 @@ class RedirectServiceTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->providerConfigService = $this->createMock(ProviderConfigService::class);
-        $this->settingsService = $this->createMock(SosSettingsService::class);
-        $this->memberService = $this->createMock(MemberService::class);
-        $this->userAccountRepository = $this->createMock(UserAccountRepository::class);
+        $this->providerConfigService = $this->createStub(ProviderConfigService::class);
+        $this->settingsService = $this->createStub(SosSettingsService::class);
+        $this->memberService = $this->createStub(MemberService::class);
+        $this->userAccountRepository = $this->createStub(UserAccountRepository::class);
         $this->mailService = $this->createMock(MailService::class);
         $this->journalService = $this->createMock(JournalService::class);
         $this->notificationService = $this->createMock(NotificationService::class);

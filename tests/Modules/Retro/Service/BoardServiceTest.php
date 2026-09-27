@@ -51,7 +51,7 @@ class BoardServiceTest extends TestCase
         $this->journalService = new JournalService(new JournalRepository($this->pdo));
         $this->schedulerService = new SchedulerService(new SchedulerRepository($this->pdo));
         $this->memberService = $this->createMock(MemberService::class);
-        $this->sectionService = $this->createMock(SectionService::class);
+        $this->sectionService = $this->createStub(SectionService::class);
 
         $this->twig = TestTwig::create(['retro']);
     }
@@ -189,7 +189,7 @@ class BoardServiceTest extends TestCase
 
     public function testCreateUsesTheShortUrlWhenAvailable(): void
     {
-        $shortUrlService = $this->createMock(ShortUrlService::class);
+        $shortUrlService = $this->createStub(ShortUrlService::class);
         $shortUrlService->method('createShortUrl')->willReturn('abc123');
 
         $board = $this->service($shortUrlService)->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
@@ -200,7 +200,7 @@ class BoardServiceTest extends TestCase
 
     public function testCreateSurvivesAShortUrlServiceFailure(): void
     {
-        $shortUrlService = $this->createMock(ShortUrlService::class);
+        $shortUrlService = $this->createStub(ShortUrlService::class);
         $shortUrlService->method('createShortUrl')->willThrowException(new \RuntimeException('boom'));
 
         $board = $this->service($shortUrlService)->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
@@ -282,7 +282,7 @@ class BoardServiceTest extends TestCase
 
     public function testCloseGeneratesAiSummaryWhenAvailable(): void
     {
-        $summaryService = $this->createMock(SummaryService::class);
+        $summaryService = $this->createStub(SummaryService::class);
         $summaryService->method('isAvailable')->willReturn(true);
         $summaryService->method('generate')->willReturn('- Thème principal');
         $service = $this->service(null, null, $summaryService);
@@ -295,7 +295,7 @@ class BoardServiceTest extends TestCase
 
     public function testCloseSurvivesAiSummaryFailure(): void
     {
-        $summaryService = $this->createMock(SummaryService::class);
+        $summaryService = $this->createStub(SummaryService::class);
         $summaryService->method('isAvailable')->willReturn(true);
         $summaryService->method('generate')->willThrowException(new RetroException('AI down'));
         $service = $this->service(null, null, $summaryService);
@@ -331,7 +331,7 @@ class BoardServiceTest extends TestCase
 
     public function testCloseIncludesTheAiSummaryInTheEmailWhenGenerated(): void
     {
-        $summaryService = $this->createMock(SummaryService::class);
+        $summaryService = $this->createStub(SummaryService::class);
         $summaryService->method('isAvailable')->willReturn(true);
         $summaryService->method('generate')->willReturn('- Résumé IA');
         $mailService = $this->createMock(MailService::class);

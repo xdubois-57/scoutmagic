@@ -54,12 +54,12 @@ class SchedulerPassTest extends TestCase
         $this->runner = new SchedulerRunner($this->repo, $journal);
 
         $this->runner->setTaskContext(new TaskContext(
-            $this->createMock(Connection::class),
-            $this->createMock(EncryptionService::class),
+            $this->createStub(Connection::class),
+            $this->createStub(EncryptionService::class),
             $this->createStub(MailService::class),
             $journal,
             new SettingService(new SettingRepository($this->pdo)),
-            $this->createMock(UserAccountRepository::class),
+            $this->createStub(UserAccountRepository::class),
             sys_get_temp_dir()
         ));
     }

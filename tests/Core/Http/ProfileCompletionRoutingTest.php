@@ -47,7 +47,7 @@ final class ProfileCompletionRoutingTest extends TestCase
         }
         $_SESSION = [];
 
-        $twig = $this->createMock(Environment::class);
+        $twig = $this->createStub(Environment::class);
         $twig->method('render')->willReturn('<html></html>');
         $this->twig = $twig;
 

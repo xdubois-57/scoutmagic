@@ -143,11 +143,11 @@ class PostControllerTest extends TestCase
         $memberRepo = new GroupMemberRepository($this->pdo);
         $access = new GroupAccessService($memberRepo, $sectionRepo, new SectionMembershipRepository($this->pdo));
 
-        $memberService = $this->createMock(MemberService::class);
+        $memberService = $this->createStub(MemberService::class);
         $memberService->method('getLinkedMembers')->willReturn(array_map(fn(int $id) => $this->profile($id), $linkedMemberIds));
         $memberService->method('findDisplayNamesByMemberIds')->willReturn([$this->memberId => 'Akéla']);
 
-        $accountRepo = $this->createMock(UserAccountRepository::class);
+        $accountRepo = $this->createStub(UserAccountRepository::class);
         $accountRepo->method('findById')->willReturn(new UserAccount(
             $accountId,
             'parent@test.be',
@@ -159,7 +159,7 @@ class PostControllerTest extends TestCase
         ));
         $accountRepo->method('findNamesByIds')->willReturn([$accountId => ['first_name' => 'Marie', 'last_name' => 'Dupont']]);
 
-        $resolver = $this->createMock(ScoutYearResolver::class);
+        $resolver = $this->createStub(ScoutYearResolver::class);
         $resolver->method('getEffectiveYear')->willReturn(new EffectiveScoutYear($this->currentYearId, '2025-2026', null));
 
         $activityService = new GroupActivityService($this->groupRepo, $this->postRepo);

@@ -289,7 +289,7 @@ class BounceConsumerTest extends TestCase
     public function testTheConsumerDeclaresNothingToDoOnASecondPass(): void
     {
         $this->assertTrue($this->consumer->analyzeStored(
-            $this->createMock(\Modules\InboundMail\Api\InboundMessage::class)
+            $this->createStub(\Modules\InboundMail\Api\InboundMessage::class)
         )->isEmpty());
     }
 

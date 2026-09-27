@@ -122,7 +122,7 @@ class MassMailPageTest extends TestCase
         $memberEmailService = new MemberEmailService(
             new MemberEmailRepository($this->pdo, $encryption),
             $this->createStub(MailService::class),
-            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createMock(Environment::class)),
+            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createStub(Environment::class)),
             new JournalService(new JournalRepository($this->pdo)),
             $sectionService,
             $memberService,

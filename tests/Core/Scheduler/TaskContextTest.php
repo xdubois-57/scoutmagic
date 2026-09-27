@@ -53,7 +53,7 @@ class TaskContextTest extends TestCase
         $journal = new JournalService(new JournalRepository($pdo));
         $settings = new SettingService(new SettingRepository($pdo));
         $userAccounts = new UserAccountRepository($pdo, $encryption);
-        $notifications = $this->createMock(NotificationService::class);
+        $notifications = $this->createStub(NotificationService::class);
 
         $context = new TaskContext($connection, $encryption, $mailService, $journal, $settings, $userAccounts, '/srv/storage', $notifications);
 
@@ -91,7 +91,7 @@ class TaskContextTest extends TestCase
 
     public function testGetOptionalAndIsModuleEnabledDelegateToTheCapabilities(): void
     {
-        $moduleManager = $this->createMock(\Core\Module\ModuleManager::class);
+        $moduleManager = $this->createStub(\Core\Module\ModuleManager::class);
         $moduleManager->method('getEnabledModuleIds')->willReturn(['some_module']);
         $capabilities = new \Core\Scheduler\TaskCapabilities($moduleManager);
         $instance = new class implements \Tests\Core\Scheduler\FakeCapabilityInterface {

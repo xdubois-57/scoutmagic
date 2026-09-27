@@ -497,7 +497,7 @@ class NotificationServiceTest extends TestCase
         $subId = $this->subscriptionRepository->create($userId, 'https://push.example/gone', 'auth', 'p256dh');
         $notificationId = $this->notificationRepository->create($userId, null, 'core.system', 'A', 'B', null);
 
-        $expiredReport = $this->createMock(MessageSentReport::class);
+        $expiredReport = $this->createStub(MessageSentReport::class);
         $expiredReport->method('isSubscriptionExpired')->willReturn(true);
         $expiredReport->method('isSuccess')->willReturn(false);
         $expiredReport->method('getEndpoint')->willReturn('https://push.example/gone');

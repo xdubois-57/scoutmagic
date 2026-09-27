@@ -57,9 +57,9 @@ class RetroChiefControllerTest extends TestCase
         $this->boardService = $this->createMock(BoardService::class);
         $this->boardService->method('publicUrl')->willReturn('/r/token');
 
-        $scoutYearResolver = $this->createMock(ScoutYearResolver::class);
+        $scoutYearResolver = $this->createStub(ScoutYearResolver::class);
         $scoutYearResolver->method('getEffectiveYear')->willReturn(new EffectiveScoutYear(1, '2025-2026', null));
-        $moduleManager = $this->createMock(ModuleManager::class);
+        $moduleManager = $this->createStub(ModuleManager::class);
         $moduleManager->method('getEnabledModuleIds')->willReturn([]);
         $this->scoutYearResolver = $scoutYearResolver;
         $this->moduleManager = $moduleManager;
