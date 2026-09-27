@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Covoiturage\Controller;
 
 use Core\Geo\AddressLocator;
+use Core\Geo\GeoPoint;
 use Core\Geo\GeoPointException;
 use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
@@ -267,7 +268,8 @@ class CarpoolOrganizerController extends AbstractController
      * Whether the pin the form shows was placed — or removed — by a human.
      * A form shown again after a refusal carries the answer itself: the
      * script posts `point_manual`; without the script, a point posted
-     * without `point_automatic` was typed.
+     * without `point_automatic` was typed — unless it is the carpool's own
+     * automatic point, which the edit form posts back untouched.
      *
      * @param array<string, mixed> $submitted
      */
@@ -283,8 +285,29 @@ class CarpoolOrganizerController extends AbstractController
             return true;
         }
 
-        return trim((string) ($submitted['latitude'] ?? '')) !== ''
-            && (string) ($submitted['point_automatic'] ?? '') !== '1';
+        if (
+            trim((string) ($submitted['latitude'] ?? '')) === ''
+            || (string) ($submitted['point_automatic'] ?? '') === '1'
+        ) {
+            return false;
+        }
+
+        return $carpool?->point === null || $carpool->point->line() !== $this->postedPointLine($submitted);
+    }
+
+    /**
+     * @param array<string, mixed> $submitted
+     */
+    private function postedPointLine(array $submitted): ?string
+    {
+        try {
+            return GeoPoint::fromInput(
+                (string) ($submitted['latitude'] ?? ''),
+                (string) ($submitted['longitude'] ?? '')
+            )?->line();
+        } catch (GeoPointException) {
+            return null;
+        }
     }
 
     /**

@@ -232,7 +232,12 @@ final class CarpoolServiceTest extends TestCase
     {
         // #642: the form found the address and left the pin on it.
         $id = $this->service->create(
-            $this->input(['latitude' => '50.7201', 'longitude' => '4.6412', 'point_automatic' => '1']),
+            $this->input([
+                'latitude' => '50.7201',
+                'longitude' => '4.6412',
+                'point_automatic' => '1',
+                'point_address' => 'Plaine de Basse-Wavre',
+            ]),
             H::viewer(1, Role::CHIEF)
         );
         $carpool = $this->carpools->findById($id);
@@ -256,6 +261,7 @@ final class CarpoolServiceTest extends TestCase
                 'latitude' => '50.125000',
                 'longitude' => '5.187000',
                 'point_automatic' => '1',
+                'point_address' => 'Gîte de Han, rue des Grottes 12',
             ]),
             H::viewer(1, Role::CHIEF)
         );
@@ -283,6 +289,7 @@ final class CarpoolServiceTest extends TestCase
                 'latitude' => '50.700000',
                 'longitude' => '4.600000',
                 'point_automatic' => '1',
+                'point_address' => 'Plaine de Basse-Wavre, entrée nord',
             ]),
             H::viewer(1, Role::CHIEF)
         );
@@ -291,6 +298,45 @@ final class CarpoolServiceTest extends TestCase
         $this->assertSame('50.700000, 4.600000', $after?->point?->line());
         $this->assertFalse($after->pointIsManual);
         $this->assertNull($this->carpools->findNextToGeocode(), 'found: nothing left for the task');
+    }
+
+    public function testAnOldAddressPinSentBeforeTheLookupAnsweredIsNotTheNewAddressPoint(): void
+    {
+        // The address was edited and the form sent at once: the untouched
+        // pin still stands where the OLD address was found.
+        $id = $this->service->create($this->input(), H::viewer(1, Role::CHIEF));
+        $this->carpools->points()->recordGeocoding($id, new \Core\Geo\GeoPoint(50.7, 4.6), new \DateTimeImmutable());
+        $carpool = $this->carpools->findById($id);
+        $this->assertNotNull($carpool);
+
+        $this->service->update(
+            $carpool,
+            $this->input([
+                'address' => 'Plaine de Basse-Wavre, entrée nord',
+                'latitude' => '50.700000',
+                'longitude' => '4.600000',
+                'point_automatic' => '1',
+                'point_address' => 'Plaine de Basse-Wavre',
+            ]),
+            H::viewer(1, Role::CHIEF)
+        );
+
+        $this->assertSame($id, $this->carpools->findNextToGeocode()?->id, 'left for the task to find');
+        $this->assertFalse($this->carpools->findById($id)?->pointIsManual);
+
+        $created = $this->service->create(
+            $this->input([
+                'event_ids' => [],
+                'address' => 'Bastogne, place McAuliffe',
+                'section_id' => (string) $this->sectionId,
+                'latitude' => '50.700000',
+                'longitude' => '4.600000',
+                'point_automatic' => '1',
+                'point_address' => 'Plaine de Basse-Wavre',
+            ]),
+            H::viewer(1, Role::CHIEF)
+        );
+        $this->assertNull($this->carpools->findById($created)?->point, 'a stale pin is not saved on creation either');
     }
 
     public function testAnAutomaticPinDroppedForANewAddressLeavesThePointToTheTask(): void
@@ -343,7 +389,12 @@ final class CarpoolServiceTest extends TestCase
 
         $this->service->update(
             $carpool,
-            $this->input(['latitude' => '50.100000', 'longitude' => '4.100000', 'point_automatic' => '1']),
+            $this->input([
+                'latitude' => '50.100000',
+                'longitude' => '4.100000',
+                'point_automatic' => '1',
+                'point_address' => 'Plaine de Basse-Wavre',
+            ]),
             H::viewer(1, Role::CHIEF)
         );
 

@@ -292,6 +292,39 @@ final class CovoiturageRbacTest extends TestCase
         $this->assertStringContainsString('name="point_manual" value="1"', $page);
     }
 
+    public function testAnAutomaticPointPostedBackWithoutTheScriptIsNotCalledHandPlaced(): void
+    {
+        // Without JavaScript the edit form posts the carpool's own point
+        // back untouched, and `point_automatic` stays at 0: that is not a
+        // human's point, even when the form comes back refused.
+        (new \Modules\Covoiturage\Repository\CarpoolRepository($this->pdo))->points()
+            ->recordGeocoding($this->carpoolId, new \Core\Geo\GeoPoint(50.125, 5.187), new \DateTimeImmutable());
+        AuthSession::login($this->accountId, 'parent@test.be', Role::ADMIN->value);
+        $body = [
+            '_csrf_token' => \Core\Security\CsrfGuard::generateToken(),
+            'address' => 'Gîte de Han-sur-Lesse, rue des Grottes 12',
+            'outbound_date' => '2027-05-10',
+            'return_date' => '2027-05-01',
+            'latitude' => '50.125000',
+            'longitude' => '5.187000',
+            'point_automatic' => '0',
+        ];
+
+        $page = $this->frontController('POST', '/covoiturage/organiser/{id}/modifier', 'update', 'chief')
+            ->handle(new Request('POST', '/covoiturage/organiser/' . $this->carpoolId . '/modifier', [], $body, [], []))
+            ->getBody();
+
+        $this->assertStringContainsString('Le retour ne peut pas précéder', $page);
+        $this->assertStringContainsString('data-manual="0"', $page);
+
+        // Coordinates typed over it are a human's, as before.
+        $body['latitude'] = '50.200000';
+        $page = $this->frontController('POST', '/covoiturage/organiser/{id}/modifier', 'update', 'chief')
+            ->handle(new Request('POST', '/covoiturage/organiser/' . $this->carpoolId . '/modifier', [], $body, [], []))
+            ->getBody();
+        $this->assertStringContainsString('data-manual="1"', $page);
+    }
+
     /** @param array{latitude: float, longitude: float}|null $answer */
     private function organizerWithLocator(?array $answer): CarpoolOrganizerController
     {

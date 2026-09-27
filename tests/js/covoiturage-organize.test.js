@@ -16,6 +16,7 @@ function buildForm({ lat = '', lng = '', manual = '0', address = '', locate = fa
         <fieldset data-carpool-point data-manual="${manual}" ${locateUrl}>
             <input type="hidden" name="point_automatic" value="0" data-carpool-point-automatic>
             <input type="hidden" name="point_manual" value="${manual}" data-carpool-point-manual>
+            <input type="hidden" name="point_address" value="" data-carpool-point-address>
             <div data-carpool-point-fields>
                 <input id="carpool-latitude" name="latitude" value="${lat}">
                 <input id="carpool-longitude" name="longitude" value="${lng}">
@@ -213,7 +214,26 @@ describe('covoiturage-organize', () => {
             expect(value('carpool-latitude')).toBe('50.125000');
             expect(value('carpool-longitude')).toBe('5.187000');
             expect(document.querySelector('[data-carpool-point-automatic]').value).toBe('1');
+            expect(document.querySelector('[data-carpool-point-address]').value).toBe('Gîte de Han, rue des Grottes 12');
             expect(document.querySelector('[data-carpool-point-origin]').textContent).toBe('trouvé depuis l\'adresse');
+        });
+
+        it('tells the server which address an untouched pin was found for, even before a new lookup answers', async () => {
+            // Lookups that never answer: the form is sent while they run.
+            vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})));
+            try {
+                stubLeaflet();
+                buildForm({ lat: '50.7', lng: '4.6', address: 'Plaine de Basse-Wavre', locate: true });
+                await load();
+                expect(document.querySelector('[data-carpool-point-address]').value).toBe('Plaine de Basse-Wavre');
+
+                leave('Gîte de Han, rue des Grottes 12');
+                expect(value('carpool-latitude')).toBe('50.700000');
+                expect(document.querySelector('[data-carpool-point-automatic]').value).toBe('1');
+                expect(document.querySelector('[data-carpool-point-address]').value).toBe('Plaine de Basse-Wavre');
+            } finally {
+                vi.unstubAllGlobals();
+            }
         });
 
         it('keeps a pin moved by hand where it is, and moves the address marker', async () => {
@@ -226,6 +246,7 @@ describe('covoiturage-organize', () => {
 
             pinOf(leaflet).drag([50.2, 5.2]);
             expect(document.querySelector('[data-carpool-point-automatic]').value).toBe('0');
+            expect(document.querySelector('[data-carpool-point-address]').value).toBe('');
 
             answer({ success: true, found: true, latitude: 50.4, longitude: 4.9 });
             leave('Place du Marché 1, Namur');

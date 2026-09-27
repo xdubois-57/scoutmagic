@@ -25,7 +25,7 @@
   route for the address's point (Core\Geo\AddressLocator, issue #642): the
   map centres on it, a fixed marker shows it, and a pin nobody touched
   moves there. `point_automatic` tells the server such a pin is not a
-  human's. Whatever that lookup does not find, the background task still
+  human's, and `point_address` which address it was found for. Whatever that lookup does not find, the background task still
   looks for after saving (Task\GeocodeCarpoolsHandler).
 #}
 {% block content %}
@@ -104,6 +104,7 @@
                   {% if address_lookup %}data-locate-url="/covoiturage/organiser/adresse"{% endif %}>
             <legend class="form-label fs-6">Point sur la carte (facultatif)</legend>
             <input type="hidden" name="point_automatic" value="{{ values.point_automatic|default('0') }}" data-carpool-point-automatic>
+            <input type="hidden" name="point_address" value="{{ values.point_address|default('') }}" data-carpool-point-address>
             {# Read back only when the form is shown again after a refusal:
                a point removed by hand must not be put back by the lookup. #}
             <input type="hidden" name="point_manual" value="{{ point_is_manual ? '1' : '0' }}" data-carpool-point-manual>

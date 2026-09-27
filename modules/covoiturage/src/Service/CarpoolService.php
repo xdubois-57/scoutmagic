@@ -173,9 +173,10 @@ class CarpoolService
         // address and left alone: automatic, like the task's. A form that
         // did not carry the point at all changes nothing. After a change of
         // address, an automatic point the form still posts was found for the
-        // NEW address — the page drops a pin left from the old one — and is
-        // written back even when it lands on the same coordinates, or
-        // forgetGeocoding() above would leave the row without it.
+        // NEW address — validate() drops one whose `point_address` is not
+        // it — and is written back even when it lands on the same
+        // coordinates, or forgetGeocoding() above would leave the row
+        // without it.
         $foundForNewAddress = $addressChanged && $data['point_automatic'] && $data['point'] !== null;
         if ($data['point_given'] && ($data['point']?->line() !== $carpool->point?->line() || $foundForNewAddress)) {
             $this->savePoint($carpool->id, $data['point'], $data['point_automatic']);
@@ -319,6 +320,19 @@ class CarpoolService
             isset($input['latitude']) ? (string) $input['latitude'] : null,
             isset($input['longitude']) ? (string) $input['longitude'] : null
         );
+        $automatic = (string) ($input['point_automatic'] ?? '') === '1';
+        if (
+            $automatic && $point !== null
+            && TextNormalizerService::fold((string) ($input['point_address'] ?? ''))
+                !== TextNormalizerService::fold($address)
+        ) {
+            // An untouched pin found for another address — the form was sent
+            // before the lookup of the new one answered. It is not this
+            // address's point: the form is taken as not carrying one, and
+            // the geocoding task finds it.
+            $pointGiven = false;
+            $point = null;
+        }
 
         return [
             'address' => $address,
@@ -332,7 +346,7 @@ class CarpoolService
             ),
             'point' => $point,
             'point_given' => $pointGiven,
-            'point_automatic' => (string) ($input['point_automatic'] ?? '') === '1',
+            'point_automatic' => $automatic,
         ];
     }
 

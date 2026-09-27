@@ -117,6 +117,7 @@
         var removeButton = /** @type {HTMLButtonElement|null} */ (box.querySelector('[data-carpool-point-remove]'));
         var automatic = /** @type {HTMLInputElement|null} */ (box.querySelector('[data-carpool-point-automatic]'));
         var manualField = /** @type {HTMLInputElement|null} */ (box.querySelector('[data-carpool-point-manual]'));
+        var pointAddress = /** @type {HTMLInputElement|null} */ (box.querySelector('[data-carpool-point-address]'));
         var line = box.querySelector('[data-carpool-point-line]');
         var origin = box.querySelector('[data-carpool-point-origin]');
         var lat = /** @type {HTMLInputElement|null} */ (document.getElementById('carpool-latitude'));
@@ -156,6 +157,12 @@
             }
             if (manualField) {
                 manualField.value = manual ? '1' : '0';
+            }
+            if (pointAddress) {
+                // The address this automatic pin was found for: a form sent
+                // before the lookup of a new address answers still carries
+                // the old pin, and the server must see it is not the new one.
+                pointAddress.value = manual ? '' : pinAddress;
             }
             if (line) {
                 line.textContent = latitude === null ? '' : lat.value + ', ' + lng.value;
@@ -305,10 +312,10 @@
         var latitude = coordinate(lat.value);
         var longitude = coordinate(lng.value);
         if (latitude !== null && longitude !== null) {
-            showMap([latitude, longitude]);
-            pin([latitude, longitude]);
             // A saved automatic point belongs to the saved address.
             pinAddress = address ? address.value.trim() : '';
+            showMap([latitude, longitude]);
+            pin([latitude, longitude]);
         } else {
             placeButton.classList.remove('d-none');
         }
