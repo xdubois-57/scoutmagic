@@ -223,7 +223,10 @@
                         // Transient network hiccup — keep polling.
                         return undefined;
                     }
-                    if (res.data.status === 'completed') {
+                    // `skipped` is terminal too (issue #622): a newer version
+                    // replaced this install before it started, and the
+                    // reloaded page shows the history saying so.
+                    if (res.data.status === 'completed' || res.data.status === 'skipped') {
                         window.location.reload();
                         return false;
                     }

@@ -1282,7 +1282,7 @@ CREATE TABLE update_history (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     version_from VARCHAR(20) NOT NULL,
     version_to VARCHAR(20) NOT NULL,
-    status ENUM('pending', 'backing_up', 'downloading', 'installing', 'migrating', 'completed', 'failed', 'rolled_back') NOT NULL DEFAULT 'pending',
+    status ENUM('pending', 'backing_up', 'downloading', 'installing', 'migrating', 'completed', 'failed', 'rolled_back', 'skipped') NOT NULL DEFAULT 'pending',
     dependencies_changed BOOLEAN NOT NULL DEFAULT FALSE,
     error_message VARCHAR(500),
     backup_id INT UNSIGNED,
