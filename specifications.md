@@ -264,7 +264,7 @@ Pas de QR ni d'IBAN ici, contrairement à la page du membre : un chef d'unité r
 
 ### 4.5 Configuration
 
-All pages in this menu require the `superadmin` role, except Maintenance (`admin` — see ARCHITECTURE.md §3/§8.15).
+All pages in this menu require the `superadmin` role — Maintenance included since issue #619, its POSTs and `/api/` routes as much as its pages (it was `admin`, reachable by address from outside the menu; ARCHITECTURE.md §3/§8.15).
 
 | Page | Content |
 |---|---|

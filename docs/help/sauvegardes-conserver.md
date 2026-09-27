@@ -3,7 +3,7 @@ id: sauvegardes-conserver
 title: Conserver et supprimer les sauvegardes
 summary: Combien de sauvegardes le site garde, et comment en télécharger ou en supprimer une.
 category: Configuration
-role_min: admin
+role_min: superadmin
 discovery: off
 question: Où télécharger la dernière sauvegarde du site ?
 question: Combien de sauvegardes le site conserve-t-il ?

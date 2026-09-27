@@ -23,7 +23,7 @@ interface GitHubReleaseClientInterface
      * A specific published release by its tag name (GET /repos/{owner}/
      * {repo}/releases/tags/{tag}) — used to fetch the release notes of the
      * currently INSTALLED version (Core\Http\Controller\
-     * MaintenanceController::index()), as opposed to getLatestRelease()'s
+     * MaintenanceController::pageContext()), as opposed to getLatestRelease()'s
      * "what's newest". Null when no release has that exact tag.
      *
      * @throws UpdateException on a network/API error
