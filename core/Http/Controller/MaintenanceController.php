@@ -825,7 +825,7 @@ class MaintenanceController extends AbstractController
                 'database.sql',
                 'application/sql',
                 (int) filesize($path),
-                'admin',
+                \Core\Maintenance\Backup::FILE_ROLE,
                 null,
                 $userId
             );

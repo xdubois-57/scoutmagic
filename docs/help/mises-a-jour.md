@@ -3,7 +3,7 @@ id: mises-a-jour
 title: Mettre à jour le site
 summary: Vérifier, installer et automatiser les mises à jour.
 category: Configuration
-role_min: admin
+role_min: superadmin
 discovery: off
 question: Comment installer la dernière version du site ?
 question: Comment faire installer les mises à jour toutes seules ?

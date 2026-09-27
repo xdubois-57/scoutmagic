@@ -261,7 +261,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
                 'sauvegarde.zip',
                 'application/zip',
                 (int) filesize($filesZipPath),
-                'admin',
+                \Core\Maintenance\Backup::FILE_ROLE,
                 null,
                 $history->requestedBy
             );
@@ -270,7 +270,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
                 'database.sql',
                 'application/sql',
                 (int) filesize($dbDumpPath),
-                'admin',
+                \Core\Maintenance\Backup::FILE_ROLE,
                 null,
                 $history->requestedBy
             );
@@ -768,7 +768,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
      *
      * - A **requested** install (manual "Installer maintenant",
      *   update_history.requested_by set) notifies its requester and only
-     *   them, unchanged: they are watching /config/maintenance poll and
+     *   them, unchanged: they are watching /config/maintenance/mise-a-jour poll and
      *   this is the answer to a question they just asked, so it goes out
      *   through notify() — immediate, no preference to consult, no way to
      *   miss it.
@@ -799,7 +799,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
     ): void {
         try {
             if ($history->requestedBy !== null) {
-                $context->notifications?->notify($history->requestedBy, $title, $body, '/config/maintenance');
+                $context->notifications?->notify($history->requestedBy, $title, $body, '/config/maintenance/mise-a-jour');
                 return;
             }
 
@@ -816,7 +816,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
             $notifications->dispatch($typeId, $recipients, [
                 'title' => $title,
                 'body' => $body,
-                'url' => '/config/maintenance',
+                'url' => '/config/maintenance/mise-a-jour',
             ]);
         } catch (\Throwable $e) {
             $context->journal->log(

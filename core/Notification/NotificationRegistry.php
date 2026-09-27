@@ -23,12 +23,16 @@ class NotificationRegistry
     public static function getCoreTypes(): array
     {
         return [
+            // `superadmin`, the floor of the routes that start a backup
+            // since every maintenance route moved to it (issue #619): a
+            // preference row for a notification nobody below can cause
+            // would be a switch that does nothing.
             new NotificationType(
                 id: 'core.backup_completed',
                 label: 'Sauvegarde terminée',
                 description: 'Quand une sauvegarde que tu as demandée est prête au téléchargement',
                 group: 'Maintenance',
-                roleMin: 'admin',
+                roleMin: 'superadmin',
                 channels: ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off']
             ),
             new NotificationType(
@@ -36,7 +40,7 @@ class NotificationRegistry
                 label: 'Échec de sauvegarde',
                 description: 'Quand une sauvegarde que tu as demandée a échoué',
                 group: 'Maintenance',
-                roleMin: 'admin',
+                roleMin: 'superadmin',
                 channels: ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off']
             ),
             // Restoring a backup and resetting the settings were this
@@ -44,10 +48,9 @@ class NotificationRegistry
             // the two operations that UNDO one had none, so they reached
             // their requester through NotificationService::notify() — no
             // type, no channel resolution, no row on
-            // /notifications/preferences to switch off. Same shape as the
-            // backup pair above, one role tighter, because that is what
-            // the routes are: /config/maintenance/reset/* is superadmin
-            // while /config/maintenance/backup/* is admin.
+            // /notifications/preferences to switch off. Same shape and
+            // same role as the backup pair above: every maintenance route
+            // is superadmin.
             new NotificationType(
                 id: 'core.restore_completed',
                 label: 'Restauration terminée',

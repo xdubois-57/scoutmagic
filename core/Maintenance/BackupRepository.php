@@ -279,6 +279,24 @@ class BackupRepository
     }
 
     /**
+     * Raises every file a backup owns to Backup::FILE_ROLE — the archives
+     * and dumps registered at `admin` before issue #619 moved maintenance
+     * to `superadmin`. Idempotent; returns how many rows it changed.
+     */
+    public function raiseFileFloor(): int
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE files SET role_min = ?
+             WHERE role_min <> ?
+               AND (id IN (SELECT file_id FROM backups WHERE file_id IS NOT NULL)
+                    OR id IN (SELECT db_dump_file_id FROM backups WHERE db_dump_file_id IS NOT NULL))'
+        );
+        $stmt->execute([Backup::FILE_ROLE, Backup::FILE_ROLE]);
+
+        return $stmt->rowCount();
+    }
+
+    /**
      * @param array<string, mixed> $row
      */
     private function hydrate(array $row): Backup
