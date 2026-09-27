@@ -404,6 +404,104 @@ class SeedCopyRepository
     }
 
     /**
+     * One row per (provider × mailing), with that mailing's answered copies
+     * and how many reached an inbox — the shape
+     * {@see \Core\Mail\Feedback\Trend\WeeklySeries} consumes (issue #420).
+     *
+     * **`sample` is 1 and `total` is the answered copies, and the difference
+     * is the whole point.** The evidence a week carries is counted in
+     * MAILINGS, for the reason {@see \Core\Mail\Feedback\Seed\DomainRouting::MINIMUM_RUNS}
+     * gives — five copies of one mailing to five boxes say one thing five
+     * times — while the share stays inbox copies over answered copies,
+     * because that is what {@see self::tallyByProviderSince()} already puts on
+     * the ranking screen. A trend that computed the share per mailing instead
+     * would be a second answer to the same question, and the two screens would
+     * eventually disagree about the same provider.
+     *
+     * **Pending copies are excluded from both**, exactly as the ranking does:
+     * a copy nobody has answered for is not evidence yet, and counting it
+     * either way would make the curve move as the sweep runs rather than as
+     * delivery changes. A mailing whose every copy is still pending therefore
+     * contributes no row at all — not a row of zeros, which would read as a
+     * mailing that landed nowhere.
+     *
+     * **Dated by `sent_at`, like the purge**, so the points and the edge the
+     * curve stops at cannot disagree about which week a mailing belongs to.
+     *
+     * **And grouped under the ATTRIBUTED provider** (issue #422), like the
+     * ranking above it. Grouping on the stored column would draw a line for
+     * `famille-durand.be` beside `gmail.com` while the table above it counts
+     * that box under Google — the two screens disagreeing about the same
+     * provider, which is precisely what the paragraph above refuses. Two
+     * stored domains folding onto one provider then hold the same mailing
+     * twice, so the rows are merged rather than appended: **one mailing at a
+     * provider is one unit of evidence, whatever the number of its boxes**.
+     *
+     * @return array<string, list<array{at: \DateTimeImmutable, sample: int, hits: int, total: int}>>
+     *   keyed by attributed provider, each list ordered oldest first
+     */
+    public function landingsPerRunSince(\DateTimeImmutable $since): array
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT provider,
+                    run_reference,
+                    MIN(sent_at) AS sent_at,
+                    COUNT(*) AS answered,
+                    SUM(CASE WHEN verdict = \'inbox\' THEN 1 ELSE 0 END) AS inbox
+               FROM mail_seed_copies
+              WHERE sent_at >= :since
+                AND verdict <> \'pending\'
+              GROUP BY provider, run_reference
+              ORDER BY provider ASC, sent_at ASC'
+        );
+        $statement->bindValue(':since', $since->format('Y-m-d H:i:s'));
+        $statement->execute();
+
+        // Keyed by run while the attribution folds, so a mailing that reached
+        // two of a provider's domains stays one row. The key is dropped on
+        // the way out: the series wants a list, in order.
+        $byProvider = [];
+        foreach ($statement->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $provider = $this->attributed((string) $row['provider']);
+            $run = (string) $row['run_reference'];
+            // MIN(sent_at) over a group of a NOT NULL column, so the value is
+            // always there — and read the way every other stored date in this
+            // class is (SECURITY.md § 35).
+            $at = DateInput::requireFromStorage(
+                (string) $row['sent_at'],
+                'mail_seed_copies.sent_at'
+            );
+
+            $existing = $byProvider[$provider][$run] ?? null;
+            $byProvider[$provider][$run] = [
+                // The earliest send of the mailing at this provider, so a
+                // second domain's later row cannot move the mailing's week.
+                'at' => $existing === null ? $at : min($existing['at'], $at),
+                // One mailing, however many boxes and however many of this
+                // provider's domains it reached.
+                'sample' => 1,
+                'hits' => ($existing['hits'] ?? 0) + (int) $row['inbox'],
+                'total' => ($existing['total'] ?? 0) + (int) $row['answered'],
+            ];
+        }
+
+        // Alphabetical, like the ranking's own `ksort()` after it folds: the
+        // SQL ordered the STORED domains, and the attribution reorders them.
+        ksort($byProvider, SORT_STRING);
+
+        return array_map(
+            static function (array $runs): array {
+                // Oldest first, which the SQL gave per stored domain but not
+                // across two that folded into one provider.
+                usort($runs, static fn(array $a, array $b): int => $a['at'] <=> $b['at']);
+
+                return $runs;
+            },
+            $byProvider
+        );
+    }
+
+    /**
      * The domains of the boxes that have been measured, so the MX task
      * attributes them too (issue #422). The stored column, never the
      * attributed one: this is the question, not the answer. Each comes

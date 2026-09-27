@@ -262,5 +262,79 @@
         </p>
     </div>
 
+    {# The week-by-week authentication rate (issue #420). The chart answers the one
+       question the figures above cannot: « est-ce que ça se dégrade ? » #}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5">Est-ce que ça se dégrade ?</h2>
+            <p class="text-body-secondary small">
+                Le taux d'authentification, semaine par semaine, sur les {{ trend_window_days }} jours
+                conservés, là où les chiffres ci-dessus n'en résument que {{ window_days }}. Une semaine n'est tracée
+                qu'à partir de {{ trend_minimum_messages }} messages rapportés : en dessous, un
+                message isolé ferait basculer le taux à 0 ou 100 % et la courbe dessinerait du bruit
+                d'un trait net.
+            </p>
+            <p class="text-body-secondary small">
+                <strong>Une interruption de la courbe se lit « on ne sait pas », jamais « rien n'est
+                passé ».</strong> Les deux cas qu'elle couvre — une semaine purgée et une semaine
+                antérieure à l'installation — sont la même chose : pas de mesure. Et le dernier point
+                se remplit encore, puisque sa semaine n'est pas finie.
+            </p>
+
+            {% if authentication_trend|length > 0 %}
+                <script type="application/json" id="dmarc-trend-data">
+                    {{- authentication_trend|json_encode|raw -}}
+                </script>
+                {# The canvas carries NO role, no label and no aria-hidden — bare, like
+                   every other chart canvas in this repository. The <details> below is
+                   why it needs none: it carries the SAME weeks in text, so the chart
+                   adds nothing for a reader who cannot see it, and a one-line
+                   aria-label could not carry fourteen weeks of figures anyway.
+                   Each of the three attributes tried here is refused by a rule of its
+                   own: `role="img"` because a canvas is not an image (Web:S6819) and
+                   because an interactive element may not take a non-interactive role
+                   (Web:S6843), and `aria-hidden` because it may not sit on a focusable
+                   element (Web:S6825). A bare canvas answers all three. #}
+                <div class="outbound-trend-chart">
+                    <canvas id="dmarc-trend-chart"></canvas>
+                </div>
+                {# The table is not a fallback for a missing chart — it IS the reading, for anybody
+                   who cannot see one. Only the drawn weeks: an interrupted week has nothing to say. #}
+                <details class="mt-2">
+                    <summary class="small">Les mêmes semaines en chiffres</summary>
+                    <div class="table-responsive">
+                    <table class="table table-sm mt-2 mb-0">
+                        <thead>
+                            <tr>
+                                <th scope="col">Semaine du</th>
+                                <th scope="col">Messages</th>
+                                <th scope="col">Authentifiés</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for point in authentication_trend|filter(p => p.value is not null) %}
+                                <tr>
+                                    <td>{{ point.label }}{% if point.partial %} (en cours){% endif %}{% if point.truncated %} (semaine entamée){% endif %}</td>
+                                    <td>{{ point.sample }}</td>
+                                    <td>{{ (point.value * 100)|round }} %</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    </div>
+                </details>
+            {% else %}
+                <p class="text-body-secondary small mb-0">
+                    Aucune semaine ne porte encore assez de messages rapportés pour être tracée.
+                </p>
+            {% endif %}
+        </div>
+    </div>
+
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ asset('/assets/vendor/chartjs/chart.umd.min.js') }}"></script>
+<script src="{{ asset('/assets/js/outbound-mail-trends.js') }}" defer></script>
 {% endblock %}

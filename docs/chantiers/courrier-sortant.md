@@ -2350,10 +2350,35 @@ rien dire. C'est le test à deux relais qui l'a attrapé.
 
 ### Reporté
 
-- Une **tendance** (le taux d'authentification semaine après semaine)
+- ~~Une **tendance** (le taux d'authentification semaine après semaine)
   demanderait une agrégation que rien ne réclame tant que personne n'a
-  regardé la page une deuxième fois. **Suivie en #420**, avec celle
-  d'IT-07 : même question, même justification, un seul ticket.
+  regardé la page une deuxième fois.~~ **Livré, #420**, avec celle
+  d'IT-07 : même question, même justification, un seul ticket — et une
+  seule classe, `WeeklySeries`, parce que les trois décisions qui
+  façonnent une tendance sont les mêmes des deux côtés et que deux copies
+  auraient fini par répondre différemment à « cette semaine est-elle
+  finie ? ».
+
+  **Un trou n'est pas un zéro**, et c'est toute l'arbitration du ticket.
+  Sous le seuil, il n'y a pas de point : la ligne se coupe. Un point gris
+  ou à zéro finit par se lire comme les autres, et une pente au-dessus
+  d'un trou serait une mesure que personne n'a prise. Le bord gauche de
+  la courbe est **lu dans la constante de rétention de la purge**, jamais
+  recopié : une courbe qui remonterait plus loin promettrait un « avant »
+  qui a été supprimé. Et « purgé » et « jamais arrivé » reçoivent la même
+  réponse, la seule honnête, qui est « pas mesuré ».
+
+  **Le seuil DMARC est en messages, vingt**, décidé plutôt que supposé
+  (mainteneur, 27 septembre) : c'est ce que les rapports portent
+  réellement, un rapport ne disant rien de quel message appartenait à
+  quel envoi. Ce n'est pas les cinq de `MINIMUM_RUNS` — cinq messages,
+  c'est deux e-mails individuels, et un taux sur eux bascule à 0 % ou
+  100 % sur un seul.
+
+  **Le mutant qui a survécu** mérite d'être noté : aplatir un trou en
+  zéro à la sortie du contrôleur passait tous les tests, parce qu'aucun
+  ne rendait une série ayant à la fois une semaine mesurée **et** un
+  trou. Le garde manquant était exactement celui de l'arbitration.
 - ~~Le **rapprochement d'une source avec un fournisseur connu par plages
   d'adresses publiées** (les `include:` du SPF).~~ **Livré, #421** — le seul
   report de ce chantier qui était écrit comme souhaitable plutôt que comme
@@ -2632,9 +2657,53 @@ sur une porte.**
 - ~~Rapprocher un fournisseur de messagerie d'un domaine destinataire
   autre que le sien.~~ **Livré en #422**, voir « Suite : le vrai
   fournisseur d'un domaine » ci-dessous.
-- **Une tendance dans le temps** (ce fournisseur se dégrade-t-il ?) :
+- ~~**Une tendance dans le temps** (ce fournisseur se dégrade-t-il ?) :
   même raison qu'en IT-06, rien ne la réclame tant que personne n'a
-  regardé la page deux fois. **Suivie en #420**, avec celle d'IT-06.
+  regardé la page deux fois.~~ **Livré, #420**, avec celle d'IT-06, dont
+  le report porte le détail. Deux choses tiennent à cette page-ci :
+  **une courbe par fournisseur**, parce que la question est comparative —
+  un fournisseur qui se met à filtrer se lit contre ceux qui ne le font
+  pas (mainteneur, 27 septembre) ; et **un seuil propre à la semaine**,
+  `LandingTrend::MINIMUM_MAILINGS`, un publipostage mesuré (mainteneur,
+  27 septembre).
+
+  **La première version réutilisait `MINIMUM_RUNS` et c'était faux**, pour
+  une raison qui vaut d'être gardée : l'argument était « même preuve, même
+  jugement », et il ignorait la fenêtre. Ces cinq publipostages sont cinq
+  **par trente jours** (`SEEDS_WINDOW`) ; réutilisés comme seuil
+  hebdomadaire ils sont quatre fois plus stricts que la constante ne l'a
+  jamais voulu. À « trois à cinq boîtes et quelques publipostages par an »
+  — le volume que ce dépôt énonce lui-même — aucune semaine n'atteint
+  cinq : toutes les séries étaient vides, le filtre `drawable()` que cette
+  classe portait alors ne rendait rien, et la carte ne pouvait afficher que
+  son propre état vide. La fonction était inerte, et mesurée inerte avant
+  d'être corrigée (`Claude review`).
+
+  **Et ce filtre a disparu avec le seuil**, parce que son mutant survivait :
+  à un publipostage, il ne pouvait plus jamais filtrer. La requête écarte
+  déjà les copies en attente, donc un fournisseur n'entre dans la table
+  qu'avec au moins un envoi répondu, qui franchit un seuil de un. Une
+  frontière à deux mécanismes est la forme dont le mutant survit parce que
+  chaque copie masque l'absence de l'autre — cinquième occurrence dans ce
+  chantier. Un test épingle l'invariant à la place du garde.
+
+  **Un seuil calibré pour une fenêtre n'est pas un seuil pour une autre**,
+  quelle que soit la ressemblance des preuves qu'il juge. Celui qui l'a
+  remplacé refuse zéro preuve au lieu d'en exiger cinq, parce que
+  `MINIMUM_RUNS` garde une action automatique là où celui-ci ne fait que
+  montrer un chiffre à quelqu'un qui peut le pondérer — et `sample` va
+  jusqu'à l'infobulle pour qu'il le puisse.
+
+  Ironie utile : `AuthenticationTrend`, écrit dans la même PR, refuse
+  explicitement de réutiliser `MINIMUM_RUNS` pour exactement cette
+  raison. J'avais écrit l'argument et ne l'avais pas appliqué une classe
+  plus loin.
+
+  Un fournisseur mesuré trop mince est **laissé hors du graphique**
+  plutôt que dessiné en ligne vide : une entrée de légende sans ligne se
+  lit « il n'a rien délivré », l'inverse de « pas assez mesuré pour le
+  dire ». Il reste dans le tableau au-dessus, qui ne prétend pas faire
+  une tendance.
 - **Proposer un relais autrement que « le suivant dans la voie ».** Un
   classement calculé à partir des résultats par relais supposerait
   d'avoir mesuré chaque fournisseur depuis chaque relais, ce qu'une unité

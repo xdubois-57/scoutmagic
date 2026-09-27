@@ -9,7 +9,7 @@ question: Pourquoi je ne reçois aucun rapport DMARC ?
 question: Un serveur inconnu envoie en mon nom, est-ce grave ?
 question: Puis-je passer ma politique DMARC à reject ?
 paths: /config/courrier-sortant/dmarc
-related: courrier-sortant, courrier-sortant-authentification, courrier-sortant-sonde, courrier-sortant-rebonds
+related: courrier-sortant, courrier-sortant-tendances, courrier-sortant-authentification, courrier-sortant-sonde, courrier-sortant-rebonds
 ---
 
 ## À quoi sert cette page

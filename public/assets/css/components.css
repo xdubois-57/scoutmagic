@@ -875,6 +875,19 @@
     height: 260px;
 }
 
+/* Core\Mail\Feedback — the two week-by-week charts of « Courrier sortant »
+   (issue #420). Same need as `.support-chart` above and deliberately not the
+   same class: that one is a module's, named after it, and core reaching into
+   a module's stylesheet would tie the two together for the sake of two
+   declarations. Lower than that one, because these cards carry a <details>
+   table under the canvas and the chart should not push it off the screen —
+   and one height for both charts rather than two classes for twenty pixels,
+   the seed chart's legend being the taller of the two. */
+.outbound-trend-chart {
+    position: relative;
+    height: 240px;
+}
+
 /* Modules\SupportDashboard — the raw report JSON in the detail dialog. The
    dialog already scrolls; this caps the JSON block so the metrics above it
    stay reachable without scrolling past a hundred lines. */
