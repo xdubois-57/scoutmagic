@@ -117,24 +117,42 @@ class EmailTemplateRenderer
     private function renderCustomised(EmailTemplate $template, array $override, array $context): RenderedEmail
     {
         $bodyHtml = $this->substituteIntoHtml($template, $override['body_html'], $context);
+        $frame = self::frameContext($context);
 
         return new RenderedEmail(
             subject: $this->substitute($template, $override['subject'], $context, false),
             // Through custom.html.twig so the frame — header, footer, the
             // unit's name — is the same code every other e-mail uses. The
             // body itself is a finished string by now, never a template.
-            bodyHtml: $this->twig->render('email/custom.html.twig', [
-                'site_name' => is_scalar($context['site_name'] ?? null) ? (string) $context['site_name'] : '',
-                'body_html' => $bodyHtml,
-            ]),
+            bodyHtml: $this->twig->render('email/custom.html.twig', $frame + ['body_html' => $bodyHtml]),
             // The signature too: the HTML half gets it from the frame, and
             // a plain-text half that stopped short of it would be the one
             // version of the message that arrives unsigned.
-            bodyText: self::toPlainText($bodyHtml) . "\n\n" . $this->twig->render(
-                'email/signature.text.twig',
-                ['site_name' => is_scalar($context['site_name'] ?? null) ? (string) $context['site_name'] : '']
-            ),
+            bodyText: self::toPlainText($bodyHtml) . "\n\n"
+                . $this->twig->render('email/signature.text.twig', $frame),
         );
+    }
+
+    /**
+     * What the frame of a customised e-mail reads from the sender's
+     * context: the unit's name, and the optional footer note a sending
+     * service adds (email/base.html.twig). Carried across explicitly,
+     * because a customised body is a finished string and the frame is the
+     * only part of it that still sees the context — a note left behind
+     * here would vanish the moment an administrator reworded the message.
+     *
+     * @param array<string, mixed> $context
+     * @return array{site_name: string, footer_note: string, footer_link: string}
+     */
+    private static function frameContext(array $context): array
+    {
+        $text = static fn(string $key): string => is_scalar($context[$key] ?? null) ? (string) $context[$key] : '';
+
+        return [
+            'site_name' => $text('site_name'),
+            'footer_note' => $text('footer_note'),
+            'footer_link' => $text('footer_link'),
+        ];
     }
 
     /**

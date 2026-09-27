@@ -56,10 +56,11 @@ fournies avec le site : un point de départ à relire et à adapter, pas un
 avis juridique. « Revenir aux conditions standard » remet le texte
 d'origine.
 
-À chaque demande, le site enregistre la **version** et une **empreinte** du
-texte exact qui était à l'écran — pas une copie. Réécrire vos conditions
-produit une autre empreinte : ce qu'un locataire a accepté ne peut donc pas
-être remplacé en silence.
+**Chaque modification crée une nouvelle version**, et l'ancienne reste
+lisible à son adresse permanente. Le site enregistre la version que chaque
+locataire a acceptée. L'accusé de réception, la décision, les documents et
+les informations pratiques qui lui sont envoyés se terminent par un lien
+vers celle-là, même si vous personnalisez ces e-mails.
 
 ## Rappels
 
