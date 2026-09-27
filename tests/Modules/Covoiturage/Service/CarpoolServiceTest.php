@@ -291,6 +291,45 @@ final class CarpoolServiceTest extends TestCase
         $this->assertSame($id, $this->carpools->findNextToGeocode()?->id, 'back in the background queue');
     }
 
+    public function testAnAutomaticPinDroppedForANewAddressLeavesThePointToTheTask(): void
+    {
+        // The page dropped the old address's untouched pin: empty
+        // coordinates, still `point_automatic`. Not a human's « no point ».
+        $id = $this->service->create($this->input(), H::viewer(1, Role::CHIEF));
+        $this->carpools->points()->recordGeocoding($id, new \Core\Geo\GeoPoint(50.7, 4.6), new \DateTimeImmutable());
+        $carpool = $this->carpools->findById($id);
+        $this->assertNotNull($carpool);
+
+        $this->service->update(
+            $carpool,
+            $this->input([
+                'address' => 'Place du Marché 1, Namur',
+                'latitude' => '',
+                'longitude' => '',
+                'point_automatic' => '1',
+            ]),
+            H::viewer(1, Role::CHIEF)
+        );
+
+        $after = $this->carpools->findById($id);
+        $this->assertNull($after?->point);
+        $this->assertFalse($after->pointIsManual);
+        $this->assertSame($id, $this->carpools->findNextToGeocode()?->id);
+
+        $created = $this->service->create(
+            $this->input([
+                'event_ids' => [],
+                'address' => 'Bastogne',
+                'section_id' => (string) $this->sectionId,
+                'latitude' => '',
+                'longitude' => '',
+                'point_automatic' => '1',
+            ]),
+            H::viewer(1, Role::CHIEF)
+        );
+        $this->assertFalse($this->carpools->findById($created)?->pointIsManual);
+    }
+
     public function testTheFormCannotTurnAHandPlacedPointBackIntoAnAutomaticOne(): void
     {
         $id = $this->service->create(

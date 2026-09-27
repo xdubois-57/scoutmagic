@@ -136,6 +136,8 @@
         var addressMarker = null;
         /** @type {[number, number]|null} */
         var addressPosition = null;
+        /** The address an automatic pin was found for. */
+        var pinAddress = '';
 
         fields.classList.add('d-none');
 
@@ -147,7 +149,10 @@
             lat.value = latitude === null ? '' : latitude.toFixed(6);
             lng.value = longitude === null ? '' : longitude.toFixed(6);
             if (automatic) {
-                automatic.value = !manual && latitude !== null ? '1' : '0';
+                // « The point — present or absent — is the address's, not a
+                // human's »: an automatic pin dropped for a stale address
+                // posts empty coordinates that the server must not lock.
+                automatic.value = manual ? '0' : '1';
             }
             if (manualField) {
                 manualField.value = manual ? '1' : '0';
@@ -244,6 +249,22 @@
             frame(position);
         }
 
+        /**
+         * A pin nobody touched, found for an address the field no longer
+         * holds, would be saved as the new address's point. Dropped, the
+         * point goes back to the background task after saving.
+         */
+        function dropStalePin(/** @type {string} */ query) {
+            if (manual || !marker || query === pinAddress) {
+                return;
+            }
+            marker.remove();
+            marker = null;
+            write(null, null);
+            mapBox.classList.add('d-none');
+            placeButton.classList.remove('d-none');
+        }
+
         var asked = 0;
         async function locate() {
             if (!locateUrl || !address) {
@@ -253,6 +274,7 @@
             var query = address.value.trim();
             if (query.length < 4) {
                 forgetAddress();
+                dropStalePin(query);
                 return;
             }
             var res = await window.ScoutMagicApi.getJson(locateUrl + '?q=' + encodeURIComponent(query));
@@ -262,9 +284,14 @@
             var data = res.data;
             if (!data?.success || !data.found || !Number.isFinite(data.latitude) || !Number.isFinite(data.longitude)) {
                 // Nothing found, over quota, or off: an old address's marker
-                // would now be a lie, and the rest stays as it was.
+                // would now be a lie, and so would its untouched pin. A pin
+                // for THIS address (the page just opened) stays.
                 forgetAddress();
+                dropStalePin(query);
                 return;
+            }
+            if (!manual) {
+                pinAddress = query;
             }
             placeAddress([data.latitude, data.longitude]);
         }
@@ -274,6 +301,8 @@
         if (latitude !== null && longitude !== null) {
             showMap([latitude, longitude]);
             pin([latitude, longitude]);
+            // A saved automatic point belongs to the saved address.
+            pinAddress = address ? address.value.trim() : '';
         } else {
             placeButton.classList.remove('d-none');
         }

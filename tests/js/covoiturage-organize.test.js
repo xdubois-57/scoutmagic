@@ -238,7 +238,7 @@ describe('covoiturage-organize', () => {
             expect(document.querySelector('[data-carpool-point-automatic]').value).toBe('0');
         });
 
-        it('drops the address marker when a new address is not found, and changes nothing else', async () => {
+        it('drops the address marker when a new address is not found', async () => {
             const leaflet = stubLeaflet();
             buildForm({ locate: true });
             await load();
@@ -251,7 +251,45 @@ describe('covoiturage-organize', () => {
             await settle();
 
             expect(addressMarkerOf(leaflet).removed).toBe(true);
-            expect(pinOf(leaflet).getLatLng()).toEqual({ lat: 50.125, lng: 5.187 });
+        });
+
+        it('drops an untouched pin found for an old address when the new one is not found', async () => {
+            const leaflet = stubLeaflet();
+            buildForm({ locate: true });
+            await load();
+            answer(FOUND);
+            leave('Gîte de Han, rue des Grottes 12');
+            await settle();
+
+            // Not found, over quota or busy: all the same « found: false ».
+            answer({ success: true, found: false });
+            leave('Place du Marché 1, Namur');
+            await settle();
+
+            expect(pinOf(leaflet)).toBeUndefined();
+            expect(value('carpool-latitude')).toBe('');
+            expect(document.querySelector('[data-carpool-point-automatic]').value).toBe('1');
+            expect(document.querySelector('[data-carpool-point-place]').classList.contains('d-none')).toBe(false);
+        });
+
+        it('keeps the saved automatic pin of the saved address when its lookup is refused on opening', async () => {
+            const fetch = vi.fn().mockResolvedValue({
+                ok: true, status: 200, json: () => Promise.resolve({ success: true, found: false }),
+            });
+            vi.stubGlobal('fetch', fetch);
+            try {
+                const leaflet = stubLeaflet();
+                buildForm({ locate: true, address: 'Gîte de Han', lat: '50.125000', lng: '5.187000' });
+                await load();
+                await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+                await Promise.resolve();
+                await Promise.resolve();
+
+                expect(pinOf(leaflet).getLatLng()).toEqual({ lat: 50.125, lng: 5.187 });
+                expect(value('carpool-latitude')).toBe('50.125000');
+            } finally {
+                vi.unstubAllGlobals();
+            }
         });
 
         it('looks the address up when the events fill it, and when the form opens with one', async () => {

@@ -190,8 +190,12 @@ class CarpoolService
     private function savePoint(int $carpoolId, ?GeoPoint $point, bool $automatic): void
     {
         $points = $this->carpools->points();
-        if ($automatic && $point !== null) {
-            $points->recordGeocoding($carpoolId, $point, new \DateTimeImmutable());
+        if ($automatic) {
+            // No point at all is the background task's to find, never a
+            // human's « no point » locked for ever.
+            if ($point !== null) {
+                $points->recordGeocoding($carpoolId, $point, new \DateTimeImmutable());
+            }
 
             return;
         }
