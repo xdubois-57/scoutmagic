@@ -19,6 +19,7 @@ use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
 use Core\Maintenance\CommitInfo;
 use Core\Maintenance\GitHubReleaseClientInterface;
+use Core\Maintenance\Health\HostHealth;
 use Core\Maintenance\ReleaseInfo;
 use Core\Maintenance\UpdateHistoryRepository;
 use Core\Module\ModuleManager;
@@ -54,7 +55,7 @@ class MaintenanceControllerTest extends TestCase
     private Environment $twig;
     private string $storagePath;
     private Connection $connection;
-    /** @var callable(BackupService): MaintenanceController */
+    /** @var callable(BackupService, ?HostHealth=): MaintenanceController */
     private $rebuildController;
 
     /**
@@ -180,7 +181,7 @@ class MaintenanceControllerTest extends TestCase
         // BackupService — the disk-budget refusal below needs one whose
         // quota is already full, and everything else about the page must
         // stay identical for that test to mean anything.
-        $this->rebuildController = function (BackupService $service) use (
+        $this->rebuildController = function (BackupService $service, ?HostHealth $hostHealth = null) use (
             $fileRepository,
             $schedulerService,
             $moduleManager,
@@ -195,7 +196,8 @@ class MaintenanceControllerTest extends TestCase
                 null,
                 // The health block's crontab line is spelled from the public
                 // directory, the one anchor valid in both hosting layouts.
-                dirname($storagePath) . '/public'
+                dirname($storagePath) . '/public',
+                hostHealth: $hostHealth
             );
         };
 
@@ -302,7 +304,7 @@ class MaintenanceControllerTest extends TestCase
             // Each sub-page carries its own boxes and no other.
             $this->assertSame(count($ids), substr_count($body, '<h2 class="mb-0">'), "{$action} carries a foreign box.");
         }
-        $this->assertStringContainsString('<span class="h5 mb-0 flex-grow-1">État</span>', $this->page('index'));
+        $this->assertStringContainsString('<span class="h5 mb-0 flex-grow-1">Ce dont le site dépend</span>', $this->page('index'));
     }
 
     /**
@@ -434,8 +436,8 @@ class MaintenanceControllerTest extends TestCase
     {
         $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
 
-        $this->assertStringContainsString('Tâche cron réelle', $body);
-        $this->assertStringContainsString('Jamais détecté', $body);
+        $this->assertMatchesRegularExpression('~id="host-check-cron" data-state="missing"~', $body);
+        $this->assertStringContainsString('Jamais détectée', $body);
         $this->assertStringContainsString('* * * * * php ' . dirname($this->storagePath) . '/public/cron.php', $body);
         $this->assertStringContainsString('maintenance-cron-warning', $body);
     }
@@ -453,8 +455,8 @@ class MaintenanceControllerTest extends TestCase
 
         $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
 
-        $this->assertStringContainsString('Actif', $body);
-        $this->assertStringContainsString('cadence ~1 min', $body);
+        $this->assertMatchesRegularExpression('~id="host-check-cron" data-state="ok"~', $body);
+        $this->assertStringContainsString('Active — dernier passage il y a 40 s, cadence ~1 min', $body);
         // Nothing to fix, so nothing is shown to fix it with.
         $this->assertStringNotContainsString('maintenance-cron-warning', $body);
     }
@@ -513,29 +515,31 @@ class MaintenanceControllerTest extends TestCase
 
         $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
 
-        $this->assertStringContainsString('Plus détecté', $body);
-        $this->assertStringNotContainsString('Jamais détecté', $body);
+        $this->assertStringContainsString('Plus détectée', $body);
+        $this->assertStringNotContainsString('Jamais détectée', $body);
         $this->assertStringContainsString('maintenance-cron-warning', $body);
     }
 
     /**
      * A channel whose last three installs all rolled back still carries a
      * perfectly good "dernière mise à jour réussie" date. Reading only
-     * that one is how six consecutive rollbacks stayed invisible on this
-     * very page — the MOST RECENT attempt is the other half.
+     * that one is how six consecutive rollbacks stayed invisible — the
+     * MOST RECENT attempt is the other half. It is the update's state, not
+     * the host's, so it moved to Mise à jour with IT-02 (issue #619).
      */
-    public function testTheHealthBlockFlagsAFailedMostRecentAttemptBesideTheLastSuccess(): void
+    public function testTheUpdatePageFlagsAFailedMostRecentAttempt(): void
     {
         $succeeded = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, null);
         $this->updateHistoryRepository->markCompleted($succeeded);
         $failed = $this->updateHistoryRepository->create('1.1.0', '1.2.0', false, null);
         $this->updateHistoryRepository->markRolledBack($failed, 'migration KO');
 
-        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $body = $this->page('updatePage');
 
-        $this->assertStringContainsString('maintenance-auto-update-health', $body);
         $this->assertStringContainsString('maintenance-update-last-attempt', $body);
         $this->assertStringContainsString('restauré automatiquement', $body);
+        $health = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $this->assertStringNotContainsString('maintenance-update-last-attempt', $health);
     }
 
     /**
@@ -550,7 +554,7 @@ class MaintenanceControllerTest extends TestCase
         $skipped = $this->updateHistoryRepository->create('1.1.0', '1.2.0', false, null);
         $this->updateHistoryRepository->markSkipped($skipped, 'Installation remplacée : un push plus récent est arrivé.');
 
-        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $body = $this->page('updatePage');
 
         $this->assertStringContainsString('>Ignorée</span>', $body);
         $this->assertStringNotContainsString('Échouée</span>', $body, 'a skipped install shown as failed');
@@ -564,7 +568,7 @@ class MaintenanceControllerTest extends TestCase
         $skipped = $this->updateHistoryRepository->create('1.1.0', '1.2.0', false, null);
         $this->updateHistoryRepository->markSkipped($skipped, 'Installation remplacée.');
 
-        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $body = $this->page('updatePage');
 
         $this->assertStringContainsString('maintenance-update-last-attempt', $body);
         $this->assertStringContainsString('restauré automatiquement', $body);
@@ -580,21 +584,46 @@ class MaintenanceControllerTest extends TestCase
             $this->updateHistoryRepository->markSkipped($skipped, 'Installation remplacée.');
         }
 
-        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $body = $this->page('updatePage');
 
         $this->assertStringContainsString('maintenance-update-last-attempt', $body);
         $this->assertStringContainsString('restauré automatiquement', $body);
     }
 
-    public function testTheHealthBlockStaysQuietWhenTheMostRecentAttemptSucceeded(): void
+    public function testTheUpdatePageStaysQuietWhenTheMostRecentAttemptSucceeded(): void
     {
         $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, null);
         $this->updateHistoryRepository->markCompleted($id);
 
-        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $this->assertStringNotContainsString('maintenance-update-last-attempt', $this->page('updatePage'));
+    }
 
-        $this->assertStringContainsString('maintenance-auto-update-health', $body);
-        $this->assertStringNotContainsString('maintenance-update-last-attempt', $body);
+    /**
+     * With the host measured, every dependency is a line, and the page
+     * sends to the storage page for disk space rather than measuring it
+     * a second time.
+     */
+    public function testTheHealthPageListsEveryHostDependencyAndLinksToStorageForDiskSpace(): void
+    {
+        $controller = ($this->rebuildController)(
+            new BackupService($this->connection, $this->storagePath, dirname($this->storagePath)),
+            new HostHealth($this->storagePath, $this->settingService, new BackupService(
+                $this->connection,
+                $this->storagePath,
+                dirname($this->storagePath)
+            ), new \PDO('sqlite::memory:'))
+        );
+
+        $body = $controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        foreach (['cron', 'ffmpeg', 'archive_encryption', 'sodium', 'gd', 'mail', 'php', 'database', 'storage'] as $key) {
+            $this->assertStringContainsString('id="host-check-' . $key . '"', $body);
+        }
+        $this->assertStringContainsString('id="host-health-summary"', $body);
+        // The cron of a fresh test storage never ran: at least that line counts.
+        $this->assertStringContainsString("à régler chez l'hébergeur.", $body);
+        $this->assertStringContainsString('<a href="/config/stockage">', $body);
+        $this->assertStringNotContainsString('Espace disque :', $body);
     }
 
     /**

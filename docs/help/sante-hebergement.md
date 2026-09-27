@@ -1,11 +1,11 @@
 ---
 id: sante-hebergement
 title: Santé de l'hébergement
-summary: La page d'accueil de la maintenance : la tâche cron du serveur et le résultat des mises à jour automatiques.
+summary: La page d'accueil de la maintenance : tout ce dont le site dépend chez l'hébergeur, ce qui cesse de marcher sans chaque élément, et quoi lui demander.
 category: Configuration
 role_min: superadmin
 question: Comment savoir si la tâche cron du site tourne ?
-question: Où voir si la dernière mise à jour automatique a réussi ?
+question: Que demander à mon hébergeur quand une fonction ne marche pas ?
 paths: /config/maintenance
 related: mises-a-jour, actions-planifiees, installation-serveur
 ---
@@ -16,25 +16,39 @@ Sauvegarde manuelle, Sauvegarde automatique, Sauvegardes récentes et
 Réinitialisation. Cette page-ci est la première, celle qui s'ouvre
 depuis le menu Configuration.
 
-## La tâche cron
+## Une ligne par dépendance
 
-Le site a besoin que l'hébergeur le réveille régulièrement : c'est la
-tâche cron. Sans elle, rien ne se passe en dehors des visites — ni
-sauvegarde automatique, ni mise à jour, ni rappel, ni notification — et
-aucune erreur ne le signale.
+Chaque ligne dit trois choses : si l'élément répond, ce qui cesse de
+marcher sans lui, et — quand il manque — ce qu'il faut demander à votre
+hébergeur. Un bandeau en haut compte les lignes à régler.
 
-La page dit donc si la tâche a été vue récemment, et à quel rythme. Si
-elle n'a jamais été détectée, ou plus depuis un moment, elle affiche la
-ligne exacte à ajouter chez votre hébergeur, dans la rubrique « Tâches
-planifiées » ou « Cron ». Le mot `php` au début de la ligne est
-obligatoire.
+- **Tâche cron** — le site a besoin que l'hébergeur le réveille
+  régulièrement. Sans elle, rien ne se passe en dehors des visites : ni
+  sauvegarde automatique, ni mise à jour, ni rappel, ni notification, et
+  aucune erreur ne le signale. Si elle n'a jamais été détectée, ou plus
+  depuis un moment, la page affiche la ligne exacte à ajouter dans la
+  rubrique « Tâches planifiées » ou « Cron ». Le mot `php` au début de la
+  ligne est obligatoire.
+- **ffmpeg et ffprobe** — sans eux, la galerie refuse les vidéos.
+- **Chiffrement des archives** — sans lui, la sauvegarde complète et la
+  sauvegarde portable sont indisponibles.
+- **libsodium** — sans elle, les sauvegardes portables se chiffrent
+  quand même, mais moins solidement : la ligne est orange plutôt que
+  rouge.
+- **GD** — sans elle, aucune image n'est transformée (vignettes, icônes
+  de l'application, photos de section).
+- **Courrier entrant (IMAP)** — les extensions PHP dont la relève des
+  boîtes aux lettres a besoin.
+- **PHP, base de données, écriture dans `storage/`** — la version de PHP,
+  le moteur et la version de la base, et la possibilité d'enregistrer
+  des fichiers.
 
-## Les mises à jour automatiques
+## Ce que la page ne montre pas
 
-La page rappelle aussi la date de la dernière mise à jour installée
-automatiquement. Quand la dernière tentative a échoué, elle le dit en
-rouge et renvoie vers la page Mise à jour, où l'historique détaille ce
-qui s'est passé.
+L'espace disque se lit volume par volume sur Configuration › Stockage :
+un second chiffre ici serait une seconde réponse à la même question.
+L'état des mises à jour automatiques, et une dernière tentative
+échouée, sont sur la page Mise à jour.
 
 ## Une migration restée incomplète
 

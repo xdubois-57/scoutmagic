@@ -23,6 +23,7 @@ use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
 use Core\Maintenance\GitHubReleaseClient;
 use Core\Maintenance\GitHubReleaseClientInterface;
+use Core\Maintenance\Health\HostHealth;
 use Core\Maintenance\GitHubWebhookService;
 use Core\Maintenance\ReleaseInfo;
 use Core\Maintenance\Remote\RemoteBackupDestination;
@@ -156,7 +157,14 @@ class MaintenanceController extends AbstractController
          * page that cannot be opened.
          */
         private ?RemoteBackupDestination $remoteBackupDestination = null,
-        private ?StorageLocationService $storageLocations = null
+        private ?StorageLocationService $storageLocations = null,
+        /**
+         * Measures the host for Santé de l'hébergement (issue #619, IT-02).
+         * Last and optional, like the two above. Null leaves that page
+         * with the one line that needs nothing but the storage path — the
+         * cron — rather than a list claiming everything else is fine.
+         */
+        private ?HostHealth $hostHealth = null
     ) {
     }
 
@@ -202,7 +210,16 @@ class MaintenanceController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
-        return $this->render('config/maintenance/sante.html.twig', $this->pageContext());
+        // Measured here and not in pageContext(): it spawns processes and
+        // writes a test zip, which only this page has any use for.
+        $checks = $this->hostHealth !== null
+            ? HostHealth::checks($this->hostHealth->detect())
+            : [HostHealth::cronCheck((new CronHealth($this->storagePath, $this->settingService))->status())];
+
+        return $this->render(
+            'config/maintenance/sante.html.twig',
+            ['host_checks' => $checks] + $this->pageContext()
+        );
     }
 
     /**
@@ -293,8 +310,6 @@ class MaintenanceController extends AbstractController
                 : null
         );
 
-        $cronStatus = (new CronHealth($this->storagePath, $this->settingService))->status();
-
         // Read settings only. The phrase ITSELF is never put in the
         // template: revealing it is its own POST route, behind the CSRF
         // token and journaled (Core\Http\Controller\
@@ -321,10 +336,9 @@ class MaintenanceController extends AbstractController
 
         return [
             'abandoned_migration' => $abandonedMigration,
-            // ——— Bloc « État » (haut de page) ———
-            'cron_state' => $cronStatus->state,
-            'cron_seconds_since_last_pass' => $cronStatus->secondsSinceLastSeen(),
-            'cron_median_interval_seconds' => $cronStatus->medianIntervalSeconds,
+            // The line Santé de l'hébergement shows under a cron that is not
+            // running; the cron's state itself is Core\Maintenance\Health\
+            // HostHealth's.
             'cron_crontab_line' => CronHealth::crontabLine($this->publicDir),
             'update_last_attempt_status' => $lastAttempt?->status,
             'update_last_attempt_at' => $lastAttempt?->startedAt,
