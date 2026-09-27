@@ -8,9 +8,9 @@
     {% include '@finance/_nav.html.twig' with {'hide_account_picker': true} %}
 
     <p class="text-body-secondary small mb-3">
-        Importez ici un relevé bancaire (export de votre banque) pour ajouter automatiquement les nouveaux
-        mouvements au compte sélectionné — les mouvements déjà importés sont ignorés, et les règles de
-        catégorisation configurées s'appliquent automatiquement à chaque ligne importée.
+        Importez ici un relevé bancaire (export de votre banque). Il n'y a pas de compte à choisir : chaque
+        mouvement rejoint le compte du site qui porte son IBAN. Les mouvements déjà importés sont ignorés, et
+        les règles de catégorisation configurées s'appliquent automatiquement à chaque ligne importée.
     </p>
 
     <h2 class="h5 mb-3">Importer un relevé bancaire</h2>
@@ -18,40 +18,23 @@
     <form method="post" action="/finance/import" enctype="multipart/form-data" class="border rounded-3 p-3" id="import-form">
         {{ csrf_field()|raw }}
         <div class="row g-2">
-            <div class="col-12 col-md-4">
-                {# `data-first-import` per option: finance-import-form.js reads
-                   it to decide whether the opening balance is required. #}
-                {% include 'partials/form_field.html.twig' with {
-                    field_id: 'import-account', field_name: 'account_id',
-                    label: 'Compte', type: 'select', size: 'sm', wrapper_class: '',
-                    options: accounts|default([])|map(account => {
-                        value: account.id,
-                        label: account.name,
-                        selected: selected_account and account.id == selected_account.id,
-                        data: { 'first-import': first_import_by_account_id[account.id] ? '1' : '0' },
-                    }),
-                } only %}
-            </div>
-            <div class="col-12 col-md-4">
+            <div class="col-12 col-md-6">
                 {% include 'partials/form_field.html.twig' with {
                     field_id: 'import-bank', field_name: 'bank_code',
                     label: 'Banque', type: 'select', size: 'sm', wrapper_class: '',
                     options: bank_codes|default([])|map(code => { value: code, label: code|upper }),
                 } only %}
             </div>
-            <div class="col-12 col-md-4">
-                <label class="form-label small" for="import-file">Fichier CSV</label>
+            <div class="col-12 col-md-6">
+                <label class="form-label small" for="import-file">Fichier du relevé</label>
                 <input type="file" class="form-control form-control-sm" id="import-file" name="statement" accept=".csv" required>
             </div>
             <div class="col-12 col-md-6">
-                {# The help line is rewritten by finance-import-form.js on
-                   every account change; the partial names it
-                   `import-balance-help` and wires aria-describedby to it. #}
                 {% include 'partials/form_field.html.twig' with {
                     field_id: 'import-balance', field_name: 'balance',
                     label: 'Solde après ce relevé', placeholder: '1234,56',
                     size: 'sm', wrapper_class: '',
-                    help: 'Facultatif — laissez vide pour recalculer le solde automatiquement depuis les mouvements.',
+                    help: "Obligatoire au premier import d'un compte ; facultatif ensuite, où il sert à détecter un écart. Un fichier qui couvre plusieurs comptes ne peut pas en recevoir.",
                 } only %}
             </div>
             <div class="col-12">
@@ -59,8 +42,4 @@
             </div>
         </div>
     </form>
-{% endblock %}
-
-{% block scripts %}
-<script src="{{ asset('/assets/js/finance-import-form.js') }}" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

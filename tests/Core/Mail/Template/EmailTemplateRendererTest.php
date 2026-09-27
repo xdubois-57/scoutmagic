@@ -338,6 +338,72 @@ class EmailTemplateRendererTest extends TestCase
     }
 
     /**
+     * The frame's footer note — added by the SENDING code, not the template
+     * (email/base.html.twig) — survives a customisation, in both halves:
+     * a rental's link to the conditions the renter accepted (issue #494)
+     * must not be something an administrator can reword away.
+     */
+    public function testAFooterNoteFromTheSenderSurvivesACustomisation(): void
+    {
+        $this->overrides->save('super_admin_granted', 'Sujet', '<p>Notre propre texte.</p>', null);
+
+        $email = $this->renderer->render('super_admin_granted', [
+            'granted_by' => 'Alice',
+            'site_name' => 'Unité Test',
+            'footer_note' => 'Conditions de location acceptées le 01/05/2027 :',
+            'footer_link' => 'https://unite.test/locations/le-chalet/conditions/0123456789ab',
+        ]);
+
+        foreach (['html' => $email->bodyHtml, 'text' => $email->bodyText] as $half => $body) {
+            self::assertStringContainsString('Conditions de location acceptées le 01/05/2027', $body, $half);
+            self::assertStringContainsString('https://unite.test/locations/le-chalet/conditions/0123456789ab', $body, $half);
+        }
+        self::assertStringContainsString('href="https://unite.test/locations/le-chalet/conditions/0123456789ab"', $email->bodyHtml);
+    }
+
+    /**
+     * In the shipped plain-text half, the note and its link each keep a
+     * line of their own: Twig eats the newline after a `%}`, and the link
+     * used to end up glued to the colon of the note.
+     */
+    public function testTheTextHalfPutsTheFooterLinkOnItsOwnLine(): void
+    {
+        $email = $this->renderer->render('super_admin_granted', [
+            'granted_by' => 'Alice',
+            'site_name' => 'Unité Test',
+            'footer_note' => 'Conditions de location acceptées le 01/05/2027 :',
+            'footer_link' => 'https://unite.test/locations/le-chalet/conditions/0123456789ab',
+        ]);
+
+        self::assertStringContainsString(
+            "Unité Test\n\nConditions de location acceptées le 01/05/2027 :\n"
+            . "https://unite.test/locations/le-chalet/conditions/0123456789ab\n\n--",
+            $email->bodyText
+        );
+    }
+
+    /** A note without a link ends the paragraph there. */
+    public function testATextFooterNoteWithoutALinkStandsAlone(): void
+    {
+        $email = $this->renderer->render('super_admin_granted', [
+            'granted_by' => 'Alice',
+            'site_name' => 'Unité Test',
+            'footer_note' => 'Une note.',
+        ]);
+
+        self::assertStringContainsString("Unité Test\n\nUne note.\n\n--", $email->bodyText);
+    }
+
+    /** Without a note the frame says nothing more than it always has. */
+    public function testWithoutAFooterNoteTheFrameIsUnchanged(): void
+    {
+        $email = $this->renderer->render('super_admin_granted', ['granted_by' => 'Alice', 'site_name' => 'Unité Test']);
+
+        self::assertStringNotContainsString('<br><a href', $email->bodyHtml);
+        self::assertStringContainsString("Bien à vous,\nUnité Test\n\n--", $email->bodyText);
+    }
+
+    /**
      * The call to action of half the e-mails this site sends is a link
      * whose address IS a variable. What the editor stores is not what the
      * administrator typed: the sanitizer serialises through DOM, and DOM

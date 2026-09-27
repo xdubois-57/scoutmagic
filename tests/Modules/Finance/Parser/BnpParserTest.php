@@ -19,15 +19,33 @@ class BnpParserTest extends TestCase
         $this->parser = new BnpParser();
     }
 
-    public function testExtractSourceIban(): void
+    public function testAFileCoversExactlyTheOneAccountItsRowsName(): void
     {
-        $this->assertSame('BE00000000000001', $this->parser->extractSourceIban($this->fixturePath));
+        $this->assertSame(['BE00000000000001'], $this->parser->extractAccountIbans($this->fixturePath));
     }
 
-    public function testExtractSourceIbanThrowsWhenFileMissing(): void
+    public function testExtractAccountIbansThrowsWhenFileMissing(): void
     {
         $this->expectException(FinanceException::class);
-        $this->parser->extractSourceIban('/nonexistent/path.csv');
+        $this->parser->extractAccountIbans('/nonexistent/path.csv');
+    }
+
+    /**
+     * Every line knows its account (StatementLine::$accountIban), and it is
+     * the holder's own — column 5 — never the counterparty two columns on.
+     */
+    public function testEveryLineCarriesTheHoldersIbanNotTheCounterpartys(): void
+    {
+        $path = $this->writeCsv([
+            ['2026-', '01/09/2026', '01/09/2026', '-35,98', 'EUR', 'BE00 0000 0000 0001', 'Virement', 'BE00000000000009', 'Jean Dupont', 'Test', 'REFERENCE BANQUE : 1', 'Accepté', ''],
+        ]);
+
+        $lines = (new BnpParser())->parse($path);
+
+        $this->assertSame('BE00000000000001', $lines[0]->accountIban);
+        $this->assertSame('BE00000000000009', $lines[0]->counterpartyAccount);
+
+        unlink($path);
     }
 
     public function testParseSkipsRefusedLines(): void
@@ -126,18 +144,18 @@ class BnpParserTest extends TestCase
         $this->assertCount(3, $lines);
     }
     /**
-     * Regression: extractSourceIban() only trimmed, while the account's own
-     * IBAN is stored normalized — Service\ImportService::verifyIban()
-     * compares blind indexes, so a formatted value here aborted every
+     * Regression: the account IBAN was only trimmed, while the account's
+     * own IBAN is stored normalized — Service\ImportService looks accounts
+     * up by blind index, so a formatted value here once aborted every
      * import of the right file with a misleading "IBAN mismatch".
      */
-    public function testExtractSourceIbanNormalizesAFormattedValue(): void
+    public function testExtractAccountIbansNormalizesAFormattedValue(): void
     {
         $path = $this->writeCsv([
             ['2026-', '01/09/2026', '01/09/2026', '-35,98', 'EUR', 'BE00 0000 0000 0001', 'Virement', '', '', 'Test', 'REFERENCE BANQUE : 1', 'Accepté', ''],
         ]);
 
-        $this->assertSame('BE00000000000001', (new BnpParser())->extractSourceIban($path));
+        $this->assertSame(['BE00000000000001'], (new BnpParser())->extractAccountIbans($path));
 
         unlink($path);
     }

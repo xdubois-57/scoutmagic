@@ -274,6 +274,63 @@ class DmarcReportRepository
     }
 
     /**
+     * One row per report, with the messages it accounted for and how many of
+     * them authenticated — the shape {@see \Core\Mail\Feedback\Trend\WeeklySeries}
+     * consumes (issue #420).
+     *
+     * **Summed per report in SQL and bucketed into weeks in PHP**, which is
+     * the split that keeps this portable: `YEARWEEK(…, 3)` is MySQL's ISO
+     * week and SQLite has no equivalent, so a `GROUP BY` on the week would
+     * answer differently under the engine CI runs and the one a local
+     * checkout falls back to. Summing per report first is what keeps the rows
+     * this returns down to the number of reports — a few hundred over the
+     * retention window — rather than one per source line.
+     *
+     * **Dated by `period_end`, like the purge.** That is the date the
+     * retention deletes on, so the curve's points and the edge it stops at
+     * cannot disagree about which week a report belongs to. Dating by arrival
+     * would file a report that turned up late under a week it says nothing
+     * about.
+     *
+     * `sample` and `total` are the same figure here, and deliberately both
+     * passed: for DMARC the evidence and the ratio's denominator are both
+     * messages. The seed boxes are where they part company.
+     *
+     * @return list<array{at: \DateTimeImmutable, sample: int, hits: int, total: int}>
+     */
+    public function messagesPerReportSince(\DateTimeImmutable $since): array
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT r.period_end,
+                    COALESCE(SUM(s.message_count), 0) AS messages,
+                    COALESCE(SUM(s.authenticated_count), 0) AS authenticated
+               FROM mail_dmarc_reports r
+               LEFT JOIN mail_dmarc_sources s ON s.dmarc_report_id = r.id
+              WHERE r.period_end >= :since
+              GROUP BY r.id, r.period_end
+              ORDER BY r.period_end ASC'
+        );
+        $statement->bindValue(':since', $since->format('Y-m-d H:i:s'));
+        $statement->execute();
+
+        $rows = [];
+        foreach ($statement->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $messages = (int) $row['messages'];
+            $rows[] = [
+                'at' => \Core\Service\DateInput::requireFromStorage(
+                    (string) $row['period_end'],
+                    'mail_dmarc_reports.period_end'
+                ),
+                'sample' => $messages,
+                'hits' => (int) $row['authenticated'],
+                'total' => $messages,
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
      * Every distinct policy the reporters saw published over the window.
      *
      * @return list<string>

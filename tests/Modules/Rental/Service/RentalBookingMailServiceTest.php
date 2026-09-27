@@ -22,6 +22,13 @@ use Modules\Rental\Booking\RenterDecision;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Service\RentalBookingMailService;
 use PHPUnit\Framework\TestCase;
+use Tests\Modules\Rental\RentalTestHelper;
+use Tests\DatabaseTestHelper;
+use Core\View\EditableContentService;
+use Core\View\EditableContentRepository;
+use Modules\Rental\Service\RentalConditionsService;
+use Modules\Rental\Repository\RentalConditionsVersionRepository;
+use Modules\Rental\Document\ConditionsVersion;
 use Twig\Environment;
 
 /**
@@ -228,8 +235,10 @@ final class RentalBookingMailServiceTest extends TestCase
         return $mock;
     }
 
-    private function booking(BookingStatus $status = BookingStatus::RECEIVED): RentalBooking
-    {
+    private function booking(
+        BookingStatus $status = BookingStatus::RECEIVED,
+        ?ConditionsVersion $accepted = null
+    ): RentalBooking {
         return new RentalBooking(
             id: 42,
             assetId: 7,
@@ -254,9 +263,9 @@ final class RentalBookingMailServiceTest extends TestCase
             estimatedTotalCents: null,
             agreedPrice: null,
             agreedTotalCents: null,
-            conditionsVersion: null,
-            conditionsHash: null,
-            conditionsAcceptedAt: null,
+            conditionsVersion: $accepted?->version,
+            conditionsHash: $accepted?->hash,
+            conditionsAcceptedAt: $accepted === null ? null : new \DateTimeImmutable('2027-05-01 10:00:00'),
             privacyVersion: null,
             privacyHash: null,
             privacyAcknowledgedAt: null
@@ -289,6 +298,123 @@ final class RentalBookingMailServiceTest extends TestCase
     }
 
     // ── What goes out at all ────────────────────────────────────────────
+
+    // ── The conditions the renter accepted (issue #494) ────────────────
+
+    /**
+     * The archive and a service that reads it, over the asset these tests
+     * send about (id 7), with one wording the booking will have accepted.
+     *
+     * @return array{RentalBookingMailService, ConditionsVersion, RentalConditionsService}
+     */
+    private function serviceWithAcceptedConditions(): array
+    {
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        RentalTestHelper::createTables($pdo);
+        $pdo->prepare(
+            "INSERT INTO rental_assets (id, asset_type, name, slug, quantity, is_public) VALUES (7, 'hall', 'Le Chalet', 'le-chalet', 1, 1)"
+        )->execute();
+        $conditions = new RentalConditionsService(
+            new RentalConditionsVersionRepository($pdo),
+            new EditableContentService(new EditableContentRepository($pdo))
+        );
+        $accepted = $conditions->recordSave(7, '<p>Le local est rendu balayé.</p>', 1);
+
+        $settings = $this->createStub(SettingService::class);
+        $settings->method('get')->willReturnCallback(
+            static fn (string $key): ?string => match ($key) {
+                'site_name' => 'Unité Test',
+                'base_url' => 'https://unite.test',
+                default => null,
+            }
+        );
+
+        return [
+            new RentalBookingMailService(
+                $this->recordingMailService(),
+                EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'rental'),
+                $settings,
+                $this->createStub(JournalService::class),
+                conditions: $conditions
+            ),
+            $accepted,
+            $conditions,
+        ];
+    }
+
+    /**
+     * Every email to the renter ends with the version THEY accepted — in
+     * both halves of the message, and still that version after the unit
+     * has rewritten its conditions.
+     */
+    public function testAnEmailToTheRenterLinksToTheConditionsTheyAccepted(): void
+    {
+        [$service, $accepted, $conditions] = $this->serviceWithAcceptedConditions();
+        $conditions->recordSave(7, '<p>Le local est rendu lavé.</p>', 1);
+
+        $service->sendAcknowledgement($this->booking(accepted: $accepted), $this->asset(), str_repeat('a', 64));
+
+        $link = 'https://unite.test/locations/le-chalet/conditions/' . $accepted->version;
+        $mail = $this->onlyMail();
+        $this->assertStringContainsString('Conditions de location acceptées le 01/05/2027', $mail['html']);
+        $this->assertStringContainsString('href="' . $link . '"', $mail['html']);
+        $this->assertStringContainsString('Conditions de location acceptées le 01/05/2027', $mail['text']);
+        $this->assertStringContainsString($link, $mail['text']);
+    }
+
+    public function testTheOtherRenterEmailsCarryTheLinkToo(): void
+    {
+        [$service, $accepted] = $this->serviceWithAcceptedConditions();
+        $booking = $this->booking(BookingStatus::CONFIRMED, $accepted);
+
+        $service->sendDecision($booking, $this->asset(), RenterDecision::CONFIRMED, str_repeat('a', 64), null);
+        $service->sendPracticalInfo($booking, $this->asset());
+
+        $this->assertCount(2, $this->sent);
+        foreach ($this->sent as $mail) {
+            $this->assertStringContainsString('/conditions/' . $accepted->version, $mail['html'], $mail['subject']);
+        }
+    }
+
+    /** The managers' notification is not addressed to the renter, and says nothing of it. */
+    public function testTheManagersNotificationCarriesNoConditionsLink(): void
+    {
+        [$service, $accepted] = $this->serviceWithAcceptedConditions();
+
+        $service->sendManagerNotification($this->booking(accepted: $accepted), $this->asset(), ['chef@unite.test']);
+
+        $this->assertStringNotContainsString('Conditions de location acceptées', $this->onlyMail()['html']);
+    }
+
+    /**
+     * A booking whose version is not in the archive — conditions
+     * overwritten before the archive existed — gets no link at all rather
+     * than a link to some other text.
+     */
+    public function testABookingWhoseVersionIsNotArchivedGetsNoLink(): void
+    {
+        [$service] = $this->serviceWithAcceptedConditions();
+        $lost = new ConditionsVersion(7, 'abcdef012345', str_repeat('f', 64), '<p>Perdu.</p>', new \DateTimeImmutable());
+
+        $service->sendAcknowledgement($this->booking(accepted: $lost), $this->asset(), str_repeat('a', 64));
+
+        $this->assertStringNotContainsString('Conditions de location acceptées', $this->onlyMail()['html']);
+    }
+
+    /**
+     * Twelve characters name a version; the full hash proves it. A booking
+     * whose version prefix matches an archived text it did NOT accept —
+     * two wordings colliding on their prefix — gets no link either.
+     */
+    public function testAVersionWhoseHashDiffersFromTheBookingsGetsNoLink(): void
+    {
+        [$service, $accepted] = $this->serviceWithAcceptedConditions();
+        $other = new ConditionsVersion(7, $accepted->version, str_repeat('f', 64), '<p>Autre.</p>', new \DateTimeImmutable());
+
+        $service->sendAcknowledgement($this->booking(accepted: $other), $this->asset(), str_repeat('a', 64));
+
+        $this->assertStringNotContainsString('Conditions de location acceptées', $this->onlyMail()['html']);
+    }
 
     public function testAConfirmationReachesTheRenterWithTheReferenceInTheSubject(): void
     {

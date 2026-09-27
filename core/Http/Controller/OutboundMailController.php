@@ -280,6 +280,16 @@ class OutboundMailController extends AbstractController
             'spf_partial_unreadable' => \Core\Mail\Feedback\Dmarc\SpfCoverage::PARTIAL_UNREADABLE,
             'spf_max_lookups' => \Core\Mail\Feedback\Dmarc\SpfCoverage::MAX_LOOKUPS,
             'spf_max_age_days' => \Core\Mail\Feedback\Dmarc\SpfCoverage::MAX_AGE_DAYS,
+            // The week-by-week authentication rate (issue #420). Absent when
+            // the module is off, for the same reason the rest of this page is:
+            // there are no reports to trend.
+            'authentication_trend' => $this->dmarc === null
+                ? []
+                : self::trendForView(
+                    \Core\Mail\Feedback\Dmarc\AuthenticationTrend::build($this->dmarc)
+                ),
+            'trend_minimum_messages' => \Core\Mail\Feedback\Dmarc\AuthenticationTrend::MINIMUM_MESSAGES,
+            'trend_window_days' => \Core\Mail\Feedback\Dmarc\Task\PurgeDmarcReportsHandler::RETENTION_DAYS,
             'window_days' => 30,
             'current_path' => self::DMARC_URL,
         ]);
@@ -437,6 +447,22 @@ class OutboundMailController extends AbstractController
             'attributed_domains' => $this->routing?->attributedDomains() ?? 0,
             'routing_automatic' => $this->routing?->isAutomatic() ?? false,
             'minimum_runs' => \Core\Mail\Feedback\Seed\DomainRouting::MINIMUM_RUNS,
+            // One series per provider, week by week (issue #420), and only the
+            // providers measured enough to draw: a legend entry with no line
+            // beside it reads as « delivered nothing », which is the opposite
+            // of « not measured enough to say ».
+            'landing_trend' => $this->seedCopies === null
+                ? []
+                : array_map(
+                    static fn(\Core\Mail\Feedback\Trend\WeeklySeries $one): array
+                        => self::trendForView($one),
+                    \Core\Mail\Feedback\Seed\LandingTrend::build($this->seedCopies)
+                ),
+            'trend_window_days' => \Core\Mail\Feedback\Seed\Task\PurgeSeedCopiesHandler::RETENTION_DAYS,
+            // Not `minimum_runs`: that one gates the automatic routing over
+            // thirty days, and the trend judges a single week (see
+            // `LandingTrend::MINIMUM_MAILINGS`).
+            'trend_minimum_mailings' => \Core\Mail\Feedback\Seed\LandingTrend::MINIMUM_MAILINGS,
             // Two relays on the mailing lane is what makes « appliquer »
             // mean anything. Below that the screen says so rather than
             // drawing a button that would explain nothing when it did
@@ -2520,6 +2546,48 @@ class OutboundMailController extends AbstractController
         }
 
         return null;
+    }
+
+    /**
+     * A series shaped for a chart, and shaped **once** for both screens.
+     *
+     * The label goes through `DateFilterExtension::dateFr()` — the site's one
+     * French date formatter — rather than a month table written here: a second
+     * way of writing 21 septembre is a second thing to keep in step, and this
+     * one would only ever be seen on a chart axis where nobody would notice it
+     * drifting.
+     *
+     * `value` stays `null` for a week under the threshold, which is what
+     * Chart.js draws as a break with `spanGaps: false`. It is deliberately not
+     * flattened to `0` on the way out: the whole arbitration is that a hole
+     * and a zero are different claims.
+     *
+     * @return list<array{label: string, value: ?float, sample: int, partial: bool,
+     *     truncated: bool}>
+     */
+    private static function trendForView(\Core\Mail\Feedback\Trend\WeeklySeries $series): array
+    {
+        // **Nothing drawable is an empty list, not a list of holes.** A series
+        // whose every week is under the threshold still HAS ninety weeks in
+        // it, so a view testing « are there points » would draw a chart with no
+        // line in it and a table with no rows — which reads as « nothing
+        // authenticated » rather than « not measured yet ». `isEmpty()` is the
+        // question that separates them, and this is the only place it can be
+        // asked once for both screens.
+        if ($series->isEmpty()) {
+            return [];
+        }
+
+        return array_map(
+            static fn(array $point): array => [
+                'label' => \Core\View\DateFilterExtension::dateFr($point['from']),
+                'value' => $point['value'],
+                'sample' => $point['sample'],
+                'partial' => $point['partial'],
+                'truncated' => $point['truncated'],
+            ],
+            $series->points
+        );
     }
 
     private function renderAuthentication(): Response

@@ -86,10 +86,13 @@ class ModuleManifestTest extends TestCase
      * 1.29.0 archives every wording of an asset's conditions
      * (`rental_conditions_versions`) and publishes each one at its own
      * address (issue #494).
+     *
+     * 1.30.0 ends every e-mail to the renter with a link to the version of
+     * the conditions they accepted (issue #494).
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.29.0', $this->manifest->version);
+        $this->assertSame('1.30.0', $this->manifest->version);
     }
 
     /**
