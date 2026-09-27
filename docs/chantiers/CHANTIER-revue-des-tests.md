@@ -2375,3 +2375,183 @@ premier coup, ce qui ne prouvait rien — le lot 4 avait produit un test vert qu
 atteignait la mauvaise branche. Mesure ciblée après écriture : les lignes 194,
 218, 240, 262, 284 et 308 sont couvertes, une par un seul test chacune.
 `RetroChiefController` passe de 6 branches non couvertes à **0**.
+
+### Itération 14 — Les chemins d'échec, lot 6 : `OutboundMailController` — 2026-09-27
+
+**Mesuré d'abord** : **852 blocs `catch` balayés, 323 corps jamais exécutés
+(37,9 %)**, contre 329 au lot 5. Six de moins, et cette fois la soustraction
+tombe **juste** : le total reste à 852, donc `main` n'a gagné aucun `catch`
+entre les deux mesures.
+
+**Ce qui corrige la généralité de l'itération 13.** J'y ai écrit que « le stock
+ne baisse que de cinq quand j'en ferme sept, parce que `main` gagne des `catch`
+non couverts entre deux mesures » — et j'en ai tiré une image de robinet qui
+coule. La deuxième mesure dit que le phénomène est **épisodique**, pas continu :
+il y a eu sept `catch` ajoutés dans cette fenêtre-là, aucun dans celle-ci.
+L'argument pour une porte de release tient toujours, mais il ne s'appuie pas sur
+un débit régulier ; il s'appuie sur le fait qu'une fenêtre suffit à annuler un
+lot. Je laisse l'itération 13 telle quelle et je note la révision ici, parce
+qu'un journal qui se réécrit efface la trace de sa correction.
+
+**La cible.** `OutboundMailController` : 2 791 lignes, 20 `catch`, dont **7**
+jamais exécutés (1409, 1456, 1722, 1745, 1790, 2108, 2432). Son fichier de test
+miroir fait **3 643 lignes**. Ces sept branches sont donc celles que ce
+volume-là a laissées de côté, ce qui est plus intéressant qu'un contrôleur peu
+testé : il y a une raison structurelle, et on la trouve.
+
+**Deux familles, et la répartition est l'intérêt du lot.**
+
+Quatre sont des refus adressés à quelqu'un. Et une seule, `delete()`, **relaie
+le motif** qu'on lui a donné — « L'envoi local ne peut pas être supprimé — il est
+le dernier recours des trois voies. Vous pouvez le désactiver dans une voie, ou
+le placer en dernier. », ou « Ce fournisseur est le seul actif de la voie
+« %s ». Activez-en un autre avant de le supprimer. » Les trois autres le
+remplacent par une phrase générique. C'est une décision, pas un oubli, et elle méritait d'être verrouillée
+comme telle.
+
+Trois sont des **dégradations muettes de la page** : `reserveOf()` et
+`circuitOf()` rendent `null`, `queueSummary()` rend des zéros, pour que l'écran
+s'affiche quand une table est illisible. C'est une bonne intention — une page de
+diagnostic qui rend l'écran d'erreur générique a cessé de diagnostiquer. Mais le
+repli est **la même valeur** qu'un état normal, et le gabarit ne peut donc pas
+distinguer « je ne sais pas » de « il n'y a rien ». Vérifié dans
+`providers.html.twig`, numéros de ligne en main, plutôt que déduit de la forme
+du `catch` : ligne 79 `{% if provider.reserve %}` n'affiche rien, lignes 93 et
+101 n'affichent rien, et ligne 141 `{{ lane.waiting }} en attente` imprime un
+compteur. Les deux premiers se taisent ; le troisième **affirme**. Ouvert en
+**#600**.
+
+(J'avais d'abord écrit que la ligne 141 imprime « sans condition », donc « 0 en
+attente » **sur chaque voie**. Faux, et par la même négligence que le reste :
+j'avais lu la ligne 141 sans lire la 140, qui la garde d'un
+`{% if lane.defers %}`. La voie d'authentification ne diffère jamais, donc elle
+affiche « jamais différée » et non un zéro — ce que le test préexistant
+`testThePageShowsWhatIsWaiting` asserte déjà. Le zéro trompeur apparaît sur les
+voies qui diffèrent, pas sur les trois.)
+
+L'ironie est imprimée sur la page : la ligne 131 affiche « Un report n'est pas
+un silence », dix lignes au-dessus du zéro qui est exactement un silence. Et le
+docblock de `circuitOf()` dit que le disjoncteur est montré parce que
+l'alternative est « un écran qui dit qu'un fournisseur est actif et configuré
+alors que rien ne passe par lui » — ce que son propre `catch` reconstitue.
+
+**Pourquoi 2432 a résisté à 3 643 lignes de tests.** `ReturnPathVerifier::
+launch()` enveloppe **tout son corps par adresse** — l'envoi et l'écriture de la
+sonde — dans son propre `catch (\Throwable)` qui n'incrémente qu'un compteur.
+Casser le service de courrier ou le stockage des sondes ne remonte donc jamais
+au contrôleur : cela revient en `sent: 0`, une autre branche avec une autre
+phrase. Mon premier essai a produit exactement cela. Seule l'écriture du
+journal, hors de la boucle et inconditionnelle, s'échappe. Trois couches
+d'absorption imbriquées, et une sortie d'une ligne. Le commentaire du contrôleur
+l'annonçait — « what reaches here is the rest : the journal write, a broken
+encryption key » — et je l'avais lu sans en tirer la conséquence.
+
+**Sur les doublures, une formulation honnête plutôt que la reprise du slogan du
+lot 5.** Je ne peux pas revendiquer « zéro doublure » ici : un `catch
+(\Throwable)` sur une lecture de base n'est joignable par aucune saisie. Le
+déclencheur est donc une installation réellement cassée — une table qu'une
+migration n'a pas créée, un dépôt dont la base est vide, un réglage jamais
+enregistré —, ce qui est le mode de défaillance que ces blocs protègent, et non
+un artifice. Les cinq classes dont je devais faire échouer une lecture —
+`MailReserve`, `ProviderHealthRepository`, `DeferredMailRepository`,
+`DeferredMailQueue`, `ReturnPathVerifier` — sont `final`, donc PHPUnit ne
+pouvait pas les doubler de toute façon : la contrainte a poussé vers la bonne
+solution.
+
+Il y a **deux** doublures, et j'avais d'abord écrit qu'il n'y en avait qu'une.
+Un stub de `InboundMailInterface`, frontière d'API de module que ce fichier
+stubbe déjà ailleurs, qui sert à **activer** l'aller-retour plutôt qu'à le faire
+échouer ; et un `createMock(MailService::class)` dans le même test, que le
+`setUp()` de ce fichier utilise déjà. J'avais également écrit « les cinq
+collaborateurs concernés sont `final` » en laissant entendre que tous l'étaient :
+`MailService`, `JournalService`, `JournalRepository` et `EncryptionService` ne le
+sont pas. Relevé par le relecteur local.
+
+**Mes erreurs de ce lot, trois, toutes rattrapées par un rouge ou par une
+lecture — aucune par ma mémoire.**
+
+D'abord, **je suis retombé dans le piège du lot 4**, que j'avais nommé deux fois
+dans la même séance. `providers()` lit `mail_send_counters` à la **ligne 1238**,
+bien avant d'atteindre `reserveOf()` ligne 1722 : supprimer la table levait hors
+du `try`, et la branche visée n'était jamais atteinte. Le test a échoué
+bruyamment plutôt que de passer au vert au mauvais endroit, mais c'est le hasard
+de la forme de l'erreur qui m'a sauvé, pas ma prudence. Corrigé en câblant une
+`MailReserve` réelle sur un dépôt de compteurs dont la base est vide, ce qui ne
+casse que sa lecture.
+
+Ensuite, **j'ai inventé un nom de helper** (`theSiteSendsFromFixturesDomainForReturns`)
+au lieu de lire le vrai. Et **j'ai inventé un invariant** : j'assertais que
+l'envoi local existe encore après le refus, alors qu'il n'est pas une ligne de
+`mail_providers` du tout — `findById()` sur son identifiant rend `null` avant
+comme après. J'asserte maintenant sa place dans la chaîne, là où sa présence est
+réelle.
+
+**Preuve par mutation** : **treize** mutations du produit, une chose à la fois,
+douze rouges — auxquelles s'ajoutent **trois retraits de mise en scène** dans les
+tests eux-mêmes, dont la section sur les dégradations ci-dessous explique qu'ils
+sont ici la seule preuve qui vaille — le motif du service remplacé par une phrase générique, le type
+passé en succès, le retour anticipé retiré sur les trois branches qui en ont un,
+la moitié actionnable retirée des messages, et les trois dégradations
+supprimées pour vérifier qu'elles portent bien le rendu de la page.
+
+**Et la treizième, qui a survécu, est la leçon du lot.** Je voulais vérifier que
+mon test de `queueSummary()` est un garde-fou : qu'il rougira le jour où #600
+sera corrigée, au lieu de bénir silencieusement le défaut. J'ai donc simulé la
+correction en marquant les compteurs comme inconnus — et **le test est resté
+vert**. Non pas parce qu'il est faible, mais parce que **ma mutation était
+infidèle** : c'est `queueSummary()` lui-même qui itère `MailLane::ordered()` et
+lit `$pending[$lane->value] ?? 0` avant de construire ce que la vue reçoit — le
+gabarit, lui, itère `queue.lanes`. Une clé ajoutée au tableau intermédiaire est
+donc écartée avant d'atteindre la page. Or #600 porte précisément sur ce que la
+page affiche. (J'avais attribué cette itération au gabarit, dans le paragraphe
+qui traite justement de la distinction entre les deux couches. Relevé par le
+relecteur local.)
+
+Refaite sur le gabarit — la phrase imprimée remplacée par « état indisponible »,
+la forme qu'aurait la correction — elle **tue** mon test et aussi le test
+préexistant `testThePageShowsWhatIsWaiting`. Le garde-fou tient donc.
+
+La règle : **une mutation qui survit n'accuse pas d'emblée le test.** Vérifier
+d'abord qu'elle modélise fidèlement le changement qu'on craint. Une mutation qui
+touche une donnée que la vue ignore ne teste rien de la vue, et conclure « mon
+test est faible » aurait été aussi faux que conclure « mon test est bon » sans
+l'avoir tentée.
+
+**Et le constat le plus grave de ce lot est venu du relecteur local, pas de mes
+treize mutations : mes trois tests de dégradation ne pouvaient pas échouer.** Il
+l'a établi de la seule manière qui compte — en retirant leur mise en scène de la
+panne. Les trois restaient verts. C'est le § 1 de ce chantier, appliqué à moi,
+dans le lot dont ces trois tests étaient le cœur.
+
+Deux d'entre eux étaient inertes pour une raison mécanique. J'assertais
+« Mis à l'écart » avec une apostrophe typographique U+2019 quand le gabarit écrit
+une apostrophe ASCII : la chaîne n'existe nulle part dans le produit, donc
+l'assertion ne pouvait jamais correspondre. Et j'assertais l'absence de
+« réservé », un mot que le gabarit n'imprime pas — il écrit « gardés pour les
+liens de connexion ». Le troisième était inerte pour une raison logique :
+« 0 en attente » est tout aussi vrai d'une file vide et lisible.
+
+**Pourquoi mes mutations ne l'ont pas vu.** M9, M10 et M11 supprimaient la
+dégradation elle-même, ce qui fait remonter l'exception et casse la page
+entière : mes tests rougissaient sur le code de statut, pas sur ce qu'ils
+prétendaient vérifier. Elles les tuaient **pour la mauvaise raison** — la faute
+« une mutation qui change deux choses ne prouve laquelle », que j'ai écrite
+moi-même au lot 4.
+
+La correction est structurelle, pas cosmétique : **chaque test porte désormais
+son contraste à l'intérieur de lui-même.** Il rend la page une première fois en
+état sain et asserte que la phrase y est — un disjoncteur ouvert par trois échecs
+enregistrés, un message réellement en file, une réserve qui s'applique — puis
+casse la source et asserte que la phrase a disparu. L'absence ne veut quelque
+chose que si la présence a été établie deux lignes plus haut.
+
+Vérifié de la manière que j'aurais dû employer d'emblée : en retirant de chaque
+test sa propre mise en scène. Les trois rougissent. **La règle qui en découle est
+la plus utile de la séance : pour un test dont l'assertion est une absence, la
+seule preuve de falsifiabilité est de retirer la panne, pas de muter le
+produit.** Une mutation du produit peut tuer le test par un chemin latéral ; le
+retrait de la mise en scène ne peut le tuer que par l'assertion visée.
+
+**Vérifié par la couverture, pas par le vert.** Les sept lignes sont couvertes,
+mesurées après écriture. `OutboundMailController` passe de 7 branches non
+couvertes à **0**.

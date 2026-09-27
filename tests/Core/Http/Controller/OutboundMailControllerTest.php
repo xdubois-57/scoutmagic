@@ -3640,4 +3640,274 @@ class OutboundMailControllerTest extends TestCase
             }
         };
     }
+
+    // ── what this page does when something under it is broken (issue #449, lot 6) ──
+    //
+    // Seven `catch` bodies here had never been executed. They split in two,
+    // and the split is the point of this batch.
+    //
+    // Four are refusals addressed to somebody: `delete()`, `relaunch()`,
+    // `saveAuthentication()`, `verifyReturns()`. Only `delete()` relays the
+    // reason it was given; the other three replace it with one generic
+    // sentence, which is a decision worth pinning rather than an oversight.
+    //
+    // Three are silent degradations of the page itself — `reserveOf()`,
+    // `circuitOf()` and `queueSummary()` return null or zeros so that the
+    // screen still renders when a table underneath them is unreadable. Those
+    // three are issue #600: the fallback is indistinguishable from a normal
+    // state, so the page reports « nothing to see » when the truth is « I
+    // could not look ». The tests below RECORD that, they do not bless it.
+    //
+    // Nothing here doubles the classes under test. A `catch (\Throwable)`
+    // over a database read cannot be reached by bad input, so the trigger is
+    // a real broken installation: a table a failed migration never created,
+    // a repository whose database holds nothing, a settings row that was
+    // never registered. That is the production failure these blocks exist
+    // for, and it is cheaper to arrange than a stub of a final class — which
+    // PHPUnit cannot make anyway, every one of these collaborators being
+    // final. The one stub below is `InboundMailInterface`, a module API
+    // boundary this file already stubs elsewhere (`controllerWithSeedBoxes`),
+    // and it is there to switch the round trip ON rather than to make
+    // anything fail.
+
+    private function dropTable(string $table): void
+    {
+        // Safe per test: setUp() builds a fresh database each time.
+        $this->pdo->exec('DROP TABLE ' . $table);
+    }
+
+    private function providersBodyOf(?OutboundMailController $controller = null): string
+    {
+        return (string) ($controller ?? $this->controller)->providers($this->getRequest(), [])->getBody();
+    }
+
+    private function flashOf(): array
+    {
+        $flash = \Core\Http\FlashMessage::get();
+        self::assertNotNull($flash, 'the gesture set no flash message at all');
+
+        return $flash;
+    }
+
+    public function testTheLocalSenderCannotBeDeletedAndTheRefusalSaysWhatToDoInstead(): void
+    {
+        $this->chains->append(MailLane::Transactional, MailProvider::LOCAL_ID, true);
+
+        $response = $this->controller->delete($this->formRequest([]), ['id' => (string) MailProvider::LOCAL_ID]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $flash = $this->flashOf();
+        $this->assertSame('error', $flash['type']);
+        // The whole sentence, because its second half is the only part that
+        // helps: a refusal that merely says no leaves the superadmin trying
+        // again. `delete()` is the one branch of the four here that relays
+        // the reason it was handed rather than replacing it.
+        $this->assertStringContainsString('L’envoi local ne peut pas être supprimé', $flash['message']);
+        $this->assertStringContainsString('Vous pouvez le désactiver dans une voie', $flash['message']);
+        // What « still there » means for the local sender: it is not a
+        // `mail_providers` row at all (`findById()` on its id answers null
+        // even before this gesture), so its presence is read where it is
+        // real — its place in the chain the refusal told us to edit instead.
+        $this->assertTrue($this->chains->exists(MailLane::Transactional, MailProvider::LOCAL_ID));
+    }
+
+    public function testDeletingTheOnlyEnabledProviderOfALaneIsRefusedByThatLaneName(): void
+    {
+        $id = $this->providers->create('Seul actif', 200, 50, 10);
+        $this->chains->append(MailLane::Bulk, $id, true);
+
+        $this->controller->delete($this->formRequest([]), ['id' => (string) $id]);
+
+        $flash = $this->flashOf();
+        $this->assertSame('error', $flash['type']);
+        // The lane is NAMED. « Ce fournisseur est le seul actif d'une voie »
+        // would leave a superadmin with three chains to inspect; the label
+        // is read off the enum rather than written here, so a renamed lane
+        // cannot leave this assertion passing against a stale string.
+        $this->assertStringContainsString(MailLane::Bulk->label(), $flash['message']);
+        $this->assertStringContainsString('Activez-en un autre avant de le supprimer', $flash['message']);
+        $this->assertNotNull($this->providers->findById($id), 'the last enabled provider of a lane was deleted');
+    }
+
+    public function testARelaunchThatCannotReachTheQueueSaysSoWithoutClaimingAnythingMoved(): void
+    {
+        $this->dropTable('mail_deferred_messages');
+
+        $response = $this->controller->relaunch($this->formRequest(['lanes' => ['transactional']]), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $flash = $this->flashOf();
+        $this->assertSame('error', $flash['type']);
+        $this->assertSame('La relance n’a pas pu être effectuée.', $flash['message']);
+        // And it must not read as the other two outcomes. A relaunch that
+        // failed is not « 0 message remis en file » and not « aucun message
+        // abandonné dans cette fenêtre » — both of those say the queue was
+        // read and found wanting, which is the opposite of what happened.
+        $this->assertStringNotContainsString('remis en file', $flash['message']);
+        $this->assertStringNotContainsString('Aucun message abandonné', $flash['message']);
+    }
+
+    public function testAddressesThatCannotBeSavedAreReportedAndNothingIsWritten(): void
+    {
+        // A settings row a migration never registered: `setMany()` validates
+        // every key against the table BEFORE opening its transaction, so an
+        // unregistered one is refused there. Reached without touching the
+        // `settings` table itself, because `saveAuthentication()` reads the
+        // identity BEFORE its try — breaking the table would throw outside
+        // the block this test is here to reach.
+        $this->theSiteSendsFromTheFixturesDomain();
+        $this->pdo->exec("DELETE FROM settings WHERE setting_key = 'dkim_selector'");
+
+        $response = $this->controller->saveAuthentication($this->formRequest([
+            'mail_from_address' => 'unite@exemple.be',
+            'mail_from_name' => 'Unité Test',
+            'mail_reply_address' => 'unite@exemple.be',
+            'dmarc_report_email' => 'dmarc@exemple.be',
+            'dkim_selector' => 'scoutmagic',
+        ]), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $flash = $this->flashOf();
+        $this->assertSame('error', $flash['type']);
+        $this->assertSame('Les adresses n’ont pas pu être enregistrées.', $flash['message']);
+        // The half that matters beyond the sentence: the address on file is
+        // still the OLD one. `setMany()` validates every key before opening
+        // its transaction, so a refused save writes nothing — and the branch
+        // returns before `forgetAllExcept()`, which would otherwise drop the
+        // verification state of addresses this refusal left in place.
+        // Asserting merely « not empty » would have passed on the posted
+        // value too, which is the opposite of what this pins.
+        $this->assertSame('info@unite.be', (string) $this->settings->get('mail_from_address'));
+    }
+
+    public function testAnUnreadableReserveLeavesTheCardLookingLikeOneWithNothingToReserve(): void
+    {
+        // A provider with a daily quota, serving BOTH the mailing lane and
+        // another one — the only shape for which `MailReserve` reads the
+        // counters at all (it answers « rien à réserver » without a query
+        // otherwise).
+        $id = $this->providers->create('Relais partagé', 200, 50, 10);
+        $this->chains->append(MailLane::Bulk, $id, true);
+        $this->chains->append(MailLane::Transactional, $id, true);
+
+        // **The contrast is inside the test, and it has to be.** An assertion
+        // that the sentence is absent passes on any page that never shows it —
+        // including this one with nothing broken at all. So the readable case
+        // is rendered first and asserted to carry the sentence; only then does
+        // its absence below mean the fallback was taken.
+        $this->assertStringContainsString('sont gardés pour les liens de connexion', $this->providersBodyOf());
+
+        // **Only the reserve's own reads are broken, not the table.**
+        // `providers()` reads `mail_send_counters` itself at line 1238, long
+        // before `reserveOf()` is called — dropping the table throws there,
+        // OUTSIDE the block this test exists to reach. Measured: my first
+        // attempt did exactly that. The chain repository stays on the live
+        // database so `servesBulkAndAnother()` still says yes and the counter
+        // read is still reached.
+        $broken = $this->providersBodyOf($this->controllerWith('reserve', new \Core\Mail\Transport\MailReserve(
+            new SendCounterRepository(new \PDO('sqlite::memory:')),
+            $this->chains
+        )));
+
+        // The catch does its job — the page is there rather than an error
+        // screen — and nothing on the card says the figure is missing rather
+        // than inapplicable. That is issue #600.
+        $this->assertStringContainsString('Relais partagé', $broken);
+        $this->assertStringNotContainsString('sont gardés pour les liens de connexion', $broken);
+    }
+
+    public function testAnUnreadableBreakerStateLooksExactlyLikeAProviderThatNeverFailed(): void
+    {
+        $id = $this->providers->create('Relais muet', 200, 50, 10);
+        $this->chains->append(MailLane::Transactional, $id, true);
+        $health = new \Core\Mail\Transport\ProviderHealthRepository($this->pdo);
+        for ($i = 0; $i < \Core\Mail\Transport\ProviderHealth::FAILURES_BEFORE_OPEN; $i++) {
+            $health->recordFailure($id, 'le relais a refusé');
+        }
+
+        // The readable case first, or the absence below proves nothing. Note
+        // the ASCII apostrophe: the template writes « l'écart », and an
+        // assertion spelt with U+2019 can never match — which is exactly how
+        // the first version of this test managed to pass with nothing broken.
+        $this->assertStringContainsString("Mis à l'écart", $this->providersBodyOf());
+
+        $this->dropTable('mail_provider_health');
+        $broken = $this->providersBodyOf();
+
+        // Issue #600, and the sharpest of the three: `circuitOf()`'s own
+        // docblock says the breaker is shown because the alternative is « a
+        // screen that says a provider is active and configured while nothing
+        // goes through it — and the person looking at that screen concludes
+        // their configuration is wrong and starts changing it ». With the
+        // health table unreadable the card is that very screen, and the
+        // provider it hides is one whose breaker is open.
+        $this->assertStringContainsString('Relais muet', $broken);
+        $this->assertStringNotContainsString("Mis à l'écart", $broken);
+    }
+
+    public function testAnUnreadableQueueIsShownAsZeroWaitingRatherThanAsUnknown(): void
+    {
+        $this->queueOne(MailLane::Transactional);
+
+        // One real deferred message, so the page says « 1 en attente ». Without
+        // this half, asserting « 0 en attente » below would pass on an empty
+        // queue — which is the whole point of #600 and would have made this
+        // test unable to fail.
+        $this->assertStringContainsString('1 en attente', $this->providersBodyOf());
+
+        $this->dropTable('mail_deferred_messages');
+        $broken = $this->providersBodyOf();
+
+        // Issue #600, and the one that does not merely stay silent but
+        // asserts: the same sentence comes back with a zero, for a queue that
+        // could not be read at all. The page prints « Un report n'est pas un
+        // silence » ten lines higher, which is exactly what this zero is.
+        $this->assertStringContainsString('0 en attente', $broken);
+        $this->assertStringNotContainsString('1 en attente', $broken);
+    }
+
+    public function testAVerificationThatCannotStartPointsAtTheTechnicalJournalRatherThanFailingSilently(): void
+    {
+        $this->theSiteSendsFromTheFixturesDomain();
+
+        // **The narrowest of the seven, and the reason it survived five
+        // thousand lines of tests on this file.** `launch()` wraps its whole
+        // per-address body — the send AND the probe row — in its own
+        // `catch (\Throwable)` that only increments `failed`. So breaking the
+        // mail service or the probe storage cannot reach the controller at
+        // all: it comes back as `sent: 0`, which is a different branch with a
+        // different sentence (measured — my first attempt got exactly that).
+        //
+        // What escapes `launch()` is what sits OUTSIDE that loop, and the
+        // controller's own comment names it: the journal write. It runs
+        // unconditionally after the loop, so only the journal is broken here.
+        // A mailbox must also be open to this consumer, or `launch()` returns
+        // `impossible` before doing anything.
+        $inbound = $this->createStub(\Modules\InboundMail\Api\InboundMailInterface::class);
+        $inbound->method('probeAddressesFor')->willReturn(['retour@exemple.be']);
+        $controller = $this->controllerWith('returns', new \Core\Mail\Feedback\ReturnPathVerifier(
+            new \Core\Mail\Feedback\ReturnProbeRepository(
+                $this->pdo,
+                new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+            ),
+            $this->createMock(\Core\Mail\MailService::class),
+            new JournalService(new JournalRepository(new \PDO('sqlite::memory:'))),
+            $inbound
+        ));
+
+        $response = $controller->verifyReturns($this->formRequest([]), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $flash = $this->flashOf();
+        $this->assertSame('error', $flash['type']);
+        $this->assertStringContainsString('La vérification n’a pas pu être lancée', $flash['message']);
+        // The second half is what separates this from the page's other two
+        // failures: « impossible » names a configuration act somebody can
+        // take, and « aucun message n'a pu partir » sends them to the
+        // Fournisseurs page. Neither applies here, so the sentence sends
+        // them to the one place that holds the cause.
+        $this->assertStringContainsString('Le détail est dans le journal technique', $flash['message']);
+        $this->assertStringNotContainsString('a besoin du module', $flash['message']);
+        $this->assertStringNotContainsString('Regardez la page', $flash['message']);
+    }
 }
