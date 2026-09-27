@@ -18,12 +18,12 @@
 {% block title %}Scanner un billet — {{ site_name }}{% endblock %}
 
 {% block content %}
+    <div class="page-medium">
     {% include 'partials/page_header.html.twig' with {
         title: 'Scanner un billet',
         subtitle: 'Choisissez la soirée dont vous tenez la porte.',
     } only %}
 
-    <div class="page-narrow">
         {% if events is empty %}
             {% include 'partials/empty_state.html.twig' with {
                 message: "Aucun évènement à contrôler. Un évènement apparaît ici quand son formulaire délivre un billet et qu'au moins une personne a réservé.",

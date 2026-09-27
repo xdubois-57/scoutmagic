@@ -20,12 +20,12 @@
 {% block title %}QR de paiement — Finances — {{ site_name }}{% endblock %}
 
 {% block content %}
+    <div class="page-medium">
     {% include 'partials/page_header.html.twig' with {
         title: member_name ?? 'Créance',
         subtitle: 'Faites scanner ce code avec l\'application bancaire du parent.',
     } only %}
 
-    <div class="page-narrow">
         {% if remaining_cents <= 0 %}
             {% include 'partials/empty_state.html.twig' with {
                 message: "Cette créance ne demande plus rien : il n'y a pas de QR à montrer.",

@@ -628,9 +628,12 @@ helpers; a page-level primary action that happens to call an AI
 ### 7.6 Page structure
 
 - `base.html.twig` already renders `<main class="container py-3">`. A view
-  never opens another `.container`. Page width is one of the shared width
-  classes (`page-narrow`, `page-medium`, `page-wide`) — never an inline
-  `max-width`.
+  never opens another `.container`. Page width is one of the two shared
+  width classes — `page-medium` for form, detail and configuration pages,
+  `page-wide` for dense management screens — or the full container, never
+  an inline `max-width`. There is no narrower tier: a 560px column made
+  a page look different from its neighbours for no reason a visitor could
+  see, and the unit asked for none (issue #471).
 - Exactly one `<h1>` per page, one size site-wide (the `page_header`
   partial's). The `<h1>` matches the page's `<title>` — eight pages all
   titled « Finances » is a bug, not a convention.
