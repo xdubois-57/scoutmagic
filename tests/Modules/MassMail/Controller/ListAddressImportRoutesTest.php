@@ -10,6 +10,7 @@ use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Import\FunctionRepository;
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalService;
@@ -428,11 +429,7 @@ class ListAddressImportRoutesTest extends TestCase
      */
     private function jsonRequest(array $body): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/x', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn((string) json_encode($body));
+        $request = new RequestWithInput('POST', '/x', [], [], [], [], (string) json_encode($body));
 
         return $request;
     }

@@ -11,6 +11,7 @@ use Core\File\EncryptedFileStorageService;
 use Core\File\FileRepository;
 use Core\Http\FrontController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Http\Router;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
@@ -768,13 +769,9 @@ class FinanceRbacTest extends TestCase
             . "Type de transaction;Contrepartie;Nom de la contrepartie;Communication;Détails;Statut;Motif du refus\n"
             . "2026-;10/01/2026;10/01/2026;-10,00;EUR;{$iban};Virement;;;Test;REFERENCE BANQUE : {$accountId}1;Accepté;\n");
 
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/finance/import', [], [
-                '_csrf_token' => $this->csrfToken(), 'bank_code' => 'bnp', 'balance' => '100',
-            ], [], []])
-            ->onlyMethods(['getFile'])
-            ->getMock();
-        $request->method('getFile')->willReturn([
+        $request = new RequestWithInput('POST', '/finance/import', [], [
+            '_csrf_token' => $this->csrfToken(), 'bank_code' => 'bnp', 'balance' => '100',
+        ], [], [], file: [
             'tmp_name' => $path, 'name' => 'releve.csv', 'error' => UPLOAD_ERR_OK, 'size' => filesize($path),
         ]);
 
@@ -790,11 +787,7 @@ class FinanceRbacTest extends TestCase
 
     private function patchMovement(int $movementId): \Core\Http\Response
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['PATCH', '/finance/movements/' . $movementId, [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(
+        $request = new RequestWithInput('PATCH', '/finance/movements/' . $movementId, [], [], [], [],
             (string) json_encode(['comment' => 'x', '_csrf_token' => $this->csrfToken()])
         );
 

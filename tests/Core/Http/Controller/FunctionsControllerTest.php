@@ -13,6 +13,7 @@ use Core\Config\ScoutYearService;
 use Core\Database\Connection;
 use Core\Http\Controller\FunctionsController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Config\ScoutYearService as ConfigScoutYearService;
 use Core\Import\AgeBranchRepository;
 use Core\Import\DeskMappingGapService;
@@ -928,12 +929,7 @@ class FunctionsControllerTest extends TestCase
      */
     private function createJsonRequest(array $data): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/config/functions/update', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput('POST', '/config/functions/update', [], [], [], [], json_encode($data));
 
         return $request;
     }

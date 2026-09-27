@@ -7,6 +7,7 @@ namespace Tests\Modules\Finance\Controller;
 use Core\Badge\MemberBadgeRepository;
 use Core\Database\Connection;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Member\SectionService;
@@ -198,21 +199,16 @@ class ImportControllerTest extends TestCase
 
     private function uploadRequest(?float $balance, string $tmpFilePath, ?string $csrfToken = null, string $bankCode = 'bnp'): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/finance/import', [], [
-                '_csrf_token' => $csrfToken ?? $this->csrfToken(),
-                'bank_code' => $bankCode,
-                'balance' => $balance !== null ? (string) $balance : '',
-            ], [], []])
-            ->onlyMethods(['getFile'])
-            ->getMock();
-        $request->method('getFile')->willReturn([
+        return new RequestWithInput('POST', '/finance/import', [], [
+            '_csrf_token' => $csrfToken ?? $this->csrfToken(),
+            'bank_code' => $bankCode,
+            'balance' => $balance !== null ? (string) $balance : '',
+        ], [], [], file: [
             'tmp_name' => $tmpFilePath,
             'name' => 'releve.csv',
             'error' => UPLOAD_ERR_OK,
             'size' => filesize($tmpFilePath),
         ]);
-        return $request;
     }
 
     public function testUploadSucceedsAndDeletesTemporaryFile(): void

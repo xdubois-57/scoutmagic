@@ -12,6 +12,7 @@ use Core\File\FileRepository;
 use Core\Http\Controller\MaintenanceController;
 use Core\Http\FrontController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Http\Router;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
@@ -42,6 +43,11 @@ require_once dirname(__DIR__, 4) . '/scripts/authz-support.php';
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
+// This class shares its doubles between tests (set up once, or built by
+// a helper): some tests set expectations on them, the others only need
+// their answers, and PHPUnit would report each of those as a mock with
+// no expectation (issue #665).
+#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class MaintenanceControllerTest extends TestCase
 {
     private \PDO $pdo;
@@ -225,11 +231,7 @@ class MaintenanceControllerTest extends TestCase
      */
     private function jsonRequest(array $data): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/config/maintenance/backup/full', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput('POST', '/config/maintenance/backup/full', [], [], [], [], json_encode($data));
         return $request;
     }
 

@@ -7,6 +7,7 @@ namespace Tests\Core\Http\Controller;
 use Core\Http\Controller\SuperAdminAccountsController;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
@@ -393,12 +394,7 @@ class SuperAdminAccountsControllerTest extends TestCase
      */
     private function jsonRequest(array $body): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/config/superadmins/toggle-active', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-
-        $request->method('getRawBody')->willReturn(json_encode($body));
+        $request = new RequestWithInput('POST', '/config/superadmins/toggle-active', [], [], [], [], json_encode($body));
 
         return $request;
     }

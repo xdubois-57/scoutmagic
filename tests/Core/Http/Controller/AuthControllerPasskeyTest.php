@@ -6,6 +6,7 @@ namespace Tests\Core\Http\Controller;
 
 use Core\Http\Controller\AuthController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Security\AuthService;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
@@ -73,12 +74,7 @@ class AuthControllerPasskeyTest extends TestCase
 
     public function testPasskeyVerifyWithInvalidDataReturnsError(): void
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/login/passkey/verify', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-
-        $request->method('getRawBody')->willReturn(json_encode([
+        $request = new RequestWithInput('POST', '/login/passkey/verify', [], [], [], [], json_encode([
             'rawId' => 'dGVzdA',
             'response' => [
                 'clientDataJSON' => 'e30',
@@ -97,12 +93,7 @@ class AuthControllerPasskeyTest extends TestCase
 
     public function testPasskeyVerifyWithoutRgpdConsentReturnsError(): void
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/login/passkey/verify', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-
-        $request->method('getRawBody')->willReturn(json_encode(['id' => 'x', 'type' => 'public-key', 'rawId' => 'x', 'response' => []]));
+        $request = new RequestWithInput('POST', '/login/passkey/verify', [], [], [], [], json_encode(['id' => 'x', 'type' => 'public-key', 'rawId' => 'x', 'response' => []]));
 
         $response = $this->controller->passkeyVerify($request, []);
         $data = json_decode($response->getBody(), true);
@@ -113,12 +104,7 @@ class AuthControllerPasskeyTest extends TestCase
 
     public function testPasskeyVerifyWithNullBodyReturnsError(): void
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/login/passkey/verify', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-
-        $request->method('getRawBody')->willReturn('not json{');
+        $request = new RequestWithInput('POST', '/login/passkey/verify', [], [], [], [], 'not json{');
 
         $response = $this->controller->passkeyVerify($request, []);
         $data = json_decode($response->getBody(), true);

@@ -50,11 +50,11 @@ class SendRentalRemindersSelfBuildTest extends TestCase
         $moduleManager->method('getEnabledModuleIds')
             ->willReturn($financeAndInboundMail ? ['rental', 'finance', 'inbound_mail'] : ['rental']);
         $capabilities = new TaskCapabilities($moduleManager);
-        $capabilities->register(ExpectedReceivableInterface::class, 'finance', fn (): object => $this->createMock(ExpectedReceivableInterface::class));
-        $capabilities->register(StructuredCommunicationInterface::class, 'finance', fn (): object => $this->createMock(StructuredCommunicationInterface::class));
-        $capabilities->register(SepaQrCodeInterface::class, 'finance', fn (): object => $this->createMock(SepaQrCodeInterface::class));
-        $capabilities->register(FinanceAccountInterface::class, 'finance', fn (): object => $this->createMock(FinanceAccountInterface::class));
-        $capabilities->register(InboundMailInterface::class, 'inbound_mail', fn (): object => $this->createMock(InboundMailInterface::class));
+        $capabilities->register(ExpectedReceivableInterface::class, 'finance', fn (): object => $this->createStub(ExpectedReceivableInterface::class));
+        $capabilities->register(StructuredCommunicationInterface::class, 'finance', fn (): object => $this->createStub(StructuredCommunicationInterface::class));
+        $capabilities->register(SepaQrCodeInterface::class, 'finance', fn (): object => $this->createStub(SepaQrCodeInterface::class));
+        $capabilities->register(FinanceAccountInterface::class, 'finance', fn (): object => $this->createStub(FinanceAccountInterface::class));
+        $capabilities->register(InboundMailInterface::class, 'inbound_mail', fn (): object => $this->createStub(InboundMailInterface::class));
 
         return new TaskContext(
             Connection::withPdo($pdo),

@@ -20,6 +20,11 @@ use Tests\DatabaseTestHelper;
 use Tests\Modules\Camps\CampsTestHelper;
 
 #[\PHPUnit\Framework\Attributes\Group('database')]
+// This class shares its doubles between tests (set up once, or built by
+// a helper): some tests set expectations on them, the others only need
+// their answers, and PHPUnit would report each of those as a mock with
+// no expectation (issue #665).
+#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class CampsMessageConsumerTest extends TestCase
 {
     private const SHARED_MAILBOX = 1;

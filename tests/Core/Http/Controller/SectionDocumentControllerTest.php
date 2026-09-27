@@ -13,6 +13,7 @@ use Core\File\EncryptedFileStorageService;
 use Core\File\FileRepository;
 use Core\Http\Controller\SectionDocumentController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Http\Router;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
@@ -470,11 +471,7 @@ class SectionDocumentControllerTest extends TestCase
      */
     private function jsonRequest(array $data): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/chefs/staffs/documents', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput('POST', '/chefs/staffs/documents', [], [], [], [], json_encode($data));
 
         return $request;
     }

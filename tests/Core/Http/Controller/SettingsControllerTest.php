@@ -8,6 +8,7 @@ use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Http\Controller\SettingsController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Notification\NotificationPreferenceRepository;
@@ -516,12 +517,7 @@ class SettingsControllerTest extends TestCase
      */
     private function createJsonRequest(array $data, string $path = '/config/settings/update'): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', $path, [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput('POST', $path, [], [], [], [], json_encode($data));
 
         return $request;
     }

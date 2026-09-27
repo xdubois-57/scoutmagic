@@ -10,6 +10,7 @@ use Core\Config\SettingService;
 use Core\File\FileRepository;
 use Core\File\UploadHandler;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Scheduler\SchedulerRepository;
@@ -143,11 +144,7 @@ class GalleryConfigControllerTest extends TestCase
      */
     private function migrateJsonRequest(array $data): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/config/gallery/albums/1/migrate', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput('POST', '/config/gallery/albums/1/migrate', [], [], [], [], json_encode($data));
         return $request;
     }
 

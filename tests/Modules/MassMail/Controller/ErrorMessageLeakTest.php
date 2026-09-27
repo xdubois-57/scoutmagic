@@ -13,6 +13,7 @@ use Core\File\FileRepository;
 use Core\File\UploadHandler;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Import\FunctionRepository;
 use Core\Import\ImportJournalRepository;
 use Core\Mail\MailException;
@@ -90,11 +91,7 @@ class ErrorMessageLeakTest extends TestCase
 
     private function jsonRequest(array $data): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn((string) json_encode($data));
+        $request = new RequestWithInput('POST', '/', [], [], [], [], (string) json_encode($data));
         return $request;
     }
 

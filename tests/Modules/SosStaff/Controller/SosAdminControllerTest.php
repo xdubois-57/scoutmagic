@@ -12,6 +12,7 @@ use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\Http\FrontController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Http\Router;
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
@@ -153,11 +154,7 @@ class SosAdminControllerTest extends TestCase
      */
     private function jsonRequest(array $data, string $path = '/admin/sos/x'): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', $path, [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput('POST', $path, [], [], [], [], json_encode($data));
         return $request;
     }
 

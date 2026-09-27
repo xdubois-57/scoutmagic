@@ -7,6 +7,7 @@ namespace Tests\Core\Http\Controller;
 use Core\Database\Connection;
 use Core\Http\Controller\MemberController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
@@ -113,11 +114,7 @@ class MemberControllerDepartureTest extends TestCase
      */
     private function jsonRequest(array $data): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/members/1/departure', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput('POST', '/members/1/departure', [], [], [], [], json_encode($data));
 
         return $request;
     }

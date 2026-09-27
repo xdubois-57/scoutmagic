@@ -6,6 +6,7 @@ namespace Tests\Core\Http\Controller;
 
 use Core\Http\Controller\EditableContentController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Security\AuthSession;
 use Core\View\ConfigurationMode;
 use Core\View\EditableContentRepository;
@@ -63,11 +64,7 @@ class EditableContentControllerTest extends TestCase
      */
     private function jsonRequest(array $data): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/x', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput('POST', '/x', [], [], [], [], json_encode($data));
         return $request;
     }
 

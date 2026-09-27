@@ -20,6 +20,11 @@ use Twig\Environment;
  * idempotent (a mailbox prefetch of the one-click target, a real click,
  * and a resubmit may all reach it for the same recipient).
  */
+// This class shares its doubles between tests (set up once, or built by
+// a helper): some tests set expectations on them, the others only need
+// their answers, and PHPUnit would report each of those as a mock with
+// no expectation (issue #665).
+#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class UnsubscribeControllerTest extends TestCase
 {
     private RecipientRepository&\PHPUnit\Framework\MockObject\MockObject $recipientRepository;

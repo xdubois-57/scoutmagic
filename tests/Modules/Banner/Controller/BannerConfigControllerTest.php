@@ -9,6 +9,7 @@ use Core\ScoutYear\EffectiveScoutYear;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Http\FrontController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Http\Router;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
@@ -106,11 +107,7 @@ class BannerConfigControllerTest extends TestCase
      */
     private function jsonRequest(array $data): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/config/banner/x', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput('POST', '/config/banner/x', [], [], [], [], json_encode($data));
         return $request;
     }
 

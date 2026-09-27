@@ -7,6 +7,7 @@ namespace Tests\Core\Http\Controller;
 use Core\Database\Connection;
 use Core\Http\Controller\AuthController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Security\AuthService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
@@ -192,12 +193,7 @@ class AuthControllerPasswordTest extends TestCase
     private function createJsonRequest(string $path, array $data): Request
     {
         // We can't easily mock getRawBody, so create a real request and override
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', $path, [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput('POST', $path, [], [], [], [], json_encode($data));
 
         return $request;
     }

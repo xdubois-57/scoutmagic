@@ -7,6 +7,7 @@ namespace Tests\Core\Http\Controller;
 use Core\Database\Connection;
 use Core\Http\Controller\MemberController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
@@ -189,11 +190,7 @@ class MemberControllerScoutYearOffsetTest extends TestCase
      */
     private function jsonRequest(array $data): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/members/1/scout-year-offset', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput('POST', '/members/1/scout-year-offset', [], [], [], [], json_encode($data));
 
         return $request;
     }

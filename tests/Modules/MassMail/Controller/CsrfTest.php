@@ -11,6 +11,7 @@ use Core\Database\Connection;
 use Core\File\FileRepository;
 use Core\File\UploadHandler;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Import\FunctionRepository;
 use Core\Import\ImportJournalRepository;
 use Core\Member\MemberService;
@@ -39,6 +40,11 @@ use Core\Member\Repository\SectionRepository;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
+// This class shares its doubles between tests (set up once, or built by
+// a helper): some tests set expectations on them, the others only need
+// their answers, and PHPUnit would report each of those as a mock with
+// no expectation (issue #665).
+#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class CsrfTest extends TestCase
 {
     private \PDO $pdo;
@@ -51,11 +57,7 @@ class CsrfTest extends TestCase
 
     private function jsonRequest(array $data): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput('POST', '/', [], [], [], [], json_encode($data));
         return $request;
     }
 

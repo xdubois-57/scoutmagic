@@ -6,6 +6,7 @@ namespace Tests\Core\Security;
 
 use Core\Http\Controller\AuthController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Import\MemberYearRepository;
 use Core\Database\Connection;
 use Core\ScoutYear\AuthorizationYears;
@@ -418,12 +419,7 @@ class DeactivatedAccountLoginTest extends TestCase
      */
     private function jsonRequest(string $path, array $data): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', $path, [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput('POST', $path, [], [], [], [], json_encode($data));
 
         return $request;
     }

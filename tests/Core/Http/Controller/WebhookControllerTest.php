@@ -6,6 +6,7 @@ namespace Tests\Core\Http\Controller;
 
 use Core\Http\Controller\WebhookController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Maintenance\GitHubWebhookService;
@@ -18,6 +19,11 @@ use Tests\TestTwig;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
+// This class shares its doubles between tests (set up once, or built by
+// a helper): some tests set expectations on them, the others only need
+// their answers, and PHPUnit would report each of those as a mock with
+// no expectation (issue #665).
+#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class WebhookControllerTest extends TestCase
 {
     private \PDO $pdo;
@@ -44,11 +50,7 @@ class WebhookControllerTest extends TestCase
      */
     private function requestWithBody(string $rawBody, array $server): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/api/webhook/github', [], [], [], $server])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn($rawBody);
+        $request = new RequestWithInput('POST', '/api/webhook/github', [], [], [], $server, $rawBody);
 
         return $request;
     }

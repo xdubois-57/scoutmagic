@@ -10,6 +10,7 @@ use Core\Config\SettingService;
 use Core\Http\Controller\PushSubscriptionController;
 use Core\Http\FrontController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Http\Router;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
@@ -92,11 +93,7 @@ class PushSubscriptionControllerTest extends TestCase
      */
     private function jsonRequest(string $method, array $data): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs([$method, '/api/push-subscription', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput($method, '/api/push-subscription', [], [], [], [], json_encode($data));
         return $request;
     }
 

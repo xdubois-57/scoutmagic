@@ -11,6 +11,7 @@ use Core\Config\SettingService;
 use Core\Config\UnitAddresses;
 use Core\Database\Connection;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
@@ -691,12 +692,7 @@ class CalendarChiefControllerTest extends TestCase
      */
     private function createJsonRequest(array $data): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/chefs/calendar/event-create', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput('POST', '/chefs/calendar/event-create', [], [], [], [], json_encode($data));
 
         return $request;
     }

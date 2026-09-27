@@ -14,6 +14,7 @@ use Core\Database\Connection;
 use Core\File\FileRepository;
 use Core\File\UploadHandler;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
@@ -63,6 +64,11 @@ use Core\Member\Repository\SectionRepository;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
+// This class shares its doubles between tests (set up once, or built by
+// a helper): some tests set expectations on them, the others only need
+// their answers, and PHPUnit would report each of those as a mock with
+// no expectation (issue #665).
+#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class NewsIntegrationTest extends TestCase
 {
     private \PDO $pdo;
@@ -2280,11 +2286,7 @@ class NewsIntegrationTest extends TestCase
         AuthSession::login(999, 'other-chief@test.com', 'chief');
         $csrfToken = CsrfGuard::generateToken();
 
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['DELETE', '/news/' . $id, [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode(['_csrf_token' => $csrfToken]));
+        $request = new RequestWithInput('DELETE', '/news/' . $id, [], [], [], [], json_encode(['_csrf_token' => $csrfToken]));
 
         $response = $this->newsController->delete($request, ['id' => (string) $id]);
 
@@ -2302,11 +2304,7 @@ class NewsIntegrationTest extends TestCase
         $this->journalService->expects($this->once())->method('log')
             ->with('news', 'article_deleted', 'info', $this->anything(), ['article_id' => $id], $this->chiefAccountId);
 
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['DELETE', '/news/' . $id, [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode(['_csrf_token' => $csrfToken]));
+        $request = new RequestWithInput('DELETE', '/news/' . $id, [], [], [], [], json_encode(['_csrf_token' => $csrfToken]));
 
         $response = $this->newsController->delete($request, ['id' => (string) $id]);
 

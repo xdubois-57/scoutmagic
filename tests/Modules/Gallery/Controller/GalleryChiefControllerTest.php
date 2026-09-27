@@ -11,6 +11,7 @@ use Core\Database\Connection;
 use Core\File\FileRepository;
 use Core\File\UploadHandler;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Import\MemberYearRepository;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
@@ -226,11 +227,7 @@ class GalleryChiefControllerTest extends TestCase
      */
     private function jsonRequest(array $data, string $path = '/gallery/1/delete'): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', $path, [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput('POST', $path, [], [], [], [], json_encode($data));
         return $request;
     }
 
@@ -844,7 +841,7 @@ class GalleryChiefControllerTest extends TestCase
         $token = $this->csrfToken();
         $withoutStore = new GalleryChiefController(
             $this->twig, $this->albumService, $this->mediaService, $this->mediaRepository,
-            $this->createConfiguredMock(GalleryAccessService::class, ['canManageAlbum' => true, 'getManagedSectionIds' => []]),
+            $this->createConfiguredStub(GalleryAccessService::class, ['canManageAlbum' => true, 'getManagedSectionIds' => []]),
             $this->sectionService, $this->settingService, $this->storageLocationRepository, $this->storageLocationService, $this->galleryLocationService
         );
 

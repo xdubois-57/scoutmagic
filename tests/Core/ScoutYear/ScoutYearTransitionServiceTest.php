@@ -33,6 +33,11 @@ use Tests\DatabaseTestHelper;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
+// This class shares its doubles between tests (set up once, or built by
+// a helper): some tests set expectations on them, the others only need
+// their answers, and PHPUnit would report each of those as a mock with
+// no expectation (issue #665).
+#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class ScoutYearTransitionServiceTest extends TestCase
 {
     private \PDO $pdo;
