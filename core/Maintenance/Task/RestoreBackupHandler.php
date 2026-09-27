@@ -580,7 +580,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
             'sauvegarde.zip',
             'application/zip',
             (int) filesize($safetyZip),
-            'admin',
+            \Core\Maintenance\Backup::FILE_ROLE,
             null,
             $requestedBy
         );
@@ -589,7 +589,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
             'database.sql',
             'application/sql',
             (int) filesize($safetyDbDump),
-            'admin',
+            \Core\Maintenance\Backup::FILE_ROLE,
             null,
             $requestedBy
         );

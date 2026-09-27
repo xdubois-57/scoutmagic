@@ -67,7 +67,7 @@ class ResetSettingsHandler implements TaskHandlerInterface
                 'sauvegarde.zip',
                 'application/zip',
                 (int) filesize($filesZipPath),
-                'admin',
+                \Core\Maintenance\Backup::FILE_ROLE,
                 null,
                 $requestedBy
             );
@@ -76,7 +76,7 @@ class ResetSettingsHandler implements TaskHandlerInterface
                 'database.sql',
                 'application/sql',
                 (int) filesize($dbDumpPath),
-                'admin',
+                \Core\Maintenance\Backup::FILE_ROLE,
                 null,
                 $requestedBy
             );

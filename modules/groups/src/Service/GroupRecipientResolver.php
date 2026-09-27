@@ -14,7 +14,6 @@ use Core\Member\MemberAccountResolver;
 use Core\Member\MemberEmailRepository;
 use Core\Member\SectionMembershipRepository;
 use Core\Security\DecryptionException;
-use Core\Security\EncryptionService;
 use Core\Security\Role;
 use Core\Security\RoleResolver;
 use Core\Security\UserAccountRepository;
@@ -59,7 +58,6 @@ class GroupRecipientResolver
         private MemberYearRepository $memberYearRepository,
         private MemberEmailRepository $memberEmailRepository,
         private UserAccountRepository $userAccountRepository,
-        private EncryptionService $encryption,
         private ?RoleResolver $roleResolver = null,
         private ?ScoutYearService $scoutYearService = null
     ) {
@@ -250,8 +248,7 @@ class GroupRecipientResolver
         return $this->memberAccounts ??= new MemberAccountResolver(
             $this->memberYearRepository,
             $this->memberEmailRepository,
-            $this->userAccountRepository,
-            $this->encryption
+            $this->userAccountRepository
         );
     }
 

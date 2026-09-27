@@ -517,7 +517,9 @@ class GitHubWebhookService
         // markOtherInProgressAsFailed(), which has the rollback semantics
         // this does not.
         if ($history !== null && $history->status === 'pending') {
-            $this->updateHistoryRepository->markFailed($historyId, $reason);
+            // Skipped, not failed (issue #622): it never started, and the
+            // install that replaces it contains it.
+            $this->updateHistoryRepository->markSkipped($historyId, $reason);
         }
     }
 

@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Registration\Repository;
 
+use Core\Database\ConstraintViolation;
+
 /**
  * `registration_section_transfers` — the "Passage" page's own storage for
  * a member's destination section for the target scout year (module spec:
@@ -115,22 +117,32 @@ class SectionTransferRepository
             'SELECT id FROM registration_section_transfers WHERE member_id = ? AND target_scout_year_id = ?'
         );
         $existing->execute([$memberId, $targetScoutYearId]);
-        $id = $existing->fetchColumn();
 
-        if ($id !== false) {
-            $stmt = $this->pdo->prepare(
-                'UPDATE registration_section_transfers SET destination_section_id = ?, updated_at = ? WHERE id = ?'
-            );
-            $stmt->execute([$destinationSectionId, $now, $id]);
+        if ($existing->fetchColumn() === false) {
+            try {
+                $stmt = $this->pdo->prepare(
+                    'INSERT INTO registration_section_transfers (member_id, target_scout_year_id, '
+                        . 'destination_section_id, updated_at)
+                     VALUES (?, ?, ?, ?)'
+                );
+                $stmt->execute([$memberId, $targetScoutYearId, $destinationSectionId, $now]);
 
-            return;
+                return;
+            } catch (\PDOException $e) {
+                // Another request inserted between the SELECT and here, and
+                // the unique index on (member, target year) refused this
+                // row. This pick is the later one, so it overwrites that
+                // one below, as it would have a second earlier (issue #592).
+                if (!ConstraintViolation::isDuplicateKey($e)) {
+                    throw $e;
+                }
+            }
         }
 
         $stmt = $this->pdo->prepare(
-            'INSERT INTO registration_section_transfers (member_id, target_scout_year_id, destination_section_id, '
-                . 'updated_at)
-             VALUES (?, ?, ?, ?)'
+            'UPDATE registration_section_transfers SET destination_section_id = ?, updated_at = ?
+              WHERE member_id = ? AND target_scout_year_id = ?'
         );
-        $stmt->execute([$memberId, $targetScoutYearId, $destinationSectionId, $now]);
+        $stmt->execute([$destinationSectionId, $now, $memberId, $targetScoutYearId]);
     }
 }

@@ -9,7 +9,6 @@ declare(strict_types=1);
 namespace Core\Member\Household;
 
 use Core\Member\AddressNormalizer;
-use Core\Security\EncryptionService;
 use Modules\Registration\Api\HouseholdRegistrationCountProvider;
 
 /**
@@ -32,7 +31,6 @@ class HouseholdService
 {
     public function __construct(
         private HouseholdRepository $repository,
-        private EncryptionService $encryption,
         private ?HouseholdRegistrationCountProvider $registrationCount = null
     ) {
     }
@@ -95,7 +93,7 @@ class HouseholdService
             return null;
         }
 
-        $blindIndex = $this->encryption->blindIndex($normalized, 'address');
+        $blindIndex = $this->repository->householdKeyFor($normalized);
         $members = $this->repository->findMembersAtAddress($blindIndex, $scoutYearId);
         $incoming = $this->registrationCount?->countAtAddress(
             $blindIndex,

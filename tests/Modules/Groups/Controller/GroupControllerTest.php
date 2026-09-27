@@ -289,8 +289,7 @@ class GroupControllerTest extends TestCase
             new SectionMembershipRepository($this->pdo),
             new \Core\Import\MemberYearRepository($this->pdo),
             new \Core\Member\MemberEmailRepository($this->pdo, $encryption),
-            new UserAccountRepository($this->pdo, $encryption),
-            $encryption
+            new UserAccountRepository($this->pdo, $encryption)
         );
     }
 

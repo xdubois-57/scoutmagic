@@ -140,4 +140,40 @@ class ConstraintViolationTest extends TestCase
             'malformed' => [ConstraintViolation::MALFORMED],
         ];
     }
+
+    /**
+     * A unique index refusing a row that is already there, on each engine
+     * the repositories run on — and nothing else under SQLSTATE 23000
+     * (issue #592).
+     */
+    #[DataProvider('duplicateKeyVerdicts')]
+    public function testIsDuplicateKeyRecognisesOnlyAUniqueIndex(
+        string $sqlstate,
+        ?int $driverCode,
+        string $message,
+        bool $expected
+    ): void {
+        $this->assertSame(
+            $expected,
+            ConstraintViolation::isDuplicateKey($this->pdoException($sqlstate, $driverCode, $message))
+        );
+    }
+
+    /**
+     * @return array<string, array{string, ?int, string, bool}>
+     */
+    public static function duplicateKeyVerdicts(): array
+    {
+        return [
+            'MySQL duplicate entry' => ['23000', 1062, "Duplicate entry '1-1' for key 'uniq'", true],
+            'SQLite unique index' => ['23000', 19, 'UNIQUE constraint failed: t.a, t.b', true],
+            'MySQL foreign key' => ['23000', 1452, 'Cannot add or update a child row', false],
+            'MySQL not null' => ['23000', 1048, "Column 'x' cannot be null", false],
+            'SQLite foreign key' => ['23000', 19, 'FOREIGN KEY constraint failed', false],
+            'SQLite not null' => ['23000', 19, 'NOT NULL constraint failed: t.x', false],
+            'a connection lost' => ['HY000', 2006, 'MySQL server has gone away', false],
+            'no driver code' => ['23000', null, 'boom', false],
+        ];
+    }
 }
+

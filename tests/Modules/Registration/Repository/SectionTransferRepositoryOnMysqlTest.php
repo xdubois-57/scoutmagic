@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Registration\Repository;
 
+use Core\Database\ConstraintViolation;
 use Modules\Registration\Repository\SectionTransferRepository;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
@@ -66,6 +67,7 @@ class SectionTransferRepositoryOnMysqlTest extends TestCase
             $this->fail('a second destination for the same member and year was accepted.');
         } catch (\PDOException $e) {
             $this->assertSame('1062', (string) ($e->errorInfo[1] ?? ''), $e->getMessage());
+            $this->assertTrue(ConstraintViolation::isDuplicateKey($e), 'issue #592: the race fallback would not catch this');
         }
     }
 

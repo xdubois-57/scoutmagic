@@ -86,7 +86,7 @@ class FeeAccuracyControllerTest extends TestCase
         $this->normalFeeId = $feeCategories->create('N_N_COTISATION NORMALE', 'Cotisation normale');
         $this->familyFeeId = $feeCategories->create('N_F_COTISATION FAMILLE', 'Cotisation famille');
 
-        $this->households = new HouseholdService(new HouseholdRepository($this->pdo), $this->encryption);
+        $this->households = new HouseholdService(new HouseholdRepository($this->pdo, $this->encryption));
         $this->ignored = new IgnoredHouseholdRepository($this->pdo, $this->encryption);
         $this->tariffs = new HouseholdTariffService(new HouseholdTariffRepository($this->pdo), $feeCategories);
         $this->journalService = new JournalService(new JournalRepository($this->pdo));

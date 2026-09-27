@@ -538,6 +538,58 @@ class MaintenanceControllerTest extends TestCase
         $this->assertStringContainsString('restauré automatiquement', $body);
     }
 
+    /**
+     * An install skipped before it started is not an attempt (issue #622):
+     * it neither raises the alarm on its own, nor hides the failure of the
+     * attempt before it.
+     */
+    public function testASkippedInstallIsShownAsIgnoredAndIsNotTheLastAttempt(): void
+    {
+        $succeeded = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, null);
+        $this->updateHistoryRepository->markCompleted($succeeded);
+        $skipped = $this->updateHistoryRepository->create('1.1.0', '1.2.0', false, null);
+        $this->updateHistoryRepository->markSkipped($skipped, 'Installation remplacée : un push plus récent est arrivé.');
+
+        // The history lives on the update page, the « last attempt » flag on
+        // the health page (#643 split them): each is read where it is shown.
+        $history = $this->page('updatePage');
+        $this->assertStringContainsString('>Ignorée</span>', $history);
+        $this->assertStringNotContainsString('Échouée</span>', $history, 'a skipped install shown as failed');
+
+        $health = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        $this->assertStringContainsString('maintenance-auto-update-health', $health);
+        $this->assertStringNotContainsString('maintenance-update-last-attempt', $health);
+    }
+
+    public function testASkippedInstallDoesNotHideTheFailedAttemptBeforeIt(): void
+    {
+        $failed = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, null);
+        $this->updateHistoryRepository->markRolledBack($failed, 'migration KO');
+        $skipped = $this->updateHistoryRepository->create('1.1.0', '1.2.0', false, null);
+        $this->updateHistoryRepository->markSkipped($skipped, 'Installation remplacée.');
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('maintenance-update-last-attempt', $body);
+        $this->assertStringContainsString('restauré automatiquement', $body);
+    }
+
+    /** More skipped rows than the history shows still leave the failure behind them visible. */
+    public function testAFailureBehindMoreSkippedInstallsThanTheTableShowsIsStillFlagged(): void
+    {
+        $failed = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, null);
+        $this->updateHistoryRepository->markRolledBack($failed, 'migration KO');
+        for ($i = 0; $i < 25; $i++) {
+            $skipped = $this->updateHistoryRepository->create('1.1.0', '1.2.' . $i, false, null);
+            $this->updateHistoryRepository->markSkipped($skipped, 'Installation remplacée.');
+        }
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('maintenance-update-last-attempt', $body);
+        $this->assertStringContainsString('restauré automatiquement', $body);
+    }
+
     public function testTheHealthBlockStaysQuietWhenTheMostRecentAttemptSucceeded(): void
     {
         $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, null);
@@ -1404,7 +1456,7 @@ class MaintenanceControllerTest extends TestCase
         $runner->expects($this->never())->method('migrate');
         $controller = $this->controllerWithRunner($runner);
 
-        foreach (['pending', 'backing_up', 'downloading', 'installing', 'completed', 'failed', 'rolled_back'] as $status) {
+        foreach (['pending', 'backing_up', 'downloading', 'installing', 'completed', 'failed', 'rolled_back', 'skipped'] as $status) {
             $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, 1);
             $this->updateHistoryRepository->setStatus($id, $status);
 
@@ -1904,7 +1956,7 @@ class MaintenanceControllerTest extends TestCase
 
         $this->assertTrue(json_decode($response->getBody(), true)['success']);
         $this->assertSame('canceled', $this->schedulerRepository->findById($actionId)['status']);
-        $this->assertSame('failed', $this->updateHistoryRepository->findById($historyId)->status);
+        $this->assertSame('skipped', $this->updateHistoryRepository->findById($historyId)->status);
     }
 
     public function testSaveAutoUpdatePreferencesDisablingAutoUpdatesCancelsThePendingScheduledInstall(): void
@@ -1916,7 +1968,7 @@ class MaintenanceControllerTest extends TestCase
 
         $this->assertTrue(json_decode($response->getBody(), true)['success']);
         $this->assertSame('canceled', $this->schedulerRepository->findById($actionId)['status']);
-        $this->assertSame('failed', $this->updateHistoryRepository->findById($historyId)->status);
+        $this->assertSame('skipped', $this->updateHistoryRepository->findById($historyId)->status);
     }
 
     public function testSaveAutoUpdatePreferencesMovesThePendingScheduledInstallToTheNewSlot(): void
@@ -1958,7 +2010,7 @@ class MaintenanceControllerTest extends TestCase
 
         $this->assertTrue(json_decode($response->getBody(), true)['success']);
         $this->assertSame('canceled', $this->schedulerRepository->findById($actionId)['status']);
-        $this->assertSame('failed', $this->updateHistoryRepository->findById($historyId)->status);
+        $this->assertSame('skipped', $this->updateHistoryRepository->findById($historyId)->status);
     }
 
     // --- "Vérifier maintenant" (POST /config/maintenance/update/check-now) ---
@@ -2373,7 +2425,7 @@ class MaintenanceControllerTest extends TestCase
     private function buildFrontController(): FrontController
     {
         $router = new Router();
-        $router->addRoute('GET', '/config/maintenance', MaintenanceController::class, 'index', 'admin');
+        $router->addRoute('GET', '/config/maintenance', MaintenanceController::class, 'index', 'superadmin');
 
         $configFile = sys_get_temp_dir() . '/test_maintenance_config_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
@@ -2385,17 +2437,18 @@ class MaintenanceControllerTest extends TestCase
         return $fc;
     }
 
-    public function testChiefIsDenied(): void
+    /** A chef d'unité, one level below the floor maintenance has since issue #619. */
+    public function testAdminIsDenied(): void
     {
-        AuthSession::login(1, 'chief@test.be', 'chief');
-
         $response = $this->buildFrontController()->handle(new Request('GET', '/config/maintenance', [], [], [], []));
 
         $this->assertSame(403, $response->getStatusCode());
     }
 
-    public function testAdminIsAllowed(): void
+    public function testSuperadminIsAllowed(): void
     {
+        AuthSession::login(1, 'root@test.be', 'superadmin');
+
         $response = $this->buildFrontController()->handle(new Request('GET', '/config/maintenance', [], [], [], []));
 
         $this->assertSame(200, $response->getStatusCode());
