@@ -49,14 +49,19 @@ final class AlertSurfaces
      * The alerts whose attention point must NOT send the reader to the
      * maintenance page, and where it sends them instead.
      *
-     * **Only the exceptions are listed.** For twelve of the thirteen checks
+     * **Only the exceptions are listed.** For eleven of the thirteen checks
      * the maintenance page is the right destination — it is where the
-     * disk figure, the backup age and the cron stamp all live, so a
-     * reader arrives at the thing the alert is about. The twelfth is the
-     * one issue #352 is about: « Le site est servi en HTTP » has two
-     * causes calling for opposite gestures, and the maintenance page only
-     * restates the reading the reader has just read. It needs the help
-     * topic that can tell the two apart.
+     * backup age and the cron stamp live, so a reader arrives at the thing
+     * the alert is about. Two are not:
+     *
+     * - « Le site est servi en HTTP » (issue #352) has two causes calling
+     *   for opposite gestures, and the maintenance page only restates the
+     *   reading the reader has just read. It needs the help topic that can
+     *   tell the two apart.
+     * - « Espace disque » (issue #649). The disk figure left the maintenance
+     *   page for Configuration › Stockage, and this page kept sending the
+     *   reader to where it used to be — « la page Maintenance en dit le
+     *   détail », of a detail it no longer showed.
      *
      * This map exists for the same reason {@see labels()} does, and it is
      * not a duplicate of what the check declares: the check's own
@@ -81,6 +86,11 @@ final class AlertSurfaces
                 'path' => Check\HttpsCheck::HELP_PATH,
                 'label' => Check\HttpsCheck::HELP_LABEL,
                 'why' => Check\HttpsCheck::ATTENTION_WHY,
+            ],
+            Check\DiskUsageCheck::KEY => [
+                'path' => Check\DiskUsageCheck::STORAGE_PATH,
+                'label' => Check\DiskUsageCheck::ACTION_LABEL,
+                'why' => Check\DiskUsageCheck::ATTENTION_WHY,
             ],
         ];
     }
