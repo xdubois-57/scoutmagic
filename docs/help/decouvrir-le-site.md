@@ -9,7 +9,7 @@ question: Que peut-on voir sur le site sans être connecté ?
 question: Où trouver les coordonnées de l'unité ?
 question: Où voir la liste des sections de l'unité ?
 paths: /, /contact, /sections
-related: se-connecter, installer-application, ou-placer-les-insignes
+related: se-connecter, installer-application
 ---
 
 Ces trois pages sont visibles par tout le monde, sans connexion. Leur
