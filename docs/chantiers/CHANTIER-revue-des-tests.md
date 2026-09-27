@@ -2012,3 +2012,100 @@ C'est exactement l'arithmétique que la compétence décrit — « cinq de ses d
 constats portaient sur le code poussé pour corriger les quatre précédents ».
 Sur ce lot, deux rondes payantes ont trouvé deux défauts de prose ; la
 troisième aurait trouvé ces cinq-là. Le relecteur local passe avant, désormais.
+
+### Itération 11 — Les chemins d'échec, lot 3 : `MemberEmailAddressController` — 2026-09-27
+
+**Mesuré d'abord, et cette fois la mesure globale a été refaite** :
+**845 blocs `catch` balayés, 341 corps jamais exécutés (40,4 %)**. Le lot 2
+avait annoncé ce chiffre par soustraction en disant qu'il n'était pas mesuré ;
+il l'est maintenant, et il tombe juste. `CampaignController` a disparu du
+tableau, comme `MassMailController` avant lui.
+
+`MemberEmailAddressController` en portait **7 sur 9**, aux lignes 76, 111, 113,
+144, 175, 231 et 307 — les deux déjà exécutées étant le `MemberEmailException`
+de `add()` et le `MemberNotFoundException` de `requireOwnMemberId()`.
+
+**Un seul fichier encore**, alors que le plan annonçait trois contrôleurs.
+`OutboundMailController` fait 2 791 lignes pour 20 `catch` et mérite son propre
+lot ; `GalleryChiefController` en porte 12. Le lot 2, sur un fichier, a produit
+six constats de revue au total.
+
+**Ce que ces branches ont en commun, et ce qui change donc dans les
+assertions.** Elles existent pour qu'un membre apprenne pourquoi son geste n'a
+pas abouti. Or les tests du fichier n'assertaient que le code 302 — que le
+chemin de succès rend aussi. Chaque test de ce lot affirme donc le **type** et
+le **texte** de ce qui atterrit sur la page. Le test préexistant
+`testAddSurfacesAMemberEmailExceptionAsAFlashMessageNotAnError` portait dans son
+nom la promesse d'un message qu'il ne vérifiait pas : il l'assure maintenant.
+
+| Branche | Ce qu'un membre y lit |
+|---|---|
+| `add()` `MailException` | « l'adresse a été enregistrée, mais l'email de confirmation n'a pas pu être envoyé » |
+| `resend()` `MemberEmailException` | la raison du service, telle quelle |
+| `resend()` `MailException` | « n'a pas pu être envoyé » — surtout pas la phrase de succès |
+| `delete()` | la raison du service |
+| `reactivate()` | la raison du service |
+| `unblockBounce()` | la raison du service |
+| `deskEmailFor()` `MemberNotFoundException` | rien : l'adresse Desk ne voyage pas, et la réponse arrive quand même |
+
+**La branche qui dit ce que le service n'a pas dit.** Le `MailException` de
+`add()` est la seule où le contrôleur ajoute une information : l'adresse **est**
+enregistrée, seul le courriel a échoué. Annoncer un échec sec enverrait le
+membre la ressaisir — et la seconde tentative refuserait, l'adresse étant déjà
+là. C'est la branche la plus utile du lot, et elle n'était jamais exécutée.
+
+**Les doublures restent, et pour deux raisons différentes.** Pour les deux
+`MailException`, l'échec de la couche courriel **est** le sujet — même
+raisonnement qu'au lot 2 pour son `\Throwable`. Pour les `MemberEmailException`,
+la doublure porte la formulation réelle du service et ce qui est sous test est
+le seul travail du contrôleur : transmettre cette raison sans la changer, comme
+une erreur et non comme un succès. Le docblock du lot le dit, plutôt que de
+laisser croire que la décision du service est vérifiée ici.
+
+**La fenêtre TOCTOU, atteinte cette fois.** Au lot 1, deux branches de ce type
+avaient été documentées comme inatteignables. Celle-ci l'est : `deskEmailFor()`
+relit le profil **après** que `requireOwnMemberId()` l'a déjà lu, donc un membre
+supprimé entre les deux lectures tombe dans son `catch`. La doublure répond
+différemment au second appel, ce qui n'est pas une doublure qui mente sur le
+système (§3) : un membre **peut** être supprimé en cours de requête. Et l'effet
+du `catch` n'était observable qu'en donnant au profil une adresse Desk — le
+fixture du fichier n'en portait pas, si bien que le `null` du chemin normal et
+celui du chemin fautif étaient indistinguables.
+
+**Preuve par mutation** : huit mutations, une à la fois, restaurées après
+chacune — le succès partiel changé en échec sec, quatre raisons de service
+avalées, un échec d'envoi présenté comme un succès, l'adresse Desk prise dans la
+requête, le profil disparu plus rattrapé. **Huit rouges.**
+
+**Corrigé au passage, dans le fichier de production** : un docblock attaché à la
+mauvaise méthode. Il décrivait `requireOwnMemberId()` — « Returns the persistent
+member id on success » — et se trouvait devant `deskEmailFor()`, qui rend une
+adresse. La famille de défaut de ce chantier, un étage au-dessus du test.
+
+**Le relecteur local lancé AVANT de pousser**, comme la compétence steward le
+prescrit et comme le lot 2 avait omis de le faire. Cinq constats, trois à moi et
+corrigés ici : un fixture qui recopiait un constructeur de dix-neuf arguments
+plutôt que de prendre un paramètre optionnel, une assertion
+`assertStringNotContainsString('renvoyé', …)` qui aurait rougi sur la
+formulation **correcte** « n'a pas pu être renvoyé » — un test qui punit le
+correctif — et l'absence de cette entrée de journal.
+
+**Deux constats hors périmètre, vérifiés et ouverts en tickets.** #586 :
+`unblockBounce()` paie une hydratation complète de profil que le service ignore
+dès que `email_id` n'est pas 0 — et ce second appel est la seule raison d'être de
+la fenêtre TOCTOU ci-dessus, donc le rendre conditionnel la réduirait à la
+branche où l'adresse Desk compte. #587 : `addEmail()` ne journalise jamais
+`member_email_added` quand le courriel de confirmation échoue, alors que la ligne
+est conservée — la trace existe sous le nom `member_email_confirmation_send_failed`,
+si bien qu'un audit « quelles adresses ont été ajoutées » posé de la façon
+évidente manque exactement les adresses ajoutées un jour de panne de courriel.
+
+**Une leçon d'outillage, payée cette fois.** La première exécution de la suite
+complète a rendu **une** défaillance sur 21 620 tests, et je n'ai pas pu dire
+laquelle : ma commande ne gardait que les cinq dernières lignes de sortie.
+L'exécution suivante, isolée, est verte avec des compteurs identiques. La cause
+la plus probable est de mon fait : j'avais lancé la suite complète **et** la
+compétence `code-review` en même temps, or celle-ci exécute elle aussi PHPUnit,
+et les deux processus partagent la base MariaDB `test_db` de ce conteneur. Ne
+jamais faire tourner la suite entière en parallèle d'autre chose qui touche cette
+base — et capturer la sortie entière, pas sa fin.

@@ -285,20 +285,15 @@ class MemberEmailAddressController extends AbstractController
     }
 
     /**
-     * Re-verifies the requesting account is linked (blind-index email
-     * match) to this exact member_year id, mirroring MemberController::
-     * show()'s own $isSelf computation — deliberately never a chief/admin
-     * bypass, per this feature's spec. The one way staff reach this is an
-     * active temporary member override (ARCHITECTURE.md §8.42), which
-     * canAccess() honours precisely so an admin can act on the member's
-     * behalf. Returns the persistent member id on success, null when
-     * access must be denied.
-     */
-    /**
      * The Desk address on this member's profile, or null when they have
      * none. Read here rather than taken from the request: an address the
      * browser supplied would let somebody name a mailbox that is not
      * theirs.
+     *
+     * A profile that has gone between this read and the one
+     * requireOwnMemberId() already made is a member deleted mid-request:
+     * null is the right answer there too, and it keeps the block liftable
+     * by its own row instead of answering 500.
      */
     private function deskEmailFor(int $memberYearId): ?string
     {
@@ -309,6 +304,16 @@ class MemberEmailAddressController extends AbstractController
         }
     }
 
+    /**
+     * Re-verifies the requesting account is linked (blind-index email
+     * match) to this exact member_year id, mirroring MemberController::
+     * show()'s own $isSelf computation — deliberately never a chief/admin
+     * bypass, per this feature's spec. The one way staff reach this is an
+     * active temporary member override (ARCHITECTURE.md §8.42), which
+     * canAccess() honours precisely so an admin can act on the member's
+     * behalf. Returns the persistent member id on success, null when
+     * access must be denied.
+     */
     private function requireOwnMemberId(Request $request, int $memberYearId): ?int
     {
         $userEmail = AuthSession::getEmail() ?? '';
