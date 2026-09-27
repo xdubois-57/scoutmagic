@@ -17,7 +17,7 @@ Everything beyond the core site is a module (`modules/<id>/`, ARCHITECTURE.md §
 | `covoiturage` | Covoiturage | §45 |
 | `documents` | Documents | §46 |
 | `fees` | Cotisations | §31 |
-| `finance` | Finances | §28, §30 |
+| `finance` | Finances | §28, §30, §48 |
 | `gallery` | Photos et vidéos | §33 |
 | `groups` | Discussions | §20 |
 | `inbound_mail` | Courrier entrant | §23 |
@@ -3458,3 +3458,57 @@ actualité et la communication libre proposent une destination de plus,
   partage ne se glisse pas sous ces règles.
 
 Sans le module Groupes, la destination n'apparaît simplement pas.
+
+
+## 48. Finances — l'import des extraits bancaires (module finance)
+
+Chantier : `docs/chantiers/CHANTIER-import-coda.md`, issue #511.
+
+### 48.1 Un fichier, pas de compte ni de format à choisir
+
+Le trésorier dépose un fichier exporté de sa banque ; c'est tout.
+
+- **Le format est reconnu tout seul.** Un CODA se reconnaît à sa structure, un CSV BNP Paribas Fortis à son en-tête. La liste des formats n'apparaît qu'**après un échec de détection** (« Nous n'avons pas reconnu ce fichier ») : un choix toujours affiché serait repris par habitude, y compris à tort.
+- **Chaque ligne rejoint le compte du site qui porte son IBAN**, celui que la banque écrit dans le fichier, retrouvé par l'index aveugle. L'erreur de destination n'est plus rattrapée : elle devient impossible. Un fichier CODA couvre souvent plusieurs comptes ; il est réparti en une fois.
+
+Formats lus : **CODA** (le format normalisé de toutes les banques belges) et le **CSV BNP Paribas Fortis**.
+
+### 48.2 Ce qui est mis de côté, jamais créé
+
+Les lignes d'un IBAN sont écartées — rien n'est écrit pour elles — quand :
+
+- aucun compte du site ne porte cet IBAN (**un compte n'est jamais créé depuis un relevé**) ;
+- le compte n'est pas actif ;
+- plusieurs comptes actifs portent cet IBAN (aucun n'est choisi au hasard) — un compte actif l'emporte en revanche sur un compte archivé de même IBAN ;
+- le compte est hors de portée de celui qui importe (rôle minimum du compte, règle du trésorier de section, §28). Le rapport le dit sans en dire davantage sur ce compte.
+
+### 48.3 Tout ou rien
+
+Une seule transaction couvre le fichier entier, sur tous ses comptes. Le fichier est refusé en entier, avant toute écriture, quand :
+
+- une date n'appartient à **aucune année scoute** du site — l'exercice comptable est l'année scoute, et elle n'est **jamais créée** depuis un relevé : un octet décalé dans un fichier produit des dates plausibles et fausses. Le message nomme les dates et l'année manquante ;
+- un relevé CODA est incohérent (ses mouvements ne mènent pas à son solde final) ;
+- un solde est absent ou saisi à tort (§48.4).
+
+Aucun message d'erreur ne contient de montant, d'IBAN de contrepartie ni de nom de contrepartie.
+
+### 48.4 Le solde
+
+- **Il vient du fichier quand le format le donne** (CODA : le solde final de chaque compte, à sa date). Un solde saisi est alors refusé.
+- **Sinon (CSV BNP), il est saisi au premier import d'un compte seulement**, et sert de point de départ ; les imports suivants se recalculent depuis les mouvements, et un solde saisi y est refusé.
+- Le contrôle d'écart compare le grand livre au solde du fichier et signale la différence au rapport.
+- Réimporter le même fichier n'écrit pas un second point de solde.
+
+### 48.5 Le rapport de fin
+
+Pas de récapitulatif à valider avant écriture : un rapport après coup. Par compte, les lignes lues, nouvelles et déjà présentes (réimporter une période déjà chargée ne crée aucun doublon), et l'écart de solde s'il y en a un. Puis chaque IBAN écarté, son nombre de lignes et la raison — avec, pour un compte inconnu, la marche à suivre : l'ajouter avec son IBAN dans Configuration › Comptes, puis réimporter le même fichier.
+
+Les lignes d'un même fichier gardent le lien entre elles : une ligne de suivi par compte, reliées par un identifiant de dépôt commun.
+
+### 48.6 La communication structurée
+
+Le CODA la livre dans son propre champ ; elle est rangée à part (chiffrée, comme le libellé) et c'est elle que le rapprochement des paiements attendus lit en premier. Le CSV BNP la noie dans du texte libre, où elle est toujours cherchée.
+
+### 48.7 Hors périmètre
+
+**Ponto** (téléchargement automatique des extraits via l'API d'Isabel) : tarif non publié, liaison DSP2 à refaire tous les 90 jours, et surtout le certificat client Ibanity, incompatible avec un logiciel libre auto-hébergé. Il fait l'objet d'une issue distincte. Écartés aussi : créer une année scoute ou un compte depuis un relevé, un récapitulatif à valider avant écriture, et un choix de compte ou de format toujours affiché.

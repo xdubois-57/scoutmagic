@@ -201,6 +201,33 @@ décrit, le sujet d'aide de l'écran d'import, et le `README.md` du jeu de donn�
 
 ---
 
+## Tranché à l'implémentation
+
+Les trois points que la revue de la PR #507 avait laissés ouverts :
+
+- **Le nom de la méthode** : `BankStatementParserFactory::getSupportedBankCodes()`
+  — le `supportedCodes()` du texte ci-dessus était une coquille.
+- **La communication structurée a son propre champ** :
+  `StatementLine::$structuredCommunication` et la colonne chiffrée
+  `finance_transactions.structured_communication`. Les trois lectures
+  (`ReceivableAllocationService::communicationsOf()` et les deux de
+  `ReconciliationService`) la lisent en premier, avant le libellé, le
+  commentaire et les détails.
+- **Le solde est avancé à l'IT-02** : un fichier CODA multi-comptes n'a donc
+  jamais existé sans solde lu dans le fichier. Pendant l'IT-01 seule, un solde
+  saisi pour un fichier couvrant plusieurs comptes était refusé.
+
+Et deux cas que le chantier ne prévoyait pas :
+
+- **Rien ne rend un IBAN unique entre comptes** : le compte actif l'emporte sur
+  un compte archivé de même IBAN, et deux comptes actifs de même IBAN sont
+  écartés comme ambigus plutôt que départagés au hasard.
+- **Un mouvement globalisé** n'est importé que par sa ligne globale (détail
+  0000) : ses détails le compteraient deux fois, et le relevé ne tomberait
+  plus juste.
+
+La spécification fonctionnelle vit désormais dans `specifications.md` §48.
+
 ## Écarté, explicitement
 
 - **Ponto dans ce chantier**, pour les trois raisons ci-dessus.

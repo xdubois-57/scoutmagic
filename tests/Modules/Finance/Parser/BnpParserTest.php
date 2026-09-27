@@ -213,6 +213,29 @@ class BnpParserTest extends TestCase
     }
 
     /**
+     * An unreadable amount refuses the file by naming its line, never by
+     * echoing the value: no amount leaves the import, not even in an error
+     * message (specifications.md §48.3).
+     */
+    public function testAnUnreadableAmountIsRefusedWithoutEchoingIt(): void
+    {
+        $path = $this->writeCsv([
+            ['2026-', '01/09/2026', '01/09/2026', '12,50', 'EUR', 'BE00000000000001', 'Virement', '', '', 'Bon', 'REFERENCE BANQUE : 1', 'Accepté', ''],
+            ['2026-', '02/09/2026', '02/09/2026', '1x84,37', 'EUR', 'BE00000000000001', 'Virement', '', '', 'Illisible', 'REFERENCE BANQUE : 2', 'Accepté', ''],
+        ]);
+
+        try {
+            (new BnpParser())->parse($path);
+            $this->fail('An unreadable amount must refuse the file.');
+        } catch (FinanceException $e) {
+            $this->assertSame('Montant invalide dans le relevé BNP (ligne 3).', $e->getMessage());
+            $this->assertStringNotContainsString('84,37', $e->getMessage());
+        } finally {
+            unlink($path);
+        }
+    }
+
+    /**
      * @param array<int, array<int, string>> $rows
      */
     private function writeCsv(array $rows): string
