@@ -25,6 +25,7 @@ use Core\Security\Role;
 use Core\Service\IntegerInput;
 use Core\View\MonthGrid\MonthGridBuilder;
 use Core\View\SectionPickerHelper;
+use Modules\Calendar\Service\DefaultEventLocation;
 use Modules\Calendar\Service\CalendarEventService;
 use Modules\Calendar\Service\CalendarException;
 use Modules\Calendar\Service\CalendarPickerService;
@@ -188,7 +189,7 @@ class CalendarChiefController extends AbstractController
                 '14:00'
             ),
             'default_end_time' => (string) $this->settingService->get('event_default_end_time', 'calendar', '17:45'),
-            'default_location' => (string) $this->settingService->get('event_default_location', 'calendar', ''),
+            'default_location' => DefaultEventLocation::resolve($this->settingService),
             'retro_module_active' => in_array('retro', $this->moduleManager->getEnabledModuleIds(), true),
         ];
         if ($selectedCalendarLabel !== null) {

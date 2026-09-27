@@ -43,6 +43,14 @@
                 } only %}
             </div>
         </div>
+        {# Under the form rather than as the field's placeholder (issue #497):
+           every site that had the calendar before 1.10.0 still stores
+           « Local » there, so a placeholder would never show; and a help
+           text under one field of this inline row would lift it out of line. #}
+        <p class="form-text mb-0">
+            Laissez la localisation vide, ou à « Local », pour proposer l'adresse des locaux de
+            l'unité, réglée dans les paramètres du site.
+        </p>
     </form>
 
     <hr class="my-4">

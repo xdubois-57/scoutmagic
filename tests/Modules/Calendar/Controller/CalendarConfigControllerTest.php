@@ -150,6 +150,21 @@ class CalendarConfigControllerTest extends TestCase
         $this->assertStringContainsString('notify-days-before', $body);
     }
 
+    /**
+     * The rule for an empty location is said under the form, where it stays
+     * visible: a placeholder would never show on the sites that still store
+     * the old default « Local » (issue #497).
+     */
+    public function testTheEmptyLocationRuleIsWrittenUnderTheForm(): void
+    {
+        $this->settingService->set('event_default_location', 'Local', 'calendar');
+
+        $body = $this->controller->index(new Request('GET', '/config/calendar', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('value="Local"', $body);
+        $this->assertStringContainsString("pour proposer l'adresse des locaux de", $body);
+    }
+
     public function testIndexShowsNonSupprimableForSectionCalendars(): void
     {
         $this->createSection('BAL01', 'Renards');

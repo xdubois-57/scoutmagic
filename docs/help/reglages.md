@@ -48,7 +48,9 @@ cette page.
   location quand aucun autre bailleur n'est configuré.
 - L'**adresse des locaux** est l'endroit où l'unité se réunit. Pour un
   terrain sans véritable adresse, décrivez le lieu et ajoutez sa
-  latitude et sa longitude, en degrés décimaux (50.8466, 4.3528).
+  latitude et sa longitude, en degrés décimaux (50.8466, 4.3528). Le
+  calendrier la propose comme lieu d'un nouvel évènement, sauf si un
+  autre lieu par défaut y est configuré.
 
 ## Deux autres réglages à connaître
 

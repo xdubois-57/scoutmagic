@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Rental\Service;
 
 use Core\Config\SettingService;
+use Core\Config\UnitAddresses;
 use Core\File\AttachedFileRemover;
 use Core\File\FileRepository;
 use Core\Journal\JournalService;
@@ -613,7 +614,7 @@ class RentalDocumentService
             'locataire_adresse' => $billing['address'],
             'locataire_tva' => $billing['vat_number'] ?? $billing['enterprise_number'],
             'nom_bailleur' => $landlord->name,
-            'adresse_bailleur' => self::oneLine($landlord->address),
+            'adresse_bailleur' => $landlord->address !== null ? UnitAddresses::oneLine($landlord->address) : null,
             'bce_bailleur' => $landlord->enterpriseNumber,
             'unite' => (string) ($this->settingService->get('site_name') ?: 'Unité scoute'),
             'date_du_jour' => (new \DateTimeImmutable())->format('d/m/Y'),
@@ -627,19 +628,6 @@ class RentalDocumentService
     public function landlordFor(RentalAsset $asset): Landlord
     {
         return Landlord::forAsset($this->settingService, $asset);
-    }
-
-    /**
-     * A multi-line address on one line: the settings take it as a textarea,
-     * and the template prints it inside a paragraph, where a newline is a
-     * space — « Rue du Local 1 1000 Bruxelles » reads as one number.
-     */
-    private static function oneLine(?string $text): ?string
-    {
-        // A comma typed at the end of a line is absorbed, not doubled:
-        // « Rue du Local 1, » over « 1000 Bruxelles » is how many people
-        // write an address.
-        return $text === null ? null : (string) preg_replace('/[ \t]*,?[ \t]*\R\s*/u', ', ', trim($text));
     }
 
     /**
