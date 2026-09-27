@@ -2778,20 +2778,40 @@ raison. Le chaînon manquant est la **mémoïsation de `MailProviderDirectory`**
 `all()` garde son `$resolved`, donc au deuxième envoi `candidates()` ne lit plus
 aucun réglage. Si le cache de `SettingService` a été invalidé entre-temps — ce que
 fait **toute** écriture de réglage — c'est `DomainPreferences::all()` qui passe la
-première requête de l'envoi, à l'intérieur de `preferred()`. Vérifié à mon tour :
-mémo chaud, cache vidé, table absente, et le message part par un vrai relais dans
-l'ordre de la voie. Exactement le contrat de la branche.
+première requête **de réglages** de l'envoi, à l'intérieur de `preferred()`.
+Vérifié à mon tour : mémo chaud, cache vidé, table `settings` supprimée, et le
+message part par un vrai relais dans l'ordre de la voie. Exactement le contrat de
+la branche.
 
 **Et la fenêtre est large là où elle compte** : un publipostage de quatre cents,
 c'est des centaines de messages par une seule chaîne, et celui qui est en vol quand
-la base s'en va est précisément celui que ce `catch` sauve. Le docblock original —
-« un réglage illisible, une base qui vient de disparaître » — était juste. C'est ma
-correction qui était fausse, et elle aurait dit à un mainteneur qu'une branche
-vivante est morte, ce qui est l'invitation à la supprimer.
+cette lecture commence à échouer est précisément celui que ce `catch` sauve.
+
+**Puis le relecteur de la PR a resserré la formule une troisième fois, et il avait
+raison aussi.** J'avais rétabli le docblock original tel quel — « un réglage
+illisible, une base qui vient de disparaître ». Or la seconde moitié est fausse pour
+cette branche : quand `preferred()` s'exécute, `candidates()` a déjà lu
+`mail_lane_entries` et `mail_send_counters` **sans cache**, donc tout ce qui emporte
+la connexion entière est absorbé là, un étage plus tôt et dans une autre branche.
+Ce qui arrive ici, c'est `settings` illisible pendant que les deux autres tables
+répondent — exactement ce que ma mise en scène installe, sans que mon texte le dise.
+Et « la première requête de l'envoi » était faux au même titre : deux allers-retours
+ont déjà réussi ; c'est la première requête **de réglages**.
+
+Ma correction initiale, elle, disait à un mainteneur qu'une branche vivante est
+morte, ce qui est l'invitation à la supprimer.
 
 Le docblock est rétabli, augmenté de la seule chose que j'ai apprise : la fenêtre
 s'ouvre après la mémoïsation du répertoire. Et la branche a son test, donc le lot
 ferme **cinq** branches sur cinq.
+
+**Trois formulations pour une branche, ce qui est le vrai enseignement.** Inatteignable
+(faux), « la base disparaît » (trop large, et interceptée plus tôt), « la lecture de
+`settings` échoue alors que les autres tables répondent » (juste). Les trois fois,
+j'écrivais une condition d'atteignabilité **sans énumérer les lectures qui la
+précèdent**. C'est mécanique et cela se vérifie : lister les requêtes déjà passées
+avant le point visé, et ne nommer comme déclencheur que ce qui peut échouer alors
+que toutes ont réussi.
 
 **La faute de méthode, nommée pour qu'elle serve.** J'ai mesuré l'état le plus
 **défavorable** à l'atteignabilité — cache froid, tout neuf — et j'en ai tiré une

@@ -508,25 +508,33 @@ class MailTransportChainTest extends TestCase
 
     /**
      * **A preference is never allowed to cost a message**, and this is the
-     * branch that holds that rule when the database goes away in the
-     * middle of a mailing.
+     * branch that holds that rule when the `settings` read starts failing
+     * in the middle of a mailing.
+     *
+     * A failing `settings` read, precisely, and not « the database went
+     * away »: by the time `preferred()` runs, `candidates()` has already
+     * read `mail_lane_entries` and `mail_send_counters` uncached, so
+     * anything taking the whole connection down is absorbed there instead
+     * — a different branch, and a larger degradation, the one
+     * `testAChainThatCannotBeRead…` above covers. Hence the staging below
+     * drops `settings` alone and leaves the other tables answering.
      *
      * Reachable only once the directory has resolved, which is why it took
-     * this chantier two attempts to find: `candidates()` reads `settings`
-     * too, through `MailProviderDirectory::local()`, so on the first send
-     * of a process a failure there is absorbed one layer earlier and the
-     * message goes out with no relay applied — a different branch, and a
-     * larger degradation. After the directory has memoised it reads no
-     * setting at all, and a settings cache invalidated since (every
-     * setting write does it) leaves `DomainPreferences::all()` to make the
-     * first query of the send, inside `preferred()`.
+     * this chantier two attempts to state correctly: `candidates()` reads
+     * `settings` too, through `MailProviderDirectory::local()`, so on the
+     * first send of a process even that failure lands one layer earlier.
+     * After the directory has memoised it reads no setting at all, and a
+     * settings cache invalidated since (every setting write does it)
+     * leaves `DomainPreferences::all()` to make the first SETTINGS query
+     * of the send, inside `preferred()` — two table reads having already
+     * succeeded.
      *
      * That window is widest exactly where it matters: a publipostage of
      * four hundred is hundreds of messages through one chain, and the one
-     * in flight when the database goes must not be the one that stops the
-     * mailing. Both halves below say so — reordered by the preference
-     * while the setting could be read, and carried by the lane's own order
-     * rather than stopped once it could not.
+     * in flight when that read starts failing must not be the one that
+     * stops the mailing. Both halves below say so — reordered by the
+     * preference while the setting could be read, and carried by the
+     * lane's own order rather than stopped once it could not.
      */
     public function testAPreferenceThatCannotBeReadMidMailingLeavesTheOrderUntouched(): void
     {
@@ -540,7 +548,8 @@ class MailTransportChainTest extends TestCase
 
         // The directory has resolved, so the next send reads no setting of
         // its own; the cache is invalidated the way a setting write does
-        // it; and then the database goes away.
+        // it; and then `settings` alone stops answering — the other tables
+        // must keep working, or `candidates()` would trap this first.
         $this->settings->clearCache();
         $this->pdo->prepare('DROP TABLE settings')->execute();
         $chain->deliver($this->message('famille@gmail.com'), MailPurpose::Bulk);

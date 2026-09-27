@@ -154,23 +154,30 @@ final class MailTransportChain implements MailTransportInterface
      * **A preference is never allowed to cost a message.** It reorders a
      * list the lane has already vetted, so the worst a wrong or stale
      * preference can do is try a working relay in a different order; and
-     * anything that goes wrong reading it — an unreadable setting, a
-     * database that just went away — leaves the order untouched rather
-     * than stopping a mailing that has nothing to do with it.
+     * anything that goes wrong reading it — a `settings` read that fails,
+     * for whatever reason — leaves the order untouched rather than
+     * stopping a mailing that has nothing to do with it.
      *
-     * **The window is a mailing already under way**, which is worth
-     * spelling out because it is where the rule earns its keep and it is
-     * not where you would look first. `candidates()` reads `settings`
-     * too, through `MailProviderDirectory::local()`, so on the first send
-     * of a process a failure there is absorbed one layer earlier and the
-     * message goes out with no relay applied at all. Once the directory
-     * has memoised it reads no setting, and a settings cache invalidated
-     * since — which every setting write does — leaves
-     * `DomainPreferences::all()` to make the first query of the send,
-     * right here. A publipostage of four hundred is hundreds of messages
-     * through one chain: the one in flight when the database goes is the
-     * one this catch keeps (#449, lot 8, which measured both states after
-     * first concluding the wrong one).
+     * **A failing `settings` read, precisely, and not « the database went
+     * away »**: `candidates()` has already read `mail_lane_entries` and
+     * `mail_send_counters` uncached by the time this runs, so anything
+     * that takes the whole connection down is absorbed there, one layer
+     * earlier and into a different branch — the message goes out with no
+     * relay applied at all. What reaches here is `settings` unreadable
+     * while those two still answer.
+     *
+     * **And only once a mailing is under way**, which is where the rule
+     * earns its keep and not where you would look first. `candidates()`
+     * reads `settings` too, through `MailProviderDirectory::local()`, so
+     * on the first send of a process even that failure lands one layer
+     * earlier. Once the directory has memoised it reads no setting, and a
+     * settings cache invalidated since — which every setting write does —
+     * leaves `DomainPreferences::all()` to make the first SETTINGS query
+     * of the send, right here; two table reads have already succeeded. A
+     * publipostage of four hundred is hundreds of messages through one
+     * chain, and the one in flight when that read starts failing is the
+     * one this catch keeps (#449, lot 8, which stated the reachable
+     * condition wrongly twice before measuring it).
      *
      * The recipient is read from the message rather than passed in
      * because `MailTransportInterface` is the boundary every transport
