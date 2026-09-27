@@ -977,6 +977,7 @@ class MassMailPageTest extends TestCase
         $this->massMailService->moveToTest($email->id, $this->accountId);
 
         $_FILES['file'] = $this->uploadablePdf();
+        $stored = self::storedAttachments();
         $response = $this->controller->uploadAttachment(
             $this->post(['_csrf_token' => CsrfGuard::generateToken()]),
             ['id' => (string) $email->id]
@@ -992,17 +993,28 @@ class MassMailPageTest extends TestCase
             (int) $this->pdo->query('SELECT COUNT(*) FROM mass_mail_attachments')->fetchColumn()
         );
         // And nothing was uploaded (issue #578): the email's state is asked
-        // before UploadHandler runs, so no `files` row is inserted and the
-        // sent file is still where PHP left it, never moved into storage.
-        // Checked only after the upload, the refusal used to leave both
-        // behind, for an email that no screen would ever attach them to.
+        // before UploadHandler runs, so no `files` row is inserted and no
+        // bytes land in storage. Checked only after the upload, the refusal
+        // used to leave both behind, for an email that no screen would ever
+        // attach them to.
         $this->assertSame(
             0,
             (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn(),
             'the upload survived the refusal'
         );
-        $this->assertFileExists($_FILES['file']['tmp_name'], 'the sent file was moved into storage');
-        unlink($_FILES['file']['tmp_name']);
+        $this->assertSame($stored, self::storedAttachments(), 'the refused file was written to storage');
+    }
+
+    /**
+     * What the page's UploadHandler has stored under mass_mail/attachments.
+     * Compared before and after rather than expected empty: the storage
+     * root is the system temporary directory, shared with other tests.
+     *
+     * @return list<string>
+     */
+    private static function storedAttachments(): array
+    {
+        return glob(sys_get_temp_dir() . '/mass_mail/attachments/*') ?: [];
     }
 
     public function testAnAttachmentCannotBeRemovedOnceTheEmailLeftDraft(): void
