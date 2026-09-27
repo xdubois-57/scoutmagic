@@ -3148,6 +3148,15 @@ adresse personnelle.
 - **Visibilité** : le conducteur voit les demandes sur ses voitures, le
   demandeur la sienne, les animateurs d'une section concernée et le Staff
   d'Unité voient qui monte dans quelle voiture.
+- **Sections concernées** : celles des évènements retenus, **et** celle de
+  l'animateur qui a créé le covoiturage. Aucune section n'est demandée dans
+  le formulaire : elle est déduite du créateur, retenue une fois pour
+  toutes à l'enregistrement — un changement de section l'année suivante, ou
+  une modification par un autre animateur, ne la déplace pas. Un créateur
+  dont le compte n'est lié à aucun membre ayant une fonction dans une
+  section ne fait ajouter aucune section, et aucune n'est choisie à sa
+  place. La section retenue est affichée, sur le formulaire et sur la page
+  du covoiturage.
 - **Suppression** d'un covoiturage : impossible dès qu'une voiture y est
   proposée.
 - **Conservation** : les covoiturages passés restent visibles, repliés,

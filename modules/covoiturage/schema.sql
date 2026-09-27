@@ -27,9 +27,21 @@ CREATE TABLE IF NOT EXISTS carpools (
     outbound_date DATE NOT NULL,
     -- Null for an outing with a single trip.
     return_date DATE NULL,
-    -- The section whose staff sees the passengers when the carpool is
-    -- linked to no event. With linked events, the staff is derived from
-    -- them instead and this stays null.
+    -- The creator's OWN section, taken once when the carpool is saved and
+    -- never written again (issue #650) — so it survives its creator moving
+    -- section, and an edit by somebody else. Its staff sees the passengers
+    -- IN ADDITION to the staffs of the linked events, which is the union
+    -- Repository\Carpool::sectionIds() returns.
+    --
+    -- Null is a real value, not a missing one: an account linked to no
+    -- member, or to one with no function in a section, creates a carpool
+    -- with none, and no section is chosen in its place.
+    --
+    -- Same type and same key as before #650, only a different meaning. The
+    -- carpools that predate it were deliberately not migrated: those with
+    -- events hold null here and are governed by their events, those without
+    -- hold the section a chief once picked by hand. The union returns
+    -- exactly what the old rule did for both.
     section_id INT UNSIGNED NULL,
     created_by_user_account_id INT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
