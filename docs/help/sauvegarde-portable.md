@@ -3,7 +3,7 @@ id: sauvegarde-portable
 title: Emporter le site ailleurs
 summary: La sauvegarde portable, la seule qui se restaure sur une autre installation — et ce que cela coûte.
 category: Configuration
-role_min: admin
+role_min: superadmin
 discovery: off
 question: Comment restaurer mon site chez un autre hébergeur ?
 question: Pourquoi ma sauvegarde est-elle illisible sur une installation neuve ?

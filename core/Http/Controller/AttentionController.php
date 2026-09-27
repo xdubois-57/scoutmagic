@@ -8,11 +8,15 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
+use Core\Attention\AttentionReport;
 use Core\Attention\AttentionService;
 use Core\Config\AppClock;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Http\Router;
 use Core\ScoutYear\ScoutYearResolver;
+use Core\Security\AuthSession;
+use Core\Security\Role;
 use Twig\Environment;
 
 /**
@@ -28,7 +32,8 @@ class AttentionController extends AbstractController
     public function __construct(
         protected Environment $twig,
         private AttentionService $attentionService,
-        private ScoutYearResolver $scoutYearResolver
+        private ScoutYearResolver $scoutYearResolver,
+        private ?Router $router = null
     ) {
     }
 
@@ -40,12 +45,46 @@ class AttentionController extends AbstractController
     public function index(Request $request, array $params): Response
     {
         $currentYear = $this->scoutYearResolver->getCurrentPublicYear();
-        $report = $this->attentionService->collect((int) $currentYear['id']);
+        $report = $this->withReachableActions(
+            $this->attentionService->collect((int) $currentYear['id']),
+            Role::fromString(AuthSession::getRole())
+        );
 
         return $this->render('admin/attention.html.twig', [
             'report' => $report,
             'scout_year' => $currentYear,
             'today' => AppClock::now(),
         ]);
+    }
+
+    /**
+     * Drops the action of every point whose page the reader cannot open.
+     *
+     * This page is `admin`, and some points lead further up: every
+     * operational alert points at a Maintenance sub-page, which is
+     * `superadmin` since issue #619. A chef d'unité still reads the fact —
+     * that is why the page shows it to them — but a button answering
+     * « accès refusé » would say the opposite of what it offers. The floor
+     * is the target route's own, read from the router, the way the
+     * breadcrumb decides which ancestors to link (Router::ancestorTrailFor()).
+     * A path no GET route declares keeps its link: that is not this
+     * method's question.
+     */
+    private function withReachableActions(AttentionReport $report, Role $viewer): AttentionReport
+    {
+        if ($this->router === null) {
+            return $report;
+        }
+
+        $points = [];
+        foreach ($report->points as $point) {
+            $path = $point->actionUrl !== null ? (string) strtok($point->actionUrl, '?#') : null;
+            $floor = $path !== null ? $this->router->roleMinForPath($path) : null;
+            $points[] = $floor !== null && !$viewer->hasAccess(Role::fromString($floor))
+                ? $point->withoutAction()
+                : $point;
+        }
+
+        return new AttentionReport($points, $report->degradedSources, $report->computedAt);
     }
 }
