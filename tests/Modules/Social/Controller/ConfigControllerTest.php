@@ -14,7 +14,6 @@ use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\SessionStore;
-use Core\View\TwigFactory;
 use Modules\Social\Api\SocialPlatform;
 use Modules\Social\Controller\ConfigController;
 use Modules\Social\Meta\MetaClient;
@@ -26,6 +25,7 @@ use Tests\Core\Http\Controller\RemoteBackupSettingsDouble;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Social\FakeMetaTransport;
 use Tests\Modules\Social\SocialTestHelper as H;
+use Tests\TestTwig;
 use Twig\Environment;
 
 /**
@@ -448,7 +448,7 @@ final class ConfigControllerTest extends TestCase
     private function twig(): Environment
     {
         $root = dirname(__DIR__, 4);
-        $twig = TwigFactory::create($root . '/core/View/templates', false, ['social' => $root . '/modules/social/views']);
+        $twig = TestTwig::create(['social' => $root . '/modules/social/views'], ['param' => static fn (string $key): string => 'Test Unit']);
         $twig->addGlobal('site_name', 'Test Unit');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_role', 'superadmin');
@@ -456,7 +456,6 @@ final class ConfigControllerTest extends TestCase
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
         $twig->addGlobal('current_path', '/config/reseaux-sociaux');
-        $twig->addFunction(new \Twig\TwigFunction('param', static fn (string $key): string => 'Test Unit'));
 
         return $twig;
     }

@@ -33,11 +33,9 @@ use Modules\Calendar\Service\PersonalFeedService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Calendar\CalendarTestHelper;
-use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
-use Twig\TwigFunction;
 use Core\Member\Repository\MemberProfileRepository;
 use Core\Member\Repository\SectionRepository;
+use Tests\TestTwig;
 
 /**
  * @group database
@@ -100,18 +98,8 @@ class CalendarPublicControllerTest extends TestCase
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
 
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/calendar/views';
-        $loader = new FilesystemLoader($templateDir);
-        $loader->addPath($moduleViews, 'calendar');
-        $twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
-        // The shipped filters themselves, not a rendering that resembles
-        // them (Core\View, issue #465).
-        $twig->addExtension(new \Core\View\DateFilterExtension());
-        $twig->addExtension(new \Core\View\FormatFilterExtension());
+        $twig = TestTwig::create(['calendar' => $moduleViews], ['param' => fn(string $k) => 'https://example.test']);
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', false);
         $twig->addGlobal('current_user_role', 'public');
@@ -122,12 +110,6 @@ class CalendarPublicControllerTest extends TestCase
         $twig->addGlobal('route_breadcrumb', ['label' => 'Calendrier', 'parents' => ['Notre unité']]);
         $twig->addGlobal('csp_nonce', 'test-nonce');
         $twig->addGlobal('_editable_content_service', null);
-        $twig->addFunction(new TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
-        $twig->addFunction(new TwigFunction('get_flash', fn() => null));
-        $twig->addFunction(new TwigFunction('csrf_token', fn() => 'test'));
-        $twig->addFunction(new TwigFunction('file_url', fn() => ''));
-        $twig->addFunction(new TwigFunction('param', fn(string $k) => 'https://example.test'));
-        $twig->addFunction(new TwigFunction('editable', fn() => '', ['is_safe' => ['html']]));
 
         $calendarPickerService = new CalendarPickerService($this->calendarService, $this->personalFeedService);
 

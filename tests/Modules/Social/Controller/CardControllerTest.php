@@ -10,7 +10,6 @@ use Core\Http\Request;
 use Core\Http\Router;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
-use Core\View\TwigFactory;
 use Modules\Social\Card\CardRenderer;
 use Modules\Social\Card\CardService;
 use Modules\Social\Controller\CardController;
@@ -20,6 +19,7 @@ use Tests\Core\Http\Controller\RecordingJournalRepository;
 use Tests\Core\Http\Controller\RemoteBackupSettingsDouble;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Social\SocialTestHelper as H;
+use Tests\TestTwig;
 
 /**
  * GET /partage/carte/{token} through the real router and guard, as Meta's
@@ -93,8 +93,7 @@ final class CardControllerTest extends TestCase
         $configFile = sys_get_temp_dir() . '/test_social_card_' . bin2hex(random_bytes(6)) . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
 
-        $root = dirname(__DIR__, 4);
-        $twig = TwigFactory::create($root . '/core/View/templates', false, []);
+        $twig = TestTwig::create([], ['param' => static fn (string $key): string => 'Test']);
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', false);
         $twig->addGlobal('current_user_role', 'public');
@@ -102,7 +101,6 @@ final class CardControllerTest extends TestCase
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
         $twig->addGlobal('current_path', $path);
-        $twig->addFunction(new \Twig\TwigFunction('param', static fn (string $key): string => 'Test'));
 
         $front = new FrontController($router, $twig, new AppConfig($configFile));
         $front->registerController(CardController::class, new CardController($twig, $this->cards));

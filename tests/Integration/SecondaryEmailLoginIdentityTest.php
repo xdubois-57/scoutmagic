@@ -25,8 +25,8 @@ use Core\Security\RoleResolver;
 use Core\Security\SessionRevalidator;
 use Core\Security\UserAccountRepository;
 use PHPUnit\Framework\TestCase;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
 use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 use Core\Member\Repository\MemberProfileRepository;
 
@@ -411,32 +411,13 @@ class SecondaryEmailLoginIdentityTest extends TestCase
 
     private function buildTwig(): Environment
     {
-        $twig = new Environment(
-            new FilesystemLoader(dirname(__DIR__, 2) . '/core/View/templates'),
-            ['cache' => false, 'autoescape' => 'html']
-        );
-
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $twig = TestTwig::create();
 
         $twig->addGlobal('site_name', 'Test Unit');
         $twig->addGlobal('is_authenticated', false);
         $twig->addGlobal('current_user_email', null);
         $twig->addGlobal('current_user_role', 'public');
         $twig->addGlobal('cookie_consent_given', true);
-        $twig->addFunction(new \Twig\TwigFunction('csrf_field', fn(): string => '', ['is_safe' => ['html']]));
-        $twig->addFunction(new \Twig\TwigFunction('csrf_token', fn(): string => 'test-csrf-token'));
-        $twig->addFunction(new \Twig\TwigFunction('get_flash', fn(): ?array => null));
-        $twig->addFunction(new \Twig\TwigFunction('editable', fn(): string => '', ['is_safe' => ['html']]));
-        // The shared person avatar (Core\View\PersonAvatar), registered here
-        // the way Core\View\TwigFactory does with no photo service: same
-        // markup as production for an account that has set no photo.
-        $twig->addFunction(new \Twig\TwigFunction('person_avatar', function (string $name, array $options = []): string {
-            return \Core\View\PersonAvatar::render($name, null, (int) ($options['size'] ?? 40));
-        }, ['is_safe' => ['html']]));
-        $twig->addFunction(new \Twig\TwigFunction('editable_image', fn(): string => '', ['is_safe' => ['html']]));
-        $twig->addFunction(new \Twig\TwigFunction('file_url', fn(): string => ''));
 
         return $twig;
     }

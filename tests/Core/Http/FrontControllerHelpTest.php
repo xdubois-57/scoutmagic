@@ -21,8 +21,8 @@ use Core\Http\Router;
 use Core\Security\AuthSession;
 use PHPUnit\Framework\TestCase;
 use Tests\Core\Help\HelpTopicFileFixtures;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
 
 /**
  * The `route_help` Twig global (ARCHITECTURE.md §8.64) — the help
@@ -43,14 +43,7 @@ class FrontControllerHelpTest extends TestCase
         }
         $_SESSION = [];
 
-        $templateDir = dirname(__DIR__, 3) . '/core/View/templates';
-        $this->twig = new Environment(new FilesystemLoader($templateDir), [
-            'cache' => false,
-            'autoescape' => 'html',
-        ]);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $this->twig = TestTwig::create();
 
         $configFile = sys_get_temp_dir() . '/test_app_config_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");

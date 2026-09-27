@@ -14,8 +14,8 @@ use Core\Http\Response;
 use Core\Http\Router;
 use Core\Security\AuthSession;
 use PHPUnit\Framework\TestCase;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
 
 /**
  * The two boundaries the CardDAV server adds, which are deliberately not
@@ -48,20 +48,13 @@ class CardDavRbacTest extends TestCase
         }
         $_SESSION = [];
 
-        $this->twig = new Environment(
-            new FilesystemLoader(dirname(__DIR__, 4) . '/core/View/templates'),
-            ['cache' => false, 'autoescape' => 'html']
-        );
-        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn(string $path): string => $path));
+        $this->twig = TestTwig::create();
         $this->twig->addGlobal('site_name', 'Test');
         $this->twig->addGlobal('is_authenticated', false);
         $this->twig->addGlobal('current_user_email', null);
         $this->twig->addGlobal('current_user_role', 'public');
         $this->twig->addGlobal('menus', null);
         $this->twig->addGlobal('cookie_consent_given', true);
-        $this->twig->addFunction(new \Twig\TwigFunction('csrf_field', fn() => '', ['is_safe' => ['html']]));
-        $this->twig->addFunction(new \Twig\TwigFunction('get_flash', fn() => null));
-        $this->twig->addFunction(new \Twig\TwigFunction('csrf_token', fn() => 'test'));
 
         $configFile = sys_get_temp_dir() . '/test_app_config_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");

@@ -22,14 +22,11 @@ use Core\Member\UnitStaffSectionService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
-use Core\View\TextNormalizerExtension;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
-use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
-use Twig\TwigFunction;
 use Core\Member\Repository\MemberProfileRepository;
 use Core\Member\Repository\SectionRepository;
+use Tests\TestTwig;
 
 /**
  * @group database
@@ -96,14 +93,7 @@ class StaffsControllerTest extends TestCase
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
 
         // Create Twig
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $twig = new Environment(new FilesystemLoader($templateDir), [
-            'cache' => false,
-            'autoescape' => 'html',
-        ]);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $twig = TestTwig::create([], ['param' => fn(string $k) => 'Test']);
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_email', 'chief@test.be');
@@ -113,25 +103,11 @@ class StaffsControllerTest extends TestCase
         $twig->addGlobal('menus', null);
         $twig->addGlobal('current_path', '/chefs/staffs');
         $twig->addGlobal('route_breadcrumb', ['label' => 'Staffs', 'parents' => ['Espace animateurs']]);
-        $twig->addFunction(new TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
-        $twig->addFunction(new TwigFunction('get_flash', fn() => null));
-        $twig->addFunction(new TwigFunction('csrf_token', fn() => 'test'));
-        $twig->addFunction(new TwigFunction('file_url', fn() => ''));
-        $twig->addFunction(new TwigFunction('param', fn(string $k) => 'Test'));
-        // Minimal stand-in for TwigFactory::create()'s real section_photo()
-        // (same pragmatic simplification as the display_name filter right
-        // below) — real rendering/placeholder/overlay logic is covered in
-        // full by Tests\Core\View\SectionPhotoFunctionTest; here it only
-        // needs to exist and prove the template is actually wired to it.
+        // The real section_photo() reads its service and the year from the
+        // globals, as public/index.php supplies them.
         $sectionPhotoService = new \Core\Photo\SectionPhotoService(new \Core\Photo\SectionPhotoRepository($this->pdo));
         $twig->addGlobal('_section_photo_service', $sectionPhotoService);
         $twig->addGlobal('effective_scout_year_id', $this->scoutYearId);
-        $twig->addFunction(new TwigFunction('section_photo', function (int $sectionId, string $alt = '') use ($sectionPhotoService) {
-            $fileId = $sectionPhotoService->resolveFileId($sectionId, $this->scoutYearId);
-            return $fileId !== null ? '<img src="/files/' . $fileId . '" alt="' . htmlspecialchars($alt) . '">' : '';
-        }, ['is_safe' => ['html']]));
-        $twig->addExtension(new TextNormalizerExtension());
-        $twig->addExtension(new \Core\View\MemberNameFilterExtension());
 
         $this->controller = new StaffsController(
             $twig,
@@ -296,7 +272,9 @@ class StaffsControllerTest extends TestCase
         $request = new Request('GET', '/chefs/staffs?section=' . $sectionId, [], [], [], []);
         $response = $this->controller->index($request, []);
 
-        $this->assertStringContainsString('/files/' . $fileId, $response->getBody());
+        // The real section_photo(): the medium rendition, not the original
+        // (the double this test used to register pointed at /files/{id}).
+        $this->assertStringContainsString('src="/files/' . $fileId . '/md"', $response->getBody());
     }
 
     public function testIndexRendersNothingForTheSectionPhotoWhenNoneExists(): void

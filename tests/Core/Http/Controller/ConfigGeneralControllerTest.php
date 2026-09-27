@@ -7,8 +7,7 @@ namespace Tests\Core\Http\Controller;
 use Core\Http\Controller\ConfigGeneralController;
 use Core\Http\Request;
 use PHPUnit\Framework\TestCase;
-use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
+use Tests\TestTwig;
 
 /**
  * "Édition du site" shrunk to just the configuration-mode toggle —
@@ -21,14 +20,7 @@ class ConfigGeneralControllerTest extends TestCase
 
     protected function setUp(): void
     {
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $twig = new Environment(new FilesystemLoader($templateDir), [
-            'cache' => false,
-            'autoescape' => 'html',
-        ]);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $twig = TestTwig::create([], ['param' => fn(string $k) => 'Test']);
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_email', 'chief-unite@test.com');
@@ -36,11 +28,6 @@ class ConfigGeneralControllerTest extends TestCase
         $twig->addGlobal('config_mode', false);
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
-        $twig->addFunction(new \Twig\TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
-        $twig->addFunction(new \Twig\TwigFunction('get_flash', fn() => null));
-        $twig->addFunction(new \Twig\TwigFunction('csrf_token', fn() => 'test'));
-        $twig->addFunction(new \Twig\TwigFunction('file_url', fn() => ''));
-        $twig->addFunction(new \Twig\TwigFunction('param', fn(string $k) => 'Test'));
 
         $this->controller = new ConfigGeneralController($twig);
     }
@@ -59,25 +46,13 @@ class ConfigGeneralControllerTest extends TestCase
 
     public function testIndexShowsDeactivateWhenConfigModeIsAlreadyActive(): void
     {
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $twig = new Environment(new FilesystemLoader($templateDir), [
-            'cache' => false,
-            'autoescape' => 'html',
-        ]);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $twig = TestTwig::create([], ['param' => fn(string $k) => 'Test']);
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_role', 'admin');
         $twig->addGlobal('config_mode', true);
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
-        $twig->addFunction(new \Twig\TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
-        $twig->addFunction(new \Twig\TwigFunction('get_flash', fn() => null));
-        $twig->addFunction(new \Twig\TwigFunction('csrf_token', fn() => 'test'));
-        $twig->addFunction(new \Twig\TwigFunction('file_url', fn() => ''));
-        $twig->addFunction(new \Twig\TwigFunction('param', fn(string $k) => 'Test'));
         $controller = new ConfigGeneralController($twig);
 
         $request = new Request('GET', '/config/general', [], [], [], []);

@@ -23,14 +23,11 @@ use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
-use Core\View\TextNormalizerExtension;
 use Core\Http\Request;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
-use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
-use Twig\TwigFunction;
 use Core\Member\Repository\MemberProfileRepository;
+use Tests\TestTwig;
 
 /**
  * @group database
@@ -91,17 +88,7 @@ class MemberSearchControllerTest extends TestCase
         // Pin the public year so the effective year is deterministic.
         $settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->yearId);
 
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
-        // The shipped filters themselves, not a rendering that resembles
-        // them (Core\View, issue #465).
-        $twig->addExtension(new \Core\View\DateFilterExtension());
-        $twig->addExtension(new \Core\View\MemberNameFilterExtension());
-        $twig->addExtension(new \Core\View\FormatFilterExtension());
-        $twig->addExtension(new TextNormalizerExtension());
+        $twig = TestTwig::create([], ['param' => fn(string $k) => 'Test']);
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_email', 'admin@test.be');
@@ -111,11 +98,6 @@ class MemberSearchControllerTest extends TestCase
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
         $twig->addGlobal('csp_nonce', 'n');
-        $twig->addFunction(new TwigFunction('csrf_field', fn() => '', ['is_safe' => ['html']]));
-        $twig->addFunction(new TwigFunction('get_flash', fn() => null));
-        $twig->addFunction(new TwigFunction('csrf_token', fn() => 't'));
-        $twig->addFunction(new TwigFunction('file_url', fn() => ''));
-        $twig->addFunction(new TwigFunction('param', fn(string $k) => 'Test'));
 
         $departureService = new DepartureService(new DepartureRepository($this->pdo, $this->enc), new JournalService(new JournalRepository($this->pdo)));
         $sectionService = new \Core\Member\SectionService(

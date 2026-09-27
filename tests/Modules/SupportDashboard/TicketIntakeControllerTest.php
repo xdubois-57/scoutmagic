@@ -43,7 +43,6 @@ class TicketIntakeControllerTest extends TestCase
         SupportDashboardTestHelper::createTables($this->pdo);
 
         $this->twig = new Environment(new ArrayLoader([]));
-        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
 
         $this->controller = new TicketIntakeController(
             $this->twig,

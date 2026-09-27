@@ -14,7 +14,6 @@ use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthSession;
 use Core\Security\UserAccount;
 use Core\Security\UserAccountRepository;
-use Core\View\TwigFactory;
 use Modules\Gallery\Api\DelegatedAlbumManager;
 use Modules\Gallery\Api\DelegatedMedia;
 use Modules\Groups\Controller\GroupController;
@@ -40,6 +39,7 @@ use Tests\DatabaseTestHelper;
 use Tests\Modules\Groups\GroupsTestHelper;
 use Core\Member\Repository\MemberProfileRepository;
 use Core\Member\Repository\SectionRepository;
+use Tests\TestTwig;
 
 /**
  * @group database
@@ -173,18 +173,14 @@ class GroupControllerTest extends TestCase
         $sectionService->method('getAllWithBranches')->willReturn([]);
         $sectionService->method('getSection')->willReturn(['id' => $this->sectionId, 'name' => 'Louveteaux', 'desk_code' => 'LOU']);
 
-        $twig = TwigFactory::create(
-            dirname(__DIR__, 4) . '/core/View/templates',
-            true,
-            [
-                'groups' => dirname(__DIR__, 4) . '/modules/groups/views',
-                // show.html.twig includes @gallery/partials/lightbox.html.twig —
-                // groups hard-requires gallery, and production registers every
-                // enabled module's namespace (public/index.php), so the test
-                // environment has to as well or the page cannot render.
-                'gallery' => dirname(__DIR__, 4) . '/modules/gallery/views',
-            ]
-        );
+        $twig = TestTwig::create([
+            'groups' => dirname(__DIR__, 4) . '/modules/groups/views',
+            // show.html.twig includes @gallery/partials/lightbox.html.twig —
+            // groups hard-requires gallery, and production registers every
+            // enabled module's namespace (public/index.php), so the test
+            // environment has to as well or the page cannot render.
+            'gallery' => dirname(__DIR__, 4) . '/modules/gallery/views',
+        ]);
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_email', 'parent@test.be');
@@ -200,7 +196,6 @@ class GroupControllerTest extends TestCase
                 $routeBreadcrumb['ancestors'] ?? []
             ));
         }
-        $twig->addFunction(new \Twig\TwigFunction('param', fn(...$a) => ''));
 
         $postRepo = new PostRepository($this->pdo);
         $activityService = new GroupActivityService($this->groupRepo, $postRepo);

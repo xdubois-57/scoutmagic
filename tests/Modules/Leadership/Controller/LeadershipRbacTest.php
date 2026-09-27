@@ -39,9 +39,8 @@ use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Leadership\LeadershipTestHelper;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
-use Twig\TwigFunction;
 use Core\Member\Repository\MemberProfileRepository;
 use Core\Member\Repository\SectionRepository;
 
@@ -630,18 +629,7 @@ class LeadershipRbacTest extends TestCase
 
     private function buildTwig(): Environment
     {
-        $loader = new FilesystemLoader(dirname(__DIR__, 4) . '/core/View/templates');
-        $loader->addPath(dirname(__DIR__, 4) . '/modules/leadership/views', 'leadership');
-
-        $twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
-        // |sanitized_html, which partials/rich_text_field.html.twig renders
-        // its value through, and the date filters these views print. The
-        // shipped ones, not a rendering that resembles them (issue #465).
-        $twig->addExtension(new \Core\View\DateFilterExtension());
-        $twig->addExtension(new \Core\View\RichTextFilterExtension());
+        $twig = TestTwig::create(['leadership']);
 
         // The shipped filters themselves, not a rendering that resembles
         // them (Core\View, issue #465).
@@ -655,10 +643,6 @@ class LeadershipRbacTest extends TestCase
         $twig->addGlobal('menus', null);
         $twig->addGlobal('current_path', '/');
         $twig->addGlobal('csp_nonce', 'test-nonce');
-        $twig->addFunction(new TwigFunction('csrf_field', fn () => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
-        $twig->addFunction(new TwigFunction('csrf_token', fn () => 'test'));
-        $twig->addFunction(new TwigFunction('get_flash', fn () => null));
-        $twig->addFunction(new TwigFunction('file_url', fn () => ''));
 
         return $twig;
     }

@@ -25,8 +25,7 @@ use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
-use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
+use Tests\TestTwig;
 
 /**
  * @group database
@@ -62,20 +61,8 @@ class ImportControllerTest extends TestCase
         $stmt = $this->pdo->prepare("INSERT INTO user_accounts (email_encrypted, email_blind_index, is_super_admin) VALUES (?, 'admin_idx', 1)");
         $stmt->execute([$this->encryption->encrypt('admin@test.com', 'user_accounts.email')]);
 
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $twig = new Environment(new FilesystemLoader($templateDir), [
-            'cache' => false,
-            'autoescape' => 'html',
-        ]);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $twig = TestTwig::create();
         $twig->addGlobal('site_name', 'Test');
-        // The shipped filters themselves, not a rendering that resembles
-        // them (Core\View, issue #465).
-        $twig->addExtension(new \Core\View\DateFilterExtension());
-        $twig->addExtension(new \Core\View\MemberNameFilterExtension());
-        $twig->addExtension(new \Core\View\FormatFilterExtension());
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_email', 'admin@test.com');
         $twig->addGlobal('current_user_role', 'chief');
@@ -83,30 +70,6 @@ class ImportControllerTest extends TestCase
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
 
-        $twig->addFunction(new \Twig\TwigFunction('csrf_field', function (): string {
-            return '<input type="hidden" name="_csrf_token" value="test">';
-        }, ['is_safe' => ['html']]));
-        $twig->addFunction(new \Twig\TwigFunction('get_flash', function (): ?array {
-            return null;
-        }));
-        $twig->addFunction(new \Twig\TwigFunction('csrf_token', function (): string {
-            return 'test';
-        }));
-        $twig->addFunction(new \Twig\TwigFunction('editable', function (): string {
-            return '';
-        }, ['is_safe' => ['html']]));
-        // The shared person avatar (Core\View\PersonAvatar), registered here
-        // the way Core\View\TwigFactory does with no photo service: same
-        // markup as production for an account that has set no photo.
-        $twig->addFunction(new \Twig\TwigFunction('person_avatar', function (string $name, array $options = []): string {
-            return \Core\View\PersonAvatar::render($name, null, (int) ($options['size'] ?? 40));
-        }, ['is_safe' => ['html']]));
-        $twig->addFunction(new \Twig\TwigFunction('editable_image', function (): string {
-            return '';
-        }, ['is_safe' => ['html']]));
-        $twig->addFunction(new \Twig\TwigFunction('file_url', function (): string {
-            return '';
-        }));
         // The report names people the way every other admin screen does
         // (design.md § Display name convention) — registered here as
         // Core\View\TwigFactory does in production.

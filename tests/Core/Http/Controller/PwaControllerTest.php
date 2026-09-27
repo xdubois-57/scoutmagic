@@ -15,8 +15,8 @@ use Core\Photo\UnitLogoProcessor;
 use Core\Photo\UnitLogoService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
 
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class PwaControllerTest extends TestCase
@@ -47,11 +47,7 @@ class PwaControllerTest extends TestCase
             $this->defaultIconPath
         );
 
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $twig = TestTwig::create();
         $twig->addGlobal('site_name', 'Unité des Bois Joyeux');
 
         $this->controller = new PwaController($twig, $this->settingService, $iconService);
@@ -134,11 +130,7 @@ class PwaControllerTest extends TestCase
         $settingService->register('pwa_icon_version', '1', 'number', 'x', 'x', null, null, null, false);
 
         $iconService = new UnitLogoService(new UnitLogoProcessor(), $settingService, $this->storagePath, $this->defaultIconPath);
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $twig = TestTwig::create();
         $controller = new PwaController($twig, $settingService, $iconService);
 
         $request = new Request('GET', '/manifest.webmanifest', [], [], [], []);

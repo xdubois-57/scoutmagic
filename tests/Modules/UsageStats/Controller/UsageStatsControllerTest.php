@@ -19,9 +19,8 @@ use Modules\UsageStats\Service\UsageStatsService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\UsageStats\UsageStatsTestHelper;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
-use Twig\TwigFunction;
 
 /**
  * The RBAC boundary of the three screens — `superadmin` renders, `admin`
@@ -49,12 +48,8 @@ class UsageStatsControllerTest extends TestCase
         }
         $_SESSION = [];
 
-        $root = dirname(__DIR__, 4);
-        $loader = new FilesystemLoader($root . '/core/View/templates');
-        $loader->addPath($root . '/modules/usage_stats/views', 'usage_stats');
 
-        $this->twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
-        $this->twig->addFunction(new TwigFunction('asset', static fn (string $path): string => $path));
+        $this->twig = TestTwig::create(['usage_stats']);
         $this->twig->addGlobal('site_name', 'Test');
         $this->twig->addGlobal('is_authenticated', true);
         $this->twig->addGlobal('current_user_email', 'super@test.be');
@@ -64,10 +59,6 @@ class UsageStatsControllerTest extends TestCase
         $this->twig->addGlobal('cookie_consent_given', true);
         $this->twig->addGlobal('menus', null);
         $this->twig->addGlobal('csp_nonce', 'n');
-        $this->twig->addFunction(new TwigFunction('csrf_field', fn () => '', ['is_safe' => ['html']]));
-        $this->twig->addFunction(new TwigFunction('csrf_token', fn () => 't'));
-        $this->twig->addFunction(new TwigFunction('get_flash', fn () => null));
-        $this->twig->addFunction(new TwigFunction('file_url', fn () => ''));
 
         $configFile = sys_get_temp_dir() . '/test_usage_stats_config_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");

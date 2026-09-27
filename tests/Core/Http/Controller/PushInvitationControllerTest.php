@@ -24,8 +24,7 @@ use Core\Security\CsrfGuard;
 use PHPUnit\Framework\TestCase;
 use Tests\Core\Help\HelpTopicFileFixtures;
 use Tests\DatabaseTestHelper;
-use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
+use Tests\TestTwig;
 
 /**
  * What the « Activer les notifications ? » dialog writes back
@@ -221,8 +220,7 @@ final class PushInvitationControllerTest extends TestCase
 
     private function controller(): PushInvitationController
     {
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);
+        $twig = TestTwig::create();
 
         return new PushInvitationController(
             $twig,

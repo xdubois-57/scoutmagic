@@ -30,8 +30,8 @@ use Core\Security\UserAccountRepository;
 use PHPUnit\Framework\TestCase;
 use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 use Tests\DatabaseTestHelper;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
 use Core\Member\Repository\MemberProfileRepository;
 use Core\Member\Repository\SectionRepository;
 
@@ -765,24 +765,13 @@ class ScoutYearTransitionAccessTest extends TestCase
 
     private function buildTwig(): Environment
     {
-        $twig = new Environment(
-            new FilesystemLoader(dirname(__DIR__, 2) . '/core/View/templates'),
-            ['cache' => false, 'autoescape' => 'html']
-        );
+        $twig = TestTwig::create();
 
-        $twig->addFunction(new \Twig\TwigFunction('asset', static fn(string $path): string => $path));
         $twig->addGlobal('site_name', 'Test Unit');
         $twig->addGlobal('is_authenticated', false);
         $twig->addGlobal('current_user_email', null);
         $twig->addGlobal('current_user_role', 'public');
         $twig->addGlobal('cookie_consent_given', true);
-        $twig->addFunction(new \Twig\TwigFunction('csrf_field', fn(): string => '', ['is_safe' => ['html']]));
-        $twig->addFunction(new \Twig\TwigFunction('csrf_token', fn(): string => 'test-csrf-token'));
-        $twig->addFunction(new \Twig\TwigFunction('get_flash', fn(): ?array => null));
-        $twig->addFunction(new \Twig\TwigFunction('editable', fn(): string => '', ['is_safe' => ['html']]));
-        $twig->addFunction(new \Twig\TwigFunction('person_avatar', function (string $name, array $options = []): string {
-            return \Core\View\PersonAvatar::render($name, null, (int) ($options['size'] ?? 40));
-        }, ['is_safe' => ['html']]));
 
         return $twig;
     }

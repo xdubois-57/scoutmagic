@@ -30,11 +30,9 @@ use Modules\Finance\Service\ReceiptService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
-use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
-use Twig\TwigFunction;
 use Core\Member\Repository\MemberProfileRepository;
 use Core\Member\Repository\SectionRepository;
+use Tests\TestTwig;
 
 /**
  * @group database
@@ -91,18 +89,8 @@ class DashboardControllerTest extends TestCase
         $fileStorage = new EncryptedFileStorageService(new FileRepository($this->pdo), $encryption, sys_get_temp_dir() . '/finance_dashboard_test_' . uniqid());
         $receiptService = new ReceiptService($this->attachmentRepository, $this->accountRepository, $this->transactionAttachmentRepository, $fileStorage, $this->transactionRepository);
 
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/finance/views';
-        $loader = new FilesystemLoader($templateDir);
-        $loader->addPath($moduleViews, 'finance');
-        $twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
-        // The shipped filters themselves, not a rendering that resembles
-        // them (Core\View, issue #465).
-        $twig->addExtension(new \Core\View\DateFilterExtension());
-        $twig->addExtension(new \Core\View\FormatFilterExtension());
+        $twig = TestTwig::create(['finance' => $moduleViews]);
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_role', 'intendant');
@@ -112,10 +100,6 @@ class DashboardControllerTest extends TestCase
         $twig->addGlobal('current_path', '/finance');
         $twig->addGlobal('route_breadcrumb', ['label' => 'Finances', 'parents' => ['Espace animateurs']]);
         $twig->addGlobal('csp_nonce', 'test-nonce');
-        $twig->addFunction(new TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
-        $twig->addFunction(new TwigFunction('get_flash', fn() => null));
-        $twig->addFunction(new TwigFunction('csrf_token', fn() => 'test'));
-        $twig->addFunction(new TwigFunction('file_url', fn() => ''));
 
         $expectedReceivableRepository = new \Modules\Finance\Repository\ExpectedReceivableRepository($this->pdo, $encryption);
 

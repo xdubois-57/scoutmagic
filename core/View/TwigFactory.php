@@ -8,9 +8,7 @@ declare(strict_types=1);
 
 namespace Core\View;
 
-use Core\Http\FlashMessage;
 use Core\Maintenance\VersionFile;
-use Core\Security\CsrfGuard;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 use Twig\TwigFunction;
@@ -76,25 +74,11 @@ class TwigFactory
                 => str_ends_with($name, '.text.twig') ? false : 'html',
         ]);
 
-        // Register csrf_field() function
-        $environment->addFunction(new TwigFunction('csrf_field', function (): string {
-            $token = CsrfGuard::generateToken();
-            return '<input type="hidden" name="_csrf_token" value="' . htmlspecialchars(
-                $token,
-                ENT_QUOTES,
-                'UTF-8'
-            ) . '">';
-        }, ['is_safe' => ['html']]));
-
-        // Register get_flash() function
-        $environment->addFunction(new TwigFunction('get_flash', function (): ?array {
-            return FlashMessage::get();
-        }));
-
-        // Register csrf_token() function (returns raw token for meta tags)
-        $environment->addFunction(new TwigFunction('csrf_token', function (): string {
-            return CsrfGuard::generateToken();
-        }));
+        // csrf_field(), csrf_token() and get_flash() read the visitor's
+        // session, and live in their own extension for that reason: it is
+        // what lets Tests\TestTwig replace exactly those on top of this
+        // environment (Core\View\SessionFunctionExtension, issue #465).
+        $environment->addExtension(new SessionFunctionExtension());
 
         // Register file_url() function. $variant, when given, must be one
         // of Core\Photo\ImageVariantService's fixed vocabulary ('thumb',
@@ -449,16 +433,13 @@ class TwigFactory
         // Every filter a template may use now comes from an extension, so
         // a test that renders a production template gets the real list in
         // six lines instead of re-implementing the one filter it noticed
-        // it was missing. `Tests\Core\View\
-        // TestEnvironmentsUseTheRealFiltersTest` holds it that way, in
-        // both directions (issue #465).
+        // it was missing.
         //
-        // The FUNCTIONS below are still registered here, and a hundred
-        // test environments still stub them — §B of that issue. They are
-        // a harder case: `editable()`, `person_avatar()`, `member_photo()`
-        // and `section_photo()` read services out of the environment's
-        // globals, so an extension for them is a design decision rather
-        // than a move.
+        // The functions that read the session are an extension too; the
+        // others stay closures here, and Tests\TestTwig renders them for
+        // real — no test may register its own copy of any of them.
+        // `Tests\Core\View\TestEnvironmentsUseTheRealFactoryTest` holds
+        // both rules (issue #465).
 
         return $environment;
     }

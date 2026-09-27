@@ -10,11 +10,10 @@ namespace Tests\Core\View;
 
 use Core\Member\EffectiveAge;
 use Core\Member\MemberProfile;
-use Core\View\TwigFactory;
 use PHPUnit\Framework\TestCase;
+use Tests\TestTwig;
 use Twig\Environment;
 use Tests\Modules\MassMail\ComposePageRenderer;
-use Twig\TwigFunction;
 
 /**
  * Regression coverage for SonarCloud Web:S6853 ("A form label must be
@@ -31,9 +30,7 @@ class DecorativeLabelMisuseTest extends TestCase
 {
     private function createTwig(array $moduleNamespaces = []): Environment
     {
-        $coreTemplateDir = dirname(__DIR__, 3) . '/core/View/templates';
-        $twig = TwigFactory::create($coreTemplateDir, true, $moduleNamespaces);
-        $twig->addFunction(new TwigFunction('param', fn (string $key): string => 'Test Unité'));
+        $twig = TestTwig::create($moduleNamespaces, ['param' => fn (string $key): string => 'Test Unité']);
 
         return $twig;
     }

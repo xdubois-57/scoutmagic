@@ -32,9 +32,8 @@ use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
-use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
 use Core\Member\Repository\MemberProfileRepository;
+use Tests\TestTwig;
 
 /**
  * @group database
@@ -90,17 +89,7 @@ class UploadControllerTest extends TestCase
     new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption)
 );
 
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
-        // base.html.twig puts the token in a <meta>, and a refused
-        // upload renders errors/403.html.twig through it now rather
-        // than answering the bare word "Forbidden" (issue #347).
-        $twig->addFunction(new \Twig\TwigFunction('csrf_token', static fn (): string => 'token'));
-        $twig->addFunction(new \Twig\TwigFunction('csrf_field', fn() => '', ['is_safe' => ['html']]));
-        $twig->addFunction(new \Twig\TwigFunction('get_flash', fn() => null));
+        $twig = TestTwig::create();
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('menus', null);
         $twig->addGlobal('csp_nonce', 'n');

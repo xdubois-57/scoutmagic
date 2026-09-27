@@ -46,12 +46,11 @@ use Core\Storage\Location\StorageLocationType;
 use Core\Storage\Volume\VolumeInventory;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
 use Modules\LlmConnector\Api\LlmConnectorInterface;
 use Modules\LlmConnector\Api\LlmException;
 use Modules\LlmConnector\Api\LlmResponse;
-use Twig\TwigFunction;
 
 /**
  * « Stockage », the core screen the locations moved to in IT-02.
@@ -1942,18 +1941,7 @@ class StorageConfigControllerTest extends TestCase
 
     private function buildTwig(): Environment
     {
-        $loader = new FilesystemLoader(dirname(__DIR__, 4) . '/core/View/templates');
-        $twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
-        $twig->addExtension(new \Core\View\DateFilterExtension());
-        $twig->addFunction(new TwigFunction('asset', static fn (string $path): string => $path));
-        $twig->addFunction(new TwigFunction(
-            'csrf_field',
-            static fn (): string => '<input type="hidden" name="_csrf_token" value="test">',
-            ['is_safe' => ['html']]
-        ));
-        $twig->addFunction(new TwigFunction('get_flash', static fn (): ?string => null));
-        $twig->addFunction(new TwigFunction('csrf_token', static fn (): string => 'test'));
-        $twig->addFunction(new TwigFunction('file_url', static fn (): string => ''));
+        $twig = TestTwig::create();
         // Registered by Core\View\TwigFactory in production; the page prints
         // « Vérifié il y a deux minutes » through it.
         $twig->addGlobal('site_name', 'Test');

@@ -22,9 +22,8 @@ use Modules\Banner\Service\BannerService;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\Modules\Banner\BannerTestHelper;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
-use Twig\TwigFunction;
 
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class BannerConfigControllerTest extends TestCase
@@ -66,18 +65,8 @@ class BannerConfigControllerTest extends TestCase
         $this->bannerService = new BannerService(new BannerRepository($this->pdo), $editableContentService);
         $journalService = new JournalService(new JournalRepository($this->pdo));
 
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/banner/views';
-        $loader = new FilesystemLoader($templateDir);
-        $loader->addPath($moduleViews, 'banner');
-        $this->twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
-        // |sanitized_html, which partials/rich_text_field.html.twig renders
-        // its stored value through. The shipped filter itself, so the
-        // allowlist cannot be one this test invented (issue #465).
-        $this->twig->addExtension(new \Core\View\RichTextFilterExtension());
+        $this->twig = TestTwig::create(['banner' => $moduleViews]);
         $this->twig->addGlobal('site_name', 'Test');
         $this->twig->addGlobal('is_authenticated', true);
         $this->twig->addGlobal('current_user_role', 'superadmin');
@@ -85,10 +74,6 @@ class BannerConfigControllerTest extends TestCase
         $this->twig->addGlobal('cookie_consent_given', true);
         $this->twig->addGlobal('menus', null);
         $this->twig->addGlobal('csp_nonce', 'test-nonce');
-        $this->twig->addFunction(new TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
-        $this->twig->addFunction(new TwigFunction('get_flash', fn() => null));
-        $this->twig->addFunction(new TwigFunction('csrf_token', fn() => 'test'));
-        $this->twig->addFunction(new TwigFunction('file_url', fn() => ''));
 
         // Real STAFFDU-membership logic is fully tested against real
         // fixtures by Core\Member\MemberServiceTest — here it's stubbed
