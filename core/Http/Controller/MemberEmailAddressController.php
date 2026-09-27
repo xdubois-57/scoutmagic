@@ -208,14 +208,17 @@ class MemberEmailAddressController extends AbstractController
         }
 
         try {
-            // The Desk address travels with the call, because id 0 is the
+            // The Desk address travels with the call only for id 0, the
             // synthesised Desk row that has no `member_emails` entry yet
             // (the common case). It is read off the member's own profile
-            // here, never off the request.
+            // here, never off the request. Any other id names its own row
+            // and the service ignores the Desk address, so the profile is
+            // not read a second time for nothing (issue #586).
+            $emailId = (int) $params['email_id'];
             $lifted = $this->memberEmailService->unblockBounce(
                 $memberId,
-                (int) $params['email_id'],
-                $this->deskEmailFor($memberYearId)
+                $emailId,
+                $emailId === 0 ? $this->deskEmailFor($memberYearId) : null
             );
 
             // Mirrors the admin path: a no-op is said out loud rather than

@@ -649,8 +649,8 @@ class MemberEmailAddressControllerTest extends TestCase
      * profile a second time, after `requireOwnMemberId()` has already read
      * it — so a member deleted between the two reads lands in its `catch`.
      * The guard turns what would be a 500 into the ordinary answer with no
-     * Desk address, which is the correct one: id 0 aside, the block is
-     * identified by its own row.
+     * Desk address. Only id 0 reads the profile that second time (issue
+     * #586), so that is the id this posts.
      *
      * Reaching it needs the double to answer differently on the second call.
      * That is not a double lying about the system (§3 of the chantier): a
@@ -672,15 +672,37 @@ class MemberEmailAddressControllerTest extends TestCase
         );
         // No Desk address travels, rather than no answer at all.
         $this->memberEmailService->expects($this->once())->method('unblockBounce')
-            ->with(42, 5, null)
+            ->with(42, 0, null)
             ->willReturn(true);
 
         $response = $this->controller->unblockBounce(
-            new Request('POST', '/members/1/emails/5/bounce-unblock', [], ['_csrf_token' => $token], [], []),
-            ['id' => '1', 'email_id' => '5']
+            new Request('POST', '/members/1/emails/0/bounce-unblock', [], ['_csrf_token' => $token], [], []),
+            ['id' => '1', 'email_id' => '0']
         );
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertSame('/members/1', $response->getHeaders()['Location'] ?? null);
+        $this->assertSame(2, $reads, 'id 0 reads the Desk address off the profile');
+    }
+
+    /**
+     * An address with its own row is found by that row, and the service
+     * ignores the Desk address for it: the profile, already read by the
+     * self-access check, is not hydrated a second time (issue #586).
+     */
+    public function testAnAddressWithItsOwnRowDoesNotReadTheProfileAgain(): void
+    {
+        $token = $this->startSessionWithCsrfToken();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->expects($this->once())->method('getMemberProfile')
+            ->willReturn($this->makeProfile(42, 'desk@example.com'));
+        $this->memberEmailService->expects($this->once())->method('unblockBounce')
+            ->with(42, 5, null)
+            ->willReturn(true);
+
+        $this->controller->unblockBounce(
+            new Request('POST', '/members/1/emails/5/bounce-unblock', [], ['_csrf_token' => $token], [], []),
+            ['id' => '1', 'email_id' => '5']
+        );
     }
 }
