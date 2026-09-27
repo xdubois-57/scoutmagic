@@ -3,7 +3,7 @@ id: phrase-de-passe-distante
 title: La phrase de passe de vos sauvegardes distantes
 summary: La clé qui ouvre les archives envoyées hors site, pourquoi la recopier ailleurs, et ce que coûte une régénération.
 category: Configuration
-role_min: admin
+role_min: superadmin
 discovery: off
 question: Où est la phrase de passe de mes sauvegardes distantes ?
 question: Pourquoi le site me demande-t-il de confirmer que j'ai noté la phrase ?
