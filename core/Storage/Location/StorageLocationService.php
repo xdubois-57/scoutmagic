@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Storage\Location;
 
 use Core\Exception\UserFacingException;
+use Core\Storage\Location\Backend\ManagedRootFolderBackend;
 use Core\Storage\Location\Backend\StorageBackendFactory;
 use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\Config\LocationConfig;
@@ -99,13 +100,42 @@ class StorageLocationService
     }
 
     /**
+     * Saves a location — and, when its label changed and it owns its
+     * folder (a Google Drive location, #474), renames that folder to
+     * match.
+     *
+     * **The rename in ScoutMagic stands whatever the folder does.** The
+     * folder is found by its id, never by its name, so a folder left with
+     * the old name costs the operator a moment of confusion in their Drive
+     * and nothing else; refusing the rename because Google was unreachable
+     * would cost them the rename. The failure comes back for the caller
+     * to journal and to show.
+     *
      * @throws StorageLocationException when the label is already taken
      */
-    public function update(int $id, string $label, LocationConfig $config, ?string $secret): void
+    public function update(int $id, string $label, LocationConfig $config, ?string $secret): RootFolderOutcome
     {
         $this->assertLabelFree($label, $id);
+        $before = $this->repository->findById($id);
         $this->repository->update($id, $label, $config, $secret);
         unset($this->locationsById[$id]);
+
+        if ($before === null || $before->label === $label) {
+            return RootFolderOutcome::nothingToDo();
+        }
+
+        $backend = $this->managedBackendOf($before);
+        if ($backend instanceof RootFolderOutcome) {
+            return $backend;
+        }
+
+        try {
+            $backend->renameRootFolder($label);
+        } catch (\Throwable $e) {
+            return self::failure($e);
+        }
+
+        return RootFolderOutcome::done();
     }
 
     public function setDefault(int $id): void
@@ -134,10 +164,20 @@ class StorageLocationService
      * disagree: a page whose « Sert : … » line came out empty offers the
      * button, and the button lands here.
      *
+     * **A folder the application created goes to the trash with it**
+     * (#474) — a Google Drive location's `ScoutMagic/<label>/`, which
+     * nobody typed and which would otherwise outlive the location for
+     * ever. The trash, not a deletion: Google keeps it about thirty days,
+     * which is the operator's way back from a wrong click. A folder the
+     * administrator named — a local path, a WebDAV share, a bucket — is
+     * theirs and is never touched. A failure to reach Drive does not keep
+     * the location alive: it comes back for the caller to journal and to
+     * show, and the folder simply stays where it is.
+     *
      * @throws StorageLocationException while a consumer depends on $id, or
      *         when one of them could not be asked at all
      */
-    public function delete(int $id): void
+    public function delete(int $id): RootFolderOutcome
     {
         try {
             $usages = $this->consumers->usagesOf($id);
@@ -157,8 +197,66 @@ class StorageLocationService
             ));
         }
 
+        // Built BEFORE the row goes: the backend needs the row's secret,
+        // and the trash comes after the deletion so that a location that
+        // could not be deleted never loses its folder.
+        $location = $this->repository->findById($id);
+        $backend = $location !== null ? $this->managedBackendOf($location) : RootFolderOutcome::nothingToDo();
+
         $this->repository->delete($id);
         unset($this->locationsById[$id]);
+
+        if ($backend instanceof RootFolderOutcome) {
+            return $backend;
+        }
+
+        try {
+            $backend->trashRootFolder();
+        } catch (\Throwable $e) {
+            return self::failure($e);
+        }
+
+        return RootFolderOutcome::done();
+    }
+
+    /**
+     * The backend of $location when it owns its folder — or the outcome
+     * to report instead: nothing to do for every other kind, a failure
+     * when the backend cannot even be built (an unreadable secret).
+     */
+    private function managedBackendOf(StorageLocation $location): ManagedRootFolderBackend|RootFolderOutcome
+    {
+        if ($location->type !== StorageLocationType::GoogleDrive) {
+            // Asked of the type first: building a local backend creates
+            // its directory, and an S3 one a client, for nothing.
+            return RootFolderOutcome::nothingToDo();
+        }
+        if ($location->config instanceof Config\GoogleDriveLocationConfig && $location->config->folderId === '') {
+            // Never connected: there is no folder, and saying one was put
+            // in the trash would be untrue.
+            return RootFolderOutcome::nothingToDo();
+        }
+
+        try {
+            $backend = $this->backendFactory->create($location);
+        } catch (\Throwable $e) {
+            return self::failure($e);
+        }
+
+        return $backend instanceof ManagedRootFolderBackend ? $backend : RootFolderOutcome::nothingToDo();
+    }
+
+    private static function failure(\Throwable $e): RootFolderOutcome
+    {
+        $reason = $e instanceof UserFacingException
+            ? $e->getMessage()
+            : 'Google Drive n\'a pas répondu comme prévu.';
+        $detail = $e->getMessage();
+        if ($e->getPrevious() !== null) {
+            $detail .= ' — ' . $e->getPrevious()->getMessage();
+        }
+
+        return RootFolderOutcome::failed($reason, $detail);
     }
 
     /**

@@ -591,7 +591,7 @@ class StorageConfigController extends AbstractController
             $config = $this->configFromRequest($location->type, $request, $location);
             $this->assertNoConsumerObjects($location, $config, $location->isDefault);
 
-            $this->storageLocationService->update($location->id, $label, $config, $secret);
+            $folder = $this->storageLocationService->update($location->id, $label, $config, $secret);
         } catch (StorageLocationException $e) {
             $context = $this->formContext($location);
             $context['submit_error'] = $e->getMessage();
@@ -631,6 +631,28 @@ class StorageConfigController extends AbstractController
             );
         }
 
+        // **The rename stands; the folder that did not follow is said.**
+        // A Drive location's folder is renamed with it (#474), and the
+        // site finds it by id, so one left with the old name breaks
+        // nothing — but an administrator who later looks for it in their
+        // Drive under the new name deserves to know why it is not there.
+        if ($folder->isFailed()) {
+            $this->journalService->log(
+                'storage',
+                'storage_location_folder_rename_failed',
+                'warning',
+                "Dossier Google Drive de l'emplacement « {$label} » non renommé",
+                ['error' => $folder->reason, 'detail' => $folder->detail],
+                (int) AuthSession::getUserAccountId()
+            );
+            FlashMessage::set(
+                'warning',
+                "Le nom « {$label} » est enregistré, mais le dossier de cet emplacement sur Google Drive n'a pas pu "
+                . "être renommé : {$folder->reason} Le site le retrouve quand même ; vous pouvez le renommer "
+                . 'vous-même dans Google Drive.'
+            );
+        }
+
         return $this->redirect(self::LOCATIONS_URL);
     }
 
@@ -662,7 +684,7 @@ class StorageConfigController extends AbstractController
         }
 
         try {
-            $this->storageLocationService->delete($location->id);
+            $folder = $this->storageLocationService->delete($location->id);
         } catch (StorageLocationException $e) {
             FlashMessage::set('error', $e->getMessage());
 
@@ -674,11 +696,35 @@ class StorageConfigController extends AbstractController
             'storage_location_deleted',
             'security',
             "Emplacement de stockage « {$location->label} » supprimé",
-            ['type' => $location->type->value],
+            ['type' => $location->type->value, 'folder_trashed' => $folder->isDone()],
             (int) AuthSession::getUserAccountId()
         );
 
-        FlashMessage::set('success', "Emplacement « {$location->label} » supprimé.");
+        // A Drive location's own folder goes to the trash with it (#474);
+        // a failure there does not bring the location back, and is said.
+        if ($folder->isFailed()) {
+            $this->journalService->log(
+                'storage',
+                'storage_location_folder_trash_failed',
+                'warning',
+                "Dossier Google Drive de l'emplacement supprimé « {$location->label} » non placé dans la corbeille",
+                ['error' => $folder->reason, 'detail' => $folder->detail],
+                (int) AuthSession::getUserAccountId()
+            );
+            FlashMessage::set(
+                'warning',
+                "Emplacement « {$location->label} » supprimé. Son dossier sur Google Drive n'a pas pu être placé "
+                . "dans la corbeille : {$folder->reason} Il est resté en place ; supprimez-le vous-même dans "
+                . "Google Drive si vous n'en avez plus besoin."
+            );
+
+            return $this->redirect(self::LOCATIONS_URL);
+        }
+
+        FlashMessage::set('success', $folder->isDone()
+            ? "Emplacement « {$location->label} » supprimé. Son dossier a été placé dans la corbeille de "
+                . 'Google Drive, où vous pouvez le récupérer pendant 30 jours.'
+            : "Emplacement « {$location->label} » supprimé.");
 
         return $this->redirect(self::LOCATIONS_URL);
     }

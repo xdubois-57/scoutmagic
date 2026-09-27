@@ -6,6 +6,8 @@ namespace Tests\Core\Storage\Location;
 
 use Core\Security\EncryptionService;
 use Core\Storage\Location\Backend\StorageBackendFactory;
+use Core\Storage\Location\Config\GoogleDriveLocationConfig;
+use Core\Storage\Location\Config\GoogleDriveSecret;
 use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\Config\LocationConfig;
 use Core\Storage\Location\Config\ObjectStorageLocationConfig;
@@ -17,6 +19,7 @@ use Core\Storage\Location\StorageLocationRepository;
 use Core\Storage\Location\StorageLocationService;
 use Core\Storage\Location\StorageLocationType;
 use PHPUnit\Framework\TestCase;
+use Tests\Core\Storage\Location\Backend\Drive\FakeDrive;
 use Tests\DatabaseTestHelper;
 
 /**
@@ -313,6 +316,148 @@ class StorageLocationServiceTest extends TestCase
         $this->service->delete($id);
 
         $this->assertNull($this->repository->findById($id));
+    }
+
+    // ————— A Drive location's own folder follows it (#474) —————
+
+    public function testRenamingADriveLocationRenamesItsFolder(): void
+    {
+        [$drive, $service, $id] = $this->connectedDriveLocation();
+
+        $outcome = $service->update($id, 'Galeries du groupe', $this->driveConfig($drive), null);
+
+        $this->assertTrue($outcome->isDone());
+        $this->assertSame('Galeries du groupe', $drive->files['folder-1']['name']);
+    }
+
+    /** Saving without changing the label touches nothing at Google. */
+    public function testSavingADriveLocationUnderTheSameLabelLeavesItsFolderAlone(): void
+    {
+        [$drive, $service, $id] = $this->connectedDriveLocation();
+        $before = $drive->requests;
+
+        $outcome = $service->update($id, 'Photos des galeries', $this->driveConfig($drive), null);
+
+        $this->assertFalse($outcome->isDone());
+        $this->assertFalse($outcome->isFailed());
+        $this->assertSame($before, $drive->requests);
+    }
+
+    /**
+     * **The rename stands when the folder cannot follow.** The site finds
+     * the folder by id, so the operator loses nothing but a matching name,
+     * and the failure comes back to be journaled and shown.
+     */
+    public function testARenameGoogleRefusesIsStillSavedAndTheFailureComesBack(): void
+    {
+        [$drive, $service, $id] = $this->connectedDriveLocation();
+        $drive->failPatchesWith = 500;
+
+        $outcome = $service->update($id, 'Galeries du groupe', $this->driveConfig($drive), null);
+
+        $this->assertTrue($outcome->isFailed());
+        $this->assertNotSame('', (string) $outcome->reason);
+        $this->assertStringContainsString('500', (string) $outcome->detail);
+        $this->assertSame('Galeries du groupe', $this->repository->findById($id)?->label);
+        $this->assertSame('Photos des galeries', $drive->files['folder-1']['name']);
+    }
+
+    public function testDeletingADriveLocationPutsItsFolderInTheTrash(): void
+    {
+        [$drive, $service, $id] = $this->connectedDriveLocation();
+
+        $outcome = $service->delete($id);
+
+        $this->assertTrue($outcome->isDone());
+        $this->assertNull($this->repository->findById($id));
+        $this->assertTrue($drive->files['folder-1']['trashed'], 'the folder was not put in the trash');
+    }
+
+    /** A Drive that cannot be reached does not keep a location alive. */
+    public function testADeletionGoogleRefusesStillDeletesTheLocation(): void
+    {
+        [$drive, $service, $id] = $this->connectedDriveLocation();
+        $drive->failPatchesWith = 503;
+
+        $outcome = $service->delete($id);
+
+        $this->assertTrue($outcome->isFailed());
+        $this->assertNull($this->repository->findById($id));
+        $this->assertFalse($drive->files['folder-1']['trashed']);
+    }
+
+    /** Still refused while a usage depends on it — and nothing is trashed. */
+    public function testADriveLocationInUseIsNeitherDeletedNorTrashed(): void
+    {
+        [$drive, $service, $id] = $this->connectedDriveLocation();
+        $this->consumers->register($this->consumerNamed('Sauvegardes hors site', [$id]));
+
+        try {
+            $service->delete($id);
+            $this->fail('A location still in use must not be deletable.');
+        } catch (StorageLocationException) {
+            // As for every other kind.
+        }
+
+        $this->assertFalse($drive->files['folder-1']['trashed']);
+    }
+
+    /** A location never connected has no folder, and nothing is claimed. */
+    public function testDeletingANeverConnectedDriveLocationTrashesNothing(): void
+    {
+        $drive = new FakeDrive();
+        $service = $this->serviceOn($drive);
+        $id = $service->create(StorageLocationType::GoogleDrive, 'Pas encore', new GoogleDriveLocationConfig('c'), null);
+
+        $outcome = $service->delete($id);
+
+        $this->assertFalse($outcome->isDone());
+        $this->assertFalse($outcome->isFailed());
+        $this->assertSame(0, $drive->requests);
+    }
+
+    /** A local folder was named by the administrator and is never touched. */
+    public function testDeletingALocalLocationLeavesItsFolderAlone(): void
+    {
+        $id = $this->service->create(StorageLocationType::Local, 'Disque', new LocalLocationConfig('garde'), null);
+        mkdir($this->storagePath . '/garde');
+        file_put_contents($this->storagePath . '/garde/photo.jpg', 'x');
+
+        $outcome = $this->service->delete($id);
+
+        $this->assertFalse($outcome->isDone());
+        $this->assertFileExists($this->storagePath . '/garde/photo.jpg');
+    }
+
+    /**
+     * @return array{0: FakeDrive, 1: StorageLocationService, 2: int}
+     */
+    private function connectedDriveLocation(): array
+    {
+        $drive = new FakeDrive();
+        $service = $this->serviceOn($drive);
+        $id = $service->create(
+            StorageLocationType::GoogleDrive,
+            'Photos des galeries',
+            $this->driveConfig($drive),
+            (string) (new GoogleDriveSecret('secret-1', 'refresh-1', 'unite@example.org'))->toStorage()
+        );
+
+        return [$drive, $service, $id];
+    }
+
+    private function driveConfig(FakeDrive $drive): GoogleDriveLocationConfig
+    {
+        return new GoogleDriveLocationConfig('client-1', (string) $drive->folderId, '2026-09-01T00:00:00+00:00');
+    }
+
+    private function serviceOn(FakeDrive $drive): StorageLocationService
+    {
+        return new StorageLocationService(
+            $this->repository,
+            new StorageBackendFactory($this->repository, $this->storagePath, $drive->client()),
+            $this->consumers
+        );
     }
 
     /**

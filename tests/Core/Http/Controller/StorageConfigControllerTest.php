@@ -45,6 +45,7 @@ use Core\Storage\Location\StorageConsequence;
 use Core\Storage\Location\StorageLocationType;
 use Core\Storage\Volume\VolumeInventory;
 use PHPUnit\Framework\TestCase;
+use Tests\Core\Storage\Location\Backend\Drive\FakeDrive;
 use Tests\DatabaseTestHelper;
 use Tests\TestTwig;
 use Twig\Environment;
@@ -678,6 +679,106 @@ class StorageConfigControllerTest extends TestCase
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertNull($this->repository->findById($id));
+    }
+
+    // ————— A Drive location's folder follows it (#474) —————
+
+    /**
+     * **Deleting a Drive location puts its folder in the trash, and the
+     * confirmation says so** — the only way back from a wrong click is
+     * Google's trash, and an administrator who is not told cannot use it.
+     */
+    public function testDeletingADriveLocationTrashesItsFolderAndSaysWhereItWent(): void
+    {
+        $drive = new FakeDrive('dossier-1', 'Google Drive');
+        $id = $this->declareDrive();
+
+        $response = $this->driveController($drive)->delete($this->formRequest([]), ['id' => (string) $id]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertNull($this->repository->findById($id));
+        $this->assertTrue($drive->files['dossier-1']['trashed']);
+        $this->assertStringContainsString('corbeille', $this->flashMessage());
+    }
+
+    /**
+     * A Drive that refuses does not keep the location alive: it is
+     * deleted, the failure is journaled, and the administrator is told
+     * the folder stayed where it was.
+     */
+    public function testADriveFolderThatCannotBeTrashedIsJournaledWithoutBlockingTheDeletion(): void
+    {
+        $drive = new FakeDrive('dossier-1', 'Google Drive');
+        $drive->failPatchesWith = 500;
+        $id = $this->declareDrive();
+
+        $this->driveController($drive)->delete($this->formRequest([]), ['id' => (string) $id]);
+
+        $this->assertNull($this->repository->findById($id));
+        $this->assertFalse($drive->files['dossier-1']['trashed']);
+        $this->assertSame(1, $this->journalCount('storage_location_folder_trash_failed'));
+        $this->assertStringContainsString('n\'a pas pu être placé dans la corbeille', $this->flashMessage());
+    }
+
+    public function testRenamingADriveLocationRenamesItsFolder(): void
+    {
+        $drive = new FakeDrive('dossier-1', 'Google Drive');
+        $id = $this->declareDrive();
+
+        $this->driveController($drive)->update(
+            $this->formRequest(['label' => 'Photos des galeries', 'drive_client_id' => 'client-1']),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame('Photos des galeries', $this->repository->findById($id)?->label);
+        $this->assertSame('Photos des galeries', $drive->files['dossier-1']['name']);
+        $this->assertSame(0, $this->journalCount('storage_location_folder_rename_failed'));
+    }
+
+    public function testARenameTheFolderCannotFollowIsSavedJournaledAndShown(): void
+    {
+        $drive = new FakeDrive('dossier-1', 'Google Drive');
+        $drive->failPatchesWith = 500;
+        $id = $this->declareDrive();
+
+        $this->driveController($drive)->update(
+            $this->formRequest(['label' => 'Photos des galeries', 'drive_client_id' => 'client-1']),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame('Photos des galeries', $this->repository->findById($id)?->label);
+        $this->assertSame(1, $this->journalCount('storage_location_folder_rename_failed'));
+        $this->assertStringContainsString('n\'a pas pu être renommé', $this->flashMessage());
+    }
+
+    /** The confirmation before deleting a Drive location announces the trash. */
+    public function testTheDriveDeleteConfirmationAnnouncesTheTrash(): void
+    {
+        $this->declareDrive();
+        $this->declareLocal('Disque', 'gallery');
+
+        $html = (string) $this->controller->locations(new Request('GET', '/config/stockage/emplacements', [], [], [], []), [])
+            ->getBody();
+
+        $this->assertStringContainsString('sera placé dans la corbeille', $html);
+        $this->assertStringContainsString('le site cesse seulement de la connaître', $html);
+    }
+
+    private function driveController(FakeDrive $drive): StorageConfigController
+    {
+        return $this->buildControllerWith(new StorageLocationService(
+            $this->repository,
+            new StorageBackendFactory($this->repository, $this->storagePath, $drive->client()),
+            $this->consumers
+        ));
+    }
+
+    private function journalCount(string $eventType): int
+    {
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM event_log WHERE event_type = ?');
+        $stmt->execute([$eventType]);
+
+        return (int) $stmt->fetchColumn();
     }
 
     public function testDeleteAnswersNotFoundForALocationThatIsNoLongerThere(): void
