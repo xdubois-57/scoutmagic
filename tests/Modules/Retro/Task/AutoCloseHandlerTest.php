@@ -40,7 +40,7 @@ class AutoCloseHandlerTest extends TestCase
         $this->context = new TaskContext(
             Connection::withPdo($this->pdo),
             $encryption,
-            $this->createStub(MailService::class),
+            $this->createMock(MailService::class),
             new JournalService(new JournalRepository($this->pdo)),
             new SettingService(new SettingRepository($this->pdo)),
             new UserAccountRepository($this->pdo, $encryption),
