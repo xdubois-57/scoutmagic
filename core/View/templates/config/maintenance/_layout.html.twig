@@ -1,0 +1,65 @@
+{% extends 'base.html.twig' %}
+{#
+  The frame of the six Maintenance sub-pages (issue #619,
+  docs/chantiers/CHANTIER-maintenance.md): the shared rail, the page's
+  title, the migration banner, and the scripts — each sub-page fills
+  `maintenance_title` and `maintenance_content`.
+
+  The page used to be one screen of eight folding boxes; it was cut in six
+  without rewording any of them. Every box keeps its folding header, and
+  every one arrives open: on its own sub-page, a box is the reason the
+  visitor came.
+#}
+{% block title %}{{ block('maintenance_title') }} — {{ param('site_name') }}{% endblock %}
+
+{% block content %}
+    {% include 'config/maintenance/_nav.html.twig' %}
+    {% include 'partials/page_header.html.twig' with { title: block('maintenance_title') } only %}
+
+    {# ————— Schema migration that did not converge —————
+       Shown while an abandoned migration is on record. A migration caches
+       its hash even when it gives up, so the site stops serving the
+       progress page — a trade that is only acceptable if somebody is
+       told, and this is where. The banner goes away by itself as soon as
+       a migration completes without failure. It sits in the layout, above
+       every Maintenance sub-page, since issue #619 split the page in
+       six: whichever one an operator opens, this is what they must read
+       first. #}
+    {% if abandoned_migration %}
+        <div class="alert alert-danger" role="alert">
+            <h2 class="h6 alert-heading">Migration de schéma incomplète</h2>
+            <p class="mb-2">
+                Le {{ abandoned_migration.at }}, une migration de la base de données a été abandonnée :
+                les mêmes instructions ont échoué à chaque tentative. La structure de la base ne
+                correspond donc pas à ce que cette version attend, et certaines pages peuvent
+                dysfonctionner. Le détail technique est dans le journal des événements
+                (Configuration &gt; Journal).
+            </p>
+            {% if abandoned_migration.failedStatements is not empty %}
+                <details>
+                    <summary class="small">Instructions concernées ({{ abandoned_migration.failedStatements|length }})</summary>
+                    <ul class="small mb-0 mt-2">
+                        {% for statement in abandoned_migration.failedStatements %}
+                            <li><code>{{ statement }}</code></li>
+                        {% endfor %}
+                    </ul>
+                </details>
+            {% endif %}
+        </div>
+    {% endif %}
+
+    {% block maintenance_content %}{% endblock %}
+{% endblock %}
+
+{% block scripts %}
+    <script src="{{ asset('/assets/js/chunked-upload.js') }}" defer nonce="{{ csp_nonce }}"></script>
+    <script src="{{ asset('/assets/js/maintenance.js') }}" defer nonce="{{ csp_nonce }}"></script>
+    <script src="{{ asset('/assets/js/notes-clamp.js') }}" defer nonce="{{ csp_nonce }}"></script>
+    <script src="{{ asset('/assets/js/collapse-label.js') }}" defer nonce="{{ csp_nonce }}"></script>
+    {# Opens a folded box its address names: every box arrives open since
+       the split, but `#remote-backup` — where
+       Http\Controller\RemoteBackupController redirects after every round
+       trip — must still land on it, whatever a later change does to the
+       folding. #}
+    <script src="{{ asset('/assets/js/collapse-anchor.js') }}" defer nonce="{{ csp_nonce }}"></script>
+{% endblock %}

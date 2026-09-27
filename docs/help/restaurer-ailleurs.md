@@ -7,7 +7,7 @@ role_min: admin
 discovery: off
 question: Mon hébergeur a perdu mon site, comment je repars ?
 question: Comment restaurer une sauvegarde portable sur une installation neuve ?
-paths: /config/maintenance
+paths: /config/maintenance/sauvegarde-manuelle
 related: sauvegarde-portable, sauvegardes, reinitialisation
 ---
 

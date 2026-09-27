@@ -11,7 +11,7 @@
 // safety is a client-side typed-keyword interlock. None of that runs
 // under PHPUnit (which calls MaintenanceController directly) or Vitest
 // (which mocks every fetch); and this page is where a wiring mistake
-// costs the most — restore and reset live three cards below backup.
+// costs the most — restore and reset are one tab away from backup.
 //
 // WHAT IT DELIBERATELY LEAVES ALONE
 // ----------------------------------------------------------------------------
@@ -29,7 +29,6 @@ import { expect, test } from '@playwright/test';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin } from '../support/admin-login.js';
-import { openCard } from '../support/collapsible-card.js';
 import { runScheduler } from '../support/scheduler.js';
 import { scaled } from '../support/timeouts.js';
 
@@ -53,25 +52,36 @@ test('maintenance backups run to completion, the auto-save saves, and the danger
 
     await loginAsAdmin(page);
     await answerCookieBanner(page);
-    await page.goto('/config/maintenance', { waitUntil: 'domcontentloaded' });
-    await expect(page.getByRole('heading', { level: 1, name: 'Maintenance' })).toBeVisible();
 
     // ---------------------------------------------------------------
-    // The page arrives folded, except the two boxes it is opened for.
+    // Six sub-pages since issue #619, one rail between them, Santé de
+    // l'hébergement at /config/maintenance as the landing page.
     // ---------------------------------------------------------------
-    // Asserted here rather than trusted: every interaction below reaches
-    // into a box this spec had to open, so a page that quietly stopped
-    // folding would make the rest of the scenario pass while testing
-    // something else.
+    await page.goto('/config/maintenance', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('heading', { level: 1, name: "Santé de l'hébergement" })).toBeVisible();
+    const rail = page.getByRole('navigation', { name: 'Pages Maintenance' });
+    await expect(rail.getByRole('link')).toHaveText([
+        "Santé de l'hébergement",
+        'Mise à jour',
+        'Sauvegarde manuelle',
+        'Sauvegarde automatique',
+        'Sauvegardes récentes',
+        'Réinitialisation',
+    ]);
+    // Every box arrives open on its own sub-page: asserted rather than
+    // trusted, because every interaction below reaches into one, and a
+    // folded box would make a control « not visible » for a reason that
+    // has nothing to do with it.
     await expect(page.locator('#maintenance-health-body')).toBeVisible();
-    await expect(page.locator('#maintenance-update-body')).toBeVisible();
-    await expect(page.locator('#maintenance-backups-body')).toBeHidden();
-    await expect(page.locator('#maintenance-reset-body')).toBeHidden();
 
     // ---------------------------------------------------------------
     // The auto-backup frequency select saves on change — no button.
     // ---------------------------------------------------------------
-    await openCard(page, 'maintenance-backups-automatic');
+    // Reached through the rail, which is a plain link.
+    await rail.getByRole('link', { name: 'Sauvegarde automatique' }).click();
+    await page.waitForURL('**/config/maintenance/sauvegarde-automatique', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#maintenance-backups-automatic-body')).toBeVisible();
+    await expect(page.locator('#remote-backup-body')).toBeVisible();
     // The acknowledgement is a toast now (public/assets/js/maintenance.js
     // → window.ScoutMagicToast, design.md §7.5), not the inline
     // « Enregistré » span this used to reveal. Same promise, said in the
@@ -82,32 +92,30 @@ test('maintenance backups run to completion, the auto-save saves, and the danger
     await frequency.selectOption('weekly');
     await expect(savedToast).toBeVisible();
 
-    // A reload folds every box back, so the select has to be reached
-    // again before it can be read or changed.
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await openCard(page, 'maintenance-backups-automatic');
     await expect(page.locator('#auto-backup-frequency')).toHaveValue('weekly');
 
     await page.locator('#auto-backup-frequency').selectOption('none');
     await expect(savedToast).toBeVisible();
 
     // ---------------------------------------------------------------
-    // Database-only backup: a plain synchronous POST whose proof is the
-    // new row in the backups table, with its download link.
+    // Database-only backup: a plain synchronous POST that comes back to
+    // the page it was sent from, and whose proof is the new row in
+    // « Sauvegardes récentes », with its download link.
     // ---------------------------------------------------------------
     // Two buttons on the page say "Générer" (database-only, and the full
     // backup's submit); the database one is the plain form targeting the
     // synchronous endpoint.
-    await openCard(page, 'maintenance-backups');
+    await page.goto('/config/maintenance/sauvegarde-manuelle', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#maintenance-backups-body')).toBeVisible();
     await page.locator('form[action="/config/maintenance/backup/database"]')
         .getByRole('button', { name: 'Générer' }).click();
-    await page.waitForURL('**/config/maintenance', { waitUntil: 'domcontentloaded' });
+    await page.waitForURL('**/config/maintenance/sauvegarde-manuelle', { waitUntil: 'domcontentloaded' });
 
-    // « Sauvegardes récentes » is its own section since IT-04, and its rows
-    // are a list rather than a table — the family badge carries the type
-    // label, so the assertion is on the badge's text, not on a cell.
+    // The list's rows carry the family badge with the type label, so the
+    // assertion is on the badge's text, not on a cell.
+    await page.goto('/config/maintenance/sauvegardes-recentes', { waitUntil: 'domcontentloaded' });
     const backupsList = page.locator('#maintenance-backups-list');
-    await openCard(page, 'maintenance-backups-list');
     await expect(backupsList.getByText('Base de données', { exact: true }).first()).toBeVisible();
 
     // Each row's two actions are icons since the boxes started folding —
@@ -119,9 +127,9 @@ test('maintenance backups run to completion, the auto-save saves, and the danger
     // ---------------------------------------------------------------
     // Full encrypted backup (configuration-only scope): started by a
     // hand-built fetch, finished by the status-polling loop — the page
-    // reloads itself when the poll reports done, and the row appears.
+    // reloads itself when the poll reports done.
     // ---------------------------------------------------------------
-    await openCard(page, 'maintenance-backups');
+    await page.goto('/config/maintenance/sauvegarde-manuelle', { waitUntil: 'domcontentloaded' });
     await page.locator('#scope-config').check();
     await page.locator('#full-backup-password').fill(ARCHIVE_PASSWORD);
     await page.locator('#full-backup-submit').click();
@@ -165,39 +173,31 @@ test('maintenance backups run to completion, the auto-save saves, and the danger
     // with a backup id, so the row is committed and a pass will claim it.
     await runScheduler();
 
-    // The polling loop ends in window.location.reload(); waiting for the
-    // finished row IS waiting for the poll to have seen 'done'. The
-    // ceiling is generous — the job zips core/, modules/ and public/.
-    //
-    // Attached, not visible: that reload brings the page back with every
-    // box folded again, so the row is rendered and hidden until the list
-    // is opened. Waiting on visibility here would wait for a click this
-    // spec has not made yet.
+    // The polling loop ends in window.location.reload(), which brings
+    // the form back with its progress bar hidden and no error: that pair
+    // is the poll having seen 'done'. A failed job would show its error
+    // instead of reloading, and fail here saying so.
     await expect(
-        backupsList.getByText('Configuration seule', { exact: true }).first(),
-        'the background backup must complete and its row appear',
-    ).toBeAttached({ timeout: scaled(120_000) });
+        page.locator('#full-backup-progress'),
+        'the background backup must complete and the page reload itself',
+    ).toBeHidden({ timeout: scaled(120_000) });
     await page.waitForLoadState('load');
-    await openCard(page, 'maintenance-backups-list');
-    await expect(backupsList.getByText('Configuration seule', { exact: true }).first()).toBeVisible();
-
-    // `#full-backup-error` lives in « Sauvegarde manuelle », which the
-    // reload folded back — and `toBeHidden()` is satisfied by ANY hidden
-    // ancestor, so asserting it against a folded card passes whatever the
-    // element says. The card is reopened first so the assertion is about
-    // the error's own `d-none` again, which is what it was written to
-    // check.
-    await openCard(page, 'maintenance-backups');
     await expect(page.locator('#full-backup-error')).toBeHidden();
+
+    // And the finished row is on the list, downloadable — the download
+    // link is only drawn for a completed backup, so a row still pending
+    // would not satisfy this.
+    await page.goto('/config/maintenance/sauvegardes-recentes', { waitUntil: 'domcontentloaded' });
+    await expect(
+        backupsList.getByLabel(/^Télécharger la sauvegarde « Configuration seule »/).first(),
+    ).toBeVisible();
 
     // ---------------------------------------------------------------
     // The webhook secret (dev-level auto-updates): revealed only by the
     // superadmin POST, shown exactly once.
     // ---------------------------------------------------------------
-    // The backup poll ended in the page's own location.reload() — the
-    // load state was awaited above, or the toggles below would race
-    // maintenance.js re-attaching its listeners.
-    await openCard(page, 'maintenance-auto-update');
+    await page.goto('/config/maintenance/mise-a-jour', { waitUntil: 'load' });
+    await expect(page.locator('#maintenance-auto-update-body')).toBeVisible();
     await page.locator('#auto-update-enabled').check();
     await page.locator('#auto-update-level-dev').check();
     await expect(page.locator('#auto-update-webhook-section')).toBeVisible();
@@ -215,7 +215,8 @@ test('maintenance backups run to completion, the auto-save saves, and the danger
     // until its exact keyword is typed, and arms the moment it is.
     // Nothing is clicked while armed.
     // ---------------------------------------------------------------
-    await openCard(page, 'maintenance-reset');
+    await page.goto('/config/maintenance/reinitialisation', { waitUntil: 'load' });
+    await expect(page.locator('#maintenance-reset-body')).toBeVisible();
     for (const [keywordField, submit, keyword] of [
         ['#reset-settings-keyword', '#reset-settings-submit', 'REINITIALISER'],
         ['#restore-backup-keyword', '#restore-backup-submit', 'RESTAURER'],

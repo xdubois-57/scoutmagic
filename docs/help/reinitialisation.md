@@ -7,7 +7,7 @@ role_min: admin
 discovery: off
 question: Comment restaurer le site à partir d'une sauvegarde ?
 question: Comment remettre le site complètement à zéro ?
-paths: /config/maintenance
+paths: /config/maintenance/reinitialisation
 related: sauvegardes, mises-a-jour
 ---
 

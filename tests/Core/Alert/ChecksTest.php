@@ -160,6 +160,10 @@ class ChecksTest extends TestCase
 
         $this->assertTrue($reading->overTrigger);
         $this->assertSame('aucune', $reading->value);
+        // « Sauvegarder maintenant » leads where a backup is started — not to
+        // the frequency setting next door (issue #619's split).
+        $this->assertSame('/config/maintenance/sauvegarde-manuelle', $reading->actionUrl);
+        $this->assertSame('Sauvegarder maintenant', $reading->actionLabel);
     }
 
     // ————— Envoi d'e-mails —————

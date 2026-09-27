@@ -152,7 +152,7 @@ final class PortablePassphraseDisclosureTest extends TestCase
         $sentence = 'jamais enregistrée en clair';
 
         foreach ([
-            'core/View/templates/config/maintenance.html.twig',
+            'core/View/templates/config/maintenance/sauvegarde_manuelle.html.twig',
             'docs/help/sauvegarde-portable.md',
         ] as $path) {
             $contents = file_get_contents(self::root() . '/' . $path);

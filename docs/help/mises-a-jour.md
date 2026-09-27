@@ -7,7 +7,7 @@ role_min: admin
 discovery: off
 question: Comment installer la dernière version du site ?
 question: Comment faire installer les mises à jour toutes seules ?
-paths: /config/maintenance
+paths: /config/maintenance/mise-a-jour
 related: sauvegardes, reinitialisation
 ---
 

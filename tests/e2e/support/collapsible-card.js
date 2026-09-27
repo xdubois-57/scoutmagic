@@ -1,15 +1,15 @@
 // End-to-end support: unfolding a page whose boxes arrive collapsed.
 //
-// Configuration > Maintenance carries eight cards and only the first two
-// are open on arrival; the rest are real Bootstrap collapses, so their
-// controls are in the DOM and `display: none`. Playwright refuses to
+// A box that folds is a real Bootstrap collapse, so its controls are in
+// the DOM and `display: none` until it is opened. Playwright refuses to
 // fill, check or click a hidden control, and it blames the control —
-// « #full-backup-password is not visible » — rather than the box nobody
-// opened, which is exactly the wrong place to go looking.
+// « #field is not visible » — rather than the box nobody opened, which
+// is exactly the wrong place to go looking. The rental booking pages
+// fold theirs; Configuration > Maintenance used to carry eight folded
+// cards on one screen, and since issue #619 splits them over six
+// sub-pages where every box arrives open.
 //
-// A reload folds everything back, and this page reloads itself twice in
-// the backup scenario (its own `location.reload()` when a background job
-// reports done), so a spec calls this again after each.
+// A reload folds everything back, so a spec calls this again after each.
 import { expect } from '@playwright/test';
 
 /**
@@ -17,8 +17,8 @@ import { expect } from '@playwright/test';
  *
  * @param {import('@playwright/test').Page} page
  * @param {string} cardId the card's id, without its `#` — the panel is
- *        `<cardId>-body`, the convention `config/maintenance.html.twig`
- *        writes for every one of its boxes.
+ *        `<cardId>-body`, the convention the Maintenance sub-pages
+ *        (`config/maintenance/`) write for every one of their boxes.
  * @returns {Promise<import('@playwright/test').Locator>} the panel
  */
 export async function openCard(page, cardId) {
