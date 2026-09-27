@@ -524,6 +524,16 @@ traités** ; que l'archive de diagnostic n'en emporte que des totaux, **jamais u
 sont supprimés automatiquement après **90 jours**, comptés depuis la **fin de la période décrite** et non depuis leur
 arrivée. Ne présente jamais cette section comme un traitement de données personnelles supplémentaires : sa raison
 d'être est au contraire de dire ce qu'elle ne contient pas.
+4duodecies. **Documents ouverts depuis l'application installée (fonctionnalité core, PAS un module)** : Section 3.1
+doit conserver que, dans l'application installée sur un téléphone, un fichier que la personne ouvre elle-même — un
+PDF, un export, une autorisation parentale — n'est pas affiché directement dans l'application mais **mis de côté
+quelques minutes** pour lui proposer de l'ouvrir dans son navigateur ou de l'enregistrer ; que ce fichier est
+exactement celui que la personne venait de demander, et rien d'autre ; qu'il est **chiffré au repos** et ne peut être
+ouvert que par deux adresses aléatoires remises à cette seule personne — l'une utilisable **une seule fois pendant
+cinq minutes** depuis son navigateur, l'autre réservée à sa propre session —, qu'aucun administrateur ne peut
+consulter ; que le journal technique n'en retient que le type et la taille, **jamais le nom ni le contenu** ; et qu'il
+est **supprimé automatiquement au plus tard une heure et demie après**, qu'il ait été ouvert ou non. Ne présente
+jamais cette copie comme un archivage : elle n'existe que le temps d'ouvrir le fichier.
 
 5. **Modules actifs uniquement** : Retirer les sections des modules INACTIFS (comparer avec liste modules actifs)
 6. **Personnalisation obligatoire** : Remplacer {$unitName} et {$contactEmail} partout. Ne JAMAIS laisser de
