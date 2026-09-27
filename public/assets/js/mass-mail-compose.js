@@ -412,14 +412,17 @@
      *
      * Asked fresh at the click, never read from what the page rendered:
      * the list behind the email is live. If the count cannot be had, the
-     * send still asks — without a number, rather than not at all.
+     * send still asks — a list that cannot be counted can still be sent —
+     * but says so, with the server's reason when it gave one (issue #579):
+     * a dialog with no number and no word about it reads as the ordinary
+     * question, and the manager confirms blind.
      *
      * @returns {Promise<string>}
      */
     async function recipientSentence() {
         const res = await api.getJson('/mass-mail/' + DATA.emailId + '/recipient-count');
         const data = res.data;
-        if (!data?.success) return '';
+        if (!data?.success) return uncountedSentence(data?.error);
         if (data.count === 0) return 'Cette liste ne désigne actuellement personne. ';
 
         const plural = data.count > 1;
@@ -431,6 +434,18 @@
         }
 
         return 'Cet email partira à ' + data.count + ' ' + noun + '. ';
+    }
+
+    /**
+     * @param {unknown} error the server's reason, when the answer carried one
+     * @returns {string}
+     */
+    function uncountedSentence(error) {
+        const reason = typeof error === 'string' ? error.trim() : '';
+        if (reason === '') return "Le nombre de destinataires n'a pas pu être calculé. ";
+
+        return "Le nombre de destinataires n'a pas pu être calculé : " + reason
+            + (/[.!?…]$/u.test(reason) ? ' ' : '. ');
     }
 
     const sendForm = /** @type {HTMLFormElement|null} */ (el('mm-start-sending-form'));
