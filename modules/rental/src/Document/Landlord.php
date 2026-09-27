@@ -10,6 +10,7 @@ namespace Modules\Rental\Document;
 
 use Core\Config\SettingService;
 use Core\Config\UnitAddresses;
+use Modules\Rental\Repository\RentalAsset;
 
 /**
  * Who lets the asset: the party printed as « le bailleur » at the head of a
@@ -28,8 +29,10 @@ use Core\Config\UnitAddresses;
  * replaces — an ASBL's name over the unit's address, or the other way
  * round. A level applies as soon as its name or its address is written:
  *
- * 1. the module's landlord (`landlord_*` in the rental settings);
- * 2. the unit itself: `site_name`, its legal postal address
+ * 1. the asset's own (`rental_assets.landlord_*`, on the asset's settings
+ *    page), for a unit whose hall and meadow have different owners;
+ * 2. the module's landlord (`landlord_*` in the rental settings);
+ * 3. the unit itself: `site_name`, its legal postal address
  *    (`UnitAddresses`), and no enterprise number — most units have none.
  *
  * A level written with an address but no name is the unit letting from
@@ -43,8 +46,16 @@ use Core\Config\UnitAddresses;
  */
 final class Landlord
 {
+    public const SOURCE_ASSET = 'asset';
     public const SOURCE_MODULE = 'module';
     public const SOURCE_UNIT = 'unit';
+
+    /**
+     * A Belgian enterprise number: ten digits starting with 0 or 1, with or
+     * without « BE », dots or spaces. The same pattern as the module
+     * setting's `validation_regex` in module.json.
+     */
+    public const ENTERPRISE_NUMBER_PATTERN = '/^(BE)?\s?[01][0-9]{3}[.\s]?[0-9]{3}[.\s]?[0-9]{3}$/';
 
     private function __construct(
         public readonly string $name,
@@ -54,6 +65,30 @@ final class Landlord
     ) {
     }
 
+    /**
+     * The landlord of $asset: its own when it has one, else the module's,
+     * else the unit.
+     */
+    public static function forAsset(SettingService $settingService, RentalAsset $asset): self
+    {
+        $name = self::text($asset->landlordName);
+        $address = self::text($asset->landlordAddress);
+        if ($name !== null || $address !== null) {
+            return new self(
+                $name ?? self::unitName($settingService),
+                $address,
+                self::text($asset->landlordEnterpriseNumber),
+                self::SOURCE_ASSET
+            );
+        }
+
+        return self::resolve($settingService);
+    }
+
+    /**
+     * The landlord of an asset with none of its own: the module's, else
+     * the unit.
+     */
     public static function resolve(SettingService $settingService): self
     {
         $name = self::text($settingService->get('landlord_name', 'rental'));
@@ -73,6 +108,11 @@ final class Landlord
             null,
             self::SOURCE_UNIT
         );
+    }
+
+    public static function isValidEnterpriseNumber(string $value): bool
+    {
+        return preg_match(self::ENTERPRISE_NUMBER_PATTERN, trim($value)) === 1;
     }
 
     private static function unitName(SettingService $settingService): string

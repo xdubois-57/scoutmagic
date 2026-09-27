@@ -65,7 +65,7 @@
 
             wrapper.hidden = false;
             group.disabled = false;
-            group.value = ids.indexOf(keep) === -1 ? ids[0] : keep;
+            group.value = ids.includes(keep) ? keep : ids[0];
         }
 
         section.addEventListener('change', function () {

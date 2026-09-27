@@ -47,6 +47,7 @@
                 <a class="btn btn-sm btn-outline-secondary" href="#tarification">Tarification</a>
                 <a class="btn btn-sm btn-outline-secondary" href="#paiements">Acompte, solde et caution</a>
                 <a class="btn btn-sm btn-outline-secondary" href="#conditions">Conditions de location</a>
+                <a class="btn btn-sm btn-outline-secondary" href="#bailleur">Bailleur</a>
                 <a class="btn btn-sm btn-outline-secondary" href="#rappels">Rappels</a>
             </div>
         </nav>
@@ -58,6 +59,8 @@
         {% include '@rental/management/_payments.html.twig' %}
 
         {% include '@rental/management/_conditions.html.twig' %}
+
+        {% include '@rental/management/_landlord.html.twig' %}
 
         {% include '@rental/management/_reminders.html.twig' %}
     </div>

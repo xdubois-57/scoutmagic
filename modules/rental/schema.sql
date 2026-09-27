@@ -154,6 +154,14 @@ CREATE TABLE IF NOT EXISTS rental_assets (
     -- VAT on it needs to say why.
     vat_exemption_note VARCHAR(255) NULL,
 
+    -- ── Landlord (issue #497) ────────────────────────────────────────
+    -- Who lets THIS asset, when it is not the module's landlord: a hall
+    -- owned by one ASBL and a meadow by another. All NULL = the module's
+    -- landlord, and failing that the unit (Document\Landlord).
+    landlord_name VARCHAR(255) NULL,
+    landlord_address VARCHAR(500) NULL,
+    landlord_enterprise_number VARCHAR(20) NULL,
+
     billing_unit VARCHAR(30) NOT NULL DEFAULT 'flat_stay',
     -- Rate used when the period × category grid has no cell for the resolved
     -- pair. NULL means "not priced yet", which produces a visible warning

@@ -54,7 +54,15 @@ final class RentalAsset
          */
         public readonly array $calendarIds = [],
         public readonly \Modules\Rental\Calendar\PublishFrom $calendarPublishFrom
-            = \Modules\Rental\Calendar\PublishFrom::CONFIRMATION
+            = \Modules\Rental\Calendar\PublishFrom::CONFIRMATION,
+        /**
+         * This asset's own landlord (issue #497), all three null while it
+         * has none — then `Document\Landlord` falls back to the module's,
+         * and to the unit's.
+         */
+        public readonly ?string $landlordName = null,
+        public readonly ?string $landlordAddress = null,
+        public readonly ?string $landlordEnterpriseNumber = null
     ) {
     }
 

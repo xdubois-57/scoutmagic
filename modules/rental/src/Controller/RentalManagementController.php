@@ -307,6 +307,10 @@ class RentalManagementController extends AbstractController
             // empty field so the number a manager reads is the number that
             // would actually apply.
             'reminders' => $this->reminderRows($asset->id),
+            // Who the contract names as landlord (issue #497), resolved —
+            // so the card says who it is today and where that comes from,
+            // not only what this asset overrides.
+            'landlord' => $this->documentService?->landlordFor($asset),
             'csrf_token' => CsrfGuard::generateToken(),
             'current_path' => '/mes-locations/' . $asset->slug . '/reglages',
         ]);
@@ -1012,6 +1016,10 @@ class RentalManagementController extends AbstractController
                     'documents' => $this->documentService?->forBooking($booking->id) ?? [],
                     'uploadable_types' => DocumentType::uploadable(),
                     'billing' => $this->operationsService->billingIdentity($booking->id),
+                    // So the page can say, BEFORE a contract goes out, that
+                    // it would print « — » where the landlord's address
+                    // belongs (issue #497).
+                    'landlord' => $this->documentService?->landlordFor($asset),
                 ],
                 // Only offered at all when a mailbox collects, which
                 // `bookingPagesOffered()` settled above.
@@ -1488,10 +1496,17 @@ class RentalManagementController extends AbstractController
                 $this->actorMemberId()
             );
 
+            // A missing landlord address is printed as « — » on the page a
+            // renter signs; say so now rather than let it be found by them
+            // (issue #497). The page above the list names the setting.
+            $landlord = $this->documentService->landlordFor($asset);
             FlashMessage::set(
-                'success',
+                $landlord->address === null ? 'warning' : 'success',
                 $type->label() . ' v' . $document->version . ' généré. '
                 . 'Les versions précédentes sont conservées.'
+                . ($landlord->address === null
+                    ? " Attention : l'adresse du bailleur est vide, le document imprime « — » à sa place."
+                    : '')
             );
         });
     }
