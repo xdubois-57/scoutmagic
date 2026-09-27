@@ -288,6 +288,36 @@ class ChecksTest extends TestCase
     }
 
     /**
+     * The disk alert's button leads to the page that shows the disk (issue
+     * #649). It pointed at /config/maintenance, which lost its disk-space
+     * panel to Configuration › Stockage: a button promising « l'espace
+     * disque » on a page that no longer had it. The storage dashboard is
+     * where each volume's use is shown now, so both the route and the page's
+     * own usage bar are pinned, not just the string.
+     */
+    public function testTheDiskAlertPointsAtTheStorageDashboardThatShowsTheDisk(): void
+    {
+        $settings = $this->settings([DiskBudget::QUOTA_SETTING => '1000']);
+        $this->writeBytes('gallery/photo.jpg', 900);
+
+        $reading = (new DiskUsageCheck(new DiskBudget($this->storagePath, $settings)))->read();
+
+        $this->assertSame('/config/stockage', $reading->actionUrl);
+        $this->assertSame('Voir l\'espace disque', $reading->actionLabel);
+        $this->assertStringNotContainsString('maintenance', strtolower($reading->why));
+
+        $root = dirname(__DIR__, 3);
+        // The whole declaration, handler included: the URL alone could
+        // survive a route that no longer leads to the dashboard.
+        $this->assertMatchesRegularExpression(
+            "~addRoute\(\s*'GET',\s*'/config/stockage',\s*\\\\Core\\\\Http\\\\Controller\\\\StorageConfigController::class,\s*'dashboard'~",
+            (string) file_get_contents($root . '/public/index.php'),
+            'the disk alert links to /config/stockage, and no GET route leads it to the storage dashboard any more'
+        );
+        $this->assertFileExists($root . '/core/View/templates/config/storage/dashboard.html.twig');
+    }
+
+    /**
      * Issue #352 — the alert now leads somewhere that can explain it.
      *
      * The reading was never wrong: a request really did arrive in clear.
