@@ -1845,3 +1845,88 @@ le message du service en contient deux.
   message — rien n'écrit, le statut inchangé, la pièce jointe encore là —
   mais ce renforcement n'est pas ce que le chiffre de 42,3 % mesure, et le
   reste du dépôt n'en bénéficie pas.
+
+### Itération 10 — Les chemins d'échec, lot 2 : `CampaignController` — 2026-09-27
+
+**Mesuré d'abord.** Le script du scratchpad, relu sur une exécution neuve de
+la suite complète (21 586 tests, 0 échec) : **845 blocs `catch` balayés, 349
+corps jamais exécutés (41,3 %)**. `MassMailController` avait disparu du
+tableau — le lot 1 tient —, et `CampaignController` y était passé premier
+avec **8** branches, sur ses 12.
+
+Deux pièges de lecture du rapport `--coverage-php`, qui coûtent une mesure
+chacun et que la suite doit éviter de payer une troisième fois :
+`$payload['codeCoverage']` **est** le `ProcessedCodeCoverageData` (il n'a pas
+de `getData()`), et le rapport indexe les fichiers par chemin **relatif** —
+d'où sa clé `basePath`. Une recherche par chemin absolu ne trouve rien et
+rend un taux flatteur et faux.
+
+**Ce lot ne porte que sur un fichier**, alors que le plan en annonçait
+quatre. Le lot 1, sur un seul fichier déjà, a produit cinq rondes de revue ;
+une PR de quatre contrôleurs ne serait pas relisable. Les trois autres
+suivront séparément.
+
+| Branche | Ce qu'un trésorier y lit | Atteinte par |
+|---|---|---|
+| `create()` `FinanceException` | « Donnez un nom à la campagne. » | un envoi sans nom |
+| `export()` → `notFound()` | un 404, comme une page inconnue | un id de campagne inconnu |
+| `updateStatus()` | « Cette campagne n'existe pas. » | idem |
+| `saveNote()` | « Cette créance n'existe pas. » | un `rowId` inconnu |
+| `waive()` | « Cette campagne n'existe pas. » | idem, sur une créance qui existe |
+| `reminder()` `FinanceException` | « Le module de publipostage n'est pas activé. » | **aucune doublure** — voir plus bas |
+| `reminder()` `\Throwable` | la phrase de repli, et rien du module | une doublure qui lève un `\RuntimeException` |
+| `notify()` | « Cette campagne n'existe pas. » | un id de campagne inconnu |
+
+**La trouvaille du lot** : la branche `reminder()`/`FinanceException` ne
+demande pas de doublure. Le contrôleur par défaut du test porte déjà le
+**vrai** `CampaignReminderService`, construit avec `null` pour le module de
+publipostage — la configuration d'un site qui ne le fait pas tourner, et le
+commentaire du fixture le disait depuis toujours (« mass_mail disabled: the
+button is simply not offered »). Le bouton n'est pas proposé sur un tel site,
+mais la route répond quand même, et c'est ce qu'elle répond qui est
+maintenant affirmé. Une seule branche sur huit justifie une doublure, celle
+dont l'exception d'un autre module **est** le sujet ; le fichier en portait
+déjà le précédent et sa justification (`controllerWithReminderUrl()`), dont
+l'assemblage est désormais partagé au lieu d'être recopié.
+
+**Preuve par mutation ciblée** (§0.3), une mutation à la fois, restaurée
+après chacune :
+
+| Mutation | Verdict |
+|---|---|
+| `create()` : le refus perd sa raison | **rouge** |
+| `export()` : le 404 devient une redirection | **rouge** |
+| `updateStatus()` : le refus est avalé | **rouge** |
+| `saveNote()` : le refus est avalé | **rouge** |
+| `waive()` : la campagne n'est plus résolue en premier | **rouge** |
+| `reminder()` : le refus `FinanceException` est avalé | **rouge** |
+| `reminder()` : le message du module est affiché tel quel | **rouge** |
+| `notify()` : le refus est avalé | **rouge** |
+| `requireCampaign()` : le contrôle par compte est retiré | **rouge** |
+
+**Une assertion d'état sur trois ne pouvait pas échouer, et a été
+remplacée.** Les premières versions de trois tests affirmaient, après un
+refus sur un id inconnu, que la vraie campagne restait ouverte, non notifiée
+et sans note. Aucune mutation plausible de ce contrôleur ne fait échouer ces
+assertions : l'écriture refusée porterait de toute façon sur l'id 999, qui
+n'existe pas, donc elle ne toucherait rien même si la garde sautait. C'était
+donc du §1 — un test qui ne peut pas échouer — écrit dans l'itération censée
+le corriger, comme le lot 1 avait écrit un état impossible dans la sienne.
+
+Le refus qui **peut** écrire est ailleurs : une campagne qui existe, sur un
+compte dont le plancher `role_min_view` a été relevé depuis. Les quatre
+gestes qui modifient quelque chose la résolvent par le même prédicat, et
+doivent tous la laisser intacte — c'est la décision par compte que le
+docblock du contrôleur énonce, pas le `role_min: intendant` de la route. Un
+test le vérifie, et retirer ce prédicat de `requireCampaign()` le fait
+rougir : la campagne est alors clôturée, notifiée, annotée et la créance
+abandonnée, depuis l'extérieur de son compte.
+
+**Résultat mesuré** : de **8** branches jamais exécutées dans ce fichier à
+**0** — `CampaignController` ne figure plus au tableau. Par soustraction sur
+la même exécution, 341 sur 845 (40,4 %) ; la mesure globale n'a pas été
+refaite.
+
+**Au passage** : les deux doublures du fichier passent de `createMock()` à
+`createStub()`. Aucune des deux ne configure d'attente, et PHPUnit 13 émet
+une notice pour le dire — l'une la déclenchait avant ce lot.

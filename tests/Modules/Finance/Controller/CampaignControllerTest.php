@@ -459,10 +459,34 @@ class CampaignControllerTest extends TestCase
      */
     private function controllerWithReminderUrl(string $composerUrl): CampaignController
     {
-        $reminders = $this->createMock(\Modules\Finance\Service\CampaignReminderService::class);
+        // A stub, not a mock: nothing here asserts how the service is
+        // called, only what the controller does with its answer.
+        $reminders = $this->createStub(\Modules\Finance\Service\CampaignReminderService::class);
         $reminders->method('isAvailable')->willReturn(true);
         $reminders->method('createDraft')->willReturn($composerUrl);
 
+        return $this->controllerWithReminders($reminders);
+    }
+
+    /**
+     * The same controller, with a reminder service that fails the way
+     * another module fails: with an exception of its own that is not a
+     * FinanceException.
+     */
+    private function controllerWithFailingReminder(\Throwable $failure): CampaignController
+    {
+        // A stub, not a mock: nothing here asserts how the service is
+        // called, only what the controller does with its answer.
+        $reminders = $this->createStub(\Modules\Finance\Service\CampaignReminderService::class);
+        $reminders->method('isAvailable')->willReturn(true);
+        $reminders->method('createDraft')->willThrowException($failure);
+
+        return $this->controllerWithReminders($reminders);
+    }
+
+    private function controllerWithReminders(
+        \Modules\Finance\Service\CampaignReminderService $reminders
+    ): CampaignController {
         return new CampaignController(
             $this->twig(),
             $this->campaignService,
@@ -640,6 +664,230 @@ class CampaignControllerTest extends TestCase
         );
 
         $this->assertSame(404, $response->getStatusCode());
+    }
+
+    // ── what a treasurer reads when the gesture is refused ──────────────
+    //
+    // Eight of this controller's catch bodies had never been executed by
+    // the suite (issue #449, second batch). Each of these tests reaches one
+    // of them through ordinary input — an unknown id, an empty name, a
+    // module that is not installed — rather than through a double told to
+    // throw, and asserts the STATE as well as the sentence: a refusal that
+    // reports an error and writes anyway is the failure worth catching.
+
+    /**
+     * A campaign with no name is refused before the file is even read, so
+     * nothing is created and nothing is stored — the form comes back with
+     * the reason on it rather than a redirect to a campaign that would be
+     * unreadable on the list.
+     */
+    public function testACampaignWithoutANameIsRefusedAndNothingIsCreated(): void
+    {
+        $response = $this->upload('', [[$this->memberIds['D-100'], '45,00']]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('Donnez un nom à la campagne.', $response->getBody());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM finance_campaigns')->fetchColumn());
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn(),
+            'the spreadsheet was stored for a campaign that was never created'
+        );
+    }
+
+    /**
+     * The same answer an unknown page gets, and for the same reason: a
+     * spreadsheet of nothing, or a 500, would both tell somebody probing
+     * campaign ids that the id exists.
+     */
+    public function testAnUnknownCampaignHasNoExport(): void
+    {
+        $response = $this->controller->export(
+            new Request('GET', '/finance/campaigns/999/export', [], [], [], []),
+            ['id' => '999']
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    /**
+     * A stale link, or a campaign somebody else deleted meanwhile: the
+     * treasurer gets the reason on the campaign page rather than a 500.
+     */
+    public function testClosingAnUnknownCampaignSaysSoInsteadOfFailing(): void
+    {
+        $campaignId = $this->createCampaign();
+        FlashMessage::get();
+
+        $response = $this->controller->updateStatus(
+            new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken(), 'status' => 'closed'], [], []),
+            ['id' => '999']
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            "Cette campagne n'existe pas.",
+            FlashMessage::get()['message'] ?? null
+        );
+    }
+
+    public function testANoteOnAnUnknownReceivableIsRefusedWithItsOwnReason(): void
+    {
+        $campaignId = $this->createCampaign();
+        FlashMessage::get();
+
+        $response = $this->controller->saveNote(
+            new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken(), 'note' => 'Payé en liquide'], [], []),
+            ['id' => (string) $campaignId, 'rowId' => '999']
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame("Cette créance n'existe pas.", FlashMessage::get()['message'] ?? null);
+    }
+
+    /**
+     * The campaign is resolved before the receivable, on purpose — it is
+     * what stops a receivable id from another campaign, or another
+     * section's account, being waived through this route. So an unknown
+     * campaign refuses a receivable that does exist.
+     */
+    public function testWaivingThroughAnUnknownCampaignLeavesTheReceivableStanding(): void
+    {
+        $campaignId = $this->createCampaign();
+        $rowId = $this->rows->findByCampaignId($campaignId)[0]->id;
+        $receivableId = $this->receivables->findBySource(CampaignService::SOURCE_MODULE, $rowId)[0]->id;
+        FlashMessage::get();
+
+        $response = $this->controller->waive(
+            new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken(), 'waived' => '1'], [], []),
+            ['id' => '999', 'receivableId' => (string) $receivableId]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame("Cette campagne n'existe pas.", FlashMessage::get()['message'] ?? null);
+        $this->assertFalse(
+            $this->receivables->findById($receivableId)?->isWaived(),
+            'the receivable was waived through a campaign that does not exist'
+        );
+    }
+
+    /**
+     * No double here, and that is the point: `$this->controller` carries
+     * the real CampaignReminderService, built with `null` for the
+     * mail-merge module — the configuration of a site that does not run
+     * it. The button is not offered on such a site (asserted above), but
+     * the route still answers, and this is what it says.
+     */
+    public function testWithoutTheMailMergeModuleTheReminderRouteSaysWhyItCannot(): void
+    {
+        $campaignId = $this->createCampaign();
+        FlashMessage::get();
+
+        $response = $this->controller->reminder(
+            new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken()], [], []),
+            ['id' => (string) $campaignId]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/finance/campaigns/' . $campaignId, $response->getHeaders()['Location'] ?? null);
+        $this->assertSame(
+            "Le module de publipostage n'est pas activé.",
+            FlashMessage::get()['message'] ?? null
+        );
+    }
+
+    /**
+     * The one branch of this controller whose subject IS another module's
+     * failure, so a double throwing one is the subject rather than a
+     * stand-in for it — the precedent, and the reasoning, are
+     * controllerWithReminderUrl() above.
+     *
+     * Half of what it pins is a message; the other half is a rule:
+     * AGENTS.md § Exception messages that reach a visitor. The mail-merge
+     * module's internals — the SQL state, the table name — must not reach
+     * the screen, and it is Core\Exception\UserFacingMessage that decides
+     * so, on the grounds that the exception is not a UserFacingException.
+     */
+    public function testAFailureInsideTheMailMergeModuleNeverReachesTheScreen(): void
+    {
+        $campaignId = $this->createCampaign();
+        FlashMessage::get();
+
+        $response = $this->controllerWithFailingReminder(
+            new \RuntimeException('SQLSTATE[42S02]: Base table or view not found: mass_mail_emails')
+        )->reminder(
+            new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken()], [], []),
+            ['id' => (string) $campaignId]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/finance/campaigns/' . $campaignId, $response->getHeaders()['Location'] ?? null);
+        $message = (string) (FlashMessage::get()['message'] ?? '');
+        $this->assertStringContainsString("Le brouillon de rappel n'a pas pu être créé", $message);
+        $this->assertStringNotContainsString('SQLSTATE', $message);
+        $this->assertStringNotContainsString('mass_mail_emails', $message);
+    }
+
+    public function testNotifyingAnUnknownCampaignSaysSoInsteadOfFailing(): void
+    {
+        $campaignId = $this->createCampaign();
+        FlashMessage::get();
+
+        $response = $this->controller->notify(
+            new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken()], [], []),
+            ['id' => '999']
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame("Cette campagne n'existe pas.", FlashMessage::get()['message'] ?? null);
+    }
+
+    /**
+     * The refusal that could actually write, and therefore the one whose
+     * state is worth asserting: the campaign exists, and the account it is
+     * booked against has since been restricted above this treasurer. Every
+     * write route resolves it through the same predicate first
+     * (Service\CampaignService::requireCampaign), and the three gestures
+     * that change something must all leave it exactly as it was — this is
+     * the per-account decision the controller's own docblock states, not
+     * `role_min: intendant` on the route.
+     */
+    public function testACampaignOnAnAccountOutOfReachCannotBeClosedNotedOrNotified(): void
+    {
+        $campaignId = $this->createCampaign();
+        $rowId = $this->rows->findByCampaignId($campaignId)[0]->id;
+        $receivableId = $this->receivables->findBySource(CampaignService::SOURCE_MODULE, $rowId)[0]->id;
+        // An admin raises the account's floor after the campaign exists.
+        $this->pdo->prepare("UPDATE finance_accounts SET role_min_view = 'admin' WHERE id = ?")
+            ->execute([$this->accountId]);
+
+        $params = ['id' => (string) $campaignId];
+        $this->controller->updateStatus(
+            new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken(), 'status' => 'closed'], [], []),
+            $params
+        );
+        $this->controller->saveNote(
+            new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken(), 'note' => 'Payé en liquide'], [], []),
+            $params + ['rowId' => (string) $rowId]
+        );
+        $this->controller->notify(
+            new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken()], [], []),
+            $params
+        );
+        $this->controller->waive(
+            new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken(), 'waived' => '1'], [], []),
+            $params + ['receivableId' => (string) $receivableId]
+        );
+
+        $campaign = $this->campaigns->findById($campaignId);
+        $this->assertTrue($campaign?->isOpen(), 'the campaign was closed from outside its account');
+        $this->assertFalse($campaign?->isNotified(), 'the families were marked notified from outside its account');
+        $this->assertNull($this->rows->findById($rowId)?->note, 'the note was written from outside its account');
+        $this->assertFalse(
+            $this->receivables->findById($receivableId)?->isWaived(),
+            'the receivable was waived from outside its account'
+        );
+        $this->assertSame("Cette campagne n'existe pas.", FlashMessage::get()['message'] ?? null);
     }
 
     private function createCampaign(): int
