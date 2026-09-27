@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques.",
-  "version": "1.31.0",
+  "version": "1.32.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -835,6 +835,15 @@
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalPricingController",
       "action": "saveReminders",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/{slug}/reglages/bailleur",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalPricingController",
+      "action": "saveLandlord",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""

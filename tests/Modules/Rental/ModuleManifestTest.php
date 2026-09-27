@@ -93,10 +93,14 @@ class ModuleManifestTest extends TestCase
      * 1.31.0 names the landlord of a contract and an invoice: three new
      * settings (`landlord_*`) and three keywords, and the unit's legal
      * address in place of a setting nothing declared (issue #497).
+     *
+     * 1.32.0 lets one asset name its own landlord (three `rental_assets`
+     * columns, a « Bailleur » section and its route), and warns on the
+     * Documents page when the landlord has no address (issue #497).
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.31.0', $this->manifest->version);
+        $this->assertSame('1.32.0', $this->manifest->version);
     }
 
     /**
