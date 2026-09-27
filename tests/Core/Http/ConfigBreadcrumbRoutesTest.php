@@ -49,12 +49,23 @@ class ConfigBreadcrumbRoutesTest extends TestCase
     }
 
     /** Moved out of Configuration to the Espace chefs d'U (issue #621). */
-    public function testBadgesConfigurationBreadcrumbParentsEspaceChefsDU(): void
+    public function testBadgesBreadcrumbParentsEspaceChefsDU(): void
     {
-        $breadcrumb = $this->breadcrumbForGetRoute('/admin/badges/configuration');
+        $breadcrumb = $this->breadcrumbForGetRoute('/admin/badges');
 
-        $this->assertSame('Configuration des badges', $breadcrumb['label']);
+        $this->assertSame('Badges', $breadcrumb['label']);
         $this->assertStringContainsString('MenuBuilder::MENU_ESPACE_ADMIN', $breadcrumb['parentsExpr']);
+    }
+
+    /** One of the Badges pages: Badges is its ancestor. */
+    public function testBadgesConfigurationBreadcrumbSitsUnderBadges(): void
+    {
+        $this->assertMatchesRegularExpression(
+            "~'/admin/badges/configuration',\s*BadgeConfigurationController::class,\s*'index',\s*'admin',\s*"
+                . "\['label' => 'Configuration des badges', 'parents' => \[MenuBuilder::labelFor\(MenuBuilder::MENU_ESPACE_ADMIN\)\],\s*"
+                . "'ancestors' => \[\['label' => 'Badges', 'path' => '/admin/badges'\]\]\]~",
+            $this->indexPhp
+        );
     }
 
     /**

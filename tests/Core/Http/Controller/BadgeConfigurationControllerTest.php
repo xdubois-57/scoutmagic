@@ -15,6 +15,8 @@ use Core\Journal\JournalService;
 use Core\Member\SectionService;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
+use Core\ScoutYear\EffectiveScoutYear;
+use Core\ScoutYear\ScoutYearResolver;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Core\Member\Repository\MemberProfileRepository;
@@ -58,7 +60,10 @@ class BadgeConfigurationControllerTest extends TestCase
 );
         $this->badgeService = new BadgeService($this->badgeRepository, $this->memberBadgeRepository, $sectionService);
 
-        $this->controller = new BadgeConfigurationController($twig, $this->badgeService, $journalService);
+        $resolver = $this->createStub(ScoutYearResolver::class);
+        $resolver->method('getEffectiveYear')->willReturn(new EffectiveScoutYear(1, '2026-2027', null));
+
+        $this->controller = new BadgeConfigurationController($twig, $this->badgeService, $journalService, $resolver);
     }
 
     protected function tearDown(): void
@@ -94,6 +99,8 @@ class BadgeConfigurationControllerTest extends TestCase
             $body
         );
         $this->assertStringContainsString('Configuration des badges', $body);
+        // The holders tab is named after its year, never « Année en cours ».
+        $this->assertMatchesRegularExpression('~<a href="/admin/badges"[^>]*>\s*(?:<[^>]+>\s*)*2026-2027~', $body);
     }
 
     /**

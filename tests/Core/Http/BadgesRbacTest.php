@@ -42,6 +42,8 @@ final class BadgesRbacTest extends TestCase
 {
     /** @var array<int, array{string, string}> */
     private const ROUTES = [
+        // The holders page: read only, but it names who carries which role.
+        ['GET', '/admin/badges'],
         ['GET', '/admin/badges/configuration'],
         ['POST', '/admin/badges/add'],
         ['POST', '/admin/badges/update'],
@@ -120,7 +122,7 @@ final class BadgesRbacTest extends TestCase
         $source = (string) file_get_contents(dirname(__DIR__, 3) . '/public/index.php');
 
         $this->assertMatchesRegularExpression(
-            "~addPage\(\s*MenuBuilder::MENU_ESPACE_ADMIN,\s*'Badges',\s*'/admin/badges/configuration',\s*'admin',~",
+            "~addPage\(\s*MenuBuilder::MENU_ESPACE_ADMIN,\s*'Badges',\s*'/admin/badges',\s*'admin',~",
             $source
         );
         $this->assertDoesNotMatchRegularExpression("~addPage\(\s*MenuBuilder::MENU_CONFIGURATION,\s*'Badges',~", $source);

@@ -127,9 +127,13 @@ diverger.
 Chaque nom mène à **`/admin/members/{id}`**, la fiche de l'Espace chefs d'U qu'on atteint par la
 recherche de membres. Même plancher de rôle que cette page, donc aucun lien ne mène à un refus.
 
-**Le lien porte `members.id`, l'identité persistante — jamais le `member_year_id`.** La liste
-travaille sur des années ; la fiche est celle de la personne. Il faut remonter, sinon le lien ouvre
-la mauvaise fiche ou aucune.
+**Le lien porte le `member_year_id` de l'année lue.** La liste travaille sur des années ; la fiche est
+celle de la personne — et c'est la route qui fait la remontée : `/admin/members/{id}` lit un
+`member_year_id` et se place d'elle-même sur l'année la plus récente de la personne
+(`MemberSearchController::show()`), comme le font la recherche de membres et la liste de section.
+Y mettre `members.id` ouvrirait le `member_year` qui porte le même numéro, c'est-à-dire quelqu'un
+d'autre. *(Corrigé pendant IT-02 : la première version de ce paragraphe prescrivait `members.id`,
+sur une hypothèse que le code contredit.)*
 
 Le fil d'Ariane de la fiche continue de désigner « Membres » comme ancêtre, et c'est voulu : la
 fiche appartient à Membres, et lui faire changer de parenté selon d'où l'on vient se paierait en
@@ -148,8 +152,9 @@ La même page, sur l'année scoute précédente, **sans aucune action**.
 
 - **Le nom affiché est celui de l'année lue**, pas de l'année en cours : une personne peut avoir
   changé de section, de fonction, voire de totem entre les deux.
-- **Quelqu'un qui a quitté l'unité depuis garde un lien cliquable** : son `members.id` existe
-  toujours, la fiche s'ouvre et montre qu'il n'est plus affilié. C'est le comportement correct.
+- **Quelqu'un qui a quitté l'unité depuis garde un lien cliquable** : sa ligne `member_years` de
+  l'année lue existe toujours, la fiche s'ouvre sur sa dernière année et montre qu'il n'est plus
+  affilié. C'est le comportement correct.
 - **L'onglet reste toujours présent**, même sur une unité à sa première année : la page affiche
   alors un message expliquant qu'il n'y a rien. Ça vaut aussi pour une unité plus ancienne qui
   n'avait attribué aucun badge — cas bien plus fréquent que la toute première année.
