@@ -42,8 +42,12 @@ use Core\Scheduler\TaskContext;
  */
 final class RequesterNotice
 {
-    /** Where every maintenance outcome is visible, whatever the operation. */
-    private const MAINTENANCE_URL = '/config/maintenance';
+    /**
+     * Where a restore's or a reset's outcome is visible: both are started
+     * from the Réinitialisation sub-page (issue #619), and their requester
+     * is sent back to it.
+     */
+    private const MAINTENANCE_URL = '/config/maintenance/reinitialisation';
 
     public static function send(
         TaskContext $context,

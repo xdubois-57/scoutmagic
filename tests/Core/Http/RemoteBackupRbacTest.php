@@ -59,11 +59,11 @@ final class RemoteBackupRbacTest extends TestCase
     /**
      * The connection, which moved to the location's own card in IT-05.
      *
-     * **A stricter floor, and listed separately because of it.** Every
-     * route on Configuration > Stockage is `superadmin` — declaring where
-     * a unit's files leave to is not an ordinary administrator's decision
-     * — so these cannot be folded into the list above, which asserts the
-     * administrator floor exactly.
+     * Listed separately because it lives on another page, Configuration >
+     * Stockage, where every route is `superadmin` — declaring where a
+     * unit's files leave to is not an ordinary administrator's decision.
+     * The list above reached the same floor with issue #619, when every
+     * maintenance route did.
      *
      * @var array<int, array{string, string}>
      */
@@ -113,7 +113,7 @@ final class RemoteBackupRbacTest extends TestCase
      * is the case that fails when the declaration in the application
      * changes.
      */
-    public function testEveryRouteIsDeclaredAtTheAdministratorFloorInTheApplicationItself(): void
+    public function testEveryRouteIsDeclaredAtTheSuperAdministratorFloorInTheApplicationItself(): void
     {
         $declared = [];
         foreach (\authzCoreRoutes() as $route) {
@@ -123,7 +123,7 @@ final class RemoteBackupRbacTest extends TestCase
         foreach (self::ROUTES as [$method, $path]) {
             $key = $method . ' ' . $path;
             $this->assertArrayHasKey($key, $declared, "{$key} is not registered in public/index.php at all");
-            $this->assertSame('admin', $declared[$key], "{$key} is not behind the administrator floor");
+            $this->assertSame('superadmin', $declared[$key], "{$key} is not behind the super-administrator floor");
         }
     }
 
@@ -153,7 +153,23 @@ final class RemoteBackupRbacTest extends TestCase
         }
     }
 
-    public function testAnAdministratorIsAllowed(): void
+    public function testASuperAdministratorIsAllowed(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(1, 'root@test.com', 'superadmin');
+        $frontController = $this->buildFrontController();
+
+        foreach (self::ROUTES as [$method, $path]) {
+            $response = $frontController->handle(new Request($method, $path, [], [], [], []));
+            $this->assertSame(200, $response->getStatusCode(), "{$method} {$path} should be allowed for superadmin");
+        }
+    }
+
+    /**
+     * One level below the floor: a chef d'unité, who used to reach the
+     * phrase that opens every off-site archive by typing its address.
+     */
+    public function testAnAdministratorIsDenied(): void
     {
         $this->startTestSession();
         AuthSession::login(1, 'unitchief@test.com', 'admin');
@@ -161,20 +177,7 @@ final class RemoteBackupRbacTest extends TestCase
 
         foreach (self::ROUTES as [$method, $path]) {
             $response = $frontController->handle(new Request($method, $path, [], [], [], []));
-            $this->assertSame(200, $response->getStatusCode(), "{$method} {$path} should be allowed for admin");
-        }
-    }
-
-    /** One level below the floor, including on the callback. */
-    public function testAChiefIsDenied(): void
-    {
-        $this->startTestSession();
-        AuthSession::login(1, 'chief@test.com', 'chief');
-        $frontController = $this->buildFrontController();
-
-        foreach (self::ROUTES as [$method, $path]) {
-            $response = $frontController->handle(new Request($method, $path, [], [], [], []));
-            $this->assertSame(403, $response->getStatusCode(), "{$method} {$path} should be denied for chief");
+            $this->assertSame(403, $response->getStatusCode(), "{$method} {$path} should be denied for admin");
         }
     }
 
@@ -194,7 +197,7 @@ final class RemoteBackupRbacTest extends TestCase
     {
         $router = new Router();
         foreach (self::ROUTES as [$method, $path]) {
-            $router->addRoute($method, $path, RemoteBackupStubController::class, 'index', 'admin');
+            $router->addRoute($method, $path, RemoteBackupStubController::class, 'index', 'superadmin');
         }
         $frontController = new FrontController($router, $this->twig, $this->config);
         $frontController->registerController(
