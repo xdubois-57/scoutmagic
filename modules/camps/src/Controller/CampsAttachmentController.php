@@ -397,7 +397,7 @@ class CampsAttachmentController extends AbstractController
         }
         $place = $this->places->findById($camp->placeId);
         $albumId = $this->albumId($camp, $place?->name);
-        $media = $this->albumService->listMedia($albumId);
+        $media = $this->albumService->listMedia($albumId, $camp->id);
 
         // Three states, kept apart (issue #637): the gallery module is off,
         // the gallery is on but refused this stay an album, or the album is

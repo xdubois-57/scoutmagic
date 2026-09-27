@@ -188,8 +188,11 @@ class CampAlbumServiceTest extends TestCase
 
         // Null, not []: « could not read » and « no photo » are two answers,
         // and the page says different things for them (issue #637).
-        $this->assertNull($this->serviceRefusing('Album introuvable.')->listMedia(42));
-        $this->assertSame('camp_album_unreadable', $this->lastJournalEntry()['event']);
+        $this->assertNull($this->serviceRefusing('Album introuvable.')->listMedia(42, 7));
+        $entry = $this->lastJournalEntry();
+        $this->assertSame('camp_album_unreadable', $entry['event']);
+        // Traceable to the stay, not only to a gallery-internal album id.
+        $this->assertSame(['camp_id' => 7, 'album_id' => 42], json_decode($entry['context'], true));
 
         // No album, or no gallery: nothing to read, which IS the empty list.
         $this->assertSame([], $this->serviceAnswering()->listMedia(null));

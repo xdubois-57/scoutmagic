@@ -109,9 +109,13 @@ class CampAlbumService
      * able to tell the two apart (issue #637). Without a gallery, or without
      * an album, there is nothing to read: that is an empty list.
      *
+     * $campId only names the stay in the journal entry a failed read
+     * leaves: an album id alone is gallery-internal, and appears nowhere a
+     * chief could look it up.
+     *
      * @return DelegatedMedia[]|null
      */
-    public function listMedia(?int $albumId): ?array
+    public function listMedia(?int $albumId, ?int $campId = null): ?array
     {
         if ($this->albums === null || $albumId === null) {
             return [];
@@ -120,7 +124,7 @@ class CampAlbumService
         try {
             return $this->albums->listMedia($albumId);
         } catch (GalleryException $e) {
-            $this->journalRefusal('camp_album_unreadable', "les photos de l'album n'ont pas pu être lues", null, $e, $albumId);
+            $this->journalRefusal('camp_album_unreadable', "les photos de l'album n'ont pas pu être lues", $campId, $e, $albumId);
 
             return null;
         }
