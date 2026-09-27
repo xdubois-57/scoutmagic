@@ -103,7 +103,7 @@ class ReenrollmentCampaignServiceTest extends TestCase
         $scoutYearService = new ScoutYearService($this->pdo);
         $requestRepository = new RegistrationRequestRepository($this->pdo, $this->encryption);
         $passageService = new PassageService(
-            $this->pdo,
+            new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $this->encryption),
             $this->encryption,
             $sectionService,
             new SectionTransferRepository($this->pdo),
@@ -120,8 +120,7 @@ class ReenrollmentCampaignServiceTest extends TestCase
             $passageService
         );
         $this->recipients = new ReenrollmentRecipientService(
-            $this->pdo,
-            $this->encryption,
+            new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $this->encryption),
             $this->repository,
             $passageService
         );

@@ -10910,7 +10910,7 @@ if ($isEnabled('registration')) {
 
     $registrationSectionTransferRepo = new \Modules\Registration\Repository\SectionTransferRepository($pdo);
     $registrationPassageService = new \Modules\Registration\Service\PassageService(
-        $pdo,
+        new \Modules\Registration\Repository\PassageRosterRepository($pdo, $encryptionService),
         $encryptionService,
         $sectionService,
         $registrationSectionTransferRepo,

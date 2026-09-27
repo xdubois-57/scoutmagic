@@ -95,7 +95,7 @@ class RegistrationChefsRbacTest extends TestCase
         $slotCapacityRepository = new SlotCapacityRepository($this->pdo);
         $slotService = new SlotService($this->pdo, $encryption, $settingService, $ageBracketRepository, $slotCapacityRepository, $requestRepository);
         $transferRepository = new SectionTransferRepository($this->pdo);
-        $passageService = new PassageService($this->pdo, $encryption, $sectionService, $transferRepository, $requestRepository, $ageBracketRepository);
+        $passageService = new PassageService(new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $encryption), $encryption, $sectionService, $transferRepository, $requestRepository, $ageBracketRepository);
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/registration/views';

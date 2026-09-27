@@ -108,7 +108,7 @@ class ReenrollmentConfigControllerTest extends TestCase
         $connection = Connection::withPdo($this->pdo);
         $scoutYearService = new ScoutYearService($this->pdo);
         $passageService = new PassageService(
-            $this->pdo,
+            new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $encryption),
             $encryption,
             new SectionService(
     new SectionRepository($connection),

@@ -136,7 +136,7 @@ class ReenrollmentControllerTest extends TestCase
         );
 
         $passageService = new PassageService(
-            $this->pdo,
+            new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $this->encryption),
             $this->encryption,
             $sectionService,
             new SectionTransferRepository($this->pdo),
