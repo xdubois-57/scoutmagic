@@ -855,15 +855,19 @@ class GalleryChiefControllerTest extends TestCase
         unset($_FILES['file']);
     }
 
-    // --- ce qu'un chef lit quand ça refuse (issue #449, lot 4) ---
+    // --- what a chief reads when it refuses (issue #449, batch 4) ---
     //
     // Seven of this controller's twelve catch bodies had never been executed.
-    // They differ in shape from the three batches before this one: all but one
-    // answer JSON — `{success: false, error: <the reason>}` with 422 — and
-    // `public/assets/js/gallery.js` shows that `error` in a toast at every one
-    // of its call sites, falling back to a generic sentence when it is absent.
-    // So the reason travelling in that field IS what a chief reads, and each
-    // test below asserts it, never just the status.
+    // They differ in shape from the three batches before this one: most answer
+    // JSON — `{success: false, error: <the reason>}` with 422 — with two
+    // exceptions. `update()` re-renders the form with the reason, and the
+    // chunk-resume branch answers 409 with a `received` byte count, because a
+    // browser mid-upload needs to know where to carry on from.
+    //
+    // `public/assets/js/gallery.js` reads that `error` field at every display
+    // site, falling back to a generic sentence when it is absent. So the reason
+    // travelling in that field IS what a chief reads, and each test below
+    // asserts it, never just the status.
     //
     // No double throws anything here. `controllerDenyingEveryAlbum()` above
     // wires a REAL AlbumService and MediaService to an access service that

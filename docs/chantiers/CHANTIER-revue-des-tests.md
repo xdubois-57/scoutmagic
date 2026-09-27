@@ -2145,9 +2145,17 @@ base — et capturer la sortie entière, pas sa fin.
 384, 447 et 470.
 
 **Une forme nouvelle, et une conséquence.** Les trois lots précédents rendaient
-un message flash ; ce contrôleur répond en **JSON 422** portant la raison —
-sauf `update()`, qui rerend le formulaire avec `submit_error` parce que cette
-route est un vrai POST de formulaire et que le chef doit retrouver ses champs.
+un message flash ; ce contrôleur répond en **JSON** portant la raison, avec
+**deux** exceptions plutôt qu'une : `update()` rerend le formulaire avec
+`submit_error`, cette route étant un vrai POST de formulaire où le chef doit
+retrouver ses champs ; et la branche de reprise de fragment répond **409** avec
+un champ `received`, parce qu'un navigateur en cours d'envoi a besoin de savoir
+d'où repartir.
+
+(J'avais d'abord écrit « JSON 422 sauf `update()` » ici et dans l'en-tête du
+fichier de test — une affirmation que mon propre test
+`testAMalformedUploadIdStillReportsWhereToResumeFrom` contredisait trois lignes
+plus bas, en assertant 409. Relevé par `Claude review`.)
 
 Or une raison qui voyage dans un champ JSON n'atteint personne si le
 JavaScript ne la lit pas. Vérifié avant d'écrire quoi que ce soit :
