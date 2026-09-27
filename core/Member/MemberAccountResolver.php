@@ -9,7 +9,6 @@ declare(strict_types=1);
 namespace Core\Member;
 
 use Core\Import\MemberYearRepository;
-use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
 
 /**
@@ -36,8 +35,7 @@ class MemberAccountResolver
     public function __construct(
         private MemberYearRepository $memberYearRepository,
         private MemberEmailRepository $memberEmailRepository,
-        private UserAccountRepository $userAccountRepository,
-        private EncryptionService $encryption
+        private UserAccountRepository $userAccountRepository
     ) {
     }
 
@@ -81,8 +79,8 @@ class MemberAccountResolver
             $indexes[] = $deskIndex;
         }
 
-        foreach ($this->memberEmailRepository->findValidByMember($memberId) as $secondary) {
-            $indexes[] = $this->encryption->blindIndex(strtolower(trim($secondary->email)), 'email');
+        foreach ($this->memberEmailRepository->findValidBlindIndexesByMember($memberId) as $secondaryIndex) {
+            $indexes[] = $secondaryIndex;
         }
 
         return array_values(array_unique($indexes));

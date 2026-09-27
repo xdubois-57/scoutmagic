@@ -9,7 +9,6 @@ declare(strict_types=1);
 namespace Core\Member\Duplicate;
 
 use Core\Member\NameDobKey;
-use Core\Security\EncryptionService;
 
 /**
  * Finds members an import has just created who already existed under
@@ -39,8 +38,7 @@ use Core\Security\EncryptionService;
 class DuplicateMemberDetector
 {
     public function __construct(
-        private DuplicateMemberRepository $repository,
-        private EncryptionService $encryption
+        private DuplicateMemberRepository $repository
     ) {
     }
 
@@ -121,7 +119,7 @@ class DuplicateMemberDetector
                 $identity['first_name'],
                 $identity['birth_date']
             );
-            $blindIndex = $this->encryption->blindIndex($normalized, NameDobKey::BLIND_INDEX_CONTEXT);
+            $blindIndex = $this->repository->nameDobKeyFor($normalized);
 
             $byKey[$blindIndex][$identity['member_id']] = $identity['member_id'];
         }

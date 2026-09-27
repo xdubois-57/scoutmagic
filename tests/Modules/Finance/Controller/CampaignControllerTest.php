@@ -190,8 +190,7 @@ class CampaignControllerTest extends TestCase
                 new \Core\Member\MemberAccountResolver(
                     new MemberYearRepository($this->pdo),
                     new \Core\Member\MemberEmailRepository($this->pdo, $this->encryption),
-                    new UserAccountRepository($this->pdo, $this->encryption),
-                    $this->encryption
+                    new UserAccountRepository($this->pdo, $this->encryption)
                 ),
                 new MemberService(
     new MemberYearRepository($this->pdo),
@@ -499,8 +498,7 @@ class CampaignControllerTest extends TestCase
                 new \Core\Member\MemberAccountResolver(
                     new MemberYearRepository($this->pdo),
                     new \Core\Member\MemberEmailRepository($this->pdo, $this->encryption),
-                    new UserAccountRepository($this->pdo, $this->encryption),
-                    $this->encryption
+                    new UserAccountRepository($this->pdo, $this->encryption)
                 ),
                 $this->controllerParts['members'],
                 new MemberYearRepository($this->pdo),

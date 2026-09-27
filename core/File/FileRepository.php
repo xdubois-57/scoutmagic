@@ -8,10 +8,21 @@ declare(strict_types=1);
 
 namespace Core\File;
 
+use Core\Database\Connection;
+
 class FileRepository
 {
     public function __construct(private \PDO $pdo)
     {
+    }
+
+    /**
+     * Built from a task's connection, so a handler composing its
+     * collaborators never has to reach for the PDO itself (issue #629).
+     */
+    public static function fromConnection(Connection $connection): self
+    {
+        return new self($connection->getPdo());
     }
 
     public function findById(int $id): ?FileRecord

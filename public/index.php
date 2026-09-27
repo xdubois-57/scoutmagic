@@ -2568,8 +2568,7 @@ $memberEmailRepository = new \Core\Member\MemberEmailRepository($pdo, $encryptio
 $memberAccountResolver = new \Core\Member\MemberAccountResolver(
     $memberYearRepo,
     $memberEmailRepository,
-    $userAccountRepo,
-    $encryptionService
+    $userAccountRepo
 );
 $roleResolver = new RoleResolver($memberYearRepo, $encryptionService, $pdo, $memberEmailRepository);
 
@@ -2824,8 +2823,7 @@ $rosterSnapshotRepository = new \Core\Import\RosterSnapshotRepository($pdo);
 $importDiffCalculator = new \Core\Import\ImportDiffCalculator($rosterSnapshotRepository);
 $duplicateMemberRepository = new \Core\Member\Duplicate\DuplicateMemberRepository($pdo, $encryptionService);
 $duplicateMemberDetector = new \Core\Member\Duplicate\DuplicateMemberDetector(
-    $duplicateMemberRepository,
-    $encryptionService
+    $duplicateMemberRepository
 );
 $memberMergeService = new \Core\Member\Duplicate\MemberMergeService($pdo, $duplicateMemberRepository, $journalService);
 $rosterReplacementGuard = new \Core\Import\RosterReplacementGuard(
@@ -5984,8 +5982,7 @@ $feeEstimationService = new \Core\Member\FeeEstimationService(
 // they are the roster's. Built here so a module can consume it without
 // owning it.
 $householdService = new \Core\Member\Household\HouseholdService(
-    new \Core\Member\Household\HouseholdRepository($pdo),
-    $encryptionService,
+    new \Core\Member\Household\HouseholdRepository($pdo, $encryptionService),
     $householdRegistrationCountForOthers
 );
 
@@ -9445,7 +9442,6 @@ if ($isEnabled('groups')) {
         $memberYearRepo,
         $memberEmailRepository,
         $userAccountRepo,
-        $encryptionService,
         $roleResolver,
         $scoutYearService
     );
