@@ -17,11 +17,15 @@ use Twig\Environment;
 
 /**
  * RBAC boundaries introduced by the "Édition du site" split: the
- * Modules/Badges pages stay superadmin-only (unchanged), while the
+ * Modules page stays superadmin-only (unchanged), while the
  * remaining configuration-mode toggle page (still /config/general, moved
  * to "Espace chefs d'U" in the menu) and the /config-mode/* routes it
  * drives are deliberately widened from superadmin to admin (Chef d'Unité)
  * — the one real access-scope change in this lot.
+ *
+ * The Badges page, split out at the same time and superadmin-only then,
+ * moved to the Espace chefs d'U at admin since (issue #621): its floor is
+ * Tests\Core\Http\BadgesRbacTest's now.
  */
 class ConfigMenuSplitRbacTest extends TestCase
 {
@@ -33,11 +37,6 @@ class ConfigMenuSplitRbacTest extends TestCase
         ['GET', '/config/modules'],
         ['POST', '/config/modules/toggle'],
         ['POST', '/config/modules/reorder'],
-        ['GET', '/config/badges'],
-        ['POST', '/config/badges/add'],
-        ['POST', '/config/badges/update'],
-        ['POST', '/config/badges/toggle-active'],
-        ['POST', '/config/badges/delete'],
     ];
 
     /** @return array<int, array{string, string}> method + path */

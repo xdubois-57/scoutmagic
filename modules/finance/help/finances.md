@@ -38,7 +38,7 @@ arrive.
 Cette règle ne s'applique **que si votre unité a attribué le badge
 « Trésorier » à quelqu'un cette année**. Tant que personne ne le porte,
 rien ne change et tout intendant voit tous les comptes comme avant.
-Désactiver le badge dans Configuration > Badges suffit à revenir à ce
+Désactiver le badge dans Espace chefs d'U > Badges suffit à revenir à ce
 fonctionnement.
 
 Si la page annonce « Aucun compte visible pour votre rôle », c'est l'un

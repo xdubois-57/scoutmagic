@@ -30,7 +30,7 @@
 /config/functions
 /config/scheduled
 /config/maintenance
-/config/badges
+/admin/badges/configuration
 /config/superadmins
 /config/rgpd
 /config/emails

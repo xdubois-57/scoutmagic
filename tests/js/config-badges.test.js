@@ -8,7 +8,7 @@
 // test builds its fixture first and then imports the module via
 // vi.resetModules() + await import().
 //
-// The fixture mirrors what core/View/templates/config/badges.html.twig
+// The fixture mirrors what core/View/templates/admin/badges/configuration.html.twig
 // renders: one custom badge (renameable, deletable) and one default badge
 // (readonly name, no delete button), plus the add form.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -51,7 +51,7 @@ describe('config-badges.js', () => {
         window.ScoutMagicNav = { syncSwitchAriaChecked: vi.fn() };
         Object.defineProperty(window, 'location', {
             configurable: true,
-            value: { href: '/config/badges', reload: vi.fn() },
+            value: { href: '/admin/badges/configuration', reload: vi.fn() },
         });
     });
 
@@ -82,7 +82,7 @@ describe('config-badges.js', () => {
             await boot();
             document.querySelector('.badge-active-input').dispatchEvent(new Event('change'));
             await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
-            expect(lastRequest().url).toBe('/config/badges/toggle-active');
+            expect(lastRequest().url).toBe('/admin/badges/toggle-active');
         });
     });
 
@@ -114,7 +114,7 @@ describe('config-badges.js', () => {
 
             await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
             const { url, opts, body } = lastRequest();
-            expect(url).toBe('/config/badges/delete');
+            expect(url).toBe('/admin/badges/delete');
             expect(opts.method).toBe('POST');
             expect(body).toEqual({ badge_id: 4, _csrf_token: 'tok-123' });
             expect(opts.headers['X-CSRF-Token']).toBe('tok-123');
@@ -158,7 +158,7 @@ describe('config-badges.js', () => {
 
             await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
             const { url, body } = lastRequest();
-            expect(url).toBe('/config/badges/toggle-active');
+            expect(url).toBe('/admin/badges/toggle-active');
             expect(body).toEqual({ badge_id: 4, active: false, _csrf_token: 'tok-123' });
         });
 
@@ -207,7 +207,7 @@ describe('config-badges.js', () => {
 
             await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
             const { url, body } = lastRequest();
-            expect(url).toBe('/config/badges/update');
+            expect(url).toBe('/admin/badges/update');
             expect(body).toEqual({ badge_id: 4, name: 'Infirmière', _csrf_token: 'tok-123' });
             await vi.waitFor(() => expect(window.location.reload).toHaveBeenCalled());
         });
@@ -237,7 +237,7 @@ describe('config-badges.js', () => {
 
             await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
             const { url, body } = lastRequest();
-            expect(url).toBe('/config/badges/add');
+            expect(url).toBe('/admin/badges/add');
             expect(body).toEqual({ name: 'Communication', _csrf_token: 'tok-123' });
             await vi.waitFor(() => expect(window.location.reload).toHaveBeenCalled());
         });

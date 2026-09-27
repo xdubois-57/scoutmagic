@@ -115,7 +115,9 @@ class MenuRegistrationOrderTest extends TestCase
         $labels = $this->addPageLabelsForMenu('MENU_ESPACE_ADMIN');
 
         $this->assertSame(
-            ['Édition du site', 'Import Desk', "Points d'attention", 'Membres', 'Année scoute', 'Journal'],
+            // Badges arrived from the Configuration menu (issue #621), next
+            // to Membres and Année scoute in « Membres & année ».
+            ['Édition du site', 'Import Desk', "Points d'attention", 'Membres', 'Badges', 'Année scoute', 'Journal'],
             $labels
         );
     }
@@ -127,7 +129,7 @@ class MenuRegistrationOrderTest extends TestCase
         $this->assertSame('Installation & serveur', $labels[0]);
         $this->assertSame(
             [
-                'Modules', 'Pages de texte', 'Badges', 'Correspondances Desk', 'Paramètres', 'RGPD',
+                'Modules', 'Pages de texte', 'Correspondances Desk', 'Paramètres', 'RGPD',
                 'Actions planifiées', 'Comptes superadmin', 'Maintenance', 'Notifications',
                 "Modèles d'e-mails", 'Courrier sortant', 'Stockage', 'Diagnostic',
                 'Synchronisation des contacts',

@@ -18,13 +18,18 @@ use Core\Security\CsrfGuard;
 use Twig\Environment;
 
 /**
- * Configuration > Badges — transversal role badges (Infirmier, Trésorier,
- * "Référent {section}"...), see ARCHITECTURE.md §8.11. Split out of the
- * former ConfigGeneralController (which also carried the module registry
- * and the configuration-mode toggle) so each page has its own
- * single-concern controller (AGENTS.md).
+ * Espace chefs d'U > Badges > Configuration — transversal role badges
+ * (Infirmier, Trésorier, "Référent {section}"...), see ARCHITECTURE.md
+ * §8.11. Split out of the former ConfigGeneralController (which also
+ * carried the module registry and the configuration-mode toggle) so each
+ * page has its own single-concern controller (AGENTS.md).
+ *
+ * It lived in the Configuration menu at `superadmin`, under /config/badges.
+ * It moved, unchanged, to the Espace chefs d'U at `admin` (issue #621): a
+ * chief d'unité manages the unit's badges. The old address still answers,
+ * with a permanent redirect — see legacyRedirect().
  */
-class ConfigBadgesController extends AbstractController
+class BadgeConfigurationController extends AbstractController
 {
     public function __construct(
         protected Environment $twig,
@@ -33,8 +38,11 @@ class ConfigBadgesController extends AbstractController
     ) {
     }
 
+    /** Where the page lives since it left the Configuration menu. */
+    public const PATH = '/admin/badges/configuration';
+
     /**
-     * GET /config/badges — render the badges page. ensureDefaults()/
+     * GET /admin/badges/configuration — render the badges page. ensureDefaults()/
      * syncSectionReferentBadges() are idempotent, self-healing seeds
      * (ARCHITECTURE §8.11) that must run on every load of *this* page —
      * they moved here with the badges concern itself, not left behind on
@@ -47,14 +55,14 @@ class ConfigBadgesController extends AbstractController
         $this->badgeService->ensureDefaults();
         $this->badgeService->syncSectionReferentBadges();
 
-        return $this->render('config/badges.html.twig', [
+        return $this->render('admin/badges/configuration.html.twig', [
             'badges' => $this->badgeService->getAll(),
             'undeletable_badge_reasons' => $this->badgeService->getUndeletableBadgeReasons(),
         ]);
     }
 
     /**
-     * POST /config/badges/add — create a new badge (AJAX, JSON).
+     * POST /admin/badges/add — create a new badge (AJAX, JSON).
      *
      * @param array<string, string> $params
      */
@@ -89,7 +97,7 @@ class ConfigBadgesController extends AbstractController
     }
 
     /**
-     * POST /config/badges/update — rename a badge (AJAX, JSON).
+     * POST /admin/badges/update — rename a badge (AJAX, JSON).
      *
      * @param array<string, string> $params
      */
@@ -126,7 +134,7 @@ class ConfigBadgesController extends AbstractController
     }
 
     /**
-     * POST /config/badges/toggle-active — activate/deactivate a badge (AJAX, JSON).
+     * POST /admin/badges/toggle-active — activate/deactivate a badge (AJAX, JSON).
      *
      * @param array<string, string> $params
      */
@@ -164,7 +172,7 @@ class ConfigBadgesController extends AbstractController
     }
 
     /**
-     * POST /config/badges/delete — permanently delete a badge (AJAX, JSON).
+     * POST /admin/badges/delete — permanently delete a badge (AJAX, JSON).
      * Refused for default badges and badges already assigned to a member.
      *
      * @param array<string, string> $params
@@ -199,6 +207,20 @@ class ConfigBadgesController extends AbstractController
         );
 
         return $this->json(['success' => true]);
+    }
+
+    /**
+     * GET /config/badges — the page's address before it moved (issue #621).
+     * Bookmarks and help links written before the move keep working: they
+     * land on the same page at its new address. Only the GET: the four
+     * POSTs were only ever called by the page's own script, which moved
+     * with it.
+     *
+     * @param array<string, string> $params
+     */
+    public function legacyRedirect(Request $request, array $params): Response
+    {
+        return $this->redirect(self::PATH, 301);
     }
 
     /**

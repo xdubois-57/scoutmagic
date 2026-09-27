@@ -68,7 +68,7 @@ class SwitchAriaCheckedTest extends TestCase
             (object) ['id' => 1, 'name' => 'Actif', 'isDefault' => false, 'isActive' => true, 'referentSectionId' => null],
             (object) ['id' => 2, 'name' => 'Inactif', 'isDefault' => false, 'isActive' => false, 'referentSectionId' => null],
         ];
-        $html = $twig->render('config/badges.html.twig', [
+        $html = $twig->render('admin/badges/configuration.html.twig', [
             'is_authenticated' => true,
             'config_mode' => false,
             'cookie_consent_given' => true,

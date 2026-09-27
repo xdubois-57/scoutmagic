@@ -3,7 +3,7 @@
  * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
  */
 
-// Badges configuration page (core/View/templates/config/badges.html.twig):
+// Badges configuration page (core/View/templates/admin/badges/configuration.html.twig):
 // renaming a custom badge, activating/deactivating any badge, deleting an
 // unassigned custom one, and adding a new one.
 // Extracted from the template's inline <script> so the Vitest suite can
@@ -64,7 +64,7 @@
         // saving it is not offered at all.
         if (!isDefault && nameInput) {
             nameInput.addEventListener('blur', function () {
-                api.postJson('/config/badges/update', { badge_id: badgeId, name: nameInput.value })
+                api.postJson('/admin/badges/update', { badge_id: badgeId, name: nameInput.value })
                     .then(function (res) {
                         if (isSuccess(res)) {
                             // A rename can rewrite the badge everywhere it
@@ -81,7 +81,7 @@
         if (activeInput) {
             activeInput.addEventListener('change', function () {
                 api.withDisabled(activeInput, function () {
-                    return api.postJson('/config/badges/toggle-active', {
+                    return api.postJson('/admin/badges/toggle-active', {
                         badge_id: badgeId,
                         active: activeInput.checked
                     });
@@ -110,7 +110,7 @@
                 if (!confirmed) {
                     return;
                 }
-                var res = await api.postJson('/config/badges/delete', { badge_id: badgeId });
+                var res = await api.postJson('/admin/badges/delete', { badge_id: badgeId });
                 if (isSuccess(res)) {
                     row.remove();
                 } else {
@@ -123,7 +123,7 @@
     if (addBtn && newNameInput) {
         addBtn.addEventListener('click', function () {
             api.withDisabled(addBtn, function () {
-                return api.postJson('/config/badges/add', { name: newNameInput.value });
+                return api.postJson('/admin/badges/add', { name: newNameInput.value });
             }).then(function (res) {
                 if (isSuccess(res)) {
                     window.location.reload();
