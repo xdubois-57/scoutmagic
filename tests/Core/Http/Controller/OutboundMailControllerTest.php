@@ -3780,10 +3780,26 @@ class OutboundMailControllerTest extends TestCase
     // and it is there to switch the round trip ON rather than to make
     // anything fail.
 
+    /**
+     * Make one table unreadable, the way a migration that never ran leaves it.
+     *
+     * An allowlist of COMPLETE statements rather than a concatenated
+     * identifier: PDO cannot bind an identifier, so keeping this off string
+     * building means writing each statement out in full. `.coderabbit.yaml`'s
+     * path instruction for this tree is categorical — « Every SQL statement is
+     * prepared; concatenating a value into SQL is a defect regardless of where
+     * the value came from » — and a test file is not an exception to it.
+     */
     private function dropTable(string $table): void
     {
         // Safe per test: setUp() builds a fresh database each time.
-        $this->pdo->exec('DROP TABLE ' . $table);
+        $statements = [
+            'mail_provider_health' => 'DROP TABLE mail_provider_health',
+            'mail_deferred_messages' => 'DROP TABLE mail_deferred_messages',
+        ];
+        $sql = $statements[$table] ?? self::fail("dropTable() has no statement for '{$table}'.");
+
+        $this->pdo->prepare($sql)->execute();
     }
 
     private function providersBodyOf(?OutboundMailController $controller = null): string
@@ -3866,7 +3882,8 @@ class OutboundMailControllerTest extends TestCase
         // identity BEFORE its try — breaking the table would throw outside
         // the block this test is here to reach.
         $this->theSiteSendsFromTheFixturesDomain();
-        $this->pdo->exec("DELETE FROM settings WHERE setting_key = 'dkim_selector'");
+        $forget = $this->pdo->prepare('DELETE FROM settings WHERE setting_key = ?');
+        $forget->execute(['dkim_selector']);
 
         $response = $this->controller->saveAuthentication($this->formRequest([
             'mail_from_address' => 'unite@exemple.be',
