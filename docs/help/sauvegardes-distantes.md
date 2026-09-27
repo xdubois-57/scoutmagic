@@ -7,7 +7,7 @@ role_min: admin
 discovery: off
 question: À quel rythme le site envoie-t-il ses sauvegardes sur Drive ?
 question: Qu'est-ce qui part, et qu'est-ce qui ne part pas ?
-paths: /config/maintenance
+paths: /config/maintenance/sauvegarde-automatique
 related: phrase-de-passe-distante, sauvegarde-hors-site, restaurer-ailleurs, sauvegardes
 ---
 

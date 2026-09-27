@@ -186,10 +186,87 @@ class MaintenanceController extends AbstractController
         ));
     }
 
+    /** The six sub-pages (issue #619): address => template. */
+    public const PAGE_HEALTH = '/config/maintenance';
+    public const PAGE_UPDATE = '/config/maintenance/mise-a-jour';
+    public const PAGE_MANUAL_BACKUP = '/config/maintenance/sauvegarde-manuelle';
+    public const PAGE_AUTOMATIC_BACKUP = '/config/maintenance/sauvegarde-automatique';
+    public const PAGE_RECENT_BACKUPS = '/config/maintenance/sauvegardes-recentes';
+    public const PAGE_RESET = '/config/maintenance/reinitialisation';
+
     /**
+     * GET /config/maintenance — Santé de l'hébergement, the landing page of
+     * the six (issue #619), as « Tableau de bord » is for /finance.
+     *
      * @param array<string, string> $params
      */
     public function index(Request $request, array $params): Response
+    {
+        return $this->render('config/maintenance/sante.html.twig', $this->pageContext());
+    }
+
+    /**
+     * GET /config/maintenance/mise-a-jour
+     *
+     * @param array<string, string> $params
+     */
+    public function updatePage(Request $request, array $params): Response
+    {
+        return $this->render('config/maintenance/mise_a_jour.html.twig', $this->pageContext());
+    }
+
+    /**
+     * GET /config/maintenance/sauvegarde-manuelle
+     *
+     * @param array<string, string> $params
+     */
+    public function manualBackupPage(Request $request, array $params): Response
+    {
+        return $this->render('config/maintenance/sauvegarde_manuelle.html.twig', $this->pageContext());
+    }
+
+    /**
+     * GET /config/maintenance/sauvegarde-automatique — the scheduled
+     * backups and the off-site ones, `#remote-backup` included.
+     *
+     * @param array<string, string> $params
+     */
+    public function automaticBackupPage(Request $request, array $params): Response
+    {
+        return $this->render('config/maintenance/sauvegarde_automatique.html.twig', $this->pageContext());
+    }
+
+    /**
+     * GET /config/maintenance/sauvegardes-recentes
+     *
+     * @param array<string, string> $params
+     */
+    public function recentBackupsPage(Request $request, array $params): Response
+    {
+        return $this->render('config/maintenance/sauvegardes_recentes.html.twig', $this->pageContext());
+    }
+
+    /**
+     * GET /config/maintenance/reinitialisation — the reset box, restore
+     * still included until it moves to Sauvegardes récentes (IT-06).
+     *
+     * @param array<string, string> $params
+     */
+    public function resetPage(Request $request, array $params): Response
+    {
+        return $this->render('config/maintenance/reinitialisation.html.twig', $this->pageContext());
+    }
+
+    /**
+     * What the Maintenance page used to render in one screen, now shared by
+     * its six sub-pages. The blocks moved as they were (issue #619), so
+     * each still finds every variable it read; all of it is local reads —
+     * settings and a few short queries, no network — which is why one
+     * context for all six costs less than six that could drift apart.
+     *
+     * @return array<string, mixed>
+     */
+    private function pageContext(): array
     {
         $latestVersion = (string) ($this->settingService->get('update_latest_version') ?: '');
         $installedVersion = VersionFile::read(dirname($this->storagePath));
@@ -234,11 +311,15 @@ class MaintenanceController extends AbstractController
         // very page. Taken from the list the table below already fetched
         // (newest first) rather than a second query for the same row.
         $updateHistory = $this->updateHistoryRepository->findRecent(self::UPDATE_HISTORY_SHOWN);
-        $lastAttempt = $updateHistory[0] ?? null;
+        // An install skipped before it started was never an attempt
+        // (issue #622): the last one is the newest that actually ran or
+        // is still to run — asked of the table rather than of the rows
+        // shown, which a burst of skipped pushes can fill entirely.
+        $lastAttempt = $this->updateHistoryRepository->findLatestAttempt();
         $lastAttemptFailed = $lastAttempt !== null
             && in_array($lastAttempt->status, ['failed', 'rolled_back'], true);
 
-        return $this->render('config/maintenance.html.twig', [
+        return [
             'abandoned_migration' => $abandonedMigration,
             // ——— Bloc « État » (haut de page) ———
             'cron_state' => $cronStatus->state,
@@ -342,7 +423,7 @@ class MaintenanceController extends AbstractController
                 '/'
             ) . '/api/webhook/github',
             'dev_update_branch' => (string) ($this->settingService->get('dev_update_branch') ?: 'main'),
-        ]);
+        ];
     }
 
     /**
@@ -733,7 +814,7 @@ class MaintenanceController extends AbstractController
      */
     public function createDatabaseBackup(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request, '/config/maintenance')) !== null) {
+        if (($guard = $this->guardCsrf($request, self::PAGE_MANUAL_BACKUP)) !== null) {
             return $guard;
         }
 
@@ -795,7 +876,7 @@ class MaintenanceController extends AbstractController
             FlashMessage::set('error', $message);
         }
 
-        return $this->redirect('/config/maintenance');
+        return $this->redirect(self::PAGE_MANUAL_BACKUP);
     }
 
     /**
@@ -994,7 +1075,7 @@ class MaintenanceController extends AbstractController
      */
     public function deleteBackup(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request, '/config/maintenance')) !== null) {
+        if (($guard = $this->guardCsrf($request, self::PAGE_RECENT_BACKUPS)) !== null) {
             return $guard;
         }
 
@@ -1004,13 +1085,13 @@ class MaintenanceController extends AbstractController
             // between. Saying so beats a 404 on a page the admin is still
             // reading.
             FlashMessage::set('error', 'Cette sauvegarde n\'existe plus.');
-            return $this->redirect('/config/maintenance');
+            return $this->redirect(self::PAGE_RECENT_BACKUPS);
         }
 
         $reason = $this->safetyNet()->reasonToKeep($backup->id);
         if ($reason !== null) {
             FlashMessage::set('error', $reason);
-            return $this->redirect('/config/maintenance');
+            return $this->redirect(self::PAGE_RECENT_BACKUPS);
         }
 
         $this->retention()->forget($backup);
@@ -1029,7 +1110,7 @@ class MaintenanceController extends AbstractController
                 . ' du ' . $backup->createdAt . '.'
         );
 
-        return $this->redirect('/config/maintenance');
+        return $this->redirect(self::PAGE_RECENT_BACKUPS);
     }
 
     private function safetyNet(): \Core\Maintenance\BackupSafetyNet
@@ -1190,12 +1271,12 @@ class MaintenanceController extends AbstractController
      */
     public function restoreBackup(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request, '/config/maintenance')) !== null) {
+        if (($guard = $this->guardCsrf($request, self::PAGE_RESET)) !== null) {
             return $guard;
         }
         if ((string) $request->getBody('confirm_keyword', '') !== self::KEYWORD_RESTORE) {
             FlashMessage::set('error', 'Mot de confirmation incorrect.');
-            return $this->redirect('/config/maintenance');
+            return $this->redirect(self::PAGE_RESET);
         }
 
         $userId = AuthSession::getUserAccountId();
@@ -1219,41 +1300,41 @@ class MaintenanceController extends AbstractController
                 $assembled = $this->restoreChunkStore()->assembledPath($uploadId, session_id());
                 if ($assembled === null) {
                     FlashMessage::set('error', 'Fichier téléversé introuvable — recommencez l\'envoi.');
-                    return $this->redirect('/config/maintenance');
+                    return $this->redirect(self::PAGE_RESET);
                 }
                 if ((int) (filesize($assembled) ?: 0) > self::RESTORE_UPLOAD_MAX_BYTES) {
                     $this->restoreChunkStore()->discard($uploadId, session_id());
                     FlashMessage::set('error', 'Le fichier dépasse la taille maximale autorisée.');
-                    return $this->redirect('/config/maintenance');
+                    return $this->redirect(self::PAGE_RESET);
                 }
 
                 $tempPath = $this->restoreTempPath();
                 if (!rename($assembled, $tempPath)) {
                     $this->restoreChunkStore()->discard($uploadId, session_id());
                     FlashMessage::set('error', 'Le téléversement du fichier a échoué.');
-                    return $this->redirect('/config/maintenance');
+                    return $this->redirect(self::PAGE_RESET);
                 }
                 $payload['uploaded_temp_path'] = $tempPath;
             } else {
                 $file = $request->getFile('backup_file');
                 if ($file === null || $file['error'] !== UPLOAD_ERR_OK) {
                     FlashMessage::set('error', 'Veuillez sélectionner un fichier de sauvegarde valide.');
-                    return $this->redirect('/config/maintenance');
+                    return $this->redirect(self::PAGE_RESET);
                 }
                 $ext = strtolower(pathinfo((string) $file['name'], PATHINFO_EXTENSION));
                 if ($ext !== 'zip') {
                     FlashMessage::set('error', 'Le fichier doit être une archive ZIP.');
-                    return $this->redirect('/config/maintenance');
+                    return $this->redirect(self::PAGE_RESET);
                 }
                 if ($file['size'] > self::RESTORE_UPLOAD_MAX_BYTES) {
                     FlashMessage::set('error', 'Le fichier dépasse la taille maximale autorisée.');
-                    return $this->redirect('/config/maintenance');
+                    return $this->redirect(self::PAGE_RESET);
                 }
 
                 $tempPath = $this->restoreTempPath();
                 if (!move_uploaded_file($file['tmp_name'], $tempPath)) {
                     FlashMessage::set('error', 'Le téléversement du fichier a échoué.');
-                    return $this->redirect('/config/maintenance');
+                    return $this->redirect(self::PAGE_RESET);
                 }
                 $payload['uploaded_temp_path'] = $tempPath;
             }
@@ -1262,7 +1343,7 @@ class MaintenanceController extends AbstractController
             $backup = $this->backupRepository->findById($backupId);
             if ($backup === null || $backup->status !== 'completed') {
                 FlashMessage::set('error', 'Sauvegarde introuvable ou incomplète.');
-                return $this->redirect('/config/maintenance');
+                return $this->redirect(self::PAGE_RESET);
             }
             // A portable archive is refused HERE, before a single row is
             // written. It looks restorable — completed, with a database
@@ -1278,7 +1359,7 @@ class MaintenanceController extends AbstractController
                     'Une sauvegarde portable ne se restaure pas depuis cette page : elle sert à repartir sur '
                     . 'une installation neuve, à qui vous la téléversez avec sa phrase de passe.'
                 );
-                return $this->redirect('/config/maintenance');
+                return $this->redirect(self::PAGE_RESET);
             }
             $payload['backup_id'] = $backupId;
         }
@@ -1294,7 +1375,7 @@ class MaintenanceController extends AbstractController
             $userId
         );
 
-        return $this->redirect('/config/maintenance?restore_id=' . $actionId);
+        return $this->redirect(self::PAGE_RESET . '?restore_id=' . $actionId);
     }
 
     /**
@@ -1556,8 +1637,9 @@ class MaintenanceController extends AbstractController
         $this->schedulerService->cancel((int) $pending['id']);
         if ($history !== null && $history->status === 'pending') {
             // Terminal status so the "Historique des mises à jour" table
-            // doesn't show this abandoned row as "En cours" forever.
-            $this->updateHistoryRepository->markFailed(
+            // doesn't show this abandoned row as "En cours" forever —
+            // skipped, not failed: it never started (issue #622).
+            $this->updateHistoryRepository->markSkipped(
                 $historyId,
                 'Installation planifiée annulée suite au changement des préférences de mise à jour automatique.'
             );

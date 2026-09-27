@@ -375,8 +375,7 @@ class FinanceRbacTest extends TestCase
                 new \Core\Member\MemberAccountResolver(
                     new \Core\Import\MemberYearRepository($this->pdo),
                     new \Core\Member\MemberEmailRepository($this->pdo, $encryption),
-                    new \Core\Security\UserAccountRepository($this->pdo, $encryption),
-                    $encryption
+                    new \Core\Security\UserAccountRepository($this->pdo, $encryption)
                 ),
                 $this->memberServiceForCampaigns(),
                 new \Core\Import\MemberYearRepository($this->pdo),
@@ -444,8 +443,7 @@ class FinanceRbacTest extends TestCase
             FinanceTestHelper::allocationService($this->pdo, $encryption, $this->expectedReceivableRepository),
             $this->memberServiceForCampaigns(),
             new \Core\Member\Household\HouseholdService(
-                new \Core\Member\Household\HouseholdRepository($this->pdo, $encryption),
-                $encryption
+                new \Core\Member\Household\HouseholdRepository($this->pdo, $encryption)
             )
         );
     }
@@ -469,8 +467,7 @@ class FinanceRbacTest extends TestCase
                 $allocations,
                 $this->memberServiceForCampaigns(),
                 new \Core\Member\Household\HouseholdService(
-                    new \Core\Member\Household\HouseholdRepository($this->pdo, $encryption),
-                    $encryption
+                    new \Core\Member\Household\HouseholdRepository($this->pdo, $encryption)
                 )
             ),
             $allocations,

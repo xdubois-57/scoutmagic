@@ -95,6 +95,24 @@ class UpdateHistoryRepository
     }
 
     /**
+     * The newest row that was an attempt — anything but `skipped`, which
+     * never started (issue #622). Its own query rather than a search of
+     * findRecent(): a burst of pushes can leave more skipped rows than the
+     * history table shows, and the failure behind them must still reach
+     * the health block.
+     */
+    public function findLatestAttempt(): ?UpdateHistory
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM update_history WHERE status != 'skipped' ORDER BY started_at DESC, id DESC LIMIT 1"
+        );
+        $stmt->execute();
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $this->hydrate($row);
+    }
+
+    /**
      * The `backups.id` of every update that has not finished — queued, or
      * at any step of running.
      *
@@ -309,6 +327,22 @@ class UpdateHistoryRepository
         $stmt = $this->pdo->prepare("UPDATE update_history SET status = 'failed', error_message = ?, completed_at = ? "
             . "WHERE id = ?");
         $stmt->execute([substr($errorMessage, 0, 500), self::now(), $id]);
+    }
+
+    /**
+     * A queued install closed before it ever started, on purpose (issue
+     * #622): superseded by a newer push or release that contains it, or
+     * called off by a change of preferences. Nothing failed and the site
+     * was never touched, so it is not `failed` — that status put an
+     * « Échouée » badge on the history for every push that arrived while
+     * the previous one was still waiting for its build. The reason goes in
+     * `error_message`, the column every status uses for its sentence.
+     */
+    public function markSkipped(int $id, string $reason): void
+    {
+        $stmt = $this->pdo->prepare("UPDATE update_history SET status = 'skipped', error_message = ?, completed_at = ? "
+            . "WHERE id = ?");
+        $stmt->execute([substr($reason, 0, 500), self::now(), $id]);
     }
 
     public function markRolledBack(int $id, string $errorMessage): void

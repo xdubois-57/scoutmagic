@@ -6,7 +6,7 @@ category: Configuration
 role_min: superadmin
 question: J'ai perdu le serveur, comment retrouver les photos ?
 question: Comment restaurer le site quand les fichiers sont sur un stockage externe ?
-paths: /config/stockage, /config/stockage/emplacements, /config/maintenance
+paths: /config/stockage, /config/stockage/emplacements, /config/maintenance/sauvegarde-automatique
 related: stockage, maintenance
 ---
 

@@ -48,6 +48,14 @@ use Twig\Environment;
  */
 final class RemoteBackupController extends AbstractController
 {
+    /**
+     * The off-site box, where every round trip here ends. It lives on the
+     * Sauvegarde automatique sub-page since the Maintenance page was cut
+     * in six (issue #619); Core\Alert\Check\RemotePassphraseNotedCheck
+     * links to the same place.
+     */
+    public const BOX = MaintenanceController::PAGE_AUTOMATIC_BACKUP . '#remote-backup';
+
     public function __construct(
         Environment $twig,
         private readonly RemoteBackupDestination $destination,
@@ -134,7 +142,7 @@ final class RemoteBackupController extends AbstractController
      */
     public function confirmPassphraseNoted(Request $request, array $params): Response
     {
-        $guard = $this->guardCsrf($request, '/config/maintenance');
+        $guard = $this->guardCsrf($request, self::BOX);
         if ($guard !== null) {
             return $guard;
         }
@@ -145,7 +153,7 @@ final class RemoteBackupController extends AbstractController
                 'Aucune phrase de passe n\'existe encore : elle sera créée au premier envoi hors site.'
             );
 
-            return $this->redirect('/config/maintenance#remote-backup');
+            return $this->redirect(self::BOX);
         }
 
         $this->journalService->log(
@@ -162,7 +170,7 @@ final class RemoteBackupController extends AbstractController
             . 'de mettre de côté n\'ouvrira plus que les archives déjà envoyées.'
         );
 
-        return $this->redirect('/config/maintenance#remote-backup');
+        return $this->redirect(self::BOX);
     }
 
     /**
@@ -181,7 +189,7 @@ final class RemoteBackupController extends AbstractController
      */
     public function regeneratePassphrase(Request $request, array $params): Response
     {
-        $guard = $this->guardCsrf($request, '/config/maintenance');
+        $guard = $this->guardCsrf($request, self::BOX);
         if ($guard !== null) {
             return $guard;
         }
@@ -193,7 +201,7 @@ final class RemoteBackupController extends AbstractController
         } catch (RemoteBackupException $e) {
             FlashMessage::set('error', $e->getMessage());
 
-            return $this->redirect('/config/maintenance#remote-backup');
+            return $this->redirect(self::BOX);
         }
 
         $this->journalService->log(
@@ -211,7 +219,7 @@ final class RemoteBackupController extends AbstractController
             . 'du compte distant.'
         );
 
-        return $this->redirect('/config/maintenance#remote-backup');
+        return $this->redirect(self::BOX);
     }
 
     /**
@@ -235,7 +243,7 @@ final class RemoteBackupController extends AbstractController
      */
     public function chooseDestination(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request, '/config/maintenance')) !== null) {
+        if (($guard = $this->guardCsrf($request, self::BOX)) !== null) {
             return $guard;
         }
 
@@ -256,7 +264,7 @@ final class RemoteBackupController extends AbstractController
                 . 'serveur.'
             );
 
-            return $this->redirect('/config/maintenance#remote-backup');
+            return $this->redirect(self::BOX);
         }
 
         $location = $this->locations->findById($locationId);
@@ -267,7 +275,7 @@ final class RemoteBackupController extends AbstractController
                 . 'rouverte après sa suppression.'
             );
 
-            return $this->redirect('/config/maintenance#remote-backup');
+            return $this->redirect(self::BOX);
         }
 
         if (!$location->supports(StorageCapability::ResumableUpload)) {
@@ -281,7 +289,7 @@ final class RemoteBackupController extends AbstractController
                 )
             );
 
-            return $this->redirect('/config/maintenance#remote-backup');
+            return $this->redirect(self::BOX);
         }
 
         $this->destination->choose($location->id);
@@ -315,6 +323,6 @@ final class RemoteBackupController extends AbstractController
             )
         );
 
-        return $this->redirect('/config/maintenance#remote-backup');
+        return $this->redirect(self::BOX);
     }
 }

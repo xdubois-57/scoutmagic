@@ -64,7 +64,9 @@ final class BackupAgeCheck implements OperationalCheck
                 why: 'En cas de problème chez votre hébergeur, il n\'existe rien à restaurer. Lancez une '
                     . 'sauvegarde depuis Configuration > Maintenance, puis vérifiez que la sauvegarde '
                     . 'automatique est bien active.',
-                actionUrl: '/config/maintenance',
+                // Where a backup is actually started — the frequency lives
+                // next door, on Sauvegarde automatique.
+                actionUrl: '/config/maintenance/sauvegarde-manuelle',
                 actionLabel: 'Sauvegarder maintenant'
             );
         }
@@ -92,7 +94,7 @@ final class BackupAgeCheck implements OperationalCheck
             why: 'L\'objectif du site est de ne jamais perdre plus d\'une semaine de travail. Au-delà, une '
                 . 'restauration vous ramènerait plus loin en arrière que prévu. Vérifiez la fréquence des '
                 . 'sauvegardes automatiques et qu\'aucune n\'échoue.',
-            actionUrl: '/config/maintenance',
+            actionUrl: '/config/maintenance/sauvegarde-automatique',
             actionLabel: 'Voir les sauvegardes'
         );
     }

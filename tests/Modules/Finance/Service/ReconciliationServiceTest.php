@@ -65,7 +65,7 @@ class ReconciliationServiceTest extends TestCase
     new MemberYearRepository($this->pdo),
     new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption)
 ),
-            new HouseholdService(new HouseholdRepository($this->pdo, $this->encryption), $this->encryption)
+            new HouseholdService(new HouseholdRepository($this->pdo, $this->encryption))
         );
 
         $this->pdo->exec("INSERT INTO finance_accounts (name, account_type, status) VALUES ('Compte Unité', 'bank', 'active')");

@@ -411,7 +411,7 @@ final class RemoteBackupControllerTest extends TestCase
     public function testTheDestinationFormAsksBeforeItCanStopEveryOffsiteBackup(): void
     {
         $template = file_get_contents(
-            dirname(__DIR__, 4) . '/core/View/templates/config/maintenance.html.twig'
+            dirname(__DIR__, 4) . '/core/View/templates/config/maintenance/sauvegarde_automatique.html.twig'
         );
         $this->assertIsString($template, 'The maintenance template is unreadable.');
 

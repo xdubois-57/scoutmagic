@@ -221,7 +221,10 @@ Building from the migration rather than from a copy of the schema is not a
 detail. The first run of the fixture found that the migration drops
 `ON UPDATE CURRENT_TIMESTAMP` from every column that declares it (issue
 #590) — a test that had laid out its table by hand had been checking a
-clause no installed site has.
+clause no installed site has. The clause is no longer declared anywhere:
+`updated_at` is written from PHP, as the calendar, news and presences
+modules already did, and `Tests\Architecture\SchemasDeclareNoOnUpdateTimestampTest`
+fails the day a schema declares it again.
 
 ### Measuring a resource, and the two readings that are not the same
 

@@ -1,0 +1,46 @@
+{% extends 'config/maintenance/_layout.html.twig' %}
+{% import 'config/maintenance/_macros.html.twig' as m %}
+
+{% block maintenance_title %}Sauvegardes récentes{% endblock %}
+
+{% block maintenance_content %}
+    {# ————— Sauvegardes récentes —————
+
+       One list sorted by date, families mixed: one looks here for « the
+       most recent », never for « the scheduled ones ». The family is a
+       pill on the row, not a grouping.
+
+       Five rows, then the rest behind a Bootstrap « collapse »: exactly
+       the mechanism the update history uses, with the same
+       collapse-label.js. Two ways of folding a list would be one too
+       many, and the changing label comes from the script because a CSS
+       swap fails while the service worker still serves the old
+       stylesheet (see that file). #}
+    <div class="card mb-4" id="maintenance-backups-list">
+        <div class="card-body">
+            {{ m.section_header('maintenance-backups-list-body', 'Sauvegardes récentes', true) }}
+            <div class="collapse show mt-3" id="maintenance-backups-list-body">
+                {% if backups is empty %}
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucune sauvegarde pour le moment.',
+                        compact: true,
+                    } only %}
+                {% else %}
+                    {{ m.backup_rows(backups|slice(0, backups_shown_at_once)) }}
+                    {% if backups|length > backups_shown_at_once %}
+                        <div class="collapse" id="backups-more">
+                            {{ m.backup_rows(backups|slice(backups_shown_at_once)) }}
+                        </div>
+                        <button type="button" class="btn btn-outline-secondary btn-sm mt-2 collapsed"
+                                data-bs-toggle="collapse" data-bs-target="#backups-more"
+                                aria-expanded="false" aria-controls="backups-more"
+                                data-collapse-label-expanded="Réduire">
+                            <span data-collapse-label>Voir plus ({{ backups|length - backups_shown_at_once }})</span>
+                            <i class="bi bi-chevron-down ms-1" aria-hidden="true"></i>
+                        </button>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+{% endblock %}

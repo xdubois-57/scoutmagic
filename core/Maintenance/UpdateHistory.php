@@ -12,7 +12,7 @@ class UpdateHistory
 {
     /** @var string[] */
     public const STATUSES = ['pending', 'backing_up', 'downloading', 'installing', 'migrating', 'completed', 'failed',
-        'rolled_back'];
+        'rolled_back', 'skipped'];
 
     public function __construct(
         public readonly int $id,

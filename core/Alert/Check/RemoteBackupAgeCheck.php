@@ -103,7 +103,7 @@ final class RemoteBackupAgeCheck implements OperationalCheck
             why: 'Une sauvegarde restée sur le serveur ne protège de rien si c\'est l\'hébergement lui-même '
                 . 'qui disparaît — compte fermé, panne définitive, erreur de manipulation. Vérifiez que la '
                 . 'destination est toujours raccordée et qu\'aucun envoi n\'échoue.',
-            actionUrl: '/config/maintenance',
+            actionUrl: '/config/maintenance/sauvegarde-automatique#remote-backup',
             actionLabel: 'Voir les envois hors site'
         );
     }
@@ -126,7 +126,7 @@ final class RemoteBackupAgeCheck implements OperationalCheck
             value: 'non configuré',
             title: 'Aucune destination hors site n\'est choisie.',
             why: 'Rien ne part de ce serveur, et rien ne le surveille.',
-            actionUrl: '/config/maintenance',
+            actionUrl: '/config/maintenance/sauvegarde-automatique#remote-backup',
             actionLabel: 'Voir les sauvegardes'
         );
     }

@@ -119,7 +119,7 @@ class FullResetHandler implements TaskHandlerInterface
             // readings, this one is the recoverable one: files left on a
             // disk can still be deleted by hand, and a reset is described
             // to the operator as putting the SITE back to a fresh
-            // install (`maintenance.html.twig` says which folders stay).
+            // install (`config/maintenance/reinitialisation.html.twig` says which folders stay).
             $this->removeTreeExcept(
                 $context->storagePath,
                 [$context->storagePath . '/keys/master.key', ...$declaredLocations->all()]

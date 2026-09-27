@@ -26,6 +26,9 @@ use Tests\Modules\Covoiturage\CovoiturageTestHelper as H;
 #[\PHPUnit\Framework\Attributes\Group('database')]
 final class CarpoolAgendaTest extends TestCase
 {
+    /** The numbers the fixture gives the driver and riders: none may reach an ICS. */
+    private const PHONE_DIGITS = ['0478', '0495', '12 34 56', '11 22 33', '88 77 66'];
+
     private \PDO $pdo;
     private CarpoolAgendaEnricher $enricher;
     private int $driver;
@@ -138,10 +141,42 @@ final class CarpoolAgendaTest extends TestCase
             updatedAt: '2026-09-24 10:00:00'
         )]);
 
-        $unfolded = str_replace(["\r\n ", "\r\n\t"], '', $ics);
-        $this->assertStringContainsString('vous conduisez', $unfolded);
-        foreach (['0478', '0495', '12 34 56', '11 22 33', '88 77 66'] as $digits) {
-            $this->assertStringNotContainsString($digits, $unfolded);
+        $scanned = self::withoutTimestamps($ics);
+        $this->assertStringContainsString('vous conduisez', $scanned);
+        foreach (self::PHONE_DIGITS as $digits) {
+            $this->assertStringNotContainsString($digits, $scanned);
         }
+    }
+
+    /**
+     * The scan does not read the clock (issue #611). `IcsBuilder` stamps
+     * every event with the current instant, and at 10:49:54 UTC that stamp
+     * is `…T104954Z` — « 0495 », read as a leaked phone number, a random
+     * red on a pull request that touches neither module.
+     */
+    public function testTheScanIgnoresTheTimestampLines(): void
+    {
+        $ics = "BEGIN:VEVENT\r\nDTSTAMP:20260927T104954Z\r\nLAST-MODIFIED:20260924T047800Z\r\n"
+            . "DESCRIPTION:vous conduisez\r\nEND:VEVENT\r\n";
+
+        $scanned = self::withoutTimestamps($ics);
+
+        $this->assertStringContainsString('vous conduisez', $scanned);
+        foreach (self::PHONE_DIGITS as $digits) {
+            $this->assertStringNotContainsString($digits, $scanned);
+        }
+        // And a number anywhere else is still seen.
+        $this->assertStringContainsString('0495', self::withoutTimestamps("DESCRIPTION:0495 12 34 56\r\n"));
+    }
+
+    /**
+     * The ICS unfolded, without the two lines that carry a clock reading:
+     * what an attendee reads is the rest.
+     */
+    private static function withoutTimestamps(string $ics): string
+    {
+        $unfolded = str_replace(["\r\n ", "\r\n\t"], '', $ics);
+
+        return (string) preg_replace('/^(DTSTAMP|LAST-MODIFIED)[;:][^\r\n]*\r?$/m', '', $unfolded);
     }
 }

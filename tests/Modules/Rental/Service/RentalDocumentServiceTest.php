@@ -1049,11 +1049,31 @@ class RentalDocumentServiceTest extends TestCase
 
     public function testNoVatIsEverComputedAndTheExemptionNoteIsConfigurable(): void
     {
-        $this->assertStringContainsString('exonér', $this->service->vatNote($this->asset()));
+        $this->assertSame(
+            'Exemption de TVA — article 44 du Code de la TVA.',
+            $this->service->vatNote($this->asset())
+        );
 
         $this->assetRepository->saveVatExemptionNote($this->assetId, 'Article 44 du Code de la TVA.');
 
         $this->assertSame('Article 44 du Code de la TVA.', $this->service->vatNote($this->asset()));
+    }
+
+    /**
+     * No unit-wide level any more (issue #613): a setting under the old
+     * key, whatever it holds, changes nothing.
+     */
+    public function testTheUndeclaredUnitWideVatSettingIsNotRead(): void
+    {
+        $this->pdo->prepare(
+            "INSERT INTO settings (module_id, setting_key, setting_value, setting_type, label, description, editable) "
+                . "VALUES ('rental', 'rental_vat_exemption_note', 'Mention oubliée', 'text', 'x', 'x', 1)"
+        )->execute();
+
+        $this->assertSame(
+            \Modules\Rental\Service\RentalDocumentService::DEFAULT_VAT_NOTE,
+            $this->service->vatNote($this->asset())
+        );
     }
 
     // ── Uploaded documents (§6.24) ──────────────────────────────────────
