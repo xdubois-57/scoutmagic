@@ -2262,3 +2262,116 @@ métier, la forme réelle que produit le contrôleur, là où les deux autres po
 sur des échecs de transport que le JavaScript fabrique lui-même. La seconde
 spec, qui attend le repli, **survit** à cette mutation : c'est ce qui sépare les
 deux moitiés, et c'est pourquoi elle est là.
+
+### Itération 13 — Les chemins d'échec, lot 5 : `RetroChiefController` — 2026-09-27
+
+**Mesuré d'abord** : **852 blocs `catch` balayés, 329 corps jamais exécutés
+(38,6 %)**. `RetroChiefController` en portait **6 sur 7**, aux lignes 194, 218,
+240, 262, 284 et 308 ; le septième, dans `store()`, était déjà couvert.
+
+**Et le compte ne tombe pas juste — c'est le chiffre le plus intéressant du
+lot.** Le lot 4 relevait 334 corps non exécutés et en a fermé sept ; on
+attendrait donc 327, et j'en mesure **329**. J'avais d'abord écrit « sept de
+moins qu'au lot 4, exactement ceux qu'il a fermés », ce qui ne tient pas à la
+soustraction — relevé par le relecteur local. L'explication est dans le total :
+il monte de 845 à 852, donc `main` a gagné **sept** blocs `catch` entre les deux
+mesures, et le solde dit que **deux** d'entre eux arrivent déjà non couverts.
+Le stock ne baisse que de cinq quand j'en ferme sept. Ce chiffre-là est déduit
+de la soustraction, pas mesuré bloc par bloc — mais il dit la bonne chose : ce
+chantier vide une baignoire dont le robinet coule encore, et c'est un argument
+pour la porte de release plutôt que pour un lot de plus.
+
+**Un espacement trop régulier pour être innocent.** Six lignes presque
+équidistantes dans un fichier de 371 lignes : c'est la signature d'un même
+geste répété. Vérifié avant de choisir — `update` (194), `close` (218),
+`reopen` (240), `archive` (262), `unarchive` (284), `regenerateLink` (308),
+chacun avec un `catch (RetroException $e)` rigoureusement identique.
+
+**Et c'est précisément le lot où il était le plus facile de tricher.** Le
+harnais existant remplace `BoardService` par un `createMock` complet. Six
+`willThrowException` auraient fermé les six branches en vingt lignes, et
+n'auraient prouvé qu'une chose : que le mot-clé `catch` est bien là. Aucune
+d'elles n'aurait dit si la phrase que lit le chef est la bonne.
+
+**Zéro `willThrowException` dans ce lot.** Un second contrôleur est câblé sur
+le **vrai** `BoardService`, avec de vraies lignes dans de vrais états. Les
+doublures qui restent — membre, section, courriel — ne sont atteintes par
+**aucun** des neuf tests : le constructeur les exige, rien de plus. (J'avais
+d'abord écrit qu'elles étaient atteintes « par les chemins de succès » ; c'est
+faux, et c'est encore une phrase sur des voisins écrite sans la vérifier.
+Relevée par le relecteur local, ici et dans le docblock du helper.)
+
+| Branche | Déclencheur réel | Phrase refusée |
+|---|---|---|
+| `update()` | un titre réduit à des espaces | « Le titre est obligatoire. » |
+| `close()` | un identifiant qui ne correspond à rien | « Rétrospective introuvable. » |
+| `reopen()` | un tableau **encore ouvert** | « Seule une rétrospective clôturée peut être réouverte. » |
+| `archive()` | un tableau **encore ouvert** | « Seule une rétrospective clôturée peut être archivée. » |
+| `unarchive()` | un tableau **clôturé mais non archivé** | « Cette rétrospective n'est pas archivée. » |
+| `regenerateLink()` | un identifiant qui ne correspond à rien | « Rétrospective introuvable. » |
+
+**Le constat qui donne sa valeur au lot.** Pour `close`, `reopen`, `archive` et
+`unarchive`, le refus et le succès redirigent vers **la même** adresse, `/retro`,
+avec le **même** code 302. Un test qui asserte le statut et l'en-tête `Location`
+passe donc sur les deux chemins : c'est exactement le § 1 de ce chantier, un
+test qui ne peut pas échouer. Le message flash est le **seul** témoin, et c'est
+pourquoi les quatre assertent son type *et* son texte. `update()` et
+`regenerateLink()` échappent à cela en revenant vers `/retro/<id>/edit` — et
+`update()` est le seul geste dont la **destination** change entre l'acceptation
+et le refus, ce qui valait un test de contraste pour le prouver.
+
+**Deux boutons qui partagent une précondition.** `reopen()` et `archive()`
+exigent tous deux le statut `closed` : un tableau ouvert refuse les deux. Seule
+la phrase dit lequel a été pressé. Un contrôleur qui câblerait « archiver » sur
+`reopen()` satisferait toutes les autres assertions — d'où la mutation M7, qui
+fait précisément cela, et le test qui asserte la phrase exacte plutôt que le
+seul fait d'un refus.
+
+**Un docblock qui annonçait l'inverse du code, corrigé dans la même PR.**
+`BoardService::close()` portait `@throws RetroException when already closed`.
+Le code ne lève pas : `if (!$board->isOpen()) return $board;`. Un tableau déjà
+clôturé est donc **accepté** — un chef qui presse deux fois, ou qui arrive
+d'une liste rendue avant que quelqu'un d'autre ne clôture, est informé de la
+clôture au lieu de recevoir une erreur. C'est le bon comportement, mais la
+lecture naturelle est l'autre, et le docblock la renforçait. Le test
+`testClosingAnAlreadyClosedBoardIsAcceptedRatherThanRefused` est le garde-fou :
+la mutation M11 fait lever `close()` comme son docblock l'annonçait, et il
+rougit.
+
+**Preuve par mutation** : **treize** mutations ciblées, une chose à la fois,
+dix sur le contrôleur et trois sur le service — trois sur `update()` isolant
+séparément la destination, le type et le message ; le refus de `close()` changé
+en avertissement ; son succès sorti du `try` pour couvrir aussi l'échec ; la
+raison de `reopen()` remplacée par une phrase générique ; « archiver » câblé
+sur `reopen()` ; le refus de `unarchive()` avalé ; la destination de
+`regenerateLink()` renvoyée vers la liste ; la précondition de `reopen()`
+inversée ; `close()` rendu refusant ; et la précondition de `unarchive()`
+regardant `closed` au lieu de `archived`. La treizième est venue d'un constat
+du relecteur local : mon test de contraste sur `regenerateLink()` n'assertait
+que le **type** du flash, et la phrase « Lien régénéré — l'ancien lien ne
+fonctionne plus. » n'était assertée nulle part dans la suite — un contrôleur
+annonçant un succès générique après avoir révoqué le lien restait vert. La
+seconde moitié de cette phrase est le seul avertissement que reçoit le chef
+que le lien qu'il a peut-être déjà diffusé vient de mourir. **Treize rouges.**
+
+**Mon erreur de ce lot est dans l'outil, pas dans les tests.** Mon script de
+mutation revenait en arrière en **remplaçant la chaîne mutée par l'originale**,
+ce qui suppose que la chaîne mutée soit unique dans le fichier. Celle de M7 ne
+l'est pas : le corps qu'elle installe dans `archive()` existe déjà dans
+`reopen()`. L'assertion d'unicité a sauté, le `finally` manquait, et le fichier
+source est **resté muté sur le disque** — je ne l'ai vu qu'en lisant
+`git diff`. Réparé par remplacement ciblé, jamais par `git checkout`, qui
+aurait restauré depuis HEAD.
+
+La règle qui en découle, et que le script applique maintenant : **restaurer le
+contenu original mémorisé, verbatim, dans un `finally`** — ne jamais défaire
+une mutation en la cherchant dans le fichier. Et le corollaire de méthode :
+après une campagne de mutations, lire `git diff` sur les sources avant de
+croire qu'elles sont intactes. Les onze autres mutations étaient revenues
+correctement ; c'est la douzième lecture qui compte.
+
+**Vérifié par la couverture, pas par le vert.** Les neuf tests étaient verts du
+premier coup, ce qui ne prouvait rien — le lot 4 avait produit un test vert qui
+atteignait la mauvaise branche. Mesure ciblée après écriture : les lignes 194,
+218, 240, 262, 284 et 308 sont couvertes, une par un seul test chacune.
+`RetroChiefController` passe de 6 branches non couvertes à **0**.

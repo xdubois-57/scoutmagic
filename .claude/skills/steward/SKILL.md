@@ -370,7 +370,16 @@ So, before pushing a fix for review findings:
 - **Never restore a file with `git checkout` to undo a mutation.** It
   restores from `HEAD`, so it deletes the uncommitted work the mutation was
   testing, and every assertion after that fails for the wrong reason. Undo a
-  mutation by replacing the string back.
+  mutation by **writing the original file content back verbatim, from a copy
+  taken before the mutation, in a `finally`**. Do NOT undo it by searching
+  for the mutated string and replacing it back: that assumes the string you
+  wrote is unique in the file, and it often is not — a mutation that makes
+  one method call another installs a body the other method already has. When
+  that assumption breaks the revert silently does nothing, and the mutation
+  stays in the tree. Measured on #449's batch 5, which left
+  `RetroChiefController::archive()` calling `reopen()` on disk; only reading
+  `git diff` afterwards caught it. So: **read `git diff` on the sources at
+  the end of a mutation campaign**, before believing they are intact.
 
 **And fix a flake before anything else.** A test that fails for a reason
 that is not the defect it watches costs a round to every pull request that
