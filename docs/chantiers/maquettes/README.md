@@ -28,6 +28,7 @@ trouve être exécutable ailleurs.
 | `maquette-documents.jsx` | Module Documents (#508) | `/documents` — lecteur anonyme, membre, chef ; `/admin/documents` — Staff d'U (liste, ajout, modification) | IT-01, IT-02 |
 | `partage-social.html` | Partage vers Facebook et Instagram | Le dialogue de partage d'un album — chef, avec le choix des groupes de discussion ; `Nouvelle communication` et son sélecteur de photo — chef ; l'historique « Ce qui est parti » et la confirmation d'un réessai ; l'écran de configuration du module | IT-01, IT-03, IT-04, IT-05 |
 | `maintenance.html` | Maintenance : sous-pages, sauvegardes et chiffrement (#509) | `/config/maintenance` — superadmin, les six sous-pages (Santé de l'hébergement, Mise à jour, Sauvegarde manuelle, Sauvegarde automatique, Sauvegardes récentes, Réinitialisation) et le dialogue du mot de passe au téléchargement | IT-01, IT-02, IT-04, IT-05, IT-06 |
+| `badges.html` | Badges : déménagement, porteurs par année (#367) | Espace chefs d'U — admin, les trois sous-pages du rail : porteurs de l'année en cours, porteurs de l'année précédente, configuration des badges | IT-01, IT-02, IT-03 |
 
 ## Le cas du trombinoscope imprimable
 

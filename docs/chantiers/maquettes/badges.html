@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette — Badges : porteurs par année et configuration</title>
+<style>
+:root{color-scheme:light}
+body{margin:0;background:#f1f3f5;color:#212529;font-family:system-ui,-apple-system,"Segoe UI",Helvetica,sans-serif}
+a{color:#0a58ca}
+.page{max-width:1200px;margin:0 auto;padding:24px 16px 64px}
+h1{font-size:28px;line-height:1.2;margin:0 0 8px}
+.lede{font-size:15px;color:#495057;margin:0 0 8px;max-width:70ch}
+.meta{font-size:13px;color:#6c757d;margin:0 0 32px}
+.ecran{margin:0 0 40px}
+.ecran h2{font-size:19px;margin:0 0 6px}
+.ecran p{font-size:14px;color:#495057;margin:0 0 14px;max-width:70ch}
+.cadre{width:390px;max-width:100%;border:1px solid #ced4da;border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.sommaire{margin:0 0 36px;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:8px}
+.sommaire a{display:inline-block;padding:8px 12px;background:#fff;border:1px solid #ced4da;border-radius:999px;text-decoration:none;font-size:14px}
+input[type=checkbox][role=switch]{appearance:none;-webkit-appearance:none;flex:0 0 auto;width:40px;height:22px;border-radius:999px;background:#adb5bd;position:relative;margin:0;cursor:pointer;border:0}
+input[type=checkbox][role=switch]:checked{background:#0d6efd}
+input[type=checkbox][role=switch]::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:999px;background:#fff}
+input[type=checkbox][role=switch]:checked::after{left:20px}
+</style>
+</head>
+<body>
+<div class="page">
+<h1>Badges : porteurs par année et configuration</h1>
+<p class="lede">Maquette de référence du chantier <code>CHANTIER-badges.md</code>. Elle fait autorité sur la hiérarchie des écrans, les libellés français et les états d'interaction — et sur rien d'autre. Le produit est en Bootstrap 5 et suit <code>design.md</code> §7.</p>
+<p class="meta">Largeur de référence : 390 px. Aucune dépendance externe, aucun script. Le rail de sous-pages représente <code>partials/page_picker.html.twig</code>.</p>
+<ul class="sommaire">
+<li><a href="#ecran-Main">Porteurs — année en cours</a></li>
+<li><a href="#ecran-Precedente">Porteurs — année précédente</a></li>
+<li><a href="#ecran-Configuration">Configuration des badges</a></li>
+</ul>
+<section class="ecran" id="ecran-Main">
+<h2>Porteurs — année en cours</h2>
+<p>Groupé par badge, seuls ceux qui ont au moins un porteur. Chaque nom mène à la fiche membre de l&#x27;Espace chefs d&#x27;U. « Intendance », désactivé mais encore porté, reste visible.</p>
+<div class="cadre">
+<div style="width: 390px; height: 1720px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 16px; background: #ffffff; color: #212529;">
+
+  <nav aria-label="Pages Badges" style="border-bottom: 1px solid #dee2e6; overflow-x: auto; margin: 0 -16px; padding: 0 16px;">
+    <div style="display: flex; gap: 2px; flex-wrap: nowrap; min-width: max-content;">
+      <a href="#ecran-Main" aria-current="page" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #0a58ca; font-weight: 600; border-bottom: 2px solid #0d6efd;">2026-2027</a>
+      <a href="#ecran-Precedente" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">2025-2026</a>
+      <a href="#ecran-Configuration" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Configuration</a>
+    </div>
+  </nav>
+
+  <div style="display: flex; flex-direction: column; gap: 4px;">
+    <div style="font-size: 13px; color: #5c636a;">Espace chefs d'U</div>
+    <h1 style="margin: 0; font-size: 22px; line-height: 1.2; font-weight: 600;">Badges — 2026-2027</h1>
+    <div style="font-size: 13px; color: #5c636a;">Les badges portés cette année, et par qui.</div>
+  </div>
+
+    <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px;">
+      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+        <h2 style="margin: 0; font-size: 16px; font-weight: 600; flex-grow: 1;">Infirmier</h2>
+        
+        <span style="font-size: 13px; color: #5c636a;">2 porteurs</span>
+      </div>
+      <div style="display: flex; flex-direction: column;">
+        <a href="#admin-members-id" style="display: flex; align-items: center; gap: 8px; min-height: 44px; text-decoration: none; color: inherit; border-bottom: 1px solid #f1f3f5;">
+          <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0;">
+            <span style="font-size: 15px;">Claire Renard</span>
+            <span style="font-size: 13px; color: #5c636a;">Lutins · Animatrice</span>
+          </span>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#adb5bd" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5"></path></svg>
+        </a>
+        <a href="#admin-members-id" style="display: flex; align-items: center; gap: 8px; min-height: 44px; text-decoration: none; color: inherit; border-bottom: 1px solid #f1f3f5;">
+          <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0;">
+            <span style="font-size: 15px;">Thomas Lecomte</span>
+            <span style="font-size: 13px; color: #5c636a;">Staff d'U · Trésorier</span>
+          </span>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#adb5bd" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5"></path></svg>
+        </a>
+      </div>
+    </div>
+
+    <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px;">
+      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+        <h2 style="margin: 0; font-size: 16px; font-weight: 600; flex-grow: 1;">Trésorier</h2>
+        
+        <span style="font-size: 13px; color: #5c636a;">1 porteur</span>
+      </div>
+      <div style="display: flex; flex-direction: column;">
+        <a href="#admin-members-id" style="display: flex; align-items: center; gap: 8px; min-height: 44px; text-decoration: none; color: inherit; border-bottom: 1px solid #f1f3f5;">
+          <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0;">
+            <span style="font-size: 15px;">Thomas Lecomte</span>
+            <span style="font-size: 13px; color: #5c636a;">Staff d'U · Trésorier</span>
+          </span>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#adb5bd" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5"></path></svg>
+        </a>
+      </div>
+    </div>
+
+    <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px;">
+      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+        <h2 style="margin: 0; font-size: 16px; font-weight: 600; flex-grow: 1;">Référent Lutins</h2>
+        <span style="font-size: 13px; background: #e9ecef; color: #41464b; border-radius: 999px; padding: 2px 8px;">Automatique</span>
+        <span style="font-size: 13px; color: #5c636a;">1 porteur</span>
+      </div>
+      <div style="display: flex; flex-direction: column;">
+        <a href="#admin-members-id" style="display: flex; align-items: center; gap: 8px; min-height: 44px; text-decoration: none; color: inherit; border-bottom: 1px solid #f1f3f5;">
+          <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0;">
+            <span style="font-size: 15px;">Marie Dubois</span>
+            <span style="font-size: 13px; color: #5c636a;">Staff d'U · Chef d'unité adjointe</span>
+          </span>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#adb5bd" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5"></path></svg>
+        </a>
+      </div>
+    </div>
+
+    <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px;">
+      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+        <h2 style="margin: 0; font-size: 16px; font-weight: 600; flex-grow: 1;">Référent Pionniers</h2>
+        <span style="font-size: 13px; background: #e9ecef; color: #41464b; border-radius: 999px; padding: 2px 8px;">Automatique</span>
+        <span style="font-size: 13px; color: #5c636a;">1 porteur</span>
+      </div>
+      <div style="display: flex; flex-direction: column;">
+        <a href="#admin-members-id" style="display: flex; align-items: center; gap: 8px; min-height: 44px; text-decoration: none; color: inherit; border-bottom: 1px solid #f1f3f5;">
+          <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0;">
+            <span style="font-size: 15px;">Marie Dubois</span>
+            <span style="font-size: 13px; color: #5c636a;">Staff d'U · Chef d'unité adjointe</span>
+          </span>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#adb5bd" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5"></path></svg>
+        </a>
+      </div>
+    </div>
+
+    <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px;">
+      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+        <h2 style="margin: 0; font-size: 16px; font-weight: 600; flex-grow: 1;">Communication</h2>
+        
+        <span style="font-size: 13px; color: #5c636a;">2 porteurs</span>
+      </div>
+      <div style="display: flex; flex-direction: column;">
+        <a href="#admin-members-id" style="display: flex; align-items: center; gap: 8px; min-height: 44px; text-decoration: none; color: inherit; border-bottom: 1px solid #f1f3f5;">
+          <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0;">
+            <span style="font-size: 15px;">Sophie Martens</span>
+            <span style="font-size: 13px; color: #5c636a;">Baladins · Animatrice</span>
+          </span>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#adb5bd" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5"></path></svg>
+        </a>
+        <a href="#admin-members-id" style="display: flex; align-items: center; gap: 8px; min-height: 44px; text-decoration: none; color: inherit; border-bottom: 1px solid #f1f3f5;">
+          <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0;">
+            <span style="font-size: 15px;">Julien Peeters</span>
+            <span style="font-size: 13px; color: #5c636a;">Pionniers · Animateur</span>
+          </span>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#adb5bd" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5"></path></svg>
+        </a>
+      </div>
+    </div>
+
+    <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px;">
+      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+        <h2 style="margin: 0; font-size: 16px; font-weight: 600; flex-grow: 1;">Intendance</h2>
+        <span style="font-size: 13px; background: #fff3cd; color: #664d03; border-radius: 999px; padding: 2px 8px;">Désactivé</span>
+        <span style="font-size: 13px; color: #5c636a;">1 porteur</span>
+      </div>
+      <div style="display: flex; flex-direction: column;">
+        <a href="#admin-members-id" style="display: flex; align-items: center; gap: 8px; min-height: 44px; text-decoration: none; color: inherit; border-bottom: 1px solid #f1f3f5;">
+          <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0;">
+            <span style="font-size: 15px;">Ahmed Bensalah</span>
+            <span style="font-size: 13px; color: #5c636a;">Staff d'U · Intendant</span>
+          </span>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#adb5bd" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5"></path></svg>
+        </a>
+      </div>
+    </div>
+
+  <p style="margin: 0; font-size: 13px; color: #5c636a;">
+    Cette page ne fait que lire. Pour attribuer ou retirer un badge, allez sur
+    <a href="#staffs">Staffs</a>, où chaque membre porte ses interrupteurs.
+  </p>
+  <p style="margin: 0; font-size: 13px; color: #5c636a;">
+    « Intendance » est désactivé mais garde son porteur : il reste à retirer, ou le badge est à
+    réactiver. Les badges sans aucun porteur n'apparaissent pas ici.
+  </p>
+
+</div>
+</div>
+</section>
+<section class="ecran" id="ecran-Precedente">
+<h2>Porteurs — année précédente</h2>
+<p>La même page sur l&#x27;année close, sans aucune action. L&#x27;écart avec l&#x27;année en cours se lit d&#x27;un coup.</p>
+<div class="cadre">
+<div style="width: 390px; height: 1220px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 16px; background: #ffffff; color: #212529;">
+
+  <nav aria-label="Pages Badges" style="border-bottom: 1px solid #dee2e6; overflow-x: auto; margin: 0 -16px; padding: 0 16px;">
+    <div style="display: flex; gap: 2px; flex-wrap: nowrap; min-width: max-content;">
+      <a href="#ecran-Main" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">2026-2027</a>
+      <a href="#ecran-Precedente" aria-current="page" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #0a58ca; font-weight: 600; border-bottom: 2px solid #0d6efd;">2025-2026</a>
+      <a href="#ecran-Configuration" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">Configuration</a>
+    </div>
+  </nav>
+
+  <div style="display: flex; flex-direction: column; gap: 4px;">
+    <div style="font-size: 13px; color: #5c636a;">Espace chefs d'U</div>
+    <h1 style="margin: 0; font-size: 22px; line-height: 1.2; font-weight: 600;">Badges — 2025-2026</h1>
+    <div style="font-size: 13px; color: #5c636a;">Qui portait quoi l'année dernière.</div>
+  </div>
+
+    <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px;">
+      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+        <h2 style="margin: 0; font-size: 16px; font-weight: 600; flex-grow: 1;">Infirmier</h2>
+        
+        <span style="font-size: 13px; color: #5c636a;">1 porteur</span>
+      </div>
+      <div style="display: flex; flex-direction: column;">
+        <a href="#admin-members-id" style="display: flex; align-items: center; gap: 8px; min-height: 44px; text-decoration: none; color: inherit; border-bottom: 1px solid #f1f3f5;">
+          <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0;">
+            <span style="font-size: 15px;">Claire Renard</span>
+            <span style="font-size: 13px; color: #5c636a;">Lutins · Animatrice</span>
+          </span>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#adb5bd" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5"></path></svg>
+        </a>
+      </div>
+    </div>
+
+    <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px;">
+      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+        <h2 style="margin: 0; font-size: 16px; font-weight: 600; flex-grow: 1;">Trésorier</h2>
+        
+        <span style="font-size: 13px; color: #5c636a;">1 porteur</span>
+      </div>
+      <div style="display: flex; flex-direction: column;">
+        <a href="#admin-members-id" style="display: flex; align-items: center; gap: 8px; min-height: 44px; text-decoration: none; color: inherit; border-bottom: 1px solid #f1f3f5;">
+          <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0;">
+            <span style="font-size: 15px;">Nathalie Goossens</span>
+            <span style="font-size: 13px; color: #5c636a;">Staff d'U · Trésorière</span>
+          </span>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#adb5bd" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5"></path></svg>
+        </a>
+      </div>
+    </div>
+
+    <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px;">
+      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+        <h2 style="margin: 0; font-size: 16px; font-weight: 600; flex-grow: 1;">Référent Lutins</h2>
+        <span style="font-size: 13px; background: #e9ecef; color: #41464b; border-radius: 999px; padding: 2px 8px;">Automatique</span>
+        <span style="font-size: 13px; color: #5c636a;">1 porteur</span>
+      </div>
+      <div style="display: flex; flex-direction: column;">
+        <a href="#admin-members-id" style="display: flex; align-items: center; gap: 8px; min-height: 44px; text-decoration: none; color: inherit; border-bottom: 1px solid #f1f3f5;">
+          <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0;">
+            <span style="font-size: 15px;">Marie Dubois</span>
+            <span style="font-size: 13px; color: #5c636a;">Staff d'U · Chef d'unité adjointe</span>
+          </span>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#adb5bd" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5"></path></svg>
+        </a>
+      </div>
+    </div>
+
+    <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px;">
+      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+        <h2 style="margin: 0; font-size: 16px; font-weight: 600; flex-grow: 1;">Communication</h2>
+        
+        <span style="font-size: 13px; color: #5c636a;">1 porteur</span>
+      </div>
+      <div style="display: flex; flex-direction: column;">
+        <a href="#admin-members-id" style="display: flex; align-items: center; gap: 8px; min-height: 44px; text-decoration: none; color: inherit; border-bottom: 1px solid #f1f3f5;">
+          <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0;">
+            <span style="font-size: 15px;">Julien Peeters</span>
+            <span style="font-size: 13px; color: #5c636a;">Pionniers · Animateur</span>
+          </span>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#adb5bd" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5"></path></svg>
+        </a>
+      </div>
+    </div>
+
+  <p style="margin: 0; font-size: 13px; color: #5c636a;">
+    Année close : rien ne s'y attribue ni ne s'y retire. Elle sert à retrouver qui tenait quel rôle.
+  </p>
+
+</div>
+</div>
+</section>
+<section class="ecran" id="ecran-Configuration">
+<h2>Configuration des badges</h2>
+<p>Déplacée telle quelle. Seules l&#x27;adresse, le menu et la disposition sous le point de rupture changent.</p>
+<div class="cadre">
+<div style="width: 390px; height: 1200px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 16px; background: #ffffff; color: #212529;">
+
+  <nav aria-label="Pages Badges" style="border-bottom: 1px solid #dee2e6; overflow-x: auto; margin: 0 -16px; padding: 0 16px;">
+    <div style="display: flex; gap: 2px; flex-wrap: nowrap; min-width: max-content;">
+      <a href="#ecran-Main" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">2026-2027</a>
+      <a href="#ecran-Precedente" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #5c636a; border-bottom: 2px solid transparent;">2025-2026</a>
+      <a href="#ecran-Configuration" aria-current="page" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; text-decoration: none; white-space: nowrap; font-size: 14px; color: #0a58ca; font-weight: 600; border-bottom: 2px solid #0d6efd;">Configuration</a>
+    </div>
+  </nav>
+
+  <div style="display: flex; flex-direction: column; gap: 4px;">
+    <div style="font-size: 13px; color: #5c636a;">Espace chefs d'U</div>
+    <h1 style="margin: 0; font-size: 22px; line-height: 1.2; font-weight: 600;">Configuration des badges</h1>
+  </div>
+
+  <div style="border: 1px dashed #adb5bd; border-radius: 6px; padding: 12px; font-size: 13px; color: #495057; line-height: 1.6;">
+    <strong>Déplacée telle quelle depuis Configuration › Badges.</strong> Seules l'adresse, le menu et
+    la disposition sur petit écran changent.
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 8px;">
+    <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px;">
+      <input type="text" value="Infirmier" readonly aria-label="Nom du badge" style="width: 100%; box-sizing: border-box; min-height: 44px; border: 1px solid #ced4da; border-radius: 6px; padding: 0 10px; font-size: 15px; font-family: inherit; background: #e9ecef; color: #5c636a;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <input type="checkbox" role="switch" id="sw-inf" checked>
+        <label for="sw-inf" style="font-size: 14px; flex-grow: 1;">Actif</label>
+      <button type="button" disabled aria-label="Supprimer le badge Infirmier" title="Badge par défaut : non supprimable" style="flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid #adb5bd; border-radius: 6px; background: #ffffff; color: #adb5bd;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4.5h12"></path><path d="M6.5 4.5V3h5v1.5"></path><path d="M4.5 4.5l.8 10h7.4l.8-10"></path></svg></button>
+      </div>
+    </div>
+    <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px;">
+      <input type="text" value="Trésorier" readonly aria-label="Nom du badge" style="width: 100%; box-sizing: border-box; min-height: 44px; border: 1px solid #ced4da; border-radius: 6px; padding: 0 10px; font-size: 15px; font-family: inherit; background: #e9ecef; color: #5c636a;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <input type="checkbox" role="switch" id="sw-tre" checked>
+        <label for="sw-tre" style="font-size: 14px; flex-grow: 1;">Actif</label>
+      <button type="button" disabled aria-label="Supprimer le badge Trésorier" title="Badge par défaut : non supprimable" style="flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid #adb5bd; border-radius: 6px; background: #ffffff; color: #adb5bd;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4.5h12"></path><path d="M6.5 4.5V3h5v1.5"></path><path d="M4.5 4.5l.8 10h7.4l.8-10"></path></svg></button>
+      </div>
+    </div>
+    <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px;">
+      <input type="text" value="Référent Lutins" readonly aria-label="Nom du badge" style="width: 100%; box-sizing: border-box; min-height: 44px; border: 1px solid #ced4da; border-radius: 6px; padding: 0 10px; font-size: 15px; font-family: inherit; background: #e9ecef; color: #5c636a;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <input type="checkbox" role="switch" id="sw-ref" checked>
+        <label for="sw-ref" style="font-size: 14px; flex-grow: 1;">Actif</label>
+      <button type="button" disabled aria-label="Supprimer le badge Référent Lutins" title="Badge automatique : non supprimable" style="flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid #adb5bd; border-radius: 6px; background: #ffffff; color: #adb5bd;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4.5h12"></path><path d="M6.5 4.5V3h5v1.5"></path><path d="M4.5 4.5l.8 10h7.4l.8-10"></path></svg></button>
+      </div>
+    </div>
+    <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px;">
+      <input type="text" value="Communication" aria-label="Nom du badge" style="width: 100%; box-sizing: border-box; min-height: 44px; border: 1px solid #ced4da; border-radius: 6px; padding: 0 10px; font-size: 15px; font-family: inherit;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <input type="checkbox" role="switch" id="sw-com" checked>
+        <label for="sw-com" style="font-size: 14px; flex-grow: 1;">Actif</label>
+      <button type="button" disabled aria-label="Supprimer le badge Communication" title="Badge attribué : non supprimable" style="flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid #adb5bd; border-radius: 6px; background: #ffffff; color: #adb5bd;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4.5h12"></path><path d="M6.5 4.5V3h5v1.5"></path><path d="M4.5 4.5l.8 10h7.4l.8-10"></path></svg></button>
+      </div>
+    </div>
+    <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px;">
+      <input type="text" value="Matériel" aria-label="Nom du badge" style="width: 100%; box-sizing: border-box; min-height: 44px; border: 1px solid #ced4da; border-radius: 6px; padding: 0 10px; font-size: 15px; font-family: inherit;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <input type="checkbox" role="switch" id="sw-mat">
+        <label for="sw-mat" style="font-size: 14px; flex-grow: 1;">Actif</label>
+      <button type="button" aria-label="Supprimer le badge Matériel" title="Supprimer" style="flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid #b02a37; border-radius: 6px; background: #ffffff; color: #b02a37;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4.5h12"></path><path d="M6.5 4.5V3h5v1.5"></path><path d="M4.5 4.5l.8 10h7.4l.8-10"></path></svg></button>
+      </div>
+    </div>
+  </div>
+
+  <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px;">
+    <input type="text" placeholder="Communication" aria-label="Nom du nouveau badge" style="width: 100%; box-sizing: border-box; min-height: 44px; border: 1px solid #ced4da; border-radius: 6px; padding: 0 10px; font-size: 15px; font-family: inherit;">
+    <button type="button" style="display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 0 16px; border: 0; border-radius: 6px; background: #0d6efd; color: #ffffff; font-size: 15px; font-family: inherit; align-self: flex-start;">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10"></path><path d="M3 8h10"></path></svg>
+      Ajouter
+    </button>
+  </div>
+
+</div>
+</div>
+</section>
+</div>
+</body>
+</html>
