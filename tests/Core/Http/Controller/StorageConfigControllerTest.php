@@ -45,13 +45,13 @@ use Core\Storage\Location\StorageConsequence;
 use Core\Storage\Location\StorageLocationType;
 use Core\Storage\Volume\VolumeInventory;
 use PHPUnit\Framework\TestCase;
+use Tests\Core\Storage\Location\Backend\Drive\FakeDrive;
 use Tests\DatabaseTestHelper;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
 use Modules\LlmConnector\Api\LlmConnectorInterface;
 use Modules\LlmConnector\Api\LlmException;
 use Modules\LlmConnector\Api\LlmResponse;
-use Twig\TwigFunction;
 
 /**
  * « Stockage », the core screen the locations moved to in IT-02.
@@ -679,6 +679,167 @@ class StorageConfigControllerTest extends TestCase
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertNull($this->repository->findById($id));
+    }
+
+    // ————— A Drive location's folder follows it (#474) —————
+
+    /**
+     * **Deleting a Drive location puts its folder in the trash, and the
+     * confirmation says so** — the only way back from a wrong click is
+     * Google's trash, and an administrator who is not told cannot use it.
+     */
+    public function testDeletingADriveLocationTrashesItsFolderAndSaysWhereItWent(): void
+    {
+        $drive = new FakeDrive('dossier-1', 'Google Drive');
+        $id = $this->declareDrive();
+
+        $response = $this->driveController($drive)->delete($this->formRequest([]), ['id' => (string) $id]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertNull($this->repository->findById($id));
+        $this->assertTrue($drive->files['dossier-1']['trashed']);
+        $this->assertStringContainsString('corbeille', $this->flashMessage());
+    }
+
+    /**
+     * A Drive that refuses does not keep the location alive: it is
+     * deleted, the failure is journaled, and the administrator is told
+     * the folder stayed where it was.
+     */
+    public function testADriveFolderThatCannotBeTrashedIsJournaledWithoutBlockingTheDeletion(): void
+    {
+        $drive = new FakeDrive('dossier-1', 'Google Drive');
+        $drive->failPatchesWith = 500;
+        $id = $this->declareDrive();
+
+        $this->driveController($drive)->delete($this->formRequest([]), ['id' => (string) $id]);
+
+        $this->assertNull($this->repository->findById($id));
+        $this->assertFalse($drive->files['dossier-1']['trashed']);
+        $this->assertSame(1, $this->journalCount('storage_location_folder_trash_failed'));
+        $this->assertStringContainsString('n\'a pas pu être placé dans la corbeille', $this->flashMessage());
+    }
+
+    /**
+     * Two locations connected before #474 can share one folder: deleting
+     * one leaves it in place, and says which location still uses it.
+     */
+    public function testDeletingALocationWhoseFolderIsSharedLeavesItAndSaysWhy(): void
+    {
+        $drive = new FakeDrive('dossier-1', 'Google Drive');
+        $id = $this->declareDrive();
+        $this->declareDrive('Sauvegardes hors site');
+
+        $this->driveController($drive)->delete($this->formRequest([]), ['id' => (string) $id]);
+
+        $this->assertNull($this->repository->findById($id));
+        $this->assertFalse($drive->files['dossier-1']['trashed']);
+        $this->assertStringContainsString('« Sauvegardes hors site » : il est resté en place', $this->flashMessage());
+    }
+
+    /**
+     * Deleting a location the administrator disconnected first is an
+     * ordinary action: no warning in the journal, and the message says
+     * the folder stayed on Drive.
+     */
+    public function testDeletingADisconnectedLocationSaysTheFolderStayedWithoutAWarning(): void
+    {
+        $drive = new FakeDrive('dossier-1', 'Google Drive');
+        $id = $this->repository->create(
+            StorageLocationType::GoogleDrive,
+            'Google Drive',
+            new GoogleDriveLocationConfig('', 'dossier-1', ''),
+            (string) json_encode(['client_secret' => '', 'refresh_token' => '', 'account' => ''])
+        );
+
+        $this->driveController($drive)->delete($this->formRequest([]), ['id' => (string) $id]);
+
+        $this->assertNull($this->repository->findById($id));
+        $this->assertFalse($drive->files['dossier-1']['trashed']);
+        $this->assertSame(0, $this->journalCount('storage_location_folder_trash_failed'));
+        $this->assertStringContainsString("n'était plus raccordé à Google Drive", $this->flashMessage());
+    }
+
+    /**
+     * A rename the Drive folder does not follow — shared with another
+     * location, or the location disconnected — is not a fault, but the
+     * administrator is told the folder kept its name.
+     */
+    public function testARenameTheFolderDoesNotFollowSaysWhyWithoutAWarning(): void
+    {
+        $drive = new FakeDrive('dossier-1', 'Google Drive');
+        $id = $this->declareDrive();
+        $this->declareDrive('Sauvegardes hors site');
+
+        $this->driveController($drive)->update(
+            $this->formRequest(['label' => 'Galeries du groupe', 'drive_client_id' => 'client-1']),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame('Galeries du groupe', $this->repository->findById($id)?->label);
+        $this->assertSame(0, $this->journalCount('storage_location_folder_rename_failed'));
+        $this->assertStringContainsString('« Sauvegardes hors site » : il garde son nom', $this->flashMessage());
+    }
+
+    public function testRenamingADriveLocationRenamesItsFolder(): void
+    {
+        $drive = new FakeDrive('dossier-1', 'Google Drive');
+        $id = $this->declareDrive();
+
+        $this->driveController($drive)->update(
+            $this->formRequest(['label' => 'Photos des galeries', 'drive_client_id' => 'client-1']),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame('Photos des galeries', $this->repository->findById($id)?->label);
+        $this->assertSame('Photos des galeries', $drive->files['dossier-1']['name']);
+        $this->assertSame(0, $this->journalCount('storage_location_folder_rename_failed'));
+    }
+
+    public function testARenameTheFolderCannotFollowIsSavedJournaledAndShown(): void
+    {
+        $drive = new FakeDrive('dossier-1', 'Google Drive');
+        $drive->failPatchesWith = 500;
+        $id = $this->declareDrive();
+
+        $this->driveController($drive)->update(
+            $this->formRequest(['label' => 'Photos des galeries', 'drive_client_id' => 'client-1']),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame('Photos des galeries', $this->repository->findById($id)?->label);
+        $this->assertSame(1, $this->journalCount('storage_location_folder_rename_failed'));
+        $this->assertStringContainsString('n\'a pas pu être renommé', $this->flashMessage());
+    }
+
+    /** The confirmation before deleting a Drive location announces the trash. */
+    public function testTheDriveDeleteConfirmationAnnouncesTheTrash(): void
+    {
+        $this->declareDrive();
+        $this->declareLocal('Disque', 'gallery');
+
+        $html = (string) $this->controller->locations(new Request('GET', '/config/stockage/emplacements', [], [], [], []), [])
+            ->getBody();
+
+        $this->assertStringContainsString('sera placé dans la corbeille', $html);
+        $this->assertStringContainsString('le site cesse seulement de la connaître', $html);
+    }
+
+    private function driveController(FakeDrive $drive): StorageConfigController
+    {
+        return $this->buildControllerWith(new StorageLocationService(
+            $this->repository,
+            new StorageBackendFactory($this->repository, $this->storagePath, $drive->client()),
+            $this->consumers
+        ));
+    }
+
+    private function journalCount(string $eventType): int
+    {
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM event_log WHERE event_type = ?');
+        $stmt->execute([$eventType]);
+
+        return (int) $stmt->fetchColumn();
     }
 
     public function testDeleteAnswersNotFoundForALocationThatIsNoLongerThere(): void
@@ -1942,18 +2103,7 @@ class StorageConfigControllerTest extends TestCase
 
     private function buildTwig(): Environment
     {
-        $loader = new FilesystemLoader(dirname(__DIR__, 4) . '/core/View/templates');
-        $twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
-        $twig->addExtension(new \Core\View\DateFilterExtension());
-        $twig->addFunction(new TwigFunction('asset', static fn (string $path): string => $path));
-        $twig->addFunction(new TwigFunction(
-            'csrf_field',
-            static fn (): string => '<input type="hidden" name="_csrf_token" value="test">',
-            ['is_safe' => ['html']]
-        ));
-        $twig->addFunction(new TwigFunction('get_flash', static fn (): ?string => null));
-        $twig->addFunction(new TwigFunction('csrf_token', static fn (): string => 'test'));
-        $twig->addFunction(new TwigFunction('file_url', static fn (): string => ''));
+        $twig = TestTwig::create();
         // Registered by Core\View\TwigFactory in production; the page prints
         // « Vérifié il y a deux minutes » through it.
         $twig->addGlobal('site_name', 'Test');

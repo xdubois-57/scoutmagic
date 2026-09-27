@@ -26,8 +26,7 @@ use Core\Storage\Location\StorageLocationRepository;
 use Core\Storage\Location\StorageLocationType;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
-use Twig\Environment;
-use Twig\Loader\ArrayLoader;
+use Tests\TestTwig;
 
 /**
  * The two things about the off-site backup that are not a storage
@@ -385,7 +384,7 @@ final class RemoteBackupControllerTest extends TestCase
         $this->journal = new RecordingJournalRepository();
 
         return new RemoteBackupController(
-            new Environment(new ArrayLoader([])),
+            TestTwig::create(),
             $this->destination,
             $this->locations,
             new JournalService($this->journal),

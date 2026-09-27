@@ -20,10 +20,13 @@ use Core\Support\SupportCollectorInterface;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class ApplicationCollectorsTest extends TestCase
 {
+    use UsesProductionEngine;
+
     private \PDO $pdo;
     private SettingService $settings;
     private SettingRepository $settingRepository;
@@ -138,7 +141,8 @@ class ApplicationCollectorsTest extends TestCase
 
     /**
      * The one requirement that has to be verified against a real dump: no
-     * INSERT, ever. Runs against the MySQL test database because
+     * INSERT, ever. Runs against the MySQL test database (the shared
+     * `Tests\UsesProductionEngine` connection) because
      * Core\Database\DatabaseDumper genuinely speaks MySQL.
      *
      * @group database
@@ -146,22 +150,12 @@ class ApplicationCollectorsTest extends TestCase
     #[\PHPUnit\Framework\Attributes\Group('database')]
     public function testTheStructureDumpContainsNoInsertStatement(): void
     {
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('TEST_DB_PORT') ?: '3306');
-        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
-        $user = getenv('TEST_DB_USER') ?: 'root';
-        $password = getenv('TEST_DB_PASSWORD') ?: '';
-
-        try {
-            $mysql = new \PDO(
-                sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', $host, $port, $dbName),
-                $user,
-                $password,
-                [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
-            );
-        } catch (\PDOException $e) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database not available: ' . $e->getMessage());
-        }
+        // A real Connection rather than a mock: getPdo() and
+        // dumpCredentials() then describe the same server, as they do on
+        // an installed site, and DatabaseDumper opens its own connection
+        // from the latter.
+        $connection = self::productionEngineConnection();
+        $mysql = $connection->getPdo();
 
         $mysql->exec('SET FOREIGN_KEY_CHECKS = 0');
         foreach ($mysql->query('SHOW TABLES')->fetchAll(\PDO::FETCH_COLUMN) ?: [] as $table) {
@@ -171,11 +165,6 @@ class ApplicationCollectorsTest extends TestCase
         $mysql->exec('CREATE TABLE support_dump_probe (id INT PRIMARY KEY, secret_label VARCHAR(50))');
         $mysql->exec("INSERT INTO support_dump_probe (id, secret_label) VALUES (1, 'ROW-THAT-MUST-NOT-BE-EXPORTED')");
 
-        $connection = $this->createMock(Connection::class);
-        $connection->method('getPdo')->willReturn($mysql);
-        $connection->method('dumpCredentials')->willReturn([
-            'host' => $host, 'port' => $port, 'dbName' => $dbName, 'user' => $user, 'password' => $password,
-        ]);
         $this->connection = $connection;
 
         $result = $this->runCollector(new DatabaseStructureCollector());

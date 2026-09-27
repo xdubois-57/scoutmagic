@@ -46,7 +46,7 @@ class TrombinoscopeServiceTest extends TestCase
         ]);
 
         $sectionService = $this->createMock(SectionService::class);
-        $sectionService->method('hydrateMemberProfiles')->with([10, 20])->willReturn([
+        $sectionService->expects($this->once())->method('hydrateMemberProfiles')->with([10, 20])->willReturn([
             10 => $this->makeProfile(10, 1, 'Alice'),
             20 => $this->makeProfile(20, 2, 'Bob'),
         ]);

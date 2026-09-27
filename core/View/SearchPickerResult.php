@@ -54,7 +54,8 @@ final class SearchPickerResult
     public function toArray(): array
     {
         $row = ['id' => $this->id, 'label' => $this->label];
-        foreach (['subtitle' => $this->subtitle, 'badge' => $this->badge, 'warning' => $this->warning] as $key => $value) {
+        $optional = ['subtitle' => $this->subtitle, 'badge' => $this->badge, 'warning' => $this->warning];
+        foreach ($optional as $key => $value) {
             if ($value !== null && $value !== '') {
                 $row[$key] = $value;
             }

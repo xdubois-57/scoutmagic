@@ -59,11 +59,12 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
     /**
      * How a test gets a database in this repository.
      *
-     * Three idioms, all of them a build rather than a connection: the
-     * shared helper, a bare in-memory handle, and a module helper laying
-     * out its own tables. A class reaching a *real* server does it from
-     * `TEST_DB_*` instead, and `DatabaseBackedTestsReallyRunTest` is the
-     * guard for that half — the two do not overlap.
+     * Four idioms, all of them a build rather than a connection: the
+     * shared helper, a bare in-memory handle, a module helper laying out
+     * its own tables, and the production schema the real-engine fixture
+     * migrates. Whether that last one really reaches a server is
+     * `DatabaseBackedTestsReallyRunTest`'s half; this one only asks that
+     * it be selected.
      */
     private const MOUNTS = [
         '/DatabaseTestHelper::createTestDatabase\s*\(/',
@@ -80,6 +81,12 @@ final class DatabaseBackedTestsCarryTheGroupTest extends TestCase
         '/new\s+\\\\?[\w\\\\]+\s*\(\s*[\'"]sqlite::memory:/',
 
         '/\w*TestHelper::createTables\s*\(/',
+
+        // The fourth, and the one that reaches the real engine: the
+        // production schema migrated into a database of the class's own
+        // (`Tests\UsesProductionEngine`, issue #481). It builds one as
+        // surely as the three above, so it is selected the same way.
+        '/->productionEngine\s*\(/',
     ];
 
     /**

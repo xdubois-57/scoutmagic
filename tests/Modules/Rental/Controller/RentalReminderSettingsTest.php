@@ -113,10 +113,13 @@ class RentalReminderSettingsTest extends TestCase
             new RentalAuthorizationService($memberService, $assetRepository, $managerRepository),
             $assetRepository,
             $scoutYearResolver,
-            // Required since IT-02: the conditions a renter ticks live in
-            // the generic editable-content store. Nothing here reaches
-            // them, but a controller that cannot be built proves nothing.
-            new EditableContentService(new EditableContentRepository($this->pdo)),
+            // Required since IT-02, versioned since issue #494: the
+            // conditions a renter ticks. Nothing here reaches them, but a
+            // controller that cannot be built proves nothing.
+            new \Modules\Rental\Service\RentalConditionsService(
+                new \Modules\Rental\Repository\RentalConditionsVersionRepository($this->pdo),
+                new EditableContentService(new EditableContentRepository($this->pdo))
+            ),
             null,
             $this->reminderRepository
         );

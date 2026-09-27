@@ -58,8 +58,13 @@ class CarpoolNotifier
         ]);
     }
 
-    public function requestPending(Carpool $carpool, Offer $offer, SeatRequest $request, int $daysWaiting, int $daysBefore): void
-    {
+    public function requestPending(
+        Carpool $carpool,
+        Offer $offer,
+        SeatRequest $request,
+        int $daysWaiting,
+        int $daysBefore
+    ): void {
         $this->send('covoiturage.request_pending', [$offer->driverAccountId], [
             'title' => 'Une demande attend votre réponse',
             'body' => $request->requesterName . ', depuis ' . self::days($daysWaiting) . '. '
@@ -74,7 +79,8 @@ class CarpoolNotifier
             'title' => 'Une demande a été retirée',
             'body' => $request->requesterName . ' a retiré sa demande — '
                 . ($request->isAccepted()
-                    ? self::seats($request->passengerCount) . ($request->passengerCount > 1 ? ' se libèrent' : ' se libère')
+                    ? self::seats($request->passengerCount)
+                        . ($request->passengerCount > 1 ? ' se libèrent' : ' se libère')
                         . ' sur ' . ($offer->isOutbound() ? 'l\'' : 'le ') . self::trip($carpool, $offer)
                     : self::trip($carpool, $offer))
                 . '.',
@@ -87,7 +93,8 @@ class CarpoolNotifier
         $this->send('covoiturage.request_accepted', [$request->requesterAccountId], [
             'title' => 'Votre place est confirmée',
             'body' => $offer->driverName . ' a accepté ' . self::seats($request->passengerCount) . ' — '
-                . self::trip($carpool, $offer) . ', ' . $offer->endpoint . ', ' . CarpoolFormat::time($offer->departureTime) . '.',
+                . self::trip($carpool, $offer) . ', ' . $offer->endpoint . ', '
+                . CarpoolFormat::time($offer->departureTime) . '.',
             'url' => self::url($carpool, $offer),
         ]);
     }
@@ -163,7 +170,9 @@ class CarpoolNotifier
         }
 
         $cancelled = $offer->driverName . ' a annulé ' . ($offer->isOutbound() ? 'son aller' : 'son retour')
-            . ' du ' . CarpoolFormat::day($offer->isOutbound() ? $carpool->outboundDate : ($carpool->returnDate ?? $carpool->outboundDate)) . '.';
+            . ' du ' . CarpoolFormat::day(
+                $offer->isOutbound() ? $carpool->outboundDate : ($carpool->returnDate ?? $carpool->outboundDate)
+            ) . '.';
         $url = '/covoiturage/' . $carpool->id . ($offer->isOutbound() ? '' : '?sens=return');
 
         $this->send('covoiturage.offer_cancelled', $accepted, [

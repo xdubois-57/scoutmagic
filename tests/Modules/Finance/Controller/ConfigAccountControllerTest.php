@@ -34,9 +34,8 @@ use Modules\Finance\Service\TreasurerScope;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
-use Twig\TwigFunction;
 use Core\Member\Repository\MemberProfileRepository;
 use Core\Member\Repository\SectionRepository;
 
@@ -387,14 +386,7 @@ class ConfigAccountControllerTest extends TestCase
 
     private function twig(): Environment
     {
-        $loader = new FilesystemLoader(dirname(__DIR__, 4) . '/core/View/templates');
-        $loader->addPath(dirname(__DIR__, 4) . '/modules/finance/views', 'finance');
-        $twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
-        $twig->addFunction(new TwigFunction('asset', static fn (string $path): string => $path));
-        $twig->addFunction(new TwigFunction('csrf_field', static fn (): string => '', ['is_safe' => ['html']]));
-        $twig->addFunction(new TwigFunction('csrf_token', static fn (): string => 'test'));
-        $twig->addFunction(new TwigFunction('get_flash', static fn () => null));
-        $twig->addFunction(new TwigFunction('file_url', static fn (): string => ''));
+        $twig = TestTwig::create(['finance']);
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_role', 'admin');

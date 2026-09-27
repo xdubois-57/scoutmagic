@@ -68,7 +68,7 @@ class CarpoolController extends AbstractController
             return $this->notFound();
         }
         $viewer = $this->viewer();
-        $direction = (string) $request->getQuery('sens', Offer::OUTBOUND) === Offer::RETURN ? Offer::RETURN : Offer::OUTBOUND;
+        $direction = self::direction($request);
 
         return $this->render('@covoiturage/show.html.twig', [
             'carpool' => $this->board->carpoolPage($carpool, $viewer),
@@ -253,12 +253,14 @@ class CarpoolController extends AbstractController
         }
         $viewer = $this->viewer();
 
-        return $this->act($request, $carpool, $offer, fn() => match ($action) {
+        $apply = fn() => match ($action) {
             'accept' => $this->offerService->accept($seatRequest, $offer, $viewer, $carpool),
             'refuse' => $this->offerService->refuse($seatRequest, $offer, $viewer, $carpool),
             'revoke' => $this->offerService->revoke($seatRequest, $offer, $viewer, $carpool),
             default => $this->offerService->withdraw($seatRequest, $viewer, $carpool, $offer),
-        }, $success);
+        };
+
+        return $this->act($request, $carpool, $offer, $apply, $success);
     }
 
     /**
@@ -317,7 +319,7 @@ class CarpoolController extends AbstractController
         $prefill = $this->board->prefill($this->viewer());
 
         return [
-            'direction' => (string) $request->getQuery('sens', Offer::OUTBOUND) === Offer::RETURN ? Offer::RETURN : Offer::OUTBOUND,
+            'direction' => self::direction($request),
             'departure_time' => '',
             'endpoint' => '',
             'seats' => '4',
@@ -341,6 +343,14 @@ class CarpoolController extends AbstractController
     private function carpoolUrl(Carpool $carpool, Offer $offer): string
     {
         return '/covoiturage/' . $carpool->id . ($offer->isOutbound() ? '' : '?sens=return');
+    }
+
+    /** The direction `?sens=` asks for; anything but `return` reads as the outbound trip. */
+    private static function direction(Request $request): string
+    {
+        $asked = (string) $request->getQuery('sens', Offer::OUTBOUND);
+
+        return $asked === Offer::RETURN ? Offer::RETURN : Offer::OUTBOUND;
     }
 
     /**

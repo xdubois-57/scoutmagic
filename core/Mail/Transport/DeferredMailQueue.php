@@ -238,11 +238,13 @@ final class DeferredMailQueue
 
     public function lifetimeHours(): int
     {
-        return max(1, (int) $this->settings->get(
+        $hours = (int) $this->settings->get(
             self::SETTING_LIFETIME_HOURS,
             null,
             (string) self::DEFAULT_LIFETIME_HOURS
-        ));
+        );
+
+        return max(1, $hours);
     }
 
     public function abandonedRetentionDays(): int

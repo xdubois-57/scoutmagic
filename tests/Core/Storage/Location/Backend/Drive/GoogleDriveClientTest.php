@@ -858,6 +858,108 @@ final class GoogleDriveClientTest extends TestCase
     /**
      * @param \Closure(string, string, array<string, string>, ?string): array{status: int, body: string, location?: string} $answer
      */
+    // ————— Folders (#474) —————
+
+    /**
+     * A location's folder is created under the shared parent, never
+     * looked up by name — two locations must not end up in one folder.
+     */
+    public function testAFolderIsCreatedUnderTheParentItIsGiven(): void
+    {
+        $bodies = [];
+        $client = $this->clientAnswering(function (string $method, string $url, array $headers, ?string $body) use (&$bodies): array {
+            $bodies[] = [$method, $body];
+
+            return ['status' => 200, 'body' => '{"id":"folder-9"}'];
+        });
+
+        $this->assertSame('folder-9', $client->createFolder('token', 'Photos des galeries', 'parent-1'));
+        $this->assertCount(1, $bodies, 'a lookup was made before creating a folder that must always be new');
+        $this->assertSame('POST', $bodies[0][0]);
+        $this->assertSame(
+            ['name' => 'Photos des galeries', 'mimeType' => GoogleDriveClient::FOLDER_MIME, 'parents' => ['parent-1']],
+            json_decode((string) $bodies[0][1], true)
+        );
+    }
+
+    /**
+     * Of two namesake sub-folders the OLDEST is « the » folder, so every
+     * reader and writer agree — which is what the ordering is for.
+     */
+    public function testASubFolderIsFoundInItsParentOldestFirst(): void
+    {
+        $asked = '';
+        $client = $this->clientAnswering(function (string $method, string $url) use (&$asked): array {
+            $asked = $url;
+
+            return ['status' => 200, 'body' => '{"files":[{"id":"album-5"}]}'];
+        });
+
+        $this->assertSame('album-5', $client->findFolder('token', 'folder-1', '5'));
+
+        $query = [];
+        parse_str((string) parse_url($asked, PHP_URL_QUERY), $query);
+        $this->assertSame('createdTime', $query['orderBy'] ?? null);
+        $this->assertStringContainsString("'folder-1' in parents", (string) $query['q']);
+        $this->assertStringContainsString("name='5'", (string) $query['q']);
+    }
+
+    public function testAFileDriveNoLongerKnowsIsDescribedAsNothing(): void
+    {
+        $client = $this->clientAnswering(fn (): array => ['status' => 404, 'body' => '{}']);
+
+        $this->assertNull($client->describeFile('token', 'gone'));
+    }
+
+    public function testATrashedFolderIsDescribedAsTrashed(): void
+    {
+        $client = $this->clientAnswering(fn (): array => [
+            'status' => 200,
+            'body' => '{"id":"f","name":"Galeries","trashed":true}',
+        ]);
+
+        $this->assertSame(['name' => 'Galeries', 'trashed' => true], $client->describeFile('token', 'f'));
+    }
+
+    /**
+     * Renaming and trashing are both a `PATCH` of the metadata — the
+     * trash is never a `DELETE`, which would not be recoverable.
+     */
+    public function testRenamingAndTrashingPatchTheMetadata(): void
+    {
+        $calls = [];
+        $client = $this->clientAnswering(function (string $method, string $url, array $headers, ?string $body) use (&$calls): array {
+            $calls[] = [$method, json_decode((string) $body, true)];
+
+            return ['status' => 200, 'body' => '{"id":"f"}'];
+        });
+
+        $client->renameFile('token', 'f', 'Nouveau nom');
+        $client->trashFile('token', 'f');
+
+        $this->assertSame(
+            [['PATCH', ['name' => 'Nouveau nom']], ['PATCH', ['trashed' => true]]],
+            $calls
+        );
+    }
+
+    /** A listing of files leaves the sub-folders to the walk. */
+    public function testAPageOfFilesLeavesTheFoldersOut(): void
+    {
+        $asked = '';
+        $client = $this->clientAnswering(function (string $method, string $url) use (&$asked): array {
+            $asked = $url;
+
+            return ['status' => 200, 'body' => '{"files":[]}'];
+        });
+
+        $client->listPage('token', 'folder-1', null, 100);
+
+        $query = [];
+        parse_str((string) parse_url($asked, PHP_URL_QUERY), $query);
+        $this->assertStringContainsString("mimeType!='" . GoogleDriveClient::FOLDER_MIME . "'", (string) $query['q']);
+    }
+
     private function clientAnswering(\Closure $answer): GoogleDriveClient
     {
         return new GoogleDriveClient($answer);

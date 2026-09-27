@@ -137,9 +137,9 @@ final class GroupsTaskFactory
 
         return new SectionGroupSyncService(
             new SectionService(
-    new SectionRepository($context->connection),
-    new MemberProfileRepository($context->connection, $context->encryption, new MemberBadgeRepository($pdo))
-),
+                new SectionRepository($context->connection),
+                new MemberProfileRepository($context->connection, $context->encryption, new MemberBadgeRepository($pdo))
+            ),
             new GroupRepository($pdo),
             new GroupSectionRepository($pdo)
         );

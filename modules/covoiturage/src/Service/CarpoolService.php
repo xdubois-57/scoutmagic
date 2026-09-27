@@ -151,7 +151,13 @@ class CarpoolService
             throw new CarpoolException(self::RETURN_REMOVAL_REFUSED);
         }
 
-        $this->carpools->update($carpool->id, $data['address'], $data['outbound'], $data['return'], $data['section_id']);
+        $this->carpools->update(
+            $carpool->id,
+            $data['address'],
+            $data['outbound'],
+            $data['return'],
+            $data['section_id']
+        );
         $this->carpools->replaceEvents($carpool->id, $data['events']);
 
         $points = $this->carpools->points();
@@ -253,7 +259,9 @@ class CarpoolService
         }
         $today = (new \DateTimeImmutable('today'))->format('Y-m-d');
         if ($outbound < $today && ($existing === null || $existing->outboundDate !== $outbound)) {
-            throw new CarpoolException('La date de l\'aller est déjà passée : un covoiturage prépare une sortie à venir.');
+            throw new CarpoolException(
+                'La date de l\'aller est déjà passée : un covoiturage prépare une sortie à venir.'
+            );
         }
         $returnRaw = trim((string) ($input['return_date'] ?? ''));
         $return = $returnRaw === '' ? null : DateInput::isoStringOrNull($returnRaw);
@@ -286,12 +294,11 @@ class CarpoolService
             'outbound' => $outbound,
             'return' => $return,
             'section_id' => $sectionId,
-            'events' => array_map(static fn(EventSummary $e): CarpoolEvent => new CarpoolEvent(
-                $e->id,
-                $e->title,
-                $e->sectionId,
-                $e->sectionName
-            ), $events),
+            'events' => array_map(
+                static fn(EventSummary $e): CarpoolEvent
+                    => new CarpoolEvent($e->id, $e->title, $e->sectionId, $e->sectionName),
+                $events
+            ),
             'point' => $point,
             'point_given' => $pointGiven,
         ];

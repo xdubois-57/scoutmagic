@@ -1,0 +1,41 @@
+{% extends 'base.html.twig' %}
+{% block title %}Conditions de location — {{ asset.name }} — {{ site_name }}{% endblock %}
+{#
+  One wording of an asset's conditions (issue #494): the version in force at
+  /locations/{slug}/conditions, or an archived one at
+  /locations/{slug}/conditions/{version}, which never changes once written.
+  The request form links here, and each email to a renter links to the
+  version they accepted.
+
+  `shown` is the version on the page, `current` the one in force. When they
+  differ the page says so first, before the text, and links to the one in
+  force: a renter reading an old wording must not take it for today's.
+#}
+{% block content %}
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Conditions de location — ' ~ asset.name,
+        } only %}
+
+        {% if not is_current %}
+            <div class="alert alert-warning" role="alert">
+                Ces conditions ne sont plus celles en vigueur.
+                <a href="/locations/{{ asset.slug }}/conditions">Voir les conditions actuelles</a>.
+            </div>
+        {% endif %}
+
+        <p class="text-muted">
+            {% if is_current %}Conditions en vigueur depuis le{% else %}Version enregistrée le{% endif %}
+            {{ shown.createdAt|french_date }}.
+            {% if is_current %}
+                <a href="/locations/{{ asset.slug }}/conditions/{{ shown.version }}">Adresse permanente de cette version</a>.
+            {% endif %}
+        </p>
+
+        <div class="card">
+            <div class="card-body rich-text">
+                {{ shown.html|raw }}
+            </div>
+        </div>
+    </div>
+{% endblock %}

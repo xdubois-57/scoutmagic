@@ -152,10 +152,10 @@ so. Finish that one by hand: comment, then close as `completed`, per
 AGENTS.md § Fix the backlog, its closing step — named rather than
 numbered, because the numbering has already drifted once under it.
 
-Watch it after **each** block's merge rather than only after the last. The
-backlog is fixed one block of issues per pull request now (same section,
-§ Fix the backlog, step 4), so there is no single merge at which every
-issue is meant to close.
+Watch it after **each** ticket's merge rather than only at the end. The
+backlog is fixed one accepted ticket per pull request now (same section,
+§ Fix the backlog), so there is no single merge at which every issue is
+meant to close.
 
 The flags are not decoration — each is a failure the shorter command
 cannot show you:
@@ -315,6 +315,14 @@ red job means. So:
   `E2E_DB_PASSWORD` for `npm run e2e`, the `DAST_DB_*` equivalents for
   `scripts/dast.sh`. Both scripts prefer those over `TEST_DB_*`, and both
   start a throwaway `mysql:8.0` container when nothing answers at all.
+- **A class on `Tests\UsesProductionEngine` creates a database of its
+  own** (`sm_<class>_<pid>_<random>`), migrates the whole schema into it
+  and drops it after the class. So the `TEST_DB_USER` needs
+  `CREATE DATABASE`/`DROP` on the server, not only rights on
+  `TEST_DB_NAME`: a red « could not be created » in `database-mariadb` or
+  `test` is a runner that lost that privilege, not a flaky test. A killed
+  local run leaves its `sm_*` databases behind; they are safe to drop.
+  Reproducing `vendor/bin/phpunit <file>` locally is unchanged.
 
 Do not paper over a divergence with a test that accepts both outputs —
 `SchemaIntrospector` reads the server version for exactly this reason, and
@@ -330,6 +338,59 @@ that is where the branch belongs.
 
 A push that turns CI red costs a full cycle here: the confidence E2E tier
 alone is ~8 minutes, and `Dynamic scan (passive)` is slower still.
+
+### One round per reading, and the arithmetic that says why
+
+A review round costs 5 to 9 USD and 8 to 25 minutes, CI takes another 20,
+and every push cancels a review in flight and starts it again — the
+cancelled one is paid for and thrown away. On one pull request here that
+came to **seven rounds and some 45 USD**, and the reviewer was not the
+reason: **five of its ten findings were in the code pushed to fix the four
+before them.** Each round opened a new one instead of closing the last.
+
+So, before pushing a fix for review findings:
+
+- **Fix everything that round reported, then push ONCE.** Two pushes for one
+  round pays twice for the same reading.
+- **Never push while a review is in flight**, unless CI is red. The run is
+  cancelled and restarted from zero.
+- **Run the local reviewer first** — the `code-review` skill over the diff.
+  It costs minutes and no dollars, and it reads the way the CI reviewer
+  does.
+- **Run the whole suite, not the suites you think are affected.**
+  `vendor/bin/phpunit` entire takes about eleven minutes here, which is less
+  than one wasted round.
+- **Prove every new assertion can FAIL**, not merely that it passes. This is
+  the rule that was missing when those five findings landed: the mutation
+  proof was done for the production code and skipped for the guards' own
+  fixtures, and two of them turned out to be assertions that could not fail
+  at all. A fixture copied from a neighbouring assertion has to be
+  re-checked against the pattern it is now applied to — that is exactly how
+  both got in.
+- **Never restore a file with `git checkout` to undo a mutation.** It
+  restores from `HEAD`, so it deletes the uncommitted work the mutation was
+  testing, and every assertion after that fails for the wrong reason. Undo a
+  mutation by **writing the original file content back verbatim, from a copy
+  taken before the mutation, in a `finally`**. Do NOT undo it by searching
+  for the mutated string and replacing it back: that assumes the string you
+  wrote is unique in the file, and it often is not — a mutation that makes
+  one method call another installs a body the other method already has. When
+  that assumption breaks the revert silently does nothing, and the mutation
+  stays in the tree. Measured on #449's batch 5, which left
+  `RetroChiefController::archive()` calling `reopen()` on disk; only reading
+  `git diff` afterwards caught it. So: **read `git diff` on the sources at
+  the end of a mutation campaign**, before believing they are intact.
+
+**And fix a flake before anything else.** A test that fails for a reason
+that is not the defect it watches costs a round to every pull request that
+follows, not just its own: two of those seven rounds went to instabilities
+that had nothing to do with the diff. What makes every other ticket cheaper
+goes first.
+
+**Keep a self check-in armed until the pull request is merged**, re-armed
+after each push. Webhook events for CI success and for a merge conflict
+arrive late or not at all, and a head that went green an hour ago while
+nobody looked is exactly the waiting this avoids.
 
 ## Things that are never the fix
 

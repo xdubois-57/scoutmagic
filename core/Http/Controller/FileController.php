@@ -147,9 +147,12 @@ class FileController extends AbstractController
             $ifNoneMatch = str_replace('-gzip"', '"', $ifNoneMatch);
         }
         if (is_string($ifNoneMatch) && $ifNoneMatch === $etag) {
-            return $this->withIndexingRule((new Response('', 304))
-                ->setHeader('ETag', $etag)
-                ->setHeader('Cache-Control', $cacheControl), $file);
+            return $this->withIndexingRule(
+                (new Response('', 304))
+                    ->setHeader('ETag', $etag)
+                    ->setHeader('Cache-Control', $cacheControl),
+                $file
+            );
         }
 
         if ($file->encrypted) {
@@ -170,12 +173,15 @@ class FileController extends AbstractController
                 return (new Response('Not Found', 404));
             }
 
-            return $this->withIndexingRule((new Response($content))
-                ->setHeader('Content-Type', $file->mimeType)
-                ->setHeader('Content-Disposition', $disposition)
-                ->setHeader('Cache-Control', $cacheControl)
-                ->setHeader('ETag', $etag)
-                ->setHeader('Content-Length', (string) strlen($content)), $file);
+            return $this->withIndexingRule(
+                (new Response($content))
+                    ->setHeader('Content-Type', $file->mimeType)
+                    ->setHeader('Content-Disposition', $disposition)
+                    ->setHeader('Cache-Control', $cacheControl)
+                    ->setHeader('ETag', $etag)
+                    ->setHeader('Content-Length', (string) strlen($content)),
+                $file
+            );
         }
 
         // Non-encrypted: stream straight off disk (readfile at send() time)
@@ -185,13 +191,16 @@ class FileController extends AbstractController
             return (new Response('Not Found', 404));
         }
 
-        return $this->withIndexingRule((new Response())
-            ->setBodyFile($filePath)
-            ->setHeader('Content-Type', $file->mimeType)
-            ->setHeader('Content-Disposition', $disposition)
-            ->setHeader('Cache-Control', $cacheControl)
-            ->setHeader('ETag', $etag)
-            ->setHeader('Content-Length', (string) filesize($filePath)), $file);
+        return $this->withIndexingRule(
+            (new Response())
+                ->setBodyFile($filePath)
+                ->setHeader('Content-Type', $file->mimeType)
+                ->setHeader('Content-Disposition', $disposition)
+                ->setHeader('Cache-Control', $cacheControl)
+                ->setHeader('ETag', $etag)
+                ->setHeader('Content-Length', (string) filesize($filePath)),
+            $file
+        );
     }
 
     /**
@@ -442,9 +451,12 @@ class FileController extends AbstractController
             ? 'public, max-age=31536000, immutable'
             : 'private, max-age=31536000, immutable';
 
-        return $this->withIndexingRule((new Response($content))
-            ->setHeader('Content-Type', 'image/webp')
-            ->setHeader('Cache-Control', $cacheControl)
-            ->setHeader('Content-Length', (string) strlen($content)), $file);
+        return $this->withIndexingRule(
+            (new Response($content))
+                ->setHeader('Content-Type', 'image/webp')
+                ->setHeader('Cache-Control', $cacheControl)
+                ->setHeader('Content-Length', (string) strlen($content)),
+            $file
+        );
     }
 }

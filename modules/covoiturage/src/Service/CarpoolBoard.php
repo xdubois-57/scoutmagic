@@ -57,7 +57,11 @@ class CarpoolBoard
 
     public function retentionDays(): int
     {
-        $days = (int) $this->settings->get(self::RETENTION_SETTING, 'covoiturage', (string) self::DEFAULT_RETENTION_DAYS);
+        $days = (int) $this->settings->get(
+            self::RETENTION_SETTING,
+            'covoiturage',
+            (string) self::DEFAULT_RETENTION_DAYS
+        );
 
         return max(1, $days);
     }
@@ -261,11 +265,13 @@ class CarpoolBoard
         return [
             'driver_name' => $holder,
             'phone' => $phone,
-            'requester_name' => $familyName !== '' ? 'Famille ' . $familyName : ($holder !== '' ? $holder : 'Une famille'),
-            'family' => array_map(static fn(MemberProfile $m): array => [
-                'id' => $m->memberYearId,
-                'label' => $m->getDisplayNameFull(),
-            ], $family),
+            'requester_name' => $familyName !== ''
+                ? 'Famille ' . $familyName
+                : ($holder !== '' ? $holder : 'Une famille'),
+            'family' => array_map(
+                static fn(MemberProfile $m): array => ['id' => $m->memberYearId, 'label' => $m->getDisplayNameFull()],
+                $family
+            ),
         ];
     }
 
@@ -273,8 +279,13 @@ class CarpoolBoard
      * @param list<SeatRequest> $requests
      * @return array<string, mixed>
      */
-    private function offerView(Carpool $carpool, Offer $offer, array $requests, CarpoolViewer $viewer, bool $hasFamily): array
-    {
+    private function offerView(
+        Carpool $carpool,
+        Offer $offer,
+        array $requests,
+        CarpoolViewer $viewer,
+        bool $hasFamily
+    ): array {
         $taken = $this->taken($requests);
         $left = $offer->seats - $taken;
         $mine = null;

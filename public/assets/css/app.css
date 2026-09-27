@@ -5,7 +5,6 @@
 
 :root {
     --page-max-width: 1200px;
-    --page-narrow-width: 560px;
     --page-medium-width: 720px;
     --page-wide-width: 960px;
 }
@@ -16,15 +15,11 @@
     .container { max-width: var(--page-max-width); }
 }
 
-/* Centered narrow column for form-centric pages, inside the shared container. */
-.page-narrow {
-    max-width: var(--page-narrow-width);
-    margin-inline: auto;
-}
-/* Same idea, two wider tiers (design.md §7.6): medium for detail/config
-   pages, wide for dense management screens. Views use one of these three
-   classes instead of nesting a second .container or writing an inline
-   max-width. */
+/* A centered column inside the shared container, in two tiers
+   (design.md §7.6): medium for form, detail and configuration pages, wide
+   for dense management screens. Views use one of these two classes instead
+   of nesting a second .container or writing an inline max-width. There is
+   no narrower tier: the unit asked for none (issue #471). */
 .page-medium {
     max-width: var(--page-medium-width);
     margin-inline: auto;

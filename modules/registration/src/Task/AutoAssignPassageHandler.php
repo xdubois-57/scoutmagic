@@ -75,9 +75,9 @@ class AutoAssignPassageHandler implements TaskHandlerInterface
             $pdo,
             $context->encryption,
             new SectionService(
-    new SectionRepository($context->connection),
-    new MemberProfileRepository($context->connection, $context->encryption, new MemberBadgeRepository($pdo))
-),
+                new SectionRepository($context->connection),
+                new MemberProfileRepository($context->connection, $context->encryption, new MemberBadgeRepository($pdo))
+            ),
             $transferRepository,
             new RegistrationRequestRepository($pdo, $context->encryption),
             new AgeBracketRepository($pdo)

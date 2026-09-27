@@ -129,7 +129,7 @@ class RedirectService
         }
 
         $profile = $this->memberService->findProfileByMemberAndYear($memberId, $scoutYearId);
-        return $profile?->mobile ?? $this->settingsService->getDefaultNumber($scoutYearId);
+        return $profile->mobile ?? $this->settingsService->getDefaultNumber($scoutYearId);
     }
 
     /**

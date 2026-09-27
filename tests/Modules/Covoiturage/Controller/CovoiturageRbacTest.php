@@ -18,7 +18,6 @@ use Core\Member\SectionService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthSession;
 use Core\Security\Role;
-use Core\View\TwigFactory;
 use Modules\Covoiturage\Controller\CarpoolController;
 use Modules\Covoiturage\Controller\CarpoolOrganizerController;
 use Modules\Covoiturage\Repository\CarpoolRepository;
@@ -32,6 +31,7 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Covoiturage\CovoiturageTestHelper as H;
 use Tests\Modules\Covoiturage\FakeCalendar;
+use Tests\TestTwig;
 use Twig\Environment;
 use Core\Member\Repository\MemberProfileRepository;
 use Core\Member\Repository\SectionRepository;
@@ -73,7 +73,7 @@ final class CovoiturageRbacTest extends TestCase
         $this->requestId = H::request($this->pdo, $this->offerId, 99, ['Tom Leroy']);
 
         $root = dirname(__DIR__, 4);
-        $twig = TwigFactory::create($root . '/core/View/templates', false, ['covoiturage' => $root . '/modules/covoiturage/views']);
+        $twig = TestTwig::create(['covoiturage' => $root . '/modules/covoiturage/views'], ['param' => static fn(string $key): string => 'Test Unit']);
         $twig->addGlobal('site_name', 'Test Unit');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_role', 'identified');
@@ -81,8 +81,6 @@ final class CovoiturageRbacTest extends TestCase
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
         $twig->addGlobal('current_path', '/');
-        // Registered by the composition root in production.
-        $twig->addFunction(new \Twig\TwigFunction('param', static fn(string $key): string => 'Test Unit'));
         $this->twig = $twig;
 
         $settings = new SettingService(new SettingRepository($this->pdo));
@@ -195,8 +193,9 @@ final class CovoiturageRbacTest extends TestCase
         $this->assertStringContainsString('Sophie Martin (vous)', $page);
         $this->assertStringContainsString('Demandes (1)', $page);
         $this->assertStringContainsString('Accepter la place', $page);
-        // Pending: no phone for the driver yet.
-        $this->assertStringNotContainsString('0495', $page);
+        // Pending: no phone for the driver yet. The whole number, not a
+        // prefix: four hex digits of the page's CSRF token once read 0495.
+        $this->assertStringNotContainsString('0495 88 77 66', $page);
 
         $form = $this->frontController('GET', '/covoiturage/{id}/proposer', 'offerForm', 'identified')
             ->handle(new Request('GET', '/covoiturage/' . $this->carpoolId . '/proposer', [], [], [], []))->getBody();

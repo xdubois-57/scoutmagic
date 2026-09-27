@@ -79,15 +79,19 @@ final class DelegatedAlbumManagerFactory
             $context->settings,
             new GalleryAccessService(
                 new MemberService(
-    new MemberYearRepository($pdo),
-    new MemberProfileRepository($context->connection, $context->encryption),
-    null,
-    new MemberEmailRepository($pdo, $context->encryption)
-),
+                    new MemberYearRepository($pdo),
+                    new MemberProfileRepository($context->connection, $context->encryption),
+                    null,
+                    new MemberEmailRepository($pdo, $context->encryption)
+                ),
                 new SectionService(
-    new SectionRepository($context->connection),
-    new MemberProfileRepository($context->connection, $context->encryption, new MemberBadgeRepository($pdo))
-),
+                    new SectionRepository($context->connection),
+                    new MemberProfileRepository(
+                        $context->connection,
+                        $context->encryption,
+                        new MemberBadgeRepository($pdo)
+                    )
+                ),
                 $scoutYearService
             ),
             $storage->backends,

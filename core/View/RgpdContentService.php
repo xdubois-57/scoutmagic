@@ -10,6 +10,7 @@ namespace Core\View;
 
 use Core\Config\AppClock;
 use Core\Config\SettingService;
+use Core\ExternalSource\ExternalSources;
 use Core\Module\ModuleManager;
 use Core\Module\SubProcessorProvider;
 use Core\Module\SubProcessorView;
@@ -308,6 +309,7 @@ class RgpdContentService
         $modulesText = implode(', ', $activeModules);
         $unitName = $this->settingService->get('site_name') ?: 'Unité scoute';
         $contactEmail = $this->settingService->get('contact_email') ?: '(non configuré)';
+        $federationPolicyUrl = ExternalSources::DATA_PROTECTION_PAGE;
 
         return <<<PROMPT
 Tu es un assistant juridique spécialisé en conformité RGPD pour des sites web d'unités scoutes belges.
@@ -317,7 +319,7 @@ Contexte de l'unité :
 - Email de contact RGPD : {$contactEmail}
 - Responsable du traitement : chef d'unité (responsable du groupe « chefs d'U »)
 - Affiliation : Les Scouts ASBL (BE0409580916), politique fédération :
-https://www.lesscouts.be/fr/ressources-scouts/administratif-1/web-et-vie-privee/protection-des-donnees-personnelles
+{$federationPolicyUrl}
 - Modules actifs : {$modulesText}
 - Fournisseur IA : {$providerInfo}
 - Modèles IA : {$modelsInfo}
@@ -487,6 +489,12 @@ la voie et le verdict noté à la main ; que cette adresse est celle de l'admini
 service d'analyse extérieur, **jamais celle d'un membre choisie par le site** ; qu'elle n'apparaît ni dans le journal
 technique ni dans l'archive de diagnostic, lesquels ne portent que le fournisseur, la voie et le verdict ; que le
 site n'appelle lui-même **aucun service d'analyse** ; et qu'aucune sonde n'est jamais envoyée automatiquement.
+Doivent conserver aussi que si le message de test **revient comme non remis**, le site rapproche ce retour de la sonde
+grâce au code que porte son objet, et garde sur la ligne de cette sonde la **catégorie du refus**, le **code technique**
+et la **date** du retour ; que le texte renvoyé par le serveur distant n'est, là non plus, **jamais** conservé ni
+affiché, parce qu'il recite l'adresse ; et que ce rapprochement n'est souvent pas possible — un serveur qui refuse sans
+citer le message refusé ne renvoie aucun code —, auquel cas la page dit simplement ce que l'administrateur a constaté
+lui-même.
 L'historique est conservé sans purge automatique, parce que comparer deux essais séparés de plusieurs mois est
 précisément ce à quoi il sert.
 
@@ -877,7 +885,8 @@ le décris jamais comme anonyme ou anonymisé ; (c) qu'il ne contient aucune don
 photo, ni contenu), mais des compteurs agrégés, des informations techniques sur le logiciel et l'hébergement, et le
 vocabulaire Desk décrit en (c quater) ; (c quater) que le rapport porte les **libellés fédéraux** que l'unité a
 importés de Desk — fonctions, branches et catégories de tarif — ainsi que, parmi les fonctions et les branches, ceux
-que le site n'a pas su rattacher à ses propres tables, pour que le mainteneur puisse les ajouter dans une version suivante ; que ce sont des mots de la
+que le site n'a pas su rattacher à ses propres tables, pour que le mainteneur puisse les ajouter dans une version
+suivante ; que ce sont des mots de la
 fédération et jamais une donnée de personne ; qu'aucun **nom de section** n'est transmis, parce qu'il est choisi par
 l'unité et l'identifie bien plus qu'un libellé fédéral ; et qu'aucun dénombrement de personnes n'accompagne ces
 libellés — le receveur compte des installations, jamais des membres ;
@@ -1088,7 +1097,8 @@ n'invente pas de notification de conservation ; (d) que le PDF produit
 **ne touche jamais le disque** et n'est conservé en aucune copie ;
 (e) que l'accès est réservé aux comptes liés à ce membre, revérifié à chaque action, **sans exception pour un chef
 d'unité ni pour un administrateur**, la seule voie pour un administrateur étant la substitution temporaire de membre,
-visible à l'écran tant qu'elle dure ; (f) que le journal ne porte ni valeur saisie, ni nom, ni contenu de document — l'effacement d'une fiche santé y est
+visible à l'écran tant qu'elle dure ; (f) que le journal ne porte ni valeur saisie, ni nom, ni contenu de document —
+l'effacement d'une fiche santé y est
 noté, qu'il vienne du bouton ou de la conservation, avec le seul identifiant du membre. Ce
 module n'introduit **aucun sous-traitant** et ne fait **aucun appel à une IA** : ne l'ajoute ni en section 4 ni en
 section 5.2.
@@ -1118,7 +1128,8 @@ chaque publication est décidée par un animateur, est **publique** et ne peut p
 contient un titre, une légende et une image — pour un album, sa photo de couverture **systématiquement floutée**, pour
 une actualité, son image déjà publique et, sur Facebook, son lien, pour une communication libre, une photo de la galerie
 (floutée elle aussi) ou une image téléversée par l'animateur, qui part telle quelle — que Meta récupère par un lien
-temporaire d'une heure ; et que l'historique des publications (quoi, où, quand, par quel compte) est conservé pour ne jamais publier deux
+temporaire d'une heure ; et que l'historique des publications (quoi, où, quand, par quel compte) est conservé pour ne
+jamais publier deux
 fois au même endroit ; (c) que les autorisations délivrées par Meta
 sont **chiffrées en base**, que le journal ne nomme aucun compte et ne contient aucune autorisation ; (d) que Meta
 Platforms Ireland Limited peut transférer ces données vers Meta Platforms, Inc. aux États-Unis, à décrire en section 5.2
@@ -1158,9 +1169,19 @@ vers un service d'analyse extérieur, et qu'**aucune adresse de famille** n'y fi
 chaque copie** de la boîte témoin après avoir relevé son dossier d'arrivée, et ne conserve que ce constat ; (e) que
 l'option est **désactivée par défaut** et que, tant qu'elle ne l'est pas, aucune copie ne part nulle part. Le choix du
 relais par fournisseur de messagerie **n'introduit aucun sous-traitant supplémentaire** : ne le présente jamais comme
-tel, puisqu'il ne fait que désigner lequel des relais déjà déclarés est essayé en premier. Conserve aussi, en section
+tel, puisqu'il ne fait que désigner lequel des relais déjà déclarés est essayé en premier. Conserve de même le
+paragraphe « Rattachement d'un domaine à son fournisseur de messagerie » : pour compter une adresse sur un domaine
+personnel chez son vrai fournisseur, le site lit une fois par jour, en tâche de fond et jamais au moment d'un envoi,
+les **enregistrements MX** publics des domaines auxquels il envoie un publipostage et de ceux des boîtes témoins ;
+**seul le nom de domaine est interrogé, jamais l'adresse**, il ne conserve que le rapprochement
+domaine → fournisseur sans aucune adresse, le domaine y étant **chiffré au repos**, et cette lecture passe par
+le résolveur DNS de l'hébergeur : elle
+n'introduit **aucun nouveau sous-traitant**. Conserve aussi, en section
 3.1, la puce « Résultats des boîtes témoins » : deux jours avant qu'une copie introuvable soit déclarée jamais
-arrivée, puis quatre-vingt-dix jours pour le constat qui en reste. Une durée de conservation retirée de cette section
+arrivée, puis quatre-vingt-dix jours pour le constat qui en reste ; et la puce « Domaines destinataires rattachés à
+un fournisseur de messagerie » : relu au plus tard tous les sept jours, oublié cent quatre-vingts jours après le
+dernier message vers ce domaine (publipostage ou copie vers une boîte témoin). Une durée de conservation retirée
+de cette section
 est une durée que plus personne ne peut vérifier.
 
 Rappel final — instructions de l'administrateur à intégrer intégralement, point par point (voir règle 18) :

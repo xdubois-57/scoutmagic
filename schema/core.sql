@@ -288,6 +288,11 @@ CREATE TABLE age_branches (
     -- until an admin uploads one; the page falls back to a shipped
     -- default asset (matched by canonicalSortOrder(), never by comparing
     -- the branch's free-text label), then to nothing.
+    -- explanation_url's default is the federation page registered in
+    -- Core\ExternalSource\ExternalSources, and the column is in
+    -- SchemaComparator::DEFAULT_FOLLOWING_COLUMNS: when this default
+    -- changes, the migration moves the rows still on the old one (never a
+    -- URL a unit typed) before altering the column (ARCHITECTURE.md §10).
     logo_file_id INT UNSIGNED,
     explanation_url VARCHAR(500) NOT NULL DEFAULT 'https://lesscouts.be/fr/site-parents/le-parcours-scout',
     UNIQUE INDEX idx_desk_code (desk_code),
@@ -1894,7 +1899,26 @@ CREATE TABLE IF NOT EXISTS mail_probes (
     -- observe another provider's spam folder.
     verdict VARCHAR(10) NULL,
     verdict_at DATETIME NULL,
+    -- What the far end said, when a bounce could be traced back to this
+    -- probe by the code in its subject (roadmap IT-04, issue #419). The
+    -- CATEGORY and the enhanced status code, and deliberately NOT the
+    -- diagnostic text: Core\Mail\Feedback\Bounce\DeliveryStatusReport reads
+    -- that text and drops it, because it quotes the address back. This table
+    -- encrypts its destination for exactly that reason, so a diagnostic kept
+    -- three columns away would hand back in clear what destination_encrypted
+    -- protects.
+    --
+    -- All three are null together, and that is a NORMAL state rather than a
+    -- gap: a server that rejects before quoting the message it rejected sends
+    -- no code, so nothing can be traced. « Jamais reçu » and « rejeté pour ce
+    -- motif » are two answers, and the first stays true when the second is
+    -- not available.
+    bounce_category VARCHAR(20) NULL,
+    bounce_status_code VARCHAR(16) NULL,
+    bounce_at DATETIME NULL,
     INDEX idx_mail_probes_sent (sent_at),
+    -- Unused until issue #419, and declared from the start for it: the
+    -- lookup a bounce does, by the code it quoted back.
     INDEX idx_mail_probes_code (code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -2139,6 +2163,54 @@ CREATE TABLE IF NOT EXISTS mail_seed_copies (
     UNIQUE KEY uq_msc_run_box (run_reference, seed_address_blind_index),
     INDEX idx_msc_sent (sent_at),
     INDEX idx_msc_verdict (verdict)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- mail_domain_providers: which mailbox provider really hosts a recipient
+-- domain, read from its MX records (roadmap IT-07, issue #422).
+--
+-- « famille.be » served by Google is a Gmail mailbox for every purpose the
+-- seed boxes and the routing care about, and nothing in the address says
+-- so. The MX records do — but reading them costs a DNS query, and the send
+-- path must never pay one: a resolver that hangs would hold a mailing.
+-- So this is a CACHE, written two ways and read one:
+--
+--   * the send path NOTES a domain it has not seen (a row with no
+--     provider), and reads the provider already known — never a lookup;
+--   * Core\Mail\Feedback\Seed\Task\ResolveMailboxProvidersHandler, once
+--     a day, resolves a bounded batch of the unknown and the stale.
+--
+-- **A domain, never an address** (SECURITY.md §11): the attribution is an
+-- aggregate — one row covers every family on that domain — and nothing
+-- here can tell how many there are or who. A domain nobody has been
+-- written to for RETENTION_DAYS is dropped by the same task.
+CREATE TABLE IF NOT EXISTS mail_domain_providers (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    -- The right-hand side of an address, lower-cased, ENCRYPTED
+    -- (SECURITY.md §5): a personal domain can name a family, so it is
+    -- stored like any other field that identifies one. Context
+    -- 'mail_domain_providers.domain'.
+    domain_encrypted BLOB NOT NULL,
+    -- HMAC-SHA256 of the lower-cased domain, purpose 'mail_domain': what
+    -- every exact-match lookup and the uniqueness read, never the domain.
+    domain_blind_index CHAR(64) NOT NULL,
+    -- The provider key the seed results are read by ('gmail.com',
+    -- 'outlook.com'), or NULL: not resolved yet, or resolved to MX hosts no
+    -- known provider runs. NULL always falls back to the domain itself,
+    -- which is exactly what the site did before this table existed.
+    provider VARCHAR(64) NULL,
+    -- When the send path last noted the domain, refreshed at most monthly:
+    -- what the retention is measured from.
+    noted_at DATETIME NOT NULL,
+    -- When the MX records were last read successfully. NULL is « never ».
+    resolved_at DATETIME NULL,
+    -- Consecutive failed lookups, and the code of the last one — a word
+    -- this site chose ('no_answer'), never the resolver's own text.
+    failures INT UNSIGNED NOT NULL DEFAULT 0,
+    last_error VARCHAR(32) NULL,
+    -- The back-off: not asked again before this moment.
+    retry_after DATETIME NULL,
+    UNIQUE INDEX idx_mdp_domain_blind_index (domain_blind_index),
+    INDEX idx_mdp_resolved (resolved_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- storage_locations: one row per declared destination for bytes — a

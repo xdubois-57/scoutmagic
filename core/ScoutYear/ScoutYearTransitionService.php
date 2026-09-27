@@ -326,8 +326,8 @@ class ScoutYearTransitionService
                 'key' => 'passage',
                 'phase' => self::PHASE_PREPARATION,
                 'title' => 'Indiquer la section des animés qui changent de branche',
-                'description' => "Sur la page Passages de branche, choisissez la section d'arrivée de chaque animé qui quitte sa "
-                    . "branche en {$targetLabel}.",
+                'description' => "Sur la page Passages de branche, choisissez la section d'arrivée "
+                    . "de chaque animé qui quitte sa branche en {$targetLabel}.",
                 'auto_done' => $this->passageDone(),
                 'progress' => $this->passageProgress(),
                 'action_url' => '/passage',
@@ -434,8 +434,8 @@ class ScoutYearTransitionService
                 'key' => 'trombinoscope',
                 'phase' => self::PHASE_SITE,
                 'title' => 'Mettre à jour le trombinoscope',
-                'description' => "La page « Les animateurs » se reconstruit toute seule à partir de l'import Desk : vérifiez les "
-                    . "photos et les responsables de section pour {$targetLabel}.",
+                'description' => "La page « Les animateurs » se reconstruit toute seule à partir de l'import Desk : "
+                    . "vérifiez les photos et les responsables de section pour {$targetLabel}.",
                 'auto_done' => null,
                 'action_url' => '/trombinoscope',
                 'action_label' => 'Aller aux animateurs',

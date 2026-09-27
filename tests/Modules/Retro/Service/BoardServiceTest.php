@@ -25,8 +25,8 @@ use Modules\Retro\Service\SummaryService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Retro\RetroTestHelper;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
 
 /**
  * @group database
@@ -53,13 +53,7 @@ class BoardServiceTest extends TestCase
         $this->memberService = $this->createMock(MemberService::class);
         $this->sectionService = $this->createMock(SectionService::class);
 
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $loader = new FilesystemLoader($templateDir);
-        $loader->addPath(dirname(__DIR__, 4) . '/modules/retro/views', 'retro');
-        $this->twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $this->twig = TestTwig::create(['retro']);
     }
 
     private function service(
@@ -605,7 +599,7 @@ class BoardServiceTest extends TestCase
      */
     public function testIsUnitChiefDelegatesToMemberService(): void
     {
-        $this->memberService->method('isUnitChief')->with('unit-chief@example.com', 1)->willReturn(true);
+        $this->memberService->expects($this->once())->method('isUnitChief')->with('unit-chief@example.com', 1)->willReturn(true);
 
         $this->assertTrue($this->service()->isUnitChief('unit-chief@example.com', 1));
     }

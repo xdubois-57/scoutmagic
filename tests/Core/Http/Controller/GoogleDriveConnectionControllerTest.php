@@ -28,10 +28,10 @@ use Core\Storage\Location\StorageLocationRepository;
 use Core\Storage\Location\StorageLocationService;
 use Core\Storage\Location\StorageLocationType;
 use PHPUnit\Framework\TestCase;
+use Tests\Core\Storage\Location\Backend\Drive\FakeDrive;
 use Tests\DatabaseTestHelper;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\TwigFunction;
-use Twig\Loader\FilesystemLoader;
 
 /**
  * The OAuth round trip, decision by decision.
@@ -189,28 +189,16 @@ final class GoogleDriveConnectionControllerTest extends TestCase
     }
 
     /**
-     * The real templates, with the handful of functions and globals
-     * `Core\View\TwigFactory` registers in production.
+     * The real templates through production's environment, with the
+     * globals `public/index.php` sets.
      *
      * Needed because a refusal RENDERS: the 403 page extends
-     * `base.html.twig`, and a bare Environment fails to parse it — which
-     * would look exactly like the route having gone wrong.
+     * `base.html.twig`, and an environment without its functions fails to
+     * parse it — which would look exactly like the route having gone wrong.
      */
     private function twig(): Environment
     {
-        $twig = new Environment(
-            new FilesystemLoader(dirname(__DIR__, 4) . '/core/View/templates'),
-            ['cache' => false, 'autoescape' => 'html']
-        );
-        $twig->addFunction(new TwigFunction('asset', static fn (string $path): string => $path));
-        $twig->addFunction(new TwigFunction('csrf_token', static fn (): string => 'test'));
-        $twig->addFunction(new TwigFunction(
-            'csrf_field',
-            static fn (): string => '<input type="hidden" name="_csrf_token" value="test">',
-            ['is_safe' => ['html']]
-        ));
-        $twig->addFunction(new TwigFunction('get_flash', static fn (): ?string => null));
-        $twig->addFunction(new TwigFunction('file_url', static fn (): string => ''));
+        $twig = TestTwig::create();
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_role', 'admin');
@@ -409,6 +397,127 @@ final class GoogleDriveConnectionControllerTest extends TestCase
         );
     }
 
+    // ————— The location's folder (#474) —————
+
+    /**
+     * **Connecting creates `ScoutMagic/<label>/`**: the shared parent,
+     * then under it a folder named after the location, whose id is what
+     * the row keeps.
+     */
+    public function testConnectingCreatesTheLocationsFolderUnderScoutMagic(): void
+    {
+        $drive = new FakeDrive(null);
+        $this->connectThrough($drive);
+
+        $folderId = $this->config()->folderId;
+        $this->assertSame('ScoutMagic/Google Drive', $drive->pathOf($folderId));
+        $this->assertSame(FakeDrive::FOLDER_MIME, $drive->files[$folderId]['mime']);
+    }
+
+    /**
+     * **Two locations on one account get two folders**, side by side
+     * under one `ScoutMagic` — never the one folder they used to share.
+     */
+    public function testTwoLocationsOnOneAccountGetTwoFoldersUnderOneParent(): void
+    {
+        $drive = new FakeDrive(null);
+        $this->connectThrough($drive);
+        $first = $this->config()->folderId;
+
+        $this->locationId = $this->locations->create(
+            StorageLocationType::GoogleDrive,
+            'Sauvegardes hors site',
+            new GoogleDriveLocationConfig(),
+            null
+        );
+        $this->connectThrough($drive);
+        $second = $this->config()->folderId;
+
+        $this->assertNotSame($first, $second);
+        $this->assertSame('ScoutMagic/Sauvegardes hors site', $drive->pathOf($second));
+        $this->assertSame(
+            1,
+            count(array_filter($drive->files, static fn (array $f): bool => $f['name'] === 'ScoutMagic')),
+            'a second ScoutMagic folder was created'
+        );
+    }
+
+    /**
+     * **Reconnecting lands on the folder holding the files** — after the
+     * seven-day expiry, or after « Déraccorder », which keeps the folder
+     * id for exactly this. A new folder there would leave every photo
+     * beside an empty one.
+     */
+    public function testReconnectingKeepsTheFolderItAlreadyHas(): void
+    {
+        $drive = new FakeDrive(null);
+        $this->connectThrough($drive);
+        $folderId = $this->config()->folderId;
+
+        $this->controller()->disconnect($this->postRequest([]), ['id' => (string) $this->locationId]);
+        $this->assertSame($folderId, $this->config()->folderId, 'disconnecting forgot the folder');
+        $this->assertFalse($this->config()->isConnected());
+
+        $this->connectThrough($drive);
+
+        $this->assertSame($folderId, $this->config()->folderId);
+    }
+
+    /**
+     * A label changed while disconnected could not reach Google; the
+     * reconnection catches the folder up with it (#474 review).
+     */
+    public function testReconnectingRenamesAFolderLeftBehindByARenameWhileDisconnected(): void
+    {
+        $drive = new FakeDrive(null);
+        $this->connectThrough($drive);
+        $folderId = $this->config()->folderId;
+        $this->controller()->disconnect($this->postRequest([]), ['id' => (string) $this->locationId]);
+        $this->locations->update($this->locationId, 'Galeries du groupe', $this->config(), null);
+
+        $this->connectThrough($drive);
+
+        $this->assertSame($folderId, $this->config()->folderId);
+        $this->assertSame('ScoutMagic/Galeries du groupe', $drive->pathOf($folderId));
+    }
+
+    /**
+     * …but never a folder another location shares (pre-#474 rows): its
+     * name is that location's too.
+     */
+    public function testReconnectingLeavesTheNameOfASharedFolderAlone(): void
+    {
+        $drive = new FakeDrive(null);
+        $this->connectThrough($drive);
+        $folderId = $this->config()->folderId;
+        $this->locations->create(
+            StorageLocationType::GoogleDrive,
+            'Sauvegardes hors site',
+            $this->config(),
+            (string) json_encode(['client_secret' => 's', 'refresh_token' => 'r', 'account' => 'a@example.org'])
+        );
+        $this->locations->update($this->locationId, 'Galeries du groupe', $this->config(), null);
+
+        $this->connectThrough($drive);
+
+        $this->assertSame($folderId, $this->config()->folderId);
+        $this->assertSame('ScoutMagic/Google Drive', $drive->pathOf($folderId));
+    }
+
+    /** A folder in the trash is not reused: writing there would lose it all in thirty days. */
+    public function testAFolderInTheTrashIsReplacedOnReconnection(): void
+    {
+        $drive = new FakeDrive(null);
+        $this->connectThrough($drive);
+        $old = $this->config()->folderId;
+        $drive->files[$old]['trashed'] = true;
+
+        $this->connectThrough($drive);
+
+        $this->assertNotSame($old, $this->config()->folderId);
+        $this->assertSame('ScoutMagic/Google Drive', $drive->pathOf($this->config()->folderId));
+    }
+
     /**
      * A refusal from Google leaves the location unconnected and says why,
      * in a sentence written for a person — with Google's own words in the
@@ -540,6 +649,14 @@ final class GoogleDriveConnectionControllerTest extends TestCase
         ]), ['id' => (string) $this->locationId]);
     }
 
+    private function connectThrough(FakeDrive $drive): void
+    {
+        $this->saveCredentials();
+        $this->armState();
+        $this->controller($drive->client())->callback($this->callbackRequest('st4te', 'code-1'), []);
+        $this->assertTrue($this->secret()->hasGrant(), 'the connection did not go through');
+    }
+
     private function armState(): void
     {
         SessionStore::set('storage_google_oauth_state', 'st4te');
@@ -564,7 +681,7 @@ final class GoogleDriveConnectionControllerTest extends TestCase
         $this->journal = new RecordingJournalRepository();
 
         return new GoogleDriveConnectionController(
-            new Environment(new FilesystemLoader(dirname(__DIR__, 4) . '/core/View/templates')),
+            TestTwig::create(),
             $this->locations,
             $this->locationService,
             $this->settings,

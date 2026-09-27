@@ -16,7 +16,6 @@ use Core\Http\Router;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
-use Core\View\TwigFactory;
 use Modules\Gallery\Api\SharedAlbum;
 use Modules\News\Api\SharedArticle;
 use Modules\Social\Api\SocialPlatform;
@@ -40,6 +39,7 @@ use Tests\Modules\Social\FakeAlbumSource;
 use Tests\Modules\Social\FakeArticleSource;
 use Tests\Modules\Social\FakeMetaTransport;
 use Tests\Modules\Social\SocialTestHelper as H;
+use Tests\TestTwig;
 use Twig\Environment;
 
 /**
@@ -308,6 +308,7 @@ final class ShareControllerTest extends TestCase
         $html = $this->controller()->showAlbum($this->get(), ['id' => '3'])->getBody();
 
         $this->assertStringNotContainsString('Groupe de discussion', $html);
+        $this->assertStringNotContainsString('groupe de discussion', $html);
     }
 
     public function testTheGroupsAreChosenInADialogWithTheirSize(): void
@@ -327,6 +328,9 @@ final class ShareControllerTest extends TestCase
             (string) preg_replace('/\s+/u', ' ', $html)
         );
         $this->assertStringContainsString('social-share-groups.js', $html);
+        // What differs for a group is said, never contradicted (#528).
+        $this->assertStringContainsString('Dans un groupe de discussion, elle part nette', $html);
+        $this->assertStringContainsString('Dans un groupe de discussion, la publication reste dans le site', $html);
     }
 
     public function testPublishingInGroupsSendsThePhotoAsItIsAndTheLink(): void
@@ -443,7 +447,7 @@ final class ShareControllerTest extends TestCase
     private function twig(): Environment
     {
         $root = dirname(__DIR__, 4);
-        $twig = TwigFactory::create($root . '/core/View/templates', false, ['social' => $root . '/modules/social/views']);
+        $twig = TestTwig::create(['social' => $root . '/modules/social/views'], ['param' => static fn (string $key): string => 'Test Unit']);
         $twig->addGlobal('site_name', 'Test Unit');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_role', 'chief');
@@ -451,7 +455,6 @@ final class ShareControllerTest extends TestCase
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
         $twig->addGlobal('current_path', '/partage/album/3');
-        $twig->addFunction(new \Twig\TwigFunction('param', static fn (string $key): string => 'Test Unit'));
 
         return $twig;
     }

@@ -147,9 +147,13 @@ function scoutmagicBootstrapScheduler(
             new \Modules\Calendar\Repository\CalendarRepository($pdo, $encryptionService),
             new \Modules\Calendar\Repository\CalendarEventRepository($pdo),
             new \Core\Member\SectionService(
-    new \Core\Member\Repository\SectionRepository(\Core\Database\Connection::withPdo($pdo)),
-    new \Core\Member\Repository\MemberProfileRepository(\Core\Database\Connection::withPdo($pdo), $encryptionService, new \Core\Badge\MemberBadgeRepository($pdo))
-),
+                new \Core\Member\Repository\SectionRepository(\Core\Database\Connection::withPdo($pdo)),
+                new \Core\Member\Repository\MemberProfileRepository(
+                    \Core\Database\Connection::withPdo($pdo),
+                    $encryptionService,
+                    new \Core\Badge\MemberBadgeRepository($pdo)
+                )
+            ),
             new \Modules\Calendar\Repository\CalendarUnitFeedTokenRepository($pdo, $encryptionService)
             // No retro link lookup on the scheduled path: nothing a task
             // reads through this lookup renders a retro link.
@@ -449,7 +453,13 @@ function scoutmagicBootstrapScheduler(
                             $userAccountRepo,
                             $encryptionService
                         )
-                    )
+                    ),
+                    // Not optional, unlike the notifier above: a bounce that
+                    // cannot be traced to its probe is a line the operator
+                    // reads wrong, and a defaulted dependency would make THIS
+                    // entry point the one where it silently never happens
+                    // (issue #419).
+                    new \Core\Mail\Probe\MailProbeRepository($pdo, $encryptionService)
                 ));
 
                 // The DMARC reports (roadmap IT-06), registered on BOTH
@@ -650,9 +660,15 @@ function scoutmagicBootstrapScheduler(
                                 \Core\Database\Connection::withPdo($pdo),
                                 $encryptionService,
                                 new \Core\Member\SectionService(
-    new \Core\Member\Repository\SectionRepository(\Core\Database\Connection::withPdo($pdo)),
-    new \Core\Member\Repository\MemberProfileRepository(\Core\Database\Connection::withPdo($pdo), $encryptionService, new \Core\Badge\MemberBadgeRepository($pdo))
-),
+                                    new \Core\Member\Repository\SectionRepository(
+                                        \Core\Database\Connection::withPdo($pdo)
+                                    ),
+                                    new \Core\Member\Repository\MemberProfileRepository(
+                                        \Core\Database\Connection::withPdo($pdo),
+                                        $encryptionService,
+                                        new \Core\Badge\MemberBadgeRepository($pdo)
+                                    )
+                                ),
                                 new \Core\Member\MemberEmailRepository($pdo, $encryptionService)
                             ),
                             $financeAccountRepository,
@@ -785,9 +801,15 @@ function scoutmagicBootstrapScheduler(
                             new \Modules\Camps\Service\ReviewNotificationService(
                                 $campsCampRepo,
                                 new \Core\Member\SectionService(
-    new \Core\Member\Repository\SectionRepository(\Core\Database\Connection::withPdo($pdo)),
-    new \Core\Member\Repository\MemberProfileRepository(\Core\Database\Connection::withPdo($pdo), $encryptionService, new \Core\Badge\MemberBadgeRepository($pdo))
-),
+                                    new \Core\Member\Repository\SectionRepository(
+                                        \Core\Database\Connection::withPdo($pdo)
+                                    ),
+                                    new \Core\Member\Repository\MemberProfileRepository(
+                                        \Core\Database\Connection::withPdo($pdo),
+                                        $encryptionService,
+                                        new \Core\Badge\MemberBadgeRepository($pdo)
+                                    )
+                                ),
                                 $userAccountRepo,
                                 $encryptionService,
                                 $pdo,

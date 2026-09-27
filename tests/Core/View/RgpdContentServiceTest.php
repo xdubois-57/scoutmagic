@@ -205,6 +205,22 @@ class RgpdContentServiceTest extends TestCase
         return $captured;
     }
 
+    /**
+     * Issue #355: the federation's data protection policy is cited from the
+     * register of external sources, and the default content names the same
+     * address — one URL, watched weekly and at every release.
+     */
+    public function testTheFederationPolicyComesFromTheRegister(): void
+    {
+        $prompt = $this->capturePrompt([]);
+
+        $this->assertStringContainsString(\Core\ExternalSource\ExternalSources::DATA_PROTECTION_PAGE, $prompt);
+        $this->assertStringContainsString(
+            \Core\ExternalSource\ExternalSources::DATA_PROTECTION_PAGE,
+            (new RgpdContentService($this->moduleManager, $this->settingService))->getDefaultContent()
+        );
+    }
+
     public function testThePromptCarriesEverySubProcessorTheModulesDeclare(): void
     {
         $prompt = $this->capturePrompt(

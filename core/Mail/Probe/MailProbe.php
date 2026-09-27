@@ -40,7 +40,15 @@ final class MailProbe
         public readonly MailLane $lane,
         public readonly \DateTimeImmutable $sentAt,
         public readonly ?MailProbeVerdict $verdict = null,
-        public readonly ?\DateTimeImmutable $verdictAt = null
+        public readonly ?\DateTimeImmutable $verdictAt = null,
+        /**
+         * What came back, when a bounce quoted this probe's code (issue
+         * #419). Null is the ordinary case and not a gap: a server that
+         * rejects before quoting the message it rejected sends no code, so
+         * nothing can be traced — and the operator's own « jamais reçu »
+         * stays the true answer when this one is not available.
+         */
+        public readonly ?ProbeBounce $bounce = null
     ) {
     }
 }

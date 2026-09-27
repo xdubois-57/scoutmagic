@@ -13,7 +13,8 @@
                  class="img-fluid rounded border" width="1080" height="1080" loading="lazy" data-card-preview>
             {% if source.imageFromGallery %}
                 <p class="small text-body-secondary mt-2 mb-0">
-                    La photo de couverture est floutée : c'est systématique pour toute image venant de la galerie.
+                    Sur Facebook et Instagram, la photo de couverture est floutée : c'est systématique pour toute image venant de la galerie.
+                    {% if offers_groups|default(false) %}Dans un groupe de discussion, elle part nette : le groupe est privé.{% endif %}
                 </p>
             {% endif %}
         {% else %}
@@ -32,7 +33,7 @@
         {% endif %}
 
         <form method="post" action="{{ self_path }}"
-              data-confirm="Publier maintenant ? C'est public et hors du site : ni vous ni ScoutMagic ne pourrez le reprendre."
+              data-confirm="Publier maintenant ? Sur Facebook et Instagram, c'est public et hors du site : ni vous ni ScoutMagic ne pourrez le reprendre."
               data-confirm-label="Publier">
             {{ csrf_field()|raw }}
 
@@ -49,7 +50,8 @@
             {% include '@social/share/_destinations.html.twig' with { destinations: destinations, offers_groups: offers_groups|default(false), groups: groups|default([]), csp_nonce: csp_nonce|default('') } only %}
 
             <div class="alert alert-warning small" data-publish-warning>
-                Une fois publié, c'est <strong>public</strong> et hors du site : ni vous ni ScoutMagic ne pourrez le reprendre.
+                Sur Facebook et Instagram, une fois publié, c'est <strong>public</strong> et hors du site : ni vous ni ScoutMagic ne pourrez le reprendre.
+                {% if offers_groups|default(false) %}Dans un groupe de discussion, la publication reste dans le site et suit les règles du groupe.{% endif %}
                 Sur Instagram, l'adresse n'est pas cliquable — c'est pourquoi elle est écrite sur l'image.
             </div>
 

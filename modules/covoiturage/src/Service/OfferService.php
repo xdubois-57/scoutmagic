@@ -195,7 +195,9 @@ class OfferService
     ): int {
         $this->assertStillAhead($carpool);
         if ($viewer->drives($offer)) {
-            throw new CarpoolException('C\'est votre propre voiture : vous n\'avez pas besoin d\'y demander une place.');
+            throw new CarpoolException(
+                'C\'est votre propre voiture : vous n\'avez pas besoin d\'y demander une place.'
+            );
         }
         foreach ($this->requests->findByOffers([$offer->id])[$offer->id] ?? [] as $existing) {
             if ($existing->requesterAccountId === $viewer->accountId && $existing->isActive()) {

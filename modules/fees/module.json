@@ -2,7 +2,7 @@
   "id": "fees",
   "name": "Cotisations",
   "description": "Vérifie ce que la fédération facture, famille par famille.",
-  "version": "1.4.5",
+  "version": "1.4.6",
   "routes": [
     {
       "path": "/admin/fees",

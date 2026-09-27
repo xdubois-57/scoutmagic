@@ -380,10 +380,13 @@ final class MailTransportChain implements MailTransportInterface
         }
 
         if ($health->openCount > $openingsBefore) {
-            $this->journalCircuit($provider, $lane, 'mail_provider_circuit_opened', sprintf(
-                'Fournisseur d’envoi écarté jusqu’à %s',
-                $health->openedUntil ?? '?'
-            ), ['until' => $health->openedUntil, 'reason' => $reason]);
+            $this->journalCircuit(
+                $provider,
+                $lane,
+                'mail_provider_circuit_opened',
+                sprintf('Fournisseur d’envoi écarté jusqu’à %s', $health->openedUntil ?? '?'),
+                ['until' => $health->openedUntil, 'reason' => $reason]
+            );
         }
     }
 
@@ -426,10 +429,12 @@ final class MailTransportChain implements MailTransportInterface
         array $extra
     ): void {
         try {
-            $this->journal?->log('core', $event, 'info', $title, array_merge([
-                'provider_id' => $provider->id,
-                'provider' => $provider->name,
-            ], $lane === null ? [] : ['lane' => $lane->value], $extra));
+            $context = array_merge(
+                ['provider_id' => $provider->id, 'provider' => $provider->name],
+                $lane === null ? [] : ['lane' => $lane->value],
+                $extra
+            );
+            $this->journal?->log('core', $event, 'info', $title, $context);
         } catch (\Throwable) {
             // Same posture as every other journal call on this path: the
             // message is what matters, not the note about it.

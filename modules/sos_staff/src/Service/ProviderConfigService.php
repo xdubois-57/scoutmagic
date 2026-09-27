@@ -299,7 +299,7 @@ class ProviderConfigService
     private function requireOvhConfig(array $requiredKeys): array
     {
         $credential = $this->repository->findByProvider(self::PROVIDER_OVH);
-        $config = $credential?->config ?? [];
+        $config = $credential->config ?? [];
 
         foreach ($requiredKeys as $key) {
             if (empty($config[$key])) {
@@ -315,7 +315,7 @@ class ProviderConfigService
      */
     private function mergeAndSave(array $partial): void
     {
-        $existing = $this->repository->findByProvider(self::PROVIDER_OVH)?->config ?? [];
+        $existing = $this->repository->findByProvider(self::PROVIDER_OVH)->config ?? [];
         $this->repository->save(self::PROVIDER_OVH, array_merge($existing, $partial));
     }
 }

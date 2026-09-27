@@ -285,7 +285,7 @@ Automated tests are **mandatory** for every feature, without exception.
 - Frontend JavaScript unit tests exist to catch regressions in that isolated logic fast and without a browser — they are a complement to, never a replacement for, this project's PHP integration tests or the manual mobile/desktop visual verification ARCHITECTURE.md § 15 already requires. Production JavaScript itself must never acquire a Node/runtime/build dependency because it is now unit-tested — see § CSS / frontend above.
 - When modifying existing code, update the corresponding tests to match the new behavior.
 - When fixing a bug, write a test that reproduces the bug first, then fix it.
-- **A test may not re-implement a Twig filter this project ships.** Every filter a template can use lives in a `Core\View` extension — `DateFilterExtension`, `MemberNameFilterExtension`, `FormatFilterExtension`, `RichTextFilterExtension`, `TextNormalizerExtension`, `CompactHtmlExtension` — precisely so that a test which builds its own `Twig\Environment` (139 files do, against 79 that call `TwigFactory::create()`) can register the real ones with `addExtension(new …)` instead of writing a double for the one its template complained about. A double is free to drift from the original and nothing is watching it: `Tests\Core\View\DisplayNameFilterTest` asserted six behaviours of a copy of `display_name` pasted into its own `setUp()`, and returning `'MUTANT'` from the real filter left it — and the 2 210 other tests that build the real environment — green. `Tests\Core\View\TestEnvironmentsUseTheRealFiltersTest` holds the rule. Twig FUNCTIONS are not covered yet (issue #465 § B) — four of them read services out of the environment's globals.
+- **A test renders a template through `Tests\TestTwig`, never through a `Twig\Environment` of its own.** `TestTwig::create(['<module>', …])` is `Core\View\TwigFactory::create()` itself — every filter, extension and function a visitor's page gets, with the same autoescape rule — and `TestTwig::withTemplates([...])` puts templates of the test's own in front of the production ones. The reason is issue #465: 140 files once built their own environment over the real templates and registered whatever the render complained about, so a filter added to production broke unrelated suites (52 tests when #460 landed), and a double could lie — a `french_date` stub printed « 2026-07-12 » where a visitor reads « 12 juillet 2026 », and a pasted copy of `display_name` let `'MUTANT'` from the real one pass 2 210 tests. **Only the functions in `TestTwig::REPLACEABLE_FUNCTIONS` may be replaced** — `csrf_field`, `csrf_token`, `get_flash` (they read the session) and `param` (the composition root registers it over the settings database) — each with its reason in the code; a filter never. Every other function runs for real: those that read a service (`editable()`, `member_photo()`, `person_avatar()`, `section_photo()`) take it from the globals, as `public/index.php` supplies it, and render what an install without that content renders when it is absent. A test of one extension or of a Twig mechanism may still build a bare `Environment` over an `ArrayLoader` of its own templates, adding the real extension (`addExtension(new \Core\View\DateFilterExtension())`) rather than a copy. `Tests\Core\View\TestEnvironmentsUseTheRealFactoryTest` holds all of it: no file under `tests/` but the helper may register a filter or function under a name production registers (measured from a real factory environment, not copied), nor build its own environment over the production templates.
 - **End-to-end (`tests/e2e/`, Playwright + headless Chromium)**: one canonical command, `npm run e2e` (`scripts/e2e.sh`), which provisions a throwaway install + database, serves it through the real `public/index.php`, drives it with a real browser, and tears everything down. It exists to catch what PHPUnit structurally cannot: the application failing to boot at all (a broken composition root, a failed dependency wiring, a bootstrap that throws before any route runs). Keep it to a small number of high-value scenarios — this is a release gate, not a coverage tool; a flaky or slow E2E suite is worse than none. Prove a new scenario is deterministic (run it repeatedly, from a clean state) before adding it. Canonical documentation lives in README.md § Tests de bout en bout; do not duplicate it elsewhere.
 - **The E2E suite has two tiers, `confidence` and `full`, and `full` is a strict superset.** `npm run e2e` runs the confidence tier — every scenario NOT tagged `@full` — and is what CI's `e2e-tests` job runs on every push. `npm run e2e:full` runs everything, `@full` scenarios included, and is what the release workflow's evidence run does (`.github/workflows/checks.yml` with `evidence: true`, on every `v*` tag — the release standard, as against the push standard above; the dynamic security scan replays the confidence tier, for the reason written at its call site in `scripts/dast.sh`). **A new scenario lands in `confidence` by default** — an untagged spec is a confidence spec, so the default is self-enforcing — and is relegated to `full` (tagged `{ tag: '@full' }` on the test) only when it is costly *by nature*: a matrix, a combinatorial sweep, a long unavoidable wait. Never demote a scenario to `full` because it is slow through inefficiency — fix it — and never tag one `@full` to get a flaky test out of CI's way — fix it or delete it. The only `@full` content today is `specs/zz-module-boot-matrix.spec.js`, the per-module boot matrix (one boot per shipped module with that module disabled). **Budget**: the confidence tier measured **481 s wall clock (~8 min, provisioning included, 41 scenarios)** on the reference environment (a Claude Code container, `php -S`, no coverage) when the tiers were introduced; treat **12 minutes** (the measured figure plus a ~50% margin) as the ceiling — when a confidence run first exceeds it, re-examine the tier's contents (a scenario to move to `full`, a scenario that got slow, a scenario whose value no longer covers its cost) instead of raising the number.
 - **A scenario whose specification is a page in the application must stay tied to it.** `tests/e2e/specs/scout-year-transition.spec.js` replays the four-step workflow described on `/admin/scout-year`; that page (`core/View/templates/admin/scout_year.html.twig`) and the step wording it renders (`Core\Http\Controller\ScoutYearController::buildTransitionSteps()`) each carry a reminder saying so. Changing the workflow — a step added, removed or reordered, a new blocking condition, a new control, or just rewording a label the test reads — means updating that test in the same change. The test reads labels off the page rather than copying them, so it survives a new year; it cannot survive a change of plan.
@@ -347,6 +347,7 @@ An alert that is genuinely a false positive is dismissed in the Security tab wit
 - `schema.sql` is the single source of truth — no incremental migration files.
 - **Two engines are supported, and only one of them is what production runs.** The reference installation is **MariaDB 10.11** on shared hosting; CI's full suite runs **MySQL 8**. They disagree on how `INFORMATION_SCHEMA` reports what they store — display widths, `CURRENT_TIMESTAMP` spelling, JSON as an alias for LONGTEXT, and above all column defaults, where MariaDB returns a SQL *expression* (a bare `NULL` for "no default", string literals quoted) and MySQL returns a value (a real SQL NULL, literals unquoted). Each engine is internally unambiguous; together they contradict each other, which is why `SchemaIntrospector::decodeDefault()` reads the server version. Anything touching introspection, type normalisation or default handling has to be **checked against both**, and the asymmetry to keep in mind is that the dangerous direction is silent: code correct on MySQL and wrong on MariaDB passes the `test` job and reaches production. Locally, `npm run test:engines` (`scripts/test-engines.sh`) runs the suite against both: the MariaDB the session hook already started, and a throwaway MySQL 8 — a Docker container normally, a native `mysqld` where one exists. **`mysql-server` and `mariadb-server` conflict as Debian/Ubuntu packages** — apt removes one to install the other — so a container is what makes "both, locally" possible at all, the same mechanism `scripts/e2e.sh` already uses. An engine it could not start is reported as such and the script exits non-zero: "green on both engines" and "green on the one engine I could find" are different sentences. The `database-mariadb` CI job is the other half: the **whole** suite against MariaDB 10.11, no coverage. Whole rather than `--group=database` on purpose — every file reading `TEST_DB_*` carries that group today, but only until someone adds one that does not, and the failure mode of that omission is the silent one. Do not narrow it, do not drop it, and do not assume the `test` job covers this.
 - **A test class that builds a database carries `#[\PHPUnit\Framework\Attributes\Group('database')]`** — the ATTRIBUTE, never a `@group database` doc-comment, which PHPUnit 13 does not read and which selects nothing (issue #481 §A). "Builds one" is the three idioms this suite uses — `DatabaseTestHelper::createTestDatabase()`, a bare `new \PDO('sqlite::memory:')`, a module helper's `createTables()` — and it counts through inheritance AND through composition, so a class whose base builds the fixture carries it too — and so does one that merely BUILDS a support class whose constructor opens a connection, or calls a helper method that does. `extends` was the only path the guard followed at first, and four classes reached an in-memory database through composition while it called them green. Where the build sits **inside individual test methods** rather than in `setUp()`, the attribute goes on those methods and the class needs none: what the rule is really about is that every test needing a database is selected, and `Core\Import\DeskCsvParserTest` says it that way — four of its eighteen tests build one, each marked, and `--group=database` selects exactly those four. Anywhere else — `setUp()`, or a private helper whose callers this cannot see — only the class-level attribute covers it. `Tests\Architecture\DatabaseBackedTestsCarryTheGroupTest` holds this, and holds it **one way only**: carrying the group without building one is nobody's bug, because the cost of an over-selected test is milliseconds and the cost of a missing one is a run that looked like it checked the database part and did not. CI ignores the group by the rule above; what depends on it is manual selection, which the session hook recommends on every open — and when this guard first ran it was missing from **a hundred and seventy-four classes**, two whole modules (`covoiturage` and `documents`) among them — issue #395's own figure of a hundred and thirty was counted by a reader that has since been corrected four times, so the number to quote is the guard's. See `docs/quality-pipeline.md` § Who carries `database`.
+- **A repository query the engine decides gets a test on the engine production runs.** The suite runs on in-memory SQLite, and SQLite accepts or answers differently exactly where these do: a **subquery** (MySQL 8 and MariaDB refuse a `LIMIT` inside `IN (SELECT …)`, error 1235; MySQL refuses to update a table its own subquery reads, 1093), an **upsert**, a decision taken on **`rowCount()`** after an `UPDATE` (rows CHANGED on MySQL, rows MATCHED on SQLite), a **lock** (`FOR UPDATE`, `GET_LOCK()`), a **date computed by the server** (`NOW()`, `DATE_SUB`, `TIMESTAMPDIFF`, a column default), or a **comparison the collation decides** (case, accents, trailing spaces, a `UNIQUE` index over text). A repository method containing any of these has a `…OnMysqlTest` class next to its ordinary test, built on `Tests\UsesProductionEngine` — `$this->productionEngine()` in `setUp()` gives a database of the class's own with the whole schema as the real migration builds it, emptied before every test — and that class **asserts its own premise** before relying on it: `Tests\Core\Mail\Feedback\Bounce\BounceSendReceiptMysqlTest` first checks that this engine really reports changed rows, so the day it stops, the test says so instead of passing for free. Never hand-write the tables such a test needs, and never open a connection of your own — both are what the fixture replaced (issue #481), and a hand-written table is how a test came to check an `ON UPDATE` clause no installed site has (issue #590). A test that turns red once it really runs on MariaDB is never skipped or loosened: that red is the point, fix the code or the test. `docs/quality-pipeline.md` § The engine a test actually runs on has the reasoning.
 - **Indexes are auto-migrated, but matched by NAME only.** `Core\Database\SchemaComparator` creates any declared index absent from the database (`ADD INDEX`/`ADD UNIQUE INDEX`) — but an index that already exists under the same name is never compared column-by-column, so **changing an existing index's columns in `schema.sql` is silently a no-op on every installed site**. To redefine an index, declare it under a NEW name; the old one lingers on installed sites (nothing is ever auto-dropped, and `drops.sql` only handles columns and foreign keys — a stale index stays until someone drops it by hand, which is usually fine). Primary-key changes are skipped entirely. See ARCHITECTURE.md §10.
 - **A module's `schema.sql` no longer needs a `module.json` version bump to take effect.** It used to, and that was a rule nothing enforced: `ModuleManager::loadEnabledModules()` re-applied a module's schema only when the declared `version` exceeded the one in the registry, so editing `schema.sql` alone was silently a no-op on every already-enabled install, and produced real `Unknown column`/`PDOException` errors in production. The whole declared schema — `schema/core.sql` plus every `modules/*/schema.sql`, enabled or not — is now migrated as one set by whatever deploys the code (`Core\Database\SchemaFiles`, ARCHITECTURE.md §10). Editing a module's `schema.sql` is enough. Bump the module `version` when the module itself changes in a way its users should see, or when the new manifest stops declaring a setting the old one did — that pruning is still what the version comparison drives.
 - **A module's table must never carry a foreign key into another module's table.** The whole schema is migrated in one pass, core first and then modules in alphabetical order, so such a constraint would work or fail depending on how the two module names happen to sort — and fail on a fresh install, where neither table exists yet. Put the shared table in `schema/core.sql`, or drop the constraint. `Tests\Architecture\ModuleSchemaBoundariesTest` enforces this.
@@ -439,312 +440,320 @@ Use `SchedulerService` for any delayed or timed action. Never use `sleep()`, cro
 ## "Fix the backlog" — what that instruction asks for, exactly
 
 The maintainer asks for this in French — « fixe le backlog », « répare le
-backlog » — and it is a standing instruction, not a one-off. It means:
+backlog » — and it is a standing instruction, not a one-off. It means
+**one accepted ticket at a time, carried from end to end**, and then the
+next.
 
-1. **Go through the issues reported on GitHub** in `xdubois-57/scoutmagic`.
-2. **Take every OPEN issue carrying `status:accepted`.** That label, and
-   only that label, selects the work. It is applied by hand and means the
-   maintainer has decided the work is to be done; nothing automatic ever
-   applies it (`.claude/skills/triage/SKILL.md` § 6 forbids it), which is
-   what makes it a decision rather than an opinion. `bug:confirmed` alone
-   selects nothing — a confirmed defect nobody has accepted is still a
-   backlog item, not an instruction.
-3. **Read them all first, and ask your questions THEN** — in one go,
-   before writing anything. The maintainer asks for this explicitly: « first
-   have a look and ask any question that you may have to support
-   development, then when all is clear do implement ». There is exactly one
-   moment in the whole sequence where a question is welcome, and it is this
-   one, before the first line of code. Ask about what changes the work:
-   which of the options an issue lists to take, a number the issue leaves to
-   you, a criterion the code cannot satisfy as written. Do not ask for
-   permission to start, and do not save a question for later — see the rule
-   at the bottom of this section.
-4. **Cut the work into blocks, and one block is one pull request.** This
-   comes straight after the questions and before the first line of code.
-   A block is a set of accepted issues that belong together: the same
-   subject, or the same files. Group them so a reviewer can hold one pull
-   request in their head, and so that its title is a sentence rather than
-   a list — "if I cannot say what this changes in one sentence, it is two
-   blocks" is the test. Say what the blocks are before you start, in the
-   same message as your questions if you have them, so the maintainer sees
-   the shape of the work rather than discovering it at the end.
+It can be given to several agents at once, and they will not pick the same
+ticket without being told about each other: **step 2 is the whole of the
+coordination**, and it works because creating a git ref is atomic
+server-side where applying a label or an assignee is not. Step 6 says why
+there is nothing equivalent for merging, and why this repository already
+decided it does not need one.
 
-   **Ceiling: no more than 10 issues and about 50 changed files in one
-   pull request.** Split a theme that outgrows it by sub-theme rather than
-   arbitrarily. The number is not a style preference. On #257 — 40 issues,
-   185 files, 7 000 lines — `Claude review` was cancelled twice on its own
-   timeout with the reviewer still working, and because that check is
-   REQUIRED on `main` the pull request was simply unmergeable; the
-   reviewer's ceiling is 60 minutes now, but a diff nobody can read in an
-   hour is a diff nobody reads. The same size produced the other two
-   defects of that day: a silent semantic conflict with `main` (both sides
-   had fixed the same issue, differently, and `git merge` reported
-   nothing), and a test-harness leak that only showed up under load. All
-   three are size, not content. The measured point of comparison is #217:
-   25 files, reviewed end to end in 10 min 47 s, sixteen agents, five real
-   findings.
+**First, run the external sources check** —
+`php scripts/check-external-sources.php`, before step 1. The maintainer
+asked for it on issue #355: « une vérification explicite quand je demande
+"fix the backlog" ». What it finds is a backlog item like any other: each
+divergence becomes an issue, or updates the one already open for that
+source, by `.claude/skills/external-sources/SKILL.md` — never a duplicate,
+and never a fix folded into another ticket's pull request. That issue then
+waits for `status:accepted` like everything else. A check that could not
+run (no network) is said in step 8's report, not skipped in silence.
 
-5. **Run the blocks in parallel where they do not touch each other — and
-   merge them one at a time, always.** Blocks whose files are disjoint may
-   be *in flight* at once, each on its own branch off `main`.
-   Blocks that touch the same files are **serialised**: the later one
-   branches from `main` *after* the earlier has merged. Overlapping
-   branches are exactly how the same file gets fixed twice, differently,
-   and merged without a conflict marker.
+1. **List the OPEN issues carrying `status:accepted`, lowest number
+   first.** That label, and only that label, selects the work. Nothing
+   automatic ever applies it (`.claude/skills/triage/SKILL.md` § 6 forbids
+   it), which is what makes it a decision rather than an opinion.
+   `bug:confirmed` alone selects nothing: a confirmed defect nobody has
+   accepted is a backlog item, not an instruction.
 
-   **Development is parallel; merging never is.** The maintainer asks for
-   both halves in one breath — « Travaille en parallèle, mais fusionne les
-   PR une par une, jamais en même temps », and again « Parallélise ce que
-   tu peux, mais sérialise les merge de PR pour éviter de perdre du
-   temps ». Two merges at once is not faster, it is the failure this whole
-   step exists to stop, arriving by a different door: `main` moves under
-   the second one, and « require branches up to date » is off here, so
-   GitHub merges it happily against a base that no longer exists — the
-   required checks that went green were computed against something else.
-   One merge at a time, carried to completion, before the next begins.
+   **`status:accepted` also means the analysis is done.** The maintainer
+   said so on 2026-09-25: « si le label accepted est dessus c'est que j'ai
+   déjà fait l'analyse et que l'agent peut l'implémenter directement ». So
+   an accepted ticket is implemented as it stands — a feature as readily as
+   a defect — and does not go back for a design, a roadmap or a
+   confirmation first.
 
-   **Hold the open pull requests as a queue, and cap it at six.**
-   Measured rather than chosen, and the number MOVED once for a reason worth
-   keeping. It was four while every merge obliged a re-merge of `main` into
-   everything still open, each costing a full CI round — `Checks / test`
-   alone runs about 19 minutes, and the `Claude review` beside it prices
-   itself at roughly 10 USD in its own status comment. That re-merge is now
-   required only where the files overlap, so the cost that set the ceiling
-   fell and the maintainer asked for the ceiling to follow. Below it the
-   reviewers idle between merges and the queue starves; above it the
-   overlapping re-merges cost more than the work they carry. So a finished
-   block whose pull request would be the seventh **waits on its branch —
-   pushed, green, with its body already written** — and is opened the moment
-   one merges.
+   **An accepted ticket that is not clear enough to implement is skipped.**
+   Same instruction: « si pas clair alors ignore le ticket et continue ».
+   Leave it untouched, take the next one, and name it in what you report at
+   the end. A ticket left for the maintainer costs them a sentence; a
+   ticket taken and guessed wrong costs a pull request, a review round and
+   a revert.
 
-   **And the cap is on OPEN PULL REQUESTS, not on work in progress.**
-   Nothing limits how many blocks are being written at once, and reading one
-   as the other is how an agent ends up watching CI with its hands in its
-   pockets while twenty accepted issues sit untouched — which happened here,
-   and the maintainer had to say so. Keep starting new blocks while the queue
-   drains: a queue that empties with nothing entering it is the failure this
-   paragraph exists to prevent, not its ceiling.
+2. **Claim the first one by creating the branch `claude/issue-<n>` off
+   `main` through the GitHub API**, not with a local `git push`. The call
+   fails with **« Reference already exists »** — verified against the tool
+   rather than assumed, and an HTTP 422 underneath — when another agent
+   already holds that issue, and that refusal is the whole mechanism. It has to be
+   a ref: two agents can apply the same label or assignee in the same
+   second and both believe they won, and a push can succeed against a
+   branch another agent created a moment ago and has not committed to yet.
 
-   Land the block others build on first, and after **each** merge bring
-   `main` into every branch still open, then re-run the checks locally on
-   the merged state — `vendor/bin/phpstan analyse` above all, which is
-   what catches a semantic conflict that compiles on each side and not
-   together. « Require branches up to date » is deliberately off on this
-   repository (docs/quality-pipeline.md § Branch ruleset), so nothing does
-   this for you.
+   On 422, move to the next issue and say nothing **as you pass** — a claim
+   you lost is not an event, and a running commentary on normal operation is
+   not a report. Step 8 is where they are named, once, at the end. The claim
+   itself costs nothing, because the branch is the first thing the work
+   needed anyway.
 
-   **Locally on all of them; then push the next two or three side by side.**
-   The local run is what catches the semantic conflict and it costs seconds;
-   the push is what spends the CI round. Pushing several DIFFERENT pull
-   requests at once costs no more than pushing them one after another —
-   each needs one review on its final head either way — so the total is
-   unchanged and only the waiting divides. Push them, let their rounds run
-   beside each other, then merge in order **without re-merging `main` in
-   between where their files are disjoint**, which a dry-run merge and one
-   local run of the combined state establish. Re-merge `main` only where
-   the files overlap, or where that combined run shows a conflict.
+3. **Put `status:in-progress` on the issue if that label exists**, so the
+   issue list says what is being worked on. It is a signal for whoever is
+   reading, never a lock — step 2 is the lock, and the work proceeds
+   identically without the label. **If it does not exist, do not create it,
+   and do not let the API create it for you** — adding an unknown label to an
+   issue mints it with an arbitrary colour and no description, which is the
+   hand-made GitHub configuration `scripts/sync-issue-labels.sh` exists to
+   replace (docs/quality-pipeline.md § Labels). Read the
+   label first; if it is missing, say so in your report and carry on without
+   it. The script owns it, and it needs `gh`, which a remote session has not
+   got.
+   Take it off when the pull request merges, or when you give the ticket up.
 
-   **The first version of this rule serialised the pushes too, and its
-   arithmetic was wrong.** It claimed that pushing several branches at once
-   multiplies the review spend by the number in flight. It does not: each
-   pull request needs one review on its final head whichever way the rounds
-   are ordered, so **the total is the same and only the rate changes** — the
-   same money, sooner, for a third of the waiting. The maintainer asked
-   whether two at a time would save time, the numbers were redone, and the
-   rule was relaxed to what stands above.
+4. **Fix it**, under the rules in this file: a test alongside the fix,
+   `vendor/bin/phpstan analyse` before committing PHP, `npm run typecheck`
+   before committing `public/assets/js/`, French interface and English code.
+   Reproduce the CI job rather than its neighbour — `npm run test:coverage`
+   is what `javascript-tests` runs, where `npm test` passes over failures it
+   would catch.
 
-   Two things it did NOT relax, because they were the real dangers all
-   along. **Two merges at the same instant** stays forbidden, for the reason
-   the paragraph above gives. And the window this opens — a combination
-   tested on `main` after it lands rather than before — is not something
-   this rule gets to decide: `docs/quality-pipeline.md` § Branch ruleset
-   already accepts it, names the maintainer as the one who answers for it on
-   the red-`main` notification, and says the fix goes forward rather than by
-   revert. Relaxing the pushes changes how often that window opens, not who
-   owns it.
+   **A choice the ticket genuinely leaves open is asked in the
+   conversation**, and you take the NEXT ticket while you wait rather than
+   idling on this one. Keep the claim and the label: the ticket is still
+   yours, it is waiting for an answer. This is the one question the
+   instruction allows, and it is a question about the work, never a request
+   for permission to do it.
 
-   **Do not run those local checks in a `git worktree`.** `vendor/` there
-   is a symlink, so Composer's autoloader resolves `$baseDir` to the main
-   checkout and loads `Core\` and `Tests\` from the OTHER working tree:
-   the branch you believe you are testing is never read. A mutation proof
-   taken that way is worth nothing and looks green — this was found by
-   `Tests\Core\View\TwigCacheVersioningTest` failing with the main
-   checkout's path in it, not by suspecting the setup. Use one checkout and
-   switch branches in it; keep worktrees for pure git plumbing, where no
-   autoloader runs.
+5. **Open one pull request and name the issue in its body with
+   `Corrige #158`** — that word, when the pull request is opened rather than
+   afterwards. `Corrige` is deliberately **not** one of GitHub's closing
+   keywords (`Closes`, `Fixes`, `Resolves` and their inflections): a keyword
+   makes GitHub close the issue itself, server-side, at the instant of the
+   merge, which is seconds *before* `issue-fixed-comment.yml` can say
+   anything — so the reporter's first notification is a bare closure.
+   Leaving the closing to that workflow is what buys the
+   sentence-then-closure order. The cost is the issue's *Development*
+   sidebar link, which only a closing keyword creates; `Corrige #158` still
+   cross-references the pull request on the issue's timeline, and the
+   workflow's comment names the pull request and the merge commit outright.
+   **Do not "fix" a body by putting a closing keyword back** — that is the
+   bug, not the convention.
 
-   **Never re-merge into a local branch that merely shares a name with the
-   remote one.** `git checkout claude/some-branch` picks a LOCAL ref of that
-   name when one exists, silently, however far behind it is — and a queue
-   that has been running for hours accumulates exactly such refs. Merging
-   `main` into one produces a plausible merge commit whose first parent is
-   the branch as it was hours ago, missing every push since. Pushing it
-   would revert the pull request, review fixes included; only the
-   non-fast-forward rejection stops that, and a `--force` would not be
-   stopped at all. So re-merge from the remote ref by name
-   (`git merge origin/main` onto a branch created with
-   `git checkout -B work origin/claude/some-branch`), and afterwards assert
-   the head you meant to build on is an ancestor:
-   `git merge-base --is-ancestor <pushed head> HEAD`. Delete stale local
-   branches that shadow a remote — including `main` itself, which goes stale
-   the same way and is the one nobody thinks to check.
+6. **Bring `main` in if it moved into your files, then arm auto-merge.** If
+   `main` has moved into files your branch touches, merge `main` in, re-run
+   the checks locally — `vendor/bin/phpstan analyse` above all, which catches
+   a semantic conflict that compiles on each side and not together — push,
+   and wait for green. Where the files are disjoint, nothing is needed.
 
-   **Keep a self check-in armed until the queue is empty**, re-armed after
-   each merge. Webhook events for CI success and for a merge conflict
-   arrive late or not at all, and a queue whose head went green an hour ago
-   while nobody looked is precisely the time this step is meant to save.
+   Then **arm auto-merge**: § Merging a pull request has the command and the
+   reason, and says why `merge_pull_request` is not a fallback there. The
+   instruction to fix the backlog IS the authorization that section requires,
+   for every ticket in the set and not for the first one, and everything it
+   requires *before* arming still holds without exception.
 
-6. **Fix them** — every one of them, under the rules in this file: a test
-   alongside each fix, `vendor/bin/phpstan analyse` before committing PHP,
-   `npm run typecheck` before committing `public/assets/js/`, French
-   interface and English code. Reproduce the CI job rather than its
-   neighbour: `npm run test:coverage`, which is what `javascript-tests`
-   runs, and not `npm test`, which passes over failures it would catch.
-7. **Open each block's pull request and merge it.** The instruction to fix
-   the backlog IS the authorization to merge that § Merging a pull request
-   requires — for every pull request in the set, not for one of them. It
-   is the maintainer saying "do the work and land it", and coming back to
-   ask again is not diligence. Everything that section requires *before*
-   arming auto-merge still holds without exception, on each: every check
-   green on the current head, every review thread answered, the template's
-   checklist honestly filled.
+   **There is no merge lock, and « fusionne les PR une par une » cannot be
+   obeyed as worded.** The maintainer asked for it twice — « Travaille en
+   parallèle, mais fusionne les PR une par une, jamais en même temps » — and
+   it was written when one agent cut the work into blocks and merged each of
+   them itself. An agent here does not merge: it **arms**, and GitHub merges
+   once the ruleset on `main` is satisfied, at a moment no agent chooses. Two
+   agents that armed seconds apart cannot serialise what neither of them
+   performs. A git ref cannot bridge that: an earlier version of this section
+   tried, and every attempt produced a new hole instead of a mutex — a
+   creation date refs do not have, a threshold the work itself exceeded, an
+   unconditional delete that destroyed a peer's fresh lock.
 
-   **A review round is expensive, so spend as few as possible.** One round
-   of `Claude review` costs between 5 and 9 USD and takes 8 to 25 minutes,
-   CI takes another 20, and every push cancels a review in flight and
-   starts it again — the cancelled one is paid for and thrown away. On one
-   pull request in this repository that arithmetic came to seven rounds and
-   some 45 USD, and the reason was not the reviewer: **five of its ten
-   findings were in the code pushed to fix the four before them.** Each
-   round opened a new one instead of closing the last.
+   **What that rule protects against is answered one step later, and this
+   repository decided so deliberately.** `docs/quality-pipeline.md` § Branch
+   ruleset keeps « require branches to be up to date » **off** for a measured
+   reason — with it on, every push to `main` invalidates every open pull
+   request, and on 2026-09-05 that cost #152 four consecutive CI cycles, each
+   green and stale again before the merge call. It then names exactly what
+   pays for it: two pull requests each green alone whose combination is not,
+   caught by `ci.yml` on `main` **after** they land, with **the maintainer**
+   answering the red-`main` notification and the fix going forward rather
+   than by revert. The window is accepted, owned, and small by construction.
 
-   So, before pushing a fix for review findings:
+   Your share of it is the first paragraph, and it is the half a branch can
+   actually see: never arm against a `main` that has moved into **your**
+   files.
 
-   - **Fix everything that round reported, then push ONCE.** Two pushes for
-     one round pays twice for the same reading.
-   - **Never push while a review is in flight**, unless CI is red. The run
-     is cancelled and restarted from zero.
-   - **Run the local reviewer first** — the `code-review` skill over the
-     diff. It costs minutes and no dollars, and it reads the same way the
-     CI reviewer does.
-   - **Run the whole suite, not the suites you think are affected.**
-     `vendor/bin/phpunit` entire takes about eleven minutes here, which is
-     less than one wasted round.
-   - **Prove every new assertion can FAIL**, not merely that it passes.
-     This is the rule that was missing when those five findings landed: the
-     mutation proof was done for the production code and skipped for the
-     guards' own fixtures, and two of them turned out to be assertions that
-     could not fail at all. A fixture copied from a neighbouring assertion
-     has to be re-checked against the pattern it is now applied to — that
-     is exactly how both of them got in.
-   - **Never restore a file with `git checkout` to undo a mutation.** It
-     restores from `HEAD`, so it deletes the uncommitted work the mutation
-     was testing, and every assertion after that fails for the wrong
-     reason. Undo a mutation by replacing the string back.
-   - **One full suite at a time, and do not touch the working tree while it
-     runs.** Both halves were learnt the same afternoon. A second
-     `vendor/bin/phpunit` shares the one `test_db` this container has, so
-     the two runs write over each other's fixtures and either verdict can
-     be wrong in either direction. And a run whose tree changes under it —
-     a branch switched, a file edited — is reading something that no longer
-     exists: three failures were reported that way in one session, and one
-     green was reported that had no right to be. Both are silent. If a
-     suite is running and something else needs doing, the something else
-     waits, or the suite is killed and started again afterwards.
+7. **Verify the comment and the closure, then take `status:in-progress`
+   off** — this step and the next apply to the pull request that carries
+   `Corrige #<n>`, which for a ticket delivered in several is the **last**
+   one. Between the others, go back to step 4 and **keep the claim and the
+   label**: the ticket is still yours and still open. Following this step
+   after a sub-pull-request would strip the label from a ticket still in
+   flight and send you back to step 1, where your own surviving branch
+   answers « Reference already exists » and you would walk away from your own
+   half-delivered work, reporting it as one somebody else held. `issue-fixed-comment.yml` does both on merge: one comment naming
+   the pull request, the commit and the branch, and *then* the closure as
+   `completed`. An issue it could not comment on is left open on purpose and
+   the run goes red, so finish by hand any it left open — comment first,
+   then `state_reason: completed`. An accepted issue whose fix is merged and
+   which is still open is the backlog lying about itself; one closed with
+   nothing written on it is the backlog being rude.
 
-   **And put the flake fixes at the FRONT of the queue.** A test that fails
-   for a reason that is not the defect it watches costs a round to every
-   pull request that follows, not just its own: two of those seven rounds
-   went to instabilities that had nothing to do with the diff. What makes
-   every other block cheaper goes first.
-8. **Name each issue in the pull request body with `Corrige #158`** — that
-   word, one line per issue, when the PR is opened rather than afterwards.
-   `Corrige` is deliberately **not** one of GitHub's closing keywords
-   (`Closes`, `Fixes`, `Resolves` and their inflections): a keyword makes
-   GitHub close the issue itself, server-side, at the instant of the merge,
-   which is seconds *before* `issue-fixed-comment.yml` can say anything —
-   so the reporter's first notification is a bare closure. Leaving the
-   closing to that workflow is what buys the sentence-then-closure order.
-   The cost is the issue's *Development* sidebar link, which only a closing
-   keyword creates; `Corrige #158` still cross-references the pull request
-   on the issue's timeline, and the workflow's comment names the pull
-   request and the merge commit outright. **Do not "fix" a body by putting
-   a closing keyword back** — that is the bug, not the convention.
-9. **Close the issue once the fix is on `main`.** `issue-fixed-comment.yml`
-   does it on merge: one comment per issue naming the pull request, the
-   commit and the branch, and *then* the closure as `completed`. An issue
-   it could not comment on is left open on purpose and the run goes red.
-   Your job is to *verify* both happened, on each issue, and to finish by
-   hand any it left open (comment first, then `state_reason: completed` —
-   the fix shipped). An accepted issue whose fix is merged and which is
-   still open is the backlog lying about itself; one closed with nothing
-   written on it is the backlog being rude. Verify per block, as each one
-   lands, rather than saving it all for the last merge.
+   **And delete `claude/issue-<n>`.** GitHub deletes the head branch on
+   merge on its own since 2026-09-26, so for a pull request that merged this
+   is usually a no-op — deleting a branch that is already gone costs
+   nothing and needs no special case.
 
-10. **Leave every release gate green — and do not cut a release.** Asked
-    for on 2026-09-19, in the same breath as the rest: « souviens-toi en
-    plus de faire tout ce qui est prévu de t'assurer que toutes les
-    dépendances soient à jour, que toutes les issues SonarCloud soient
-    fixées, et en général que toutes les gates nécessaires pour faire une
-    release soient vertes. Sans pour cela lancer une release. » So « fixe
-    le backlog » is not only the accepted issues. It is also leaving the
-    repository in a state where `scripts/release.sh` would pass every one
-    of its gates on the first try — because the alternative is what this
-    step exists to stop: a release that aborts on a finding nobody had
-    looked at since the last one, at the moment somebody wanted to ship.
+   It stays because that setting only ever covers a MERGE, and a claim can
+   end three other ways: a pull request closed without merging, a ticket
+   given up at step 4, and a claim taken before any pull request existed at
+   all. Nothing deletes the branch in those, and they are exactly the cases
+   the rules below already tell you to handle by hand. What a surviving ref
+   costs is unchanged either way: the claim outlives the work it stood for,
+   and a ticket reopened later answers « Reference already exists » to every
+   agent for ever, reported at step 8 as held by somebody who finished
+   months ago.
 
-    Cut the same way as everything else — **dependency work and
-    SonarQube Cloud work are each their own block**, never smuggled into
-    an issue's pull request, whose diff a reviewer is holding for a
-    different reason.
+8. **Back to step 1.** When no accepted issue is left that you can take,
+   **stop and report**: what you delivered, which tickets you skipped as
+   unclear, **which one you are still waiting on an answer for** — it keeps
+   its claim and its label, so no other agent can take it and only this
+   report makes it visible — and which ones another agent held — that last list is where a
+   branch nobody is working on any more becomes visible, and it is the only
+   place any of this is mentioned. Do not idle waiting for the label to
+   appear on something new.
 
-    - **Dependencies up to date.** Every outdated direct Composer package
-      (`composer outdated --direct`) and every vendored front-end library
-      against its latest upstream release. That pair is exactly what
-      § Releases' dependency freshness gate checks, so run that gate's own
-      commands rather than something that resembles them. `composer audit`
-      and `npm audit` come back clean too.
-    - **SonarQube Cloud at zero.** Every unresolved finding on `main` that
-      survives the one exemption in § SonarQube Cloud release gate, every
-      Security Hotspot still `TO_REVIEW`, and a Quality Gate that is `OK`.
-      Fix them. Resolving one in SonarQube Cloud with a written
-      justification is the second-best answer and carries the same
-      standard as dismissing a Dependabot alert.
-    - **The rest of the gates, read rather than assumed**: open CodeQL
-      alerts, open Dependabot alerts, `All checks` green on `main`.
+**A ticket bigger than one reviewable pull request is delivered in
+several.** No pull request carries more than about **50 changed files**; a
+ticket needing more is cut by sub-theme into successive pull requests off
+`main`, each merged before the next begins. `Corrige #<n>` goes on the
+**last** one only, so the issue stays open — correctly — until all of it
+has shipped.
 
-    **Never run `scripts/release.sh` for this.** The instruction is to
-    leave the gates green, not to ship — releasing is its own instruction
-    and the maintainer gives it separately, with its own notes file and
-    its own hour of runner time. An agent that releases because the gates
-    happened to go green has done something nobody asked for, to a
-    production site.
+The number is not a style preference. On #257 — 40 issues, 188 files,
+7 000 lines — `Claude review` was cancelled at 20m20s and again at 20m21s
+with the reviewer still working, and because that check is REQUIRED on
+`main` the pull request was simply unmergeable. The same size produced that
+day's other two defects: a silent semantic conflict with `main` (both sides
+had fixed issue #226, differently, and `git merge` reported nothing — 16 000
+tests green on the branch, twelve failing after the merge, and only
+`phpstan` on the merge result saw it), and a debounce that became a
+`ReferenceError` only once a sibling fix made it read `document.cookie`. The
+reviewer's ceiling is 60 minutes now, which buys room and does not buy a
+reader. The measured point of comparison is #217: 25 files, reviewed end to
+end in 10 min 47 s.
 
-    A gate you cannot make green is what this step sends back, the same
-    way an accepted issue you did not fix goes back on its issue: a major
-    version bump that takes the suite red, a finding whose fix is a design
-    decision. Finish the others, then say which one and why.
+**Never take a ticket somebody else has claimed, even when the claim looks
+abandoned.** A branch `claude/issue-<n>` with no commit and no pull request
+is what a claim looks like for as long as step 4 lasts — reading the issue,
+writing the fix — and longer still when the ticket is parked on a question.
+From outside there is nothing that distinguishes it from a claim whose agent
+died, which is the same point step 2 makes to explain why a push is not a
+lock. So do not delete another agent's branch: skip that ticket, and name it
+in **step 8's report** rather than as you pass it — the same rule step 2
+gives, because it is the same observation. A human reading that report clears
+a genuinely dead branch in seconds. A ticket that waits costs a sentence; a
+ticket taken from an agent still working on it costs two pull requests that
+fix the same thing differently.
 
-**Do not wait for the maintainer at any point of this**, once step 3 is
-behind you. Not to start, not to cut the blocks, not to merge, not to
-close. The instruction covers the whole sequence — plan, fix,
-open, merge to `main`, close the issue — for every block, and asking for a
-confirmation already given is how a backlog stays a backlog. Announcing
-the blocks in step 4 is telling, not asking: you say what you are about to
-do and then do it, and you do not stop for an answer. Report what you did
-afterwards; do not ask for permission during. This overrides nothing in
-§ Merging a pull request about what must be TRUE before you merge (every
-check green on the current head, every review thread answered, the
-checklist honestly filled) — it settles only who decides, and that was
-settled when the instruction was given. A red pipeline is still work, never
-a question to bring back.
 
-An accepted issue you end up **not** fixing is not silently dropped:
-finish the others, and say on that issue what stopped you — the same
-standard as § A problem you decide not to fix now becomes a GitHub issue.
-Scaling the work down is the maintainer's call, and they can only make it
-if they know. That is the one thing this instruction sends back to them,
-and it goes on the issue, after the rest has shipped.
+**Do not wait for the maintainer at any other point.** Not to start, not to
+merge, not to close, not between tickets. Report what you did afterwards; do
+not ask for permission during. A red pipeline is work, never a question to
+bring back. This overrides nothing in § Merging a pull request about what
+must be TRUE before you merge — it settles only who decides, and that was
+settled when the instruction was given.
+
+**A ticket you take and then abandon is not silently dropped**: say on that
+issue what stopped you, take `status:in-progress` off, delete the branch,
+and go to the next one. Scaling the work down is the maintainer's call and
+they can only make it if they know.
+
+**The release gates are not part of this.** Dependencies, SonarQube Cloud,
+CodeQL and Dependabot have their own section below and their own
+instruction; they are never smuggled into a pull request whose diff a
+reviewer is holding for a ticket. The external sources check at the top of
+this section is no exception, although the sixth gate runs the same
+script: here it only files issues, and fixes nothing.
+
+## Leaving the release gates green
+
+Asked for on 2026-09-19: « souviens-toi en plus de faire tout ce qui est
+prévu de t'assurer que toutes les dépendances soient à jour, que toutes les
+issues SonarCloud soient fixées, et en général que toutes les gates
+nécessaires pour faire une release soient vertes. Sans pour cela lancer une
+release. »
+
+This is its own instruction, given in the maintainer's own words when they
+want it. **It is not covered by « fixe le backlog »** — it was, and it made
+that instruction two jobs at once, with dependency bumps landing in pull
+requests opened for a ticket.
+
+The goal is a repository where `scripts/release.sh` would pass every one of
+its gates on the first try, because the alternative is what this exists to
+stop: a release that aborts on a finding nobody had looked at since the last
+one, at the moment somebody wanted to ship.
+
+**Dependency work and SonarQube Cloud work are each their own pull
+request.**
+
+- **Dependencies up to date.** Every outdated direct Composer package
+  (`composer outdated --direct`) and every vendored front-end library
+  against its latest upstream release. That pair is exactly what
+  § Releases' dependency freshness gate checks, so run that gate's own
+  commands rather than something that resembles them. `composer audit` and
+  `npm audit` come back clean too.
+- **SonarQube Cloud at zero.** Every unresolved finding on `main` that
+  survives the one exemption in § SonarQube Cloud release gate, every
+  Security Hotspot still `TO_REVIEW`, and a Quality Gate that is `OK`. Fix
+  them. Resolving one in SonarQube Cloud with a written justification is the
+  second-best answer and carries the same standard as dismissing a
+  Dependabot alert.
+- **The rest of the gates, read rather than assumed**: open CodeQL alerts,
+  open Dependabot alerts, `All checks` green on `main`.
+
+**Never run `scripts/release.sh` for this.** The instruction is to leave the
+gates green, not to ship — releasing is its own instruction, with its own
+notes file and its own hour of runner time. An agent that releases because
+the gates happened to go green has done something nobody asked for, to a
+production site.
+
+A gate you cannot make green is what this sends back: a major version bump
+that takes the suite red, a finding whose fix is a design decision. Finish
+the others, then say which one and why.
+
+## The working tree, and three ways it reports green while lying
+
+All three were learnt here, all three are silent, and none of them
+announces itself as a setup problem.
+
+**Do not run the local checks in a `git worktree`.** `vendor/` there is a
+symlink, so Composer's autoloader resolves `$baseDir` to the main checkout
+and loads `Core\` and `Tests\` from the OTHER working tree: the branch you
+believe you are testing is never read. A mutation proof taken that way is
+worth nothing and looks green — this was found by
+`Tests\Core\View\TwigCacheVersioningTest` failing with the main checkout's
+path in it, not by suspecting the setup. Use one checkout and switch
+branches in it; keep worktrees for pure git plumbing, where no autoloader
+runs.
+
+**Never merge into a local branch that merely shares a name with the remote
+one.** `git checkout claude/some-branch` picks a LOCAL ref of that name when
+one exists, silently, however far behind it is. Merging `main` into one
+produces a plausible merge commit whose first parent is the branch as it was
+hours ago, missing every push since; pushing it would revert the pull
+request, review fixes included. Only the non-fast-forward rejection stops
+that, and a `--force` would not be stopped at all. So build from the remote
+ref by name (`git checkout -B work origin/claude/some-branch`, then
+`git merge origin/main`), and afterwards assert that the head you meant to
+build on is an ancestor: `git merge-base --is-ancestor <pushed head> HEAD`.
+Delete stale local branches that shadow a remote — including `main` itself,
+which goes stale the same way and is the one nobody thinks to check.
+
+**One full suite at a time, and do not touch the working tree while it
+runs.** A second `vendor/bin/phpunit` shares the one `test_db` this
+container has, so the two runs write over each other's fixtures and either
+verdict can be wrong in either direction. And a run whose tree changes under
+it — a branch switched, a file edited — is reading something that no longer
+exists: three failures were reported that way in one session, and one green
+that had no right to be. Both are silent. If a suite is running and
+something else needs doing, the something else waits, or the suite is killed
+and started again afterwards.
 
 ## Merging a pull request
 
@@ -754,9 +763,9 @@ reading of what they would probably want. Without it, green and
 merge-ready is where your work stops and you say so.
 
 « Fixe le backlog » **is** that instruction, standing, for **every** pull
-request that fixes accepted issues — the work is cut into one pull request
-per block of issues, and the authorization covers the set, not the first
-of them. See § "Fix the backlog" above, which also says not to come back
+request that fixes accepted issues — the work is one pull request per
+accepted ticket, and the authorization covers every one of them, not the
+first. See § "Fix the backlog" above, which also says not to come back
 for a second confirmation of it. Everything below still applies to each of
 those pull requests unchanged.
 
@@ -780,7 +789,7 @@ answered threads, an honest checklist — and so does the test discipline:
 a rule worth writing into `AGENTS.md` is worth an assertion in
 `tests/Architecture/` pinning it against the edit that would undo it,
 in the manner of `AutoMergeRuleIsWrittenDownTest` and
-`BacklogIsCutIntoBlocksTest`.
+`BacklogIsOneTicketAtATimeTest`.
 
 With it, arm **auto-merge** rather than watching the pull request:
 
@@ -844,7 +853,7 @@ When the user asks to release a new version (`scripts/release.sh`), do this **in
    - open CodeQL scanning findings (`gh api "repos/{owner}/{repo}/code-scanning/alerts" --paginate --jq '.[] | select(.state == "open")'`)
    - open Dependabot alerts (`gh api "repos/{owner}/{repo}/dependabot/alerts" --paginate --jq '.[] | select(.state == "open")'`)
    - active SonarQube Cloud findings for `main` — **every** unresolved issue, plus unreviewed Security Hotspots. The one exemption is a pure convention nit: see § SonarQube Cloud release gate below for the exact rule (project `xdubois-57_scoutmagic`, https://sonarcloud.io/project/overview?id=xdubois-57_scoutmagic)
-2. Only after all of them are resolved, run the release script. Its five gates — **deployment** (www.scoutmagic.be is on the previous release and responds normally — via the public `GET /api/version`, `Core\Http\Controller\VersionController`), **continuous integration** (see below), **security** (`composer audit` + `npm audit` — always mandatory and blocking, queried directly against public advisory databases, no GitHub permission of any kind involved — plus the CodeQL/Dependabot query described above; see § A gate that cannot be verified from the current environment below for what happens when that query alone hits a permission gap), **dependency freshness** (`composer outdated --direct` + every vendored front-end library — Bootstrap, Bootstrap Icons, Chart.js, Leaflet, html5-qrcode — each vs. its latest upstream GitHub release), and **SonarQube Cloud** (`scripts/check-sonar-release.sh` — see below) — run in that order, in seconds, and are the final checks rather than the fix: the first one that finds a problem aborts the script before any commit or tag exists. Do not bypass or disable any gate to make a release "pass" — `--skip-deployment-check`, `--skip-ci-gate`, `--skip-security-gate`, `--skip-dependency-check` and `--skip-sonar-gate` (see below) exist only for genuine emergencies, not to route around a real finding, a real test failure, a real outdated dependency, or a real production problem.
+2. Only after all of them are resolved, run the release script. Its seven gates — **deployment** (www.scoutmagic.be is on the previous release and responds normally — via the public `GET /api/version`, `Core\Http\Controller\VersionController`), **continuous integration** (see below), **security** (`composer audit` + `npm audit` — always mandatory and blocking, queried directly against public advisory databases, no GitHub permission of any kind involved — plus the CodeQL/Dependabot query described above; see § A gate that cannot be verified from the current environment below for what happens when that query alone hits a permission gap), **dependency freshness** (`composer outdated --direct` + every vendored front-end library — Bootstrap, Bootstrap Icons, Chart.js, Leaflet, html5-qrcode — each vs. its latest upstream GitHub release), **deprecated browser API** (`scripts/check-deprecated-api.php` — has any engine removed `document.execCommand`, which the rich-text editors are built on; see below), and **SonarQube Cloud** (`scripts/check-sonar-release.sh` — see below), and **external sources** (`php scripts/check-external-sources.php` — every page registered in `Core\ExternalSource\ExternalSources`: the federation pages must answer 200 with their expected content and the fees page's three amounts readable, the provider console and legal links must be alive; issue #355) — run in that order, in seconds, and are the final checks rather than the fix: the first one that finds a problem aborts the script before any commit or tag exists. Do not bypass or disable any gate to make a release "pass" — `--skip-deployment-check`, `--skip-ci-gate`, `--skip-security-gate`, `--skip-dependency-check`, `--skip-deprecated-api-gate`, `--skip-sonar-gate` and `--skip-sources-gate` (see below) exist only for genuine emergencies, not to route around a real finding, a real test failure, a real outdated dependency, or a real production problem.
 
 ### The tests are not among those gates, and that is deliberate
 
@@ -883,6 +892,24 @@ An exempt finding is still a finding. The exemption exists so that formatting an
 
 Fix upgrades/dependency alerts as code changes in the normal flow (with tests), not by blindly dismissing them — but for alerts with demonstrably no fix or clear false positives, dismissing with a justification is acceptable so the gate can pass.
 
+### Deprecated browser API release gate
+
+`scripts/check-deprecated-api.php` (invoked automatically by `release.sh` unless `--skip-deprecated-api-gate` is passed) answers one question: has any browser engine **removed** `document.execCommand`? Six files under `public/assets/js/` are built on it — the shared rich-text toolbar, the mass-mail token and chip insertions, the news form builder's own toolbar, and two clipboard fallbacks — and it is deprecated with no standard replacement (issue #379). It reads MDN's published `browser-compat-data`, which is the machine-readable form of what https://caniuse.com/document-execcommand renders.
+
+**It is the one gate here that does not fail closed, and that is deliberate.** A network error or a moved upstream schema is reported as « non vérifié automatiquement — à vérifier à la main », in the release notes, with the page to read; it does not refuse the release. Every other gate answers a question about *this* release; this one answers a question about a removal that has happened nowhere yet, and blocking a release because `raw.githubusercontent.com` returned a 502 would buy nothing. A removal actually **found** in the data does block.
+
+What makes that safe is the second layer, which is blocking: `tests/e2e/specs/rich-text-commands.spec.js` exercises all twelve commands in a real Chromium and fails if any stops producing markup, so a removal that has actually shipped is caught by the `ci` gate above. The two are complementary and neither replaces the other — the spec is exact but knows one engine and only after the fact; the gate is an early warning and the only thing here that can speak about Firefox or Safari at all. `tests/Architecture/DeprecatedBrowserApiIsWatchedTest.php` is what keeps the spec's list of commands and the count of call sites above honest: it reads them out of the product and fails until the alarm covers each one.
+
+Test the gate's own logic with `vendor/bin/phpunit tests/Core/System/DeprecatedApiCheckTest.php` — no network: the decision takes its fetcher as an argument, and the fetching itself is exercised against a local file — rather than against the live document.
+
+**The shape of that document is the whole difficulty**, and every trap in it has a regression test rather than a comment:
+
+- A per-engine entry is an object, *or* a newest-first list of them, *or* the string `"mirror"`. A `version_removed` anywhere but the first entry is history, not a removal: read indiscriminately, the data reports Firefox as having dropped the API in version 69 while saying the opposite.
+- `api.Document.execCommand` is **not one entry**. MDN publishes a `__compat` of its own for individual commands as sibling keys — `copy` and `insertHTML` among them, both of which this product issues. A gate reading only the generic entry reports « supporté » while an engine has dropped the one command a feature needs. Which per-command entries are read is decided by `DEPRECATED_API_COMMANDS`, and `tests/Architecture/DeprecatedBrowserApiIsWatchedTest.php` fails until that list is exactly what the product issues — the same extraction that keeps the alarm honest. Not every sibling: `defaultParagraphSeparator` carries a removal for Edge 79 and was never in Chrome at all, and nothing here issues it.
+- **No engine answering is not « no removal found ».** A `support` present but empty, or carrying only engines this gate does not watch, yields an empty removal list exactly like a healthy one. The gate counts the verdicts it actually read and reports « non vérifié » at zero, rather than the size of its engine constant.
+
+What it detects is a removal that has **shipped** (`version_removed`). Deprecation itself is the baseline, not a signal — MDN has marked this API deprecated for years — so an « Intent to Remove » announced but not yet shipped is precisely what this data cannot tell you, and the human page in the report line is what that is for.
+
 ### Release notes — mandatory when releasing from Claude
 
 `scripts/release.sh` accepts `--notes-file <path>`. Every time a release is started from Claude, you **must** write a release-notes file and pass it via `--notes-file` — never rely on the auto-generated commit-list notes (the default when the flag is omitted, intended for manual/human-triggered releases only). Write the file to a temp path (e.g. `mktemp`) since the notes are multi-line Markdown; do not attempt to pass this inline.
@@ -906,7 +933,9 @@ The script appends two more things after the note and the "Vérifications effect
 - `--skip-security-gate`: skips composer audit, npm audit, AND the CodeQL/Dependabot check — all of it. Only use this if the user explicitly asks for an urgent release despite a real, known finding in one of these; the script prints a warning, and you must tell the user the same and follow up to resolve them right after. This is **not** what a CodeQL/Dependabot permission gap needs — see the next section, `check_security_gate` already turns that specific case into a non-blocking warning on its own, while composer audit/npm audit still run and still block for real.
 - `--skip-ci-gate`: skips the check that `All checks` is green on the commit being released — which is to say, every test and scan this project has. **This is the widest bypass in the list**: nothing else in the script looks at the code at all, so a release cut with it has been tested by nobody at the moment it is tagged. Only use this if the user explicitly asks, knowing that; the script prints a warning, and you must tell the user the same. Note what happens next either way: the tag's own Release workflow runs every gate again and creates no draft if one is red, so the release will simply refuse to publish rather than ship untested — which is why reaching for this flag to get past a red test wastes an hour and fixes nothing.
 - `--skip-dependency-check`: skips the dependency freshness gate (outdated direct Composer packages, outdated vendored front-end libraries — Bootstrap, Bootstrap Icons, Chart.js, Leaflet, html5-qrcode). Only use this if the user explicitly asks for an urgent release despite outdated dependencies; the script prints a warning, and you must tell the user the same and follow up to update them right after.
+- `--skip-deprecated-api-gate`: skips the deprecated browser API check. Rarely the right flag: that gate already reports « non vérifié » instead of blocking when it cannot read the compatibility data, so the only thing this flag suppresses is a removal it actually found — which is a broken editor, not an inconvenience. Use it only if the user asks for an urgent release knowing that, and follow up.
 - `--skip-sonar-gate`: skips the SonarQube Cloud check (every unresolved finding bar the pure convention nits exempted above, unreviewed Security Hotspots, the Quality Gate). Only use this if the user explicitly asks for an urgent release despite open findings or an unavailable/unconfirmed SonarQube Cloud result; the script prints a warning, and you must tell the user the same and follow up to resolve them right after.
+- `--skip-sources-gate`: skips the external sources check (the federation pages the site reads or links, the provider consoles its help texts point to). Only use this if the user explicitly asks for an urgent release despite a divergence — a moved federation page, changed fees amounts, a dead console link; the script prints a warning, and you must tell the user the same and make sure the divergence has its issue (`.claude/skills/external-sources/SKILL.md`).
 
 ### A gate that cannot be verified from the current environment
 

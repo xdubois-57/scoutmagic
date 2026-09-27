@@ -28,8 +28,8 @@ use PHPUnit\Framework\TestCase;
 use Tests\Core\Help\Assistant\FakeLlmConnector;
 use Tests\Core\Help\HelpTopicFileFixtures;
 use Tests\DatabaseTestHelper;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
 
 /**
  * The assistant's endpoint, from the outside: what a browser gets back.
@@ -77,20 +77,12 @@ final class HelpAssistantControllerTest extends TestCase
         $_SESSION = [];
         AuthSession::login(7, 'chef@test.be', 'chief');
 
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $this->twig = new Environment(new FilesystemLoader($templateDir), [
-            'cache' => false,
-            'autoescape' => 'html',
-        ]);
-        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $this->twig = TestTwig::create();
         $this->twig->addGlobal('site_name', 'Test');
         $this->twig->addGlobal('is_authenticated', true);
         $this->twig->addGlobal('menus', null);
         $this->twig->addGlobal('cookie_consent_given', true);
         $this->twig->addGlobal('csp_nonce', 'test-nonce');
-        $this->twig->addFunction(new \Twig\TwigFunction('csrf_field', fn (): string => '', ['is_safe' => ['html']]));
-        $this->twig->addFunction(new \Twig\TwigFunction('csrf_token', fn (): string => 'tok'));
-        $this->twig->addFunction(new \Twig\TwigFunction('get_flash', fn (): ?array => null));
     }
 
     protected function tearDown(): void

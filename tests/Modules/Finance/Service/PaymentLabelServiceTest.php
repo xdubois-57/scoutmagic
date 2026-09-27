@@ -25,8 +25,8 @@ use Modules\Finance\Service\StructuredCommunicationService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
 use Core\Member\Repository\MemberProfileRepository;
 
 /**
@@ -462,10 +462,7 @@ class PaymentLabelServiceTest extends TestCase
 
     private function twig(): Environment
     {
-        $loader = new FilesystemLoader(dirname(__DIR__, 4) . '/core/View/templates');
-        $loader->addPath(dirname(__DIR__, 4) . '/modules/finance/views', 'finance');
-        $twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
-        $twig->addExtension(new \Core\View\FormatFilterExtension());
+        $twig = TestTwig::create(['finance']);
 
         return $twig;
     }

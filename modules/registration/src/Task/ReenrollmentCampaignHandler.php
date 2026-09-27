@@ -177,9 +177,13 @@ class ReenrollmentCampaignHandler implements TaskHandlerInterface
     {
         $pdo = $context->connection->getPdo();
         $sectionService = new \Core\Member\SectionService(
-    new \Core\Member\Repository\SectionRepository($context->connection),
-    new \Core\Member\Repository\MemberProfileRepository($context->connection, $context->encryption, new \Core\Badge\MemberBadgeRepository($pdo))
-);
+            new \Core\Member\Repository\SectionRepository($context->connection),
+            new \Core\Member\Repository\MemberProfileRepository(
+                $context->connection,
+                $context->encryption,
+                new \Core\Badge\MemberBadgeRepository($pdo)
+            )
+        );
         $requestRepository = new \Modules\Registration\Repository\RegistrationRequestRepository(
             $pdo,
             $context->encryption

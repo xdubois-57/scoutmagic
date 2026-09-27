@@ -272,7 +272,7 @@ class MovementController extends AbstractController
                 DataType::TYPE_STRING
             );
             $sheet->setCellValueExplicit([4, $rowNum], (string) $movement->amount, DataType::TYPE_NUMERIC);
-            $sheet->setCellValueExplicit([5, $rowNum], $category?->name ?? '', DataType::TYPE_STRING);
+            $sheet->setCellValueExplicit([5, $rowNum], $category->name ?? '', DataType::TYPE_STRING);
             $sheet->setCellValueExplicit([6, $rowNum], $movement->comment ?? '', DataType::TYPE_STRING);
             $rowNum++;
         }

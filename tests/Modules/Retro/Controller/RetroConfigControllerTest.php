@@ -17,9 +17,8 @@ use Modules\Retro\Service\ModerationService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Retro\RetroTestHelper;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
-use Twig\TwigFunction;
 
 /**
  * @group database
@@ -61,14 +60,8 @@ class RetroConfigControllerTest extends TestCase
         $this->scoutYearService->method('getAuthorizationYear')
             ->willReturn(new \Core\ScoutYear\EffectiveScoutYear(1, '2025-2026', null));
 
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/retro/views';
-        $loader = new FilesystemLoader($templateDir);
-        $loader->addPath($moduleViews, 'retro');
-        $this->twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $this->twig = TestTwig::create(['retro' => $moduleViews]);
         $this->twig->addGlobal('site_name', 'Test');
         $this->twig->addGlobal('is_authenticated', true);
         $this->twig->addGlobal('current_user_role', 'admin');
@@ -76,11 +69,6 @@ class RetroConfigControllerTest extends TestCase
         $this->twig->addGlobal('cookie_consent_given', true);
         $this->twig->addGlobal('menus', null);
         $this->twig->addGlobal('csp_nonce', 'test-nonce');
-        $this->twig->addFunction(new TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
-        $this->twig->addFunction(new TwigFunction('get_flash', fn() => null));
-        $this->twig->addFunction(new TwigFunction('csrf_token', fn() => 'test'));
-        $this->twig->addFunction(new TwigFunction('file_url', fn() => ''));
-        $this->twig->addFunction(new TwigFunction('param', fn() => ''));
 
         if (session_status() === PHP_SESSION_NONE) {
             session_start();

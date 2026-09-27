@@ -296,6 +296,116 @@ class MailIdentityTest extends TestCase
         };
     }
 
+    // ── Can this site sign for that From:? (issue #418) ───────────────
+
+    /**
+     * @return iterable<string, array{0: string, 1: bool}>
+     */
+    public static function fromAddresses(): iterable
+    {
+        yield 'the site\'s own domain' => ['baladins@unite.be', true];
+        yield 'a subdomain of it' => ['baladins@baladins.unite.be', true];
+        yield 'a subdomain two levels down' => ['x@a.b.unite.be', true];
+        yield 'the same domain shouted' => ['Baladins@UNITE.BE', true];
+        // **The two traps, and they are the reason the check is not a
+        // substring search.** Both carry the site's domain inside them and
+        // neither is under it; one is a look-alike somebody can register.
+        yield 'a look-alike registered elsewhere' => ['x@unite.be.evil.com', false];
+        yield 'a neighbour that merely ends the same way' => ['x@autre-unite.be', false];
+        yield 'a consumer provider' => ['baladins@telenet.be', false];
+        yield 'the parent domain, deliberately refused' => ['x@be', false];
+        yield 'no domain at all' => ['baladins', false];
+        yield 'nothing' => ['', false];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('fromAddresses')]
+    public function testWhetherTheSiteCanAlignDmarcForAnAddress(string $address, bool $expected): void
+    {
+        $identity = new MailIdentity('info@unite.be', 'Unité Exemple');
+
+        $this->assertSame($expected, $identity->canAlignFrom($address));
+    }
+
+    /**
+     * A site whose sending address is on a subdomain signs for that
+     * subdomain and nothing above it — the asymmetry the docblock owns.
+     */
+    public function testASiteSendingFromASubdomainCannotSignForItsParent(): void
+    {
+        $identity = new MailIdentity('noreply@mail.unite.be', 'Unité Exemple');
+
+        $this->assertTrue($identity->canAlignFrom('x@mail.unite.be'));
+        $this->assertTrue($identity->canAlignFrom('x@deep.mail.unite.be'));
+        $this->assertFalse($identity->canAlignFrom('baladins@unite.be'));
+    }
+
+    /**
+     * An installation with no sending address configured signs for
+     * nothing, so it can align nothing — never « everything ».
+     */
+    public function testASiteWithNoSendingAddressCanAlignNothing(): void
+    {
+        $identity = new MailIdentity('', '');
+
+        $this->assertFalse($identity->canAlignFrom('baladins@unite.be'));
+        $this->assertFalse($identity->canAlignFrom(''));
+    }
+
+    // ── The name a substituted From: carries (issue #418) ─────────────
+
+    /**
+     * **The name the recipient of a substituted mailing reads.** It lives on
+     * `MailIdentity` rather than in the mailing because the send and the two
+     * configuration screens all have to say the same thing — a warning that
+     * promised « Baladins (Unité Exemple) » while the message went out as
+     * something else would be worse than no warning.
+     */
+    public function testASubstitutedFromCarriesTheSectionAndTheUnit(): void
+    {
+        $identity = new MailIdentity('info@unite.be', 'Unité Exemple');
+
+        $this->assertSame('Baladins (Unité Exemple)', $identity->substitutedFromName('Baladins'));
+    }
+
+    /**
+     * The unit's part is dropped rather than rendered empty: « Baladins () »
+     * reads as a bug to the one person the name was meant to reassure.
+     */
+    public function testASiteWithNoSendingNameLeavesTheSectionAlone(): void
+    {
+        $identity = new MailIdentity('info@unite.be', '');
+
+        $this->assertSame('Baladins', $identity->substitutedFromName('Baladins'));
+    }
+
+    /**
+     * And a section with no name of its own leaves the site's, which is what
+     * `MailService` would have used had nothing been substituted at all —
+     * never the empty string, which would blank the display name.
+     */
+    public function testASectionWithoutANameLeavesTheSites(): void
+    {
+        $identity = new MailIdentity('info@unite.be', 'Unité Exemple');
+
+        $this->assertSame('Unité Exemple', $identity->substitutedFromName(null));
+        $this->assertSame('Unité Exemple', $identity->substitutedFromName('   '));
+        $this->assertNull((new MailIdentity('info@unite.be', ''))->substitutedFromName(null));
+    }
+
+    /**
+     * **Both halves are trimmed, and the site's half is the one that needs
+     * it.** This object is also built straight from
+     * `MailService::getDefaultSender()`, which hands back what is stored
+     * without tidying it, where `fromSettings()` trims — so one of the two
+     * callers would otherwise produce « Baladins ( Unité Exemple ) ».
+     */
+    public function testNeitherHalfKeepsItsSurroundingSpace(): void
+    {
+        $identity = new MailIdentity('info@unite.be', '  Unité Exemple  ');
+
+        $this->assertSame('Baladins (Unité Exemple)', $identity->substitutedFromName('  Baladins  '));
+    }
+
     private function serviceWith(MailTransportInterface $transport, string $replyAddress = ''): MailService
     {
         return new MailService(

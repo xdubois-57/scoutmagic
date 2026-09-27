@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Mail\Feedback\Bounce;
 
+use Core\Mail\Probe\MailProbeRepository;
+use Core\Mail\Probe\MailProbeSender;
 use Modules\InboundMail\Api\AnalysisResult;
 use Modules\InboundMail\Api\CandidateMessage;
 use Modules\InboundMail\Api\InboundMessage;
@@ -44,7 +46,20 @@ final class BounceConsumer implements MessageConsumerInterface
 {
     public const CONSUMER_ID = 'core_mail_bounce';
 
-    public function __construct(private BounceService $bounces)
+    public function __construct(
+        private BounceService $bounces,
+        /**
+         * Required, deliberately, although a default would have spared two
+         * call sites. This consumer is registered from BOTH entry points —
+         * public/index.php and public/scheduler-bootstrap.php — and a
+         * defaulted dependency turns a site somebody forgets into a
+         * feature that quietly does nothing. ARCHITECTURE.md §8.17 records
+         * what that costs: a handler missing from the real cron entry point
+         * failed every background backup and nothing said so. A fatal on
+         * startup is the cheaper failure.
+         */
+        private MailProbeRepository $probes
+    )
     {
     }
 
@@ -60,11 +75,137 @@ final class BounceConsumer implements MessageConsumerInterface
 
     public function analyze(CandidateMessage $message): AnalysisResult
     {
+        // **One instant for the whole message.** Both writes below date the
+        // same event — an address refused us, once.
+        //
+        // Passing it to `record()` is **not a defence**, and saying so is
+        // the point: that method defaults to « now » itself, so removing
+        // the argument changes nothing any test can see, and mutation says
+        // as much. It is here so that one instant reads as one instant
+        // rather than as two calls that happen to agree — which is what
+        // the bug found in review on #562 looked like from the outside,
+        // right up to the moment the two clocks turned out to be genuinely
+        // different. `traceToProbe()` below is where the argument carries
+        // its weight, and it has a test.
+        $now = new \DateTimeImmutable();
+
+        $accepted = [];
         foreach (DeliveryStatusReport::parseAll($message->bodyText) as $report) {
-            $this->bounces->record($report);
+            // **The return value is the anti-forgery verdict, not a
+            // courtesy.** `record()` answers null when no `mail_send_receipts`
+            // row shows this site ever wrote to the reported address — « the
+            // report is somebody's word about a message we cannot show we
+            // sent ». Anything built on a refused report is built on that
+            // word. Throwing the verdict away is what made the tracing below
+            // forgeable (found in review on #562).
+            if ($this->bounces->record($report, $now) !== null) {
+                $accepted[] = $report;
+            }
         }
 
+        $this->traceToProbe($message, $accepted, $now);
+
         return AnalysisResult::nothing();
+    }
+
+    /**
+     * Give a probe the reason its message came back (issue #419).
+     *
+     * A manual probe carries `SM-XXXXXX` in its subject, and a bounce that
+     * quotes the message it rejected quotes that subject with it — so the
+     * link is already in the body this method has just parsed. Nothing else
+     * was missing: `MailProbeSender::codeIn()` has always been able to read
+     * the code, and `mail_probes` has carried an index on it from the start.
+     *
+     * **Every step here may come up empty, and none of them is an error.**
+     * A server that rejects before citing the original sends no code; a code
+     * that belongs to no probe is a coincidence in someone else's subject; a
+     * probe that already carries a rejection keeps its first one. The page
+     * says « jamais reçu » in all three cases, which stays true — it is what
+     * the operator saw when they went and looked.
+     *
+     * The `SM-` prefix is distinct from IT-03's `RET-` on purpose, so there
+     * is no ambiguity to resolve between the two mechanisms.
+     *
+     * **Two things have to hold before anything is written, and neither was
+     * there until review caught it on #562.** A probe's code travels in the
+     * clear in its own subject, so quoting it proves nothing: anybody who can
+     * read the probe can post a hand-written `multipart/report` to the site's
+     * bounce mailbox. And `recordBounce()` is first-write-wins, so a forged
+     * reason could never be corrected afterwards.
+     *
+     * So: the report must have PASSED the receipt gate — `$reports` here is
+     * the accepted list, never the parsed one — and its recipient must be the
+     * address this probe actually went to. The second is not only against
+     * forgery: a digest bounce carrying two messages passes the gate for both,
+     * and only one of them can be the probe.
+     *
+     * **The date is OURS, never the bouncing server's.**
+     * `$message->sentAt` is `MimeMessageParser::parseDate()` on the far
+     * end's own `Date:` header, kept with whatever UTC offset it carried —
+     * and `recordBounce()` writes a naive `DATETIME`, a column
+     * {@see \Core\Config\AppClock} pins to `Europe/Brussels` like every
+     * other one here. `mail_probes.sent_at` is stamped from this site's
+     * clock, so the two would sit on different ones: a probe sent at 23:00
+     * Brussels and refused two seconds later by a server writing
+     * `Date: … 14:00:07 -0700` would read as refused nine hours BEFORE it
+     * left. That destroys the one thing the pair is shown for — the
+     * interval between the send and the refusal — and `recordBounce()` is
+     * first-write-wins, so the skew could never be corrected afterwards.
+     * A hostile header is the same hole with a worse number in it.
+     *
+     * Reception time is not the instant the far end refused, and that is
+     * the honest cost: it is later by however long the mailbox went
+     * unpolled. But it is later by minutes on the same clock, where the
+     * header is wrong by hours on another — and `BounceService::record()`
+     * above has always used reception time, so this is also the two halves
+     * of one event finally agreeing. The far end's claimed time is dropped,
+     * like its diagnostic text and for a related reason: it is its word.
+     *
+     * @param list<DeliveryStatusReport> $reports the ones `BounceService`
+     *                                            accepted, never the parsed ones
+     */
+    private function traceToProbe(CandidateMessage $message, array $reports, \DateTimeImmutable $now): void
+    {
+        if ($reports === []) {
+            return;
+        }
+
+        // A fast path and not a guard, which is worth saying because it
+        // reads like one: `findByCode('')` would answer null a line later
+        // and the outcome would be identical. It is here because this method
+        // runs on EVERY bounce the site receives, and almost none of them
+        // quote a probe — one avoided round trip per bounce, not a defence
+        // against anything. (Mutation says as much: removing it breaks no
+        // test, and no test was added to pretend otherwise.)
+        $code = MailProbeSender::codeIn($message->bodyText);
+        if ($code === null) {
+            return;
+        }
+
+        $probe = $this->probes->findByCode($code);
+        if ($probe === null) {
+            return;
+        }
+
+        // The report about THIS probe's address, and no other. A probe goes
+        // to exactly one address, so a bounce carrying several is a bounce
+        // about a message that was not only the probe — and a bounce about
+        // one other address is not the probe's reason at all, however
+        // faithfully it quotes the code.
+        //
+        // `DeliveryStatusReport::$recipient` is lower-cased without its
+        // `rfc822;` prefix; `MailProbe::$destination` is what the operator
+        // typed, so it is folded here rather than trusted to match.
+        foreach ($reports as $report) {
+            if (strcasecmp($report->recipient, trim($probe->destination)) !== 0) {
+                continue;
+            }
+
+            $this->probes->recordBounce($probe->id, $report->category, $report->statusCode, $now);
+
+            return;
+        }
     }
 
     /**

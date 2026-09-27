@@ -35,6 +35,13 @@ use Core\Config\SettingService;
  * window. Putting that on the send path would have every mailing pay for
  * a statistical reading. So the transport owns the answer — one setting
  * read — and `Core\Mail\Feedback\Seed\DomainRouting` owns the question.
+ *
+ * **A recipient is matched by its provider, not only by its domain**
+ * (issue #422): « famille.be » served by Google follows the decision
+ * taken for gmail.com. Which provider serves a domain is read from
+ * `MailboxProviderRepository`, a cache a scheduled task fills from the MX
+ * records — never resolved here, where a hanging resolver would hold
+ * every message of a mailing.
  */
 final class DomainPreferences
 {
@@ -54,8 +61,19 @@ final class DomainPreferences
      */
     public const MAXIMUM = 50;
 
-    public function __construct(private SettingService $settings)
-    {
+    public function __construct(
+        private SettingService $settings,
+        /**
+         * Which provider really hosts a domain, as the MX records said
+         * when the scheduled task last asked (issue #422). Read from the
+         * cache and nothing else — this class sits on the send path, and
+         * a DNS query here would make every mailing wait on a resolver.
+         * Null is « the address's own domain is its provider », which is
+         * what the site did before and what a test that leaves it out
+         * still gets.
+         */
+        private ?MailboxProviderRepository $mailboxProviders = null
+    ) {
     }
 
     /**
@@ -171,11 +189,20 @@ final class DomainPreferences
      */
     public function reorder(array $candidates, MailLane $lane, string $recipient): array
     {
-        if ($lane !== MailLane::Bulk || count($candidates) < 2) {
+        if ($lane !== MailLane::Bulk) {
             return $candidates;
         }
 
-        $wanted = $this->forDomain(self::domainOf($recipient));
+        $domain = self::domainOf($recipient);
+        $this->note($domain);
+
+        if (count($candidates) < 2 || $this->all() === []) {
+            return $candidates;
+        }
+
+        // The domain's own decision first — somebody may have routed
+        // « famille.be » by hand — then its provider's.
+        $wanted = $this->forDomain($domain) ?? $this->forDomain($this->providerOf($domain));
         if ($wanted === null || $candidates[0]->id === $wanted) {
             return $candidates;
         }
@@ -191,6 +218,41 @@ final class DomainPreferences
         }
 
         return array_merge($preferred, $rest);
+    }
+
+    /**
+     * The provider a recipient domain is counted under: the one its MX
+     * records named when the scheduled task last read them, or the domain
+     * itself (issue #422).
+     *
+     * **From the cache only, never a lookup**, and a cache that cannot be
+     * read is « the domain itself » rather than an exception — this is
+     * asked on the send path, where nothing about a preference may cost a
+     * message.
+     */
+    public function providerOf(string $domain): string
+    {
+        $domain = $this->normalise($domain);
+
+        try {
+            return $this->mailboxProviders?->providerOf($domain) ?? $domain;
+        } catch (\Throwable) {
+            return $domain;
+        }
+    }
+
+    /**
+     * Tell the cache this domain is being written to, so the scheduled
+     * task knows to read its MX records. A write the database refuses is
+     * swallowed: noting a domain is worth far less than the message.
+     */
+    private function note(string $domain): void
+    {
+        try {
+            $this->mailboxProviders?->note($domain, new \DateTimeImmutable());
+        } catch (\Throwable) {
+            // Nothing: the next message will note it.
+        }
     }
 
     /**

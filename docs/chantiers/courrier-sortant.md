@@ -1104,9 +1104,10 @@ que l'invariant dit vraiment est écrit là où il est vrai — le docblock de
 `dkimDomain()` — et épinglé par un test qui compare les deux domaines sur
 quatre identités, adresse de réponse et adresse DMARC chez d'autres
 opérateurs comprises. Le seul cas qui les ferait diverger pour de bon est
-l'envoi « au nom de » d'une section, déjà porté en « Reporté » : c'est
-l'itération du publipostage qui donnera à ce contrôle quelque chose à
-comparer.
+l'envoi « au nom de » d'une section, alors porté en « Reporté » : c'est
+l'itération du publipostage qui a donné à ce contrôle quelque chose à
+comparer, et #418 l'a écrit là où il porte — sur l'adresse d'une section,
+jamais sur l'identité du site.
 
 **Et deux messages de commit rédigés en anglais**, alors qu'AGENTS.md
 § Langue est explicite : tout ce qui est écrit *à propos* d'un changement
@@ -1211,8 +1212,20 @@ deux règles opposées au même fichier, et cela mérite un arbitrage.
 
 ### Reporté
 
-- L'alignement DMARC d'un envoi « au nom de » (ci-dessus), à l'itération
-  qui touchera le publipostage. **Suivi en #418.**
+- ~~L'alignement DMARC d'un envoi « au nom de » (ci-dessus), à l'itération
+  qui touchera le publipostage.~~ **Traitée dans #418**, et le contrôle
+  retiré ici est revenu à l'endroit où il a enfin quelque chose à comparer :
+  `MailIdentity::canAlignFrom()` répond pour l'adresse d'une section, pas
+  pour l'identité du site — où les deux domaines ne pouvaient pas diverger.
+  L'arbitrage du ticket est une **substitution, pas un refus** : le message
+  part de l'adresse du site, au nom de « Baladins (Unité X) », avec
+  l'adresse de la section en « Répondre à ». Et il est annoncé aux deux
+  endroits où il se configure — sous le champ de Correspondances Desk et
+  dans la liste d'Authentification — parce que la mesure faite le
+  24 septembre 2026 dit que Telenet et Yahoo publient `p=reject` : sans
+  cette substitution le publipostage d'une section était refusé partout,
+  l'écran entièrement vert, et aucun rapport DMARC ne pouvait le dire
+  puisqu'il part vers le `rua=` du domaine du `From:`.
 - ~~La régénération de la clé DKIM depuis la sous-page.~~ **Traitée dans
   #336**, qui a tranché comme ce paragraphe l'annonçait : elle est
   maintenant sur « Authentification » et **retirée de l'assistant dans le
@@ -1407,10 +1420,11 @@ faut » de « rien n'entre jamais dedans ».
   la demande : l'absence est plus sûre que le défaut. **Sans ticket,
   délibérément** : ouvrir une issue pour une fonctionnalité que l'on ne
   veut pas, c'est la faire revenir.
-- Le rattachement d'un rebond à une sonde précise. Le code est déjà
-  reconnaissable (`MailProbeSender::codeIn()`, préfixe `SM-` distinct du
-  `RET-` d'IT-03) ; ce qui manque est le lecteur de `delivery-status`,
-  qui est le sujet d'IT-05. **Suivi en #419.**
+- ~~Le rattachement d'un rebond à une sonde précise.~~ **Livré, #419.** Le
+  lecteur de `delivery-status` d'IT-05 appelle `codeIn()` sur le corps du
+  rebond et pose sur la ligne de la sonde la **catégorie** et le code d'état
+  — jamais le motif verbatim, que `DeliveryStatusReport` lit et jette parce
+  qu'il recite l'adresse. Voir le récapitulatif d'IT-05 ci-dessous.
 
 ---
 
@@ -2084,9 +2098,30 @@ fournisseur est ce fournisseur qui refuse l'unité.
 
 ### Reporté
 
-- Le rattachement d'un rebond à une sonde précise reste possible
-  (`MailProbeSender::codeIn()`), et reste sans intérêt tant que personne ne
-  le demande. **Suivi en #419**, avec le report jumeau d'IT-04.
+- ~~Le rattachement d'un rebond à une sonde précise.~~ **Livré, #419**, avec
+  le report jumeau d'IT-04.
+
+  Le mécanisme avait été laissé en place exprès, et il l'était vraiment :
+  `codeIn()` savait déjà lire le code, `mail_probes` portait déjà
+  `idx_mail_probes_code` sans que rien s'en serve, et le docblock de
+  `subjectFor()` annonçait ce rattachement. `BounceConsumer::analyze()`
+  cherche le code dans le corps du rebond qu'il vient de lire et appelle
+  `MailProbeRepository::recordBounce()`.
+
+  **Ce qui est posé est la catégorie et le code d'état, pas le motif.** Le
+  ticket demandait « le motif exact renvoyé par le serveur distant » ;
+  `DeliveryStatusReport` interdit explicitement de le mettre à l'écran ou
+  dans un journal, parce qu'il recite l'adresse du destinataire et que
+  `mail_probes.destination_encrypted` est chiffrée pour cette raison même.
+  « Adresse inexistante (5.1.1) » dit la même chose utile sans remettre une
+  adresse en clair à côté de sa version chiffrée.
+
+  **L'absence de rattachement reste un état normal de la page.** Un serveur
+  qui refuse avant de citer le message refusé ne renvoie aucun code ; un code
+  peut appartenir à une sonde purgée ; une réponse humaine cite le code sans
+  être un rebond. Dans les trois cas la page dit ce que l'opérateur a vu, et
+  le motif s'ajoute au verdict au lieu de le remplacer : « Jamais reçu » et
+  « Adresse inexistante » sont l'observation et sa raison.
 
 ---
 
@@ -2315,16 +2350,70 @@ rien dire. C'est le test à deux relais qui l'a attrapé.
 
 ### Reporté
 
-- Une **tendance** (le taux d'authentification semaine après semaine)
+- ~~Une **tendance** (le taux d'authentification semaine après semaine)
   demanderait une agrégation que rien ne réclame tant que personne n'a
-  regardé la page une deuxième fois. **Suivie en #420**, avec celle
-  d'IT-07 : même question, même justification, un seul ticket.
-- Le **rapprochement d'une source avec un fournisseur connu par plages
-  d'adresses publiées** (les `include:` du SPF) ferait reconnaître un relais
-  jamais déclaré. Utile, plus grand que cette itération, et sans intérêt
-  tant que les relais déclarés couvrent le cas courant. **Suivi en #421**
-  — le seul report de ce chantier écrit comme souhaitable plutôt que
-  comme délibérément écarté.
+  regardé la page une deuxième fois.~~ **Livré, #420**, avec celle
+  d'IT-07 : même question, même justification, un seul ticket — et une
+  seule classe, `WeeklySeries`, parce que les trois décisions qui
+  façonnent une tendance sont les mêmes des deux côtés et que deux copies
+  auraient fini par répondre différemment à « cette semaine est-elle
+  finie ? ».
+
+  **Un trou n'est pas un zéro**, et c'est toute l'arbitration du ticket.
+  Sous le seuil, il n'y a pas de point : la ligne se coupe. Un point gris
+  ou à zéro finit par se lire comme les autres, et une pente au-dessus
+  d'un trou serait une mesure que personne n'a prise. Le bord gauche de
+  la courbe est **lu dans la constante de rétention de la purge**, jamais
+  recopié : une courbe qui remonterait plus loin promettrait un « avant »
+  qui a été supprimé. Et « purgé » et « jamais arrivé » reçoivent la même
+  réponse, la seule honnête, qui est « pas mesuré ».
+
+  **Le seuil DMARC est en messages, vingt**, décidé plutôt que supposé
+  (mainteneur, 27 septembre) : c'est ce que les rapports portent
+  réellement, un rapport ne disant rien de quel message appartenait à
+  quel envoi. Ce n'est pas les cinq de `MINIMUM_RUNS` — cinq messages,
+  c'est deux e-mails individuels, et un taux sur eux bascule à 0 % ou
+  100 % sur un seul.
+
+  **Le mutant qui a survécu** mérite d'être noté : aplatir un trou en
+  zéro à la sortie du contrôleur passait tous les tests, parce qu'aucun
+  ne rendait une série ayant à la fois une semaine mesurée **et** un
+  trou. Le garde manquant était exactement celui de l'arbitration.
+- ~~Le **rapprochement d'une source avec un fournisseur connu par plages
+  d'adresses publiées** (les `include:` du SPF).~~ **Livré, #421** — le seul
+  report de ce chantier qui était écrit comme souhaitable plutôt que comme
+  délibérément écarté.
+
+  Ce n'est pas un annuaire de fournisseurs qui a été construit, mais la
+  lecture de la chaîne d'`include:` de l'unité elle-même : `SpfCoverage`
+  parcourt son propre enregistrement SPF et rend, pour une source que
+  `KnownSenders` ne place pas, **le jeton que l'opérateur peut retrouver
+  dans sa propre zone** — « déclarée dans votre SPF, via
+  `_spf.google.com` ». Un annuaire tenu ici aurait vieilli sans que
+  personne le sache ; la zone de l'unité, elle, est la vérité du jour.
+
+  **Les trois points d'attention du ticket, chacun avec sa réponse.** Une
+  résolution qui échoue est « Autre », jamais une page en erreur, et la
+  lecture se prend derrière le bouton « Vérifier les enregistrements » comme
+  celle des relais — la page ne résout rien. « Reconnu » n'est pas
+  « autorisé » : une source que le SPF nomme **garde** son « À identifier »
+  et reste dans le compte qui avertit avant `p=reject`, parce que « je l'ai
+  mis dans le SPF il y a trois ans » est la façon la plus courante dont un
+  outil oublié s'y trouve. Et le relevé **expire** au bout de trente jours,
+  parce que les plages publiées d'un fournisseur bougent sans que personne à
+  l'unité y touche : au-delà, la page ne nomme plus personne et dit
+  pourquoi.
+
+  Trois bornes sont empruntées plutôt que choisies : dix résolutions, le
+  nombre que RFC 7208 §4.6.4 donne aux destinataires ; 256 plages, un
+  **compte** dont la taille stockée est bornée à part — chaque attribution
+  est écrite une fois et désignée par son rang, donc au plus une douzaine de
+  noms et 256 adresses en hexadécimal, moins de 12 Ko ; trente jours, la
+  fenêtre de rapports que la page montre déjà. La première version répétait
+  le nom dans chaque plage et pouvait dépasser les 65 535 octets de la
+  colonne, ce que la revue a relevé. Ce qui n'est pas lu — `a`,
+  `mx`, `exists:`, `ptr`, et tout mécanisme portant un qualificateur `-`,
+  `~` ou `?` — laisse ses adresses **non placées** plutôt que mal placées.
 
 ---
 
@@ -2565,18 +2654,104 @@ sur une porte.**
 
 ### Reporté
 
-- **Rapprocher un fournisseur de messagerie d'un domaine destinataire
-  autre que le sien.** Une famille chez Gmail via un domaine personnel
-  n'est pas comptée dans « gmail.com ». Le dire serait honnête, le
-  résoudre demanderait de lire les enregistrements MX de chaque domaine
-  destinataire — une itération à soi seule, et l'écran énonce déjà la
-  limite. **Suivi en #422.**
-- **Une tendance dans le temps** (ce fournisseur se dégrade-t-il ?) :
+- ~~Rapprocher un fournisseur de messagerie d'un domaine destinataire
+  autre que le sien.~~ **Livré en #422**, voir « Suite : le vrai
+  fournisseur d'un domaine » ci-dessous.
+- ~~**Une tendance dans le temps** (ce fournisseur se dégrade-t-il ?) :
   même raison qu'en IT-06, rien ne la réclame tant que personne n'a
-  regardé la page deux fois. **Suivie en #420**, avec celle d'IT-06.
+  regardé la page deux fois.~~ **Livré, #420**, avec celle d'IT-06, dont
+  le report porte le détail. Deux choses tiennent à cette page-ci :
+  **une courbe par fournisseur**, parce que la question est comparative —
+  un fournisseur qui se met à filtrer se lit contre ceux qui ne le font
+  pas (mainteneur, 27 septembre) ; et **un seuil propre à la semaine**,
+  `LandingTrend::MINIMUM_MAILINGS`, un publipostage mesuré (mainteneur,
+  27 septembre).
+
+  **La première version réutilisait `MINIMUM_RUNS` et c'était faux**, pour
+  une raison qui vaut d'être gardée : l'argument était « même preuve, même
+  jugement », et il ignorait la fenêtre. Ces cinq publipostages sont cinq
+  **par trente jours** (`SEEDS_WINDOW`) ; réutilisés comme seuil
+  hebdomadaire ils sont quatre fois plus stricts que la constante ne l'a
+  jamais voulu. À « trois à cinq boîtes et quelques publipostages par an »
+  — le volume que ce dépôt énonce lui-même — aucune semaine n'atteint
+  cinq : toutes les séries étaient vides, le filtre `drawable()` que cette
+  classe portait alors ne rendait rien, et la carte ne pouvait afficher que
+  son propre état vide. La fonction était inerte, et mesurée inerte avant
+  d'être corrigée (`Claude review`).
+
+  **Et ce filtre a disparu avec le seuil**, parce que son mutant survivait :
+  à un publipostage, il ne pouvait plus jamais filtrer. La requête écarte
+  déjà les copies en attente, donc un fournisseur n'entre dans la table
+  qu'avec au moins un envoi répondu, qui franchit un seuil de un. Une
+  frontière à deux mécanismes est la forme dont le mutant survit parce que
+  chaque copie masque l'absence de l'autre — cinquième occurrence dans ce
+  chantier. Un test épingle l'invariant à la place du garde.
+
+  **Un seuil calibré pour une fenêtre n'est pas un seuil pour une autre**,
+  quelle que soit la ressemblance des preuves qu'il juge. Celui qui l'a
+  remplacé refuse zéro preuve au lieu d'en exiger cinq, parce que
+  `MINIMUM_RUNS` garde une action automatique là où celui-ci ne fait que
+  montrer un chiffre à quelqu'un qui peut le pondérer — et `sample` va
+  jusqu'à l'infobulle pour qu'il le puisse.
+
+  Ironie utile : `AuthenticationTrend`, écrit dans la même PR, refuse
+  explicitement de réutiliser `MINIMUM_RUNS` pour exactement cette
+  raison. J'avais écrit l'argument et ne l'avais pas appliqué une classe
+  plus loin.
+
+  Un fournisseur mesuré trop mince est **laissé hors du graphique**
+  plutôt que dessiné en ligne vide : une entrée de légende sans ligne se
+  lit « il n'a rien délivré », l'inverse de « pas assez mesuré pour le
+  dire ». Il reste dans le tableau au-dessus, qui ne prétend pas faire
+  une tendance.
 - **Proposer un relais autrement que « le suivant dans la voie ».** Un
   classement calculé à partir des résultats par relais supposerait
   d'avoir mesuré chaque fournisseur depuis chaque relais, ce qu'une unité
   qui envoie quelques fois par an n'aura jamais. **Suivi en #423**, qui
   existe surtout pour porter cette raison : sans elle, l'idée revient
   périodiquement comme une évidence.
+
+### Suite : le vrai fournisseur d'un domaine (#422)
+
+Une famille écrite à `prenom@famille.be` mais hébergée chez Google est
+désormais comptée dans « gmail.com » et suit le relais choisi pour
+gmail.com. Le vrai fournisseur se lit dans les enregistrements MX du
+domaine, et trois décisions portent tout le reste.
+
+**Aucune résolution DNS sur le chemin d'envoi.** Le transport lit un
+cache, `mail_domain_providers`, et n'y écrit qu'une chose : qu'un domaine
+existe. La lecture des MX appartient à une tâche quotidienne, bornée en
+nombre (sept cent cinquante domaines, de quoi relire le plafond du cache en
+une semaine) et en temps (vingt secondes d'horloge, puisque
+`dns_get_record()` n'a pas de délai propre), avec une réponse valable
+sept jours et, en cas d'échec, la dernière bonne réponse conservée et un
+recul de 1, 2, 4 puis 7 jours. Un test lit le code du chemin d'envoi et
+refuse toute fonction de résolution.
+
+**Les domaines viennent des envois eux-mêmes.** Rien n'agrégeait les
+domaines destinataires ; les déduire des adresses aurait voulu
+déchiffrer chaque jour l'adresse de chaque membre pour lire ce que le
+transport voit déjà passer en clair. Le chemin d'envoi note donc un
+domaine inconnu — une ligne, sans adresse — et la tâche l'oublie six mois
+après le dernier envoi.
+
+**Les clés restent celles de l'écran.** Google devient « gmail.com »,
+Microsoft « outlook.com » : un vocabulaire neuf aurait coupé en deux
+chaque résultat mesuré et chaque décision de routage déjà enregistrée.
+Le rattachement se fait à la lecture des résultats, pas à leur écriture,
+si bien qu'une boîte mesurée avant que son domaine soit résolu rejoint sa
+colonne avec tout son historique. Un MX que la liste ne connaît pas
+garde le nom du domaine, ce que le site faisait déjà : mieux vaut ne pas
+rattacher que rattacher au mauvais fournisseur.
+
+L'écran dit combien de domaines ont été rattachés, jamais lesquels : un
+domaine personnel peut nommer une famille. C'est aussi pourquoi le
+domaine est **chiffré** dans `mail_domain_providers` (SECURITY.md §5),
+avec un index aveugle pour l'unicité et chaque recherche exacte ; seule
+la clé du fournisseur reste en clair. Conséquence : plus aucune jointure
+SQL n'est possible sur le domaine, et `SeedCopyRepository` regroupe ses
+résultats en PHP, à travers le cache lu une fois en mémoire — les envois
+toujours comptés une seule fois par fournisseur, et la case partagée par
+deux boîtes gardant le pire verdict. La page RGPD énonce la lecture
+DNS (seul le domaine est interrogé, aucun nouveau sous-traitant) et sa
+durée de conservation.

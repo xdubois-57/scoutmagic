@@ -4,7 +4,7 @@ title: Effacer la fiche santé
 summary: Le bouton « Tout effacer », et l'effacement automatique au bout de 18 mois.
 category: Espace membres
 role_min: identified
-discovery: 1
+discovery: 3
 question: Comment effacer les données de santé de mon enfant ?
 question: Combien de temps le site garde-t-il la fiche santé ?
 question: Pourquoi la fiche santé de mon enfant est-elle vide ?

@@ -14,6 +14,7 @@ use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\Media;
 use Modules\Gallery\Repository\MediaRepository;
+use Modules\Gallery\Service\AlbumReadme;
 use Core\Storage\Location\StorageLocationRepository;
 use Core\Storage\Location\Backend\StorageBackendFactory;
 
@@ -142,6 +143,15 @@ class MigrateAlbumStorageHandler implements TaskHandlerInterface
 
                 unset($sourceBytes, $verifyBytes);
             }
+        }
+
+        // **The album folder's LISEZMOI follows it** (#474). Written at
+        // the destination before the album is switched over, like the
+        // media; best effort, since the album works without it — and the
+        // one at the source goes with the cleanup below. A delegated album
+        // never had one.
+        if (!$album->isDelegated()) {
+            (new AlbumReadme($context->settings, $context->journal))->write($album, $targetBackend);
         }
 
         $albumRepository->completeMigration($albumId, $targetLocation->id);

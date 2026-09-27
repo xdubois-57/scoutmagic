@@ -22,7 +22,7 @@ catches what, and what each one cannot see.
 | **SonarQube Cloud** | CI; release gate | Quality, duplication, security hotspots | Intent |
 | **AI triage** | Every issue opened or reopened, plus a nightly pass over the untriaged backlog | Whether a report is a real defect, the one fact a blocked report is missing, and the workaround when the behaviour is correct — and, when the reporter cited a support ticket, what that site's anonymised logs show | Anything a running installation shows that its diagnostic archive does not — it reads the code and an extract, but reproduces nothing, changes nothing, and gates nothing |
 | **AI review** | Pull requests it is eligible for — not drafts, and `Claude review` not on forks | Cross-file reasoning, stale documentation, intent mismatches | Nothing reliably — it is a reader, not a gate |
-| **Release gates** | `scripts/release.sh` | Deployment state, the CI verdict on the released commit, security advisories, dependency freshness, Sonar | What the AI reviewers read — intent, cross-file reasoning, stale docs. It runs no test and no scan of its own: it reads the runner's verdict on all of them |
+| **Release gates** | `scripts/release.sh` | Deployment state, the CI verdict on the released commit, security advisories, dependency freshness, whether an engine has removed the deprecated browser API the editors need, Sonar | What the AI reviewers read — intent, cross-file reasoning, stale docs. It runs no test and no scan of its own: it reads the runner's verdict on all of them |
 | **Release workflow** | `.github/workflows/release.yml`, on the tag | The same gates a second time, on a runner nobody configured by hand, with each tool's native output kept, signed and attached to the Release | Nothing the gates themselves are blind to — it is a record of them, not a new judge |
 
 No single layer is trusted alone, and the ones that overlap do so on
@@ -45,6 +45,13 @@ unlisted directory is one nobody runs — which is exactly what happened to
 build on the first reference from outside a module to anything but its
 `Api\` namespace, and `ModuleSchemaBoundariesTest` on a foreign key crossing
 module tables. Both are absolute (`ARCHITECTURE.md` §7.5).
+
+**A rendering test sees production's Twig, or it proves nothing about the
+page.** Templates are rendered through `Tests\TestTwig` (the real
+`TwigFactory::create()`), never through an environment a test assembles
+itself — the rule, its short list of replaceable functions and the reason
+(issue #465) are in `AGENTS.md` § Tests;
+`Tests\Core\View\TestEnvironmentsUseTheRealFactoryTest` enforces it.
 
 ### The two database engines
 
@@ -168,12 +175,17 @@ it does not.**
 
 ### The engine a test actually runs on, which is not what the group says
 
-`#[Group('database')]` selects tests for the `database-mariadb` job. It
-switches no connection. A test reaches MySQL only if it opens one itself
-from `TEST_DB_*` — the shape `Tests\Core\Database\MigrationRunnerTest`
-and `SchemaIntrospectorTest` use. Everything built on
-`DatabaseTestHelper::createTestDatabase()` runs on in-memory SQLite,
-group or no group, in every job.
+`#[Group('database')]` selects nothing for CI: the `database-mariadb` job
+runs the **whole** suite, deliberately, and what the group serves is
+`vendor/bin/phpunit --group=database` run by hand. Nor does it switch a
+connection. A test reaches MariaDB or MySQL only through
+`Tests\UsesProductionEngine` — or, for the handful whose subject is the
+schema itself, by opening one from the same fixture's
+`productionEngineConnection()`. Everything built on
+`DatabaseTestHelper::createTestDatabase()` runs on in-memory SQLite, group
+or no group, in every job (issue #481 counted it: that is almost all of
+it, and it stays that way — rebuilding the suite on the real engine was
+weighed and turned down).
 
 That matters wherever the two engines disagree about something other than
 syntax. The case that cost a round here: **SQLite reports the rows an
@@ -184,11 +196,32 @@ trap). An upsert deciding « no row exists » from `rowCount()` is therefore
 correct on the test engine and raises a duplicate-key error on the
 production one, and no quantity of SQLite coverage will ever say so.
 
-A test for behaviour of that kind belongs in a class that connects for
-real, skips when no server answers, and **asserts its own premise** —
-`Tests\Core\Mail\Feedback\Bounce\BounceSendReceiptMysqlTest` checks
-that this engine really does report changed rows before testing anything
-that depends on it. A premise nobody checked is how the defect got in.
+A test for behaviour of that kind belongs on the real engine, and
+`Tests\UsesProductionEngine` is what makes that a `setUp()` line rather
+than a page of connection code:
+
+- `$this->productionEngine()` is a database of the class's own holding the
+  **whole declared schema as `Core\Database\MigrationRunner` builds it** —
+  no table written by hand, so the columns, defaults and indexes are the
+  ones an installed site has — emptied before each test and dropped after
+  the class. The connection is a `Core\Database\Connection`, opened with
+  the site's own attributes (no `FOUND_ROWS`, no emulated prepares).
+- A refused connection goes through
+  `DatabaseTestHelper::skipOnlyWhenNoServerWasPromised()`: skipped on a
+  laptop, a failure wherever `TEST_DB_HOST` or `CI` promised a server.
+
+The class **asserts its own premise** —
+`Tests\Core\Mail\Feedback\Bounce\BounceSendReceiptMysqlTest` checks that
+this engine really does report changed rows before testing anything that
+depends on it. A premise nobody checked is how the defect got in. Which
+repository queries need such a class is a rule, not a judgement call:
+`AGENTS.md` § Database lists them.
+
+Building from the migration rather than from a copy of the schema is not a
+detail. The first run of the fixture found that the migration drops
+`ON UPDATE CURRENT_TIMESTAMP` from every column that declares it (issue
+#590) — a test that had laid out its table by hand had been checking a
+clause no installed site has.
 
 ### Measuring a resource, and the two readings that are not the same
 
@@ -583,6 +616,35 @@ resolves into `GITHUB_ENV`, which keeps the one-copy property the
 job-level `env:` was there for;
 `tests/Architecture/WorkflowContextsAreAvailableWhereTheyAreUsedTest`
 refuses the `steps` context outside a step in every workflow here.
+
+`.github/workflows/external-sources-check.yml` watches the pages outside
+this site that it depends on (issue #355). Every Monday at 05:41 UTC it
+checks the repository out and runs `scripts/check-external-sources.php` —
+the script the sixth release gate runs, over the register
+`Core\ExternalSource\ExternalSources`. When every source conforms the job
+ends there, green, having opened nothing. On a divergence, Claude reads the
+changed pages by `.claude/skills/external-sources/SKILL.md` — what moved,
+the new address, the new fees amounts — and returns one title and body per
+divergent source as JSON; a shell step then opens an issue per source, or
+comments on the one already open for it, found by a hidden
+`<!-- external-source:<id> -->` marker. A fingerprint of the script's own
+wording stops a weekly repeat of a divergence the issue already reports —
+unless the earlier report had no analysis and this week's has one, which
+is then added.
+The split is issue-backlog-scan's: the agent holds read tools only (the
+checkout, the web, GitHub's read tools), the source ids come from the
+script and not the model, and if the agent returns nothing the issue still
+opens with the script's report as its body. Permissions are `contents:
+read`, `issues: write`, and the `id-token: write` the action's
+authentication needs. An issue opened with `github.token` starts no
+workflow, so `issue-triage.yml` never sees it: the workflow applies
+`bug:confirmed` itself, the label AGENTS.md asks for on a filed defect. And
+like the backlog scan, it is a `schedule` workflow — GitHub disables those
+after sixty days without activity on the repository, silently. `tests/Architecture/ExternalSourcesAreRegisteredTest`
+keeps the register honest: a federation or console URL in shipped code that
+it does not list, a listed file that no longer names its URL, or a
+`module.json`/`schema/core.sql` default that differs from it fails the
+build.
 
 `.github/workflows/claude-review.yml` is the AI reviewer; see below. It
 carries two jobs: `Claude review`, which reads the diff, and `Claude review
@@ -1023,8 +1085,11 @@ acceptable only for a manual release — see the end of this section.
 security item: CodeQL alerts, Dependabot alerts, and active SonarQube Cloud
 findings. The gates below are the final check, not the fix.
 
-Five gates, all fail-closed, all run **before** any commit or tag, one
-after another, and the release stops at the first one that refuses:
+Seven gates, all run **before** any commit or tag, one after another, and
+the release stops at the first one that refuses. Six of them fail closed;
+the exception is the deprecated browser API gate, which reports « non
+vérifié » rather than refusing — see below for why, and § The failure mode
+this repository keeps meeting for what makes that safe:
 
 | Gate | What it checks |
 |---|---|
@@ -1032,7 +1097,18 @@ after another, and the release stops at the first one that refuses:
 | **Continuous integration** | `All checks` is green on the commit being released, and the working tree is clean |
 | **Security** | `composer audit`, `npm audit`, open CodeQL findings, open Dependabot alerts |
 | **Dependency freshness** | `composer outdated --direct`, and every vendored front-end library against its upstream release |
+| **Deprecated browser API** | `scripts/check-deprecated-api.php` — whether any engine has removed `document.execCommand`, generic entry and per-command entries alike. The one gate that does not fail closed |
 | **SonarQube Cloud** | `scripts/check-sonar-release.sh` — see below |
+| **External sources** | `scripts/check-external-sources.php`: every page in `Core\ExternalSource\ExternalSources` — federation pages answer 200 with their expected content and the fees page's three amounts readable and equal to the scale shipped in `modules/fees/data/federal-scale.json`; provider console and legal links alive (2xx, 3xx, 401, 403) |
+
+**The External sources gate is the one that looks outside the
+repository**, and it is last for that reason: a federation page that moved
+or a console that died says nothing about the code, but a release is when a
+shipped default holding that address reaches every installed site. The
+same script runs weekly (below, `external-sources-check.yml`), so a
+divergence this gate meets should already have its issue. It has no
+exemption for an unreachable network: no answer is a dead link, the same
+as a 404.
 
 **None of them runs a test**, and that is the design rather than a gap.
 PHPStan, both PHPUnit engines, the JavaScript analysis and tests, the
@@ -1071,8 +1147,21 @@ fixed, except those that are *all three at once* — software quality
 a *list* of impacts and is exempt only when every one of them qualifies; an
 issue with no impacts at all is not exempt.
 
+**The deprecated browser API gate** (`scripts/check-deprecated-api.php`) is
+the odd one out here: it is the only gate that does **not** fail closed. It
+asks whether any engine has removed `document.execCommand`, which six files
+under `public/assets/js/` are built on (issue #379), by reading MDN's
+`browser-compat-data` — the machine-readable form of what caniuse.com shows.
+An unreachable or restructured source is reported as « non vérifié
+automatiquement » in the release notes rather than blocking, because the
+question is about a removal that has happened nowhere yet; a removal found
+in the data blocks. The blocking half of that pair lives in the browser
+suite, where `rich-text-commands.spec.js` exercises all twelve commands in a
+real Chromium — see § The layers, and what each is for.
+
 **Bypass flags** (`--skip-deployment-check`, `--skip-ci-gate`,
-`--skip-security-gate`, `--skip-dependency-check`, `--skip-sonar-gate`)
+`--skip-security-gate`, `--skip-dependency-check`,
+`--skip-deprecated-api-gate`, `--skip-sonar-gate`, `--skip-sources-gate`)
 exist for genuine emergencies. Each prints a warning naming exactly what
 was not checked. Using one to route around a real finding is how a release
 ships a known defect — and `--skip-ci-gate` is the widest of them by far,
@@ -1209,7 +1298,7 @@ change to either.
 | Secret | Used by | Without it |
 |---|---|---|
 | `SONAR_TOKEN` | the `sonarqube` job in `checks.yml`, `check-sonar-release.sh`, `release.yml`'s SonarCloud evidence job | no Quality Gate on pull requests; the release gate fails closed; a tag's Release workflow refuses for want of the analysis |
-| `CLAUDE_CODE_OAUTH_TOKEN` | `claude-review.yml`, `issue-triage.yml`, `issue-backlog-scan.yml` | the review job fails at authentication, and no issue is ever triaged — neither on arrival nor overnight |
+| `CLAUDE_CODE_OAUTH_TOKEN` | `claude-review.yml`, `issue-triage.yml`, `issue-backlog-scan.yml`, `external-sources-check.yml` | the review job fails at authentication, and no issue is ever triaged — neither on arrival nor overnight; a divergent external source still gets its issue, with the script's report and no analysis |
 | `SUPPORT_TRIAGE_TOKEN` | the `extract` step of `issue-triage.yml` and `issue-backlog-scan.yml` | no support ticket extract is ever fetched: a cited reference is reported in the step's log and the triage runs on the issue alone, green |
 
 `CLAUDE_CODE_OAUTH_TOKEN` is generated with `claude setup-token` and spends
@@ -1484,7 +1573,8 @@ to a request the maintainer may well want to build. Such an issue therefore gets
 label, which means a decision about what it would be for; inventing one at
 runtime is exactly what the script below exists to prevent.
 
-The issue triage taxonomy — `triage:*`, `bug:*`, `status:accepted` — is the
+The issue triage taxonomy — `triage:*`, `bug:*`, `status:accepted`,
+`status:in-progress` — is the
 one part of this section that *is* reproducible from the repository:
 `scripts/sync-issue-labels.sh` is its single source, and running it creates
 what is missing and repairs what somebody edited in the UI. It never
@@ -1602,9 +1692,10 @@ nothing**:
   output, under a green `test` job, for months. What made it invisible is
   not that nobody looked: it is that the only thing anyone reads about a
   suite is whether it passed, and this verdict does not change that answer.
-  `failOnRisky` is on now (issue #426); `failOnWarning` is deliberately not,
-  because six warnings remain and turning them red is its own piece of work.
-  The order matters and is the general rule for this whole family: **bring
+  `failOnRisky` is on now (issue #426), and `failOnWarning` and
+  `failOnPhpunitDeprecation` joined it once the suite had reached zero of
+  each (seven warnings, all test doubles answering a shape the real method
+  never returns, and nineteen `with()` without `expects()`). The order matters and is the general rule for this whole family: **bring
   the count to zero first, then close the door**, or the flag lands red on
   day one and is reverted before it has ever protected anything.
 - A `CODEOWNERS` entry naming a non-collaborator is **ignored silently**, so
@@ -1766,6 +1857,23 @@ nothing**:
   failing under a mutation of `public/sw.js`. What the entry above says
   remains the lesson: the two layers were each right about themselves, and
   the gap lived in what neither could name.
+
+- **The deprecated browser API gate passes when it has not run, by
+  design.** `scripts/check-deprecated-api.php` asks whether an engine has
+  removed `document.execCommand`; an unreachable source or an upstream
+  schema that moved makes it exit 0, so the release proceeds. That is the
+  intended behaviour and it is argued in `AGENTS.md` § Deprecated browser
+  API release gate — it warns about a removal that has happened nowhere
+  yet, and a 502 is not a reason to refuse a release. It belongs on this
+  list all the same, because the failure mode is the one this section is
+  about: nothing distinguishes "no engine has removed it" from "nobody
+  looked" except the report line, so **the report line is the mechanism**.
+  It reads « non vérifié automatiquement (…) — à vérifier à la main sur
+  caniuse.com » and lands in the release notes, where a reader sees it. A
+  release whose notes say that has not had this check. What makes the
+  arrangement safe is that the *blocking* half is somewhere else entirely:
+  `rich-text-commands.spec.js` in the browser suite, which cannot be green
+  without having run the twelve commands.
 
 The habit that catches these is cheap: ask what a green result would look
 like if the thing had not run at all. When the answer is "the same", the

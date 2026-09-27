@@ -103,19 +103,54 @@ final class RemotePassphrase
      */
     public static function register(SettingService $settings): void
     {
-        $settings->register(self::GENERATION_SETTING, '0', 'text',
+        $settings->register(
+            self::GENERATION_SETTING,
+            '0',
+            'text',
             'Génération de la phrase de passe distante',
-            'Le numéro qui figure dans le nom des archives envoyées hors site.', null, null, null, false, 310);
-        $settings->register(self::CREATED_AT_SETTING, '', 'text',
-            'Phrase de passe distante créée le', 'Date de génération de la phrase de passe hors site.',
-            null, null, null, false, 311);
-        $settings->register(self::CONFIRMED_GENERATION_SETTING, '0', 'text',
+            'Le numéro qui figure dans le nom des archives envoyées hors site.',
+            null,
+            null,
+            null,
+            false,
+            310
+        );
+        $settings->register(
+            self::CREATED_AT_SETTING,
+            '',
+            'text',
+            'Phrase de passe distante créée le',
+            'Date de génération de la phrase de passe hors site.',
+            null,
+            null,
+            null,
+            false,
+            311
+        );
+        $settings->register(
+            self::CONFIRMED_GENERATION_SETTING,
+            '0',
+            'text',
             'Génération de la phrase de passe distante notée',
             'La génération qu\'un administrateur a déclaré avoir recopiée hors du serveur.',
-            null, null, null, false, 312);
-        $settings->register(self::CONFIRMED_AT_SETTING, '', 'text',
-            'Phrase de passe distante notée le', 'Date de cette déclaration.',
-            null, null, null, false, 313);
+            null,
+            null,
+            null,
+            false,
+            312
+        );
+        $settings->register(
+            self::CONFIRMED_AT_SETTING,
+            '',
+            'text',
+            'Phrase de passe distante notée le',
+            'Date de cette déclaration.',
+            null,
+            null,
+            null,
+            false,
+            313
+        );
     }
 
     /**

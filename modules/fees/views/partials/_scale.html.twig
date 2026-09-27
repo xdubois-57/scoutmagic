@@ -27,6 +27,12 @@
   figures came from — validating a number without knowing what it rests on
   is the thing this banner exists to prevent. The chef d'unité still has to
   click « Enregistrer le barème ».
+
+  The same variable carries the scale shipped with the site
+  (Modules\Fees\Service\ShippedScaleService, issue #355) when the unit has
+  stored no amount yet and the shipped file is for the year on screen. Its
+  `origin` is 'shipped', and the banner then names the year, the day the
+  figures were read and the federal page — still a proposal, still unsaved.
 #}
 {% set _suggested = scale_suggestion|default(null) %}
 <div class="card mb-3">
@@ -51,11 +57,23 @@
                   (Sonar Web:S6819). `d-block` because <output> is inline by
                   default and `.alert` does not set a display of its own.
                 #}
-                <output class="alert alert-info py-2 small d-block">
-                    Montants proposés pour l'année <strong>{{ _suggested.year }}</strong>, lus sur
-                    <a href="{{ _suggested.url }}" target="_blank" rel="noopener noreferrer">{{ _suggested.url }}</a>.
-                    Rien n'est enregistré tant que vous n'avez pas cliqué sur « Enregistrer le barème ».
-                </output>
+                {% if _suggested.origin|default('') == 'shipped' %}
+                    <output class="alert alert-info py-2 small d-block">
+                        Montants fédéraux <strong>{{ _suggested.year }}</strong>, relevés le
+                        {{ _suggested.verified_on|french_date }} sur
+                        <a href="{{ _suggested.url }}" target="_blank"
+                           rel="noopener noreferrer">{{ _suggested.host }}</a>
+                        — vérifiez puis enregistrez. Rien n'est enregistré tant que vous n'avez pas cliqué sur
+                        « Enregistrer le barème ».
+                    </output>
+                {% else %}
+                    <output class="alert alert-info py-2 small d-block">
+                        Montants proposés pour l'année <strong>{{ _suggested.year }}</strong>, lus sur
+                        <a href="{{ _suggested.url }}" target="_blank"
+                           rel="noopener noreferrer">{{ _suggested.url }}</a>.
+                        Rien n'est enregistré tant que vous n'avez pas cliqué sur « Enregistrer le barème ».
+                    </output>
+                {% endif %}
             {% endif %}
             <form method="post" action="/admin/fees/tarifs/bareme">
                 {{ csrf_field()|raw }}

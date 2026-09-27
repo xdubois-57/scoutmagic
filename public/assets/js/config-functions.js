@@ -140,8 +140,25 @@
         }
 
         if (emailInput) {
+            var emailWarning = /** @type {HTMLElement|null} */ (row.querySelector('.section-email-warning'));
+            var emailWarningText = /** @type {HTMLElement|null} */ (
+                row.querySelector('.section-email-warning-text')
+            );
             emailInput.addEventListener('blur', function () {
-                save(emailInput, '/config/functions/section-email', { section_id: sectionId, email: emailInput.value });
+                save(emailInput, '/config/functions/section-email', { section_id: sectionId, email: emailInput.value })
+                    .then(function (data) {
+                        if (!data || !emailWarning || !emailWarningText) {
+                            return;
+                        }
+                        // The sentence comes from the server, which owns the
+                        // rule: this only shows or hides what it answered.
+                        // An absent key is « nothing to warn about », the
+                        // same as an empty one, so an older answer cannot
+                        // leave a stale warning on screen.
+                        var warning = data.alignment_warning || '';
+                        emailWarningText.textContent = warning;
+                        emailWarning.classList.toggle('d-none', warning === '');
+                    });
             });
         }
 

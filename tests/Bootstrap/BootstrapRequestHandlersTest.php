@@ -64,11 +64,18 @@ class BootstrapRequestHandlersTest extends TestCase
      * Runs $handler with `php://input` answering $body, with the output
      * buffers left as they were found.
      *
+     * The handler answers at the level it found, so that level is a buffer
+     * of ours: the JSON it echoes is captured here instead of reaching
+     * PHPUnit's buffer — which, in a separate process, prints it to the
+     * console between the progress dots.
+     *
      * @param array<string, mixed> $body
      */
     private function withRequestBody(array $body, callable $handler): void
     {
         BootstrapFakeInput::$body = (string) json_encode($body);
+        $outer = ob_get_level();
+        ob_start();
         $level = ob_get_level();
 
         stream_wrapper_unregister('php');
@@ -80,9 +87,9 @@ class BootstrapRequestHandlersTest extends TestCase
             stream_wrapper_restore('php');
 
             // The handler opens exactly one buffer of its own and unwinds
-            // to the level it found, so anything still above that level is
-            // ours to close — and the buffers below are the ones PHPUnit
-            // was holding, untouched.
+            // to the level it found, so anything still above $outer — the
+            // capture buffer included — is ours to close, and the buffers
+            // below are the ones PHPUnit was holding, untouched.
             //
             // This used to re-open buffers to make the COUNT match, which
             // is not the same thing as leaving them alone: the originals
@@ -103,7 +110,7 @@ class BootstrapRequestHandlersTest extends TestCase
             // shape as the risky verdict this whole change is about.
             $observed = ob_get_level();
 
-            while (ob_get_level() > $level) {
+            while (ob_get_level() > $outer) {
                 ob_end_clean();
             }
 
@@ -311,12 +318,20 @@ class BootstrapRequestHandlersTest extends TestCase
      */
     public function testAFloorIsRespectedSoACallersBuffersSurvive(): void
     {
+        // The caller's buffer, opened here rather than borrowed from
+        // PHPUnit: the response lands in it, and PHPUnit's own would
+        // otherwise carry it to the console.
+        ob_start();
         $floor = ob_get_level();
 
         ob_start();
         \bootstrapSendJson(['done' => true], $floor);
 
-        $this->assertSame($floor, ob_get_level());
+        $level = ob_get_level();
+        $response = ob_get_clean();
+
+        $this->assertSame($floor, $level);
+        $this->assertSame('{"done":true}', $response);
     }
 
     // -------------------------------------------------------------------

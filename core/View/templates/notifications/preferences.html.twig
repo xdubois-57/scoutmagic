@@ -1,7 +1,7 @@
 {% extends 'base.html.twig' %}
 {% block title %}Préférences de notification — {{ site_name }}{% endblock %}
 {% block content %}
-<div class="page-narrow" id="notification-preferences" data-vapid-public-key="{{ vapid_public_key }}">
+<div class="page-medium" id="notification-preferences" data-vapid-public-key="{{ vapid_public_key }}">
     {% include 'partials/page_header.html.twig' with {
         title: 'Préférences de notification',
         subtitle: "Un canal grisé est fixé par le site et ne peut pas être modifié. La colonne « Push » reste désactivée tant que ton navigateur n'a pas donné la permission.",

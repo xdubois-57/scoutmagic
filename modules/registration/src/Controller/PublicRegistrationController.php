@@ -286,7 +286,7 @@ class PublicRegistrationController extends AbstractController
     }
 
     /**
-     * @param array<string, mixed>|null $stickyValues values to redisplay in
+     * @param array<string, mixed> $stickyValues values to redisplay in
      *   the form after a rejected submission (module spec: never lose the
      *   parent's entered data on an anti-robot rejection or validation error)
      * @param string|null $codeError set only when the closed-form code

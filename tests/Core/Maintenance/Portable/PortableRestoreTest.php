@@ -10,10 +10,6 @@ declare(strict_types=1);
 namespace Tests\Core\Maintenance\Portable;
 
 use Core\Database\Connection;
-use Core\Database\MigrationRunner;
-use Core\Database\SchemaComparator;
-use Core\Database\SchemaIntrospector;
-use Core\Database\SqlParser;
 use Core\Maintenance\BackupException;
 use Core\Maintenance\BackupService;
 use Core\Maintenance\Portable\PortableArchive;
@@ -23,7 +19,7 @@ use Core\Security\SecretManager;
 use Core\Statistics\InstallationIdentityService;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
-use Tests\DatabaseTestHelper;
+use Tests\UsesProductionEngine;
 
 /**
  * One installation's archive, restored onto a different installation.
@@ -40,6 +36,8 @@ use Tests\DatabaseTestHelper;
 #[Group('database')]
 final class PortableRestoreTest extends TestCase
 {
+    use UsesProductionEngine;
+
     private const PASSPHRASE = 'quatre mots parfaitement ordinaires';
     private const ORIGIN_ID = 'aaaabbbbccccddddeeeeffff00001111';
 
@@ -792,24 +790,16 @@ final class PortableRestoreTest extends TestCase
         @rmdir($dir);
     }
 
+    /**
+     * This class's own database, migrated with the whole production
+     * schema and emptied, rather than `TEST_DB_NAME`: a restore replaces
+     * every table of the database it runs against, which is not something
+     * to do to the one every other class shares.
+     */
     private function realDbConnection(): Connection
     {
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('TEST_DB_PORT') ?: '3306');
-        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
-        $user = getenv('TEST_DB_USER') ?: 'root';
-        $password = getenv('TEST_DB_PASSWORD') ?: '';
+        $this->productionEngine();
 
-        $connection = new Connection($host, $port, $dbName, $user, $password);
-        $result = $connection->testConnection();
-        if ($result !== true) {
-            DatabaseTestHelper::skipOnlyWhenNoServerWasPromised('Database not available: ' . (is_string($result) ? $result : 'unknown error'));
-        }
-
-        $introspector = new SchemaIntrospector($connection->getPdo());
-        $runner = new MigrationRunner($connection, $introspector, new SchemaComparator(), new SqlParser());
-        $runner->migrate([dirname(__DIR__, 4) . '/schema/core.sql']);
-
-        return $connection;
+        return $this->productionEngineSchemaConnection();
     }
 }

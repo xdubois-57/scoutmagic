@@ -86,18 +86,59 @@ class SettingRepository
      * silently reset to NULL/empty instead of its real default the first
      * time "Paramètres par défaut" runs. SettingService::register() only
      * calls this when the stored default actually differs.
+     *
+     * **A value nobody customised follows the new default** (issue #355).
+     * A row whose value still equals the default being replaced never
+     * held anybody's choice — it holds what the release that created it
+     * shipped. When a later release moves that default (a federation page
+     * moved, say), leaving the value behind would keep every installed
+     * site on the dead one for ever, the new default reaching fresh
+     * installs only. So the same statement moves the value too, and only
+     * that value: anything else was typed by someone and stays.
+     *
+     * One UPDATE, so the decision and the write cannot be separated by a
+     * concurrent save: the comparison reads the row as it is when the
+     * statement runs, not a snapshot taken earlier. `setting_value` is
+     * assigned FIRST, and that order is load-bearing on MySQL/MariaDB,
+     * which evaluate a single-table UPDATE's assignments left to right —
+     * the CASE must see the OLD default_value (SQLite, and MariaDB's
+     * SIMULTANEOUS_ASSIGNMENT mode, give every assignment the old values
+     * anyway).
+     *
+     * The boundaries, each deliberate:
+     * - compared as bytes on MySQL/MariaDB — the column's collation is
+     *   case- and trailing-space-insensitive, and a value typed in another
+     *   case is a customised value (SQLite's `=` is already binary);
+     * - an old default of '' also matches a NULL value, the convention
+     *   replaceIfUnchanged() and claimIfEmpty() follow: a value stored
+     *   either way depending on how the row was created is not a choice;
+     * - an old default of NULL (a row predating the column) matches
+     *   nothing: there is no way to tell what the value was compared to;
+     * - only a `url` setting follows. A URL default is a fact a release
+     *   ships (a federal page, a destination); other defaults can be
+     *   computed per installation — `site_name` is read from secrets.enc,
+     *   an E2E harness pins numbers and switches — and a second
+     *   registration with another default would take the unit's own value
+     *   for an untouched one and overwrite it. A `secret` is therefore
+     *   never moved either.
      */
     public function updateDefaultValue(?string $moduleId, string $key, string $defaultValue): void
     {
-        if ($moduleId === null) {
-            $stmt = $this->pdo->prepare('UPDATE settings SET default_value = ? WHERE module_id IS NULL AND '
-                . 'setting_key = ?');
-            $stmt->execute([$defaultValue, $key]);
-        } else {
-            $stmt = $this->pdo->prepare('UPDATE settings SET default_value = ? WHERE module_id = ? AND setting_key = '
-                . '?');
-            $stmt->execute([$defaultValue, $moduleId, $key]);
+        $sameBytes = $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'mysql'
+            ? 'CAST(setting_value AS BINARY) = CAST(default_value AS BINARY)'
+            : 'setting_value = default_value';
+
+        $sql = "UPDATE settings SET setting_value = CASE WHEN setting_type = 'url' AND ({$sameBytes} "
+            . "OR (default_value = '' AND setting_value IS NULL)) THEN ? ELSE setting_value END, "
+            . 'default_value = ? WHERE setting_key = ? AND '
+            . ($moduleId === null ? 'module_id IS NULL' : 'module_id = ?');
+
+        $parameters = [$defaultValue, $defaultValue, $key];
+        if ($moduleId !== null) {
+            $parameters[] = $moduleId;
         }
+
+        $this->pdo->prepare($sql)->execute($parameters);
     }
 
     /**

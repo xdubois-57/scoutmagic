@@ -115,6 +115,30 @@ class SqlParserTest extends TestCase
         $this->assertSame('CASCADE', $fk->onDelete);
     }
 
+    /**
+     * An ON UPDATE without an ON DELETE leaves the ON DELETE group unmatched
+     * in the middle of the pattern — the one position where preg_match()
+     * answers '' rather than leaving the key out. Both FK spellings.
+     */
+    public function testParsingForeignKeyWithOnUpdateButNoOnDelete(): void
+    {
+        $sql = "CREATE TABLE orders (
+            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            user_id INT UNSIGNED NOT NULL,
+            shop_id INT UNSIGNED NOT NULL,
+            CONSTRAINT fk_orders_user FOREIGN KEY (user_id) REFERENCES users (id) ON UPDATE CASCADE,
+            FOREIGN KEY (shop_id) REFERENCES shops (id) ON UPDATE CASCADE
+        ) ENGINE=InnoDB;";
+
+        $foreignKeys = $this->parser->parse($sql)[0]->foreignKeys;
+
+        $this->assertCount(2, $foreignKeys);
+        foreach ($foreignKeys as $fk) {
+            $this->assertNull($fk->onDelete, $fk->name);
+            $this->assertSame('CASCADE', $fk->onUpdate, $fk->name);
+        }
+    }
+
     public function testParsingIndexDefinitions(): void
     {
         $sql = "CREATE TABLE logs (
@@ -189,7 +213,7 @@ class SqlParserTest extends TestCase
         $schemaPath = dirname(__DIR__, 3) . '/schema/core.sql';
         $tables = $this->parser->parseFile($schemaPath);
 
-        $this->assertCount(66, $tables);
+        $this->assertCount(67, $tables);
 
         $tableNames = array_map(fn($t) => $t->name, $tables);
         $this->assertContains('sent_email_claims', $tableNames);
@@ -217,6 +241,9 @@ class SqlParserTest extends TestCase
         // wrong two tables as readily as the right ones.
         $this->assertContains('mail_dmarc_reports', $tableNames);
         $this->assertContains('mail_dmarc_sources', $tableNames);
+        // Which provider really hosts a recipient domain, read from its MX
+        // records off the send path (issue #422).
+        $this->assertContains('mail_domain_providers', $tableNames);
         // And the round trip that says whether what comes back reaches
         // anybody (roadmap IT-03).
         $this->assertContains('mail_return_probes', $tableNames);

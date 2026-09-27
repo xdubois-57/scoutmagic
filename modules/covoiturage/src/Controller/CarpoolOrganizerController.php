@@ -97,7 +97,10 @@ class CarpoolOrganizerController extends AbstractController
             return $this->notFound();
         }
         if (!$this->viewer()->mayOrganize($carpool)) {
-            return $this->forbidden('Ce covoiturage concerne une autre section : vous ne pouvez pas le modifier.', $request);
+            return $this->forbidden(
+                'Ce covoiturage concerne une autre section : vous ne pouvez pas le modifier.',
+                $request
+            );
         }
 
         return $this->renderForm($carpool, [], []);

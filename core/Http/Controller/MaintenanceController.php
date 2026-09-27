@@ -301,11 +301,10 @@ class MaintenanceController extends AbstractController
             // revealed — six groups of five, drawn from the phrase's own
             // constants so the placeholder cannot outlive a change to
             // them.
-            'remote_backup_passphrase_mask' => implode('-', array_fill(
-                0,
-                RemotePassphrase::GROUPS,
-                str_repeat('•', RemotePassphrase::GROUP_LENGTH)
-            )),
+            'remote_backup_passphrase_mask' => implode(
+                '-',
+                array_fill(0, RemotePassphrase::GROUPS, str_repeat('•', RemotePassphrase::GROUP_LENGTH))
+            ),
             // Every row, not the five the list shows at once: the cap is
             // retention's business now (per family, Core\Maintenance\
             // BackupRetention), and the screen's own « voir plus » needs

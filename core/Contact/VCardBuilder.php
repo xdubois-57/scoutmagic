@@ -136,11 +136,16 @@ final class VCardBuilder
      */
     private function address(MemberAddress $address): string
     {
-        $street = trim(implode(' ', array_filter([
-            $address->street,
-            $address->number,
-            $address->box !== null && $address->box !== '' ? 'bte ' . $address->box : null,
-        ], fn(?string $part): bool => $part !== null && $part !== '')));
+        $parts = array_filter(
+            [
+                $address->street,
+                $address->number,
+                $address->box !== null && $address->box !== '' ? 'bte ' . $address->box : null,
+            ],
+            fn(?string $part): bool => $part !== null && $part !== ''
+        );
+
+        $street = trim(implode(' ', $parts));
 
         return $this->structured([
             '',
@@ -208,9 +213,11 @@ final class VCardBuilder
 
         $first = array_shift($chunks) ?? '';
 
-        return $first . implode('', array_map(
+        $continuations = array_map(
             fn(string $chunk): string => self::CRLF . ' ' . $chunk,
             $chunks
-        ));
+        );
+
+        return $first . implode('', $continuations);
     }
 }

@@ -240,9 +240,9 @@ final class CommunicationController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        return $this->render('@social/communications/retry.html.twig', $retry + [
-            'self_path' => self::retryPath($retry['source'], $retry['key']),
-        ]);
+        $view = $retry + ['self_path' => self::retryPath($retry['source'], $retry['key'])];
+
+        return $this->render('@social/communications/retry.html.twig', $view);
     }
 
     /** @param array<string, string> $params */

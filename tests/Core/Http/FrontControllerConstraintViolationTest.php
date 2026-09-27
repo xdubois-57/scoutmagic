@@ -11,8 +11,8 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Http\Router;
 use PHPUnit\Framework\TestCase;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
 
 /**
  * The floor underneath input validation (SECURITY.md § 35): a write the
@@ -35,31 +35,13 @@ class FrontControllerConstraintViolationTest extends TestCase
         }
         $_SESSION = [];
 
-        $templateDir = dirname(__DIR__, 3) . '/core/View/templates';
-        $this->twig = new Environment(new FilesystemLoader($templateDir), [
-            'cache' => false,
-            'autoescape' => 'html',
-        ]);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $this->twig = TestTwig::create();
         $this->twig->addGlobal('site_name', 'Test');
         $this->twig->addGlobal('is_authenticated', false);
         $this->twig->addGlobal('current_user_email', null);
         $this->twig->addGlobal('current_user_role', 'public');
         $this->twig->addGlobal('menus', null);
         $this->twig->addGlobal('cookie_consent_given', true);
-        $this->twig->addFunction(new \Twig\TwigFunction('csrf_field', fn (): string => '', ['is_safe' => ['html']]));
-        $this->twig->addFunction(new \Twig\TwigFunction('get_flash', fn (): ?array => null));
-        $this->twig->addFunction(new \Twig\TwigFunction('csrf_token', fn (): string => 'test'));
-        $this->twig->addFunction(new \Twig\TwigFunction('editable', fn (): string => '', ['is_safe' => ['html']]));
-        $this->twig->addFunction(new \Twig\TwigFunction('editable_image', fn (): string => '', ['is_safe' => ['html']]));
-        $this->twig->addFunction(new \Twig\TwigFunction('file_url', fn (): string => ''));
-        $this->twig->addFunction(new \Twig\TwigFunction(
-            'person_avatar',
-            fn (string $name, array $options = []): string => '',
-            ['is_safe' => ['html']]
-        ));
 
         $configFile = sys_get_temp_dir() . '/test_app_config_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");

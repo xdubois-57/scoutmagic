@@ -20,6 +20,7 @@
 {% block title %}Scanner un billet — {{ article ? article.title : 'Actualités' }} — {{ site_name }}{% endblock %}
 
 {% block content %}
+    <div class="page-medium">
     {% include 'partials/page_header.html.twig' with {
         title: 'Scanner un billet',
         subtitle: article ? article.title : null,
@@ -40,7 +41,6 @@
         issues_ticket: true,
     } only %}
 
-    <div class="page-narrow">
         {% if form.eventDate or form.eventLocation %}
             <p class="text-body-secondary">
                 {% if form.eventDate %}{{ form.eventDate|french_date }}{% endif %}

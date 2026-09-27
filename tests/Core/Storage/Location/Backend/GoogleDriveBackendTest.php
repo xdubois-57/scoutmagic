@@ -94,10 +94,12 @@ final class GoogleDriveBackendTest extends TestCase
 
     public function testAListingHidesThisApplicationsOwnBookkeeping(): void
     {
-        $this->drive->put('album/1.jpg', 'a');
-        $this->drive->put('album/2.jpg', 'b');
-        $this->drive->put('autre.txt', 'c');
+        $backend = $this->backend();
+        $backend->put('album/1.jpg', 'a', 'image/jpeg');
+        $backend->put('album/2.jpg', 'b', 'image/jpeg');
+        $backend->put('autre.txt', 'c', 'text/plain');
         $this->drive->put('.scoutmagic-part-abc.json', '{}');
+        $backend->put('.scoutmagic-part-def.json', '{}', 'application/json');
 
         $listing = $this->backend()->list('');
 
@@ -109,35 +111,36 @@ final class GoogleDriveBackendTest extends TestCase
 
     public function testAListingFiltersOnThePrefixItWasGiven(): void
     {
-        $this->drive->put('album/1.jpg', 'a');
-        $this->drive->put('autre.txt', 'c');
+        $backend = $this->backend();
+        $backend->put('album/1.jpg', 'a', 'image/jpeg');
+        $backend->put('albumbis/2.jpg', 'b', 'image/jpeg');
+        $backend->put('autre.txt', 'c', 'text/plain');
 
-        $listing = $this->backend()->list('album/');
-
-        $this->assertSame(['album/1.jpg'], $this->sortedKeys($listing->objects));
+        $this->assertSame(['album/1.jpg'], $this->sortedKeys($this->backend()->list('album/')->objects));
+        // Literal, as the interface says: `album` without its slash is a
+        // string keys begin with, and both folders begin with it.
+        $this->assertSame(
+            ['album/1.jpg', 'albumbis/2.jpg'],
+            $this->sortedKeys($this->backend()->list('album')->objects)
+        );
     }
 
     /**
      * **In the form the callers pass**, which is an album id with no
-     * trailing slash.
-     *
-     * This test used to write `deletePrefix('album/')` — with the slash —
-     * and passed while deleting album 5 destroyed albums 50 and 51
-     * (#484). The form a test is written in cannot be the form under
-     * test. `DeletePrefixIsAFolderTest` holds all four backends to the
-     * caller's own shape at once; this keeps the Drive case here, where
-     * the flat folder that made it possible is documented.
+     * trailing slash (#484). `DeletePrefixIsAFolderTest` holds all four
+     * backends to it at once; this keeps the Drive case here.
      */
     public function testDeletingAPrefixLeavesEverythingElseAlone(): void
     {
-        $this->drive->put('album/1.jpg', 'a');
-        $this->drive->put('album/2.jpg', 'b');
-        $this->drive->put('albumbis/3.jpg', 'd');
-        $this->drive->put('autre.txt', 'c');
+        $backend = $this->backend();
+        $backend->put('album/1.jpg', 'a', 'image/jpeg');
+        $backend->put('album/2.jpg', 'b', 'image/jpeg');
+        $backend->put('albumbis/3.jpg', 'd', 'image/jpeg');
+        $backend->put('autre.txt', 'c', 'text/plain');
 
         $this->backend()->deletePrefix('album');
 
-        $this->assertSame(['albumbis/3.jpg', 'autre.txt'], $this->drive->names());
+        $this->assertSame(['albumbis/3.jpg', 'autre.txt'], $this->sortedKeys($this->backend()->list('')->objects));
     }
 
     /**
@@ -146,11 +149,11 @@ final class GoogleDriveBackendTest extends TestCase
      */
     public function testDeletingASlashRemovesNothing(): void
     {
-        $this->drive->put('album/1.jpg', 'a');
+        $this->backend()->put('album/1.jpg', 'a', 'image/jpeg');
 
         $this->backend()->deletePrefix('/');
 
-        $this->assertSame(['album/1.jpg'], $this->drive->names());
+        $this->assertSame(['1.jpg'], $this->drive->names());
     }
 
     /**
@@ -159,11 +162,287 @@ final class GoogleDriveBackendTest extends TestCase
      */
     public function testDeletingAnEmptyPrefixRemovesNothing(): void
     {
-        $this->drive->put('album/1.jpg', 'a');
+        $this->backend()->put('album/1.jpg', 'a', 'image/jpeg');
 
         $this->backend()->deletePrefix('');
 
-        $this->assertSame(['album/1.jpg'], $this->drive->names());
+        $this->assertSame(['1.jpg'], $this->drive->names());
+    }
+
+    // ————— The tree (#474) —————
+
+    /**
+     * **A key is a path in a real folder tree.** The album is a folder
+     * named by its number under the location's own folder, which sits
+     * under the `ScoutMagic` folder every Drive location of the account
+     * shares — and nothing is a file whose name holds a slash any more.
+     */
+    public function testAKeyBecomesAFileInAnAlbumFolderUnderTheLocationsOwn(): void
+    {
+        $this->backend()->put('5/med_9.jpg', 'photo', 'image/jpeg');
+
+        $this->assertSame(['ScoutMagic/Photos des galeries/5/med_9.jpg'], $this->drive->paths());
+        $this->assertSame(['med_9.jpg'], $this->drive->names());
+    }
+
+    /**
+     * One lookup per album, not per rendition: a photograph writes three
+     * files into the same folder, and the folder is created once.
+     */
+    public function testAnAlbumFolderIsCreatedOnceAndReused(): void
+    {
+        $backend = $this->backend();
+        $backend->put('5/thumb_9.jpg', 't', 'image/jpeg');
+        $backend->put('5/med_9.jpg', 'm', 'image/jpeg');
+        $backend->put('5/lg_9.jpg', 'l', 'image/jpeg');
+        $this->backend()->put('5/orig_9.jpg', 'o', 'image/jpeg');
+
+        $folders = array_filter(
+            $this->drive->files,
+            static fn (array $f): bool => $f['mime'] === FakeDrive::FOLDER_MIME && $f['name'] === '5'
+        );
+        $this->assertCount(1, $folders, 'a second folder « 5 » was created beside the first');
+        $this->assertCount(4, $this->drive->paths());
+    }
+
+    /**
+     * **`list('')` hands back full keys**, because every caller reasons
+     * in keys — `ProtectionPass` copies `5/med_9.jpg`, `RemoteRetention`
+     * reads archive names, `StorageInventoryStore` reads `.scoutmagic/…`.
+     */
+    public function testAListingOfTheWholeLocationRebuildsTheFullKeys(): void
+    {
+        $backend = $this->backend();
+        $keys = ['5/med_9.jpg', '5/thumb_9.jpg', '12/med_3.jpg', 'archive.zip', '.scoutmagic/protection-source-3.x.json.gz'];
+        foreach ($keys as $key) {
+            $backend->put($key, 'x', 'application/octet-stream');
+        }
+
+        $this->assertSame(
+            ['.scoutmagic/protection-source-3.x.json.gz', '12/med_3.jpg', '5/med_9.jpg', '5/thumb_9.jpg', 'archive.zip'],
+            $this->sortedKeys($this->backend()->list('')->objects)
+        );
+        $this->assertSame(
+            ['.scoutmagic/protection-source-3.x.json.gz'],
+            $this->sortedKeys($this->backend()->list('.scoutmagic/')->objects)
+        );
+    }
+
+    /**
+     * **The walk pages, and its cursor gets to the end.** A page smaller
+     * than the location, read page after page by a fresh instance each
+     * time — the way `ProtectionPass` reads across runs — yields every
+     * key exactly once and then says it is complete.
+     */
+    public function testAPagedWalkYieldsEveryKeyOnceAndEnds(): void
+    {
+        $backend = $this->backend();
+        $expected = [];
+        foreach ([1, 2, 5, 12, 50] as $album) {
+            foreach (['a', 'b', 'c'] as $file) {
+                $backend->put("{$album}/{$file}.jpg", 'x', 'image/jpeg');
+                $expected[] = "{$album}/{$file}.jpg";
+            }
+        }
+        $backend->put('racine.txt', 'x', 'text/plain');
+        $expected[] = 'racine.txt';
+
+        $keys = [];
+        $cursor = null;
+        $pages = 0;
+        do {
+            $listing = $this->backend()->list('', $cursor, 2);
+            $this->assertLessThanOrEqual(2, count($listing->objects));
+            foreach ($listing->objects as $object) {
+                $keys[] = $object->key;
+            }
+            $cursor = $listing->cursor;
+        } while ($cursor !== null && ++$pages < 100);
+
+        sort($keys);
+        sort($expected);
+        $this->assertSame($expected, $keys);
+    }
+
+    /**
+     * A folder removed between two pages is stepped over, never the end
+     * of the walk: « that was everything » said early is what makes a
+     * safety copy mark the rest of a location as gone from its source.
+     */
+    public function testAFolderRemovedBetweenTwoPagesDoesNotEndTheWalk(): void
+    {
+        $backend = $this->backend();
+        foreach (['1/a.jpg', '1/b.jpg', '2/a.jpg', '3/a.jpg'] as $key) {
+            $backend->put($key, 'x', 'image/jpeg');
+        }
+
+        $first = $this->backend()->list('', null, 1);
+        $this->assertCount(1, $first->objects);
+        $this->assertStringStartsWith('1/', $first->objects[0]->key);
+        $this->assertNotNull($first->cursor);
+
+        $this->backend()->deletePrefix('1');
+
+        $keys = [];
+        $cursor = $first->cursor;
+        do {
+            $listing = $this->backend()->list('', $cursor, 1);
+            foreach ($listing->objects as $object) {
+                $keys[] = $object->key;
+            }
+            $cursor = $listing->cursor;
+        } while ($cursor !== null);
+
+        $this->assertSame(['2/a.jpg', '3/a.jpg'], $keys);
+    }
+
+    /**
+     * **Deleting album 5 leaves album 50 alone** — here as a folder, not
+     * as a filter: `5` and `50` are two folders, and only the first is
+     * removed.
+     */
+    public function testDeletingAnAlbumRemovesItsFolderAndNothingElse(): void
+    {
+        $backend = $this->backend();
+        foreach (['5/med_9.jpg', '5/LISEZMOI.txt', '50/med_1.jpg', '512/orig_7.jpg'] as $key) {
+            $backend->put($key, 'x', 'image/jpeg');
+        }
+
+        $this->backend()->deletePrefix('5');
+
+        $this->assertSame(
+            ['ScoutMagic/Photos des galeries/50/med_1.jpg', 'ScoutMagic/Photos des galeries/512/orig_7.jpg'],
+            $this->drive->paths()
+        );
+        $this->assertNull($this->drive->folderAt('ScoutMagic/Photos des galeries/5'), 'the album folder survived');
+    }
+
+    /**
+     * **The application's own files sit in `.scoutmagic/`**, apart from
+     * the albums an operator browses — a resumable upload's note here —
+     * and a listing still hides them.
+     */
+    public function testTechnicalFilesAreGroupedInTheirOwnFolder(): void
+    {
+        $backend = $this->backend();
+        $backend->beginPartial('archive.zip', GoogleDriveBackend::BUFFERED_UPLOAD_LIMIT_BYTES + 10);
+
+        $this->assertSame(
+            ['ScoutMagic/Photos des galeries/.scoutmagic/.scoutmagic-part-' . sha1('archive.zip') . '.json'],
+            $this->drive->paths()
+        );
+        $this->assertSame([], $this->sortedKeys($this->backend()->list('')->objects));
+    }
+
+    /**
+     * **Two locations on one account never share a folder again.** Each
+     * has its own under `ScoutMagic/`, so the same account holds both and
+     * neither lists the other's files.
+     */
+    public function testTwoLocationsOnOneAccountKeepTheirFilesApart(): void
+    {
+        \assert($this->drive->parentFolderId !== null);
+        $backups = $this->drive->addFolder('Sauvegardes hors site', $this->drive->parentFolderId, 'folder-2');
+        $gallery = $this->backend();
+        $offsite = $this->backendOn($backups);
+
+        $gallery->put('5/med_9.jpg', 'photo', 'image/jpeg');
+        $offsite->put('scoutmagic-2026-09-24-030000-g1.zip', 'archive', 'application/zip');
+
+        $this->assertSame(
+            [
+                'ScoutMagic/Photos des galeries/5/med_9.jpg',
+                'ScoutMagic/Sauvegardes hors site/scoutmagic-2026-09-24-030000-g1.zip',
+            ],
+            $this->drive->paths()
+        );
+        $this->assertSame(['5/med_9.jpg'], $this->sortedKeys($gallery->list('')->objects));
+        $this->assertSame(
+            ['scoutmagic-2026-09-24-030000-g1.zip'],
+            $this->sortedKeys($offsite->list('')->objects)
+        );
+    }
+
+    /**
+     * A read never creates the folder it asks about: asking whether album
+     * 7 holds a photograph must not leave an empty folder « 7 » behind.
+     */
+    public function testAReadDoesNotCreateAFolder(): void
+    {
+        $backend = $this->backend();
+
+        $this->assertFalse($backend->exists('7/med_1.jpg'));
+        $this->assertNull($backend->size('7/med_1.jpg'));
+        $backend->delete('7/med_1.jpg');
+
+        $this->assertNull($this->drive->folderAt('ScoutMagic/Photos des galeries/7'));
+    }
+
+    /**
+     * Two runs creating album 5 at once: the loser gives way to the older
+     * folder rather than writing into one nothing will ever read.
+     */
+    public function testAFolderCreatedTwiceGivesWayToTheOlderOne(): void
+    {
+        $backend = $this->backend();
+        // This instance asks first and finds nothing...
+        $this->assertFalse($backend->exists('5/a.jpg'));
+        // ...then another run creates the folder before this one writes.
+        $winner = $this->drive->addFolder('5', 'folder-1');
+
+        $backend->put('5/a.jpg', 'x', 'image/jpeg');
+
+        $this->assertSame(['ScoutMagic/Photos des galeries/5/a.jpg'], $this->drive->paths());
+        $this->assertSame($winner, $this->drive->folderAt('ScoutMagic/Photos des galeries/5'));
+        $this->assertSame('x', $this->backend()->get('5/a.jpg'));
+    }
+
+    // ————— The location's own folder —————
+
+    public function testRenamingTheLocationRenamesItsFolder(): void
+    {
+        $this->backend()->put('5/a.jpg', 'x', 'image/jpeg');
+
+        $this->backend()->renameRootFolder('Galeries du groupe');
+
+        $this->assertSame(['ScoutMagic/Galeries du groupe/5/a.jpg'], $this->drive->paths());
+    }
+
+    public function testTrashingTheLocationPutsItsFolderInTheTrashAndDeletesNothing(): void
+    {
+        $this->backend()->put('5/a.jpg', 'x', 'image/jpeg');
+
+        $this->backend()->trashRootFolder();
+
+        $this->assertTrue($this->drive->isTrashed('folder-1'));
+        $this->assertSame([], $this->drive->paths());
+        $this->assertArrayHasKey('folder-1', $this->drive->files, 'the folder was deleted rather than trashed');
+    }
+
+    public function testALocationWithoutAFolderHasNothingToRenameOrTrash(): void
+    {
+        $backend = $this->backendOn('');
+
+        $backend->renameRootFolder('x');
+        $backend->trashRootFolder();
+
+        $this->assertSame(0, $this->drive->requests);
+    }
+
+    /**
+     * **A folder in the trash is not a working location**, and the test
+     * says so: under `drive.file` it can still be written into, so the
+     * witness alone would come back green while every file went where
+     * Google empties it after thirty days.
+     */
+    public function testAConnectionTestNoticesTheFolderIsInTheTrash(): void
+    {
+        $this->drive->files['folder-1']['trashed'] = true;
+
+        $message = $this->backend()->testConnection();
+
+        $this->assertNotNull($message);
+        $this->assertStringContainsString('corbeille', $message);
     }
 
     /**
@@ -573,22 +852,22 @@ final class GoogleDriveBackendTest extends TestCase
     }
 
     /**
-     * A location whose row carries no folder yet resolves one on first
-     * use — an operator may have emptied their trash, and under
-     * `drive.file` a folder this application cannot see is one that no
-     * longer exists as far as it is concerned.
+     * **A location whose row carries no folder writes nowhere** (#474).
+     * The folder is created by the connection flow and found by its id;
+     * looking one up by name here is exactly what used to make every
+     * Drive location of an account share a folder.
      */
-    public function testAFolderIsCreatedWhenTheRowCarriesNone(): void
+    public function testALocationWithoutAFolderRefusesToWriteRatherThanGuessingOne(): void
     {
-        $backend = new GoogleDriveBackend(
-            $this->drive->client(),
-            new GoogleDriveLocationConfig('client-1', ''),
-            new GoogleDriveSecret('secret-1', 'refresh-1', 'unite@example.org')
-        );
+        $backend = $this->backendOn('');
 
-        $backend->put('a.txt', 'x', 'text/plain');
-
-        $this->assertSame('x', $this->drive->contentOf('a.txt'));
+        try {
+            $backend->put('a.txt', 'x', 'text/plain');
+            $this->fail('a location with no folder wrote somewhere');
+        } catch (DriveAccessException $e) {
+            $this->assertStringContainsString('raccordez', $e->getMessage());
+        }
+        $this->assertSame([], $this->drive->names());
     }
 
     /** Nothing here is a local file, and nothing hands out a public URL. */
@@ -603,9 +882,14 @@ final class GoogleDriveBackendTest extends TestCase
 
     private function backend(): GoogleDriveBackend
     {
+        return $this->backendOn((string) $this->drive->folderId);
+    }
+
+    private function backendOn(string $folderId): GoogleDriveBackend
+    {
         return new GoogleDriveBackend(
             $this->drive->client(),
-            new GoogleDriveLocationConfig('client-1', $this->drive->folderId, '2026-09-01T00:00:00+00:00'),
+            new GoogleDriveLocationConfig('client-1', $folderId, '2026-09-01T00:00:00+00:00'),
             new GoogleDriveSecret('secret-1', 'refresh-1', 'unite@example.org')
         );
     }

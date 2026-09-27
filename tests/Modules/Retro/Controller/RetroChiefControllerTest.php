@@ -6,22 +6,31 @@ namespace Tests\Modules\Retro\Controller;
 
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
+use Core\Http\FlashMessage;
 use Core\Http\Request;
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
+use Core\Mail\MailService;
+use Core\Member\MemberService;
+use Core\Member\SectionService;
 use Core\Module\ModuleManager;
+use Core\Scheduler\SchedulerRepository;
+use Core\Scheduler\SchedulerService;
 use Core\ScoutYear\EffectiveScoutYear;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthSession;
 use Modules\Retro\Controller\RetroChiefController;
 use Modules\Retro\Repository\Board;
 use Modules\Retro\Repository\BoardRepository;
+use Modules\Retro\Repository\CommentRepository;
 use Modules\Retro\Service\BoardService;
 use Modules\Retro\Service\RetroException;
 use PHPUnit\Framework\TestCase;
+use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Retro\RetroTestHelper;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
-use Twig\TwigFunction;
 
 /**
  * @group database
@@ -34,6 +43,9 @@ class RetroChiefControllerTest extends TestCase
     private SettingService $settingService;
     private BoardService $boardService;
     private RetroChiefController $controller;
+    private Environment $twig;
+    private ScoutYearResolver $scoutYearResolver;
+    private ModuleManager $moduleManager;
 
     protected function setUp(): void
     {
@@ -49,15 +61,11 @@ class RetroChiefControllerTest extends TestCase
         $scoutYearResolver->method('getEffectiveYear')->willReturn(new EffectiveScoutYear(1, '2025-2026', null));
         $moduleManager = $this->createMock(ModuleManager::class);
         $moduleManager->method('getEnabledModuleIds')->willReturn([]);
+        $this->scoutYearResolver = $scoutYearResolver;
+        $this->moduleManager = $moduleManager;
 
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/retro/views';
-        $loader = new FilesystemLoader($templateDir);
-        $loader->addPath($moduleViews, 'retro');
-        $twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $twig = TestTwig::create(['retro' => $moduleViews]);
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_role', 'chief');
@@ -65,11 +73,7 @@ class RetroChiefControllerTest extends TestCase
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
         $twig->addGlobal('csp_nonce', 'test-nonce');
-        $twig->addFunction(new TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
-        $twig->addFunction(new TwigFunction('get_flash', fn() => null));
-        $twig->addFunction(new TwigFunction('csrf_token', fn() => 'test'));
-        $twig->addFunction(new TwigFunction('file_url', fn() => ''));
-        $twig->addFunction(new TwigFunction('param', fn() => ''));
+        $this->twig = $twig;
 
         $this->controller = new RetroChiefController(
             $twig, $this->boardRepository, $this->boardService, $this->settingService, $scoutYearResolver, $moduleManager
@@ -79,6 +83,9 @@ class RetroChiefControllerTest extends TestCase
             session_start();
         }
         AuthSession::login(3, 'chief@test.be', 'chief');
+        // The session outlives each test in this process: a flash left by
+        // the previous one would satisfy an assertion here.
+        FlashMessage::get();
     }
 
     protected function tearDown(): void
@@ -332,5 +339,241 @@ class RetroChiefControllerTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('Active', $response->getBody());
         $this->assertStringContainsString('Rétrospectives archivées (1)', $response->getBody());
+    }
+
+    // --- what a chief reads when a board refuses the gesture (issue #449, lot 5) ---
+    // Six `catch (RetroException $e)` blocks, one per gesture, none of them
+    // ever executed before this batch. Every test below reaches its branch
+    // through the REAL BoardService and a real row in a real state — an
+    // emptied title, a board still open, a board merely closed, an id that
+    // matches nothing. None of them stubs a throw: the point is not that the
+    // `catch` exists but that the sentence the chief reads is the service's
+    // own, and that it is the right one for the gesture they pressed.
+    //
+    // For close/reopen/archive/unarchive the flash is the ONLY observable
+    // difference between success and refusal: all four redirect to /retro
+    // either way, so a test asserting 302 and the Location passes on both
+    // paths and proves nothing. Hence each asserts the error text AND the
+    // absence of a success flash. update() and regenerateLink() differ —
+    // they come back to /retro/<id>/edit, and update() is the one gesture
+    // whose destination itself changes between success and refusal.
+    //
+    // reopen() and archive() share a precondition (status must be 'closed'),
+    // so an open board refuses both: only the exact message distinguishes
+    // them, which is why testArchive... asserts it is not reopen's sentence.
+
+    /**
+     * A controller wired to the real BoardService rather than setUp()'s mock,
+     * so refusals come from the real preconditions and carry the real French
+     * messages. The member, section and mail collaborators are stubs because
+     * the constructor requires them and NO test in this file reaches any of
+     * them: member/section are resolved only when a form context is rendered,
+     * and the close notification only fires for a board that was still open
+     * and carries a notify address — neither happens here.
+     */
+    private function controllerWithRealBoardService(): RetroChiefController
+    {
+        $boardService = new BoardService(
+            $this->boardRepository,
+            new CommentRepository($this->pdo),
+            $this->createStub(MemberService::class),
+            $this->createStub(SectionService::class),
+            new SchedulerService(new SchedulerRepository($this->pdo)),
+            new JournalService(new JournalRepository($this->pdo)),
+            $this->createStub(MailService::class),
+            EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'retro'),
+            'Test Unit',
+            'https://example.test'
+        );
+
+        return new RetroChiefController(
+            $this->twig,
+            $this->boardRepository,
+            $boardService,
+            $this->settingService,
+            $this->scoutYearResolver,
+            $this->moduleManager
+        );
+    }
+
+    private function makeBoard(string $title, string $token): int
+    {
+        return $this->boardRepository->create(
+            $title, '2026-07-01', null, $token, null, true, 'unlimited', 5, true, 'cookie', 140, '7d', null, 3
+        );
+    }
+
+    /**
+     * @return array{type: string, message: string}
+     */
+    private function flash(): array
+    {
+        $flash = FlashMessage::get();
+        self::assertNotNull($flash, 'the gesture set no flash message at all');
+
+        return $flash;
+    }
+
+    private function statusOf(int $id): string
+    {
+        $board = $this->boardRepository->findById($id);
+        self::assertNotNull($board);
+
+        return $board->status;
+    }
+
+    public function testUpdateComesBackToTheFormWithTheReasonWhenTheTitleIsEmptied(): void
+    {
+        $id = $this->makeBoard('Camp 2026', 'tok-update-empty');
+        $request = new Request('POST', '/retro/' . $id, [], [
+            '_csrf_token' => $this->csrfToken(), 'title' => '   ',
+        ], [], []);
+
+        $response = $this->controllerWithRealBoardService()->update($request, ['id' => (string) $id]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        // Back to the form, carrying the id — not to the list, and not to
+        // /retro/0/edit, which is where a lost id would send the chief.
+        $this->assertSame('/retro/' . $id . '/edit', $response->getHeaders()['Location'] ?? '');
+        $flash = $this->flash();
+        $this->assertSame('error', $flash['type']);
+        $this->assertSame('Le titre est obligatoire.', $flash['message']);
+        $board = $this->boardRepository->findById($id);
+        $this->assertNotNull($board);
+        $this->assertSame('Camp 2026', $board->title, 'the refused update still changed the title');
+    }
+
+    public function testUpdateGoesBackToTheListOnlyWhenItSucceeds(): void
+    {
+        // The contrast that gives the assertion above its meaning: the
+        // destination is what separates an accepted edit from a refused one.
+        $id = $this->makeBoard('Camp 2026', 'tok-update-ok');
+        $request = new Request('POST', '/retro/' . $id, [], [
+            '_csrf_token' => $this->csrfToken(), 'title' => 'Camp 2026 revu', 'board_date' => '2026-07-02',
+            'vote_mode' => 'unlimited', 'anti_duplicate_mode' => 'cookie',
+            'max_comment_length' => '140', 'auto_close_delay' => '7d',
+        ], [], []);
+
+        $response = $this->controllerWithRealBoardService()->update($request, ['id' => (string) $id]);
+
+        $this->assertSame('/retro', $response->getHeaders()['Location'] ?? '');
+        $flash = $this->flash();
+        $this->assertSame('success', $flash['type']);
+        $this->assertSame('Rétrospective mise à jour.', $flash['message']);
+        $board = $this->boardRepository->findById($id);
+        $this->assertNotNull($board);
+        $this->assertSame('Camp 2026 revu', $board->title);
+    }
+
+    public function testCloseReportsAnUnknownBoardInsteadOfClaimingSuccess(): void
+    {
+        $request = new Request('POST', '/retro/999/close', [], ['_csrf_token' => $this->csrfToken()], [], []);
+
+        $response = $this->controllerWithRealBoardService()->close($request, ['id' => '999']);
+
+        // Same 302 to /retro as a successful close: only the flash tells the
+        // chief that nothing happened.
+        $this->assertSame(302, $response->getStatusCode());
+        $flash = $this->flash();
+        $this->assertSame('error', $flash['type']);
+        $this->assertSame('Rétrospective introuvable.', $flash['message']);
+    }
+
+    public function testClosingAnAlreadyClosedBoardIsAcceptedRatherThanRefused(): void
+    {
+        // BoardService::close() returns early on a board that is not open
+        // rather than throwing — so a chief who presses the button twice,
+        // or who arrives on a stale list, is told it is closed instead of
+        // being handed an error. Locked down because the opposite reading
+        // is the natural one: the method's own docblock claimed it threw.
+        $id = $this->makeBoard('Camp 2026', 'tok-close-twice');
+        $this->boardRepository->close($id);
+        $request = new Request('POST', '/retro/' . $id . '/close', [], ['_csrf_token' => $this->csrfToken()], [], []);
+
+        $this->controllerWithRealBoardService()->close($request, ['id' => (string) $id]);
+
+        $flash = $this->flash();
+        $this->assertSame('success', $flash['type']);
+        $this->assertSame('Rétrospective clôturée.', $flash['message']);
+        $this->assertSame('closed', $this->statusOf($id));
+    }
+
+    public function testReopenRefusesABoardThatWasNeverClosedAndSaysWhy(): void
+    {
+        $id = $this->makeBoard('Camp 2026', 'tok-reopen-open');
+        $request = new Request('POST', '/retro/' . $id . '/reopen', [], ['_csrf_token' => $this->csrfToken()], [], []);
+
+        $this->controllerWithRealBoardService()->reopen($request, ['id' => (string) $id]);
+
+        $flash = $this->flash();
+        $this->assertSame('error', $flash['type']);
+        $this->assertSame('Seule une rétrospective clôturée peut être réouverte.', $flash['message']);
+        $this->assertSame('open', $this->statusOf($id));
+    }
+
+    public function testArchiveRefusesAnOpenBoardWithItsOwnReasonNotReopensOne(): void
+    {
+        $id = $this->makeBoard('Camp 2026', 'tok-archive-open');
+        $request = new Request('POST', '/retro/' . $id . '/archive', [], ['_csrf_token' => $this->csrfToken()], [], []);
+
+        $this->controllerWithRealBoardService()->archive($request, ['id' => (string) $id]);
+
+        $flash = $this->flash();
+        $this->assertSame('error', $flash['type']);
+        // archive() and reopen() both require status 'closed', so an open
+        // board refuses both. Only the sentence says which button was
+        // pressed — a controller wiring archive() to reopen() would pass
+        // every other assertion in this test.
+        $this->assertSame('Seule une rétrospective clôturée peut être archivée.', $flash['message']);
+        $this->assertSame('open', $this->statusOf($id));
+    }
+
+    public function testUnarchiveRefusesABoardThatIsMerelyClosed(): void
+    {
+        $id = $this->makeBoard('Camp 2026', 'tok-unarchive-closed');
+        $this->boardRepository->close($id);
+        $request = new Request('POST', '/retro/' . $id . '/unarchive', [], ['_csrf_token' => $this->csrfToken()], [], []);
+
+        $this->controllerWithRealBoardService()->unarchive($request, ['id' => (string) $id]);
+
+        $flash = $this->flash();
+        $this->assertSame('error', $flash['type']);
+        $this->assertSame('Cette rétrospective n\'est pas archivée.', $flash['message']);
+        $this->assertSame('closed', $this->statusOf($id));
+    }
+
+    public function testRegenerateLinkOnAnUnknownBoardComesBackToItsFormWithTheReason(): void
+    {
+        $request = new Request('POST', '/retro/999/regenerate-link', [], ['_csrf_token' => $this->csrfToken()], [], []);
+
+        $response = $this->controllerWithRealBoardService()->regenerateLink($request, ['id' => '999']);
+
+        $this->assertSame('/retro/999/edit', $response->getHeaders()['Location'] ?? '');
+        $flash = $this->flash();
+        $this->assertSame('error', $flash['type']);
+        $this->assertSame('Rétrospective introuvable.', $flash['message']);
+    }
+
+    public function testRegenerateLinkReplacesTheTokenWhenTheBoardExists(): void
+    {
+        // The contrast for the test above: same destination on both paths,
+        // so the flash and the token are the only witnesses.
+        $id = $this->makeBoard('Camp 2026', 'tok-regenerate');
+        $request = new Request('POST', '/retro/' . $id . '/regenerate-link', [], ['_csrf_token' => $this->csrfToken()], [], []);
+
+        $response = $this->controllerWithRealBoardService()->regenerateLink($request, ['id' => (string) $id]);
+
+        $this->assertSame('/retro/' . $id . '/edit', $response->getHeaders()['Location'] ?? '');
+        $flash = $this->flash();
+        $this->assertSame('success', $flash['type']);
+        // Both halves: the second one is the only warning the chief gets that
+        // the link they may have already shared has just stopped working.
+        $this->assertSame(
+            'Lien régénéré — l\'ancien lien ne fonctionne plus.',
+            $flash['message']
+        );
+        $board = $this->boardRepository->findById($id);
+        $this->assertNotNull($board);
+        $this->assertNotSame('tok-regenerate', $board->token, 'the old link still works');
     }
 }

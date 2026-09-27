@@ -20,6 +20,7 @@ use Core\Mail\Feedback\ReturnPathVerifier;
 use Core\Mail\Feedback\ReturnState;
 use Core\Mail\DnsVerifier;
 use Core\Mail\MailIdentity;
+use Core\Mail\SectionSenderAlignment;
 use Core\Mail\Probe\MailProbeException;
 use Core\Mail\Probe\MailProbeNotRecordedException;
 use Core\Mail\Probe\MailProbeRepository;
@@ -134,6 +135,21 @@ class OutboundMailController extends AbstractController
         private ReturnPathVerifier $returns,
         private JournalService $journal,
         /**
+         * Which sections this site cannot sign a `From:` for (issue #418).
+         *
+         * **Required, like every dependency above it**, and for the reason
+         * §8.17 records: a defaulted one turns the composition root somebody
+         * forgets into a warning that silently never appears — and this
+         * warning exists precisely because the failure it describes is
+         * invisible. `p=reject` at the section's provider refuses the
+         * mailing while this page is entirely green, and no DMARC report can
+         * say so, because a report goes to the `rua=` of the FROM domain.
+         *
+         * The nullable ones below are a different case each time, and each
+         * says so where it sits: they gate a sub-page on a module being on.
+         */
+        private SectionSenderAlignment $sectionSenders,
+        /**
          * The manual probe (roadmap IT-04).
          *
          * Nullable for the one reason the others are not: it needs a
@@ -180,7 +196,17 @@ class OutboundMailController extends AbstractController
         private ?\Core\Mail\Feedback\Seed\SeedMailboxes $seedMailboxes = null,
         private ?\Core\Mail\Feedback\Seed\SeedCopyRepository $seedCopies = null,
         /** What the results recommend, and whether it is applied (D13). */
-        private ?\Core\Mail\Feedback\Seed\DomainRouting $routing = null
+        private ?\Core\Mail\Feedback\Seed\DomainRouting $routing = null,
+        /**
+         * What this unit's own SPF record authorises, as the last DNS check
+         * read it (roadmap IT-06, issue #421).
+         *
+         * Last in the list rather than beside `$knownSenders`, where it
+         * belongs by subject: every parameter here is positional, and
+         * slipping one into the middle would silently hand each of the
+         * five below somebody else's dependency.
+         */
+        private ?\Core\Mail\Feedback\Dmarc\SpfCoverage $spfCoverage = null
     ) {
     }
 
@@ -192,13 +218,32 @@ class OutboundMailController extends AbstractController
      */
     public function dmarc(Request $request, array $params): Response
     {
-        $since = (new \DateTimeImmutable())->sub(new \DateInterval(self::DMARC_WINDOW));
+        // **One clock for the whole page.** The staleness of the SPF
+        // reading is asked once per source line, and a page reading the
+        // wall clock each time could place a source just inside the
+        // boundary and refuse the next one just outside it — a table
+        // disagreeing with itself about what it said one row earlier. No
+        // test here can show that: it needs the thirty-day boundary to
+        // fall between two rows of the same render. It is written down
+        // because it is a reason, not because it is guarded.
+        $now = new \DateTimeImmutable();
+        $since = $now->sub(new \DateInterval(self::DMARC_WINDOW));
+        // **The reading has to be about the domain the site signs for
+        // today** (found in review on #571): changing the sending address
+        // leaves the stored ranges belonging to the old domain, and for up to
+        // thirty days the page would keep calling them « déclarée dans votre
+        // SPF ». Asked once here and handed to both the rows and the page's
+        // own sentence, so the two cannot disagree.
+        $spfDomain = MailIdentity::fromSettings($this->settings)->spfDomain();
+        $spfApplies = $this->spfCoverage !== null
+            && !$this->spfCoverage->isEmpty()
+            && $this->spfCoverage->isFor($spfDomain);
         $totals = $this->dmarc?->totalsSince($since) ?? [];
 
         return $this->render('config/outbound_mail/dmarc.html.twig', [
             'available' => $this->dmarc !== null,
             'unavailable_reason' => self::DMARC_UNAVAILABLE,
-            'sources' => $this->dmarcSources($since),
+            'sources' => $this->dmarcSources($since, $now, $spfApplies),
             'reports' => $this->dmarc?->reportsSince($since, self::DMARC_REPORTS_SHOWN) ?? [],
             // **The counts come from the database, never from the rows
             // above**, which are capped for the table's sake. A page that
@@ -212,6 +257,39 @@ class OutboundMailController extends AbstractController
             // source, not over the ones that fit.
             'unknown_authenticating' => $this->unknownAuthenticatingCount($since),
             'relays_resolved' => $this->knownSenders !== null && !$this->knownSenders->isEmpty(),
+            // The SPF reading says three separate things, and the page owes
+            // the operator all three (issue #421): never taken, taken but
+            // too old to name anything, and taken but incomplete — with
+            // which ceiling it ran into, because « votre chaîne dépasse la
+            // limite du protocole » and « nous n'en gardons pas tant » are
+            // different actions.
+            'spf_resolved' => $this->spfCoverage !== null && !$this->spfCoverage->isEmpty(),
+            // Named apart from « never taken », because the reading exists
+            // and says so — it is simply about another domain, and the
+            // operator's next step is the same button for a different reason.
+            'spf_other_domain' => $this->spfCoverage !== null
+                && !$this->spfCoverage->isEmpty()
+                && !$this->spfCoverage->isFor($spfDomain)
+                    ? $this->spfCoverage->domain
+                    : null,
+            'spf_stale' => $this->spfCoverage?->isStale($now) ?? false,
+            // `->` and not `?->`: `$spfApplies` is only true when the
+            // reading exists, which PHPStan reads off its definition above.
+            'spf_partial' => $spfApplies ? $this->spfCoverage->partial : null,
+            'spf_partial_lookups' => \Core\Mail\Feedback\Dmarc\SpfCoverage::PARTIAL_LOOKUPS,
+            'spf_partial_unreadable' => \Core\Mail\Feedback\Dmarc\SpfCoverage::PARTIAL_UNREADABLE,
+            'spf_max_lookups' => \Core\Mail\Feedback\Dmarc\SpfCoverage::MAX_LOOKUPS,
+            'spf_max_age_days' => \Core\Mail\Feedback\Dmarc\SpfCoverage::MAX_AGE_DAYS,
+            // The week-by-week authentication rate (issue #420). Absent when
+            // the module is off, for the same reason the rest of this page is:
+            // there are no reports to trend.
+            'authentication_trend' => $this->dmarc === null
+                ? []
+                : self::trendForView(
+                    \Core\Mail\Feedback\Dmarc\AuthenticationTrend::build($this->dmarc)
+                ),
+            'trend_minimum_messages' => \Core\Mail\Feedback\Dmarc\AuthenticationTrend::MINIMUM_MESSAGES,
+            'trend_window_days' => \Core\Mail\Feedback\Dmarc\Task\PurgeDmarcReportsHandler::RETENTION_DAYS,
             'window_days' => 30,
             'current_path' => self::DMARC_URL,
         ]);
@@ -249,7 +327,7 @@ class OutboundMailController extends AbstractController
      *
      * @return list<array<string, mixed>>
      */
-    private function dmarcSources(\DateTimeImmutable $since): array
+    private function dmarcSources(\DateTimeImmutable $since, \DateTimeImmutable $now, bool $spfApplies): array
     {
         $lines = [];
 
@@ -257,6 +335,17 @@ class OutboundMailController extends AbstractController
             $messages = $source['messages'];
             $authenticated = $source['authenticated'];
             $provider = $this->knownSenders?->nameFor($source['source_ip']);
+            // **Only asked when no declared relay placed it**, which is
+            // not a saving: a relay of the unit's own is also in its SPF,
+            // so asking both would put « votre relais Brevo » and
+            // « déclarée dans votre SPF » on the same row and leave the
+            // volunteer to work out that they are the same fact.
+            $spfVia = null;
+            $spfIsOwnRecord = false;
+            if ($provider === null && $spfApplies && $this->spfCoverage !== null) {
+                $spfVia = $this->spfCoverage->viaFor($source['source_ip'], $now);
+                $spfIsOwnRecord = $spfVia !== null && $this->spfCoverage->isOwnDomain($spfVia);
+            }
 
             $lines[] = [
                 // The sending SERVER's address, which is infrastructure
@@ -265,6 +354,11 @@ class OutboundMailController extends AbstractController
                 'source_ip' => $source['source_ip'],
                 'provider' => $provider,
                 'is_own' => $provider !== null,
+                // The token the operator will find in their own zone, and
+                // whether it is their own record stating a range itself
+                // rather than something it delegates (issue #421).
+                'spf_via' => $spfVia,
+                'spf_is_own_record' => $spfIsOwnRecord,
                 'messages' => $messages,
                 'authenticated' => $authenticated,
                 'failed' => $messages - $authenticated,
@@ -276,6 +370,14 @@ class OutboundMailController extends AbstractController
                 // the unit's address — far more often than a spoof. It has
                 // to be identified BEFORE moving to `p=reject`, or those
                 // messages are rejected too.
+                //
+                // **An SPF match does not clear it** (issue #421). A range
+                // in the unit's own record is a range somebody authorised,
+                // which says nothing about whether they still want to —
+                // and « je l'ai mis dans le SPF il y a trois ans » is the
+                // commonest way a forgotten tool got there. Naming it
+                // tells the volunteer where to look, not that the answer
+                // is fine.
                 'needs_attention' => $provider === null && $authenticated > 0,
             ];
         }
@@ -340,8 +442,27 @@ class OutboundMailController extends AbstractController
             // minimum sample, and the screen says which of the two it is
             // looking at.
             'readings' => $this->routing?->readings($since) ?? [],
+            // How many personal domains the MX records moved under a
+            // provider (issue #422) — a count, never which ones.
+            'attributed_domains' => $this->routing?->attributedDomains() ?? 0,
             'routing_automatic' => $this->routing?->isAutomatic() ?? false,
             'minimum_runs' => \Core\Mail\Feedback\Seed\DomainRouting::MINIMUM_RUNS,
+            // One series per provider, week by week (issue #420), and only the
+            // providers measured enough to draw: a legend entry with no line
+            // beside it reads as « delivered nothing », which is the opposite
+            // of « not measured enough to say ».
+            'landing_trend' => $this->seedCopies === null
+                ? []
+                : array_map(
+                    static fn(\Core\Mail\Feedback\Trend\WeeklySeries $one): array
+                        => self::trendForView($one),
+                    \Core\Mail\Feedback\Seed\LandingTrend::build($this->seedCopies)
+                ),
+            'trend_window_days' => \Core\Mail\Feedback\Seed\Task\PurgeSeedCopiesHandler::RETENTION_DAYS,
+            // Not `minimum_runs`: that one gates the automatic routing over
+            // thirty days, and the trend judges a single week (see
+            // `LandingTrend::MINIMUM_MAILINGS`).
+            'trend_minimum_mailings' => \Core\Mail\Feedback\Seed\LandingTrend::MINIMUM_MAILINGS,
             // Two relays on the mailing lane is what makes « appliquer »
             // mean anything. Below that the screen says so rather than
             // drawing a button that would explain nothing when it did
@@ -580,7 +701,10 @@ class OutboundMailController extends AbstractController
     {
         $providers = [];
         foreach ($addresses as $address) {
-            $providers[\Core\Mail\Feedback\Seed\SeedCopy::providerOf($address)] = true;
+            $domain = \Core\Mail\Feedback\Seed\SeedCopy::providerOf($address);
+            // The column the results are read by: a box on a domain whose
+            // MX records name Google is a Gmail box (issue #422).
+            $providers[$this->routing?->providerOf($domain) ?? $domain] = true;
         }
 
         $names = array_keys($providers);
@@ -631,7 +755,11 @@ class OutboundMailController extends AbstractController
      * One row per mailing, one cell per provider — the shape the roadmap
      * asks for.
      *
-     * @return list<array{reference: string, sent_at: string, cells: array<string, array{verdict: string, label: string, badge: string, folder: ?string}>}>
+     * @return list<array{
+     *     reference: string,
+     *     sent_at: string,
+     *     cells: array<string, array{verdict: string, label: string, badge: string, folder: ?string}>
+     * }>
      */
     private function seedRuns(\DateTimeImmutable $since): array
     {
@@ -642,6 +770,15 @@ class OutboundMailController extends AbstractController
             $sentAt = null;
             foreach ($copies as $copy) {
                 $sentAt ??= $copy->sentAt;
+                // Two boxes can now share a column — a gmail.com box and
+                // one on a domain Google hosts (issue #422). The cell
+                // shows the worse of the two: a copy filed as spam is the
+                // finding, and letting the other box's inbox overwrite it
+                // would hide exactly what this table exists to show.
+                $existing = $cells[$copy->provider]['verdict'] ?? null;
+                if ($existing !== null && self::verdictRank($existing) >= self::verdictRank($copy->verdict->value)) {
+                    continue;
+                }
                 $cells[$copy->provider] = [
                     'verdict' => $copy->verdict->value,
                     'label' => $copy->verdict->label(),
@@ -658,6 +795,18 @@ class OutboundMailController extends AbstractController
         }
 
         return $rows;
+    }
+
+    /** How bad a verdict is, for two copies sharing one cell. */
+    private static function verdictRank(string $verdict): int
+    {
+        return match ($verdict) {
+            'missing' => 4,
+            'spam' => 3,
+            'elsewhere' => 2,
+            'pending' => 1,
+            default => 0,
+        };
     }
 
     /**
@@ -1909,6 +2058,37 @@ class OutboundMailController extends AbstractController
             // along with it and must not be able to spoil it.
         }
 
+        // **The unit's own SPF chain, in a try of its own** (issue #421).
+        // Sharing the one above would let a resolver that fails on a relay
+        // hostname cost the include: reading as well, and the two answer
+        // different questions from different records — one would be lost
+        // for the other's bad minute.
+        try {
+            \Core\Mail\Feedback\Dmarc\SpfCoverage::refresh(
+                $this->settings,
+                $spfDomain,
+                // **Through the verifier, which is this screen's one
+                // resolver** (found in review on #571). Reading TXT records
+                // from inside `SpfCoverage` gave the outbound-mail screens a
+                // second way to reach the network, and left this action's own
+                // test asking a real resolver for a domain its canned zone
+                // already answers for.
+                //
+                // **`?array`, and the question mark is load-bearing.** The
+                // walk distinguishes « this host publishes nothing » from
+                // « nobody answered » and marks the reading incomplete for the
+                // second; a closure declared `: array` could never hand back
+                // the null that says so, which made that branch — and the
+                // warning the page had just gained — dead in production while
+                // the unit test that injects its own closure kept passing.
+                fn(string $host): ?array => $this->dns->txtRecordsFor($host)
+            );
+        } catch (\Throwable) {
+            // As above: the previous reading still places what it placed,
+            // and dropping it would turn « déclarée dans votre SPF » into
+            // « Autre » on the next page.
+        }
+
         return $this->redirect(self::AUTHENTICATION_URL);
     }
 
@@ -2218,10 +2398,18 @@ class OutboundMailController extends AbstractController
      * support package all the same, because those are read elsewhere and
      * kept far longer.
      *
+     * `bounce` is the one field that can be filled while `verdict` is not,
+     * and the page shows both (issue #419). They answer different questions:
+     * the verdict is what a person saw in the mailbox, the bounce is what the
+     * far end said before there was anything to see. « Jamais reçu » next to
+     * « Adresse inexistante (5.1.1) » is not a contradiction — it is the
+     * operator's observation and its reason, and a page that showed only one
+     * would drop the half somebody came for.
+     *
      * @param list<\Core\Mail\Probe\MailProbe> $probes
      * @return list<array{id: int, code: string, destination: string, provider: string, lane: string,
      *     sent_at: string, verdict: ?string, verdict_label: ?string, verdict_badge: ?string,
-     *     guidance: ?string}>
+     *     guidance: ?string, bounce: ?string, bounce_at: ?string}>
      */
     private function probeLines(array $probes): array
     {
@@ -2238,6 +2426,8 @@ class OutboundMailController extends AbstractController
                 'verdict_label' => $probe->verdict?->label(),
                 'verdict_badge' => $probe->verdict?->badge(),
                 'guidance' => $probe->verdict?->guidance(),
+                'bounce' => $probe->bounce?->label(),
+                'bounce_at' => $probe->bounce?->at->format('d/m/Y à H:i'),
             ];
         }
 
@@ -2358,6 +2548,48 @@ class OutboundMailController extends AbstractController
         return null;
     }
 
+    /**
+     * A series shaped for a chart, and shaped **once** for both screens.
+     *
+     * The label goes through `DateFilterExtension::dateFr()` — the site's one
+     * French date formatter — rather than a month table written here: a second
+     * way of writing 21 septembre is a second thing to keep in step, and this
+     * one would only ever be seen on a chart axis where nobody would notice it
+     * drifting.
+     *
+     * `value` stays `null` for a week under the threshold, which is what
+     * Chart.js draws as a break with `spanGaps: false`. It is deliberately not
+     * flattened to `0` on the way out: the whole arbitration is that a hole
+     * and a zero are different claims.
+     *
+     * @return list<array{label: string, value: ?float, sample: int, partial: bool,
+     *     truncated: bool}>
+     */
+    private static function trendForView(\Core\Mail\Feedback\Trend\WeeklySeries $series): array
+    {
+        // **Nothing drawable is an empty list, not a list of holes.** A series
+        // whose every week is under the threshold still HAS ninety weeks in
+        // it, so a view testing « are there points » would draw a chart with no
+        // line in it and a table with no rows — which reads as « nothing
+        // authenticated » rather than « not measured yet ». `isEmpty()` is the
+        // question that separates them, and this is the only place it can be
+        // asked once for both screens.
+        if ($series->isEmpty()) {
+            return [];
+        }
+
+        return array_map(
+            static fn(array $point): array => [
+                'label' => \Core\View\DateFilterExtension::dateFr($point['from']),
+                'value' => $point['value'],
+                'sample' => $point['sample'],
+                'partial' => $point['partial'],
+                'truncated' => $point['truncated'],
+            ],
+            $series->points
+        );
+    }
+
     private function renderAuthentication(): Response
     {
         $identity = MailIdentity::fromSettings($this->settings);
@@ -2380,6 +2612,13 @@ class OutboundMailController extends AbstractController
                 'dkim_selector' => (string) ($this->settings->get('dkim_selector') ?? ''),
             ],
             'roles' => $identity->roles(),
+            // The sections whose mailings this site cannot sign for. This
+            // page explains which address plays which role, so it is the
+            // page where « and this one plays none of them » belongs — the
+            // operator who reads the four roles here is the one who can
+            // change a section's address.
+            'misaligned_sections' => $this->sectionSenders->misaligned(),
+            'sections_url' => '/config/functions',
             'spf_domain' => $identity->spfDomain(),
             'dkim_domain' => $identity->dkimDomain(),
             'sending_hosts' => $hosts ?? [],

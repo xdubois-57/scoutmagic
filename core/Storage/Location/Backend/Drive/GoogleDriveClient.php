@@ -135,6 +135,16 @@ final class GoogleDriveClient
     private const LIST_PAGE_SIZE = 100;
 
     /**
+     * How many sub-folders one page asks for — Drive's own maximum, since
+     * a location holds one folder per album and walking them is what the
+     * listing pays for.
+     */
+    private const FOLDER_PAGE_SIZE = 1000;
+
+    /** What Drive calls a folder. */
+    public const FOLDER_MIME = 'application/vnd.google-apps.folder';
+
+    /**
      * Which of Google's two endpoints refused, for {@see errorFor()}.
      *
      * A 401 means something different on each, and telling them apart is
@@ -261,24 +271,35 @@ final class GoogleDriveClient
     }
 
     /**
-     * Creates a folder and answers with its id, or finds the one this
-     * application created before.
+     * Finds the folder called $name this application created, or creates
+     * it, and answers with its id — the `ScoutMagic` folder every Drive
+     * location of this account sits under.
      *
      * Under `drive.file` the search can only ever see this application's
      * own files, so "is there already one" is a question about this
-     * application's history and not about the operator's Drive.
+     * application's history and not about the operator's Drive. It is
+     * deliberately NOT restricted to the top of « Mon Drive »: an operator
+     * who tidied `ScoutMagic` into a folder of their own has moved it, not
+     * asked for a second one. The oldest wins when there are two, so every
+     * caller agrees on which.
      *
      * @throws DriveAccessException
      */
     public function ensureFolder(string $accessToken, string $name): string
     {
         $query = sprintf(
-            "mimeType='application/vnd.google-apps.folder' and trashed=false and name='%s'",
+            "mimeType='%s' and trashed=false and name='%s'",
+            self::FOLDER_MIME,
             self::quoted($name)
         );
         $found = $this->apiJson(
             'GET',
-            self::API_BASE . '/files?' . http_build_query(['q' => $query, 'fields' => 'files(id)', 'pageSize' => 1]),
+            self::API_BASE . '/files?' . http_build_query([
+                'q' => $query,
+                'fields' => 'files(id)',
+                'orderBy' => 'createdTime',
+                'pageSize' => 1,
+            ]),
             $accessToken
         );
         $files = is_array($found['files'] ?? null) ? $found['files'] : [];
@@ -286,11 +307,31 @@ final class GoogleDriveClient
             return (string) $files[0]['id'];
         }
 
+        return $this->createFolder($accessToken, $name, null);
+    }
+
+    /**
+     * Creates a folder — under $parentId, or at the top of « Mon Drive »
+     * when it is null — and answers with its id.
+     *
+     * Never « find or create »: a location's own folder is created fresh
+     * on every connection so that two locations can never end up sharing
+     * one, which is exactly what looking a folder up by name used to do.
+     *
+     * @throws DriveAccessException
+     */
+    public function createFolder(string $accessToken, string $name, ?string $parentId): string
+    {
+        $metadata = ['name' => $name, 'mimeType' => self::FOLDER_MIME];
+        if ($parentId !== null) {
+            $metadata['parents'] = [$parentId];
+        }
+
         $created = $this->apiJson(
             'POST',
             self::API_BASE . '/files?fields=id',
             $accessToken,
-            (string) json_encode(['name' => $name, 'mimeType' => 'application/vnd.google-apps.folder']),
+            (string) json_encode($metadata),
             'application/json'
         );
         $id = (string) ($created['id'] ?? '');
@@ -299,6 +340,136 @@ final class GoogleDriveClient
         }
 
         return $id;
+    }
+
+    /**
+     * The sub-folder of $parentId called $name, or null — **the oldest
+     * when there are two.** Two runs creating the same album folder at the
+     * same moment is possible, and every reader and writer has to agree
+     * on which of the two is « the » folder, so the answer is ordered.
+     *
+     * @throws DriveAccessException
+     */
+    public function findFolder(string $accessToken, string $parentId, string $name): ?string
+    {
+        $query = sprintf(
+            "'%s' in parents and mimeType='%s' and trashed=false and name='%s'",
+            self::quoted($parentId),
+            self::FOLDER_MIME,
+            self::quoted($name)
+        );
+        $url = self::API_BASE . '/files?' . http_build_query([
+            'q' => $query,
+            'fields' => 'files(id)',
+            'orderBy' => 'createdTime',
+            'pageSize' => 1,
+        ]);
+        $decoded = $this->apiJson('GET', $url, $accessToken);
+
+        $files = is_array($decoded['files'] ?? null) ? $decoded['files'] : [];
+        $id = is_array($files[0] ?? null) ? (string) ($files[0]['id'] ?? '') : '';
+
+        return $id !== '' ? $id : null;
+    }
+
+    /**
+     * One page of the sub-folders of $parentId, oldest first.
+     *
+     * @return array{folders: list<array{id: string, name: string}>, cursor: ?string}
+     * @throws DriveAccessException
+     */
+    public function listFolders(string $accessToken, string $parentId, ?string $pageToken): array
+    {
+        $parameters = [
+            'q' => sprintf(
+                "'%s' in parents and mimeType='%s' and trashed=false",
+                self::quoted($parentId),
+                self::FOLDER_MIME
+            ),
+            'fields' => 'nextPageToken,files(id,name)',
+            'orderBy' => 'createdTime',
+            'pageSize' => self::FOLDER_PAGE_SIZE,
+        ];
+        if ($pageToken !== null && $pageToken !== '') {
+            $parameters['pageToken'] = $pageToken;
+        }
+
+        $decoded = $this->apiJson('GET', self::API_BASE . '/files?' . http_build_query($parameters), $accessToken);
+
+        $folders = [];
+        foreach (is_array($decoded['files'] ?? null) ? $decoded['files'] : [] as $entry) {
+            if (is_array($entry) && isset($entry['id'], $entry['name'])) {
+                $folders[] = ['id' => (string) $entry['id'], 'name' => (string) $entry['name']];
+            }
+        }
+        $next = is_string($decoded['nextPageToken'] ?? null) ? $decoded['nextPageToken'] : '';
+
+        return ['folders' => $folders, 'cursor' => $next !== '' ? $next : null];
+    }
+
+    /**
+     * What Drive says about one file or folder by id — its name and
+     * whether it is in the trash — or null when it is gone for good (or
+     * was never visible to this application).
+     *
+     * @return array{name: string, trashed: bool}|null
+     * @throws DriveAccessException
+     */
+    public function describeFile(string $accessToken, string $fileId): ?array
+    {
+        $response = $this->send(
+            'GET',
+            self::API_BASE . '/files/' . rawurlencode($fileId) . '?fields=id,name,trashed',
+            ['Authorization' => 'Bearer ' . $accessToken]
+        );
+        if ($response['status'] === 404) {
+            return null;
+        }
+        if ($response['status'] < 200 || $response['status'] >= 300) {
+            throw $this->errorFor($response, 'Google Drive n\'a pas pu décrire le dossier de cet emplacement.');
+        }
+
+        $decoded = json_decode($response['body'], true);
+        if (!is_array($decoded)) {
+            throw DriveAccessException::of('La réponse de Google Drive est illisible.');
+        }
+
+        return ['name' => (string) ($decoded['name'] ?? ''), 'trashed' => ($decoded['trashed'] ?? false) === true];
+    }
+
+    /**
+     * Gives a file or a folder a new name. Its id — which is how this
+     * application finds it — does not change.
+     *
+     * @throws DriveAccessException
+     */
+    public function renameFile(string $accessToken, string $fileId, string $name): void
+    {
+        $this->apiJson(
+            'PATCH',
+            self::API_BASE . '/files/' . rawurlencode($fileId) . '?fields=id',
+            $accessToken,
+            (string) json_encode(['name' => $name]),
+            'application/json'
+        );
+    }
+
+    /**
+     * Moves a file or a folder to the Drive trash — **not** a deletion:
+     * the operator can take it back out for about thirty days, after
+     * which Google empties it on its own.
+     *
+     * @throws DriveAccessException
+     */
+    public function trashFile(string $accessToken, string $fileId): void
+    {
+        $this->apiJson(
+            'PATCH',
+            self::API_BASE . '/files/' . rawurlencode($fileId) . '?fields=id',
+            $accessToken,
+            (string) json_encode(['trashed' => true]),
+            'application/json'
+        );
     }
 
     /**
@@ -331,7 +502,13 @@ final class GoogleDriveClient
     public function listPage(string $accessToken, string $folderId, ?string $pageToken, int $pageSize): array
     {
         $parameters = [
-            'q' => sprintf("'%s' in parents and trashed=false", self::quoted($folderId)),
+            // Files only: a sub-folder is walked by the backend, never
+            // reported as an object of its own.
+            'q' => sprintf(
+                "'%s' in parents and trashed=false and mimeType!='%s'",
+                self::quoted($folderId),
+                self::FOLDER_MIME
+            ),
             'fields' => 'nextPageToken,files(id,name,size,md5Checksum,modifiedTime)',
             'orderBy' => 'createdTime desc',
             'pageSize' => max(1, min(self::LIST_PAGE_SIZE, $pageSize)),
@@ -378,8 +555,9 @@ final class GoogleDriveClient
     public function findFile(string $accessToken, string $folderId, string $name): ?array
     {
         $query = sprintf(
-            "'%s' in parents and trashed=false and name='%s'",
+            "'%s' in parents and trashed=false and mimeType!='%s' and name='%s'",
             self::quoted($folderId),
+            self::FOLDER_MIME,
             self::quoted($name)
         );
         $url = self::API_BASE . '/files?' . http_build_query([
@@ -414,8 +592,9 @@ final class GoogleDriveClient
     public function findDuplicates(string $accessToken, string $folderId, string $name, string $keepId): array
     {
         $query = sprintf(
-            "'%s' in parents and trashed=false and name='%s'",
+            "'%s' in parents and trashed=false and mimeType!='%s' and name='%s'",
             self::quoted($folderId),
+            self::FOLDER_MIME,
             self::quoted($name)
         );
         $url = self::API_BASE . '/files?' . http_build_query([

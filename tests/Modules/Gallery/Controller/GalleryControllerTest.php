@@ -37,9 +37,8 @@ use Core\Storage\Location\StorageLocationService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Gallery\GalleryTestHelper;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
-use Twig\TwigFunction;
 use Modules\Gallery\Service\GalleryStorageWiring;
 use Core\Storage\Location\StorageLocationType;
 use Core\Storage\Location\Config\LocalLocationConfig;
@@ -138,14 +137,8 @@ class GalleryControllerTest extends TestCase
         $stmt->execute(['enc', 'idx']);
         $this->authorId = (int) $this->pdo->lastInsertId();
 
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/gallery/views';
-        $loader = new FilesystemLoader($templateDir);
-        $loader->addPath($moduleViews, 'gallery');
-        $this->twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $this->twig = TestTwig::create(['gallery' => $moduleViews]);
         $this->twig->addGlobal('site_name', 'Test');
         $this->twig->addGlobal('is_authenticated', true);
         $this->twig->addGlobal('current_user_role', 'identified');
@@ -153,11 +146,6 @@ class GalleryControllerTest extends TestCase
         $this->twig->addGlobal('cookie_consent_given', true);
         $this->twig->addGlobal('menus', null);
         $this->twig->addGlobal('csp_nonce', 'test-nonce');
-        $this->twig->addFunction(new TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
-        $this->twig->addFunction(new TwigFunction('get_flash', fn() => null));
-        $this->twig->addFunction(new TwigFunction('csrf_token', fn() => 'test'));
-        $this->twig->addFunction(new TwigFunction('file_url', fn() => ''));
-        $this->twig->addExtension(new \Core\View\DateFilterExtension());
 
         $this->controller = new GalleryController(
             $this->twig, $this->albumService, $this->mediaService, $this->mediaRepository, $this->memberService,
@@ -871,7 +859,7 @@ class GalleryControllerTest extends TestCase
         $backend = $this->createMock(\Core\Storage\Location\Backend\StorageBackendInterface::class);
         // The best rendition kept for a photo, which is what the album's
         // own zip puts in the archive for this media too.
-        $backend->method('get')->with('lg.jpg')->willReturn('fake-large-image-bytes');
+        $backend->expects($this->once())->method('get')->with('lg.jpg')->willReturn('fake-large-image-bytes');
         $this->storageBackendFactory->method('create')->willReturn($backend);
 
         $response = $this->controller->downloadMedia(

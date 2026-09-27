@@ -27,8 +27,8 @@ use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\EncryptionService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
 use Core\Member\Repository\MemberProfileRepository;
 use Core\Member\Repository\SectionRepository;
 
@@ -75,14 +75,9 @@ class FunctionsControllerTest extends TestCase
         // the controller will actually sync membership for.
         $this->scoutYearId = $this->scoutYearResolver->getCurrentPublicYear()['id'];
 
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $this->twig = new Environment(new FilesystemLoader($templateDir), [
-            'cache' => false,
-            'autoescape' => 'html',
-        ]);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $this->twig = TestTwig::create([], ['param' => fn(string $k) => $k === 'statistics_enabled'
+                ? (string) ((new SettingService(new SettingRepository($this->pdo)))->get($k) ?? '')
+                : 'Test']);
         $this->twig->addGlobal('site_name', 'Test');
         $this->twig->addGlobal('is_authenticated', true);
         $this->twig->addGlobal('current_user_email', 'admin@test.com');
@@ -91,31 +86,12 @@ class FunctionsControllerTest extends TestCase
         $this->twig->addGlobal('cookie_consent_given', true);
         $this->twig->addGlobal('menus', null);
         $this->twig->addGlobal('csp_nonce', 'test-nonce');
-        $this->twig->addFunction(new \Twig\TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
-        $this->twig->addFunction(new \Twig\TwigFunction('get_flash', fn() => null));
-        $this->twig->addFunction(new \Twig\TwigFunction('csrf_token', fn() => 'test'));
-        $this->twig->addFunction(new \Twig\TwigFunction('file_url', fn() => ''));
-        // Real settings for the keys a template branches on, the stub
-        // value for the rest: the mapping-gap box says the labels travel
-        // only when the daily report is actually enabled.
-        // Real settings for the keys a template branches on, the stub
-        // value for the rest. Read through a FRESH service each call:
-        // SettingService loads every setting once and caches them, and
-        // setUp() has already triggered that load — a row a test seeds
-        // afterwards would be invisible, which is not how a request sees
-        // it.
-        $this->twig->addFunction(new \Twig\TwigFunction(
-            'param',
-            fn(string $k) => $k === 'statistics_enabled'
-                ? (string) ((new SettingService(new SettingRepository($this->pdo)))->get($k) ?? '')
-                : 'Test'
-        ));
 
         // With the mapping-gap service, because that is how the
         // composition root serves this page: a controller without it
         // renders a page missing its top box, which is not a state any
         // visitor is ever in.
-        $this->controller = new FunctionsController($this->twig, $this->functionRepo, $journalService, $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, new AgeBranchRepository($this->pdo), null, new DeskMappingGapService($this->pdo, new ConfigScoutYearService($this->pdo)));
+        $this->controller = new FunctionsController($this->twig, $this->functionRepo, $journalService, $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, new AgeBranchRepository($this->pdo), $this->senderAlignment(), null, new DeskMappingGapService($this->pdo, new ConfigScoutYearService($this->pdo)));
     }
 
     public function testIndexRendersEmptyState(): void
@@ -395,7 +371,7 @@ class FunctionsControllerTest extends TestCase
     {
         $this->functionRepo->create('Animateur', 'Animateur', 'chief', true);
 
-        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, new AgeBranchRepository($this->pdo), $this->hooksWithFlags($this->stubFlagsProvider()));
+        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, new AgeBranchRepository($this->pdo), $this->senderAlignment(), $this->hooksWithFlags($this->stubFlagsProvider()));
 
         $request = new Request('GET', '/config/functions', [], [], [], []);
         $response = $controller->index($request, []);
@@ -441,7 +417,7 @@ class FunctionsControllerTest extends TestCase
 
         $id = $this->functionRepo->create('Animateur', 'Animateur', 'chief', true);
         $provider = $this->stubFlagsProvider();
-        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, new AgeBranchRepository($this->pdo), $this->hooksWithFlags($provider));
+        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, new AgeBranchRepository($this->pdo), $this->senderAlignment(), $this->hooksWithFlags($provider));
 
         $request = $this->createJsonRequest(['function_id' => $id, 'lead' => true, '_csrf_token' => $token]);
         $response = $controller->updateFlags($request, []);
@@ -454,7 +430,7 @@ class FunctionsControllerTest extends TestCase
     public function testUpdateFlagsWithInvalidCsrfReturnsError(): void
     {
         $id = $this->functionRepo->create('Animateur', 'Animateur', 'chief', true);
-        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, new AgeBranchRepository($this->pdo), $this->hooksWithFlags($this->stubFlagsProvider()));
+        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, new AgeBranchRepository($this->pdo), $this->senderAlignment(), $this->hooksWithFlags($this->stubFlagsProvider()));
 
         $request = $this->createJsonRequest(['function_id' => $id, 'lead' => false, '_csrf_token' => 'bad']);
         $response = $controller->updateFlags($request, []);
@@ -626,6 +602,115 @@ class FunctionsControllerTest extends TestCase
         $this->assertStringContainsString('BAL01', $rows[0]['description']);
     }
 
+    // ── The DMARC warning under a section's address (issue #418) ──────
+
+    /**
+     * **On every render, not only after a save.** Sections were already
+     * configured when this rule arrived, so an operator who never touches
+     * the field again would otherwise never be told that their mailings
+     * leave under another name.
+     */
+    public function testAnAddressTheSiteCannotSignForIsWarnedAboutOnTheRenderedPage(): void
+    {
+        $this->siteSendsFrom('info@unite.be', 'Unité Exemple');
+        $sectionId = $this->createSection('BAL01', 'Baladins', 'Baladins');
+        $this->sectionService->updateSectionInfo($sectionId, 'Baladins', 'baladins@telenet.be');
+
+        $body = $this->controller->index(new Request('GET', '/config/functions', [], [], [], []), [])->getBody();
+
+        // A needle with no apostrophe in it: Twig escapes « n'est pas » to
+        // « n&#039;est pas », so an assertion on that phrase would fail on a
+        // page that says exactly the right thing.
+        $this->assertStringContainsString('Les publipostages de cette section partiront de', $body);
+        $this->assertStringContainsString('Baladins (Unité Exemple)', $body);
+    }
+
+    /** And an address this site signs for is not warned about at all. */
+    public function testAnAddressOnTheSitesOwnDomainRendersNoWarning(): void
+    {
+        $this->siteSendsFrom('info@unite.be', 'Unité Exemple');
+        $sectionId = $this->createSection('BAL01', 'Baladins', 'Baladins');
+        $this->sectionService->updateSectionInfo($sectionId, 'Baladins', 'baladins@unite.be');
+
+        $body = $this->controller->index(new Request('GET', '/config/functions', [], [], [], []), [])->getBody();
+
+        $this->assertStringNotContainsString('Les publipostages de cette section partiront de', $body);
+    }
+
+    /**
+     * The save answers with the warning, so the page says it without a
+     * reload — and the sentence comes from the server, which owns the rule.
+     */
+    public function testSavingAnUnsignableAddressAnswersWithTheWarning(): void
+    {
+        $token = $this->startSessionWithToken();
+        $this->siteSendsFrom('info@unite.be', 'Unité Exemple');
+        $sectionId = $this->createSection('BAL01', 'Baladins', 'Baladins');
+
+        $request = $this->createJsonRequest(
+            ['section_id' => $sectionId, 'email' => 'baladins@telenet.be', '_csrf_token' => $token]
+        );
+        $decoded = json_decode($this->controller->updateSectionEmail($request, [])->getBody(), true);
+
+        $this->assertTrue($decoded['success']);
+        $this->assertStringContainsString('unite.be', (string) $decoded['alignment_warning']);
+        $this->assertStringContainsString('Baladins (Unité Exemple)', (string) $decoded['alignment_warning']);
+    }
+
+    /**
+     * **And a save that fixes the address answers with no warning**, which
+     * is what clears the one already on screen: an answer that simply left
+     * the key out would leave the old sentence under a field that no longer
+     * deserves it.
+     */
+    public function testSavingASignableAddressAnswersWithNoWarning(): void
+    {
+        $token = $this->startSessionWithToken();
+        $this->siteSendsFrom('info@unite.be', 'Unité Exemple');
+        $sectionId = $this->createSection('BAL01', 'Baladins', 'Baladins');
+        $this->sectionService->updateSectionInfo($sectionId, 'Baladins', 'baladins@telenet.be');
+
+        $request = $this->createJsonRequest(
+            ['section_id' => $sectionId, 'email' => 'baladins@unite.be', '_csrf_token' => $token]
+        );
+        $decoded = json_decode($this->controller->updateSectionEmail($request, [])->getBody(), true);
+
+        $this->assertTrue($decoded['success']);
+        $this->assertArrayHasKey('alignment_warning', $decoded, 'the key is always there, so the page can clear it');
+        $this->assertNull($decoded['alignment_warning']);
+    }
+
+    /**
+     * The site's own sending identity, declared and set.
+     *
+     * The rows are created here because `setInternal()` updates and never
+     * creates, and the SQLite schema this suite builds carries no seeded
+     * settings.
+     */
+    private function siteSendsFrom(string $address, string $name): void
+    {
+        $settings = new SettingService($this->settingRepo);
+        foreach ([
+            \Core\Mail\MailIdentity::SETTING_FROM_ADDRESS => $address,
+            \Core\Mail\MailIdentity::SETTING_FROM_NAME => $name,
+        ] as $key => $value) {
+            $settings->register($key, '', 'text', $key, '', null, null, null, false, 0);
+            $settings->setInternal($key, $value);
+        }
+    }
+
+    private function startSessionWithToken(): string
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        $_SESSION['user'] = ['user_account_id' => 1, 'email' => 'admin@test.com', 'role' => 'admin'];
+
+        return $token;
+    }
+
     public function testUpdateSectionVisibilityHidesSection(): void
     {
         if (session_status() === PHP_SESSION_NONE) {
@@ -767,6 +852,23 @@ class FunctionsControllerTest extends TestCase
         $this->assertFalse($decoded['success']);
     }
 
+    /**
+     * The #418 alignment warning's dependency.
+     *
+     * Built on a FRESH `SettingService` for the reason the `param` function
+     * in `setUp()` gives: the service loads every setting once and caches
+     * them, so one made before a test seeds the site's sending address would
+     * answer « this site signs for nothing » forever — and every warning
+     * would be absent for a reason no assertion could see.
+     */
+    private function senderAlignment(?SectionService $sections = null): \Core\Mail\SectionSenderAlignment
+    {
+        return new \Core\Mail\SectionSenderAlignment(
+            new SettingService(new SettingRepository($this->pdo)),
+            $sections ?? $this->sectionService
+        );
+    }
+
     private function controllerWithSectionService(\Core\Member\SectionService $sectionService): FunctionsController
     {
         return new FunctionsController(
@@ -777,7 +879,8 @@ class FunctionsControllerTest extends TestCase
             $this->unitStaffSectionService,
             $this->scoutYearResolver,
             $this->badgeService,
-            new AgeBranchRepository($this->pdo)
+            new AgeBranchRepository($this->pdo),
+            $this->senderAlignment($sectionService)
         );
     }
 
@@ -846,7 +949,7 @@ class FunctionsControllerTest extends TestCase
 
         $ageBranchRepository = new AgeBranchRepository($this->pdo);
         $branchId = $ageBranchRepository->create('LOU', 'Louveteaux');
-        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, $ageBranchRepository);
+        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, $ageBranchRepository, $this->senderAlignment());
 
         $request = $this->createJsonRequest(['branch_id' => $branchId, 'url' => 'https://example.test/louveteaux', '_csrf_token' => $token]);
         $response = $controller->updateBranchUrl($request, []);
@@ -870,7 +973,7 @@ class FunctionsControllerTest extends TestCase
 
         $ageBranchRepository = new AgeBranchRepository($this->pdo);
         $branchId = $ageBranchRepository->create('LOU', 'Louveteaux');
-        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, $ageBranchRepository);
+        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, $ageBranchRepository, $this->senderAlignment());
         $originalUrl = $ageBranchRepository->findById($branchId)['explanation_url'];
 
         $request = $this->createJsonRequest(['branch_id' => $branchId, 'url' => 'not-a-url', '_csrf_token' => $token]);
@@ -885,7 +988,7 @@ class FunctionsControllerTest extends TestCase
     {
         $ageBranchRepository = new AgeBranchRepository($this->pdo);
         $branchId = $ageBranchRepository->create('LOU', 'Louveteaux');
-        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, $ageBranchRepository);
+        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, $ageBranchRepository, $this->senderAlignment());
 
         $request = $this->createJsonRequest(['branch_id' => $branchId, 'url' => 'https://example.test', '_csrf_token' => 'bad']);
         $response = $controller->updateBranchUrl($request, []);
@@ -991,6 +1094,7 @@ class FunctionsControllerTest extends TestCase
             $this->scoutYearResolver,
             $this->badgeService,
             new AgeBranchRepository($this->pdo),
+            $this->senderAlignment(),
             null,
             new DeskMappingGapService($this->pdo, new ConfigScoutYearService($this->pdo))
         );

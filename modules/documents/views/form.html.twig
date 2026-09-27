@@ -21,7 +21,7 @@
 {% block title %}{{ document ? 'Modifier « ' ~ document.title ~ ' »' : 'Ajouter un document' }} — {{ site_name }}{% endblock %}
 
 {% block content %}
-<div class="page-narrow">
+<div class="page-medium">
     {% include 'partials/page_header.html.twig' with {
         title: document ? 'Modifier « ' ~ document.title ~ ' »' : 'Ajouter un document',
     } only %}

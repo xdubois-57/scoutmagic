@@ -107,7 +107,7 @@ class CampsMailController extends AbstractController
             $urls[$reference] = '/chefs/camps/sejours/' . $row['camp']->id;
         }
 
-        return $this->render('@camps/unsorted_mail.html.twig', $triage + [
+        $view = $triage + [
             'can_search_stays' => $this->staySearch !== null,
             // Whether the module is there at all: its views are registered
             // only while it is enabled, so without it the shared screen
@@ -117,7 +117,9 @@ class CampsMailController extends AbstractController
             'labels' => $labels,
             'reference_urls' => $urls,
             'breadcrumb_current' => 'Courrier des camps',
-        ]);
+        ];
+
+        return $this->render('@camps/unsorted_mail.html.twig', $view);
     }
 
     /**

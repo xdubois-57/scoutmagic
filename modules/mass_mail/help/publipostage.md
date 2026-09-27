@@ -46,6 +46,19 @@ Chaque colonne du fichier devient une variable : écrivez
 variable inconnue n'est pas remplacée et reste visible : l'aperçu de
 test la signale.
 
+## Qui est l'expéditeur
+
+Le message part au nom de votre section, sous son adresse. Celle-ci doit
+être sur le domaine d'envoi du site, le seul pour lequel le site peut
+signer : ailleurs (Telenet, Gmail, Yahoo…), les serveurs des destinataires
+refusent le message ou le classent en indésirable.
+
+Le site ne l'envoie donc pas ainsi. Il l'envoie depuis sa propre adresse,
+sous le nom de votre section suivi de celui de l'unité, en mettant
+l'adresse de la section en adresse de réponse : cliquer « Répondre »
+arrive toujours chez vous. L'aperçu de test montre cet expéditeur réel.
+Un Chef d'Unité peut corriger l'adresse.
+
 ## Vérifier ligne par ligne
 
 En mode test, l'écran ne montre plus que l'e-mail final : expéditeur,

@@ -44,16 +44,16 @@ class ApplyRedirectHandler implements TaskHandlerInterface
         $pdo = $context->connection->getPdo();
 
         $sectionService = new SectionService(
-    new SectionRepository($context->connection),
-    new MemberProfileRepository($context->connection, $context->encryption, new MemberBadgeRepository($pdo))
-);
+            new SectionRepository($context->connection),
+            new MemberProfileRepository($context->connection, $context->encryption, new MemberBadgeRepository($pdo))
+        );
         $memberYearRepository = new MemberYearRepository($pdo);
         $memberService = new MemberService(
-    $memberYearRepository,
-    new MemberProfileRepository($context->connection, $context->encryption),
-    null,
-    new MemberEmailRepository($pdo, $context->encryption)
-);
+            $memberYearRepository,
+            new MemberProfileRepository($context->connection, $context->encryption),
+            null,
+            new MemberEmailRepository($pdo, $context->encryption)
+        );
 
         $settingsService = new SosSettingsService(
             new ExcludedSectionRepository($pdo),
@@ -103,8 +103,8 @@ class ApplyRedirectHandler implements TaskHandlerInterface
             $context->notifications
         );
 
-        $memberId = isset($payload['member_id']) && $payload['member_id'] !== null ? (int) $payload['member_id'] : null;
-        $previousMemberId = isset($payload['previous_member_id']) && $payload['previous_member_id'] !== null
+        $memberId = isset($payload['member_id']) ? (int) $payload['member_id'] : null;
+        $previousMemberId = isset($payload['previous_member_id'])
             ? (int) $payload['previous_member_id']
             : null;
         $scoutYearId = (int) ($payload['scout_year_id'] ?? 0);

@@ -63,9 +63,9 @@ class MultidayEventReminderHandler implements TaskHandlerInterface
         }
 
         $sectionService = new SectionService(
-    new SectionRepository($context->connection),
-    new MemberProfileRepository($context->connection, $context->encryption, new MemberBadgeRepository($pdo))
-);
+            new SectionRepository($context->connection),
+            new MemberProfileRepository($context->connection, $context->encryption, new MemberBadgeRepository($pdo))
+        );
         // The year the EVENT falls in, not "today's". getCurrentYear() is
         // the date-computed year and it goes further than reading: it
         // CREATES the new year's row (ScoutYearService::ensureYear()). A

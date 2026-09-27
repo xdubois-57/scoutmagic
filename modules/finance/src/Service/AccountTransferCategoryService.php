@@ -68,7 +68,7 @@ class AccountTransferCategoryService
         }
 
         $category = $this->categoryRepository->findByAccountId($account->id);
-        $categoryId = $category?->id ?? $this->categoryRepository->create(
+        $categoryId = $category->id ?? $this->categoryRepository->create(
             "Virement {$account->name}",
             "Mouvements vers ou depuis le compte « {$account->name} » de l'unité — un virement entre deux comptes "
                 . "de l'unité, pas une dépense ou une recette externe.",

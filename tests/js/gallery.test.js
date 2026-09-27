@@ -216,6 +216,49 @@ describe('gallery.js media actions', () => {
         expect(lastToastText()).toContain('serveur');
     });
 
+    // The other half of issue #449's lot 4: GalleryChiefController answers a
+    // refusal as `{success: false, error: <the reason>}` with 422, and those
+    // reasons are now covered on the PHP side. They are only worth writing if
+    // they are shown — and the two specs above cover the FALLBACK paths
+    // (a dropped connection, a non-JSON body), never the reason itself.
+    it('shows the reason the server gave rather than a generic sentence', async () => {
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: false,
+            status: 422,
+            json: () => Promise.resolve({
+                success: false,
+                error: 'Une migration est en cours pour cet album — réessayez une fois celle-ci terminée.',
+            }),
+        }));
+        await loadGallery();
+
+        document.querySelector('.gallery-media-delete').click();
+        await vi.waitFor(() => expect(lastToastText()).not.toBeNull());
+
+        expect(lastToastText()).toContain('migration est en cours');
+        expect(lastToastText()).toContain('réessayez');
+        // Not the fallback — that would tell the chief nothing actionable.
+        expect(lastToastText()).not.toBe('Erreur lors de la suppression.');
+        expect(document.querySelector('.gallery-media-item')).not.toBeNull();
+    });
+
+    // And the fallback only when there is nothing to show, so the spec above
+    // cannot pass by accident on a toast that ignores `error` entirely.
+    it('falls back to its own sentence only when the server names no reason', async () => {
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: false,
+            status: 422,
+            json: () => Promise.resolve({ success: false }),
+        }));
+        await loadGallery();
+
+        document.querySelector('.gallery-media-delete').click();
+        await vi.waitFor(() => expect(lastToastText()).not.toBeNull());
+
+        expect(lastToastText()).toContain('Erreur lors de la suppression');
+        expect(document.querySelector('.gallery-media-item')).not.toBeNull();
+    });
+
     it('asks « Supprimer ce média ? » before deleting, and sends nothing when it is declined', async () => {
         global.fetch = vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: true }) }));
         window.ScoutMagicConfirm.ask = vi.fn(() => Promise.resolve(false));

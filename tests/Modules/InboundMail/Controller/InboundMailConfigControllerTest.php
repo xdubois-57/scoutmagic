@@ -26,9 +26,8 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\InboundMail\FakeMessageConsumer;
 use Tests\Modules\InboundMail\InboundMailTestHelper;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
-use Twig\TwigFunction;
 
 /**
  * The screen where a superadmin says what each module may do with each box.
@@ -495,21 +494,8 @@ class InboundMailConfigControllerTest extends TestCase
 
     private function twig(): Environment
     {
-        $root = dirname(__DIR__, 4);
-        $loader = new FilesystemLoader($root . '/core/View/templates');
-        $loader->addPath($root . '/modules/inbound_mail/views', 'inbound_mail');
-        $twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
+        $twig = TestTwig::create(['inbound_mail']);
 
-        $twig->addFunction(new TwigFunction('asset', static fn(string $path): string => $path));
-        $twig->addFunction(new TwigFunction(
-            'csrf_field',
-            static fn(): string => '<input type="hidden" name="_csrf_token" value="test">',
-            ['is_safe' => ['html']]
-        ));
-        $twig->addFunction(new TwigFunction('csrf_token', static fn(): string => 'test'));
-        $twig->addFunction(new TwigFunction('get_flash', static fn() => null));
-        $twig->addFunction(new TwigFunction('file_url', static fn(): string => ''));
-        $twig->addExtension(new \Core\View\DateFilterExtension());
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_role', 'superadmin');

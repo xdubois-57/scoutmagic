@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Tests\Modules\Finance;
 
 use PHPUnit\Framework\TestCase;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
 
 /**
  * modules/finance/views/_nav.html.twig — the page picker (6 static
@@ -24,15 +24,9 @@ class FinanceNavRenderingTest extends TestCase
 
     protected function setUp(): void
     {
-        $templateDir = dirname(__DIR__, 3) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 3) . '/modules/finance/views';
-        $loader = new FilesystemLoader($templateDir);
-        $loader->addPath($moduleViews, 'finance');
 
-        $this->twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $this->twig = TestTwig::create(['finance' => $moduleViews]);
     }
 
     /**

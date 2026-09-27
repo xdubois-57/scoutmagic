@@ -464,6 +464,8 @@ A checker is a pure decision function — it never writes to the journal and nev
 
 Generic key-value with type, label, description (NOT NULL), optional regex validation. Grouped by module. Editable via dialog.
 
+**A `url` setting nobody customised follows its declared default when a release moves it (issue #355).** `register()` has always re-synchronised `default_value` from its call site when the two differ; for a `url` setting it now moves the value too when the value still equals the default being replaced — one `UPDATE` in `SettingRepository::updateDefaultValue()`, so no concurrent save can slip between the comparison and the write. The reason is the federal fees page (`fees_federal_scale_url`, §8.123): a moved page fixed in `module.json` used to reach fresh installs only, every installed site keeping the dead address although no one there had ever chosen it. A value that differs from the old default in any way — including only in case or trailing spaces, compared as bytes on MySQL/MariaDB because the column's collation would call them equal — was typed by someone and is never touched. **Only `url` settings follow**: a URL default is a fact a release ships, while other defaults can be computed per installation — `site_name`'s is read from `secrets.enc` — and the first version of this rule, applied to every type, made the end-to-end suite watch the unit's name turn into « Unité scoute » when an entry point registered it with the fallback default. An old default of `''` also matches a NULL value (the `claimIfEmpty()`/`replaceIfUnchanged()` convention); an old default of NULL, left by a row that predates the column, matches nothing. The value's `CASE` is assigned before `default_value` on purpose: MySQL and MariaDB evaluate a single-table `UPDATE`'s assignments left to right, and the comparison must read the old default — `Tests\Core\Config\SettingDefaultFollowsMysqlTest` holds both engine-only facts, which SQLite could never show. The service drops its cache after such an update rather than patching it (one extra `SELECT`, on the one boot per release that changes a default). **The consequence to keep in mind: one key, one declared default.** A value registered AS the default by one call site and re-registered with another default by a second is exactly a never-customised value, and it moves. The end-to-end harness did precisely that to pin `statistics_destination` before `public/index.php` registered it; it now registers the declared default and writes the pin with `setInternal()`, the way `SetupController` already honoured the operator's statistics choice.
+
 **Registering the same setting from two requests at once is a race, and it used to 500 the page.** `register()` decides « the row already exists » from a cache loaded at the start of the request, while `settings` carries a unique index on `(module_id, setting_key)`. Two requests booting the same module in the same instant both find the row missing and both `INSERT`; the loser gets SQLSTATE 23000 — and, because `register()` runs from the composition root, an **uncaught** one that took the whole page down. Found in a production support archive as an uncaught `PDOException` on `fees-fees_federal_scale_url`. The row the loser wanted now exists with exactly the values it wanted, so the race has no loser: the duplicate-key error is absorbed, the stale snapshot is dropped, and the request carries on. Any other SQL fault is re-thrown — this swallows one error code, not a category.
 
 **A setting the code writes must be declared in the composition root, and an unregistered one fails silently.** `SettingService::setInternal()` throws on a key it does not know — that is the right behaviour, since a typo must not create a row nobody declared. But a service that records what it just did (« l'archive est partie », « la sonde portait cette clé ») has no business turning bookkeeping into a failure the administrator would repeat, so it catches that throw — also the right behaviour. The two together are how `support_last_ticket_archive_reference` and its three neighbours were written from the first day, never registered, and never stored: the archive left, the confirmation was truthful, and Configuration > Diagnostic went on saying « Archive non transmise » for ever, because the reference it compares against did not exist. **A unit test cannot catch this**, because every one of them registers in `setUp()` the settings it needs — which is exactly the assumption that was false in production. Only a check against `public/index.php` itself can, which is what `Tests\Architecture\SupportSettingsAreRegisteredTest` does: it reflects the `*_SETTING` constants off the services that write them and fails if the composition root does not declare each one. Adding a written setting means adding a `register()` line in the same commit.
@@ -3257,7 +3259,9 @@ The encoded fee category against the number of people at the same address, and t
 
 **The barème prices a discrepancy and nothing else.** Three hand-entered amounts in the same table, folded away, read from the invoices themselves from IT-05 on. Absent, a discrepancy is shown **without a figure** rather than as `0,00 €`. The sign is never hidden: positive means the unit is declaring less than it owes, which comes back in the regularisation invoice and is the more urgent of the two directions. `fee_categories` is a core table and is not extended for this (AGENTS.md § Architecture) — hence a module table pointing at it.
 
-**« Chercher les montants » proposes the barème, and proposes it only** (`Service\FederalScaleLookupService`). An optional dependency on `llm_connector` (§7.5) in its ordinary shape — a nullable `Api\LlmConnectorInterface` inside the service, an `isAvailable()` the controller asks before rendering anything, the button simply absent otherwise — reading the federation's own cotisations page (`fees_federal_scale_url`, a setting, defaulting to the federal page) and asking a CHEAP-tier model for four values: the scout year and the three per-person amounts. **There is deliberately no search step**: this project has no search API, scraping a result page is against the search engines' terms and breaks on their anti-bot protections, and a page that moves is one field to edit. **The year is the guardrail that matters**, because the real page carries two sections at once («COTISATIONS 2025-2026» and «COTISATIONS 2026-2027»): a year that does not normalise to the scout year the screen is about refuses the whole answer rather than pre-filling three plausible-looking numbers from the wrong season. Two further traps live in the prompt — last year's amount printed in parentheses right after this year's, and half a dozen amounts (invités, demi-année, IAmA, solidarité) that are not household tariffs. **Nothing is written**: the service holds no repository, the proposal crosses one redirect in the asker's session (`Support\SuggestedScale`) to fill the three fields, and the only write is still the treasurer's own « Enregistrer le barème ». The block says which URL was read and which year was found, because a figure nobody can trace is worse than an empty field. The injection contract for a page this project does not control is SECURITY.md §18bis; the outbound fetch itself is §17's "configured endpoints" family.
+**« Chercher les montants » proposes the barème, and proposes it only** (`Service\FederalScaleLookupService`). An optional dependency on `llm_connector` (§7.5) in its ordinary shape — a nullable `Api\LlmConnectorInterface` inside the service, an `isAvailable()` the controller asks before rendering anything, the button simply absent otherwise — reading the federation's own cotisations page (`fees_federal_scale_url`, a setting, defaulting to the federal page) and asking a CHEAP-tier model for four values: the scout year and the three per-person amounts. **There is deliberately no search step**: this project has no search API, scraping a result page is against the search engines' terms and breaks on their anti-bot protections, and a page that moves is one field to edit. **The year is the guardrail that matters**, because the real page carries two sections at once («COTISATIONS 2025-2026» and «COTISATIONS 2026-2027»): a year that does not normalise to the scout year the screen is about refuses the whole answer rather than pre-filling three plausible-looking numbers from the wrong season. Further traps live in the prompt — last year's amount printed in parentheses right after this year's (seen in August 2026, gone by September), amounts written without decimals (« 46 € » beside « 57,50 € »), and half a dozen amounts (invités, demi-année, IAmA, solidarité) that are not household tariffs. **Nothing is written**: the service holds no repository, the proposal crosses one redirect in the asker's session (`Support\SuggestedScale`) to fill the three fields, and the only write is still the treasurer's own « Enregistrer le barème ». The block says which URL was read and which year was found, because a figure nobody can trace is worse than an empty field. The injection contract for a page this project does not control is SECURITY.md §18bis; the outbound fetch itself is §17's "configured endpoints" family.
+
+**The barème also opens pre-filled from the scale shipped with the site** (`data/federal-scale.json`, issue #355: the scout year, the federal page, the day it was read, the three amounts in cents). `Service\ShippedScaleService` proposes it only while the barème was **never saved** — one save, even with its amounts left empty on purpose, and the barème is the unit's own; offered again on every visit, the figures would be saved by the next unrelated change to the panel — **and** the file's year is the effective scout year of the screen, the same year « Chercher les montants » checks its answer against; last season's figures in this season's fields are what both refuse. It travels through the same `scale_suggestion` as an AI proposal (which wins when both exist, being the more recent act), with a banner naming the year, the verification date and the page, except on the render right after a failed lookup, whose message says nothing was pre-filled (`SuggestedScale::decline()`). Nothing is written on the GET; « Enregistrer le barème » is still the only write. The same file is the external sources check's reference (§8.123), so the week the federal page changes, the check says so.
 
 **A household with no usable address is neither compliant nor in breach.** `HouseholdService::memberYearIdsWithoutUsableAddress()` (§8.34) feeds a tab of its own and a line in the summary, so the page never reads as "everybody was checked".
 
@@ -3938,9 +3942,19 @@ The clear half (`GoogleDriveLocationConfig`: client id, folder id, connection da
 
 `ResumableUploadBackend` gained `beginPartial($key, $totalBytes)`. A filesystem does not need it — a partial file is a partial file — but a destination that mints a SESSION does: Google's resumable protocol wants the length up front, and `appendToPartial()` has no way to know which chunk is the last one. Without it a Drive destination would be forced to guess « every chunk might be the last », which finalises a file in the middle of itself. `LocalStorageBackend` implements it as nothing at all.
 
-A Drive session URI cannot be rediscovered, so **the backend keeps its own note of it beside the file it describes, in the destination** — a `.scoutmagic-part-*` object the listing hides. That is D12 one level down: a transfer in flight is a fact about the destination, and restoring this site's database must not be able to move it backwards. Below `GoogleDriveBackend::BUFFERED_UPLOAD_LIMIT_BYTES` (8 MiB, one slice of `ProtectedCopier`) no session is opened at all and the bytes are buffered in memory for one request: five round trips saved, at the cost of restarting at most 8 MiB after an interruption.
+A Drive session URI cannot be rediscovered, so **the backend keeps its own note of it in the destination** — a `.scoutmagic-part-*` object in the location's `.scoutmagic/` folder, which the listing hides. That is D12 one level down: a transfer in flight is a fact about the destination, and restoring this site's database must not be able to move it backwards. Below `GoogleDriveBackend::BUFFERED_UPLOAD_LIMIT_BYTES` (8 MiB, one slice of `ProtectedCopier`) no session is opened at all and the bytes are buffered in memory for one request: five round trips saved, at the cost of restarting at most 8 MiB after an interruption.
 
 **Drive lets two files share a name and a storage key may not.** Every write ends by removing the older namesakes it created, and every read goes through one lookup that answers with the newest. Getting that wrong does not corrupt anything; it makes a reader and a deleter disagree about which file « the » key is, which is worse.
+
+**A real folder tree, since #474.** The backend used to write everything flat into one folder, `ScoutMagic — sauvegardes`, found BY NAME: `5/med_9.jpg` was a file whose name held a slash, a gallery's photographs sat among the backup archives and the bookkeeping, and every Drive location of an account shared that one folder. Now:
+
+- **`ScoutMagic/` is the one folder looked up by name** (`GoogleDriveLocationConfig::PARENT_FOLDER_NAME`), the shared parent of every Drive location of the account. Under it the connection flow CREATES — never looks up — a folder named after the location's label, and its Drive id is `folder_id`. The site finds that folder by id and by nothing else, so two locations never share a folder again. A reconnection reuses it as long as the account just authorised can see it and it is not in the trash — which is why « Déraccorder » keeps the id — and otherwise starts a fresh one. A backend whose row has no folder id refuses to write rather than guessing one.
+- **A key is a path.** Every segment before the last `/` is a sub-folder, created on first write (the principle of WebDAV's `MKCOL`s) with a path → id cache for the instance's lifetime; a read never creates a folder; two runs creating the same album folder at once converge on the OLDEST namesake, which is the one every lookup answers. Albums are folders named by their NUMBER, so renaming an album moves nothing. `deletePrefix('5')` resolves the folder `5` and deletes it in one request, which makes #484's rule structural. `list()` walks the tree in a fixed order (a folder's own files, then its sub-folders in `strcmp` order, depth first) and rebuilds full keys; its cursor names the folder and Drive's own page token inside it, so resuming re-reads nothing.
+- **The application's own files are grouped in `.scoutmagic/`**: keys under `.scoutmagic-…` (a resumable session's note, the witness) are stored there, as is the storage subsystem's reserved `.scoutmagic/…`. `list()` hides the first and reports the second, exactly as it did.
+- **Walk, not `appProperties`, and the reasoning is in the backend's docblock.** Tagging each file with its location and key would make a lookup one query wherever the file sits, but a tag query cannot filter on a key PREFIX, so deleting or listing one album would page through the whole location; only a full listing gets cheaper, and that is Drive as a SOURCE, which nobody does. With folders, what the operator sees in Drive is what the site reads, and keys keep no 124-byte ceiling the other three backends do not have.
+- **The folder follows the location** (`Backend\ManagedRootFolderBackend`, `StorageLocationService::update()`/`delete()`, `RootFolderOutcome`). Renaming the location renames its folder; deleting it puts the folder in the Drive trash — recoverable for thirty days, never a `DELETE` — and the confirmation says so. Neither failure undoes the decision it follows: the rename is saved and the deletion goes through, and the failure is journaled (`storage_location_folder_rename_failed`, `storage_location_folder_trash_failed`) and shown. A local folder, a WebDAV share and a bucket were named by the administrator and are never touched.
+- **Each album folder carries a `LISEZMOI.txt`** (`Modules\Gallery\Service\AlbumReadme`) naming the album, its date and its address on the site — on every kind of location, not only Drive, since a numbered folder is as opaque in a Nextcloud. Nothing in the gallery lists a location to find its media, so it is never taken for one.
+- **No migration.** A Drive location connected before #474 holds the id of the old flat folder, which the new layout cannot read; it is recreated, not converted (`docs/help/stockage-google-drive-dossiers.md` says so to the operator).
 
 ### 8.105 The recurring off-site send (`Core\Maintenance\Task\SendRemoteBackupHandler`)
 
@@ -4283,6 +4297,39 @@ agree, because `MailService` assigns `$mail->Sender` unconditionally, a
 mailing's own sender override included; nothing said so and nothing
 tested it, and `Tests\Core\Mail\MailIdentityTest` now pins it against
 the real service rather than against a string the test also wrote.
+
+**And it decides whether a `From:` can be signed for at all**
+(`canAlignFrom()`, issue #418). A mailing sent under a section's own
+address keeps the site's envelope and the site's DKIM key, so neither SPF
+nor DKIM aligns with that `From:` unless the address is on the domain the
+site signs for; when it is not, the message fails DMARC outright, and the
+site never learns it because an aggregate report goes to the `rua=` of the
+**From** domain — `baladins@telenet.be` is reported to Telenet, never
+here. The rule is the narrow half of DMARC's relaxed alignment: the domain
+this site signs for, or a subdomain of it, matched on a dot-prefixed
+suffix so that `unite.be.evil.com` and `autre-unite.be` — both of which
+contain the site's domain and neither of which is under it — are refused.
+Carrying the Public Suffix List to do the wide half was decided against,
+and the asymmetry errs toward the warning: wrong in this direction costs a
+warning nobody needed, wrong in the other lets a mailing be refused with
+every screen green.
+
+The answer is a **substitution, never a refusal**:
+`MassMailService::resolveSenderIdentity()` sends from the site's own
+address with `substitutedFromName()`'s « Baladins (Unité X) » as the
+display name and the section's address as `Reply-To:`, so the recipient
+still reads who is writing and « Répondre » still arrives where it always
+did. That name lives on `MailIdentity` rather than in the mailing because
+three places have to say the same thing — the send, and the two
+configuration screens that warn about it — and a screen composing it
+itself would be a second answer to a question the send already settles.
+`Core\Mail\SectionSenderAlignment` is what those screens ask: it carries
+no rule of its own, only the one French sentence both of them show, so an
+operator who checks Authentification after fixing Correspondances Desk is
+not told something different. A site with no sending address configured
+warns about nothing — `canAlignFrom()` answers « no » for every address
+when the site signs for no domain, and blaming the sections for a missing
+site address is not a diagnosis.
 
 **The DNS check moved out of the installation wizard** onto
 Authentification, and the wizard keeps only the initial entry — a site has
@@ -4654,6 +4701,52 @@ and AAAA both, because a relay reached over IPv6 would otherwise be
 has no reason to write it the way a resolver does. The host itself never
 reaches a screen (SECURITY.md §11); the provider's name does.
 
+*`SpfCoverage` names what `KnownSenders` cannot* (issue #421). A source no
+declared relay places is an address and nothing else — and almost always a
+mail service the unit really uses and never told the site about, whose
+ranges are in the unit's own SPF record behind an `include:`, because
+somebody had to put them there for that mail to pass. So the same
+« Vérifier les enregistrements » action walks that chain and stores what it
+authorises, and the page says « déclarée dans votre SPF, via
+`_spf.google.com` ». **The attribution is the top-level `include:`, however
+deep the range was found**: `_netblocks3.google.com` is where the addresses
+actually are and appears nowhere in the operator's zone, so naming it would
+send them hunting for a string they cannot find. **Naming is not
+clearing** — a source this places keeps its « À identifier » and stays in
+the warning's count, because « je l'ai mis dans le SPF il y a trois ans » is
+the commonest way a forgotten tool got there. Three of its bounds are
+borrowed rather than chosen: ten lookups, the number RFC 7208 §4.6.4 gives
+receivers, past which a real receiver abandons the chain too; 256 ranges,
+a COUNT whose stored size is bounded separately — each attribution is
+written once and referred to by index, so at most `MAX_LOOKUPS + 1` names
+of 253 characters plus 256 hex addresses, under 12 KB in the setting's
+`TEXT` column (the first version repeated the name per range and could
+reach 80 KB, which review of #571 caught); thirty days before the reading
+stops naming anybody, since a provider's published ranges are the one input
+here that moves without anybody at the unit touching it. **A `redirect=` is
+ignored when the record carries an `all`**, as RFC 7208 §6.1 requires, so
+the page cannot name a target no receiver read; a host in the chain that
+does not answer marks the reading incomplete rather than passing for a
+record that publishes nothing — which needed a nullable seam to be true and
+not merely written: the walk is handed
+`Core\Mail\DnsVerifier::txtRecordsFor()`, which returns `null` for « the
+resolver could not be asked », where the three record checks keep reading
+that same failure as « the record is absent ». **The first version of this
+claim was false in production and every test passed**, because the closure
+was declared `: array` over a verifier that mapped a failed lookup to `[]`;
+the branch the page's warning hangs on was dead outside the unit test that
+injected its own `?array` closure. `DnsVerifier` now reaches a resolver in
+exactly one method, and it is the only one a fake replaces — two
+overridable methods over one lookup is how the chain walk came to ask the
+real network from a test that thought it had substituted a zone. A reading
+taken for a domain the site no longer sends from places nothing at all, which is asked on the read side so
+that a restore or an edit made anywhere else is covered too. `a`, `mx`, `exists:`, `ptr` and any
+mechanism carrying a `-`, `~` or `?` qualifier are deliberately not read —
+`-ip4:` names a range the record REFUSES — each leaving its addresses
+**unplaced** rather than misplaced. Unlike a relay hostname, an `include:`
+target is public DNS the operator published themselves and has to find again
+in their own zone, which is why this one name does reach the screen.
+
 *The caps are on the DRAWING, and on nothing else.* `sourcesSince()` and
 `reportsSince()` feed tables and are limited; every count and the one
 warning come from uncapped queries (`totalsSince()`, and
@@ -4781,6 +4874,46 @@ recipients is not routed at all, because a mailing sends one message per
 member and routing a batch by its first address would send the rest
 through a relay chosen for somebody else's provider.
 
+*A recipient is counted under the provider its MX records name, not the
+text after its `@`* (issue #422). « famille.be » served by Google is a
+Gmail mailbox for every purpose this section cares about, so
+`mail_domain_providers` caches domain → provider key, and the keys are
+the domains the results were already read by (« gmail.com »,
+« outlook.com », `Seed\MxProviderMap`) — a new vocabulary would have
+split every existing result and every stored decision in two. Three
+readers, one rule: **nobody on the send path resolves anything.**
+`Transport\MailboxProviderRepository` is a cache read whole once per
+process; `DomainPreferences::reorder()` notes a domain it has not seen
+(a row with no provider) and looks up the provider already known, the
+domain's own decision taking precedence over its provider's;
+`SeedCopyRepository` folds `provider` through the cache **when it reads**
+— in PHP, through `MailboxProviderRepository::providerOf()`, because the
+cache's domain is encrypted with a blind index (SECURITY.md §5: a
+personal domain can name a family) and so offers SQL nothing to join
+on: the tally reads two aggregates (counts per stored domain and
+verdict, and the distinct mailings each answered in) and regroups them
+under the attributed provider, `runs` still distinct across the domains
+folded together — so a box measured before its
+domain was resolved moves with its whole history the day the answer
+arrives. The DNS is read by `Seed\Task\ResolveMailboxProvidersHandler`
+alone: at most seven hundred and fifty domains a day — enough to re-read
+the whole 5 000-domain cache within its seven days — inside a
+twenty-second wall clock (checked between lookups, since
+`dns_get_record()` has no timeout), each answer
+good for seven days, a failed lookup keeping the last good answer and
+backing off 1, 2, 4, then 7 days, nothing thrown to the scheduler, and a
+domain nobody has written to for 180 days forgotten.
+`Tests\Core\Mail\Transport\SendPathResolvesNothingTest` holds the send
+path to it. **Which domains exist is learnt from the sends themselves**:
+there was no aggregate of recipient domains anywhere, and deriving one
+from the addresses would have meant decrypting every member's address
+daily to read what a mailing already passes through the transport in
+clear. **A domain, never an address**, and a count on the screen, never
+the list — a personal domain can name a family. **It changes who is
+counted in which column, not what is measured**: the seed boxes still
+measure. An MX pointing at nobody known (a filtering gateway, a Belgian
+ISP) keeps the domain's own name, which is what the site did before.
+
 *The automatism applies once per domain and never undoes.* `apply()`
 moves a domain to the NEXT relay of the chain, so a sweep that applied
 again each day would walk that domain around the chain for ever. And a
@@ -4807,6 +4940,113 @@ into mailboxes hosted by third parties the unit chooses. The routing
 itself introduces no processor: it only says which already-declared relay
 is tried first.
 
+#### A trend is one class for both screens (`Core\Mail\Feedback\Trend`, issue #420)
+
+**Both feedback screens answered « where am I today » and neither
+answered « was it already like this last month ».** A 92 % authentication
+rate is excellent coming up from 70 % and alarming coming down from
+100 %; a provider filing half the mailings aside may have always done so.
+Acting on either figure needs the week before it.
+
+*One `WeeklySeries` for both, because the three decisions are the same
+three decisions.* The week, the threshold and the left edge shape any
+trend here, and DMARC and the seed boxes differ only in what they count.
+Two copies would be two chances to answer « is this week finished »
+differently, and the two screens would eventually disagree about the same
+week.
+
+*A hole is not a zero, and that is the whole arbitration.* Below the
+threshold there is no point at all and the line breaks (`spanGaps:
+false`): a hole says « we do not know », which is true and cannot be read
+across, while a zeroed or greyed point is eventually read like the
+others. It is also the answer to two different absences at once — a week
+whose rows were purged and a week before the site existed are both « not
+measured », the only thing the series can honestly assert.
+
+*The left edge is read from the purge, never restated.* Each trend
+subtracts its own retention constant (`PurgeDmarcReportsHandler`,
+`PurgeSeedCopiesHandler`) and hands the edge in. A curve reaching further
+would promise a « before » that was deleted; one starting at the first row
+would promise that nothing was sent before. The constant cannot drift
+from the curve because there is only one of it.
+
+*The threshold lives beside the data it judges, and there are two because
+they count different things.* `AuthenticationTrend::MINIMUM_MESSAGES` is
+twenty **messages** — what a DMARC report actually carries, a report
+saying nothing about which messages belonged to one mailing.
+`LandingTrend::MINIMUM_MAILINGS` is one **mailing**, and the first version
+of it got this wrong in an instructive way: it reused
+`DomainRouting::MINIMUM_RUNS` on the argument that the same evidence
+deserves the same judgement, which ignored the window. Those five mailings
+are five per THIRTY DAYS (`SEEDS_WINDOW`); as a per-ISO-week threshold they
+are four times stricter than the constant ever meant, and at this site's
+own stated volume — three to five boxes and a few mailings a year — no
+week reaches five, so every series was empty and the card could only
+render its own empty state. **A threshold calibrated for one window is not
+a threshold for another**, however much the same evidence it judges. The
+one that replaced it refuses zero evidence rather than demanding five,
+because `MINIMUM_RUNS` guards an automatic action while this only shows a
+figure to somebody who can weigh it — and `sample` reaches the tooltip so
+they can. This is also why `WeeklySeries` keeps `sample` and `total` apart:
+for the seed boxes the evidence is mailings while the ratio stays inbox
+copies over answered copies — the share the ranking screen already shows.
+
+*The ISO week is bucketed in PHP, not in SQL.* MySQL's `YEARWEEK(…, 3)`
+is the ISO week and SQLite has none — `strftime('%W')` starts on Sunday —
+so a `GROUP BY` would answer one way under the engine CI runs and another
+under a local fallback. One `DateTimeImmutable` and one `'o-\WW'` key
+cannot drift that way (`o` is the ISO year: a key built from `Y` files
+week 1 of 2027 under 2026).
+
+*The current week is drawn as it fills, and says so.* A point is « the
+week of the 14th », which a rolling seven-day slice cannot name; the
+admitted price is that the last point still moves, so it is flagged
+`partial` and the tooltip says « semaine en cours » rather than letting a
+half-week read as a drop.
+
+*Both ends are short, and the two are not the same claim.* The walk begins
+on the Monday of the edge's week while every caller asks its rows for
+`>= $edge`, so an edge on a Thursday leaves Monday to Wednesday out of a
+bucket labelled « the week of the 21st » — a short sample that can fall
+under the threshold, and a ratio covering fewer days than its label. That
+first point carries its own flag, `truncated`, and not `partial`: one
+boolean would have made the tooltip say « semaine en cours » about a week
+that ended months ago. The last point will grow; the first never will,
+because what is missing from it was purged. A window inside a single week
+is both, and says both.
+
+*A provider with nothing measured is left off the chart, and no filter does
+it.* `LandingTrend` carried a `drawable()` guard for exactly one revision;
+its mutation survived, which is the proof it could never fire. The reason is
+structural: `landingsPerRunSince()` excludes pending copies, so a provider
+reaches the map only with at least one ANSWERED mailing, which lands in a
+walked week where `sample` and `total` are both at least one — clearing
+`MINIMUM_MAILINGS`. The provider the guard was meant to drop, one whose every
+copy is still pending, never reaches the map at all. A second mechanism for a
+boundary the query already holds is the shape whose mutation survives because
+each copy hides the other's absence, so the guard is gone and a test pins the
+invariant. What remains is the view's own question: `trendForView()` hands the
+template an empty list rather than a list of holes when a series has no drawn
+week — still reachable for DMARC, where twenty messages a week is a real bar —
+because a legend entry with no line beside it reads as « this provider
+delivered nothing », the opposite of « we have not measured it enough to
+say ».
+
+*The seed trend groups on the attributed provider, like the ranking above
+it.* Folding the MX attribution (issue #422) at read time means two of a
+provider's domains can hold the same mailing, so those rows are merged
+rather than appended: one mailing at a provider is one unit of evidence
+whatever the number of its boxes, which is what `MINIMUM_RUNS` counts.
+Grouping on the stored column instead would draw a line for
+`famille-durand.be` beside `gmail.com` while the table above it counts that
+box under Google — the two screens disagreeing about the same provider.
+
+*And the figures are in text beside every chart.* Each card carries a
+`<details>` table of the same weeks, holes omitted, for a reader who
+cannot see a line. The labels reach Chart.js as data and never as markup
+(SECURITY.md § 28).
+
+
 ### 8.107 Storage locations (`Core\Storage\Location`)
 
 **One declared destination for bytes, and every consumer picks one.** The same idea used to be written twice, with two incompatible models: the gallery had `gallery_storage_locations` — N rows, a `StorageBackendInterface`, a cached health column — while the off-site backup had a dozen flat `SettingService` keys, a `RemoteBackupTarget` interface and a `remote_backup_last_error` setting. A single destination in flat settings on one side, N destinations in a table on the other. The second form is the right one, and this is it, generalised. **Both halves have now arrived**: the gallery moved here in IT-01 and the off-site backup in IT-05, which is where `RemoteBackupTarget` disappeared and a Drive folder became a location like any other (§8.104).
@@ -4815,7 +5055,7 @@ is tried first.
 
 **The floor is small, the rest is DECLARED.** `Backend\StorageBackendInterface` asks every backend for put, get, size, exists, delete, deletePrefix, list, localPath, directUrl, stableDirectUrl, announcedChecksum and a connection test — what a directory, a bucket, a WebDAV share and a Drive account can all do. Everything past that varies and is declared through `StorageCapability`: range reading, signed URL, resumable upload, queryable quota, announced checksum, server-side copy. A capability is asked for through `StorageCapabilities::require()`, which is the one place a missing one becomes a **French refusal naming the administrator's own location** instead of a fatal `Call to undefined method` three frames down. An earlier shape put everything on the floor and let the backends that could not do a thing throw from inside it; the cost was that no screen could say, *before* an administrator committed to a destination, that videos would not play on it.
 
-**`deletePrefix()` names a FOLDER, and one backend read it as a string names begin with.** The four agreed by accident rather than by contract: local removes the directory `5/`, WebDAV the collection `5/`, S3 lists under `rtrim($prefix, '/') . '/'` — and `GoogleDriveBackend`, whose folder is flat (`"5/med_9.jpg"` is one file whose NAME holds a slash), filtered names with a bare `str_starts_with()`. Every caller passes an album id without a trailing slash, so `deletePrefix('5')` deleted `5/…` **and** `50/…`, `51/…`, `512/…`: deleting or MIGRATING album 5 destroyed the files of albums nobody had touched, the rows survived, and the photographs became 404s with nothing on screen and nothing in the journal (#484). Two things changed besides the normalisation. The interface now STATES the folder rule, because four implementations inferring it is three chances to infer it differently — and `list()` deliberately keeps its literal filter, since `StorageInventoryStore` asks it for a reserved prefix that is not a folder. And the migration handler's cleanup, the most destructive `deletePrefix()` in the application because the location it prunes still holds other albums, no longer swallows its failure without a trace (`album_storage_cleanup_failed`); the migration stays successful, but « why is the old location still full » now has an answer. The regression is held by `Tests\Core\Storage\Location\Backend\DeletePrefixIsAFolderTest`, one scenario across all four backends rather than a fourth per-backend case: each backend already had a passing `deletePrefix` test, and Drive's passed because it was written `deletePrefix('album/')` — **with** the slash no caller passes. The form a test is written in cannot be the form under test.
+**`deletePrefix()` names a FOLDER, and one backend read it as a string names begin with.** The four agreed by accident rather than by contract: local removes the directory `5/`, WebDAV the collection `5/`, S3 lists under `rtrim($prefix, '/') . '/'` — and `GoogleDriveBackend`, whose folder was then flat (`"5/med_9.jpg"` one file whose NAME held a slash — real folders came with #474, §8.104), filtered names with a bare `str_starts_with()`. Every caller passes an album id without a trailing slash, so `deletePrefix('5')` deleted `5/…` **and** `50/…`, `51/…`, `512/…`: deleting or MIGRATING album 5 destroyed the files of albums nobody had touched, the rows survived, and the photographs became 404s with nothing on screen and nothing in the journal (#484). Two things changed besides the normalisation. The interface now STATES the folder rule, because four implementations inferring it is three chances to infer it differently — and `list()` deliberately keeps its literal filter, since `StorageInventoryStore` asks it for a reserved prefix that is not a folder. And the migration handler's cleanup, the most destructive `deletePrefix()` in the application because the location it prunes still holds other albums, no longer swallows its failure without a trace (`album_storage_cleanup_failed`); the migration stays successful, but « why is the old location still full » now has an answer. The regression is held by `Tests\Core\Storage\Location\Backend\DeletePrefixIsAFolderTest`, one scenario across all four backends rather than a fourth per-backend case: each backend already had a passing `deletePrefix` test, and Drive's passed because it was written `deletePrefix('album/')` — **with** the slash no caller passes. The form a test is written in cannot be the form under test.
 
 **A capability is never shown as it is written.** Nobody picks a storage on « lecture par plage d'octets ». The Stockage screen shows consequences — Photos, Vidéos, Sauvegardes, Place restante — derived from the declarations, and the vocabulary stays in the code. `StorageLocationType::capabilities()` asks the backend CLASS rather than restating a table of its own, so a comparison built from it cannot drift from what the code can actually do, and a backend that gains or loses an aptitude changes one list in one file.
 
@@ -5506,6 +5746,14 @@ An optional module, off by default (docs/chantiers/CHANTIER-partage-social.md, i
 
 **A discussion group is the internal destination** (`Service\GroupPublishingService`, over the groups module's `Api\GroupPublisherInterface` — §8.40). None of Meta's constraints apply: no card is composed, the photo goes as it is as a post media — **never blurred**, the group being private and its members already seeing the gallery — and the content's page goes as a real link (`ShareSource::$pageUrl`: the album's gallery page, the article's address; a free communication has none). **Each group is a destination of its own**: its key is `group:{id}` in `social_publications.destination`, its name is kept in `destination_label` for the history, and the same claim applies group by group — the same album may go to two groups, once in each. Only a group `postableGroups()` offers this person is accepted. The page shows two lines — « Groupe de discussion » and the chosen groups beside a pencil that reopens a dialog listing the groups with their size (`share/_destinations.html.twig`, shared by the share page and a communication; `public/assets/js/social-share-groups.js` names the choice in clear and ticks the box, and the form works without it). `Service\PublishRequest` reads what a form asked (`destinations[]`, `groups[]`, `retry[]` with `group:{id}`), and `DestinationStates::publish()` sends to the Meta platforms then to each group. Without the groups module, `$groupsPublisherForOthers` is null, no `GroupPublishingService` is built and the destination simply is not offered (§7.5).
 
+### 8.123 External sources (`Core\ExternalSource`, issue #355)
+
+The site depends on pages it does not control: the federal fees page « Chercher les montants » reads (`Modules\Fees\Service\FederalScaleLookupService`), the scout path page every age branch links to by default (`age_branches.explanation_url`), the federation's data protection policy the RGPD page and its AI prompt cite, the federation page the contact page links, and the provider consoles and legal pages the configuration help texts send an administrator to. **`ExternalSources` is their one register**: for each, the URL, what it is for, the files that name it (`usedIn`), what the page must still say, whether it is checked for content or only for being alive, and the shipped default that holds it. Code reads the federal URLs from its constants (`FederalScaleLookupService::DEFAULT_URL`, the RGPD prompt, `PageController::contact()`); the two defaults that cannot read PHP — `modules/fees/module.json` and `schema/core.sql` — are pinned to it by `Tests\Architecture\ExternalSourcesAreRegisteredTest`, which also refuses any lesscouts.be or provider-console URL in shipped code that the register does not list for that file.
+
+`ExternalSourceChecker` is the deterministic check over it, behind `PageFetcherInterface` (`StreamPageFetcher` in production, recorded pages in its tests): a content source must answer 200 and still carry its expected strings, and on the fees page `FederalScaleExtractor` must read the normal, couple and family amounts (decimals optional) of the most recent season the page names — around a rollover it carries two; a link is alive on 2xx, 3xx, 401 and 403 and dead otherwise. A redirect is a note, except on the fees page, whose reader refuses redirects. `scripts/check-external-sources.php` runs it and exits non-zero on any divergence — for the sixth release gate, the weekly `.github/workflows/external-sources-check.yml`, and « fixe le backlog » (AGENTS.md). The extracted amounts are compared with the scale shipped with the site (`modules/fees/data/federal-scale.json`, read strictly by `Modules\Fees\Support\ShippedFederalScale`), which the script passes as the checker's `referenceScale`: amounts that differ are a divergence naming both, and the fix is a new season in that file — year, amounts, verification date. A shipped file the script cannot read exits 2, like a missing `vendor/`: a broken checkout, not a finding about the page.
+
+**A moved URL fixed in its shipped default reaches installed sites, for every value nobody customised.** Each kind of dependent default has its path: the `fees_federal_scale_url` setting follows its new `module.json` default on the first boot of the release (`SettingRepository::updateDefaultValue()`, §8.4); the age branches still on the old `explanation_url` default follow the new one during the schema migration (`SchemaComparator::DEFAULT_FOLLOWING_COLUMNS`, §10); the RGPD content is read from `core/View/rgpd_default.html` on every request. A value a unit typed itself is never touched — it may be the dead address too, and only its unit can say what replaces it. `ExternalSourcesAreRegisteredTest::testEveryDependentDefaultReachesInstalledSites()` refuses a register entry whose dependent default has none of these paths.
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php
@@ -5539,6 +5787,8 @@ No incremental migration files. `schema/core.sql` + each module's `schema.sql` =
 **The diff reaches a true "nothing to do" steady state, on both engines.** It did not: a database matching the declared schema exactly still produced **534 `ALTER TABLE ... MODIFY COLUMN`** statements on a full re-diff (139 for `core.sql` alone), regenerated on every migration pass for ever. Nothing failed — the statements succeeded, the hash cache stopped them recurring within a run — which is exactly why it lasted: a permanent cost on every schema change with no error anywhere to point at it, and an `ALTER TABLE` on a populated table is not free. Four causes, all about how a server reports what it stores rather than any real difference, and only one of them was the one previously recorded here. **472**: since MariaDB 10.2 `COLUMN_DEFAULT` holds a SQL *expression*, so a nullable column with no default reports the bare text `NULL`, which read literally means a default of the four-character string "NULL". **60**: MariaDB reports string defaults quoted and escaped (`'public'`, `'it''s'`) where a schema file declares `DEFAULT 'public'` and the parser hands back `public`. **9**: MariaDB has no JSON storage type — it is an alias for `LONGTEXT` plus a CHECK — so a `JSON` column introspects as `longtext`. **2**: `decimal(12, 2)` declared against `decimal(12,2)` reported, one space. The first two are normalised in `SchemaIntrospector::decodeDefault()` rather than in the comparator, and the distinction is the point: `current_timestamp()` versus `CURRENT_TIMESTAMP` are two spellings of one *real* default, reconciled only where things are compared, while these two are the introspector reporting something the column does not have — every reader deserves the truth, not only the one that happens to diff. The last two are in `ColumnDefinition::getNormalizedType()`, beside the display-width normalisation that was already there. **`decodeDefault()` has to know which engine it is talking to, and that is not a preference.** MySQL does not quote string literals, so an unquoted `NULL` there means a genuine default of the string "NULL" — the exact opposite of what it means on MariaDB — while "no default" is a real SQL NULL it has already reported unambiguously. Applying MariaDB's reading to MySQL erases a real default; applying MySQL's to MariaDB invents 472. Both readings are live at once, since CI runs MySQL 8 and the reference installation runs MariaDB 10.11. Measured on the full 165-table schema against both: **534 → 0 on MariaDB 10.11, 0 on MySQL 8.0.46**.
 
 **Indexes are diffed by NAME only.** `SchemaComparator` creates any declared index the database lacks (`ADD INDEX`/`ADD UNIQUE INDEX`), but an index that already exists under the declared name is never compared column-by-column — so editing an existing index's column list in `schema.sql` converges on fresh installs and is silently a no-op on every already-installed site, the worst kind of divergence. Redefining an index therefore means declaring it under a NEW name; the superseded one lingers on installed sites (indexes are outside `drops.sql`'s vocabulary, which handles columns and foreign keys only) — harmless beyond a little write overhead, dropped by hand if it matters. Primary-key changes are skipped entirely (`compareTable()` ignores declared `PRIMARY` indexes on existing tables), and foreign keys follow the same name-only matching. The AGENTS.md schema rules carry the working-rule version of this.
+
+**A column default is a promise to future rows only — except for an allow-listed column, whose rows still on the old default follow the new one (issue #355).** `ALTER … DEFAULT` changes nothing already stored, and for almost every column that is right: a row holding `'pending'` or `'public'` holds a decision, and rewriting it on a release would be data loss. `age_branches.explanation_url` is the exception that made the rule: its default is the federation's scout path page (§8.123), a value no one chose, so a moved page fixed in `core.sql` would have reached new branches only. `SchemaComparator::DEFAULT_FOLLOWING_COLUMNS` lists such columns explicitly — never all of them — and for one of those, when the live default and the declared one differ, the diff emits `UPDATE … SET col = <new> WHERE CAST(col AS BINARY) = CAST(<old> AS BINARY)` immediately **before** the `MODIFY COLUMN`. The order is what makes it survive an interrupted pass: the database is the checkpoint, the only trace of « rows still to move » is the live default still being the old one, so the statement erasing that trace runs last, and a pass killed in between re-diffs and re-emits both (the repeated `UPDATE` matches nothing). The comparison is by bytes because the tables' collation is case-and trailing-space-insensitive, and a URL a unit typed in other capitals is a customised URL; for the same reason a listed column's default is compared exactly, where every other column's is compared case-insensitively. There is no old default to follow when the column had none, and none is guessed; a backslash in either value is refused with a migration warning rather than escaped, since how it reads depends on the server's `sql_mode`. No data-migration framework exists here and none was added: this is one more thing the declared schema says, diffed like the rest. `Tests\Architecture\ExternalSourcesAreRegisteredTest` fails if a registered external source's dependent column default is not on the list; `MigrationRunnerTest` pins the behaviour against the real engine.
 
 **The database is the checkpoint: no queue of pending statements is persisted.** It used to be, and that was a latent way to strand a site forever — the queue was popped *before* the statement ran, so a process killed between an `ADD COLUMN` and its checkpoint came back, replayed it, collected "Duplicate column name", and since any `PDOException` incremented the failure count and the schema hash was only cached at zero failures, the site stayed on the migration-progress page indefinitely. The fix is not a better queue but no queue: every pass re-diffs the live schema and generates exactly what is still missing, which is affordable precisely because introspection is now three queries for the whole schema. A statement that already ran is simply not generated again. Complementing that, error codes meaning "already there" (1050 table exists, 1060 duplicate column, 1061 duplicate key, 1826 duplicate foreign key) are read as benign no-ops rather than failures — the normal shape of a resumed migration, or of two processes racing. A syntax error or a bad type stays a failure.
 

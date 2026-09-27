@@ -6,12 +6,12 @@
 {% block title %}Synchroniser mes contacts — Mon compte — {{ param('site_name') }}{% endblock %}
 
 {% block content %}
+<div class="page-medium">
 {% include 'partials/page_header.html.twig' with {
     title: 'Synchroniser mes contacts',
     subtitle: 'Retrouvez les contacts des animateurs et du Staff d\'U dans le carnet d\'adresses de votre téléphone ou de votre ordinateur.',
 } only %}
 
-<div class="page-narrow">
     {% if not sync_enabled %}
         <output class="alert alert-warning d-flex align-items-start gap-2">
             <i class="bi bi-plug flex-shrink-0" aria-hidden="true"></i>

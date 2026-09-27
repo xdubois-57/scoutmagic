@@ -34,6 +34,7 @@ const SECTION_ROW = `
         <button type="button" class="section-color-reset" disabled></button>
         <input type="checkbox" class="section-visible-input" role="switch"
                id="section-visible-10" checked aria-checked="true">
+        <output class="section-email-warning d-none"><span class="section-email-warning-text"></span></output>
     </div>`;
 
 const BRANCH_ROW = `
@@ -200,6 +201,41 @@ describe('config-functions.js', () => {
             const { url, body } = lastRequest();
             expect(url).toBe('/config/functions/section-email');
             expect(body).toEqual({ section_id: 10, email: 'louveteaux@unite-exemple.be', _csrf_token: 'tok-123' });
+        });
+
+        // ── The DMARC warning the server answers with (issue #418) ────
+
+        it('shows the warning the server sent for an address it cannot sign for', async () => {
+            global.fetch = vi.fn(() => jsonResponse({
+                success: true,
+                alignment_warning: 'Cette adresse n\'est pas sur le domaine d\'envoi du site (unite.be).'
+            }));
+            await boot();
+            const input = document.querySelector('.section-email-input');
+            input.value = 'louveteaux@telenet.be';
+            input.dispatchEvent(new Event('blur'));
+
+            const warning = document.querySelector('.section-email-warning');
+            await vi.waitFor(() => expect(warning.classList.contains('d-none')).toBe(false));
+            expect(document.querySelector('.section-email-warning-text').textContent)
+                .toContain('domaine d\'envoi du site');
+        });
+
+        // The half that clears it: an answer with nothing to warn about has
+        // to take the previous sentence off the screen, or the operator
+        // fixes the address and is still told it is wrong.
+        it('hides the warning again when the server has nothing to warn about', async () => {
+            document.querySelector('.section-email-warning').classList.remove('d-none');
+            document.querySelector('.section-email-warning-text').textContent = 'un avertissement précédent';
+            global.fetch = vi.fn(() => jsonResponse({ success: true, alignment_warning: null }));
+            await boot();
+            const input = document.querySelector('.section-email-input');
+            input.value = 'louveteaux@unite.be';
+            input.dispatchEvent(new Event('blur'));
+
+            const warning = document.querySelector('.section-email-warning');
+            await vi.waitFor(() => expect(warning.classList.contains('d-none')).toBe(true));
+            expect(document.querySelector('.section-email-warning-text').textContent).toBe('');
         });
 
         it('saves the visibility switch as a boolean', async () => {

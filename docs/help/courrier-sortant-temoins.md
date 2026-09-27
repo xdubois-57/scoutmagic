@@ -8,7 +8,7 @@ question: Comment savoir si mes emails tombent dans les indésirables ?
 question: Qu'est-ce qu'une boîte témoin ?
 question: Pourquoi mes publipostages partent-ils aussi vers d'autres adresses ?
 paths: /config/courrier-sortant/temoins
-related: courrier-sortant-temoins-reglage, courrier-sortant, courrier-sortant-sonde, courrier-sortant-dmarc, courrier-sortant-rebonds
+related: courrier-sortant-temoins-reglage, courrier-sortant-tendances, courrier-sortant, courrier-sortant-sonde, courrier-sortant-dmarc, courrier-sortant-rebonds
 ---
 
 ## Le problème que ça règle
@@ -52,6 +52,10 @@ case l'un de ces états :
   plus grave de tous : un message refusé en silence. Vérifiez d'abord
   que la boîte surveille bien son dossier d'indésirables, sans quoi ce
   verdict y remplace simplement « Indésirables ».
+
+Une colonne est un fournisseur, reconnu aux enregistrements MX du
+domaine : une boîte sur un domaine personnel hébergé chez Google compte
+dans gmail.com.
 
 Une colonne reste affichée tant qu'elle porte des résultats, même si
 vous avez retiré la boîte témoin de ce fournisseur entre-temps : ce qui

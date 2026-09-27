@@ -746,6 +746,26 @@ $settingService->register(
     false,
     57
 );
+// Which address ranges the unit's OWN SPF record authorises, and behind
+// which `include:` (issue #421). Not the same question as the reading
+// above: that one places the relays the unit declared TO THIS SITE, this
+// one places a service it uses and never declared — which is what the
+// « Rapports DMARC » page cannot name today and is the one thing it has to
+// say. Written by the same « Vérifier les enregistrements » action, never
+// by hand — hence editable: false.
+$settingService->register(
+    \Core\Mail\Feedback\Dmarc\SpfCoverage::SETTING_KEY,
+    '',
+    'text',
+    'Plages autorisées par votre SPF, dernière résolution',
+    'Plages d\'adresses que la chaîne d\'include: de votre enregistrement SPF autorise, '
+        . 'telles que la dernière vérification DNS les a lues, avec sa date.',
+    null,
+    null,
+    null,
+    false,
+    58
+);
 // Whether the mailing lane also writes to the unit's seed mailboxes
 // (roadmap IT-07). Off unless somebody turns it on: a copy of every
 // mailing carries real members' data into however many boxes are
@@ -2280,6 +2300,7 @@ $mailTransport = \Core\Mail\Transport\MailTransportFactory::build(
     $pdo,
     $secrets,
     $settingService,
+    $encryptionService,
     $mailCaptureTransport,
     $journalService,
     $secretManager
@@ -3823,6 +3844,18 @@ $schedulerService->seed(
     'core',
     \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY,
     \Core\Support\Task\PurgeSupportPackagesHandler::REFERENCE,
+    new DateTimeImmutable()
+);
+
+// Same bootstrap for the MX reading of recipient domains (Core\Mail\
+// Feedback\Seed\Task\ResolveMailboxProvidersHandler, issue #422): which
+// provider really hosts « famille.be ». Seeded unconditionally, because
+// its other half is a retention — a domain nobody writes to any more is
+// forgotten by this task and by nothing else.
+$schedulerService->seed(
+    'core',
+    \Core\Mail\Feedback\Seed\Task\ResolveMailboxProvidersHandler::TASK_KEY,
+    \Core\Mail\Feedback\Seed\Task\ResolveMailboxProvidersHandler::REFERENCE,
     new DateTimeImmutable()
 );
 
@@ -6690,6 +6723,7 @@ $frontController->registerController(
         $scoutYearResolver,
         $badgeService,
         $ageBranchRepo,
+        new \Core\Mail\SectionSenderAlignment($settingService, $sectionService),
         $moduleHooks,
         $deskMappingGapService
     )
@@ -7491,7 +7525,12 @@ if ($isEnabled('inbound_mail')) {
                         new \Core\Security\UserAccountRepository($pdo, $encryptionService),
                         $encryptionService
                     )
-                )
+                ),
+                // Built here rather than reusing $mailProbeRepository: this
+                // factory is an arrow function, so it captures by value at
+                // the line above — and that variable is assigned two
+                // hundred lines further down (issue #419).
+                new \Core\Mail\Probe\MailProbeRepository($pdo, $encryptionService)
             )
     );
 
@@ -7792,6 +7831,7 @@ $frontController->registerController(
         new \Core\Mail\DnsVerifier(),
         $returnPathVerifier,
         $journalService,
+        new \Core\Mail\SectionSenderAlignment($settingService, $sectionService),
         new \Core\Mail\Probe\MailProbeSender(
             $mailService,
             $mailProviderDirectory,
@@ -7799,6 +7839,11 @@ $frontController->registerController(
             $mailTransport['delivery'],
             $mailProbeRepository,
             $twig,
+            // The send receipts (roadmap IT-05). A probe stamps its own,
+            // because its destination is never an address the site holds
+            // on file and `recordSend()` would otherwise refuse — leaving
+            // the probe's own bounce unbelieved and #419's tracing dead.
+            new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService),
             $journalService,
             $sendCounterRepository
         ),
@@ -7846,8 +7891,16 @@ $frontController->registerController(
                 $settingService,
                 $mailDomainPreferences,
                 new \Core\Mail\Transport\LaneChainRepository($pdo),
-                $mailProviderDirectory
-            )
+                $mailProviderDirectory,
+                new \Core\Mail\Transport\MailboxProviderRepository($pdo, $encryptionService)
+            ),
+        // What this unit's own SPF authorises, as the last DNS check read
+        // it — READ, never resolved here, for `KnownSenders`' reason above
+        // (issue #421). Last in the list because the constructor is
+        // positional; see the parameter's own note.
+        $inboundMailForOthers === null
+            ? null
+            : \Core\Mail\Feedback\Dmarc\SpfCoverage::remembered($settingService)
     )
 );
 
@@ -9043,7 +9096,9 @@ if ($isEnabled('gallery')) {
         $uploadHandler,
         $notificationService,
         $userAccountRepo,
-        $galleryStoredFileCleaner
+        $galleryStoredFileCleaner,
+        // The album folder's LISEZMOI.txt (#474), on every kind of storage.
+        new \Modules\Gallery\Service\AlbumReadme($settingService, $journalService)
     );
     $galleryMediaService = new \Modules\Gallery\Service\MediaService(
         $galleryMediaRepo,
@@ -9113,7 +9168,9 @@ if ($isEnabled('gallery')) {
         $galleryMediaService,
         $galleryLocationService,
         $storageBackendFactory,
-        static function () use (&$galleryDelegatedAlbumAccessCheckers): \Modules\Gallery\Service\DelegatedAlbumAccessRegistry {
+        static function () use (
+            &$galleryDelegatedAlbumAccessCheckers
+        ): \Modules\Gallery\Service\DelegatedAlbumAccessRegistry {
             return new \Modules\Gallery\Service\DelegatedAlbumAccessRegistry($galleryDelegatedAlbumAccessCheckers);
         }
     );
@@ -11377,6 +11434,13 @@ if ($isEnabled('rental')) {
             $rentalPricingService
         )
     );
+    // Every wording of an asset's conditions, archived (issue #494): the
+    // settings save, the public conditions pages and the request form all
+    // read the version in force through it.
+    $rentalConditionsService = new \Modules\Rental\Service\RentalConditionsService(
+        new \Modules\Rental\Repository\RentalConditionsVersionRepository($pdo),
+        $editableContentService
+    );
     $frontController->registerController(
         \Modules\Rental\Controller\RentalPricingController::class,
         new \Modules\Rental\Controller\RentalPricingController(
@@ -11389,10 +11453,11 @@ if ($isEnabled('rental')) {
             $rentalAuthorizationService,
             $rentalAssetRepository,
             $scoutYearResolver,
-            // The conditions a renter ticks live in the generic
+            // The conditions a renter ticks: still stored in the generic
             // editable-content store, which sanitizes them on the way in
-            // (Modules\Rental\Document\AssetConditions, §22.5).
-            $editableContentService,
+            // (Modules\Rental\Document\AssetConditions, §22.5), and now
+            // archived on every save (issue #494).
+            $rentalConditionsService,
             $rentalPaymentService,
             // The « Rappels » section of the asset's settings (§6.29).
             $rentalAssetReminderRepository
@@ -11409,8 +11474,9 @@ if ($isEnabled('rental')) {
             $rentalPricingService,
             new \Core\View\MonthGrid\DayStateGridBuilder(),
             // Read-only: the public asset page RENDERS the conditions, and
-            // no longer offers to edit them in place (§22.5).
-            $editableContentService
+            // no longer offers to edit them in place (§22.5); the two
+            // conditions pages serve them by version (issue #494).
+            $rentalConditionsService
         )
     );
     // Documents: contracts, invoices and whatever a manager attaches
@@ -11655,6 +11721,9 @@ if ($isEnabled('rental')) {
             $settingService,
             $rentalOperationsService,
             $rentalChangeRequestRepository,
+            // The form carries the version of the conditions it shows, and a
+            // submission is accepted against that version only (issue #494).
+            $rentalConditionsService,
             // The renter's own ICS feed (§6.32): only the generator is
             // borrowed from `calendar`, never a calendar row. Without the
             // module the link simply is not offered.
@@ -11849,7 +11918,10 @@ if ($isEnabled('fees')) {
                 $llmConnectorForOthers,
                 $settingService,
                 $journalService
-            )
+            ),
+            // The federal scale shipped in modules/fees/data (issue #355),
+            // proposed on an empty barème for the year it is for.
+            new \Modules\Fees\Service\ShippedScaleService($feesTariffService)
         )
     );
 

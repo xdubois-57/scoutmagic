@@ -10,8 +10,7 @@ declare(strict_types=1);
 namespace Tests\Core\View;
 
 use PHPUnit\Framework\TestCase;
-use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
+use Tests\TestTwig;
 
 /**
  * base.html.twig's « Le saviez-vous ? » dialog (ARCHITECTURE.md §8.95) —
@@ -32,12 +31,7 @@ final class HelpDiscoveryDialogTest extends TestCase
      */
     private function render(array $globals = []): string
     {
-        $templateDir = dirname(__DIR__, 3) . '/core/View/templates';
-        $twig = new Environment(new FilesystemLoader($templateDir), [
-            'cache' => false,
-            'autoescape' => 'html',
-        ]);
-        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $twig = TestTwig::create();
         $twig->addGlobal('site_name', 'Test Unit');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_email', 'parent@test.be');
@@ -50,14 +44,6 @@ final class HelpDiscoveryDialogTest extends TestCase
         foreach ($globals as $key => $value) {
             $twig->addGlobal($key, $value);
         }
-
-        $twig->addFunction(new \Twig\TwigFunction(
-            'csrf_field',
-            fn (): string => '<input type="hidden" name="_csrf_token" value="test">',
-            ['is_safe' => ['html']]
-        ));
-        $twig->addFunction(new \Twig\TwigFunction('get_flash', fn (): ?array => null));
-        $twig->addFunction(new \Twig\TwigFunction('csrf_token', fn (): string => 'test'));
 
         return $twig->render('base.html.twig');
     }

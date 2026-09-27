@@ -366,7 +366,10 @@ class CalendarService implements
         $sections = [];
         foreach ($this->calendarRepository->findAll() as $calendar) {
             if ($calendar->sectionId !== null) {
-                $sections[$calendar->id] = ['id' => $calendar->sectionId, 'name' => $labels[$calendar->id] ?? 'Section'];
+                $sections[$calendar->id] = [
+                    'id' => $calendar->sectionId,
+                    'name' => $labels[$calendar->id] ?? 'Section',
+                ];
             }
         }
 
@@ -794,8 +797,8 @@ class CalendarService implements
                     $viewerEmail,
                     $scoutYearId
                 );
-                $data['retro-link'] = $link?->url ?? '';
-                $data['retro-link-title'] = $link?->title ?? '';
+                $data['retro-link'] = $link->url ?? '';
+                $data['retro-link-title'] = $link->title ?? '';
             }
 
             return new GridEvent(

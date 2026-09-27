@@ -497,6 +497,51 @@ class MailProbeSenderTest extends TestCase
 
     // ── helpers ───────────────────────────────────────────────────────
 
+    /**
+     * **A probe has to mint its own receipt, or its bounce is thrown
+     * away** (issue #419, found by review after the security fix that made
+     * it matter).
+     *
+     * `BounceStateRepository::record()` refuses a report for an address the
+     * site cannot show it wrote to, and `recordSend()` mints that proof only
+     * for an address already on file — which a probe destination is not: the
+     * RGPD page's own section on this probe says it is the administrator's own
+     * address or the witness address of an outside analysis service. So the receipt was never stamped, and
+     * the bounce tracing could only fire for a destination that happened to
+     * be a member's with a recent unrelated send. The feature was dead for
+     * exactly the addresses probes exist for.
+     *
+     * **The address here is on file nowhere**, which is the whole test: a
+     * fixture that pre-stamped a receipt, or used a member's address, would
+     * pass with the vouching removed. `BounceConsumerTest`'s fixture does
+     * stamp one by hand, which is why nothing there could see this.
+     */
+    public function testAProbeVouchesForItsDestinationSoThatItsOwnBounceIsBelieved(): void
+    {
+        $receipts = new \Core\Mail\Feedback\Bounce\BounceStateRepository(
+            $this->pdo,
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+        $providerId = $this->addRelay('Brevo', 'smtp-relay.brevo.com');
+        $captured = null;
+
+        $this->senderWith($this->capturingTransport($captured), receipts: $receipts)
+            ->send('temoin@service-externe.test', $providerId, MailLane::Bulk);
+
+        // The gate's own verdict, asked the way `BounceService` asks it: a
+        // non-null state means « we can show we wrote here ».
+        $this->assertNotNull(
+            $receipts->record(
+                'temoin@service-externe.test',
+                \Core\Mail\Feedback\Bounce\BounceCategory::NoSuchAddress,
+                \Core\Mail\Feedback\Bounce\BounceSeverity::Permanent,
+                '5.1.1',
+                new \DateTimeImmutable()
+            ),
+            'Without a receipt the probe\'s own bounce is refused, and #419\'s tracing never runs.'
+        );
+    }
+
     private function sendOne(
         MailLane $lane = MailLane::Bulk,
         ?int $providerId = null
@@ -513,7 +558,8 @@ class MailProbeSenderTest extends TestCase
     private function senderWith(
         MailTransportInterface $transport,
         string $fromAddress = 'info@unite.be',
-        ?SendCounterRepository $counters = null
+        ?SendCounterRepository $counters = null,
+        ?\Core\Mail\Feedback\Bounce\BounceStateRepository $receipts = null
     ): MailProbeSender {
         $connections = new ProviderConnections($this->secrets);
 
@@ -537,6 +583,10 @@ class MailProbeSenderTest extends TestCase
             $transport,
             $this->probes,
             $this->twig(),
+            $receipts ?? new \Core\Mail\Feedback\Bounce\BounceStateRepository(
+                $this->pdo,
+                new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+            ),
             new JournalService(new JournalRepository($this->pdo)),
             $counters
         );

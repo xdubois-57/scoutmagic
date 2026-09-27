@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Tests\Core\View;
 
 use PHPUnit\Framework\TestCase;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
 
 class FooterTest extends TestCase
 {
@@ -14,14 +14,7 @@ class FooterTest extends TestCase
 
     protected function setUp(): void
     {
-        $templateDir = dirname(__DIR__, 3) . '/core/View/templates';
-        $this->twig = new Environment(new FilesystemLoader($templateDir), [
-            'cache' => false,
-            'autoescape' => 'html',
-        ]);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $this->twig = TestTwig::create();
         $this->twig->addGlobal('site_name', 'Test Unit');
         $this->twig->addGlobal('is_authenticated', false);
         $this->twig->addGlobal('current_user_email', null);
@@ -29,31 +22,6 @@ class FooterTest extends TestCase
         $this->twig->addGlobal('config_mode', false);
         $this->twig->addGlobal('cookie_consent_given', true);
         $this->twig->addGlobal('menus', null);
-
-        $this->twig->addFunction(new \Twig\TwigFunction('csrf_field', function (): string {
-            return '<input type="hidden" name="_csrf_token" value="test">';
-        }, ['is_safe' => ['html']]));
-        $this->twig->addFunction(new \Twig\TwigFunction('get_flash', function (): ?array {
-            return null;
-        }));
-        $this->twig->addFunction(new \Twig\TwigFunction('csrf_token', function (): string {
-            return 'test';
-        }));
-        $this->twig->addFunction(new \Twig\TwigFunction('editable', function (): string {
-            return '';
-        }, ['is_safe' => ['html']]));
-        // The shared person avatar (Core\View\PersonAvatar), registered here
-        // the way Core\View\TwigFactory does with no photo service: same
-        // markup as production for an account that has set no photo.
-        $this->twig->addFunction(new \Twig\TwigFunction('person_avatar', function (string $name, array $options = []): string {
-            return \Core\View\PersonAvatar::render($name, null, (int) ($options['size'] ?? 40));
-        }, ['is_safe' => ['html']]));
-        $this->twig->addFunction(new \Twig\TwigFunction('editable_image', function (): string {
-            return '';
-        }, ['is_safe' => ['html']]));
-        $this->twig->addFunction(new \Twig\TwigFunction('file_url', function (): string {
-            return '';
-        }));
     }
 
     public function testFooterContainsRgpdLink(): void
