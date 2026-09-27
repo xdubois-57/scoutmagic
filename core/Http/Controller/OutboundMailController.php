@@ -1739,9 +1739,11 @@ class OutboundMailController extends AbstractController
     }
 
     /**
-     * A state the page could not read, written down (issue #600): the page
+     * A state a page could not read, written down (issue #600): the page
      * still renders and says « indisponible », and this is where the
-     * reason is found afterwards. Only the exception class — the message
+     * reason is found afterwards. Page-neutral on purpose: the reserve is
+     * read by Fournisseurs and Acheminement, the queue by Fournisseurs and
+     * the dashboard, and naming one page would be wrong for the others. Only the exception class — the message
      * of a failed query can quote the values it was given.
      *
      * Never allowed to fail the page it is reporting on: the journal is a
@@ -1754,7 +1756,7 @@ class OutboundMailController extends AbstractController
                 'core',
                 'outbound_mail_state_unreadable',
                 'warning',
-                'Page Fournisseurs affichée sans un de ses états : lecture impossible',
+                'Courrier sortant : un état affiché « indisponible », sa lecture a échoué',
                 ['state' => $what, 'exception' => $e::class]
             );
         } catch (\Throwable) {
