@@ -25,12 +25,18 @@ use Core\Module\ModuleManager;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Security\AuthSession;
+use Core\Security\Role;
 use Core\Security\EncryptionService;
 use Core\Security\SecretManager;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\TestTwig;
 use Twig\Environment;
+
+if (!defined('AUTHZ_SUPPORT_TEST')) {
+    define('AUTHZ_SUPPORT_TEST', true);
+}
+require_once dirname(__DIR__, 4) . '/scripts/authz-support.php';
 
 /**
  * @group database
@@ -2381,6 +2387,65 @@ class MaintenanceControllerTest extends TestCase
         $response = $this->buildFrontController()->handle(new Request('GET', '/config/maintenance', [], [], [], []));
 
         $this->assertSame(200, $response->getStatusCode());
+    }
+
+    /**
+     * The six sub-pages (issue #619) through the real Router and this real
+     * controller, each at the floor `public/index.php` declares for it —
+     * read from the file rather than restated, so the day the floor moves
+     * this follows it — allowed at that floor and refused one level
+     * below (AGENTS.md § Tests).
+     */
+    public function testEverySubPageIsServedAtItsDeclaredFloorAndRefusedBelowIt(): void
+    {
+        $pages = [
+            '/config/maintenance' => 'index',
+            '/config/maintenance/mise-a-jour' => 'updatePage',
+            '/config/maintenance/sauvegarde-manuelle' => 'manualBackupPage',
+            '/config/maintenance/sauvegarde-automatique' => 'automaticBackupPage',
+            '/config/maintenance/sauvegardes-recentes' => 'recentBackupsPage',
+            '/config/maintenance/reinitialisation' => 'resetPage',
+        ];
+        $floors = [];
+        foreach (\authzCoreRoutes() as $route) {
+            if ($route['method'] === 'GET' && isset($pages[$route['path']])) {
+                $floors[$route['path']] = $route['role_min'];
+            }
+        }
+        $this->assertSame(array_keys($pages), array_keys(array_intersect_key($pages, $floors)), 'A sub-page is not registered.');
+
+        $router = new Router();
+        foreach ($pages as $path => $action) {
+            $router->addRoute('GET', $path, MaintenanceController::class, $action, $floors[$path]);
+        }
+        $configFile = sys_get_temp_dir() . '/test_maintenance_config_' . uniqid() . '.php';
+        file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
+        $frontController = new FrontController($router, $this->twig, new AppConfig($configFile));
+        $frontController->registerController(MaintenanceController::class, $this->controller);
+
+        foreach ($pages as $path => $action) {
+            $floor = Role::fromString($floors[$path]);
+            $below = self::oneLevelBelow($floor);
+
+            AuthSession::login(1, 'floor@test.be', $floor->value);
+            $this->assertSame(200, $frontController->handle(new Request('GET', $path, [], [], [], []))->getStatusCode(), "{$path} at {$floor->value}");
+
+            AuthSession::login(1, 'below@test.be', $below->value);
+            $this->assertSame(403, $frontController->handle(new Request('GET', $path, [], [], [], []))->getStatusCode(), "{$path} at {$below->value}");
+        }
+    }
+
+    private static function oneLevelBelow(Role $role): Role
+    {
+        $below = null;
+        foreach (Role::cases() as $candidate) {
+            if ($candidate->level() < $role->level() && ($below === null || $candidate->level() > $below->level())) {
+                $below = $candidate;
+            }
+        }
+        self::assertNotNull($below);
+
+        return $below;
     }
 
     private function ageCompletedAt(int $id, int $daysAgo): void
