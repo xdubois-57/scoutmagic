@@ -94,7 +94,9 @@
         </p>
     {% endif %}
     <p class="small text-body-secondary">
-        {% if any_inactive %}
+        {# Only on the year in effect: a closed year offers nothing to take
+           off or reactivate, whatever its badges have become since. #}
+        {% if any_inactive and not is_previous_year %}
             Un badge désactivé qui garde des porteurs reste affiché ici : il reste à leur retirer, ou le
             badge est à réactiver.
         {% endif %}

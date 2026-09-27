@@ -111,6 +111,21 @@ final class BadgeHoldersTemplateTest extends TestCase
         );
     }
 
+    /**
+     * A badge worn last year and deactivated since is still marked, but a
+     * closed year never asks the reader to take it off or reactivate it —
+     * the page says two lines higher that nothing is changed there.
+     */
+    public function testThePreviousYearNeverAsksToActOnADeactivatedBadge(): void
+    {
+        $html = $this->render([
+            new BadgeHolders(new Badge(4, 'Intendance', false, false), [new BadgeHolder(2, 'Ahmed Bensalah', "Staff d'U", 'Intendant')]),
+        ], previous: true);
+
+        $this->assertMatchesRegularExpression('~>Intendance</h2>\s*<span[^>]*>Désactivé</span>~', $html);
+        $this->assertStringNotContainsString('il reste à leur retirer', $html);
+    }
+
     /** The tab stays, and says there is nothing rather than vanishing. */
     public function testAPreviousYearWithoutAnyBadgeSaysSo(): void
     {
