@@ -174,14 +174,14 @@ class FeeEstimationServiceTest extends TestCase
     {
         $this->createMemberAtAddress('Rue de la Station', '5', null, '1000');
         $provider = new class implements HouseholdRegistrationCountProvider {
-            public function countAtAddress(string $addressBlindIndex, int $scoutYearId, ?int $excludeRequestId): int
+            public function countInHousehold(\Core\Member\Household\HouseholdKey $household, int $scoutYearId, ?int $excludeRequestId): int
             {
                 return 2;
             }
 
-            public function countsAtAddresses(array $addressBlindIndexes, int $scoutYearId): array
+            public function countsInHouseholds(array $households, int $scoutYearId): array
             {
-                return array_fill_keys($addressBlindIndexes, 2);
+                return array_fill_keys(array_map(static fn(\Core\Member\Household\HouseholdKey $h): string => $h->storable(), $households), 2);
             }
         };
         $service = new FeeEstimationService(new FeeEstimationRepository($this->pdo, $this->encryption), $provider);

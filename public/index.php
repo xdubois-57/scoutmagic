@@ -6077,11 +6077,19 @@ $leadershipFormationLevels = null;
 // accepted/encoded requests to the PROJECTED count, through the same
 // nullable Api provider as before (ARCHITECTURE.md §7.5) — null when it is
 // disabled, and the service degrades to counting members alone.
+// The one place a household key is derived from an address (issue #630).
+// The registration module is handed this repository rather than deriving
+// the key itself: it stores the identity, never computes it.
+$householdRepository = new \Core\Member\Household\HouseholdRepository($pdo, $encryptionService);
 $householdRegistrationCountForOthers = null;
 if ($isEnabled('registration')) {
     \Core\Debug\RequestTimeline::mark('module_registration');
     $householdRegistrationCountForOthers = new \Modules\Registration\Service\HouseholdRegistrationCountService(
-        new \Modules\Registration\Repository\RegistrationRequestRepository($pdo, $encryptionService)
+        new \Modules\Registration\Repository\RegistrationRequestRepository(
+            $pdo,
+            $encryptionService,
+            $householdRepository
+        )
     );
 }
 $feeEstimationService = new \Core\Member\FeeEstimationService(
@@ -6093,7 +6101,7 @@ $feeEstimationService = new \Core\Member\FeeEstimationService(
 // they are the roster's. Built here so a module can consume it without
 // owning it.
 $householdService = new \Core\Member\Household\HouseholdService(
-    new \Core\Member\Household\HouseholdRepository($pdo, $encryptionService),
+    $householdRepository,
     $householdRegistrationCountForOthers
 );
 
@@ -10890,7 +10898,8 @@ if ($isEnabled('registration')) {
 
     $registrationRequestRepo = new \Modules\Registration\Repository\RegistrationRequestRepository(
         $pdo,
-        $encryptionService
+        $encryptionService,
+        $householdRepository
     );
     $registrationYearCodeRepo = new \Modules\Registration\Repository\RegistrationYearCodeRepository($pdo);
     $registrationAgeBracketRepo = new \Modules\Registration\Repository\AgeBracketRepository($pdo);
