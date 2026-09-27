@@ -2,7 +2,7 @@
   "id": "presences",
   "name": "Présences",
   "description": "Une feuille de présence par réunion.",
-  "version": "1.6.4",
+  "version": "1.6.5",
   "requires": [
     "calendar"
   ],
