@@ -224,12 +224,16 @@ class MemberEmailService
         $created = $this->repository->findById($id);
         \assert($created !== null);
 
-        $this->sendConfirmationEmail($created->id, $memberId, $normalized, $rawToken, $actorId);
-
         // member_email_id (a numeric FK, not personal data) is what lets
         // this entry be traced back to exactly which address changed
         // without ever putting the address itself — personal data — in
         // the journal (SECURITY.md §11: "reference member_id only").
+        //
+        // Journalled BEFORE the confirmation is sent, because the address
+        // is added once its row is written, whatever the mail does next: a
+        // failed send is rethrown below and the row is kept, so an audit
+        // filtering on member_email_added used to miss precisely the
+        // addresses added the day the mail server was down (issue #587).
         $this->journalService->log(
             'core',
             'member_email_added',
@@ -238,6 +242,8 @@ class MemberEmailService
             ['member_id' => $memberId, 'member_email_id' => $created->id],
             $actorId
         );
+
+        $this->sendConfirmationEmail($created->id, $memberId, $normalized, $rawToken, $actorId);
 
         return $created;
     }

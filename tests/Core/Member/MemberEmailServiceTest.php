@@ -265,6 +265,31 @@ class MemberEmailServiceTest extends TestCase
         }
     }
 
+    /**
+     * The address is added once its row is written: a failed confirmation
+     * does not undo that, so the journal says it under the name an audit
+     * of added addresses would filter on (issue #587).
+     */
+    public function testAnAddressWhoseConfirmationFailsIsStillJournalledAsAdded(): void
+    {
+        $this->mailService->method('send')->willThrowException(new \Core\Mail\MailException('SMTP connect() failed'));
+
+        try {
+            $this->service->addEmail($this->memberId, 'someone@example.com', 7);
+            $this->fail('the send failure is still rethrown');
+        } catch (\Core\Mail\MailException) {
+            // Expected: the controller tells the member to retry with « Renvoyer ».
+        }
+
+        $rows = $this->pdo->query("SELECT * FROM event_log WHERE event_type = 'member_email_added'")
+            ->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(1, $rows);
+        $context = json_decode($rows[0]['context'], true);
+        $this->assertSame($this->memberId, $context['member_id']);
+        $this->assertSame($this->repository->findByMember($this->memberId)[0]->id, $context['member_email_id']);
+        $this->assertSame(7, (int) $rows[0]['user_account_id']);
+    }
+
     // --- confirmEmail() (48h expiry, single-use, hashed storage) ---
 
     public function testConfirmEmailWithCorrectTokenMarksValid(): void
