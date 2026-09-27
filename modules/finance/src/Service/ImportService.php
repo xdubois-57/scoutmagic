@@ -13,6 +13,7 @@ use Core\Security\EncryptionService;
 use Core\Service\DateInput;
 use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Parser\BankStatementParserFactory;
+use Modules\Finance\Parser\ClosingBalance;
 use Modules\Finance\Parser\StatementLine;
 use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\AccountRepository;
@@ -38,9 +39,15 @@ use Modules\Finance\Repository\TransactionRepository;
  * and every check that can refuse the file — a date no scout year covers, a
  * missing opening balance — runs before the first write.
  *
+ * The format is detected from the file itself unless the uploader chose
+ * one, which the screen only offers after detection failed.
+ *
  * Per account: auto-categorization per line, deduplication, a balance
  * checkpoint when a balance is known, and one statement import bookkeeping
- * row, the rows of one file sharing its upload id.
+ * row, the rows of one file sharing its upload id. The balance comes from
+ * the file whenever the format states it (CODA) — a file covering three
+ * accounts could never ask a form for three — and is typed by hand only
+ * for a format that does not (the BNP CSV), on an account's first import.
  */
 class ImportService
 {
@@ -67,17 +74,20 @@ class ImportService
      * account visibility of the signed-in role). An account it refuses is
      * skipped, like an unknown IBAN.
      *
-     * $balance is a balance typed by hand; it can only belong to a file
-     * covering a single account, and is mandatory on that account's first
-     * import.
+     * $bankCode null detects the format from the file.
+     *
+     * $balance is a balance typed by hand. It is only ever needed, and only
+     * accepted, for a format that states no balance, on the first import of
+     * the single account the file covers.
      *
      * @param \Closure(Account): bool $mayImportInto
+     * @throws StatementFormatNotRecognized when detection finds no format
      * @throws FinanceException on a malformed file, a date no scout year
-     *                           covers, a missing mandatory opening balance,
-     *                           or a typed balance for a multi-account file
+     *                           covers, a missing opening balance, or a
+     *                           typed balance the file does not need
      */
     public function import(
-        string $bankCode,
+        ?string $bankCode,
         string $filePath,
         string $originalFilename,
         ?float $balance,
@@ -85,10 +95,12 @@ class ImportService
         \Closure $mayImportInto
     ): ImportResult {
         try {
+            $bankCode ??= $this->parserFactory->detect($filePath) ?? throw new StatementFormatNotRecognized();
             $parser = $this->parserFactory->create($bankCode);
 
             $fileIbans = $parser->extractAccountIbans($filePath);
             $lines = $parser->parse($filePath);
+            $fileBalances = $parser->closingBalances($filePath);
 
             /** @var array<string, StatementLine[]> $linesByIban */
             $linesByIban = array_fill_keys($fileIbans, []);
@@ -113,25 +125,15 @@ class ImportService
                 $targets[(string) $iban] = $account;
             }
 
-            if ($balance !== null && count($targets) > 1) {
-                throw new FinanceException(
-                    'Ce fichier couvre plusieurs comptes : un solde saisi à la main ne peut pas être attribué.'
-                    . ' Laissez le champ vide.'
-                );
-            }
-
             $this->assertEveryDateHasAScoutYear($targets, $linesByIban);
 
             /** @var array<string, bool> $firstImports */
             $firstImports = [];
             foreach ($targets as $iban => $account) {
                 $firstImports[$iban] = !$this->checkpointRepository->hasAnyForAccount($account->id);
-                if ($firstImports[$iban] && $balance === null) {
-                    throw new FinanceException(
-                        "Le solde de départ est obligatoire pour le premier import du compte « {$account->name} »."
-                    );
-                }
             }
+
+            $balances = $this->balancesFor($targets, $firstImports, $fileBalances, $balance);
 
             $uploadId = bin2hex(random_bytes(16));
             $written = [];
@@ -144,7 +146,7 @@ class ImportService
                         $account,
                         $linesByIban[$iban],
                         $firstImports[$iban],
-                        $balance,
+                        $balances[$iban] ?? null,
                         $bankCode,
                         $originalFilename,
                         $uploadId,
@@ -219,7 +221,7 @@ class ImportService
         Account $account,
         array $lines,
         bool $isFirstImport,
-        ?float $balance,
+        ?ImportBalance $balance,
         string $bankCode,
         string $originalFilename,
         string $uploadId,
@@ -249,7 +251,8 @@ class ImportService
                 $this->categoryRuleEngine->apply($line),
                 $line->counterpartyName,
                 $line->counterpartyAccount,
-                $line->extraDetails
+                $line->extraDetails,
+                $line->structuredCommunication
             );
 
             if ($inserted) {
@@ -259,7 +262,11 @@ class ImportService
             }
         }
 
-        $checkpointDate = $latestDate ?? (new \DateTimeImmutable('today'))->format('Y-m-d');
+        // A balance the file states holds on its own date; a typed one, on
+        // the day of the statement's last line.
+        $checkpointDate = $balance !== null && $balance->date !== null
+            ? $balance->date->format('Y-m-d')
+            : ($latestDate ?? (new \DateTimeImmutable('today'))->format('Y-m-d'));
 
         $balanceDiscrepancy = null;
         if ($balance !== null) {
@@ -271,17 +278,25 @@ class ImportService
                     $account,
                     DateInput::requireFromStorage($checkpointDate, 'import checkpoint date')
                 );
-                if ($calculatedBalance !== null && abs($calculatedBalance - $balance) > 0.01) {
-                    $balanceDiscrepancy = round($balance - $calculatedBalance, 2);
+                if ($calculatedBalance !== null && abs($calculatedBalance - $balance->amount) > 0.01) {
+                    $balanceDiscrepancy = round($balance->amount - $calculatedBalance, 2);
                 }
             }
 
-            $this->checkpointRepository->create(
-                $account->id,
-                $checkpointDate,
-                $balance,
-                BalanceCheckpoint::SOURCE_IMPORT
-            );
+            // The same file imported twice states the same balance on the
+            // same date: one checkpoint says it, a second would only be
+            // noise in the account's history.
+            $existing = $this->checkpointRepository->findClosestBefore($account->id, $checkpointDate);
+            $alreadyKnown = $existing !== null && $existing->checkpointDate === $checkpointDate
+                && abs($existing->balance - $balance->amount) < 0.005;
+            if (!$alreadyKnown) {
+                $this->checkpointRepository->create(
+                    $account->id,
+                    $checkpointDate,
+                    $balance->amount,
+                    BalanceCheckpoint::SOURCE_IMPORT
+                );
+            }
         }
 
         $statementImportId = $this->statementImportRepository->create(
@@ -296,6 +311,71 @@ class ImportService
         );
 
         return [$account, $statementImportId, $balanceDiscrepancy];
+    }
+
+    /**
+     * The balance each target account's checkpoint records, keyed like
+     * $targets.
+     *
+     * A format stating balances gives every account its own — and a typed
+     * one is refused rather than silently ignored. A format that does not
+     * takes a typed balance on the first import of the single account the
+     * file covers, and nowhere else: later imports recompute the balance
+     * from the movements.
+     *
+     * @param array<string, Account> $targets
+     * @param array<string, bool> $firstImports
+     * @param array<string, ClosingBalance> $fileBalances
+     * @return array<string, ImportBalance>
+     * @throws FinanceException
+     */
+    private function balancesFor(array $targets, array $firstImports, array $fileBalances, ?float $typed): array
+    {
+        if ($fileBalances !== []) {
+            if ($typed !== null) {
+                throw new FinanceException(
+                    'Ce fichier indique lui-même le solde de chaque compte : laissez le champ « Solde » vide.'
+                );
+            }
+
+            $balances = [];
+            foreach (array_keys($targets) as $iban) {
+                $closing = $fileBalances[$iban] ?? null;
+                if ($closing !== null) {
+                    $balances[$iban] = new ImportBalance($closing->amount, $closing->date);
+                }
+            }
+
+            return $balances;
+        }
+
+        if ($typed !== null && count($targets) > 1) {
+            throw new FinanceException(
+                'Ce fichier couvre plusieurs comptes : un solde saisi à la main ne peut pas être attribué.'
+                . ' Laissez le champ vide.'
+            );
+        }
+
+        $balances = [];
+        foreach ($targets as $iban => $account) {
+            if (!$firstImports[$iban]) {
+                if ($typed !== null) {
+                    throw new FinanceException(
+                        "Le compte « {$account->name} » a déjà un solde de référence : les suivants se recalculent"
+                        . ' depuis les mouvements. Laissez le champ « Solde » vide.'
+                    );
+                }
+                continue;
+            }
+            if ($typed === null) {
+                throw new FinanceException(
+                    "Le solde de départ est obligatoire pour le premier import du compte « {$account->name} »."
+                );
+            }
+            $balances[$iban] = new ImportBalance($typed, null);
+        }
+
+        return $balances;
     }
 
     /**

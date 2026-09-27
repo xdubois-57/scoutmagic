@@ -887,14 +887,15 @@ class ReceivableAllocationService
      * Every structured communication a movement's free text spells out,
      * across its three free-text fields — matched field by field, never
      * on a concatenation, so a communication cannot be assembled across a
-     * boundary where it appears in neither.
+     * boundary where it appears in neither. The structured communication a
+     * format carries in a field of its own (CODA) is read first.
      *
      * @return list<string>
      */
     private function communicationsOf(Transaction $transaction): array
     {
         $found = [];
-        foreach ([$transaction->label, $transaction->comment, $transaction->extraDetails] as $field) {
+        foreach ([$transaction->structuredCommunication, $transaction->label, $transaction->comment, $transaction->extraDetails] as $field) {
             if ($field === null) {
                 continue;
             }

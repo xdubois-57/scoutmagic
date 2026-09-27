@@ -68,6 +68,24 @@ class ReceivableAllocationServiceTest extends TestCase
     }
 
     /**
+     * A format that carries the structured communication in a field of its
+     * own (CODA, issue #511) needs nothing in the label for the credit to
+     * find its receivable.
+     */
+    public function testACommunicationCarriedInItsOwnFieldIsMatchedToo(): void
+    {
+        $id = $this->receivable(4500, '+++123/4567/89012+++');
+        $this->transactions->create(
+            $this->accountId, $this->fiscalYearId, 'coda-1', '2026-02-18', 'Famille Dupont', 45.00,
+            null, null, 'import', null, structuredCommunication: '123456789012'
+        );
+
+        $this->service->reconcileAccount($this->accountId);
+
+        $this->assertCount(1, $this->allocations->findByReceivableId($id));
+    }
+
+    /**
      * On a reconciled account, the stored-allocations-only read reports
      * the same allocated/remaining/refunded/status as the full read — it
      * is what the home payment band relies on. Only amountDesignated may

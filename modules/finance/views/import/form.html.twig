@@ -8,33 +8,40 @@
     {% include '@finance/_nav.html.twig' with {'hide_account_picker': true} %}
 
     <p class="text-body-secondary small mb-3">
-        Importez ici un relevé bancaire (export de votre banque). Il n'y a pas de compte à choisir : chaque
-        mouvement rejoint le compte du site qui porte son IBAN. Les mouvements déjà importés sont ignorés, et
-        les règles de catégorisation configurées s'appliquent automatiquement à chaque ligne importée.
+        Importez ici un relevé bancaire exporté de votre banque — au format CODA, que toutes les banques belges
+        proposent, ou le CSV de BNP Paribas Fortis. Le format est reconnu tout seul, et il n'y a pas de compte à
+        choisir : chaque mouvement rejoint le compte du site qui porte son IBAN. Les mouvements déjà importés
+        sont ignorés, et les règles de catégorisation configurées s'appliquent automatiquement à chaque ligne importée.
     </p>
+
+    {% if unrecognized %}
+        <div class="alert alert-warning">{{ unrecognized }}</div>
+    {% endif %}
 
     <h2 class="h5 mb-3">Importer un relevé bancaire</h2>
 
     <form method="post" action="/finance/import" enctype="multipart/form-data" class="border rounded-3 p-3" id="import-form">
         {{ csrf_field()|raw }}
         <div class="row g-2">
-            <div class="col-12 col-md-6">
-                {% include 'partials/form_field.html.twig' with {
-                    field_id: 'import-bank', field_name: 'bank_code',
-                    label: 'Banque', type: 'select', size: 'sm', wrapper_class: '',
-                    options: bank_codes|default([])|map(code => { value: code, label: code|upper }),
-                } only %}
-            </div>
+            {% if formats is not empty %}
+                <div class="col-12 col-md-6">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'import-bank', field_name: 'bank_code',
+                        label: 'Format du fichier', type: 'select', size: 'sm', wrapper_class: '',
+                        options: formats|map((label, code) => { value: code, label: label }),
+                    } only %}
+                </div>
+            {% endif %}
             <div class="col-12 col-md-6">
                 <label class="form-label small" for="import-file">Fichier du relevé</label>
-                <input type="file" class="form-control form-control-sm" id="import-file" name="statement" accept=".csv" required>
+                <input type="file" class="form-control form-control-sm" id="import-file" name="statement" required>
             </div>
             <div class="col-12 col-md-6">
                 {% include 'partials/form_field.html.twig' with {
                     field_id: 'import-balance', field_name: 'balance',
                     label: 'Solde après ce relevé', placeholder: '1234,56',
                     size: 'sm', wrapper_class: '',
-                    help: "Obligatoire au premier import d'un compte ; facultatif ensuite, où il sert à détecter un écart. Un fichier qui couvre plusieurs comptes ne peut pas en recevoir.",
+                    help: "Seulement pour un fichier qui n'indique pas le solde (le CSV BNP), au premier import d'un compte. Un fichier CODA donne lui-même le solde de chaque compte : laissez le champ vide.",
                 } only %}
             </div>
             <div class="col-12">

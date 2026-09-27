@@ -141,15 +141,41 @@ class ImportControllerTest extends TestCase
     }
 
     /**
-     * There is no account to choose any more: the file's own IBANs decide.
+     * Neither an account nor a format to choose: the file's own IBANs
+     * decide where its lines go, and its structure what it is.
      */
-    public function testTheFormOffersNoAccountToChoose(): void
+    public function testTheFormOffersNeitherAnAccountNorAFormatToChoose(): void
     {
         $response = $this->controller->form(new Request('GET', '/finance/import', [], [], [], []), []);
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringNotContainsString('name="account_id"', $response->getBody());
+        $this->assertStringNotContainsString('name="bank_code"', $response->getBody());
         $this->assertStringContainsString('name="statement"', $response->getBody());
+    }
+
+    /**
+     * The list of formats appears after a failed detection, and only then.
+     */
+    public function testAFileNoFormatRecognizesBringsTheFormBackWithTheFormatList(): void
+    {
+        $path = (string) tempnam(sys_get_temp_dir(), 'finance_upload_');
+        file_put_contents($path, "Date;Montant\n01/10/2026;10,00\n");
+
+        $response = $this->controller->upload($this->uploadRequest(null, $path, bankCode: ''), []);
+
+        $this->assertStringContainsString('Nous n&#039;avons pas reconnu ce fichier', $response->getBody());
+        $this->assertStringContainsString('name="bank_code"', $response->getBody());
+        $this->assertStringContainsString('CODA (toutes les banques belges)', $response->getBody());
+        $this->assertSame(0, $this->countTransactions());
+    }
+
+    public function testAFileIsImportedWithoutItsFormatBeingNamed(): void
+    {
+        $response = $this->controller->upload($this->uploadRequest(1000.0, $this->tmpCopyOfFixture(), bankCode: ''), []);
+
+        $this->assertStringContainsString('/finance/movements?account_id=' . $this->accountId, $response->getBody());
+        $this->assertGreaterThan(0, $this->countTransactions());
     }
 
     private function tmpCopyOfFixture(): string
@@ -170,12 +196,12 @@ class ImportControllerTest extends TestCase
         return $token;
     }
 
-    private function uploadRequest(?float $balance, string $tmpFilePath, ?string $csrfToken = null): Request
+    private function uploadRequest(?float $balance, string $tmpFilePath, ?string $csrfToken = null, string $bankCode = 'bnp'): Request
     {
         $request = $this->getMockBuilder(Request::class)
             ->setConstructorArgs(['POST', '/finance/import', [], [
                 '_csrf_token' => $csrfToken ?? $this->csrfToken(),
-                'bank_code' => 'bnp',
+                'bank_code' => $bankCode,
                 'balance' => $balance !== null ? (string) $balance : '',
             ], [], []])
             ->onlyMethods(['getFile'])

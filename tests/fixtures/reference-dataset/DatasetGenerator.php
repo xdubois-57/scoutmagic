@@ -53,10 +53,15 @@ final class DatasetGenerator
             $files[self::DESK_DIRECTORY . '/' . $year . '.csv'] = $writer->write($people, $year);
         }
         $bankWriter = new BnpCsvWriter();
+        $bnpFiles = [];
         foreach ($this->statements() as $relativePath => $lines) {
             [$year, $account] = self::splitStatementPath($relativePath);
-            $files[$relativePath] = $bankWriter->write($lines, BankBlueprint::ACCOUNTS[$account]['iban'], $year);
+            $bnpFiles[$relativePath] = $bankWriter->write($lines, BankBlueprint::ACCOUNTS[$account]['iban'], $year);
         }
+        $files += $bnpFiles;
+        // After the BNP statements, and from them: its camps opening is the
+        // ledger's figure once they are imported (CodaWriter).
+        $files[CodaBlueprint::FILE] = (new CodaWriter())->write($bnpFiles);
 
         $files[self::PHOTO_MANIFEST] = PhotoAssigner::toCsv($this->photoRows());
 

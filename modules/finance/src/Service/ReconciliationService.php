@@ -329,7 +329,7 @@ class ReconciliationService
     private function orphanRow(Transaction $credit, int $remainder, array $byCommunication): array
     {
         $found = [];
-        foreach ([$credit->label, $credit->comment, $credit->extraDetails] as $field) {
+        foreach ([$credit->structuredCommunication, $credit->label, $credit->comment, $credit->extraDetails] as $field) {
             if ($field === null) {
                 continue;
             }
@@ -580,7 +580,7 @@ class ReconciliationService
     private function communicationsOf(Transaction $transaction): array
     {
         $found = [];
-        foreach ([$transaction->label, $transaction->comment, $transaction->extraDetails] as $field) {
+        foreach ([$transaction->structuredCommunication, $transaction->label, $transaction->comment, $transaction->extraDetails] as $field) {
             if ($field === null) {
                 continue;
             }

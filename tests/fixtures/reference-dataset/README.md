@@ -76,7 +76,7 @@ tests/fixtures/reference-dataset/
   ExtrasBlueprint.php    LA TABLE : décalages, départs, créances, adresses
   ExtrasApplier.php      applique les extras, et orchestre les semeurs
   desk/                  les trois exports Desk générés, commités
-  bank/                  les six relevés BNP générés, commités
+  bank/                  les six relevés BNP et le fichier CODA générés, commités
   photos/                le lot de photos (§4) + assignments.csv, généré
 ```
 
@@ -339,7 +339,7 @@ une cible pour ce script.
    seul endroit d'où Staff d'U peut naître.
 5. **Les finances** : catégories par défaut, puis comptes de section, puis
    **l'IBAN de chaque compte de section**, puis les deux comptes d'unité, puis
-   les six relevés. **L'ordre est porteur** — `ensureDefaultCategories()` ne
+   les six relevés BNP, puis le fichier CODA (§9.3). **L'ordre est porteur** — `ensureDefaultCategories()` ne
    sème que tant que la table est vide, et créer *ou compléter* un compte y
    ajoute déjà sa catégorie « Virement <compte> ».
    `ensureDefaultAccountsForSections()` crée un compte par section **sans
@@ -808,8 +808,9 @@ la population de fond commence à `T0101`.
 
 ### 9.3 Les relevés bancaires
 
-Six fichiers commités : deux comptes × trois exercices. Un seul format existe,
-`bnp` (`BankStatementParserFactory::getSupportedBankCodes()`).
+Sept fichiers commités : six relevés BNP (deux comptes × trois exercices) et
+un fichier CODA couvrant deux comptes. Les deux formats que le site lit
+(`BankStatementParserFactory::getSupportedBankCodes()`) sont donc exercés.
 
 **Un septième relevé est écrit à la construction et n'est pas commité** : les
 paiements de la campagne (§8.3). Ses lignes portent les communications
@@ -860,6 +861,41 @@ Cas placés délibérément, un par méthode de `BankStatementBuilder` :
 La clé de déduplication est `REFERENCE BANQUE : <chiffres>` dans la colonne
 `Détails`, jamais le `Nº de séquence` — BNP Fortis écrit la même chaîne sur
 toutes les lignes d'un export.
+
+#### Le fichier CODA
+
+`bank/2026-2027_comptes.cod`, déclaré dans `CodaBlueprint` et écrit par
+`CodaWriter` (enregistrements de `CodaRecords`, ISO-8859-1, fins de ligne
+CRLF — comme une banque). **Un seul téléchargement couvre deux comptes** : le
+compte camps, que les relevés BNP alimentent depuis trois ans, et le premier
+compte de section, qu'aucun relevé n'avait jamais atteint. C'est le
+comportement que rien d'autre n'exerce : un fichier réparti entre deux
+comptes par leurs IBAN (issue #511), importé **sans format nommé** — la
+détection le reconnaît — et **sans solde saisi** : le fichier donne celui de
+chaque compte, et le premier import du compte de section prend le sien dans le
+fichier.
+
+Il couvre août 2027, après la dernière ligne BNP du compte camps. Son solde
+d'ouverture n'est pas déclaré : `CodaWriter::ledgerMillis()` le recalcule à
+partir des relevés BNP générés, par le vrai `BnpParser` et avec l'arithmétique
+de `BalanceService` (le solde saisi au premier import vaut *après* ce relevé).
+Le semeur refuse de continuer si l'import constate le moindre écart entre ce
+solde et le grand livre.
+
+Un cas par piège du format :
+
+- des **noms accentués** (« Épicerie Sénéchal & Fils », « Boulangerie
+  Hénin ») qui ne sortent intacts que si l'analyseur convertit avant de lire ;
+- une **communication étalée sur trois enregistrements** (2.1, 2.2, 2.3) ;
+- une **communication structurée dans son propre champ**, rangée à part et
+  non concaténée dans les détails ;
+- un **lot globalisé** : la ligne globale et ses trois détails, qui ne doivent
+  compter qu'une fois ;
+- un **enregistrement d'information** (3.1), qui rejoint les détails et non le
+  libellé.
+
+Les textes restent représentables en ISO-8859-1 : pas de « œ », pas de tiret
+plus large que « - ».
 
 ### 9.4 La correspondance photo → Tiers
 

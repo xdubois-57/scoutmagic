@@ -19,6 +19,7 @@ use Modules\Finance\Repository\Account;
 use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Service\FinanceService;
 use Modules\Finance\Service\ImportService;
+use Modules\Finance\Service\StatementFormatNotRecognized;
 
 /**
  * The bank statement import screen. There is no account to choose: the
@@ -40,9 +41,7 @@ class ImportController extends AbstractController
      */
     public function form(Request $request, array $params): Response
     {
-        return $this->render('@finance/import/form.html.twig', [
-            'bank_codes' => $this->parserFactory->getSupportedBankCodes(),
-        ]);
+        return $this->renderForm(null);
     }
 
     /**
@@ -54,7 +53,8 @@ class ImportController extends AbstractController
             return $this->renderResult(['error' => self::SESSION_EXPIRED_MESSAGE]);
         }
 
-        $bankCode = (string) $request->getBody('bank_code', '');
+        // Empty unless the list was offered, after detection failed.
+        $bankCode = trim((string) $request->getBody('bank_code', ''));
         $file = $request->getFile('statement');
         $balanceRaw = trim((string) $request->getBody('balance', ''));
         $balance = $balanceRaw !== '' ? (float) str_replace(',', '.', $balanceRaw) : null;
@@ -73,18 +73,33 @@ class ImportController extends AbstractController
 
         try {
             $result = $this->importService->import(
-                $bankCode,
+                $bankCode !== '' ? $bankCode : null,
                 (string) $file['tmp_name'],
                 (string) $file['name'],
                 $balance,
                 AuthSession::getUserAccountId(),
                 fn (Account $account): bool => $this->financeService->isAccountVisibleTo($account, $role)
             );
+        } catch (StatementFormatNotRecognized $e) {
+            return $this->renderForm($e->getMessage());
         } catch (FinanceException $e) {
             return $this->renderResult(['error' => $e->getMessage()]);
         }
 
         return $this->renderResult(['result' => $result]);
+    }
+
+    /**
+     * The format list is only ever on screen after a failed detection
+     * ($unrecognized set): a choice always offered would be taken out of
+     * habit, including wrongly — BNP picked for a CODA file.
+     */
+    private function renderForm(?string $unrecognized): Response
+    {
+        return $this->render('@finance/import/form.html.twig', [
+            'unrecognized' => $unrecognized,
+            'formats' => $unrecognized !== null ? $this->parserFactory->getFormatLabels() : [],
+        ]);
     }
 
     /**

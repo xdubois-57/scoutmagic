@@ -89,6 +89,10 @@ final class FinanceSeeder
     public function seed(): array
     {
         $this->ensureAccounts();
+        // The CODA file covers a section account, which only a completed
+        // section account (its IBAN) can receive. Idempotent: build.php has
+        // usually done it already, and then this completes nothing.
+        $this->completeSectionAccounts();
 
         $imported = 0;
         $duplicates = 0;
@@ -130,6 +134,10 @@ final class FinanceSeeder
                 $duplicates += $result->linesDuplicate();
             }
         }
+
+        $coda = $this->importCodaStatement($importService);
+        $imported += $coda->linesNew();
+        $duplicates += $coda->linesDuplicate();
 
         return ['accounts' => count($this->accountIds), 'imported' => $imported, 'duplicates' => $duplicates];
     }
@@ -220,6 +228,53 @@ final class FinanceSeeder
             'imported' => $result->linesNew(),
             'duplicates' => $result->linesDuplicate(),
         ];
+    }
+
+    /**
+     * The CODA file (CodaBlueprint): one download split across the camps
+     * account and the first section account by their IBANs. No format is
+     * named — the import detects it, as it does for a treasurer — and no
+     * balance is typed: the file states both, and the section account's
+     * first import takes its opening balance from it.
+     */
+    private function importCodaStatement(ImportService $importService): ImportResult
+    {
+        $path = $this->datasetRoot . '/' . CodaBlueprint::FILE;
+        if (!is_file($path)) {
+            throw new \RuntimeException("Relevé introuvable : {$path}");
+        }
+
+        $copy = (string) tempnam(sys_get_temp_dir(), 'refdataset-coda');
+        copy($path, $copy);
+
+        try {
+            $result = $importService->import(null, $copy, basename($path), null, $this->importedBy, static fn (): bool => true);
+        } finally {
+            if (is_file($copy)) {
+                @unlink($copy);
+            }
+        }
+
+        $section = (new AccountRepository($this->pdo, $this->encryption))->findByIbanBlindIndex(
+            $this->encryption->blindIndex(
+                BankBlueprint::compactIban(BankBlueprint::sectionIban(CodaBlueprint::SECTION_INDEX)),
+                'finance_iban',
+            ),
+        );
+        $landed = array_map(static fn (AccountImportOutcome $outcome): int => $outcome->account->id, $result->accounts);
+        if ($section === null || $landed !== [$this->accountIds[CodaBlueprint::UNIT_ACCOUNT], $section->id] || $result->skipped !== []) {
+            throw new \RuntimeException('Le fichier CODA n\'a pas rejoint le compte camps et le premier compte de section, et eux seuls.');
+        }
+        // CodaWriter took the camps opening from the ledger itself: a
+        // discrepancy means the two have drifted apart, and the dataset
+        // would show an alert it invented.
+        foreach ($result->accounts as $outcome) {
+            if ($outcome->balanceDiscrepancy !== null) {
+                throw new \RuntimeException("Le solde CODA du compte {$outcome->account->name} ne correspond pas à son grand livre.");
+            }
+        }
+
+        return $result;
     }
 
     /**

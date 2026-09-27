@@ -370,14 +370,15 @@ class TransactionRepository
         ?string $counterpartyName = null,
         ?string $counterpartyAccount = null,
         ?string $extraDetails = null,
-        ?string $categorySource = null
+        ?string $categorySource = null,
+        ?string $structuredCommunication = null
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO finance_transactions
                 (account_id, fiscal_year_id, bank_reference, transaction_date, label, amount, category_id, '
                 . 'category_source, comment, counterparty_name, counterparty_account, extra_details, source, '
-                . 'imported_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                . 'imported_at, structured_communication)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $accountId,
@@ -400,6 +401,9 @@ class TransactionRepository
                 : null,
             $source,
             $importedAt,
+            $structuredCommunication !== null
+                ? $this->encryption->encrypt($structuredCommunication, 'finance_transactions.structured_communication')
+                : null,
         ]);
         return (int) $this->pdo->lastInsertId();
     }
@@ -425,7 +429,8 @@ class TransactionRepository
         ?int $categoryId,
         ?string $counterpartyName = null,
         ?string $counterpartyAccount = null,
-        ?string $extraDetails = null
+        ?string $extraDetails = null,
+        ?string $structuredCommunication = null
     ): bool {
         $stmt = $this->pdo->prepare('SELECT 1 FROM finance_transactions WHERE account_id = ? AND bank_reference = ?');
         $stmt->execute([$accountId, $bankReference]);
@@ -447,7 +452,8 @@ class TransactionRepository
             $counterpartyName,
             $counterpartyAccount,
             $extraDetails,
-            Transaction::CATEGORY_SOURCE_AUTO
+            Transaction::CATEGORY_SOURCE_AUTO,
+            $structuredCommunication
         );
         return true;
     }
@@ -589,7 +595,10 @@ class TransactionRepository
             extraDetails: $row['extra_details'] !== null
                 ? $this->encryption->decrypt($row['extra_details'], 'finance_transactions.extra_details')
                 : null,
-            categorySource: $row['category_source'] !== null ? (string) $row['category_source'] : null
+            categorySource: $row['category_source'] !== null ? (string) $row['category_source'] : null,
+            structuredCommunication: isset($row['structured_communication'])
+                ? $this->encryption->decrypt($row['structured_communication'], 'finance_transactions.structured_communication')
+                : null
         );
     }
 
