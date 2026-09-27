@@ -881,7 +881,7 @@ class CampaignControllerTest extends TestCase
             new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken(), 'status' => 'closed'], [], []),
             $params
         );
-        $refusals['clôture'] = FlashMessage::get()['message'] ?? null;
+        $refusals['closing'] = FlashMessage::get()['message'] ?? null;
         $this->controller->saveNote(
             new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken(), 'note' => 'Payé en liquide'], [], []),
             $params + ['rowId' => (string) $rowId]
@@ -896,7 +896,7 @@ class CampaignControllerTest extends TestCase
             new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken(), 'waived' => '1'], [], []),
             $params + ['receivableId' => (string) $receivableId]
         );
-        $refusals['abandon'] = FlashMessage::get()['message'] ?? null;
+        $refusals['waiver'] = FlashMessage::get()['message'] ?? null;
 
         foreach ($refusals as $gesture => $message) {
             $this->assertSame(
