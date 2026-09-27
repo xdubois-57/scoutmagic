@@ -42,7 +42,7 @@
             return Array.isArray(rows) ? rows.filter(function (row) {
                 return row?.id !== undefined && row.id !== null && row.label !== undefined;
             }) : [];
-        } catch (e) {
+        } catch {
             // A malformed attribute is the server's bug, not the reader's:
             // the picker starts empty rather than taking the page down.
             return [];
