@@ -100,7 +100,17 @@ final class ComponentsStylesheetIsLoadedWhereItsClassesAreUsedTest extends TestC
         $this->assertArrayHasKey('support-payload-preview', $classes, 'issue #602\'s class');
         $this->assertArrayNotHasKey('min-w-0', $classes, '.min-w-0 lives in app.css since #602');
 
-        $this->assertSame(['a', 'b-c'], self::classesUsedIn('<div class="a {{ x ? \'d\' : \'\' }} b-c">'));
+        $this->assertEqualsCanonicalizing(
+            ['a', 'b-c', 'd'],
+            self::classesUsedIn('<div class="a {{ x ? \'d\' : \'\' }} b-c">')
+        );
+        // A class forwarded to a partial, the way receipts/form.html.twig hands
+        // `receipt-drop-zone` to drop_zone.html.twig (found in review of #602).
+        $this->assertSame(
+            ['receipt-drop-zone'],
+            self::classesUsedIn("{% include 'partials/drop_zone.html.twig' with { class_extra: 'receipt-drop-zone' } %}")
+        );
+        $this->assertSame(['is-open'], self::classesUsedIn("{% set row_class = 'is-open' %}"));
         $this->assertSame(['a', 'b'], self::simpleClassesIn('.a, .b:hover { x: 1 } .c .d { } .e > .f { }'));
     }
 
@@ -151,18 +161,48 @@ final class ComponentsStylesheetIsLoadedWhereItsClassesAreUsedTest extends TestC
     }
 
     /**
-     * The literal class names in a template's `class="…"` attributes.
+     * The class names a template writes: the literal ones in its `class="…"`
+     * attributes, and the string literals it hands to one through Twig.
+     *
+     * The second half is what the review of issue #602's fix found missing.
+     * `receipts/form.html.twig` passes `class_extra: 'receipt-drop-zone'` to
+     * a partial that prints it inside `class="…"`; the name is never written
+     * in an attribute, so a scan of attributes alone approved a page that
+     * used a components-only class without loading the stylesheet. Read too:
+     * any quoted string assigned to a Twig key or variable whose name
+     * contains `class` (`class_extra: '…'`, `{% set row_class = '…' %}`),
+     * and the quoted strings inside a `{{ … }}` within the attribute
+     * (`{{ active ? 'is-active' }}`).
      *
      * @return list<string>
      */
     private static function classesUsedIn(string $source): array
     {
-        preg_match_all('/\bclass="([^"]*)"/', $source, $matches);
+        $values = [];
+
+        preg_match_all('/\bclass="([^"]*)"/', $source, $attributes);
+        foreach ($attributes[1] as $value) {
+            preg_match_all('/\{\{.*?\}\}|\{%.*?%\}/s', $value, $expressions);
+            foreach ($expressions[0] as $expression) {
+                $values = [...$values, ...self::quotedStringsIn($expression)];
+            }
+            // Twig expressions inside the attribute are not class names themselves.
+            $values[] = (string) preg_replace('/\{\{.*?\}\}|\{%.*?%\}/s', ' ', $value);
+        }
+
+        // A key (`class_extra: '…'`) or a `{% set …class… = '…' %}`; never
+        // `class="…"` itself, which is HTML and read above.
+        preg_match_all(
+            '/(?:\b\w*class\w*\s*:|\{%-?\s*set\s+\w*class\w*\s*=)\s*(\'[^\']*\'|"[^"]*")/i',
+            $source,
+            $forwarded
+        );
+        foreach ($forwarded[1] as $literal) {
+            $values[] = substr($literal, 1, -1);
+        }
 
         $classes = [];
-        foreach ($matches[1] as $value) {
-            // Twig expressions inside the attribute are not class names.
-            $value = (string) preg_replace('/\{\{.*?\}\}|\{%.*?%\}/s', ' ', $value);
+        foreach ($values as $value) {
             foreach (preg_split('/\s+/', trim($value)) ?: [] as $token) {
                 if (preg_match('/^[A-Za-z][\w-]*$/', $token) === 1) {
                     $classes[$token] = true;
@@ -171,6 +211,19 @@ final class ComponentsStylesheetIsLoadedWhereItsClassesAreUsedTest extends TestC
         }
 
         return array_keys($classes);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function quotedStringsIn(string $expression): array
+    {
+        preg_match_all('/\'([^\']*)\'|"([^"]*)"/', $expression, $matches);
+
+        return array_values(array_filter(
+            array_map(static fn(string $single, string $double): string => $single . $double, $matches[1], $matches[2]),
+            static fn(string $literal): bool => $literal !== ''
+        ));
     }
 
     /**
