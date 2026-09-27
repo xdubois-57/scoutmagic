@@ -58,8 +58,9 @@ d'origine.
 
 **Chaque modification crée une nouvelle version**, et l'ancienne reste
 lisible à son adresse permanente. Le site enregistre la version que chaque
-locataire a acceptée, et tous les e-mails qui lui sont envoyés se terminent
-par un lien vers celle-là, même si vous personnalisez ces e-mails.
+locataire a acceptée. L'accusé de réception, la décision, les documents et
+les informations pratiques qui lui sont envoyés se terminent par un lien
+vers celle-là, même si vous personnalisez ces e-mails.
 
 ## Rappels
 

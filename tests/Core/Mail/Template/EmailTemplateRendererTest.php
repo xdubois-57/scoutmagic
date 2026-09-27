@@ -338,15 +338,6 @@ class EmailTemplateRendererTest extends TestCase
     }
 
     /**
-     * The call to action of half the e-mails this site sends is a link
-     * whose address IS a variable. What the editor stores is not what the
-     * administrator typed: the sanitizer serialises through DOM, and DOM
-     * percent-encodes a URL attribute — `href="%7B%7B%20login_url%20%7D%7D"`.
-     * Matched only in its literal spelling, the placeholder was never
-     * substituted, and every customised e-mail went out with its button
-     * pointing at the escaped placeholder itself.
-     */
-    /**
      * The frame's footer note — added by the SENDING code, not the template
      * (email/base.html.twig) — survives a customisation, in both halves:
      * a rental's link to the conditions the renter accepted (issue #494)
@@ -370,6 +361,39 @@ class EmailTemplateRendererTest extends TestCase
         self::assertStringContainsString('href="https://unite.test/locations/le-chalet/conditions/0123456789ab"', $email->bodyHtml);
     }
 
+    /**
+     * In the shipped plain-text half, the note and its link each keep a
+     * line of their own: Twig eats the newline after a `%}`, and the link
+     * used to end up glued to the colon of the note.
+     */
+    public function testTheTextHalfPutsTheFooterLinkOnItsOwnLine(): void
+    {
+        $email = $this->renderer->render('super_admin_granted', [
+            'granted_by' => 'Alice',
+            'site_name' => 'Unité Test',
+            'footer_note' => 'Conditions de location acceptées le 01/05/2027 :',
+            'footer_link' => 'https://unite.test/locations/le-chalet/conditions/0123456789ab',
+        ]);
+
+        self::assertStringContainsString(
+            "Unité Test\n\nConditions de location acceptées le 01/05/2027 :\n"
+            . "https://unite.test/locations/le-chalet/conditions/0123456789ab\n\n--",
+            $email->bodyText
+        );
+    }
+
+    /** A note without a link ends the paragraph there. */
+    public function testATextFooterNoteWithoutALinkStandsAlone(): void
+    {
+        $email = $this->renderer->render('super_admin_granted', [
+            'granted_by' => 'Alice',
+            'site_name' => 'Unité Test',
+            'footer_note' => 'Une note.',
+        ]);
+
+        self::assertStringContainsString("Unité Test\n\nUne note.\n\n--", $email->bodyText);
+    }
+
     /** Without a note the frame says nothing more than it always has. */
     public function testWithoutAFooterNoteTheFrameIsUnchanged(): void
     {
@@ -379,6 +403,15 @@ class EmailTemplateRendererTest extends TestCase
         self::assertStringContainsString("Bien à vous,\nUnité Test\n\n--", $email->bodyText);
     }
 
+    /**
+     * The call to action of half the e-mails this site sends is a link
+     * whose address IS a variable. What the editor stores is not what the
+     * administrator typed: the sanitizer serialises through DOM, and DOM
+     * percent-encodes a URL attribute — `href="%7B%7B%20login_url%20%7D%7D"`.
+     * Matched only in its literal spelling, the placeholder was never
+     * substituted, and every customised e-mail went out with its button
+     * pointing at the escaped placeholder itself.
+     */
     public function testAPlaceholderInsideALinkSurvivesTheSanitisersUrlEncoding(): void
     {
         $stored = (new HtmlSanitizer())->sanitize('<p><a href="{{ login_url }}">Se connecter</a></p>');
