@@ -17,9 +17,8 @@ use Modules\MemberStats\Controller\MemberStatsController;
 use Modules\MemberStats\Repository\MemberStatsRepository;
 use Modules\MemberStats\Service\MemberStatsService;
 use PHPUnit\Framework\TestCase;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
-use Twig\TwigFunction;
 
 /**
  * RBAC boundary for /chiefs/stats (Espace animateurs, role_min chief):
@@ -38,15 +37,9 @@ class MemberStatsControllerTest extends TestCase
         }
         $_SESSION = [];
 
-        $coreTemplates = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/member_stats/views';
-        $loader = new FilesystemLoader($coreTemplates);
-        $loader->addPath($moduleViews, 'member_stats');
 
-        $this->twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $this->twig = TestTwig::create(['member_stats' => $moduleViews]);
         $this->twig->addGlobal('site_name', 'Test');
         $this->twig->addGlobal('is_authenticated', true);
         $this->twig->addGlobal('current_user_email', 'chief@test.be');
@@ -55,10 +48,6 @@ class MemberStatsControllerTest extends TestCase
         $this->twig->addGlobal('cookie_consent_given', true);
         $this->twig->addGlobal('menus', null);
         $this->twig->addGlobal('csp_nonce', 'n');
-        $this->twig->addFunction(new TwigFunction('csrf_field', fn() => '', ['is_safe' => ['html']]));
-        $this->twig->addFunction(new TwigFunction('csrf_token', fn() => 't'));
-        $this->twig->addFunction(new TwigFunction('get_flash', fn() => null));
-        $this->twig->addFunction(new TwigFunction('file_url', fn() => ''));
 
         $configFile = sys_get_temp_dir() . '/test_member_stats_config_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");

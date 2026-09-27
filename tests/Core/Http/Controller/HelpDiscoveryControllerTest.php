@@ -23,8 +23,7 @@ use Core\Security\CsrfGuard;
 use PHPUnit\Framework\TestCase;
 use Tests\Core\Help\HelpTopicFileFixtures;
 use Tests\DatabaseTestHelper;
-use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
+use Tests\TestTwig;
 
 /**
  * What the « Le saviez-vous ? » dialog writes back (ARCHITECTURE.md
@@ -242,8 +241,7 @@ final class HelpDiscoveryControllerTest extends TestCase
 
     private function controller(): HelpDiscoveryController
     {
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);
+        $twig = TestTwig::create();
 
         return new HelpDiscoveryController(
             $twig,

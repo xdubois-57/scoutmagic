@@ -27,8 +27,8 @@ use Core\Service\TextNormalizerService;
 use Core\View\SectionRepository;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
 use Core\Member\Repository\MemberProfileRepository;
 
 /**
@@ -50,14 +50,10 @@ class PageControllerTest extends TestCase
 
     protected function setUp(): void
     {
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $twig = new Environment(new FilesystemLoader($templateDir), [
-            'cache' => false,
-            'autoescape' => 'html',
-        ]);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $twig = TestTwig::create([], ['param' => function (string $key): string {
+            $params = ['contact_email' => 'test@example.com', 'site_name' => 'Test'];
+            return $params[$key] ?? '';
+        }]);
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', false);
         $twig->addGlobal('current_user_email', null);
@@ -66,58 +62,11 @@ class PageControllerTest extends TestCase
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
 
-        $twig->addFunction(new \Twig\TwigFunction('csrf_field', function (): string {
-            return '<input type="hidden" name="_csrf_token" value="test">';
-        }, ['is_safe' => ['html']]));
-        $twig->addFunction(new \Twig\TwigFunction('get_flash', function (): ?array {
-            return null;
-        }));
-        $twig->addFunction(new \Twig\TwigFunction('csrf_token', function (): string {
-            return 'test';
-        }));
-        $twig->addFunction(new \Twig\TwigFunction('file_url', function (): string {
-            return '';
-        }));
-        // Core\View\TwigFactory registers these in production; this test
-        // builds a bare Environment, so the pages under test — the
-        // homepage's payment band, sections.html.twig's names, the groups
-        // activity card's relative dates — need them declared here too.
-        // The shipped extensions, so this file renders what a visitor sees
-        // (issue #465).
-        $twig->addExtension(new \Core\View\DateFilterExtension());
-        $twig->addExtension(new \Core\View\MemberNameFilterExtension());
-        $twig->addExtension(new \Core\View\FormatFilterExtension());
-        $twig->addFunction(new \Twig\TwigFunction('param', function (string $key): string {
-            $params = ['contact_email' => 'test@example.com', 'site_name' => 'Test'];
-            return $params[$key] ?? '';
-        }));
-
         $this->pdo = DatabaseTestHelper::createTestDatabase();
 
         $repo = new EditableContentRepository($this->pdo);
         $editableService = new EditableContentService($repo);
         $twig->addGlobal('_editable_content_service', $editableService);
-
-        $twig->addFunction(new \Twig\TwigFunction('editable', function (string $key, string $default = ''): string {
-            return $default;
-        }, ['is_safe' => ['html']]));
-        // The shared person avatar (Core\View\PersonAvatar), registered here
-        // the way Core\View\TwigFactory does with no photo service: same
-        // markup as production for an account that has set no photo.
-        $twig->addFunction(new \Twig\TwigFunction('person_avatar', function (string $name, array $options = []): string {
-            return \Core\View\PersonAvatar::render($name, null, (int) ($options['size'] ?? 40));
-        }, ['is_safe' => ['html']]));
-        $twig->addFunction(new \Twig\TwigFunction('editable_image', function (): string {
-            return '';
-        }, ['is_safe' => ['html']]));
-        // Minimal stand-in for TwigFactory::create()'s real section_photo() —
-        // real rendering/placeholder/overlay logic is covered in full by
-        // Tests\Core\View\SectionPhotoFunctionTest; here it only needs to
-        // exist so pages/contact.html.twig doesn't fail to render.
-        $twig->addFunction(new \Twig\TwigFunction('section_photo', function (): string {
-            return '';
-        }, ['is_safe' => ['html']]));
-        $twig->addExtension(new \Core\View\TextNormalizerExtension());
 
         $sectionRepo = new SectionRepository($this->pdo);
 
@@ -801,7 +750,6 @@ class PageControllerTest extends TestCase
         $this->assertStringContainsString(TextNormalizerService::normalizeName('Marie'), $body);
         $this->assertStringNotContainsString(TextNormalizerService::normalizeName('Curie'), $body);
     }
-
 
     /**
      * One section, one designated responsable — Marie Curie, totem

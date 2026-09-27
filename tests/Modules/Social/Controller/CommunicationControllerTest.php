@@ -18,7 +18,6 @@ use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\UserAccountRepository;
-use Core\View\TwigFactory;
 use Modules\Social\Api\SocialPlatform;
 use Modules\Social\Card\CardRenderer;
 use Modules\Social\Card\CardService;
@@ -40,6 +39,7 @@ use Tests\DatabaseTestHelper;
 use Tests\Modules\Social\FakeMetaTransport;
 use Tests\Modules\Social\FakePhotoPicker;
 use Tests\Modules\Social\SocialTestHelper as H;
+use Tests\TestTwig;
 use Twig\Environment;
 
 /**
@@ -553,7 +553,7 @@ final class CommunicationControllerTest extends TestCase
     private function twig(): Environment
     {
         $root = dirname(__DIR__, 4);
-        $twig = TwigFactory::create($root . '/core/View/templates', false, ['social' => $root . '/modules/social/views']);
+        $twig = TestTwig::create(['social' => $root . '/modules/social/views'], ['param' => static fn (string $key): string => 'Test Unit']);
         $twig->addGlobal('site_name', 'Test Unit');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_role', 'chief');
@@ -561,7 +561,6 @@ final class CommunicationControllerTest extends TestCase
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
         $twig->addGlobal('current_path', '/communications');
-        $twig->addFunction(new \Twig\TwigFunction('param', static fn (string $key): string => 'Test Unit'));
 
         return $twig;
     }

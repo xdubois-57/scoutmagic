@@ -17,8 +17,8 @@ use Core\Http\Response;
 use Core\Http\Router;
 use Core\Security\AuthSession;
 use PHPUnit\Framework\TestCase;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
 
 if (!defined('AUTHZ_SUPPORT_TEST')) {
     define('AUTHZ_SUPPORT_TEST', true);
@@ -85,26 +85,7 @@ final class RemoteBackupRbacTest extends TestCase
         }
         $_SESSION = [];
 
-        $this->twig = new Environment(
-            new FilesystemLoader(dirname(__DIR__, 3) . '/core/View/templates'),
-            ['cache' => false, 'autoescape' => 'html']
-        );
-        // The globals and functions `base.html.twig` reaches for, exactly
-        // as `ScoutYearRbacTest` registers them: the 403 page is a real
-        // render, so the layout has to have what it asks for.
-        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
-        $this->twig->addFunction(new \Twig\TwigFunction('csrf_field', fn () => '', ['is_safe' => ['html']]));
-        $this->twig->addFunction(new \Twig\TwigFunction('csrf_token', fn () => 'test'));
-        $this->twig->addFunction(new \Twig\TwigFunction('get_flash', fn () => null));
-        $this->twig->addFunction(new \Twig\TwigFunction('editable', fn () => '', ['is_safe' => ['html']]));
-        $this->twig->addFunction(new \Twig\TwigFunction('editable_image', fn () => '', ['is_safe' => ['html']]));
-        $this->twig->addFunction(new \Twig\TwigFunction('file_url', fn () => ''));
-        $this->twig->addFunction(new \Twig\TwigFunction(
-            'person_avatar',
-            fn (string $name, array $options = []): string
-                => \Core\View\PersonAvatar::render($name, null, (int) ($options['size'] ?? 40)),
-            ['is_safe' => ['html']]
-        ));
+        $this->twig = TestTwig::create();
         $this->twig->addGlobal('site_name', 'Test');
         $this->twig->addGlobal('is_authenticated', false);
         $this->twig->addGlobal('current_user_email', null);

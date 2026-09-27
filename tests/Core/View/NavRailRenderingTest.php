@@ -10,8 +10,8 @@ declare(strict_types=1);
 namespace Tests\Core\View;
 
 use PHPUnit\Framework\TestCase;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
 
 /**
  * Nav rail (partials/nav_rail.html.twig) — one of the site's two
@@ -30,14 +30,7 @@ class NavRailRenderingTest extends TestCase
 
     protected function setUp(): void
     {
-        $templateDir = dirname(__DIR__, 3) . '/core/View/templates';
-        $this->twig = new Environment(new FilesystemLoader($templateDir), [
-            'cache' => false,
-            'autoescape' => 'html',
-        ]);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $this->twig = TestTwig::create();
     }
 
     /**

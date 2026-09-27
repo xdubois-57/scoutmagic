@@ -6,8 +6,8 @@ namespace Tests\Core\View;
 
 use Core\Security\HumanCheck\HumanCheckChallenge;
 use PHPUnit\Framework\TestCase;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
 
 /**
  * partials/human_check_fields.html.twig — same rendering-only precedent as
@@ -22,12 +22,7 @@ class HumanCheckFieldsRenderingTest extends TestCase
 
     protected function setUp(): void
     {
-        $coreTemplates = dirname(__DIR__, 3) . '/core/View/templates';
-        $loader = new FilesystemLoader($coreTemplates);
-        $this->twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $this->twig = TestTwig::create();
     }
 
     public function testRendersATrapFieldReachableByARobotButNotByKeyboardOrScreenReader(): void

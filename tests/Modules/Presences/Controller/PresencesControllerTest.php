@@ -21,9 +21,8 @@ use Modules\Presences\Value\PresenceStatus;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Presences\PresencesTestHelper;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
-use Twig\TwigFunction;
 
 /**
  * The routes, end to end: the RBAC floor the router enforces
@@ -60,22 +59,7 @@ class PresencesControllerTest extends TestCase
         }
         $_SESSION = [];
 
-        $root = dirname(__DIR__, 4);
-        $loader = new FilesystemLoader($root . '/core/View/templates');
-        $loader->addPath($root . '/modules/presences/views', 'presences');
-        $this->twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
-        $this->twig->addFunction(new TwigFunction('asset', static fn (string $path): string => $path));
-        $this->twig->addFunction(new TwigFunction('param', static fn (string $key, $default = '') => 'Test'));
-        $this->twig->addFunction(new TwigFunction('csrf_field', static fn () => '', ['is_safe' => ['html']]));
-        $this->twig->addFunction(new TwigFunction('csrf_token', static fn () => 't'));
-        $this->twig->addFunction(new TwigFunction('get_flash', static fn () => null));
-        $this->twig->addFunction(new TwigFunction('file_url', static fn () => ''));
-        // The site registers these through Core\View\TwigFactory, which
-        // needs half the composition root to build. The extensions are
-        // reachable without it, so the dates this page prints are the ones
-        // a visitor reads rather than a stand-in (issue #465).
-        $this->twig->addExtension(new \Core\View\TextNormalizerExtension());
-        $this->twig->addExtension(new \Core\View\DateFilterExtension());
+        $this->twig = TestTwig::create(['presences'], ['param' => static fn (string $key, $default = '') => 'Test']);
         $this->twig->addGlobal('site_name', 'Test');
         $this->twig->addGlobal('is_authenticated', true);
         $this->twig->addGlobal('current_user_email', 'akela@test.be');

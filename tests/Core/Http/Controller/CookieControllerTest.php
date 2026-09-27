@@ -9,8 +9,7 @@ use Core\Http\Controller\CookieController;
 use Core\Http\Request;
 use Core\Security\CsrfGuard;
 use PHPUnit\Framework\TestCase;
-use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
+use Tests\TestTwig;
 
 class CookieControllerTest extends TestCase
 {
@@ -28,14 +27,7 @@ class CookieControllerTest extends TestCase
         $_POST = [];
         $_SERVER['HTTP_X_CSRF_TOKEN'] = '';
 
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $twig = new Environment(new FilesystemLoader($templateDir), [
-            'cache' => false,
-            'autoescape' => 'html',
-        ]);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $twig = TestTwig::create();
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', false);
         $twig->addGlobal('current_user_email', null);
@@ -43,31 +35,6 @@ class CookieControllerTest extends TestCase
         $twig->addGlobal('config_mode', false);
         $twig->addGlobal('cookie_consent_given', false);
         $twig->addGlobal('menus', null);
-
-        $twig->addFunction(new \Twig\TwigFunction('csrf_field', function (): string {
-            return '<input type="hidden" name="_csrf_token" value="test">';
-        }, ['is_safe' => ['html']]));
-        $twig->addFunction(new \Twig\TwigFunction('get_flash', function (): ?array {
-            return null;
-        }));
-        $twig->addFunction(new \Twig\TwigFunction('csrf_token', function (): string {
-            return 'test';
-        }));
-        $twig->addFunction(new \Twig\TwigFunction('editable', function (): string {
-            return '';
-        }, ['is_safe' => ['html']]));
-        // The shared person avatar (Core\View\PersonAvatar), registered here
-        // the way Core\View\TwigFactory does with no photo service: same
-        // markup as production for an account that has set no photo.
-        $twig->addFunction(new \Twig\TwigFunction('person_avatar', function (string $name, array $options = []): string {
-            return \Core\View\PersonAvatar::render($name, null, (int) ($options['size'] ?? 40));
-        }, ['is_safe' => ['html']]));
-        $twig->addFunction(new \Twig\TwigFunction('editable_image', function (): string {
-            return '';
-        }, ['is_safe' => ['html']]));
-        $twig->addFunction(new \Twig\TwigFunction('file_url', function (): string {
-            return '';
-        }));
 
         $this->cookieConsentService = new CookieConsentService([]);
         $this->controller = new CookieController($twig, $this->cookieConsentService);
@@ -207,14 +174,7 @@ class CookieControllerTest extends TestCase
 
     private function createController(CookieConsentService $service): CookieController
     {
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $twig = new Environment(new FilesystemLoader($templateDir), [
-            'cache' => false,
-            'autoescape' => 'html',
-        ]);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $twig = TestTwig::create();
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', false);
         $twig->addGlobal('current_user_email', null);
@@ -222,25 +182,6 @@ class CookieControllerTest extends TestCase
         $twig->addGlobal('config_mode', false);
         $twig->addGlobal('cookie_consent_given', $service->hasConsented());
         $twig->addGlobal('menus', null);
-
-        $twig->addFunction(new \Twig\TwigFunction('csrf_field', function (): string {
-            return '<input type="hidden" name="_csrf_token" value="test">';
-        }, ['is_safe' => ['html']]));
-        $twig->addFunction(new \Twig\TwigFunction('get_flash', function (): ?array {
-            return null;
-        }));
-        $twig->addFunction(new \Twig\TwigFunction('csrf_token', function (): string {
-            return 'test';
-        }));
-        $twig->addFunction(new \Twig\TwigFunction('editable', function (): string {
-            return '';
-        }, ['is_safe' => ['html']]));
-        $twig->addFunction(new \Twig\TwigFunction('editable_image', function (): string {
-            return '';
-        }, ['is_safe' => ['html']]));
-        $twig->addFunction(new \Twig\TwigFunction('file_url', function (): string {
-            return '';
-        }));
 
         return new CookieController($twig, $service);
     }

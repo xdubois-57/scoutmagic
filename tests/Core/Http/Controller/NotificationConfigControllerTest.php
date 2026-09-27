@@ -27,8 +27,8 @@ use Core\Security\UserAccountRepository;
 use Minishlink\WebPush\WebPush;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
 
 /**
  * @group database
@@ -71,14 +71,7 @@ class NotificationConfigControllerTest extends TestCase
         $this->secretManager->generateMasterKey();
         $this->secretManager->writeSecrets(['vapid_public_key' => 'old-pub', 'vapid_private_key' => 'old-priv']);
 
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $this->twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
-        $this->twig->addFunction(new \Twig\TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
-        $this->twig->addFunction(new \Twig\TwigFunction('get_flash', fn() => null));
-        $this->twig->addFunction(new \Twig\TwigFunction('csrf_token', fn() => 'test'));
+        $this->twig = TestTwig::create();
         $this->twig->addGlobal('site_name', 'Test');
         $this->twig->addGlobal('menus', null);
         $this->twig->addGlobal('csp_nonce', 'n');

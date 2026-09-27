@@ -29,9 +29,8 @@ use Core\Storage\Location\StorageLocationService;
 use Core\Storage\Location\StorageLocationType;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\TwigFunction;
-use Twig\Loader\FilesystemLoader;
 
 /**
  * The OAuth round trip, decision by decision.
@@ -189,28 +188,16 @@ final class GoogleDriveConnectionControllerTest extends TestCase
     }
 
     /**
-     * The real templates, with the handful of functions and globals
-     * `Core\View\TwigFactory` registers in production.
+     * The real templates through production's environment, with the
+     * globals `public/index.php` sets.
      *
      * Needed because a refusal RENDERS: the 403 page extends
-     * `base.html.twig`, and a bare Environment fails to parse it — which
-     * would look exactly like the route having gone wrong.
+     * `base.html.twig`, and an environment without its functions fails to
+     * parse it — which would look exactly like the route having gone wrong.
      */
     private function twig(): Environment
     {
-        $twig = new Environment(
-            new FilesystemLoader(dirname(__DIR__, 4) . '/core/View/templates'),
-            ['cache' => false, 'autoescape' => 'html']
-        );
-        $twig->addFunction(new TwigFunction('asset', static fn (string $path): string => $path));
-        $twig->addFunction(new TwigFunction('csrf_token', static fn (): string => 'test'));
-        $twig->addFunction(new TwigFunction(
-            'csrf_field',
-            static fn (): string => '<input type="hidden" name="_csrf_token" value="test">',
-            ['is_safe' => ['html']]
-        ));
-        $twig->addFunction(new TwigFunction('get_flash', static fn (): ?string => null));
-        $twig->addFunction(new TwigFunction('file_url', static fn (): string => ''));
+        $twig = TestTwig::create();
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_role', 'admin');
@@ -564,7 +551,7 @@ final class GoogleDriveConnectionControllerTest extends TestCase
         $this->journal = new RecordingJournalRepository();
 
         return new GoogleDriveConnectionController(
-            new Environment(new FilesystemLoader(dirname(__DIR__, 4) . '/core/View/templates')),
+            TestTwig::create(),
             $this->locations,
             $this->locationService,
             $this->settings,

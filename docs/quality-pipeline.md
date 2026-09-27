@@ -46,6 +46,13 @@ build on the first reference from outside a module to anything but its
 `Api\` namespace, and `ModuleSchemaBoundariesTest` on a foreign key crossing
 module tables. Both are absolute (`ARCHITECTURE.md` §7.5).
 
+**A rendering test sees production's Twig, or it proves nothing about the
+page.** Templates are rendered through `Tests\TestTwig` (the real
+`TwigFactory::create()`), never through an environment a test assembles
+itself — the rule, its short list of replaceable functions and the reason
+(issue #465) are in `AGENTS.md` § Tests;
+`Tests\Core\View\TestEnvironmentsUseTheRealFactoryTest` enforces it.
+
 ### The two database engines
 
 Production runs **MariaDB 10.11**. CI runs the suite twice:

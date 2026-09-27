@@ -16,8 +16,8 @@ use Core\Import\MemberYearRepository;
 use Core\ScoutYear\ScoutYearResolver;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
 
 /**
  * The attention-points page, rendered.
@@ -36,24 +36,13 @@ class AttentionControllerTest extends TestCase
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
 
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $this->twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);
-        $this->twig->addExtension(new \Core\View\DateFilterExtension());
-        // asset() is what base.html.twig references every static file through
-        // (Core\View\TwigFactory); the bare path is enough for a test render.
-        $this->twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        $this->twig = TestTwig::create();
         $this->twig->addGlobal('site_name', 'Test');
         $this->twig->addGlobal('is_authenticated', true);
         $this->twig->addGlobal('current_user_email', 'a@test.com');
         $this->twig->addGlobal('current_user_role', 'admin');
         $this->twig->addGlobal('menus', null);
         $this->twig->addGlobal('cookie_consent_given', true);
-        foreach (['csrf_field', 'editable', 'editable_image'] as $name) {
-            $this->twig->addFunction(new \Twig\TwigFunction($name, fn() => '', ['is_safe' => ['html']]));
-        }
-        $this->twig->addFunction(new \Twig\TwigFunction('get_flash', fn() => null));
-        $this->twig->addFunction(new \Twig\TwigFunction('csrf_token', fn() => 'test'));
-        $this->twig->addFunction(new \Twig\TwigFunction('file_url', fn() => ''));
 
         $scoutYearService = new ScoutYearService($this->pdo);
         $this->scoutYearResolver = new ScoutYearResolver(

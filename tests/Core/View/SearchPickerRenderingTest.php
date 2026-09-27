@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Tests\Core\View;
 
 use PHPUnit\Framework\TestCase;
+use Tests\TestTwig;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
 
 /**
  * partials/search_picker.html.twig — the half of the generic search picker
@@ -23,12 +23,8 @@ final class SearchPickerRenderingTest extends TestCase
 
     protected function setUp(): void
     {
-        $templateDir = dirname(__DIR__, 3) . '/core/View/templates';
-        $this->twig = new Environment(new FilesystemLoader($templateDir), [
-            'cache' => false,
-            'autoescape' => 'html',
-            'strict_variables' => true,
-        ]);
+        $this->twig = TestTwig::create();
+        $this->twig->enableStrictVariables();
     }
 
     /**
