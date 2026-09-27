@@ -854,4 +854,285 @@ class GalleryChiefControllerTest extends TestCase
 
         unset($_FILES['file']);
     }
+
+    // --- what a chief reads when it refuses (issue #449, batch 4) ---
+    //
+    // Seven of this controller's twelve catch bodies had never been executed.
+    // They differ in shape from the three batches before this one: most answer
+    // JSON — `{success: false, error: <the reason>}` with 422 — with two
+    // exceptions. `update()` re-renders the form with the reason, and the
+    // chunk-resume branch answers 409 with a `received` byte count, because a
+    // browser mid-upload needs to know where to carry on from.
+    //
+    // `public/assets/js/gallery.js` reads that `error` field at every display
+    // site, falling back to a generic sentence when it is absent. So the reason
+    // travelling in that field IS what a chief reads, and each test below
+    // asserts it, never just the status.
+    //
+    // No double throws anything here. Every test below reaches its branch
+    // through ordinary bad input or a real row state: an emptied title, an
+    // album mid-migration, a media upload aimed at an external album, a cover
+    // taken from another album, a chunk posted with a malformed upload id.
+    //
+    // In particular none of them goes through `controllerDenyingEveryAlbum()`,
+    // which swaps the controller's own guard and keeps the permissive services
+    // (its docblock says so) — see the note on the first test below.
+
+    /**
+     * `update()` is the odd one out: it re-renders the form with the reason
+     * rather than answering JSON, because this route is a real form POST and
+     * the chief must get their fields back rather than a blank page. The 422
+     * is what tells a browser (and a crawler) the submission was rejected.
+     */
+    public function testUpdateBringsTheFormBackWithTheReasonRatherThanRedirecting(): void
+    {
+        $id = $this->createLocalAlbum();
+        $token = $this->csrfToken();
+
+        // AlbumService::update() validates the title before anything else, so
+        // an emptied one refuses through the real service with no access
+        // service involved. (`controllerDenyingEveryAlbum()` would not reach
+        // this branch: it swaps the controller's own guard and keeps the
+        // permissive services, as its docblock says.)
+        $response = $this->controller->update(
+            new Request('POST', '/gallery/' . $id, [], [
+                '_csrf_token' => $token,
+                'title' => '   ',
+                'album_date' => '2026-02-01',
+            ], [], []),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $body = $response->getBody();
+        // The sentence itself, not the word « titre » — that one is also in
+        // the form's permanent « Sous-titre (optionnel) » label, so it would
+        // be satisfied by a page carrying no reason at all.
+        $this->assertStringContainsString('Le titre est obligatoire', $body, 'the reason is not on the page');
+        // The refusal keeps the form rather than redirecting away from it.
+        $this->assertStringContainsString('<form', $body);
+        $this->assertSame('Camp', $this->albumRepository->findById($id)?->title, 'the title changed anyway');
+    }
+
+    /**
+     * Deleting an album whose storage migration is still running is refused,
+     * and the reason says to come back later — `Task\MigrateAlbumStorageHandler`
+     * is copying those very files, and a deletion underneath it aborts the
+     * migration for nothing. A real row state, not a doubled service.
+     */
+    public function testDeletingAnAlbumMidMigrationSaysToComeBackLater(): void
+    {
+        $id = $this->createLocalAlbum();
+        $this->markAlbumAsMigrating($id);
+        $token = $this->csrfToken();
+
+        $response = $this->controller->delete(
+            $this->jsonRequest(['_csrf_token' => $token], '/gallery/' . $id . '/delete'),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->assertStringContainsString('migration est en cours', $decoded['error']);
+        $this->assertStringContainsString('réessayez', $decoded['error'], 'the chief is not told what to do next');
+        $this->assertNotNull($this->albumRepository->findById($id), 'the album was deleted anyway');
+    }
+
+    /**
+     * An external album is a link to somebody else's gallery, so it holds no
+     * media of its own. The refusal names that rather than leaving the upload
+     * zone spinning — and no double is involved: the real MediaService decides.
+     */
+    public function testUploadingToAnExternalAlbumSaysWhyItCannotHoldMedia(): void
+    {
+        $id = $this->createExternalAlbum();
+        $token = $this->csrfToken();
+
+        $path = tempnam(sys_get_temp_dir(), 'gallery_test_') . '.jpg';
+        $image = imagecreatetruecolor(10, 10);
+        imagejpeg($image, $path);
+        imagedestroy($image);
+        $_FILES['file'] = ['name' => 'photo.jpg', 'tmp_name' => $path, 'error' => UPLOAD_ERR_OK, 'size' => filesize($path), 'type' => 'image/jpeg'];
+
+        try {
+            $response = $this->controller->uploadMedia(
+                new Request('POST', '/gallery/' . $id . '/media', [], ['_csrf_token' => $token], [], []),
+                ['id' => (string) $id]
+            );
+        } finally {
+            unset($_FILES['file']);
+            @unlink($path);
+        }
+
+        $this->assertSame(422, $response->getStatusCode());
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->assertStringContainsString('album externe', $decoded['error']);
+        $this->assertSame(0, $this->mediaRepository->countByAlbumId($id));
+    }
+
+    /**
+     * **The refusal that only arrives once every chunk has.** A chunked upload
+     * is authorised on each chunk, but the file itself is only judged when the
+     * last one completes it — so a type the gallery does not accept costs the
+     * whole transfer before anybody learns why. That makes this the branch
+     * whose reason matters most, and it was never executed.
+     *
+     * Not reachable through an external album, which `assertCanUpload()`
+     * refuses on the first chunk (a different branch, already covered): this
+     * one needs the authorisation to pass and the assembled bytes to fail.
+     */
+    public function testAChunkedUploadOfADisallowedTypeSaysWhyOnceItIsWhole(): void
+    {
+        $id = $this->createLocalAlbum();
+        $token = $this->csrfToken();
+
+        try {
+            $response = $this->controller->uploadMedia(
+                // Plain text, assembled in one go and announced as the last
+                // chunk: the real MIME check runs on the finished file.
+                $this->chunkRequest($id, 'ceci n\'est pas une image', 0, true, $token, 'notes.txt'),
+                ['id' => (string) $id]
+            );
+        } finally {
+            unset($_FILES['file']);
+        }
+
+        $this->assertSame(422, $response->getStatusCode());
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->assertStringContainsString('Type de fichier non autorisé', $decoded['error']);
+        $this->assertSame(0, $this->mediaRepository->countByAlbumId($id), 'the media was created anyway');
+    }
+
+    /**
+     * **A malformed upload id fails twice**, and that second failure is the
+     * branch. `ChunkedUploadStore::appendChunk()` refuses an id that is not 32
+     * hex characters, and the handler then asks how many bytes it already has
+     * — which goes through the same validation and refuses again. The guard
+     * turns that into `received: 0` instead of a 500, so the browser learns
+     * where to resume from (nowhere) rather than nothing at all.
+     *
+     * Reachable without any double: the id travels in the request body.
+     */
+    public function testAMalformedUploadIdStillReportsWhereToResumeFrom(): void
+    {
+        $id = $this->createLocalAlbum();
+        $token = $this->csrfToken();
+
+        $path = tempnam(sys_get_temp_dir(), 'gallery_chunk_');
+        file_put_contents($path, 'des octets');
+        $_FILES['file'] = ['name' => 'chunk', 'tmp_name' => $path, 'error' => UPLOAD_ERR_OK, 'size' => 10, 'type' => 'application/octet-stream'];
+
+        try {
+            $response = $this->controller->uploadMedia(
+                new Request('POST', '/gallery/' . $id . '/media', [], [
+                    '_csrf_token' => $token,
+                    'upload_id' => 'pas-un-identifiant-hexadecimal',
+                    'chunk_offset' => '0',
+                    'last' => '0',
+                ], [], []),
+                ['id' => (string) $id]
+            );
+        } finally {
+            unset($_FILES['file']);
+            @unlink($path);
+        }
+
+        $this->assertSame(409, $response->getStatusCode());
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->assertStringContainsString("Identifiant d'envoi invalide", $decoded['error']);
+        $this->assertSame(0, $decoded['received'], 'the browser is not told to resume from a byte count it cannot have');
+    }
+
+    /**
+     * The same migration guard one level down: MediaService::delete() refuses
+     * while the album's files are being copied, for the reason written beside
+     * it — « a deletion underneath it aborts the migration for no good reason ».
+     */
+    public function testDeletingAMediaMidMigrationSaysToComeBackLater(): void
+    {
+        $albumId = $this->createLocalAlbum();
+        $mediaId = $this->createPhotoIn($albumId);
+        $this->markAlbumAsMigrating($albumId);
+        $token = $this->csrfToken();
+
+        $response = $this->controller->deleteMedia(
+            $this->jsonRequest(['_csrf_token' => $token], '/gallery/' . $albumId . '/media/' . $mediaId . '/delete'),
+            ['id' => (string) $albumId, 'media_id' => (string) $mediaId]
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->assertStringContainsString('migration', $decoded['error']);
+        $this->assertStringContainsString('réessayez', $decoded['error'], 'the chief is not told to come back');
+        $this->assertNotNull($this->mediaRepository->findById($mediaId), 'the media was deleted anyway');
+    }
+
+    /**
+     * One photo row in this album, with the `files` row it points at — the
+     * media repository takes a file id, never a path.
+     */
+    private function createPhotoIn(int $albumId): int
+    {
+        $this->pdo->prepare(
+            'INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min) '
+                . "VALUES ('gallery/photo.jpg', 'photo.jpg', 'image/jpeg', 1, 'identified')"
+        )->execute();
+
+        return $this->mediaRepository->create(
+            $albumId,
+            'photo',
+            (int) $this->pdo->lastInsertId(),
+            $this->mediaRepository->nextSortOrder($albumId),
+            'photo.jpg'
+        );
+    }
+
+    /**
+     * Puts the album in the state a running storage migration leaves it in.
+     * Written straight to the column the repository itself sets
+     * (AlbumRepository::startMigration), rather than running a migration.
+     */
+    private function markAlbumAsMigrating(int $albumId): void
+    {
+        $statement = $this->pdo->prepare(
+            'UPDATE gallery_albums SET migration_status = ? WHERE id = ?'
+        );
+        $statement->execute([Album::MIGRATION_IN_PROGRESS, $albumId]);
+    }
+
+    /**
+     * **The cover cannot be borrowed from another album**, and the refusal says
+     * so rather than silently doing nothing. Same family as issue #582 in
+     * finance: a route that names two things must check they belong together —
+     * here `AlbumService::setCover()` does, which is what this pins.
+     */
+    public function testACoverTakenFromAnotherAlbumIsRefusedWithItsReason(): void
+    {
+        $albumId = $this->createLocalAlbum();
+        $otherAlbumId = $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Autre camp', null, '2026-03-01', null, $this->scoutYearId, null,
+            $this->locationId, $this->authorId
+        );
+        $foreignMediaId = $this->createPhotoIn($otherAlbumId);
+        $token = $this->csrfToken();
+
+        $response = $this->controller->setCover(
+            $this->jsonRequest(
+                ['_csrf_token' => $token, 'media_id' => $foreignMediaId],
+                '/gallery/' . $albumId . '/cover'
+            ),
+            ['id' => (string) $albumId]
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->assertStringContainsString("n'appartient pas à cet album", $decoded['error']);
+        $this->assertNull($this->albumRepository->findById($albumId)?->coverMediaId, 'a foreign media became the cover');
+    }
 }
