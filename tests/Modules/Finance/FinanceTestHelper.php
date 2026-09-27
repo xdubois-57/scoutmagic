@@ -101,6 +101,7 @@ class FinanceTestHelper
             lines_duplicate INTEGER NOT NULL DEFAULT 0,
             imported_by INTEGER,
             imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            upload_id TEXT,
             FOREIGN KEY (account_id) REFERENCES finance_accounts(id)
         )');
 

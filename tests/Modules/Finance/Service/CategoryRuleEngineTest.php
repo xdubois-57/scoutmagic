@@ -220,7 +220,7 @@ class CategoryRuleEngineTest extends TestCase
 
     private function line(string $label, float $amount, ?string $counterpartyAccount = null): StatementLine
     {
-        return new StatementLine('ref-' . spl_object_id(new \stdClass()), new \DateTimeImmutable('2026-10-01'), $amount, $label, $counterpartyAccount);
+        return new StatementLine('BE00000000000001', 'ref-' . spl_object_id(new \stdClass()), new \DateTimeImmutable('2026-10-01'), $amount, $label, $counterpartyAccount);
     }
 
     public function testApplyReturnsNullWhenNoRuleMatches(): void
@@ -379,6 +379,7 @@ class CategoryRuleEngineTest extends TestCase
         $this->categoryRuleRepository->create($categoryId, 0, null, null, '>abc');
 
         $line = new StatementLine(
+            accountIban: 'BE00000000000001',
             bankReference: 'ref-1',
             transactionDate: new \DateTimeImmutable('2026-10-01'),
             amount: -250.0,
@@ -394,12 +395,14 @@ class CategoryRuleEngineTest extends TestCase
         $this->categoryRuleRepository->create($categoryId, 0, null, null, '>99,99');
 
         $above = new StatementLine(
+            accountIban: 'BE00000000000001',
             bankReference: 'ref-1',
             transactionDate: new \DateTimeImmutable('2026-10-01'),
             amount: -100.0,
             label: 'Achat'
         );
         $below = new StatementLine(
+            accountIban: 'BE00000000000001',
             bankReference: 'ref-2',
             transactionDate: new \DateTimeImmutable('2026-10-01'),
             amount: -99.0,
