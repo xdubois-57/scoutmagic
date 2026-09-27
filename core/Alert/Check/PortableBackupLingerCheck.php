@@ -74,7 +74,7 @@ final class PortableBackupLingerCheck implements OperationalCheck
                 title: 'Aucune sauvegarde portable ne traîne sur le serveur.',
                 why: 'C\'est l\'état voulu : une sauvegarde portable se télécharge, se range ailleurs, puis se '
                     . 'supprime d\'ici.',
-                actionUrl: '/config/maintenance',
+                actionUrl: '/config/maintenance/sauvegardes-recentes',
                 actionLabel: 'Voir les sauvegardes'
             );
         }
@@ -100,7 +100,7 @@ final class PortableBackupLingerCheck implements OperationalCheck
                 . 'les données de l\'unité, sur n\'importe quelle machine. Elle est faite pour être téléchargée '
                 . 'puis supprimée du serveur — laissée ici, elle annule la protection qu\'elle transporte. '
                 . 'Téléchargez-la, rangez-la ailleurs, puis supprimez-la de la liste des sauvegardes.',
-            actionUrl: '/config/maintenance',
+            actionUrl: '/config/maintenance/sauvegardes-recentes',
             actionLabel: 'Voir les sauvegardes'
         );
     }

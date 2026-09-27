@@ -96,7 +96,7 @@ final class RemotePassphraseNotedCheck implements OperationalCheck
                 . 'et qu\'il garde sur ce serveur — celui-là même auquel elles doivent survivre. Tant '
                 . 'qu\'elle n\'existe nulle part ailleurs, ces archives ne s\'ouvriront pas le jour où '
                 . 'l\'hébergement disparaît. Affichez-la, recopiez-la hors du site, puis confirmez-le.',
-            actionUrl: '/config/maintenance#remote-backup',
+            actionUrl: '/config/maintenance/sauvegarde-automatique#remote-backup',
             actionLabel: 'Noter la phrase de passe'
         );
     }
@@ -113,7 +113,7 @@ final class RemotePassphraseNotedCheck implements OperationalCheck
             value: $value,
             title: 'Aucune archive n\'est chiffrée hors site pour l\'instant.',
             why: 'Rien ne part de ce serveur, donc aucune phrase n\'ouvre quoi que ce soit ailleurs.',
-            actionUrl: '/config/maintenance#remote-backup',
+            actionUrl: '/config/maintenance/sauvegarde-automatique#remote-backup',
             actionLabel: 'Voir les sauvegardes'
         );
     }

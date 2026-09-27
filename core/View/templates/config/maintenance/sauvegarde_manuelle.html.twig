@@ -1,0 +1,159 @@
+{% extends 'config/maintenance/_layout.html.twig' %}
+{% import 'config/maintenance/_macros.html.twig' as m %}
+
+{% block maintenance_title %}Sauvegarde manuelle{% endblock %}
+
+{% block maintenance_content %}
+    {# ————— Sauvegarde manuelle —————
+
+       Three boxes where there was one, exactly as the page already
+       separates « Mise à jour » from « Mises à jour automatiques »: a
+       single box carrying the disk space, the frequency, three manual
+       triggers, the list and the deletion no longer reads.
+
+       The title says « manuelle » now that the next box says
+       « automatique »: they are the two halves of one distinction, and
+       « Sauvegardes » alone never said which side you were on. #}
+    <div class="card mb-4" id="maintenance-backups">
+        <div class="card-body">
+            {{ m.section_header('maintenance-backups-body', 'Sauvegarde manuelle', true) }}
+            <div class="collapse show mt-3" id="maintenance-backups-body">
+                {# The disk-space panel left this page in IT-02. It measured
+                   a single volume — `storage/`'s — and so reported the
+                   system disk's free space whatever the write's real
+                   destination was. The per-volume measurement, which
+                   groups the declared directories by their device and
+                   states volume by volume which basis it used, lives in
+                   Configuration › Stockage. One figure here and another
+                   one there would have been two answers to the same
+                   question, one of them wrong. #}
+                <p class="small text-body-secondary mb-3">
+                    La place disponible se lit sur
+                    <a href="/config/stockage">Configuration › Stockage</a>, mesurée volume par volume.
+                </p>
+
+                {% if not zip_encryption_supported %}
+                    <div class="alert alert-warning small">
+                        Le serveur ne supporte pas le chiffrement des archives — la sauvegarde complète est indisponible.
+                        Contactez votre hébergeur. La sauvegarde de la base de données seule reste utilisable.
+                    </div>
+                {% endif %}
+
+                <hr class="my-4">
+
+                <div class="row g-4">
+                    <div class="col-12 col-md-6">
+                        <h3 class="h6">Base de données seule</h3>
+                        <p class="text-body-secondary small">
+                            Export SQL complet de la base de données. Les champs personnels y restent chiffrés,
+                            mais le fichier reste sensible — réservé aux administrateurs.
+                        </p>
+                        <form method="post" action="/config/maintenance/backup/database">
+                            {{ csrf_field()|raw }}
+                            <button type="submit" class="btn btn-outline-primary btn-sm">
+                                <i class="bi bi-database-down" aria-hidden="true"></i> Générer
+                            </button>
+                        </form>
+                    </div>
+
+                    <div class="col-12 col-md-6">
+                        <h3 class="h6">Sauvegarde complète (chiffrée)</h3>
+                        <p class="text-body-secondary small">
+                            Archive ZIP protégée par mot de passe, générée en arrière-plan. Vous recevrez une
+                            notification lorsqu'elle sera prête.
+                            <strong>Sans les secrets</strong> : elle se restaure sur cette installation, pas sur
+                            une autre.
+                        </p>
+                        {# Core\Maintenance\BackupService leaves storage/keys and
+                           storage/config out of the archive (« secrets never
+                           leave the server in a backup »). That is deliberate,
+                           and the screen said so nowhere: restored on another
+                           host, such a backup gives an unreadable database
+                           with nothing to explain why. #}
+                        <p class="small text-warning-emphasis">
+                            <i class="bi bi-key"></i>
+                            <strong>Les clés de chiffrement ne sont pas dans l'archive</strong> — elles ne quittent
+                            jamais le serveur. Restaurée <em>ici</em>, cette sauvegarde se relit normalement ;
+                            restaurée sur un autre hébergement, la base reste illisible tant que
+                            <code>storage/keys/</code> et <code>storage/config/</code> n'y ont pas été recopiés
+                            séparément, par un autre moyen.
+                        </p>
+                        <form id="full-backup-form" {{ not zip_encryption_supported ? 'class="d-none"' : '' }}>
+                            {# A group of radios is labelled by a legend inside a
+                               fieldset, not by a loose label pointing at nothing: a
+                               screen reader announces the legend with each option,
+                               which is the whole point of the grouping.
+
+                               Tag names spelled in words on purpose — Sonar's HTML
+                               parser does not know Twig comments, so writing them in
+                               angle brackets here makes it see a stray element and
+                               report it (Web:S8732 did exactly that on this block). #}
+                            <fieldset class="mb-2 border-0 p-0">
+                                <legend class="form-label small float-none w-auto">Portée</legend>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="scope" id="scope-config" value="full_config" checked>
+                                    <label class="form-check-label small" for="scope-config">Configuration seule (paramètres, structure — sans les données membres)</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="scope" id="scope-no-gallery" value="full_no_gallery">
+                                    <label class="form-check-label small" for="scope-no-gallery">Site complet, hors emplacements de stockage</label>
+                                </div>
+                            </fieldset>
+                            <p class="form-text mb-2">
+                                Aucune archive ne reprend le contenu d'un emplacement de stockage — ni la galerie
+                                photo, ni les autres. Chaque emplacement a son propre cycle de vie&nbsp;:
+                                <a href="/config/stockage">Configuration &gt; Stockage</a>.
+                            </p>
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'full-backup-password', type: 'password',
+                                label: "Mot de passe de l'archive", required: true,
+                                size: 'sm', wrapper_class: 'mb-2',
+                            } only %}
+                            <button type="submit" class="btn btn-primary btn-sm" id="full-backup-submit">
+                                <i class="bi bi-shield-lock" aria-hidden="true"></i> Générer
+                            </button>
+                            <output class="mt-2 small d-none d-block" id="full-backup-progress">
+                                <span class="spinner-border spinner-border-sm"></span> Génération en cours…
+                            </output>
+                            <div class="mt-2 small text-danger d-none" id="full-backup-error" role="alert"></div>
+                        </form>
+                    </div>
+
+                    {# A third block in its own right, never a fourth scope of
+                       the encrypted block above: its meaning and its warning
+                       have nothing in common with it. Full width because the
+                       warning is what must be read before the button, not
+                       beside it. #}
+                    <div class="col-12">
+                        <h3 class="h6">Sauvegarde portable</h3>
+                        <div class="alert alert-warning small">
+                            <strong>Contient les clés de chiffrement du site.</strong> C'est ce qui permet de la
+                            restaurer sur une installation neuve, chez un autre hébergeur — et c'est aussi ce qui
+                            fait que son mot de passe protège, à lui seul, toutes les données de l'unité.
+                            Téléchargez-la puis supprimez-la du serveur.
+                        </div>
+                        <form id="portable-backup-form" {{ not zip_encryption_supported ? 'class="d-none"' : '' }}>
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'portable-backup-passphrase', type: 'password',
+                                label: 'Phrase de passe',
+                                help: 'Au moins ' ~ portable_passphrase_min_length ~ ' caractères. Elle n\'est jamais enregistrée en clair : le site en garde une copie chiffrée dans la tâche de sauvegarde, jusqu\'à la suppression de cette tâche. Une archive dont la phrase de passe est perdue est définitivement illisible.',
+                                required: true, minlength: portable_passphrase_min_length,
+                                size: 'sm', wrapper_class: 'mb-2',
+                            } only %}
+                            <button type="submit" class="btn btn-primary btn-sm" id="portable-backup-submit">
+                                <i class="bi bi-box-seam" aria-hidden="true"></i> Créer une sauvegarde portable
+                            </button>
+                            <output class="mt-2 small d-none d-block" id="portable-backup-progress">
+                                <span class="spinner-border spinner-border-sm"></span> Génération en cours…
+                            </output>
+                            <div class="mt-2 small text-danger d-none" id="portable-backup-error" role="alert"></div>
+                        </form>
+                        <p class="small text-body-secondary mt-2 mb-0">
+                            Une seule est conservée : la nouvelle remplace la précédente.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

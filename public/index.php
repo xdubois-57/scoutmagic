@@ -5173,6 +5173,11 @@ $router->addRoute(
     'superadmin',
     ['label' => 'Actions planifiées', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
 );
+// Configuration > Maintenance — six sub-pages sharing one rail (issue #619,
+// docs/chantiers/CHANTIER-maintenance.md), Santé de l'hébergement being the
+// landing one at /config/maintenance. The five below take the page's own
+// floor for now; the whole set moves to `superadmin` in the next step of
+// the same issue.
 $router->addRoute(
     'GET',
     '/config/maintenance',
@@ -5180,6 +5185,51 @@ $router->addRoute(
     'index',
     'admin',
     ['label' => 'Maintenance', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+);
+$router->addRoute(
+    'GET',
+    '/config/maintenance/mise-a-jour',
+    MaintenanceController::class,
+    'updatePage',
+    'admin',
+    ['label' => 'Mise à jour', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Maintenance', 'path' => '/config/maintenance']]],
+);
+$router->addRoute(
+    'GET',
+    '/config/maintenance/sauvegarde-manuelle',
+    MaintenanceController::class,
+    'manualBackupPage',
+    'admin',
+    ['label' => 'Sauvegarde manuelle', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Maintenance', 'path' => '/config/maintenance']]],
+);
+$router->addRoute(
+    'GET',
+    '/config/maintenance/sauvegarde-automatique',
+    MaintenanceController::class,
+    'automaticBackupPage',
+    'admin',
+    ['label' => 'Sauvegarde automatique', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Maintenance', 'path' => '/config/maintenance']]],
+);
+$router->addRoute(
+    'GET',
+    '/config/maintenance/sauvegardes-recentes',
+    MaintenanceController::class,
+    'recentBackupsPage',
+    'admin',
+    ['label' => 'Sauvegardes récentes', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Maintenance', 'path' => '/config/maintenance']]],
+);
+$router->addRoute(
+    'GET',
+    '/config/maintenance/reinitialisation',
+    MaintenanceController::class,
+    'resetPage',
+    'admin',
+    ['label' => 'Réinitialisation', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Maintenance', 'path' => '/config/maintenance']]],
 );
 $router->addRoute(
     'POST',

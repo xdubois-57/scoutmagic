@@ -1305,7 +1305,8 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
             expect(document.getElementById('restore-backup-progress').classList.contains('d-none')).toBe(false);
             await vi.advanceTimersByTimeAsync(3000);
             expect(fetch).toHaveBeenCalledWith('/api/maintenance/reset-status/99', expect.anything());
-            expect(window.location.href).toBe('/config/maintenance');
+            // Back to the sub-page the restore was started from (issue #619).
+            expect(window.location.href).toBe('/config/maintenance/reinitialisation');
         });
 
         it('shows the failure message on the resumed poll without redirecting', async () => {

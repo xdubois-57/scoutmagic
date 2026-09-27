@@ -125,7 +125,10 @@ final class RemotePassphraseNotedCheckTest extends TestCase
         $this->assertTrue($reading->overTrigger, 'a key that exists only on this server raised nothing');
         $this->assertFalse($reading->underRearm);
         $this->assertSame('génération 1 non notée', $reading->value);
-        $this->assertSame('/config/maintenance#remote-backup', $reading->actionUrl);
+        // The off-site box, on the sub-page it lives on since issue #619 —
+        // the same place RemoteBackupController::BOX redirects to.
+        $this->assertSame('/config/maintenance/sauvegarde-automatique#remote-backup', $reading->actionUrl);
+        $this->assertSame(\Core\Http\Controller\RemoteBackupController::BOX, $reading->actionUrl);
     }
 
     /** And the statement clears it. */

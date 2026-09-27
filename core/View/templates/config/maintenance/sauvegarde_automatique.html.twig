@@ -1,0 +1,288 @@
+{% extends 'config/maintenance/_layout.html.twig' %}
+{% import 'config/maintenance/_macros.html.twig' as m %}
+
+{% block maintenance_title %}Sauvegarde automatique{% endblock %}
+
+{% block maintenance_content %}
+    {# ————— Sauvegarde automatique —————
+
+       What leaves on its own, as opposed to what is triggered by hand
+       above.
+
+       **« et distantes » came out of the title.** It announced a section
+       to come — the remote destination and its passphrase were to join
+       this one — and they ended up in a box of their own,
+       « Sauvegarde hors site ». The title stayed, and a unit read the
+       frequency chosen here as the cadence of the sends to Google: it is
+       not, and never has been. The two mechanisms share no setting at
+       all — Core\Maintenance\Task\AutoBackupHandler writes to this
+       server at the frequency below, and
+       Core\Maintenance\Task\SendRemoteBackupHandler builds its OWN
+       portable archive every INTERVAL_HOURS. The sentence under the menu
+       now says so, because nobody reads a Twig comment. #}
+    <div class="card mb-4" id="maintenance-backups-automatic">
+        <div class="card-body">
+            {{ m.section_header('maintenance-backups-automatic-body', 'Sauvegarde automatique', true) }}
+            <div class="collapse show mt-3" id="maintenance-backups-automatic-body">
+                <h3 class="h6">Fréquence</h3>
+                <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
+                    <label class="form-label small mb-0" for="auto-backup-frequency">Sauvegarde automatique complète (sans galerie)</label>
+                    <select class="form-select form-select-sm w-auto" id="auto-backup-frequency">
+                        <option value="none" {{ backup_auto_frequency == 'none' ? 'selected' : '' }}>Aucune</option>
+                        <option value="daily" {{ backup_auto_frequency == 'daily' ? 'selected' : '' }}>Quotidienne</option>
+                        <option value="weekly" {{ backup_auto_frequency == 'weekly' ? 'selected' : '' }}>Hebdomadaire</option>
+                        <option value="biweekly" {{ backup_auto_frequency == 'biweekly' ? 'selected' : '' }}>Toutes les 2 semaines</option>
+                        <option value="monthly" {{ backup_auto_frequency == 'monthly' ? 'selected' : '' }}>Mensuelle</option>
+                    </select>
+                </div>
+                <p class="small text-body-secondary mb-0">
+                    {% if backup_auto_last_run %}
+                        Dernière sauvegarde automatique : {{ backup_auto_last_run }}.
+                    {% else %}
+                        Aucune sauvegarde automatique effectuée pour le moment.
+                    {% endif %}
+                    {{ backup_keep_scheduled }} sauvegardes planifiées sont conservées sur le serveur ; elles ne
+                    prennent pas la place des sauvegardes que vous créez vous-même.
+                </p>
+                <p class="small text-body-secondary mb-0 mt-2">
+                    Cette fréquence ne gouverne <strong>que</strong> ce qui s'écrit sur ce serveur. Elle ne
+                    décide rien de ce qui part chez Google : « Sauvegarde hors site » a sa propre cadence,
+                    fixée à {{ remote_backup_interval_hours }} heures, et ce qu'elle envoie est une archive
+                    portable qu'elle construit elle-même à ce moment-là — jamais la sauvegarde automatique
+                    ci-dessus, qui n'est pas chiffrée et n'a donc rien à faire chez un tiers.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    {# ————— Sauvegarde hors site —————
+
+       Its own card rather than a fourth heading inside « Sauvegardes »:
+       what it configures is a conversation with a third party — an
+       account, a consent screen, a grant that can be withdrawn — and
+       nothing in the three sections above has that shape. #}
+    <div class="card mb-4" id="remote-backup">
+        <div class="card-body">
+            {{ m.section_header('remote-backup-body', 'Sauvegarde hors site', true) }}
+            <div class="collapse show mt-3" id="remote-backup-body">
+                <p class="text-body-secondary small">
+                    Une sauvegarde qui dort sur le même serveur que le site ne protège de rien le jour où c'est
+                    le serveur qui disparaît. Choisissez un emplacement de stockage qui n'est pas sur ce
+                    serveur : ce site y déposera des sauvegardes portables, chiffrées.
+                    <a href="/aide/sauvegarde-hors-site">Comment créer le projet Google, pas à pas.</a>
+                </p>
+
+                {# ————— Destination —————
+
+                   The connection itself is no longer here. A Google Drive
+                   folder is a storage location like any other since IT-05, so
+                   the account, the consent screen and the connection test live
+                   on that location's own card under Configuration > Stockage.
+                   What is left on this page is the ASSIGNMENT — D4: the choice
+                   belongs to whoever made it — and the list below is filtered
+                   on the one capability an archive of several gigabytes cannot
+                   do without. #}
+                <h3 class="h6">Destination</h3>
+                {% if remote_backup_location %}
+                    <p class="small mb-2">
+                        <span class="badge text-bg-success">Configurée</span>
+                        <strong>{{ remote_backup_location.label }}</strong>
+                        <span class="text-body-secondary">— {{ remote_backup_location.describe }}</span>
+                    </p>
+                    {% if remote_backup_location.lastCheckOk is same as(false) %}
+                        <div class="alert alert-danger small" role="alert">
+                            <strong>Ce site n'arrive plus à écrire sur cette destination.</strong>
+                            {% if remote_backup_location.lastCheckError %}<br>{{ remote_backup_location.lastCheckError }}{% endif %}
+                            <br><a href="/config/stockage/emplacements">Ouvrir la fiche de l'emplacement</a>
+                        </div>
+                    {% endif %}
+                {% else %}
+                    <div class="alert alert-warning small" role="alert">
+                        <strong>Rien ne quitte ce serveur.</strong>
+                        Aucun emplacement n'est choisi pour les sauvegardes hors site.
+                    </div>
+                {% endif %}
+
+                {# ————— Changing where the archives go —————
+
+                   The confirmation is rendered only while a destination is
+                   actually set, because only then is there something to
+                   lose. On a fresh site this form is how an operator sets
+                   one up, and a modal in front of the first useful action
+                   on the page teaches people to click past modals.
+
+                   When one IS set, both outcomes deserve the question and
+                   neither announces itself: « Aucune » stops every off-site
+                   copy, and switching sends tomorrow's archives somewhere
+                   the old ones are not. Both are silent until the day
+                   somebody needs an archive — so the wording names the
+                   destination being left rather than asking « are you
+                   sure ». #}
+                <form method="post" action="/config/maintenance/remote/destination" class="mb-3"
+                      {% if remote_backup_location %}
+                          data-confirm="Les sauvegardes hors site vont aujourd'hui vers « {{ remote_backup_location.label }} ». Changer de destination, ou n'en choisir aucune, n'y déplace ni n'y supprime rien : les archives déjà déposées restent où elles sont, et les prochaines n'iront plus là. Si vous ne choisissez aucune destination, plus rien ne quittera ce serveur."
+                          data-confirm-label="Enregistrer"
+                      {% endif %}>
+                    {{ csrf_field()|raw }}
+                    <div class="mb-2" style="max-width:480px;">
+                        <label class="form-label small" for="remote-backup-location">Emplacement de destination</label>
+                        <select class="form-select form-select-sm" id="remote-backup-location" name="location_id">
+                            <option value="0">Aucune — ne rien envoyer hors site</option>
+                            {% for candidate in remote_backup_locations %}
+                                <option value="{{ candidate.id }}"
+                                        {{ remote_backup_location and remote_backup_location.id == candidate.id ? 'selected' : '' }}>
+                                    {{ candidate.label }} — {{ candidate.describe }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                        {% if remote_backup_locations is empty %}
+                            {# Not an error, and not a list to pad: only a
+                               destination that can resume an interrupted send
+                               belongs here, and on a fresh site there is none. #}
+                            <div class="form-text">
+                                Aucun emplacement déclaré ne sait reprendre un envoi interrompu.
+                                <a href="/config/stockage/emplacements/nouveau">Déclarez-en un</a> — un compte
+                                Google Drive, par exemple.
+                            </div>
+                        {% endif %}
+                    </div>
+                    <button type="submit" class="btn btn-outline-primary btn-sm">Enregistrer la destination</button>
+                </form>
+
+                <p class="small text-body-secondary">
+                    Le compte, l'écran de consentement et le test de la destination se règlent sur sa fiche,
+                    dans <a href="/config/stockage/emplacements">Configuration &gt; Stockage &gt; Emplacements</a>.
+                </p>
+
+                {# ————— Envois —————
+
+                   Only what this site knows without asking Google. The
+                   occupation of the account and the number of archives there
+                   cost a request each and would be paid on every render of
+                   this page by an administrator who came to look at something
+                   else; the « Tester » button above answers both on demand. #}
+                <hr class="my-4">
+                <h3 class="h6">Envois</h3>
+                <p class="small text-body-secondary mb-2">
+                    Quand une destination est choisie, ce site y dépose une <strong>sauvegarde portable</strong>
+                    toutes les {{ remote_backup_interval_hours }} heures, par tranches : sur un hébergement
+                    mutualisé, une archive de plusieurs gigaoctets ne tient pas dans une seule requête.
+                </p>
+                {# The question a unit actually asked, answered on both
+                   sides: the « Sauvegarde automatique » frequency governs
+                   nothing here, and this cadence is configurable nowhere.
+                   A unit reading « Hebdomadaire » up there and « toutes
+                   les 24 heures » here concludes one of the two screens
+                   is lying. #}
+                <p class="small text-body-secondary mb-2">
+                    Cette cadence est celle de l'envoi, et elle lui appartient : la fréquence choisie dans
+                    « Sauvegarde automatique » n'a aucun effet dessus, et celle-ci ne se règle pas. Les deux
+                    ne produisent d'ailleurs pas la même chose — là-haut une archive qui reste sur ce serveur,
+                    sans les clés et sans mot de passe ; ici une archive portable, fraîchement construite et
+                    chiffrée avec la phrase de passe ci-dessous.
+                </p>
+                <p class="small mb-2">
+                    {% if remote_backup_last_success %}
+                        Dernier envoi arrivé à son terme le
+                        {{ remote_backup_last_success|datetime_fr }}.
+                    {% elseif remote_backup_location %}
+                        Aucun envoi n'est encore arrivé à son terme.
+                    {% else %}
+                        Aucune destination n'est choisie : rien ne quitte ce serveur.
+                    {% endif %}
+                </p>
+                <p class="small text-body-secondary mb-2">
+                    Conservation chez la destination : {{ remote_backup_keep }} archives au maximum, et
+                    {{ remote_backup_max_bytes }} au plus — la plus contraignante des deux s'applique.
+                    Aucun emplacement de stockage n'est envoyé : ni la galerie, ni les autres. Leur contenu a
+                    son propre cycle de vie, décrit dans
+                    <a href="/config/stockage">Configuration &gt; Stockage</a>.
+                    Ces deux réglages se modifient dans
+                    <a href="/config/settings">Configuration &gt; Réglages</a>.
+                </p>
+
+                {# ————— La phrase de passe —————
+
+                   Shown on demand rather than once and never again — the
+                   opposite choice from the webhook secret, and deliberately.
+                   That one can be regenerated for free; this one opens
+                   archives that already exist, on a service this site may no
+                   longer be able to reach. It has to live in secrets.enc
+                   anyway, because the scheduled send encrypts with it at four
+                   in the morning with nobody there to type anything. #}
+                <hr class="my-4">
+                <h3 class="h6">Phrase de passe des sauvegardes distantes</h3>
+                <p class="small text-body-secondary mb-2">
+                    Ce qui part est une <strong>sauvegarde portable</strong> : restaurable sur une installation
+                    neuve, chez un autre hébergeur — donc chiffrée, avec cette phrase, générée une fois pour
+                    votre unité. Google ne peut rien en lire.
+                </p>
+                {% if remote_backup_passphrase_generation > 0 %}
+                    <p class="small text-body-secondary mb-2">
+                        Génération {{ remote_backup_passphrase_generation }}
+                        {% if remote_backup_passphrase_created_at %}
+                            · créée le {{ remote_backup_passphrase_created_at|date_fr }}
+                        {% endif %}
+                        · ce numéro figure dans le nom de chaque fichier envoyé.
+                    </p>
+
+                    <div class="border rounded bg-body-tertiary text-center py-3 px-3 font-monospace user-select-all"
+                         id="remote-backup-passphrase" data-mask="{{ remote_backup_passphrase_mask }}">{{ remote_backup_passphrase_mask }}</div>
+                    <div class="d-flex gap-2 mt-2">
+                        <button type="button" class="btn btn-outline-secondary btn-sm flex-fill"
+                                id="remote-backup-passphrase-reveal">Afficher la phrase de passe</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm flex-fill d-none"
+                                id="remote-backup-passphrase-copy">Copier</button>
+                    </div>
+
+                    {# Revealing the phrase is not copying it, so the
+                       confirmation is a gesture of its own. It is stamped
+                       with the generation in force, which is what makes a
+                       regeneration ask again with nothing to remember to
+                       reset (#496). #}
+                    {% if remote_backup_passphrase_noted %}
+                        <div class="alert alert-success small mt-3" role="alert">
+                            <i class="bi bi-check2-circle" aria-hidden="true"></i>
+                            <strong>Génération {{ remote_backup_passphrase_generation }} notée hors du site</strong>
+                            {% if remote_backup_passphrase_noted_at %}
+                                le {{ remote_backup_passphrase_noted_at|date_fr }}
+                            {% endif %}.
+                            Le site vous croit sur parole : il ne peut pas voir votre copie. Si vous régénérez
+                            la phrase, il faudra recopier la nouvelle.
+                        </div>
+                    {% else %}
+                        <div class="alert alert-warning small mt-3" role="alert">
+                            <strong>Notez-la hors du site.</strong>
+                            Sans elle, aucune archive distante ne peut être restaurée — et le jour où vous en
+                            aurez besoin, ce site ne sera peut-être plus accessible. Un gestionnaire de mots de
+                            passe, ou du papier dans un endroit sûr : n'importe où sauf ce serveur.
+                            <form method="post" action="/config/maintenance/remote/passphrase/confirm"
+                                  class="mt-2">
+                                {{ csrf_field()|raw }}
+                                <button type="submit" class="btn btn-outline-secondary btn-sm">
+                                    J'ai recopié cette phrase hors du serveur
+                                </button>
+                            </form>
+                        </div>
+                    {% endif %}
+                    <p class="small text-body-secondary">
+                        Elle reste consultable ici tant que le site fonctionne : la cacher ne protégerait de rien,
+                        puisqu'elle doit rester sur le serveur pour chiffrer chaque sauvegarde.
+                    </p>
+
+                    <form method="post" action="/config/maintenance/remote/passphrase/regenerate"
+                          data-confirm="Régénérer la phrase de passe ? Les archives déjà envoyées chez la destination ne s'ouvriront plus qu'avec l'ancienne, et rien ne les rechiffrera.">
+                        {{ csrf_field()|raw }}
+                        <button type="submit" class="btn btn-link btn-sm text-danger p-0">
+                            Régénérer la phrase de passe
+                        </button>
+                    </form>
+                {% else %}
+                    <p class="small text-body-secondary">
+                        Aucune phrase n'existe encore : elle est créée au premier envoi, et s'affichera ici.
+                    </p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+{% endblock %}
