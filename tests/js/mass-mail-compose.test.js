@@ -219,14 +219,46 @@ describe('mass-mail-compose.js: starting the send', () => {
             .toBe('Cet email partira à 1 ligne du fichier. ' + START_SENDING_MESSAGE);
     });
 
-    it('still asks, without a number, when the count cannot be had', async () => {
+    /**
+     * Still asks — a list that cannot be counted can still be sent — but
+     * with the server's reason in the question, not a silent dialog that
+     * reads like the ordinary one (issue #579).
+     */
+    it('still asks when the count cannot be had, and says why', async () => {
         await boot({ status: 'test' });
-        global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Email introuvable.' }));
+        global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Liste externe indisponible.' }));
 
         document.getElementById('mm-start-sending-form').dispatchEvent(new Event('submit', { cancelable: true }));
         await settle();
 
-        expect(window.ScoutMagicConfirm.ask.mock.calls[0][0].message).toBe(START_SENDING_MESSAGE);
+        expect(window.ScoutMagicConfirm.ask.mock.calls[0][0].message).toBe(
+            "Le nombre de destinataires n'a pas pu être calculé : Liste externe indisponible. "
+            + START_SENDING_MESSAGE
+        );
+    });
+
+    it('ends a reason the server gave without a full stop with one', async () => {
+        await boot({ status: 'test' });
+        global.fetch = vi.fn(() => jsonResponse({ success: false, error: '  Audience purgée ' }));
+
+        document.getElementById('mm-start-sending-form').dispatchEvent(new Event('submit', { cancelable: true }));
+        await settle();
+
+        expect(window.ScoutMagicConfirm.ask.mock.calls[0][0].message).toBe(
+            "Le nombre de destinataires n'a pas pu être calculé : Audience purgée. " + START_SENDING_MESSAGE
+        );
+    });
+
+    it('still says the count failed when there is no reason to give', async () => {
+        await boot({ status: 'test' });
+        global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
+
+        document.getElementById('mm-start-sending-form').dispatchEvent(new Event('submit', { cancelable: true }));
+        await settle();
+
+        expect(window.ScoutMagicConfirm.ask.mock.calls[0][0].message).toBe(
+            "Le nombre de destinataires n'a pas pu être calculé. " + START_SENDING_MESSAGE
+        );
     });
 
     it('submits nothing when the manager says no', async () => {
