@@ -399,6 +399,22 @@ So, before pushing a fix for review findings:
     on failure » is half a rule: nothing in the repository exercised the
     success path, so the assertion held over a class that never audited
     anything at all.
+  - **A staging removal that turns a test red proves ONE of its assertions,
+    not all of them.** Ask which line died, and read the failure message
+    rather than the exit code. Measured on #449's batch 8: removing the
+    staging killed the test through its journal assertions, which was taken
+    as « proved », while two `assertCount` calls in the same test could not
+    fail at all — a reviewer found them afterwards. One red line per
+    assertion you claim to have proved, or the claim covers only the first
+    one to die.
+  - **A measurement that overturns a premise has to be carried to every
+    assertion resting on it, not only the one you were looking at.** Same
+    batch, same test: the circuit breaker opens at the END of the third
+    failure, so a loop bounded at the threshold proves nothing about being
+    stepped over. That was measured, and the assertion thirty lines below
+    was corrected for it — while the two above, resting on the same
+    premise, were left as they were. Correcting the place you were looking
+    at is not correcting the premise.
 - **Read the template and the controller, never deduce behaviour from a
   docblock.** A `catch` that returns the neutral value is usually right; what
   breaks is the sentence the layer above builds on it. #600 and #637 are both

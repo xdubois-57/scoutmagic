@@ -2872,3 +2872,36 @@ pas invalider le cache de réglages, dans le test de `preferred()`, laisse le ca
 répondre et la préférence s'appliquer — donc le test rougit. C'est la preuve que ce
 test atteint sa branche **par la condition qu'il annonce** et non par accident, et
 c'est aussi la démonstration, en une ligne rouge, de l'erreur analysée plus haut.
+
+#### La seconde assertion infalsifiable du lot, et la faille de ma propre preuve
+
+Le relecteur de la PR a trouvé, sur la nouvelle tête, que les deux `assertCount`
+du test de `recordFailure()` **ne discriminent rien**. La boucle était bornée à
+`FAILURES_BEFORE_OPEN` ; or le disjoncteur s'ouvre **à la fin** du troisième
+échec, donc le relais fautif est essayé trois fois que les écritures soient
+refusées ou non. Les deux mondes produisent le même décompte. Vérifié, corrigé en
+portant la boucle à `FAILURES_BEFORE_OPEN + 1` — et le retrait de mise en scène
+rougit maintenant sur l'assertion visée : « actual size 3 matches expected
+size 4 ».
+
+**Ce qui rend ce constat sévère, c'est que j'avais déjà mesuré la prémisse.**
+Dans ce même lot, ma prédiction de l'ordre des relais était fausse pour
+exactement cette raison, le rouge me l'avait dit, et j'avais déplacé la preuve du
+saut sur un quatrième message — trente lignes plus bas. Les deux assertions
+d'au-dessus reposaient sur la même prémisse et sont restées telles quelles.
+D'où la règle : **une mesure qui renverse une prémisse doit être portée à toutes
+les assertions qui en dépendent, pas seulement à celle qu'on regardait.**
+Corriger l'endroit où l'on regarde n'est pas corriger la prémisse.
+
+**Et ma preuve elle-même était trop grossière.** Le retrait de mise en scène R3
+avait bien tué ce test — par ses assertions de journal. J'ai lu « rouge » et
+conclu « prouvé », sans demander **laquelle** des assertions mourait. Deuxième
+règle, plus générale que la première : **un retrait de mise en scène qui rougit
+un test prouve UNE de ses assertions, pas toutes.** Il faut lire le message
+d'échec, pas le code de sortie, et compter une ligne rouge par assertion dont on
+prétend avoir prouvé la falsifiabilité.
+
+Les deux règles sont écrites dans le skill steward et non seulement ici, parce
+que c'est la troisième fois de cette séance qu'une règle consignée au seul journal
+ne survit pas — et cette fois elle n'a même pas survécu à l'intérieur du **même
+fichier de test**.

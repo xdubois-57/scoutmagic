@@ -795,18 +795,25 @@ class MailTransportChainTest extends TestCase
         $health = new ProviderHealthRepository($this->pdo);
         $this->refuseHealthWrites();
 
+        // One message MORE than the threshold, and the extra one is the
+        // whole point: the circuit opens at the END of the third failure,
+        // so three messages all try the refusing relay whether or not the
+        // writes are refused. Only the fourth tells the two worlds apart
+        // — with the writes allowed it would skip the relay, as the second
+        // half below demonstrates.
+        $messages = ProviderHealth::FAILURES_BEFORE_OPEN + 1;
         $delivery = $this->recordingTransport(refuseHosts: ['smtp.premier.test']);
-        for ($i = 0; $i < ProviderHealth::FAILURES_BEFORE_OPEN; $i++) {
+        for ($i = 0; $i < $messages; $i++) {
             $this->chain($delivery, $health)->deliver($this->message(), MailPurpose::MagicLink);
         }
 
         $this->assertCount(
-            ProviderHealth::FAILURES_BEFORE_OPEN,
+            $messages,
             array_keys($delivery->attemptedHosts, 'smtp.premier.test', true),
-            'Nothing accumulated, so the refusing relay is tried on every message.'
+            'Nothing accumulated, so the refusing relay is still tried past the threshold.'
         );
         $this->assertCount(
-            ProviderHealth::FAILURES_BEFORE_OPEN,
+            $messages,
             array_keys($delivery->attemptedHosts, 'smtp.second.test', true),
             'And every one of those messages still went out.'
         );
