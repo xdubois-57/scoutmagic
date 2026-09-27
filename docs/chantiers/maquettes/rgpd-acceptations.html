@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette — Acceptation de la politique de protection des données</title>
+<style>
+:root{color-scheme:light}
+body{margin:0;background:#f1f3f5;color:#212529;font-family:system-ui,-apple-system,"Segoe UI",Helvetica,sans-serif}
+a{color:#0a58ca}
+code{font-size:12px}
+.page{max-width:1200px;margin:0 auto;padding:24px 16px 64px}
+h1{font-size:28px;line-height:1.2;margin:0 0 8px}
+.lede{font-size:15px;color:#495057;margin:0 0 8px;max-width:70ch}
+.meta{font-size:13px;color:#6c757d;margin:0 0 32px;max-width:70ch}
+.sommaire{margin:0 0 36px;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:8px}
+.sommaire a{display:inline-block;padding:8px 12px;background:#fff;border:1px solid #ced4da;border-radius:999px;text-decoration:none;font-size:14px}
+.ecran{margin:0 0 48px}
+.ecran>h2{font-size:19px;margin:0 0 6px}
+.ecran>p{font-size:14px;color:#495057;margin:0 0 14px;max-width:70ch}
+.cadres{display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start}
+.cadre{width:390px;max-width:100%;border:1px solid #ced4da;border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.cadres>div{max-width:100%;min-width:0}
+.cadre-legende{font-size:12px;color:#6c757d;margin:6px 2px 0;max-width:390px}
+.ecr{box-sizing:border-box;padding:16px;display:flex;flex-direction:column;gap:14px}
+.fil{font-size:12px;color:#6c757d}
+.fil a{color:#6c757d}
+.titre{margin:0;font-size:22px;line-height:1.2;font-weight:600}
+.sous{font-size:13px;color:#5c636a;margin-top:4px}
+.rail{border-bottom:1px solid #dee2e6;overflow-x:auto;margin:0 -16px;padding:0 16px}
+.rail div{display:flex;gap:2px;min-width:max-content}
+.rail a{display:inline-flex;align-items:center;min-height:44px;padding:0 12px;text-decoration:none;white-space:nowrap;font-size:14px;color:#5c636a;border-bottom:2px solid transparent}
+.rail a[aria-current]{color:#0a58ca;font-weight:600;border-bottom-color:#0d6efd}
+.chiffres{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.chiffre{border:1px solid #dee2e6;border-radius:8px;padding:8px;text-align:center}
+.chiffre b{display:block;font-size:20px}
+.chiffre span{font-size:12px;color:#5c636a}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{font-size:13px;padding:6px 10px;border-radius:999px;border:1px solid #ced4da;background:#fff;color:#212529;text-decoration:none;min-height:32px;display:inline-flex;align-items:center}
+.chip[aria-pressed=true]{background:#0d6efd;border-color:#0d6efd;color:#fff}
+.champ{display:flex;flex-direction:column;gap:4px;font-size:13px}
+.champ input,.champ select{font:inherit;font-size:15px;padding:7px 10px;border:1px solid #ced4da;border-radius:6px;background:#fff}
+.aide{font-size:12px;color:#6c757d}
+.liste{border:1px solid #dee2e6;border-radius:8px;overflow:hidden}
+.ligne{padding:12px;border-bottom:1px solid #e9ecef;display:flex;flex-direction:column;gap:4px;font-size:13px}
+.ligne:last-child{border-bottom:0}
+.ligne .nom{font-size:15px;font-weight:600;display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.ligne .nom a{color:#212529;text-decoration:none}
+.gris{color:#5c636a}
+.badge{font-size:11px;font-weight:600;padding:3px 7px;border-radius:999px;white-space:nowrap}
+.ok{background:#d1e7dd;color:#0a3622}
+.warn{background:#fff3cd;color:#664d03}
+.ko{background:#f8d7da;color:#58151c}
+.neutre{background:#e9ecef;color:#495057}
+.carte{border:1px solid #dee2e6;border-radius:8px;overflow:hidden}
+.carte-tete{padding:10px 12px;background:#f8f9fa;border-bottom:1px solid #dee2e6;font-size:15px;font-weight:600;display:flex;gap:8px;align-items:center}
+.carte-corps{padding:12px;font-size:14px;display:flex;flex-direction:column;gap:8px}
+dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:14px}
+dt{color:#5c636a}
+dd{margin:0}
+.alerte{border-radius:8px;padding:12px;font-size:13px}
+.alerte.info{border:1px solid #9eeaf9;background:#cff4fc;color:#055160}
+.alerte.warn{border:1px solid #ffe69c;background:#fff3cd;color:#664d03}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:0 14px;border-radius:6px;font-size:15px;text-decoration:none;border:1px solid transparent}
+.btn.primaire{background:#0d6efd;color:#fff}
+.btn.secondaire{background:#fff;color:#212529;border-color:#ced4da}
+.btn.bloc{width:100%;box-sizing:border-box}
+.case{display:flex;gap:8px;align-items:flex-start;font-size:13px}
+.case input{margin-top:2px;width:16px;height:16px}
+.courriel{background:#f8f9fa;padding:16px}
+.courriel .enveloppe{background:#fff;border:1px solid #dee2e6;border-radius:8px;overflow:hidden}
+.courriel .entete{padding:10px 12px;border-bottom:1px solid #e9ecef;font-size:12px;color:#5c636a;display:flex;flex-direction:column;gap:2px}
+.courriel .entete b{color:#212529}
+.courriel .texte{padding:16px;font-size:14px;line-height:1.5;display:flex;flex-direction:column;gap:10px}
+.courriel .pied{padding:10px 16px;border-top:1px solid #e9ecef;font-size:11px;color:#8a8f98}
+.decisions{background:#fff;border:1px solid #ced4da;border-radius:12px;padding:16px 20px;font-size:14px;max-width:80ch}
+.decisions h2{font-size:19px;margin:0 0 8px}
+.decisions li{margin:0 0 6px}
+</style>
+</head>
+<body>
+<div class="page">
+<h1>Acceptation de la politique de protection des données</h1>
+<p class="lede">Maquette pour le suivi de #495 : qui a accepté quelle version de la politique, quand, et le rappel automatique quand l'acceptation est trop ancienne. Elle fait foi pour la hiérarchie des écrans, les libellés français et les états d'interaction, et pour rien d'autre. Le produit est en Bootstrap 5 et suit <code>design.md</code> §7 : les styles ci-dessous rendent le fichier autonome, ils ne sont pas un modèle à recopier.</p>
+<p class="meta">Largeur de référence : 390 px. Aucune dépendance externe, aucun script. Le rail de sous-pages représente <code>partials/page_picker.html.twig</code>, comme sur Finances, Frais et Courrier sortant. Les données sont fictives et montrent un site où la fonctionnalité tourne depuis plus d'un an ; le délai de redemande vaut 18 mois.</p>
+
+<ul class="sommaire">
+<li><a href="#ecran-acceptations">Config RGPD › Acceptations</a></li>
+<li><a href="#ecran-filtre">Acceptations filtrées</a></li>
+<li><a href="#ecran-contenu">Config RGPD › Contenu de la politique</a></li>
+<li><a href="#ecran-fiche">Fiche membre (admin)</a></li>
+<li><a href="#ecran-reglage">Réglages</a></li>
+<li><a href="#ecran-courriel">L'e-mail de rappel</a></li>
+<li><a href="#ecran-connexion">La connexion</a></li>
+<li><a href="#ecran-version">Une version archivée</a></li>
+<li><a href="#decisions">Décisions à valider</a></li>
+</ul>
+
+<!-- ============================================================ -->
+<section class="ecran" id="ecran-acceptations">
+<h2>1. Configuration › RGPD › Acceptations</h2>
+<p>Nouvelle première sous-page, à <code>/config/rgpd</code> (superadmin). L'écran actuel devient la deuxième sous-page, « Contenu de la politique ». La liste reprend les membres de l'année en cours, animés et staff. Un membre compte comme ayant accepté dès qu'un compte relié à l'une de ses adresses e-mail s'est connecté en cochant la case, qu'il s'agisse du membre ou d'un parent.</p>
+<div class="cadres">
+<div>
+<div class="cadre"><div class="ecr">
+  <div class="fil"><a href="#">Configuration</a> › RGPD</div>
+  <nav class="rail" aria-label="Pages RGPD"><div>
+    <a href="#ecran-acceptations" aria-current="page">Acceptations</a>
+    <a href="#ecran-contenu">Contenu de la politique</a>
+  </div></nav>
+  <div>
+    <h1 class="titre">Acceptations</h1>
+    <div class="sous">Qui a accepté la politique de protection des données, et quelle version. Version en vigueur : <a href="#ecran-version">celle du 3 septembre 2026</a>.</div>
+  </div>
+
+  <div class="chiffres">
+    <div class="chiffre"><b>142</b><span>à jour</span></div>
+    <div class="chiffre"><b>31</b><span>version plus ancienne</span></div>
+    <div class="chiffre"><b>17</b><span>depuis plus de 18 mois ou jamais</span></div>
+  </div>
+
+  <div class="chips" role="group" aria-label="Filtrer">
+    <a class="chip" aria-pressed="true" href="#ecran-acceptations">Tous (190)</a>
+    <a class="chip" aria-pressed="false" href="#ecran-filtre">Pas la dernière version (48)</a>
+    <a class="chip" aria-pressed="false" href="#ecran-filtre">Plus de 18 mois (17)</a>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+    <label class="champ">Section
+      <select><option>Toutes</option><option>Baladins — Les Écureuils</option><option>Louveteaux — Seeonee</option></select>
+    </label>
+    <label class="champ">Rechercher
+      <input type="search" placeholder="Nom ou totem">
+    </label>
+  </div>
+
+  <div class="liste">
+    <div class="ligne">
+      <div class="nom"><a href="#ecran-fiche">Lucas Martin</a><span class="badge ok">À jour</span></div>
+      <div class="gris">Louveteaux — Seeonee</div>
+      <div>Acceptée le 14 septembre 2026 — <a href="#ecran-version">version du 3 septembre 2026</a></div>
+      <div class="gris">Par Sophie Martin (sophie.martin@example.be)</div>
+    </div>
+    <div class="ligne">
+      <div class="nom"><a href="#ecran-fiche">Emma Dubois</a><span class="badge warn">Version plus ancienne</span></div>
+      <div class="gris">Baladins — Les Écureuils</div>
+      <div>Acceptée le 2 mars 2026 — <a href="#ecran-version">version du 10 janvier 2026</a></div>
+      <div class="gris">Par Thomas Dubois (t.dubois@example.be)</div>
+    </div>
+    <div class="ligne">
+      <div class="nom"><a href="#ecran-fiche">Noah Lambert « Castor »</a><span class="badge ko">Plus de 18 mois</span></div>
+      <div class="gris">Éclaireurs — Troupe Saint-Georges</div>
+      <div>Acceptée le 11 février 2025 — <a href="#ecran-version">version du 20 janvier 2025</a></div>
+      <div class="gris">Par Noah Lambert (noah.lambert@example.be)</div>
+      <div class="gris">Rappel envoyé le 20 septembre 2026 (2<sup>e</sup> rappel)</div>
+    </div>
+    <div class="ligne">
+      <div class="nom"><a href="#ecran-fiche">Léa Peeters</a><span class="badge ko">Jamais acceptée</span></div>
+      <div class="gris">Guides — Compagnie Sainte-Claire</div>
+      <div class="gris">Aucune connexion enregistrée. Premier rappel prévu le 1<sup>er</sup> avril 2028, soit 18 mois après la mise en service.</div>
+    </div>
+  </div>
+  <div class="aide">Un rappel part automatiquement quand l'acceptation date de plus de 18 mois, puis tous les 30 jours tant qu'elle manque. Le délai se règle dans <a href="#ecran-reglage">Configuration › Réglages</a>.</div>
+</div></div>
+<p class="cadre-legende">Sur écran large, la même liste devient un tableau : Membre, Section, État, Acceptée le, Version, Par, Dernier rappel. Le nom mène à la fiche du membre. Le lien de version ouvre la page archivée dans un nouvel onglet.</p>
+</div>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section class="ecran" id="ecran-filtre">
+<h2>2. Acceptations filtrées, et la liste vide</h2>
+<p>Les deux filtres demandés. « Pas la dernière version » inclut les membres qui n'ont jamais accepté. « Plus de 18 mois » suit le réglage : si le délai passe à 12 mois, le libellé devient « Plus de 12 mois ». Un filtre qui ne trouve personne affiche l'état vide de <code>design.md</code> §7.</p>
+<div class="cadres">
+<div class="cadre"><div class="ecr">
+  <nav class="rail" aria-label="Pages RGPD"><div>
+    <a href="#ecran-acceptations" aria-current="page">Acceptations</a>
+    <a href="#ecran-contenu">Contenu de la politique</a>
+  </div></nav>
+  <div class="chips" role="group" aria-label="Filtrer">
+    <a class="chip" aria-pressed="false" href="#ecran-acceptations">Tous (190)</a>
+    <a class="chip" aria-pressed="true" href="#ecran-filtre">Pas la dernière version (48)</a>
+    <a class="chip" aria-pressed="false" href="#ecran-filtre">Plus de 18 mois (17)</a>
+  </div>
+  <div class="liste">
+    <div class="ligne">
+      <div class="nom"><a href="#ecran-fiche">Emma Dubois</a><span class="badge warn">Version plus ancienne</span></div>
+      <div>Acceptée le 2 mars 2026 — <a href="#ecran-version">version du 10 janvier 2026</a></div>
+      <div class="gris">Par Thomas Dubois (t.dubois@example.be)</div>
+    </div>
+    <div class="ligne">
+      <div class="nom"><a href="#ecran-fiche">Léa Peeters</a><span class="badge ko">Jamais acceptée</span></div>
+      <div class="gris">Aucune connexion enregistrée.</div>
+    </div>
+    <div class="ligne gris">… 46 autres</div>
+  </div>
+</div></div>
+
+<div class="cadre"><div class="ecr">
+  <nav class="rail" aria-label="Pages RGPD"><div>
+    <a href="#ecran-acceptations" aria-current="page">Acceptations</a>
+    <a href="#ecran-contenu">Contenu de la politique</a>
+  </div></nav>
+  <div class="chips" role="group" aria-label="Filtrer">
+    <a class="chip" aria-pressed="false" href="#ecran-acceptations">Tous (190)</a>
+    <a class="chip" aria-pressed="false" href="#ecran-filtre">Pas la dernière version (48)</a>
+    <a class="chip" aria-pressed="true" href="#ecran-filtre">Plus de 18 mois (0)</a>
+  </div>
+  <div style="text-align:center;padding:24px 8px;border:1px dashed #ced4da;border-radius:8px">
+    <div style="font-size:15px;font-weight:600">Personne n'a dépassé 18 mois.</div>
+    <div class="gris" style="font-size:13px;margin-top:4px">Chaque membre a une acceptation de moins de 18 mois.</div>
+  </div>
+</div></div>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section class="ecran" id="ecran-contenu">
+<h2>3. Configuration › RGPD › Contenu de la politique</h2>
+<p>L'écran actuel est inchangé (mode de génération, prompt IA, contenu). Il passe sous le rail, à <code>/config/rgpd/contenu</code>. Une seule mention s'ajoute : chaque enregistrement crée une nouvelle version, et les membres qui avaient accepté l'ancienne passent dans « Pas la dernière version ».</p>
+<div class="cadres">
+<div class="cadre"><div class="ecr">
+  <div class="fil"><a href="#">Configuration</a> › <a href="#ecran-acceptations">RGPD</a> › Contenu de la politique</div>
+  <nav class="rail" aria-label="Pages RGPD"><div>
+    <a href="#ecran-acceptations">Acceptations</a>
+    <a href="#ecran-contenu" aria-current="page">Contenu de la politique</a>
+  </div></nav>
+  <h1 class="titre">Contenu de la politique</h1>
+  <div class="alerte info">Chaque modification publiée crée une nouvelle version. Les versions précédentes restent consultables, et chaque acceptation garde le lien vers la version acceptée.</div>
+  <div class="carte"><div class="carte-tete">Mode de génération du contenu</div>
+    <div class="carte-corps gris">(inchangé : par défaut / personnalisé / IA)</div></div>
+  <div class="carte"><div class="carte-tete">Contenu actuel</div>
+    <div class="carte-corps"><span class="gris">En vigueur depuis le 3 septembre 2026 — <a href="#ecran-version">adresse permanente de cette version</a>.</span><span class="gris">(aperçu, boutons Modifier / Réinitialiser inchangés)</span></div></div>
+</div></div>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section class="ecran" id="ecran-fiche">
+<h2>4. Fiche d'un membre (page réservée à l'admin)</h2>
+<p>Une nouvelle carte sur <code>/admin/members/{id}</code>, à côté de « Demande d'inscription d'origine ». Elle affiche la dernière acceptation, la personne qui l'a donnée (nom et e-mail tels qu'au moment de l'acceptation) et le lien vers la version acceptée. Les états possibles sont montrés côte à côte.</p>
+<div class="cadres">
+<div>
+<div class="cadre"><div class="ecr">
+  <div class="carte"><div class="carte-tete">Protection des données <span class="badge ok">À jour</span></div>
+    <div class="carte-corps">
+      <dl>
+        <dt>Acceptée le</dt><dd>14 septembre 2026 à 19:42</dd>
+        <dt>Version</dt><dd><a href="#ecran-version">Version du 3 septembre 2026</a> (en vigueur)</dd>
+        <dt>Par</dt><dd>Sophie Martin<br><span class="gris">sophie.martin@example.be</span></dd>
+      </dl>
+      <a href="#" style="font-size:13px">Voir l'historique (3 acceptations)</a>
+    </div></div>
+</div></div>
+<p class="cadre-legende">Cas normal. L'historique déplie les acceptations précédentes : date, version, par qui.</p>
+</div>
+
+<div>
+<div class="cadre"><div class="ecr">
+  <div class="carte"><div class="carte-tete">Protection des données <span class="badge ko">Plus de 18 mois</span></div>
+    <div class="carte-corps">
+      <dl>
+        <dt>Acceptée le</dt><dd>11 février 2025</dd>
+        <dt>Version</dt><dd><a href="#ecran-version">Version du 20 janvier 2025</a><br><span class="gris">Une version plus récente est en vigueur.</span></dd>
+        <dt>Par</dt><dd>Noah Lambert<br><span class="gris">noah.lambert@example.be</span></dd>
+        <dt>Rappels</dt><dd>2 envoyés, le dernier le 20 septembre 2026</dd>
+      </dl>
+    </div></div>
+</div></div>
+<p class="cadre-legende">Acceptation trop ancienne : le compteur de rappels est visible.</p>
+</div>
+
+<div>
+<div class="cadre"><div class="ecr">
+  <div class="carte"><div class="carte-tete">Protection des données <span class="badge ko">Jamais acceptée</span></div>
+    <div class="carte-corps">
+      <span class="gris">Personne ne s'est encore connecté avec une adresse de ce membre depuis la mise en service du suivi, le 1<sup>er</sup> octobre 2026.</span>
+      <span class="gris">Premier rappel prévu le 1<sup>er</sup> avril 2028.</span>
+    </div></div>
+</div></div>
+<p class="cadre-legende">Jamais acceptée : le compte à rebours part de la mise en service, pour éviter d'écrire à toute l'unité le jour du déploiement.</p>
+</div>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section class="ecran" id="ecran-reglage">
+<h2>5. Configuration › Réglages (page de paramètres générique)</h2>
+<p>Un nouveau paramètre du cœur, rangé avec les autres réglages de protection des données. Il pilote à la fois le filtre « Plus de X mois » et le rappel automatique.</p>
+<div class="cadres">
+<div class="cadre"><div class="ecr">
+  <div class="carte"><div class="carte-tete">Protection des données</div>
+    <div class="carte-corps">
+      <label class="champ">Délai avant de redemander l'acceptation (mois)
+        <input type="number" value="18" min="0" max="120">
+      </label>
+      <div class="aide">Au-delà de ce délai depuis sa dernière acceptation, un membre reçoit un e-mail qui lui demande de se connecter et d'accepter à nouveau la politique de protection des données. Rappel tous les 30 jours tant qu'elle manque. 0 désactive l'envoi.</div>
+    </div></div>
+</div></div>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section class="ecran" id="ecran-courriel">
+<h2>6. L'e-mail de rappel</h2>
+<p>Un e-mail automatique du cœur, déclaré avec les autres pour être modifiable dans Configuration › E-mails. Une seule adresse reçoit un seul e-mail, même si elle est reliée à plusieurs membres (fratrie) : l'e-mail cite tous les membres concernés. Le bouton mène à la page de connexion, qui affiche un bandeau et la case à cocher. La politique n'est pas acceptée en un clic depuis l'e-mail : il faut s'identifier et cocher, ce qui rend l'acceptation explicite.</p>
+<div class="cadres">
+<div class="cadre"><div class="courriel"><div class="enveloppe">
+  <div class="entete">
+    <span>De : <b>Unité Saint-Georges</b></span>
+    <span>Objet : <b>Merci de confirmer notre politique de protection des données</b></span>
+  </div>
+  <div class="texte">
+    <div>Bonjour,</div>
+    <div>Pour continuer à utiliser le site de l'unité, nous vous demandons de relire et d'accepter notre politique de protection des données. Votre dernière acceptation date du 11 février 2025, et nous la redemandons tous les 18 mois.</div>
+    <div>Membres concernés : <b>Noah Lambert</b>, <b>Chloé Lambert</b>.</div>
+    <div>Connectez-vous sur le site en cochant la case « J'accepte la politique de protection des données » : c'est tout.</div>
+    <div><a class="btn primaire" href="#ecran-connexion">Me connecter et accepter</a></div>
+    <div style="font-size:13px" class="gris">La politique en vigueur : <a href="#ecran-version">https://unite-saint-georges.be/rgpd</a></div>
+  </div>
+  <div class="pied">Vous recevez cet e-mail parce que votre adresse est enregistrée pour un membre de l'unité. Sans acceptation, un rappel vous sera envoyé dans 30 jours.</div>
+</div></div></div>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section class="ecran" id="ecran-connexion">
+<h2>7. La connexion, en arrivant depuis l'e-mail</h2>
+<p>La page <code>/login</code> existante. Deux ajouts : la case indique la date de la version, comme demandé dans #495, et l'arrivée depuis l'e-mail affiche un bandeau. Chaque connexion enregistre ce qui s'affiche sur la fiche : date, version, compte (e-mail et nom). Cela vaut pour les trois méthodes (lien par e-mail, mot de passe, passkey).</p>
+<div class="cadres">
+<div class="cadre"><div class="ecr">
+  <h1 class="titre">Connexion</h1>
+  <div class="alerte warn">Pour confirmer votre accord, connectez-vous en cochant la case ci-dessous.</div>
+  <label class="champ">Adresse e-mail<input type="email" value="noah.lambert@example.be"></label>
+  <label class="case"><input type="checkbox"> <span>J'accepte la <a href="#ecran-version">politique de protection des données</a> (version du 3 septembre 2026)</span></label>
+  <a class="btn primaire bloc" href="#">Recevoir un lien de connexion</a>
+  <div class="aide" style="text-align:center">ou <a href="#">se connecter avec un mot de passe</a> · <a href="#">avec une passkey</a></div>
+</div></div>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section class="ecran" id="ecran-version">
+<h2>8. Une version archivée de la politique</h2>
+<p><code>/rgpd</code> affiche la version en vigueur. <code>/rgpd/{version}</code> garde chaque version à une adresse permanente, et c'est vers elle que pointent la fiche membre et la liste. Une version dépassée le dit avant le texte.</p>
+<div class="cadres">
+<div class="cadre"><div class="ecr">
+  <div class="fil"><a href="#">Notre unité</a> › Protection des données</div>
+  <h1 class="titre">Protection des données</h1>
+  <div class="alerte warn">Cette version n'est plus celle en vigueur. <a href="#">Voir la politique actuelle</a>.</div>
+  <div class="gris" style="font-size:13px">Version publiée le 20 janvier 2025.</div>
+  <div style="font-size:14px;line-height:1.5;border:1px solid #dee2e6;border-radius:8px;padding:12px">
+    <b>1. Responsable du traitement</b><br>L'unité Saint-Georges… <span class="gris">(texte tel qu'il était à cette date)</span>
+  </div>
+</div></div>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section class="decisions" id="decisions">
+<h2>Décisions prises dans cette maquette, à valider</h2>
+<ul>
+<li><b>Où l'acceptation est donnée :</b> à la connexion uniquement, pour les trois méthodes. L'inscription publique et la demande de location gardent leur case actuelle et restent en dehors du suivi par membre.</li>
+<li><b>Lien compte–membre :</b> un membre compte comme ayant accepté si un compte dont l'adresse est l'une des siennes (celle de Desk ou une adresse ajoutée et confirmée) s'est connecté en cochant. C'est le lien qu'utilise déjà la connexion, donc un parent qui se connecte accepte pour ses enfants.</li>
+<li><b>Qui :</b> le nom et l'e-mail du compte sont enregistrés tels qu'ils étaient au moment de l'acceptation, chiffrés comme toute donnée personnelle. Ils restent lisibles même si le compte change ou disparaît.</li>
+<li><b>Périmètre :</b> membres de l'année en cours, animés et staff.</li>
+<li><b>Jamais acceptée :</b> le délai de 18 mois part de la mise en service du suivi, sans envoi massif au déploiement.</li>
+<li><b>Relance :</b> tous les 30 jours tant que l'acceptation manque. Un seul e-mail par adresse, qui cite tous les membres concernés.</li>
+<li><b>Version :</b> chaque texte publié est archivé (#495). Au passage, on corrige le bug relevé dans l'analyse : la location enregistrait le hash d'un texte vide.</li>
+<li><b>Hors de cette maquette :</b> faire porter au formulaire la version affichée et refuser un envoi si elle a changé entre-temps (#495), et ajouter une case à la réinscription.</li>
+</ul>
+</section>
+</div>
+</body>
+</html>
