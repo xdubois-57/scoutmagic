@@ -171,6 +171,29 @@ class CampAlbumServiceTest extends TestCase
         $this->assertSame(['camp_id' => $camp->id], json_decode($entry['context'], true));
     }
 
+    /**
+     * The gallery's sentence can quote a storage location's label, which an
+     * administrator writes and which can be long: the journal entry is cut to
+     * the column's 500 characters rather than refused by the database, which
+     * would throw from inside the very catch that keeps the page standing
+     * (review of #670).
+     */
+    public function testALongRefusalIsShortenedToFitTheJournal(): void
+    {
+        $camp = $this->makeCamp();
+        $label = str_repeat('Emplacement très bavard ', 40);
+
+        $refused = $this->serviceRefusing("L'emplacement « {$label} » ne peut pas héberger un album délégué.")
+            ->albumIdFor($camp, 'Grand camp 2028', 3);
+
+        $this->assertNull($refused);
+        $entry = $this->lastJournalEntry();
+        $this->assertSame('camp_album_unavailable', $entry['event']);
+        $this->assertLessThanOrEqual(500, mb_strlen($entry['message']));
+        $this->assertStringStartsWith("Photos d'un séjour : l'album du séjour n'a pas pu être obtenu (L'emplacement", $entry['message']);
+        $this->assertStringEndsWith('…).', $entry['message']);
+    }
+
     public function testAskingWhetherAStayHasPhotosAnswersNoWhenTheGalleryCannotBeAsked(): void
     {
         $camp = $this->makeCamp();
