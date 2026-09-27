@@ -367,6 +367,44 @@ So, before pushing a fix for review findings:
   at all. A fixture copied from a neighbouring assertion has to be
   re-checked against the pattern it is now applied to — that is exactly how
   both got in.
+- **And mutating the production code is the wrong instrument for most of
+  them.** Measured on #449's batches 6 and 7: thirteen targeted product
+  mutations, all killed, over eight tests of which **six carried assertions
+  that could not fail**. Two reviewers found them; no mutation did. The
+  reason is structural — a product mutation kills a test by the shortest
+  path available, which is almost never the assertion you believe you are
+  exercising. Breaking a fallback made the whole page 500, so the test went
+  red on the HTTP status; weakening a guard turned a refusal into a success,
+  so it went red on the flash type. Both times the assertion under
+  suspicion was never reached. So, per shape:
+  - **An assertion of ABSENCE** (`assertNull`, `assertSame([], …)`,
+    `assertStringNotContainsString`, a count that did not move) is proved by
+    **removing the test's own failure staging** — the dropped table, the
+    throwing double, the missing collaborator — and watching it go red. That
+    can only fail through the assertion you aimed at.
+  - **An assertion of STATE** proves a refusal **only if the un-refused path
+    would have changed that state**. When the guard refuses before any effect
+    AND the path it guards does nothing either, there is no state to assert
+    and the message is the only witness. Writing one anyway produces a green
+    line that guards nothing (measured: `findById()` on an id that is not a
+    row answers null before and after the gesture).
+  - **An assertion that follows an `assertSame` on the same field** is
+    tautological. The exact match already pins the whole value.
+  - **To doubt an assertion, name the regression it is supposed to catch and
+    then write it.** Removing the assertion proves nothing — removing an
+    assertion can never make a test fail. Asking « what plausible change
+    makes this value different? » does; an audit row hoisted above an
+    availability guard is the kind of answer that settles it.
+  - **Pin an invariant in BOTH directions.** « The audit row is not written
+    on failure » is half a rule: nothing in the repository exercised the
+    success path, so the assertion held over a class that never audited
+    anything at all.
+- **Read the template and the controller, never deduce behaviour from a
+  docblock.** A `catch` that returns the neutral value is usually right; what
+  breaks is the sentence the layer above builds on it. #600 and #637 are both
+  that shape, found only by opening the Twig file — and #637 was missed first
+  because the docblocks argued convincingly for the fallback while the page
+  turned it into « le module est désactivé » with the module enabled.
 - **Never restore a file with `git checkout` to undo a mutation.** It
   restores from `HEAD`, so it deletes the uncommitted work the mutation was
   testing, and every assertion after that fails for the wrong reason. Undo a
