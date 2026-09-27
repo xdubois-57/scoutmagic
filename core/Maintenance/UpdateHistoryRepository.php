@@ -95,6 +95,24 @@ class UpdateHistoryRepository
     }
 
     /**
+     * The newest row that was an attempt — anything but `skipped`, which
+     * never started (issue #622). Its own query rather than a search of
+     * findRecent(): a burst of pushes can leave more skipped rows than the
+     * history table shows, and the failure behind them must still reach
+     * the health block.
+     */
+    public function findLatestAttempt(): ?UpdateHistory
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM update_history WHERE status != 'skipped' ORDER BY started_at DESC, id DESC LIMIT 1"
+        );
+        $stmt->execute();
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $this->hydrate($row);
+    }
+
+    /**
      * The `backups.id` of every update that has not finished — queued, or
      * at any step of running.
      *

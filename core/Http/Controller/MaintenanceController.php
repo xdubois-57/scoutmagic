@@ -236,14 +236,9 @@ class MaintenanceController extends AbstractController
         $updateHistory = $this->updateHistoryRepository->findRecent(self::UPDATE_HISTORY_SHOWN);
         // An install skipped before it started was never an attempt
         // (issue #622): the last one is the newest that actually ran or
-        // is still to run.
-        $lastAttempt = null;
-        foreach ($updateHistory as $entry) {
-            if ($entry->status !== 'skipped') {
-                $lastAttempt = $entry;
-                break;
-            }
-        }
+        // is still to run — asked of the table rather than of the rows
+        // shown, which a burst of skipped pushes can fill entirely.
+        $lastAttempt = $this->updateHistoryRepository->findLatestAttempt();
         $lastAttemptFailed = $lastAttempt !== null
             && in_array($lastAttempt->status, ['failed', 'rolled_back'], true);
 

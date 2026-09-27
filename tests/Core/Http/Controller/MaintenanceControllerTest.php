@@ -523,6 +523,22 @@ class MaintenanceControllerTest extends TestCase
         $this->assertStringContainsString('restauré automatiquement', $body);
     }
 
+    /** More skipped rows than the history shows still leave the failure behind them visible. */
+    public function testAFailureBehindMoreSkippedInstallsThanTheTableShowsIsStillFlagged(): void
+    {
+        $failed = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, null);
+        $this->updateHistoryRepository->markRolledBack($failed, 'migration KO');
+        for ($i = 0; $i < 25; $i++) {
+            $skipped = $this->updateHistoryRepository->create('1.1.0', '1.2.' . $i, false, null);
+            $this->updateHistoryRepository->markSkipped($skipped, 'Installation remplacée.');
+        }
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('maintenance-update-last-attempt', $body);
+        $this->assertStringContainsString('restauré automatiquement', $body);
+    }
+
     public function testTheHealthBlockStaysQuietWhenTheMostRecentAttemptSucceeded(): void
     {
         $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, null);
