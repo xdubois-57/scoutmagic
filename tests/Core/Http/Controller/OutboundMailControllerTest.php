@@ -1326,6 +1326,94 @@ class OutboundMailControllerTest extends TestCase
     /**
      * @param list<array{0: string, 1: int, 2: bool}> $sources address, messages, authenticated
      */
+    // ── The two week-by-week charts (issue #420) ──────────────────────
+
+    /**
+     * **The chart's own data reaches the page**, as the JSON island the script
+     * reads — not merely a canvas that a missing series would leave blank.
+     * 120 messages clears the threshold of twenty, so this week is drawn.
+     */
+    public function testTheDmarcPageCarriesTheWeeklyTrendAsData(): void
+    {
+        $this->recordDmarcReport('google.com', 'r-1', [['198.51.100.7', 120, true]]);
+
+        $body = (string) $this->controller->dmarc($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('dmarc-trend-data', $body, 'the island the script reads');
+        $this->assertStringContainsString('dmarc-trend-chart', $body, 'and the canvas it draws on');
+        // The island is raw JSON (`|json_encode|raw` into a
+        // `type="application/json"` script), so the needle is JSON and not
+        // escaped HTML.
+        $this->assertStringContainsString('"value":1', $body, 'the measured week, authenticated');
+        // **And the weeks nobody measured reach the page as holes.** The whole
+        // arbitration of #420 is that a hole and a zero are different claims,
+        // and it is the view layer that would be tempted to flatten one into
+        // the other on the way out: `spanGaps: false` can only break the line
+        // where the JSON actually carries a null.
+        $this->assertSame(
+            1,
+            preg_match('/id="dmarc-trend-data">\s*(\[.*?\])\s*<\/script>/s', $body, $island),
+            'the island the script reads'
+        );
+        $values = array_column((array) json_decode($island[1], true), 'value');
+        $this->assertContains(null, $values, 'the weeks before this one are holes, not zeros');
+        $this->assertNotContains(0.0, $values, 'no week is asserted to have authenticated nothing');
+        $this->assertStringContainsString(
+            'Les mêmes semaines en chiffres',
+            $body,
+            'and the same weeks in text, for a reader who cannot see a chart'
+        );
+    }
+
+    /**
+     * **A week under the threshold draws nothing and says so**, rather than
+     * showing an empty chart frame that reads as « nothing authenticated ».
+     */
+    public function testTheDmarcPageSaysWhenNoWeekCarriesEnoughMessages(): void
+    {
+        $this->recordDmarcReport('google.com', 'r-thin', [['198.51.100.7', 6, true]]);
+
+        $body = (string) $this->controller->dmarc($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('assez de messages rapportés', $body);
+        $this->assertStringNotContainsString('dmarc-trend-chart', $body, 'no canvas with nothing to draw');
+    }
+
+    /**
+     * The seed page carries one series per provider, and only the providers
+     * measured enough to draw: `MINIMUM_RUNS` mailings at one, one mailing at
+     * the other, the same week.
+     */
+    public function testTheSeedPageCarriesOneSeriesPerDrawableProvider(): void
+    {
+        $at = new \DateTimeImmutable('-2 days');
+        for ($i = 0; $i < \Core\Mail\Feedback\Seed\DomainRouting::MINIMUM_RUNS; $i++) {
+            $this->seedCopies->claim('envoi-g-' . $i, 'temoin@gmail.com', $at);
+            $this->seedCopies->recordLanding('envoi-g-' . $i, 'temoin@gmail.com', 'INBOX', $at);
+        }
+        $this->seedCopies->claim('envoi-o', 'temoin@orange.fr', $at);
+        $this->seedCopies->recordLanding('envoi-o', 'temoin@orange.fr', 'Indésirables', $at);
+
+        $body = (string) $this->controller->seeds($this->getRequest(), [])->getBody();
+
+        // **Asserted on the island, not on the page.** `orange.fr` legitimately
+        // appears in the ranking table above — a negative assertion over the
+        // whole body would have passed for the wrong reason, or failed for one.
+        $this->assertSame(
+            1,
+            preg_match('/id="seed-trend-data">\s*(\{.*?\})\s*<\/script>/s', $body, $island),
+            'the island the script reads'
+        );
+
+        $series = json_decode($island[1], true);
+
+        $this->assertSame(
+            ['gmail.com'],
+            array_keys(is_array($series) ? $series : []),
+            'one mailing cannot carry a provider, and is not drawn as if it could'
+        );
+    }
+
     private function recordDmarcReport(string $organisation, string $reportId, array $sources): void
     {
         $now = new \DateTimeImmutable();

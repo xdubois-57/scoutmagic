@@ -293,5 +293,72 @@
         </p>
     </div>
 
+    {# One line per provider, week by week (issue #420) — the comparison is the question:
+       « ce fournisseur se met-il à filtrer, ou a-t-il toujours filtré ? » #}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5">Depuis quand ?</h2>
+            <p class="text-body-secondary small">
+                La part des copies arrivées en boîte de réception, semaine par semaine, sur les
+                {{ trend_window_days }} jours conservés. Un fournisseur n'est tracé qu'à partir de
+                {{ minimum_runs }} publipostages mesurés dans la semaine : cinq copies d'un même envoi
+                vers cinq boîtes disent une fois la même chose cinq fois, et un échantillon qui les
+                compterait pour cinq franchirait le seuil sur une seule observation.
+            </p>
+            <p class="text-body-secondary small">
+                <strong>Une interruption se lit « on ne sait pas », jamais « rien n'est arrivé ».</strong>
+                Un fournisseur mesuré trop peu n'apparaît pas du tout, plutôt que comme une ligne vide
+                qui se lirait comme un fournisseur qui ne délivre rien. Et le dernier point se remplit
+                encore, puisque sa semaine n'est pas finie.
+            </p>
+
+            {% if landing_trend|length > 0 %}
+                <script type="application/json" id="seed-trend-data">
+                    {{- landing_trend|json_encode|raw -}}
+                </script>
+                <div style="position:relative;height:240px;">
+                    <canvas id="seed-trend-chart"
+                            aria-label="Part des copies en boîte de réception, par fournisseur et par semaine"
+                            role="img"></canvas>
+                </div>
+                <details class="mt-2">
+                    <summary class="small">Les mêmes semaines en chiffres</summary>
+                    {% for provider, points in landing_trend %}
+                        <div class="table-responsive">
+                        <table class="table table-sm mt-2 mb-0">
+                            <caption class="small">{{ provider }}</caption>
+                            <thead>
+                                <tr>
+                                    <th scope="col">Semaine du</th>
+                                    <th scope="col">Copies répondues</th>
+                                    <th scope="col">En boîte de réception</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for point in points|filter(p => p.value is not null) %}
+                                    <tr>
+                                        <td>{{ point.label }}{% if point.partial %} (en cours){% endif %}</td>
+                                        <td>{{ point.sample }} publipostage{{ point.sample > 1 ? 's' : '' }}</td>
+                                        <td>{{ (point.value * 100)|round }} %</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                        </div>
+                    {% endfor %}
+                </details>
+            {% else %}
+                <p class="text-body-secondary small mb-0">
+                    Aucun fournisseur ne porte encore assez de publipostages mesurés pour être tracé.
+                </p>
+            {% endif %}
+        </div>
+    </div>
+
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ asset('/assets/vendor/chartjs/chart.umd.min.js') }}"></script>
+<script src="{{ asset('/assets/js/outbound-mail-trends.js') }}" defer></script>
 {% endblock %}
