@@ -285,10 +285,15 @@
                 <script type="application/json" id="dmarc-trend-data">
                     {{- authentication_trend|json_encode|raw -}}
                 </script>
+                {# The canvas is hidden from assistive technology on purpose, and the
+                   <details> below is why: it carries the SAME weeks in text, so the
+                   chart adds nothing there. `role="img"` with a one-line aria-label
+                   would have been worse than nothing — a sentence cannot carry
+                   fourteen weeks of figures, while the table can, and Sonar is right
+                   that a canvas is not an image (Web:S6819, Web:S6843). Every other
+                   chart in this repository leaves its canvas unlabelled too. #}
                 <div class="outbound-trend-chart">
-                    <canvas id="dmarc-trend-chart"
-                            aria-label="Taux d'authentification DMARC semaine par semaine"
-                            role="img"></canvas>
+                    <canvas id="dmarc-trend-chart" aria-hidden="true"></canvas>
                 </div>
                 {# The table is not a fallback for a missing chart — it IS the reading, for anybody
                    who cannot see one. Only the drawn weeks: an interrupted week has nothing to say. #}

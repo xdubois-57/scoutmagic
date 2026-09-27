@@ -328,10 +328,15 @@
                 <script type="application/json" id="seed-trend-data">
                     {{- landing_trend|json_encode|raw -}}
                 </script>
+                {# The canvas is hidden from assistive technology on purpose, and the
+                   <details> below is why: it carries the SAME weeks in text, so the
+                   chart adds nothing there. `role="img"` with a one-line aria-label
+                   would have been worse than nothing — a sentence cannot carry
+                   fourteen weeks of figures, while the table can, and Sonar is right
+                   that a canvas is not an image (Web:S6819, Web:S6843). Every other
+                   chart in this repository leaves its canvas unlabelled too. #}
                 <div class="outbound-trend-chart">
-                    <canvas id="seed-trend-chart"
-                            aria-label="Part des copies en boîte de réception, par fournisseur et par semaine"
-                            role="img"></canvas>
+                    <canvas id="seed-trend-chart" aria-hidden="true"></canvas>
                 </div>
                 <details class="mt-2">
                     <summary class="small">Les mêmes semaines en chiffres</summary>
