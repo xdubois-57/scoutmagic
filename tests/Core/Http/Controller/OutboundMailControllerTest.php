@@ -3773,12 +3773,17 @@ class OutboundMailControllerTest extends TestCase
     // a real broken installation: a table a failed migration never created,
     // a repository whose database holds nothing, a settings row that was
     // never registered. That is the production failure these blocks exist
-    // for, and it is cheaper to arrange than a stub of a final class — which
-    // PHPUnit cannot make anyway, every one of these collaborators being
-    // final. The one stub below is `InboundMailInterface`, a module API
-    // boundary this file already stubs elsewhere (`controllerWithSeedBoxes`),
-    // and it is there to switch the round trip ON rather than to make
-    // anything fail.
+    // for.
+    //
+    // The five classes whose read had to fail — `MailReserve`,
+    // `ProviderHealthRepository`, `DeferredMailRepository`,
+    // `DeferredMailQueue`, `ReturnPathVerifier` — are `final`, so PHPUnit
+    // could not have doubled them anyway; the constraint pushed towards the
+    // better arrangement. TWO doubles remain, both already in use in this
+    // file: an `InboundMailInterface` stub, which switches the round trip ON
+    // rather than making anything fail, and a `MailService` mock in the same
+    // test. `MailService`, `JournalService`, `JournalRepository` and
+    // `EncryptionService` are plain classes, not final.
 
     /**
      * Make one table unreadable, the way a migration that never ran leaves it.
@@ -3857,6 +3862,22 @@ class OutboundMailControllerTest extends TestCase
 
     public function testARelaunchThatCannotReachTheQueueSaysSoWithoutClaimingAnythingMoved(): void
     {
+        // The contrast, inside the test, as the three fallback tests below
+        // carry theirs: on a readable queue this very gesture says « remis en
+        // file », so the error sentence asserted afterwards means the queue
+        // could not be read rather than merely being empty.
+        //
+        // Two `assertStringNotContainsString` stood here instead, for the two
+        // other sentences `relaunch()` can produce. They could not fail: the
+        // `assertSame` above them already pins the whole message to one
+        // literal, so neither substring could ever appear. `Claude review`
+        // caught that, in the batch whose own thesis is falsifiability — and
+        // this is the better fix, because nothing else in this file pins
+        // « remis en file » at all.
+        $this->abandonOne(MailLane::Transactional, date('Y-m-d H:i:s', time() - 3600));
+        $this->controller->relaunch($this->formRequest(['lanes' => ['transactional']]), []);
+        $this->assertStringContainsString('remis en file', $this->flashOf()['message']);
+
         $this->dropTable('mail_deferred_messages');
 
         $response = $this->controller->relaunch($this->formRequest(['lanes' => ['transactional']]), []);
@@ -3865,12 +3886,6 @@ class OutboundMailControllerTest extends TestCase
         $flash = $this->flashOf();
         $this->assertSame('error', $flash['type']);
         $this->assertSame('La relance n’a pas pu être effectuée.', $flash['message']);
-        // And it must not read as the other two outcomes. A relaunch that
-        // failed is not « 0 message remis en file » and not « aucun message
-        // abandonné dans cette fenêtre » — both of those say the queue was
-        // read and found wanting, which is the opposite of what happened.
-        $this->assertStringNotContainsString('remis en file', $flash['message']);
-        $this->assertStringNotContainsString('Aucun message abandonné', $flash['message']);
     }
 
     public function testAddressesThatCannotBeSavedAreReportedAndNothingIsWritten(): void
