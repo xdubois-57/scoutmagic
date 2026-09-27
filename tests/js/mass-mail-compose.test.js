@@ -579,4 +579,22 @@ describe('mass-mail-compose.js: importing the audience file', () => {
         expect(document.querySelector('#mm-merge-columns img')).toBeNull();
         expect(document.getElementById('mm-merge-columns').textContent).toContain('<img src=x onerror=alert(1)>');
     });
+
+    // A fixed light pair stays white in the dark theme (issue #645).
+    it('draws the column badges in colours that follow the theme', async () => {
+        await boot({ listType: 'mail_merge' });
+        global.fetch = vi.fn(() => jsonResponse({
+            success: true,
+            audience: { id: 12, filename: 'camp.xlsx', sheet_name: 'F1', columns: ['Nom'], row_count: 1 },
+            warnings: [],
+        }));
+
+        chooseFile('camp.xlsx');
+        await settle();
+
+        const badge = document.querySelector('#mm-merge-columns .badge');
+        expect(badge).not.toBeNull();
+        expect(badge.classList.contains('text-bg-light')).toBe(false);
+        expect(badge.classList.contains('bg-body-secondary')).toBe(true);
+    });
 });
