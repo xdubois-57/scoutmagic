@@ -2674,9 +2674,18 @@ sur une porte.**
   hebdomadaire ils sont quatre fois plus stricts que la constante ne l'a
   jamais voulu. À « trois à cinq boîtes et quelques publipostages par an »
   — le volume que ce dépôt énonce lui-même — aucune semaine n'atteint
-  cinq : toutes les séries étaient vides, `drawable()` ne rendait rien, et
-  la carte ne pouvait afficher que son propre état vide. La fonction était
-  inerte, et mesurée inerte avant d'être corrigée (`Claude review`).
+  cinq : toutes les séries étaient vides, le filtre `drawable()` que cette
+  classe portait alors ne rendait rien, et la carte ne pouvait afficher que
+  son propre état vide. La fonction était inerte, et mesurée inerte avant
+  d'être corrigée (`Claude review`).
+
+  **Et ce filtre a disparu avec le seuil**, parce que son mutant survivait :
+  à un publipostage, il ne pouvait plus jamais filtrer. La requête écarte
+  déjà les copies en attente, donc un fournisseur n'entre dans la table
+  qu'avec au moins un envoi répondu, qui franchit un seuil de un. Une
+  frontière à deux mécanismes est la forme dont le mutant survit parce que
+  chaque copie masque l'absence de l'autre — cinquième occurrence dans ce
+  chantier. Un test épingle l'invariant à la place du garde.
 
   **Un seuil calibré pour une fenêtre n'est pas un seuil pour une autre**,
   quelle que soit la ressemblance des preuves qu'il juge. Celui qui l'a

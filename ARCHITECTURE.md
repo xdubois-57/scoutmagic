@@ -5015,12 +5015,22 @@ that ended months ago. The last point will grow; the first never will,
 because what is missing from it was purged. A window inside a single week
 is both, and says both.
 
-*A provider measured too thinly is left off the chart.*
-`LandingTrend::drawable()` drops a series with no drawable week, because a
-legend entry with no line beside it reads as « this provider delivered
-nothing » — the opposite of « we have not measured it enough to say ».
-For the same reason the controller hands the view an empty list rather
-than a list of holes: nothing drawable means no chart, not an empty frame.
+*A provider with nothing measured is left off the chart, and no filter does
+it.* `LandingTrend` carried a `drawable()` guard for exactly one revision;
+its mutation survived, which is the proof it could never fire. The reason is
+structural: `landingsPerRunSince()` excludes pending copies, so a provider
+reaches the map only with at least one ANSWERED mailing, which lands in a
+walked week where `sample` and `total` are both at least one — clearing
+`MINIMUM_MAILINGS`. The provider the guard was meant to drop, one whose every
+copy is still pending, never reaches the map at all. A second mechanism for a
+boundary the query already holds is the shape whose mutation survives because
+each copy hides the other's absence, so the guard is gone and a test pins the
+invariant. What remains is the view's own question: `trendForView()` hands the
+template an empty list rather than a list of holes when a series has no drawn
+week — still reachable for DMARC, where twenty messages a week is a real bar —
+because a legend entry with no line beside it reads as « this provider
+delivered nothing », the opposite of « we have not measured it enough to
+say ».
 
 *The seed trend groups on the attributed provider, like the ranking above
 it.* Folding the MX attribution (issue #422) at read time means two of a
