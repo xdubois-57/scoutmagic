@@ -895,7 +895,13 @@ class ReceivableAllocationService
     private function communicationsOf(Transaction $transaction): array
     {
         $found = [];
-        foreach ([$transaction->structuredCommunication, $transaction->label, $transaction->comment, $transaction->extraDetails] as $field) {
+        $fields = [
+            $transaction->structuredCommunication,
+            $transaction->label,
+            $transaction->comment,
+            $transaction->extraDetails,
+        ];
+        foreach ($fields as $field) {
             if ($field === null) {
                 continue;
             }

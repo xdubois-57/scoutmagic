@@ -108,7 +108,9 @@ class ImportService
                 if (!array_key_exists($line->accountIban, $linesByIban)) {
                     // A parser contract violation, not a user error: the
                     // line claims an account the file never announced.
-                    throw new FinanceException('Le fichier de relevé est incohérent : une ligne appartient à un compte non déclaré.');
+                    throw new FinanceException(
+                        'Le fichier de relevé est incohérent : une ligne appartient à un compte non déclaré.'
+                    );
                 }
                 $linesByIban[$line->accountIban][] = $line;
             }
@@ -361,8 +363,8 @@ class ImportService
             if (!$firstImports[$iban]) {
                 if ($typed !== null) {
                     throw new FinanceException(
-                        "Le compte « {$account->name} » a déjà un solde de référence : les suivants se recalculent"
-                        . ' depuis les mouvements. Laissez le champ « Solde » vide.'
+                        "Le compte « {$account->name} » a déjà un solde de référence :"
+                        . ' les suivants se recalculent depuis les mouvements. Laissez le champ « Solde » vide.'
                     );
                 }
                 continue;
@@ -460,7 +462,8 @@ class ImportService
 
         throw new FinanceException(
             'Aucune année scoute du site ne couvre ' . implode(', ', $parts) . '.'
-            . ' Aucun mouvement n\'a été importé. L\'année manquante se prépare depuis la page « Année scoute » ;'
+            . ' Aucun mouvement n\'a été importé.'
+            . ' L\'année manquante se prépare depuis la page « Année scoute » ;'
             . ' si ces dates vous semblent fausses, vérifiez le fichier.'
         );
     }

@@ -19,6 +19,8 @@ final class StatementFormatNotRecognized extends FinanceException
 {
     public function __construct()
     {
-        parent::__construct("Nous n'avons pas reconnu ce fichier. Choisissez le format manuellement, puis déposez-le à nouveau.");
+        parent::__construct(
+            "Nous n'avons pas reconnu ce fichier. Choisissez le format manuellement, puis déposez-le à nouveau."
+        );
     }
 }

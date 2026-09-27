@@ -194,7 +194,9 @@ final class CodaParser implements BankStatementParserInterface
                     break;
 
                 default:
-                    throw new FinanceException('Le fichier CODA contient un enregistrement inconnu (ligne ' . ($index + 1) . ').');
+                    throw new FinanceException(
+                        'Le fichier CODA contient un enregistrement inconnu (ligne ' . ($index + 1) . ').'
+                    );
             }
         }
 
@@ -430,7 +432,9 @@ final class CodaParser implements BankStatementParserInterface
     private function requireStatement(?string $account, int $index): void
     {
         if ($account === null) {
-            throw new FinanceException('Le fichier CODA est mal formé : un mouvement précède son relevé (ligne ' . ($index + 1) . ').');
+            throw new FinanceException(
+                'Le fichier CODA est mal formé : un mouvement précède son relevé (ligne ' . ($index + 1) . ').'
+            );
         }
     }
 
@@ -441,7 +445,9 @@ final class CodaParser implements BankStatementParserInterface
     private function requireMovement(?array $movement, int $index): void
     {
         if ($movement === null) {
-            throw new FinanceException('Le fichier CODA est mal formé : une suite de mouvement sans mouvement (ligne ' . ($index + 1) . ').');
+            throw new FinanceException(
+                'Le fichier CODA est mal formé : une suite de mouvement sans mouvement (ligne ' . ($index + 1) . ').'
+            );
         }
     }
 

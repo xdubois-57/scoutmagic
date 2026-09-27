@@ -597,7 +597,10 @@ class TransactionRepository
                 : null,
             categorySource: $row['category_source'] !== null ? (string) $row['category_source'] : null,
             structuredCommunication: isset($row['structured_communication'])
-                ? $this->encryption->decrypt($row['structured_communication'], 'finance_transactions.structured_communication')
+                ? $this->encryption->decrypt(
+                    $row['structured_communication'],
+                    'finance_transactions.structured_communication'
+                )
                 : null
         );
     }
