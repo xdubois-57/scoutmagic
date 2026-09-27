@@ -44,6 +44,19 @@ class ReenrollmentRepository
      * answer to one question, and a partial update would leave a family's
      * second thoughts sitting next to their first.
      *
+     * **One transaction, answer and wishes together** (issue #592). Two
+     * guardians answering for the same child at the same moment used to be
+     * two unrelated statement sequences: the loser of the INSERT could
+     * rewrite the winner's row between the winner's INSERT and its wishes,
+     * and the child ended up with both families' wishes merged. In one
+     * transaction the winner's row is locked until its wishes are written
+     * and committed; the loser's INSERT waits on the unique index, is
+     * refused only then, and replaces a complete answer with its own.
+     * Checked before the transaction opens, the existing answer is read
+     * again after the refusal — the first read of the transaction, so it
+     * sees what the winner committed. A caller already inside a
+     * transaction keeps it: this method joins it rather than nesting.
+     *
      * @param array<int, array{raw_name: string, matched_member_id: ?int, match_state: string}> $friendWishes
      *        already resolved and already capped by the caller
      */
@@ -62,6 +75,47 @@ class ReenrollmentRepository
             : null;
 
         $existingId = $this->findAnswerId($memberId, $scoutYearId);
+
+        $ownTransaction = !$this->pdo->inTransaction();
+        if ($ownTransaction) {
+            $this->pdo->beginTransaction();
+        }
+        try {
+            $id = $this->writeAnswer(
+                $existingId,
+                $memberId,
+                $scoutYearId,
+                [$decision, $preferredSectionId, $comment, $now, $answeredByUserAccountId],
+                $friendWishes
+            );
+            if ($ownTransaction) {
+                $this->pdo->commit();
+            }
+        } catch (\Throwable $e) {
+            if ($ownTransaction) {
+                $this->pdo->rollBack();
+            }
+            throw $e;
+        }
+
+        return $id;
+    }
+
+    /**
+     * The body of saveAnswer(), inside its transaction.
+     *
+     * @param array{string, ?int, ?string, string, ?int} $answer decision, preferred section,
+     *        encrypted comment, answered at, answered by
+     * @param array<int, array{raw_name: string, matched_member_id: ?int, match_state: string}> $friendWishes
+     */
+    private function writeAnswer(
+        ?int $existingId,
+        int $memberId,
+        int $scoutYearId,
+        array $answer,
+        array $friendWishes
+    ): int {
+        [$decision, $preferredSectionId, $comment, $now, $answeredByUserAccountId] = $answer;
 
         if ($existingId === null) {
             try {

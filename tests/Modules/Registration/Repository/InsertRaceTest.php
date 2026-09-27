@@ -104,6 +104,42 @@ final class InsertRaceTest extends TestCase
     }
 
     /**
+     * Answer and wishes are one write (issue #592): a failure while the
+     * wishes are written leaves no answer behind, so a crossing answer can
+     * never find a row whose wishes are still to come.
+     */
+    public function testAFailureWritingTheWishesLeavesNoAnswerBehind(): void
+    {
+        $answers = new ReenrollmentRepository($this->pdo, $this->encryption);
+        $this->pdo->exec('DROP TABLE registration_friend_wishes');
+
+        try {
+            $answers->saveAnswer($this->memberId, $this->yearId, 'staying', null, null, null, [
+                ['raw_name' => 'Alice', 'matched_member_id' => null, 'match_state' => 'unmatched'],
+            ]);
+            $this->fail('writing the wishes did not fail');
+        } catch (\PDOException) {
+            // Expected: the wishes table is gone.
+        }
+
+        $this->assertSame(0, $this->rowCount('registration_reenrollments'), 'the answer outlived its wishes');
+        $this->assertFalse($this->pdo->inTransaction(), 'the transaction was left open');
+    }
+
+    /** A caller's own transaction is joined, not nested — PDO has no nested transactions. */
+    public function testAnAnswerJoinsTheCallersTransaction(): void
+    {
+        $answers = new ReenrollmentRepository($this->pdo, $this->encryption);
+
+        $this->pdo->beginTransaction();
+        $answers->saveAnswer($this->memberId, $this->yearId, 'staying', null, null, null, []);
+        $this->assertTrue($this->pdo->inTransaction(), 'saveAnswer() committed its caller\'s transaction');
+        $this->pdo->rollBack();
+
+        $this->assertSame(0, $this->rowCount('registration_reenrollments'));
+    }
+
+    /**
      * Only the unique index is absorbed: a row the schema refuses for any
      * other reason — here a member that does not exist — still fails.
      */
