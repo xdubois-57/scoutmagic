@@ -9,6 +9,8 @@ declare(strict_types=1);
 namespace Core\Storage\Location;
 
 use Core\Exception\UserFacingException;
+use Core\Exception\UserFacingMessage;
+use Core\Storage\Location\Backend\ManagedRootFolderBackend;
 use Core\Storage\Location\Backend\StorageBackendFactory;
 use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\Config\LocationConfig;
@@ -99,13 +101,42 @@ class StorageLocationService
     }
 
     /**
+     * Saves a location — and, when its label changed and it owns its
+     * folder (a Google Drive location, #474), renames that folder to
+     * match.
+     *
+     * **The rename in ScoutMagic stands whatever the folder does.** The
+     * folder is found by its id, never by its name, so a folder left with
+     * the old name costs the operator a moment of confusion in their Drive
+     * and nothing else; refusing the rename because Google was unreachable
+     * would cost them the rename. The failure comes back for the caller
+     * to journal and to show.
+     *
      * @throws StorageLocationException when the label is already taken
      */
-    public function update(int $id, string $label, LocationConfig $config, ?string $secret): void
+    public function update(int $id, string $label, LocationConfig $config, ?string $secret): RootFolderOutcome
     {
         $this->assertLabelFree($label, $id);
+        $before = $this->repository->findById($id);
         $this->repository->update($id, $label, $config, $secret);
         unset($this->locationsById[$id]);
+
+        if ($before === null || $before->label === $label) {
+            return RootFolderOutcome::nothingToDo();
+        }
+
+        $backend = $this->managedBackendOf($before);
+        if ($backend instanceof RootFolderOutcome) {
+            return $backend;
+        }
+
+        try {
+            $backend->renameRootFolder($label);
+        } catch (\Throwable $e) {
+            return self::failure($e);
+        }
+
+        return RootFolderOutcome::done();
     }
 
     public function setDefault(int $id): void
@@ -134,10 +165,20 @@ class StorageLocationService
      * disagree: a page whose « Sert : … » line came out empty offers the
      * button, and the button lands here.
      *
+     * **A folder the application created goes to the trash with it**
+     * (#474) — a Google Drive location's `ScoutMagic/<label>/`, which
+     * nobody typed and which would otherwise outlive the location for
+     * ever. The trash, not a deletion: Google keeps it about thirty days,
+     * which is the operator's way back from a wrong click. A folder the
+     * administrator named — a local path, a WebDAV share, a bucket — is
+     * theirs and is never touched. A failure to reach Drive does not keep
+     * the location alive: it comes back for the caller to journal and to
+     * show, and the folder simply stays where it is.
+     *
      * @throws StorageLocationException while a consumer depends on $id, or
      *         when one of them could not be asked at all
      */
-    public function delete(int $id): void
+    public function delete(int $id): RootFolderOutcome
     {
         try {
             $usages = $this->consumers->usagesOf($id);
@@ -157,8 +198,157 @@ class StorageLocationService
             ));
         }
 
+        // Built BEFORE the row goes: the backend needs the row's secret,
+        // and the trash comes after the deletion so that a location that
+        // could not be deleted never loses its folder.
+        $location = $this->repository->findById($id);
+        $backend = $location !== null ? $this->managedBackendOf($location) : RootFolderOutcome::nothingToDo();
+
         $this->repository->delete($id);
         unset($this->locationsById[$id]);
+
+        if ($backend instanceof RootFolderOutcome) {
+            return $backend;
+        }
+
+        try {
+            $backend->trashRootFolder();
+        } catch (\Throwable $e) {
+            return self::failure($e);
+        }
+
+        return RootFolderOutcome::done();
+    }
+
+    /**
+     * The folder a Drive location writes into once connected:
+     * `ScoutMagic/<label>/` (#474). Called by the connection callback with
+     * the access token Google just granted.
+     *
+     * **The one it already has, when the account just authorised can
+     * still see it** — a reconnection after the seven-day expiry, or after
+     * « Déraccorder », must land on the folder holding the files and not
+     * beside it. A label changed while disconnected is caught up with
+     * here, as the rename itself could not reach Google — unless another
+     * location shares the folder (pre-#474 rows), whose folder would be
+     * renamed along with it. A failed rename changes nothing: the folder
+     * is found by id.
+     *
+     * **Otherwise a new one**: the shared `ScoutMagic` parent is found or
+     * created, and the location's own folder is always CREATED under it,
+     * never looked up by name — two locations must never share a folder
+     * again, which is exactly what a lookup by name produced. A folder in
+     * the trash counts as gone: writing into it would put every file where
+     * Google empties it after thirty days.
+     *
+     * @throws Backend\Drive\DriveAccessException
+     */
+    public function resolveDriveFolder(
+        Backend\Drive\GoogleDriveClient $client,
+        string $accessToken,
+        StorageLocation $location
+    ): string {
+        $config = $location->config instanceof Config\GoogleDriveLocationConfig
+            ? $location->config
+            : new Config\GoogleDriveLocationConfig();
+
+        if ($config->folderId !== '') {
+            $existing = $client->describeFile($accessToken, $config->folderId);
+            if ($existing !== null && !$existing['trashed']) {
+                if ($existing['name'] !== $location->label && $this->otherLocationOnTheSameFolder($location) === null) {
+                    try {
+                        $client->renameFile($accessToken, $config->folderId, $location->label);
+                    } catch (Backend\Drive\DriveAccessException) {
+                        // Found by id: a stale name breaks nothing.
+                    }
+                }
+
+                return $config->folderId;
+            }
+        }
+
+        $parentId = $client->ensureFolder($accessToken, Config\GoogleDriveLocationConfig::PARENT_FOLDER_NAME);
+
+        return $client->createFolder($accessToken, $location->label, $parentId);
+    }
+
+    /**
+     * Another Drive location whose folder is this one's, or null.
+     *
+     * **Only possible for locations connected before #474.** The old
+     * connection looked the folder up by its NAME, so two locations on
+     * the same account were given the same folder id — and nothing
+     * migrates them. Since #474 each connection creates its own folder,
+     * so a location connected today never matches.
+     */
+    private function otherLocationOnTheSameFolder(StorageLocation $location): ?StorageLocation
+    {
+        if (!$location->config instanceof Config\GoogleDriveLocationConfig) {
+            return null;
+        }
+        foreach ($this->repository->findAll() as $other) {
+            if ($other->id !== $location->id
+                && $other->type === StorageLocationType::GoogleDrive
+                && $other->config instanceof Config\GoogleDriveLocationConfig
+                && $other->config->folderId === $location->config->folderId
+            ) {
+                return $other;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The backend of $location when it owns its folder — or the outcome
+     * to report instead: nothing to do for every other kind, a failure
+     * when the backend cannot even be built (an unreadable secret).
+     */
+    private function managedBackendOf(StorageLocation $location): ManagedRootFolderBackend|RootFolderOutcome
+    {
+        if ($location->type !== StorageLocationType::GoogleDrive) {
+            // Asked of the type first: building a local backend creates
+            // its directory, and an S3 one a client, for nothing.
+            return RootFolderOutcome::nothingToDo();
+        }
+        if ($location->config instanceof Config\GoogleDriveLocationConfig && $location->config->folderId === '') {
+            // Never connected: there is no folder, and saying one was put
+            // in the trash would be untrue.
+            return RootFolderOutcome::nothingToDo();
+        }
+        if ($location->config instanceof Config\GoogleDriveLocationConfig && !$location->config->isConnected()) {
+            // Disconnected: « Déraccorder » keeps the folder id so that a
+            // reconnection finds the folder again, but there is no grant
+            // left to reach Google with. Asking anyway would fail, and
+            // report an ordinary state as a Drive fault.
+            return RootFolderOutcome::disconnected();
+        }
+        $sharer = $this->otherLocationOnTheSameFolder($location);
+        if ($sharer !== null) {
+            // Renaming it would rename the other location's folder, and
+            // trashing it would hide — then, after thirty days, destroy —
+            // the other location's live files.
+            return RootFolderOutcome::sharedWith($sharer->label);
+        }
+
+        try {
+            $backend = $this->backendFactory->create($location);
+        } catch (\Throwable $e) {
+            return self::failure($e);
+        }
+
+        return $backend instanceof ManagedRootFolderBackend ? $backend : RootFolderOutcome::nothingToDo();
+    }
+
+    private static function failure(\Throwable $e): RootFolderOutcome
+    {
+        $reason = UserFacingMessage::from($e, 'Google Drive n\'a pas répondu comme prévu.');
+        $detail = $e->getMessage();
+        if ($e->getPrevious() !== null) {
+            $detail .= ' — ' . $e->getPrevious()->getMessage();
+        }
+
+        return RootFolderOutcome::failed($reason, $detail);
     }
 
     /**

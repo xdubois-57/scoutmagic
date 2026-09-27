@@ -8,7 +8,7 @@ question: Puis-je héberger les photos d'un album sur Google Drive ?
 question: Pourquoi le site refuse-t-il d'envoyer une vidéo sur mon Drive ?
 question: Pourquoi le site ne voit-il pas les photos déjà dans mon dossier Drive ?
 paths: /config/stockage/emplacements/nouveau, /config/stockage/emplacements/*/modification, /config/gallery
-related: stockage, stockage-webdav, stockage-espace
+related: stockage-google-drive-dossiers, stockage, stockage-webdav, stockage-espace
 ---
 
 Un emplacement **Google Drive** peut recevoir les photos d'un album,

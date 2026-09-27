@@ -211,7 +211,14 @@
                     {% if usages is empty %}
                         <form method="post"
                               action="/config/stockage/emplacements/{{ location.id }}/suppression"
+                              {# A Drive location's own folder follows it to the
+                                 trash (#474); every other kind of folder was
+                                 named by the administrator and stays. #}
+                              {% if location.type.value == 'google_drive' %}
+                              data-confirm="Supprimer l'emplacement « {{ location.label }} » ? Son dossier sur Google Drive sera placé dans la corbeille, avec tout ce qu'il contient : vous pourrez l'y récupérer pendant 30 jours, après quoi Google l'efface définitivement."
+                              {% else %}
                               data-confirm="Supprimer l'emplacement « {{ location.label }} » ? Les fichiers déjà écrits à la destination ne sont pas effacés : le site cesse seulement de la connaître."
+                              {% endif %}
                               data-confirm-label="Supprimer"
                               class="d-inline">
                             {{ csrf_field()|raw }}

@@ -9096,7 +9096,9 @@ if ($isEnabled('gallery')) {
         $uploadHandler,
         $notificationService,
         $userAccountRepo,
-        $galleryStoredFileCleaner
+        $galleryStoredFileCleaner,
+        // The album folder's LISEZMOI.txt (#474), on every kind of storage.
+        new \Modules\Gallery\Service\AlbumReadme($settingService, $journalService)
     );
     $galleryMediaService = new \Modules\Gallery\Service\MediaService(
         $galleryMediaRepo,

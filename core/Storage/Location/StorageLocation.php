@@ -71,10 +71,18 @@ final class StorageLocation
         return $this->config->servesPubliclyWithoutExpiry();
     }
 
-    /** One line naming where this points, safe to render. */
+    /**
+     * One line naming where this points, safe to render.
+     *
+     * A Drive location's folder is named after the location's label
+     * (#474), which only this object knows — hence the one type answered
+     * here rather than by its config alone.
+     */
     public function describe(): string
     {
-        return $this->config->describe();
+        return $this->config instanceof Config\GoogleDriveLocationConfig
+            ? $this->config->describeFolderOf($this->label)
+            : $this->config->describe();
     }
 
     /**
