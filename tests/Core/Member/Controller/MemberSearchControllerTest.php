@@ -105,7 +105,7 @@ class MemberSearchControllerTest extends TestCase
     new \Core\Member\Repository\MemberProfileRepository($connection, $this->enc, new \Core\Badge\MemberBadgeRepository($this->pdo))
 );
         $exportRowBuilder = new \Core\Member\Export\MemberExportRowBuilder(
-            new \Core\Member\SectionRosterRepository($this->pdo),
+            new \Core\Member\SectionRosterRepository($this->pdo, $this->enc),
             $sectionService,
             $scoutYearService,
             $this->enc,

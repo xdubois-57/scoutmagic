@@ -62,8 +62,8 @@ class SectionRosterControllerTest extends TestCase
         $journalService = new JournalService(new JournalRepository($this->pdo));
 
         $movementClassifier = new MemberMovementClassifierService(new MemberMovementRepository($this->pdo), $scoutYearService);
-        $rosterRepository = new SectionRosterRepository($this->pdo);
-        $rosterService = new SectionRosterService($rosterRepository, $this->encryption, $memberEmailRepository, $movementClassifier);
+        $rosterRepository = new SectionRosterRepository($this->pdo, $this->encryption);
+        $rosterService = new SectionRosterService($rosterRepository, $memberEmailRepository, $movementClassifier);
         $exportRowBuilder = new MemberExportRowBuilder($rosterRepository, $this->sectionService, $scoutYearService, $this->encryption, $memberEmailRepository, $movementClassifier);
         $exportService = new MemberExportService();
 

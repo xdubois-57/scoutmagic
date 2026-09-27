@@ -2692,10 +2692,9 @@ $memberMovementClassifier = new \Core\Member\Movement\MemberMovementClassifierSe
     $memberMovementRepository,
     $scoutYearService
 );
-$sectionRosterRepository = new \Core\Member\SectionRosterRepository($pdo);
+$sectionRosterRepository = new \Core\Member\SectionRosterRepository($pdo, $encryptionService);
 $sectionRosterService = new \Core\Member\SectionRosterService(
     $sectionRosterRepository,
-    $encryptionService,
     $memberEmailRepository,
     $memberMovementClassifier
 );

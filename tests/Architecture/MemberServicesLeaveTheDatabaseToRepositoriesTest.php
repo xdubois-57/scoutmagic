@@ -75,7 +75,6 @@ final class MemberServicesLeaveTheDatabaseToRepositoriesTest extends TestCase
     private const STILL_TO_MOVE = [
         'core/Member/SectionStaffAuthorizationService.php' => ['prepare(', 'getPdo()', '->blindIndex('],
         'core/Member/UnitStaffSectionService.php' => ['prepare('],
-        'core/Member/SectionRosterService.php' => ['->decrypt('],
     ];
 
     public function testNoServiceInMemberPreparesItsOwnStatements(): void
