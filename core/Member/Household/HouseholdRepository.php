@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Member\Household;
 
+use Core\Member\AddressNormalizer;
 use Core\Security\EncryptionService;
 
 /**
@@ -29,20 +30,26 @@ class HouseholdRepository
     }
 
     /**
-     * The key a household is stored and looked up under, for an address
-     * already normalized by Core\Member\AddressNormalizer.
+     * The household an address belongs to, or null when it does not
+     * normalize into anything comparable — which is not a household of one
+     * but an unknown.
      *
-     * The purpose string `'address'` lives here rather than in
-     * HouseholdService because a purpose string is the one part of a blind
-     * index that must never be written from memory by a second layer: the
-     * lookup does not fail when it is wrong, it silently finds nobody
-     * (issue #629). Returned rather than kept private because
-     * {@see \Modules\Registration\Api\HouseholdRegistrationCountProvider}
-     * keys its counts on this very value.
+     * **The one place a household key is derived from an address** (issues
+     * #629, #630). The normalizer and the purpose string `'address'` live
+     * here, beside the column the key is looked up in: a blind index never
+     * throws when two layers derive it differently, it silently finds
+     * nobody. The registration module used to derive the same key for its
+     * own requests; it now asks here and stores what it is handed
+     * ({@see HouseholdKey}).
      */
-    public function householdKeyFor(string $normalizedAddress): string
+    public function keyForAddress(?string $street, ?string $number, ?string $box, ?string $postalCode): ?HouseholdKey
     {
-        return $this->encryption->blindIndex($normalizedAddress, 'address');
+        $normalized = AddressNormalizer::normalize($street, $number, $box, $postalCode);
+        if ($normalized === '') {
+            return null;
+        }
+
+        return HouseholdKey::fromStorable($this->encryption->blindIndex($normalized, 'address'));
     }
 
     /**

@@ -1084,23 +1084,6 @@
     margin-left: -1rem;
 }
 
-/* .min-w-0 — the one utility a flex row needs and Bootstrap 5.3 does not
-   ship.
-
-   A flex item's default `min-width: auto` refuses to shrink below its
-   content, so a long word — a place name, a document title, a sender's
-   address — pushes its row wider than the viewport and the whole page
-   scrolls sideways on a phone. `min-width: 0` is what lets `text-truncate`
-   and `text-break` inside it actually work.
-
-   It was already being written in two modules on the assumption that
-   Bootstrap provided it; it did not, so every one of those was an inert
-   class name and the overflow they were meant to prevent was not
-   prevented. */
-.min-w-0 {
-    min-width: 0;
-}
-
 /* ── Star rating input (Modules\Camps\views\_rating_input.html.twig) ──
    Five radio buttons drawn as stars. No JavaScript anywhere in here:
    what fills a star is the state of a radio, which the browser already
@@ -1234,6 +1217,17 @@
     max-height: 16rem;
     overflow-y: auto;
     box-shadow: var(--bs-box-shadow, 0 .5rem 1rem rgba(0, 0, 0, .15));
+}
+
+/* Each result keeps the height of its content (issue #645). The list is a
+   Bootstrap list-group, so a flex column; once its rows add up to more than
+   max-height, WebKit shrinks them to fit instead of letting the list scroll
+   — every row the same, too short height, the date line cut off by the next
+   row. Chrome and Firefox honour min-height: auto and never showed it. */
+.receivable-picker__results > *,
+.stay-picker__results > *,
+.search-picker__results > * {
+    flex-shrink: 0;
 }
 
 /* ---------------------------------------------------------------------

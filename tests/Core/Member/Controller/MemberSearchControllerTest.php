@@ -108,7 +108,6 @@ class MemberSearchControllerTest extends TestCase
             new \Core\Member\SectionRosterRepository($this->pdo, $this->enc),
             $sectionService,
             $scoutYearService,
-            $this->enc,
             new \Core\Member\MemberEmailRepository($this->pdo, $this->enc),
             new \Core\Member\Movement\MemberMovementClassifierService(new \Core\Member\Movement\MemberMovementRepository($this->pdo), $scoutYearService)
         );

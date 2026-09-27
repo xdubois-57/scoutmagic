@@ -30,10 +30,9 @@ final class SectionRosterRepository
      * Service (SECURITY.md §5, ARCHITECTURE.md §13). They are spelled once,
      * here, beside the query that reads the columns they name.
      *
-     * The raw reader stays for {@see \Core\Member\Export\MemberExportRowBuilder},
-     * which needs four more encrypted columns than the roster shows; this
-     * method reuses the same fetch rather than adding a second SELECT over the
-     * same table.
+     * {@see findExportRecords()} does the same for the export, which needs
+     * more columns than the roster shows; both reuse one fetch rather than
+     * adding a second SELECT over the same table.
      *
      * @param int[] $memberYearIds
      * @return array<int, \Core\Member\RosterContact> keyed by member_year id
@@ -62,6 +61,67 @@ final class SectionRosterRepository
         }
 
         return $contacts;
+    }
+
+    /**
+     * Everything the member export shows about each member_year, **decrypted
+     * here** (issue #629).
+     *
+     * {@see \Core\Member\Export\MemberExportRowBuilder} used to take the raw
+     * `member_years` and `member_addresses` rows and decrypt seventeen columns
+     * itself. A purpose string is the one part of an encrypted read that must
+     * never be written from memory by a second layer; they are spelled here,
+     * beside the queries that read the columns they name.
+     *
+     * The address is the member_year's first one (lowest id), as the export
+     * has always shown it.
+     *
+     * @param int[] $memberYearIds
+     * @return array<int, \Core\Member\Export\MemberExportRecord> keyed by member_year id
+     */
+    public function findExportRecords(array $memberYearIds): array
+    {
+        $addresses = $this->findAddressRows($memberYearIds);
+        $records = [];
+
+        foreach ($this->findMemberYearRows($memberYearIds) as $memberYearId => $row) {
+            $address = $addresses[$memberYearId][0] ?? [];
+            $records[$memberYearId] = new \Core\Member\Export\MemberExportRecord(
+                memberYearId: $memberYearId,
+                memberId: (int) $row['member_id'],
+                deskId: (string) $row['desk_id'],
+                firstName: $this->encryption->decrypt($row['first_name_encrypted'], 'member_years.first_name'),
+                lastName: $this->encryption->decrypt($row['last_name_encrypted'], 'member_years.last_name'),
+                totem: $this->decryptOptional($row, 'totem_encrypted', 'member_years.totem'),
+                quali: $this->decryptOptional($row, 'quali_encrypted', 'member_years.quali'),
+                gender: $this->decryptOptional($row, 'gender_encrypted', 'member_years.gender'),
+                birthDate: $this->decryptOptional($row, 'birth_date_encrypted', 'member_years.birth_date'),
+                email: $this->decryptOptional($row, 'email_encrypted', 'member_years.email'),
+                phone: $this->decryptOptional($row, 'phone_encrypted', 'member_years.phone'),
+                mobile: $this->decryptOptional($row, 'mobile_encrypted', 'member_years.mobile'),
+                street: $this->decryptOptional($address, 'street_encrypted', 'member_addresses.street'),
+                number: $this->decryptOptional($address, 'number_encrypted', 'member_addresses.number'),
+                box: $this->decryptOptional($address, 'box_encrypted', 'member_addresses.box'),
+                postalCode: $this->decryptOptional($address, 'postal_code_encrypted', 'member_addresses.postal_code'),
+                city: $this->decryptOptional($address, 'city_encrypted', 'member_addresses.city'),
+                country: $this->decryptOptional($address, 'country_encrypted', 'member_addresses.country'),
+                isActive: (bool) $row['is_active'],
+                scoutYearOffset: (int) $row['scout_year_offset'],
+                formationLevel: $row['formation_level'] !== null ? (string) $row['formation_level'] : null,
+                supplementaryInsurance: $row['supplementary_insurance'] !== null
+                    ? (string) $row['supplementary_insurance']
+                    : null,
+                leaving: (bool) $row['leaving'],
+                leavingComment: $this->decryptOptional(
+                    $row,
+                    'leaving_comment_encrypted',
+                    'member_years.leaving_comment'
+                ),
+                handicap: $this->decryptOptional($row, 'handicap_encrypted', 'member_years.handicap')
+            );
+        }
+
+        return $records;
     }
 
     /**
@@ -178,13 +238,13 @@ final class SectionRosterRepository
 
     /**
      * Base (undecrypted) member_years + members.desk_id rows for a batch of
-     * member_year ids — one query. Decryption stays the caller's
-     * (Service-layer) job, same split as every other Core\Member class.
+     * member_year ids — one query. Private since issue #629: nothing outside
+     * this class decrypts them any more, so nothing outside needs them.
      *
      * @param int[] $memberYearIds
      * @return array<int, array<string, mixed>> keyed by member_years.id
      */
-    public function findMemberYearRows(array $memberYearIds): array
+    private function findMemberYearRows(array $memberYearIds): array
     {
         $memberYearIds = array_values(array_unique(array_map('intval', $memberYearIds)));
         if ($memberYearIds === []) {
@@ -249,7 +309,7 @@ final class SectionRosterRepository
      * @param int[] $memberYearIds
      * @return array<int, array<string, mixed>[]> keyed by member_year_id
      */
-    public function findAddressRows(array $memberYearIds): array
+    private function findAddressRows(array $memberYearIds): array
     {
         $memberYearIds = array_values(array_unique(array_map('intval', $memberYearIds)));
         if ($memberYearIds === []) {
@@ -268,5 +328,16 @@ final class SectionRosterRepository
         }
 
         return $rows;
+    }
+
+    /**
+     * The decrypted column, or null when the row has no value for it — an
+     * empty string counts as none, as it always has for these columns.
+     *
+     * @param array<string, mixed> $row
+     */
+    private function decryptOptional(array $row, string $column, string $purpose): ?string
+    {
+        return empty($row[$column]) ? null : $this->encryption->decrypt((string) $row[$column], $purpose);
     }
 }

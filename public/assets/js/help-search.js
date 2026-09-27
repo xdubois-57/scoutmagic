@@ -342,7 +342,7 @@
         head.appendChild(title);
 
         var badge = document.createElement('span');
-        badge.className = 'badge text-bg-light border fw-normal';
+        badge.className = 'badge bg-body-secondary text-body-emphasis border fw-normal';
         badge.textContent = entry.category;
         head.appendChild(badge);
 

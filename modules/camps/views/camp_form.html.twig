@@ -1,5 +1,6 @@
 {% extends 'base.html.twig' %}
 {% block title %}{{ camp ? 'Modifier le séjour' : 'Nouveau camp' }} — {{ site_name }}{% endblock %}
+{% block stylesheets %}<link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">{% endblock %}
 {% block content %}
     <div class="page-medium">
         {% include 'partials/page_header.html.twig' with {

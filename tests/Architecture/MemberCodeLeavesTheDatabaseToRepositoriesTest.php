@@ -12,7 +12,7 @@ namespace Tests\Architecture;
 use PHPUnit\Framework\TestCase;
 
 /**
- * `core/Member/` keeps its SQL and its decryption in `Repository/`.
+ * `core/Member/` keeps its SQL and its decryption in its Repositories.
  *
  * `ARCHITECTURE.md` §13 and `SECURITY.md` §1 say « Repository is the only
  * layer that touches PDO », and §5 « only Repositories call
@@ -28,6 +28,23 @@ use PHPUnit\Framework\TestCase;
  * two hydration paths came to build different `MemberProfile`s without
  * anybody noticing.
  *
+ * **What is allowed is named, not what is tolerated** (issue #629). In all
+ * of `core/Member/`, recursively, only a `*Repository.php` file may call
+ * `prepare(`, `->query(`, `->exec(`, `getPdo()`, `->decrypt(`,
+ * `->encrypt(` or `->blindIndex(`. Until #629 the scan read
+ * `core/Member/*Service.php` alone — not recursive, and only that suffix —
+ * and six files fell outside it: the export's row builder decrypting
+ * seventeen columns, the merge Service preparing eight statements, three
+ * files deriving blind indexes, a task handler reaching for the PDO. A
+ * guard that covers one filename suffix gives a confidence it does not
+ * have.
+ *
+ * « Recursive except `Repository/` » would not have been the rule: most of
+ * the Repositories of `core/Member/` sit at its root, beside the Services
+ * (`SectionRosterRepository`, `MemberEmailRepository`,
+ * `FeeEstimationRepository`…). The filename is what says a class is a
+ * Repository here, so the filename is what the rule names.
+ *
  * The rule is checked on **`core/Member/` only**, deliberately. Elsewhere
  * in `core/` a good twenty classes hold a `\PDO` — `Core\Database\*`,
  * `Core\Scheduler\CronPassLock`, `Core\Maintenance\InstallLock`,
@@ -39,7 +56,7 @@ use PHPUnit\Framework\TestCase;
  * the genuinely arguable middle, and issue #413 puts them out of scope on
  * purpose.
  */
-final class MemberServicesLeaveTheDatabaseToRepositoriesTest extends TestCase
+final class MemberCodeLeavesTheDatabaseToRepositoriesTest extends TestCase
 {
     /**
      * The floor. `assertSame([], $offenders)` is satisfied perfectly by a
@@ -47,7 +64,7 @@ final class MemberServicesLeaveTheDatabaseToRepositoriesTest extends TestCase
      * asserted separately — the failure mode every ratchet in this
      * repository is written against.
      */
-    private const AT_LEAST_THIS_MANY_FILES_ARE_READ = 8;
+    private const AT_LEAST_THIS_MANY_FILES_ARE_READ = 60;
 
     /*
      * **There is no exemption list any more, and that is what « done » meant**
@@ -77,14 +94,19 @@ final class MemberServicesLeaveTheDatabaseToRepositoriesTest extends TestCase
      * `StaffedSectionRepository`. The exemption machinery went with the last
      * line: an empty allowlist still teaches the next author that there is a
      * place to put a name.
+     *
+     * **And none came back when the scan was widened** (issue #629). The six
+     * files the narrower scan could not see were fixed before this guard was
+     * pointed at them, in the same change, so it arrived with nothing to
+     * park.
      */
 
-    public function testNoServiceInMemberPreparesItsOwnStatements(): void
+    public function testNothingButARepositoryInMemberPreparesStatements(): void
     {
         $offenders = [];
         $read = 0;
 
-        foreach (self::servicesInMember() as $path => $source) {
+        foreach (self::nonRepositoriesInMember() as $path => $source) {
             ++$read;
             foreach (['prepare(', '->query(', '->exec(', 'getPdo()'] as $call) {
                 if (!str_contains(self::withoutComments($source), $call)) {
@@ -97,22 +119,22 @@ final class MemberServicesLeaveTheDatabaseToRepositoriesTest extends TestCase
         $this->assertGreaterThanOrEqual(
             self::AT_LEAST_THIS_MANY_FILES_ARE_READ,
             $read,
-            'the scan found almost no services to read, so its empty verdict means nothing'
+            'the scan found almost no files to read, so its empty verdict means nothing'
         );
         $this->assertSame(
             [],
             $offenders,
-            "a Service in core/Member/ talks to PDO. ARCHITECTURE.md §13: the Repository layer is the\n"
-            . "only one that does. Move the statement into core/Member/Repository/:\n  "
+            "a file of core/Member/ that is not a Repository talks to PDO. ARCHITECTURE.md §13: the\n"
+            . "Repository layer is the only one that does. Move the statement into a *Repository.php:\n  "
             . implode("\n  ", $offenders) . "\n"
         );
     }
 
-    public function testNoServiceInMemberDecryptsForItself(): void
+    public function testNothingButARepositoryInMemberCallsTheEncryptionService(): void
     {
         $offenders = [];
 
-        foreach (self::servicesInMember() as $path => $source) {
+        foreach (self::nonRepositoriesInMember() as $path => $source) {
             $code = self::withoutComments($source);
             foreach (['->decrypt(', '->encrypt(', '->blindIndex('] as $call) {
                 if (!str_contains($code, $call)) {
@@ -125,8 +147,8 @@ final class MemberServicesLeaveTheDatabaseToRepositoriesTest extends TestCase
         $this->assertSame(
             [],
             $offenders,
-            "a Service in core/Member/ calls EncryptionService. SECURITY.md §5 keeps that in one place so\n"
-            . "the encryption contexts have a single home:\n  "
+            "a file of core/Member/ that is not a Repository calls EncryptionService. SECURITY.md §5 keeps\n"
+            . "that in one place so the encryption contexts have a single home:\n  "
             . implode("\n  ", $offenders) . "\n"
         );
     }
@@ -178,24 +200,57 @@ final class MemberServicesLeaveTheDatabaseToRepositoriesTest extends TestCase
     }
 
     /**
-     * Every `*Service.php` directly in `core/Member/`.
+     * The scan reaches below `core/Member/`'s root, and it reads what is not
+     * a Service too.
      *
-     * Not recursive: `core/Member/Repository/` is where the SQL is supposed
-     * to be, and reading it here would report the fix as the offence.
+     * The two blind spots issue #629 found, pinned: a file in a
+     * sub-directory, and a file whose name does not end in `Service`. The
+     * floor is a count and cannot say which files were read: a scan that
+     * lost one sub-directory, or that dropped the files named neither
+     * Service nor Repository, would still clear it.
+     */
+    public function testTheScanReadsSubdirectoriesAndNonServices(): void
+    {
+        $read = array_keys(self::nonRepositoriesInMember());
+
+        $this->assertContains('core/Member/Export/MemberExportRowBuilder.php', $read);
+        $this->assertContains('core/Member/Task/CompressSectionDocumentHandler.php', $read);
+        $this->assertContains('core/Member/MemberAccountResolver.php', $read);
+        $this->assertNotContains(
+            'core/Member/SectionRosterRepository.php',
+            $read,
+            'a Repository is where the SQL is supposed to be; reading it would report the fix as the offence'
+        );
+        $this->assertNotContains('core/Member/Repository/StaffedSectionRepository.php', $read);
+    }
+
+    /**
+     * Every PHP file under `core/Member/`, recursively, except the
+     * `*Repository.php` files — the one place the rule allows the calls.
      *
      * @return array<string, string> relative path => source
      */
-    private static function servicesInMember(): array
+    private static function nonRepositoriesInMember(): array
     {
-        $files = glob(self::repositoryRoot() . '/core/Member/*Service.php');
+        $root = self::repositoryRoot();
+        $files = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($root . '/core/Member', \FilesystemIterator::SKIP_DOTS)
+        );
         $sources = [];
 
-        foreach ($files === false ? [] : $files as $file) {
-            $source = file_get_contents($file);
+        foreach ($files as $file) {
+            if (!$file instanceof \SplFileInfo || $file->getExtension() !== 'php') {
+                continue;
+            }
+            if (str_ends_with($file->getFilename(), 'Repository.php')) {
+                continue;
+            }
+            $source = file_get_contents($file->getPathname());
             if ($source !== false) {
-                $sources[str_replace(self::repositoryRoot() . '/', '', $file)] = $source;
+                $sources[str_replace($root . '/', '', $file->getPathname())] = $source;
             }
         }
+        ksort($sources);
 
         return $sources;
     }

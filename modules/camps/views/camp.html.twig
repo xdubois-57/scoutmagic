@@ -1,5 +1,6 @@
 {% extends 'base.html.twig' %}
 {% block title %}{{ camp.stay_type_label }} — {{ camp.label }} — {{ site_name }}{% endblock %}
+{% block stylesheets %}<link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">{% endblock %}
 {% block content %}
     <div class="page-wide">
         {% include 'partials/page_header.html.twig' with {

@@ -14,7 +14,7 @@ use PHPUnit\Framework\TestCase;
 /**
  * `modules/registration/src/Service/` leaves its SQL to `Repository/`.
  *
- * The same rule `MemberServicesLeaveTheDatabaseToRepositoriesTest` checks
+ * The same rule `MemberCodeLeavesTheDatabaseToRepositoriesTest` checks
  * on `core/Member/` — ARCHITECTURE.md §13, « Repository is the only layer
  * that touches PDO » — on the module where issue #593 found it broken:
  * `PassageService` ran seven statements of its own and

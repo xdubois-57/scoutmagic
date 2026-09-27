@@ -64,7 +64,7 @@ class SectionRosterControllerTest extends TestCase
         $movementClassifier = new MemberMovementClassifierService(new MemberMovementRepository($this->pdo), $scoutYearService);
         $rosterRepository = new SectionRosterRepository($this->pdo, $this->encryption);
         $rosterService = new SectionRosterService($rosterRepository, $memberEmailRepository, $movementClassifier);
-        $exportRowBuilder = new MemberExportRowBuilder($rosterRepository, $this->sectionService, $scoutYearService, $this->encryption, $memberEmailRepository, $movementClassifier);
+        $exportRowBuilder = new MemberExportRowBuilder($rosterRepository, $this->sectionService, $scoutYearService, $memberEmailRepository, $movementClassifier);
         $exportService = new MemberExportService();
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
