@@ -9,13 +9,38 @@ use PHPUnit\Framework\TestCase;
 
 class CookieRegistryTest extends TestCase
 {
-    public function testGetCoreCookiesReturnsEightCookies(): void
+    public function testGetCoreCookiesReturnsNineCookies(): void
     {
         // Six historical entries, plus theme_preference (the dark-mode
-        // choice, functional, stored client-side) and offline-config
-        // (the third Cache Storage entry, issue #233).
+        // choice, functional, stored client-side), offline-config (the
+        // third Cache Storage entry, issue #233) and sm_display (the
+        // installed application's display mode, issue #502).
         $cookies = CookieRegistry::getCoreCookies();
-        $this->assertCount(8, $cookies);
+        $this->assertCount(9, $cookies);
+    }
+
+    /**
+     * Issue #502: public/assets/js/display-mode.js writes it on every page
+     * of the installed application. Strictly necessary — without it, a
+     * file opened from the app strands the window — so it must not wait
+     * for a consent a visitor may never give.
+     */
+    public function testTheDisplayModeCookieIsDeclaredStrictlyNecessary(): void
+    {
+        $byName = array_column(CookieRegistry::getCoreCookies(), null, 'name');
+
+        $this->assertArrayHasKey('sm_display', $byName);
+        $this->assertSame('necessary', $byName['sm_display']['category']);
+        $this->assertStringContainsString(
+            "'sm_display'",
+            (string) file_get_contents(dirname(__DIR__, 3) . '/core/File/Held/InstalledAppFileInterceptor.php'),
+            'The cookie the registry declares is not the one the server reads.'
+        );
+        $this->assertStringContainsString(
+            "'sm_display'",
+            (string) file_get_contents(dirname(__DIR__, 3) . '/public/assets/js/display-mode.js'),
+            'The cookie the registry declares is not the one the page writes.'
+        );
     }
 
     /**

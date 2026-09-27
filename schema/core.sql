@@ -2359,3 +2359,40 @@ CREATE TABLE IF NOT EXISTS storage_protections (
         REFERENCES storage_locations(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+
+-- held_documents: a file the installed application asked for by
+-- navigating to it, kept aside instead of being sent to the window
+-- (Core\File\Held\InstalledAppFileInterceptor, issue #502). In the
+-- installed app (`display: standalone`) a navigation that ends on a file
+-- leaves the window on it with no way back — on iOS the only way out is
+-- to kill the app. So the file goes to storage, encrypted
+-- (Core\File\EncryptedFileStorageService: `files` row with owner_type
+-- 'held_document', which no ownership checker supports, so /files/{id}
+-- refuses it to everyone), and the window gets a viewer page instead.
+--
+-- Two keys, each stored only as its SHA-256 — the table alone opens
+-- nothing:
+--   * the BROWSER key, for « Ouvrir dans le navigateur »: the phone's
+--     browser does not share the app's session, so GET /document/{token}
+--     serves the file once, without a session, for five minutes;
+--   * the APPLICATION key, for « Télécharger » and the image preview:
+--     GET /document/telecharger/{token}, only to the session that caused
+--     the hold (session_hash), so that it never consumes the browser key.
+-- A daily task (PurgeHeldDocumentsHandler) deletes the file and the row
+-- once expires_at has passed, opened or not. SECURITY.md § 6 describes
+-- this as a deliberate exception to « every download goes through
+-- /files/{id} ».
+CREATE TABLE IF NOT EXISTS held_documents (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    file_id INT UNSIGNED NOT NULL,
+    browser_token_hash CHAR(64) NOT NULL,
+    app_token_hash CHAR(64) NOT NULL,
+    session_hash CHAR(64) NOT NULL,
+    created_at DATETIME NOT NULL,
+    browser_expires_at DATETIME NOT NULL,
+    expires_at DATETIME NOT NULL,
+    browser_opened_at DATETIME NULL,
+    UNIQUE KEY uq_held_documents_browser (browser_token_hash),
+    UNIQUE KEY uq_held_documents_app (app_token_hash),
+    KEY idx_held_documents_expiry (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

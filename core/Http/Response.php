@@ -124,6 +124,16 @@ class Response
     }
 
     /**
+     * Whether send() would delete the body file — a temporary one. A
+     * caller that replaces this response instead of sending it
+     * (Core\File\Held\InstalledAppFileInterceptor) owes that deletion.
+     */
+    public function deletesBodyFileAfterSend(): bool
+    {
+        return $this->deleteBodyFileAfterSend;
+    }
+
+    /**
      * The style half of the policy, split across three directives.
      *
      * CSP treats two very different things as "inline style": a `<style>`

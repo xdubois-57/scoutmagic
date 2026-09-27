@@ -74,6 +74,18 @@ class CookieRegistry
                 'max_age_days' => self::THIRTEEN_MONTHS_DAYS,
             ],
             [
+                // Written by public/assets/js/display-mode.js on every page
+                // of the installed application, removed in a browser tab
+                // (issue #502). Strictly necessary: without it a file opened
+                // from the installed app leaves its window with no way back.
+                'name' => 'sm_display',
+                'category' => 'necessary',
+                'purpose' => 'Indique au site que la page est affichée dans l\'application installée, pour qu\'un '
+                    . 'fichier ouvert depuis l\'application s\'affiche dans une visionneuse au lieu de bloquer sa '
+                    . 'fenêtre.',
+                'duration' => 'Durée de la session navigateur',
+            ],
+            [
                 'name' => 'last_login_method',
                 'category' => 'functional',
                 'purpose' => 'Mémorisation de la méthode de connexion utilisée la dernière fois, pour la '

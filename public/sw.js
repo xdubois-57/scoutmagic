@@ -144,6 +144,12 @@ const APP_SHELL_BASE_URLS = [
     // hors ligne — un chef dans un pré sans réseau — que cette
     // application est le plus souvent la seule ouverte.
     '/assets/js/file-viewer.js',
+    // The installed application's two guards (issue #502): the cookie
+    // that tells the server this window is the app, and the external-link
+    // hand-off to the phone's browser — the second matters offline too,
+    // since a cached page still carries its links.
+    '/assets/js/display-mode.js',
+    '/assets/js/installed-app-links.js',
     '/assets/js/select-bar.js',
     '/assets/js/nav-rail.js',
     '/assets/js/audit-timeline.js',

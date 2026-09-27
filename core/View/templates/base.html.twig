@@ -46,6 +46,12 @@
         document.documentElement.setAttribute('data-bs-theme', dark ? 'dark' : 'light');
     })();
     </script>
+    {# Tells the server whether this window is the installed application
+       (issue #502): Core\File\Held\InstalledAppFileInterceptor answers a
+       navigation that would end on a file with a viewer page there, and
+       only there. Not deferred — the cookie must exist before the first
+       link on the page can be followed. #}
+    <script src="{{ asset('/assets/js/display-mode.js') }}"></script>
     <link rel="stylesheet" href="{{ asset('/assets/vendor/bootstrap/css/bootstrap.min.css') }}">
     <link rel="stylesheet" href="{{ asset('/assets/vendor/bootstrap-icons/bootstrap-icons.min.css') }}">
     <link rel="stylesheet" href="{{ asset('/assets/css/app.css') }}">
@@ -201,6 +207,11 @@
        recouvrement portant « download » lui faisait manquer sa propre
        règle sans rien offrir. #}
     <script src="{{ asset('/assets/js/file-viewer.js') }}" defer></script>
+    {# In the installed application, a link to another site — written
+       content included — opens in the phone's browser instead of leaving
+       the window with no way back (issue #502). The server cannot do this
+       one: such a link never reaches it. #}
+    <script src="{{ asset('/assets/js/installed-app-links.js') }}" defer></script>
     {# partials/select_bar.html.twig's JS — mode:multi toggling plus
        closing an open panel on an outside click/Escape. mode:single
        needs none of it (its rows are plain <a href>). Loads

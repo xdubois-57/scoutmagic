@@ -1,0 +1,67 @@
+{% extends 'base.html.twig' %}
+{% block title %}{{ name }} — {{ site_name }}{% endblock %}
+{#
+  The viewer the installed application gets instead of a file (issue #502,
+  Core\File\Held\InstalledAppFileInterceptor). The window of the installed
+  app has no address bar and no back button: a navigation that ended on
+  the file would leave it there, and on iOS the only way out would be to
+  kill the app. So the file was put aside and this page offers three ways
+  on, none of which navigates the window to the file:
+
+  - « Ouvrir dans le navigateur » — the phone's own browser, through a key
+    that works once, without a session (the browser has none of the
+    app's). Opened by public/assets/js/document-viewer.js with
+    window.open(); the address exists before the tap because iOS refuses
+    a window.open() that follows a wait.
+  - « Télécharger » — inside the app: the iOS share sheet (Enregistrer dans
+    Fichiers, Imprimer…) where the app is installed on an iPhone, a real
+    download everywhere else.
+  - « Retour » — back to the page the request came from.
+
+  `document` is null when the file was too large to put aside
+  (HeldDocumentService::MAX_BYTES): the page says so and keeps « Retour ».
+#}
+{% block content %}
+<div class="page-medium" data-document-viewer>
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Document prêt',
+        subtitle: document is null
+            ? 'Ce fichier est trop volumineux pour être ouvert depuis l\'application installée. Ouvrez le site dans votre navigateur pour le télécharger.'
+            : 'L\'application reste ouverte : choisissez comment consulter ce fichier.',
+    } only %}
+
+    <div class="card mb-3">
+        {% if document is not null and document.isImage %}
+            <img src="{{ document.appPath }}" alt="{{ name }}" class="card-img-top object-fit-contain bg-body-tertiary">
+        {% endif %}
+        <div class="card-body d-flex align-items-center gap-3">
+            <i class="bi bi-file-earmark-text fs-1 text-secondary" aria-hidden="true"></i>
+            <div class="flex-grow-1 text-break">
+                <p class="fw-semibold text-break mb-1" data-document-viewer-name>{{ name }}</p>
+                <p class="small text-body-secondary mb-0">{{ type_label }} · {{ size_bytes|filesize }}</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="d-flex flex-column flex-sm-row gap-2">
+        {% if document is not null %}
+            <a href="{{ document.browserPath }}" class="btn btn-primary w-100 w-sm-auto"
+               target="_blank" rel="noopener" data-document-viewer-browser>
+                <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i> Ouvrir dans le navigateur
+            </a>
+            <a href="{{ document.appPath }}" class="btn btn-outline-secondary w-100 w-sm-auto"
+               download="{{ name }}" data-document-viewer-download
+               data-file-name="{{ name }}" data-file-type="{{ document.mimeType }}">
+                <i class="bi bi-download" aria-hidden="true"></i> Télécharger
+            </a>
+        {% endif %}
+        <a href="{{ back_url }}" class="btn btn-outline-secondary w-100 w-sm-auto" data-document-viewer-back>
+            <i class="bi bi-arrow-left" aria-hidden="true"></i> Retour
+        </a>
+    </div>
+    <p class="small text-body-secondary mt-3 mb-0 d-none" role="status" data-document-viewer-status></p>
+</div>
+{% endblock %}
+{% block scripts %}
+    <script src="{{ asset('/assets/js/document-viewer.js') }}"></script>
+{% endblock %}

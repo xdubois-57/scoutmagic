@@ -766,6 +766,24 @@ implementations visually reordered and the server none the wiser. Every
 sortable list also offers up/down buttons — dragging is not available to
 a finger or a keyboard (§7.2).
 
+**Dans l'application installée, une navigation n'aboutit jamais à un
+fichier : le serveur la transforme en visionneuse. Rien à faire dans les
+gabarits.** The installed window has no address bar and no back button,
+and on iOS a file it lands on can only be left by killing the app (issue
+#502). So `Core\File\Held\InstalledAppFileInterceptor` answers any such
+navigation — a link, a form's POST, an export route, an address built in
+JavaScript, a route added tomorrow — with one viewer page
+(`document_viewer.html.twig`): the file's name, type and size, a preview
+for an image only, « Ouvrir dans le navigateur » (the phone's browser,
+through a one-use address), « Télécharger » (the iOS share sheet on an
+iPhone, a real download elsewhere) and « Retour ». It is the one viewer
+of the installed app: `file-viewer.js`'s overlay is for a browser tab
+only, and in the app its triggers navigate to the server's viewer
+instead. A link to another site, written content included, opens in the
+phone's browser (`installed-app-links.js`). The `/files/…` link rule
+(`partials/file_link.html.twig`, `UxConventionsTest`) stays: it is what
+still serves a browser tab, where nothing is intercepted.
+
 ### 7.10.1 Selection: the two components
 
 The site has exactly two selection components, and §1.4 states the rule for

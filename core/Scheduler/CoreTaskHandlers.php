@@ -66,6 +66,9 @@ final class CoreTaskHandlers
             \Core\Import\Task\PurgeImportsHandler::TASK_KEY => \Core\Import\Task\PurgeImportsHandler::class,
             \Core\Mail\Task\PurgeSentEmailClaimsHandler::TASK_KEY =>
                 \Core\Mail\Task\PurgeSentEmailClaimsHandler::class,
+            // The documents the installed application put aside (#502).
+            \Core\File\Held\Task\PurgeHeldDocumentsHandler::TASK_KEY =>
+                \Core\File\Held\Task\PurgeHeldDocumentsHandler::class,
             \Core\Mail\Transport\Task\PurgeSendCountersHandler::TASK_KEY =>
                 \Core\Mail\Transport\Task\PurgeSendCountersHandler::class,
             \Core\Mail\Transport\Task\DrainDeferredMailHandler::TASK_KEY =>
