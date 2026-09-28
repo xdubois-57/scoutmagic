@@ -12,7 +12,10 @@
     that works once, without a session (the browser has none of the
     app's). Opened by public/assets/js/document-viewer.js with
     window.open(); the address exists before the tap because iOS refuses
-    a window.open() that follows a wait.
+    a window.open() that follows a wait. On an iPhone or iPad in the
+    installed app, the script hands it over as `x-safari-https://…`:
+    a plain address of this site is inside the app's scope, and iOS would
+    open it in this very window (issue #684).
   - « Télécharger » — inside the app: the iOS share sheet (Enregistrer dans
     Fichiers, Imprimer…) where the app is installed on an iPhone, a real
     download everywhere else.

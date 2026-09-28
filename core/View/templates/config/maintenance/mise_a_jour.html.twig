@@ -9,6 +9,19 @@
         <div class="card-body">
             {{ m.section_header('maintenance-update-body', 'Mise à jour', true) }}
             <div class="collapse show mt-3" id="maintenance-update-body">
+                {# The most recent ATTEMPT, not the most recent success: a channel
+                   whose last installs all rolled back still has a perfectly good
+                   « dernière mise à jour réussie ». Moved here from Santé de
+                   l'hébergement (issue #619, IT-02), which is about the host. #}
+                {% if update_last_attempt_failed %}
+                    <div class="alert alert-danger small" role="alert" id="maintenance-update-last-attempt">
+                        La dernière tentative
+                        {%- if update_last_attempt_at %} ({{ update_last_attempt_at|datetime_fr }}){% endif %}
+                        {{ update_last_attempt_status == 'rolled_back'
+                            ? 'a échoué et le site a été restauré automatiquement'
+                            : 'a échoué' }} — voir l'historique des mises à jour plus bas sur cette page.
+                    </div>
+                {% endif %}
                 <p class="small text-body-secondary mb-1">
                     Version installée : <strong>{{ installed_version }}</strong>{% if installed_version_commit %} <span class="text-body-secondary">({{ installed_version_commit }})</span>{% endif %}
                     {% if installed_version_notes_url %}

@@ -4,77 +4,75 @@
 {% block maintenance_title %}Santé de l'hébergement{% endblock %}
 
 {% block maintenance_content %}
-    {# ————— État —————
-       Two lines, at the top, because these are the two mechanisms whose
-       failure is silent by nature: a cron that does not run raises no
-       error, and an automatic update that fails leaves the page « up to
-       date » as far as the installed version goes. The cron's verdict
-       comes from Core\Scheduler\CronHealth, the same source as the
-       Installation & serveur page and the support package. #}
+    {# ————— What the site depends on at the host —————
+       One line per dependency, built and worded by
+       Core\Maintenance\Health\HostHealth: its state, what stops working
+       without it, and — only when it is not ok — what to ask the host.
+       The summary above them counts every line that is not ok, degraded
+       ones included: a fallback that works less well is still something
+       to ask about. #}
+    {% set _icons = {
+        'ok': 'bi-check-circle-fill text-success',
+        'degraded': 'bi-exclamation-triangle-fill text-warning',
+        'missing': 'bi-x-circle-fill text-danger'
+    } %}
+    {% set _labels = {'ok': 'En ordre', 'degraded': 'Dégradé', 'missing': 'Absent'} %}
+    {% set _problems = host_checks|filter(c => not c.isOk())|length %}
+
+    {% if _problems == 0 %}
+        <div class="alert alert-success" id="host-health-summary">
+            Tout ce dont le site dépend chez l'hébergeur répond.
+        </div>
+    {% else %}
+        <div class="alert {{ host_checks|filter(c => c.state == 'missing')|length > 0 ? 'alert-danger' : 'alert-warning' }}" id="host-health-summary" role="alert">
+            <strong>{{ _problems }} point{{ _problems > 1 ? 's' : '' }} à régler chez l'hébergeur.</strong>
+            Chaque ligne concernée dit ce qui ne marche plus et quoi lui demander.
+        </div>
+    {% endif %}
+
     <div class="card mb-4" id="maintenance-health">
         <div class="card-body">
-            {{ m.section_header('maintenance-health-body', 'État', true) }}
+            {{ m.section_header('maintenance-health-body', 'Ce dont le site dépend', true) }}
             <div class="collapse show mt-3" id="maintenance-health-body">
-                {% set _cadence = null %}
-                {% if cron_median_interval_seconds %}
-                    {% set _cadence = cron_median_interval_seconds < 60
-                        ? cron_median_interval_seconds ~ ' s'
-                        : (cron_median_interval_seconds // 60) ~ ' min' %}
-                {% endif %}
-                <p class="small mb-2" id="maintenance-cron-health">
-                    <span class="text-body-secondary">Tâche cron réelle :</span>
-                    {% if cron_state == 'active' %}
-                        <span class="badge text-bg-success">Actif</span>
-                        <span class="text-body-secondary">— dernier passage il y a {{ cron_seconds_since_last_pass ?? 0 }} s{% if _cadence %}, cadence ~{{ _cadence }}{% endif %}</span>
-                    {% elseif cron_state == 'stale' %}
-                        <span class="badge text-bg-danger">Plus détecté</span>
-                        <span class="text-body-secondary">— dernier passage il y a {{ (cron_seconds_since_last_pass ?? 0) // 60 }} min</span>
-                    {% else %}
-                        <span class="badge text-bg-danger">Jamais détecté</span>
-                    {% endif %}
-                </p>
+                <ul class="list-unstyled mb-0" id="host-health-checks">
+                    {% for check in host_checks %}
+                        <li class="d-flex gap-3 align-items-start {{ loop.last ? '' : 'mb-3' }}" id="host-check-{{ check.key }}" data-state="{{ check.state }}">
+                            <i class="bi {{ _icons[check.state] }} fs-5" aria-hidden="true"></i>
+                            <div class="flex-grow-1">
+                                <div class="fw-semibold">
+                                    {{ check.label }}
+                                    <span class="visually-hidden">({{ _labels[check.state] }})</span>
+                                    <span class="fw-normal text-body-secondary">— {{ check.status }}</span>
+                                </div>
+                                <div class="small text-body-secondary">{{ check.consequence }}</div>
+                                {% if not check.isOk() and check.ask %}
+                                    <div class="small mt-1"><span class="fw-semibold">À demander à l'hébergeur :</span> {{ check.ask }}</div>
+                                {% endif %}
 
-                {% if cron_state != 'active' %}
-                    <div class="alert alert-danger small" role="alert" id="maintenance-cron-warning">
-                        <p class="mb-2">
-                            Sans tâche cron, rien ne tourne en dehors des visites : ni sauvegarde automatique,
-                            ni mise à jour, ni rappel, ni notification. Ajoutez cette ligne chez votre hébergeur
-                            (rubrique « Tâches planifiées » ou « Cron ») :
-                        </p>
-                        <div class="input-group input-group-sm mb-2">
-                            <input type="text" class="form-control font-monospace" value="{{ cron_crontab_line }}" readonly id="maintenance-cron-line" aria-label="Ligne crontab">
-                        </div>
-                        <p class="mb-0">
-                            Le mot <code>php</code> au début est obligatoire : un panneau d'hébergement qui
-                            accepte un simple chemin de fichier n'exécute rien du tout, et ne le signale pas.
-                        </p>
-                    </div>
-                {% endif %}
-
-                <p class="small mb-0" id="maintenance-auto-update-health">
-                    <span class="text-body-secondary">Mise à jour automatique :</span>
-                    {% if auto_update_last_success %}
-                        <strong>{{ auto_update_last_success|datetime_fr }}</strong>
-                        {%- if auto_update_last_success_version %} ({{ auto_update_last_success_version }}){% endif -%}
-                        {%- if auto_update_silent_days is not null %}
-                            <span class="text-body-secondary"> — il y a {{ auto_update_silent_days }} jour{{ auto_update_silent_days > 1 ? 's' : '' }}</span>
-                        {%- endif -%}
-                    {% else %}
-                        <span class="text-body-secondary">aucune installée à ce jour</span>
-                    {% endif %}
-                </p>
-
-                {% if update_last_attempt_failed %}
-                    <p class="small text-danger mb-0 mt-1" id="maintenance-update-last-attempt">
-                        La dernière tentative
-                        {%- if update_last_attempt_at %} ({{ update_last_attempt_at|datetime_fr }}){% endif %}
-                        {{ update_last_attempt_status == 'rolled_back'
-                            ? 'a échoué et le site a été restauré automatiquement'
-                            : 'a échoué' }} — voir l'historique des mises à jour sur la page
-                    <a href="/config/maintenance/mise-a-jour">Mise à jour</a>.
-                    </p>
-                {% endif %}
+                                {% if check.key == 'cron' and not check.isOk() %}
+                                    <div class="alert alert-danger small mt-2 mb-0" role="alert" id="maintenance-cron-warning">
+                                        <div class="input-group input-group-sm mb-2">
+                                            <input type="text" class="form-control font-monospace" value="{{ cron_crontab_line }}" readonly id="maintenance-cron-line" aria-label="Ligne crontab">
+                                        </div>
+                                        <p class="mb-0">
+                                            Le mot <code>php</code> au début est obligatoire : un panneau d'hébergement qui
+                                            accepte un simple chemin de fichier n'exécute rien du tout, et ne le signale pas.
+                                        </p>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </li>
+                    {% endfor %}
+                </ul>
             </div>
         </div>
     </div>
+
+    {# Disk space is measured once, volume by volume, on the storage page:
+       a second figure here would be a second answer to the same question. #}
+    <p class="small text-body-secondary" id="host-health-disk">
+        L'espace disque se lit volume par volume sur
+        <a href="/config/stockage">Configuration › Stockage</a>. L'état des mises à jour automatiques
+        est sur la page <a href="/config/maintenance/mise-a-jour">Mise à jour</a>.
+    </p>
 {% endblock %}

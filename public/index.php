@@ -6669,7 +6669,9 @@ $frontController->registerController(
         // Google: since IT-05 the connection lives on the location's
         // own card under Configuration > Stockage.
         $remoteBackupDestination,
-        $storageLocationService
+        $storageLocationService,
+        // What the site depends on at the host, for Santé de l'hébergement.
+        new \Core\Maintenance\Health\HostHealth($storagePath, $settingService, $backupService, $connection->getPdo())
     )
 );
 $frontController->registerController(VersionController::class, new VersionController($twig, $storagePath));
