@@ -100,7 +100,8 @@ final class OrganizerSectionFieldIsGoneTest extends TestCase
             'creating and editing share the « no section » wording, so one of the two is wrong'
         );
 
-        $editBranch = $this->lastBranchOfTheSectionSentence($form);
+        $branches = $this->branchesOfTheSectionSentence($form);
+        $editBranch = (string) end($branches);
         $this->assertStringNotContainsString(
             'votre compte',
             $editBranch,
@@ -115,8 +116,9 @@ final class OrganizerSectionFieldIsGoneTest extends TestCase
     }
 
     /**
-     * The LAST branch of the one `<p>` that carries the section sentence —
-     * and only of it.
+     * The branches of the one `<p>` that carries the section sentence — and
+     * of it alone: `[0]` is what precedes `{% if %}`, `[1]` the creation
+     * wording, and the last one the edit wording.
      *
      * An earlier version of this test split the WHOLE template on
      * `{% else %}` and `{% elseif %}` and read the last piece. Raised in
@@ -128,7 +130,8 @@ final class OrganizerSectionFieldIsGoneTest extends TestCase
      * version below goes red on it. A test that cannot fail guarantees
      * nothing (`CLAUDE.md`), so the span is bounded first and split second.
      */
-    private function lastBranchOfTheSectionSentence(string $form): string
+    /** @return list<string> */
+    private function branchesOfTheSectionSentence(string $form): array
     {
         $open = strpos($form, '<p class="small text-body-secondary mb-3">');
         self::assertIsInt($open, 'the paragraph carrying the section sentence is gone');
@@ -146,7 +149,34 @@ final class OrganizerSectionFieldIsGoneTest extends TestCase
             'the section sentence has fewer than three branches: creating and editing share one'
         );
 
-        return (string) end($branches);
+        return array_values(array_map('strval', $branches));
+    }
+
+    /**
+     * **And the creation branch names BOTH causes of « no section »**
+     * (raised in review of #664). `CarpoolService::creatorSectionId()`
+     * returns null two ways: the account reaches no member with a section
+     * at all, and — deliberately, it is the guard this chantier added — its
+     * « fonction principale » names a section the creator does not staff.
+     * A sentence blaming only the first tells a chef d'unité to repair a
+     * link that is not broken, and hides the rule that actually applies.
+     */
+    public function testTheCreationBranchNamesBothCausesOfNoSection(): void
+    {
+        // `[1]`: the creation wording, between `{% if %}` and `{% elseif %}`.
+        $branch = $this->branchesOfTheSectionSentence($this->markupOf(self::FORM))[1];
+
+        $this->assertStringContainsString(
+            'fonction principale',
+            $branch,
+            'the sentence does not say which section was looked for, so the reader cannot tell why none was kept'
+        );
+        $this->assertMatchesRegularExpression(
+            '/animateur ou responsable/',
+            $branch,
+            'the sentence names only the account link, so a creator who simply does not staff their '
+            . 'main section is told to fix something that is not broken'
+        );
     }
 
     /** The carpool's own page says it too — same reason, other reader. */

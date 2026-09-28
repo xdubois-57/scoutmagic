@@ -68,9 +68,16 @@
                 Géré aussi par : <strong>{{ managing_section }}</strong>{% if carpool is null %} — votre section{% endif %}.
                 Ses animateurs voient les voitures et les passagers, comme ceux des sections des évènements retenus.
             {% elseif carpool is null %}
-                Aucune section ne s'ajoute à celles des évènements retenus : votre compte n'est lié à aucun membre ayant
-                une fonction dans une section. Ce covoiturage restera géré par vous, par le Staff d'unité et par les
-                animateurs des sections de ses évènements.
+                {# Two causes, and the sentence must not pick one: the account may be
+                   linked to no member with a section at all, or its « fonction
+                   principale » may name a section it does not staff — which
+                   CarpoolService::creatorSectionId() refuses, on purpose. Raised in
+                   review of #664: blaming the account alone told a chef d'unité to fix
+                   a link that is not broken. #}
+                Aucune section ne s'ajoute à celles des évènements retenus : la section de votre fonction principale
+                n'a pas pu être retenue — soit votre compte n'est lié à aucun membre qui en a une, soit vous n'êtes pas
+                animateur ou responsable de cette section. Ce covoiturage restera géré par vous, par le Staff d'unité
+                et par les animateurs des sections de ses évènements.
             {% else %}
                 {# Raised in review of #650: the wording above is about the account of
                    whoever CREATES the carpool, not of whoever edits it, so it would state
