@@ -317,6 +317,33 @@ class FullResetHandlerTest extends TestCase
     }
 
     /**
+     * An entry that could not be added encrypted is never written in clear:
+     * the pending change is discarded and the half-made archive deleted.
+     */
+    public function testAFailedSealLeavesNeitherAClearEntryNorTheArchive(): void
+    {
+        $archive = $this->storagePath . '/safety.zip';
+        $zip = new \ZipArchive();
+        $zip->open($archive, \ZipArchive::CREATE);
+        $zip->addFromString('files/marker.txt', 'x');
+        $zip->close();
+        $seal = new \ReflectionMethod(FullResetHandler::class, 'sealDumpIntoArchive');
+
+        try {
+            $seal->invoke(
+                new FullResetHandler($this->fakeBackupService()),
+                $this->storagePath . '/no-such-dump.sql',
+                $archive,
+                'password'
+            );
+            $this->fail('Sealing a dump that cannot be added must fail.');
+        } catch (\Core\Maintenance\BackupException) {
+        }
+
+        $this->assertFileDoesNotExist($archive);
+    }
+
+    /**
      * A failure before anything was erased is thrown on to the scheduler,
      * which marks the task failed: the screen polling it must not report a
      * reset that did not happen as done.

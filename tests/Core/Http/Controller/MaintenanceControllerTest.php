@@ -1805,6 +1805,21 @@ class MaintenanceControllerTest extends TestCase
         $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'full_reset'));
     }
 
+    /** A secrets file that cannot be read refuses the reset in JSON, not with an error page. */
+    public function testAnUnreadableSecretsFileRefusesTheResetInJson(): void
+    {
+        file_put_contents($this->storagePath . '/config/secrets.enc', 'not a secrets blob');
+
+        $response = $this->controller->fullReset($this->jsonRequest([
+            'confirm_keyword' => 'EFFACER', 'confirm_checkbox' => true, 'password_noted' => true,
+            '_csrf_token' => $this->csrfToken(),
+        ]), []);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertFalse(json_decode($response->getBody(), true)['success']);
+        $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'full_reset'));
+    }
+
     /** …and until the operator confirms having noted it. */
     public function testFullResetIsRefusedUntilThePasswordIsConfirmedNoted(): void
     {

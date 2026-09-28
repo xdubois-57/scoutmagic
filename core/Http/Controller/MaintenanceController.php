@@ -1402,7 +1402,14 @@ class MaintenanceController extends AbstractController
         // secrets.enc (issue #619, IT-03b): it must have been shown, and
         // noted, before anything is erased. FullResetHandler refuses too.
         if ($this->backupService->supportsZipEncryption()) {
-            if ($this->passwords()->revealedFullResetPassword() === null) {
+            // An unreadable secrets file counts as a password never shown:
+            // refused in the JSON this endpoint always answers with.
+            try {
+                $revealed = $this->passwords()->revealedFullResetPassword();
+            } catch (\Throwable) {
+                $revealed = null;
+            }
+            if ($revealed === null) {
                 return $this->json([
                     'success' => false,
                     'error' => 'Affichez d\'abord le mot de passe de la copie de sécurité, et notez-le.',

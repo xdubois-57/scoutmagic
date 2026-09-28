@@ -57,17 +57,28 @@ class FullResetHandler implements TaskHandlerInterface
     {
         // The clear dump goes whether sealing works or not: a failure here
         // stops the reset before anything is erased, and must not leave the
-        // whole database in clear beside a key that survives.
+        // whole database in clear beside a key that survives. Nor may the
+        // archive: an entry added but not encrypted is written in clear by
+        // close() — or by the destructor — so a failed seal discards every
+        // pending change first, and a failed seal's archive is deleted.
         try {
             $zip = new \ZipArchive();
             if ($zip->open($zipPath) !== true) {
                 throw new BackupException('La copie de sécurité n\'a pas pu être rouverte.');
             }
-            $sealed = $zip->addFile($dumpPath, 'database.sql')
+            $sealed = is_file($dumpPath)
+                && $zip->addFile($dumpPath, 'database.sql')
                 && $zip->setEncryptionName('database.sql', \ZipArchive::EM_AES_256, $password);
+            if (!$sealed) {
+                $zip->unchangeAll();
+                $zip->close();
+            }
             if (!$sealed || !$zip->close()) {
                 throw new BackupException('La base de données n\'a pas pu être ajoutée à la copie de sécurité.');
             }
+        } catch (\Throwable $e) {
+            @unlink($zipPath);
+            throw $e;
         } finally {
             @unlink($dumpPath);
         }
