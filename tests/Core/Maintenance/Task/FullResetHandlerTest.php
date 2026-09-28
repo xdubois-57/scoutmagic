@@ -284,7 +284,7 @@ class FullResetHandlerTest extends TestCase
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
         $stmt->execute(['enc', 'idx']);
 
-        (new FullResetHandler($this->fakeBackupService()))->handle([], $this->context);
+        $this->handleExpectingTheFailureToReachTheScheduler(new FullResetHandler($this->fakeBackupService()));
 
         $this->assertSame('1', (string) $this->pdo->query('SELECT COUNT(*) FROM user_accounts')->fetchColumn());
         $this->assertFileExists($this->storagePath . '/config/secrets.enc');
@@ -314,6 +314,21 @@ class FullResetHandlerTest extends TestCase
         }
 
         $this->assertFileDoesNotExist($dump);
+    }
+
+    /**
+     * A failure before anything was erased is thrown on to the scheduler,
+     * which marks the task failed: the screen polling it must not report a
+     * reset that did not happen as done.
+     */
+    private function handleExpectingTheFailureToReachTheScheduler(FullResetHandler $handler): void
+    {
+        try {
+            $handler->handle([], $this->context);
+            $this->fail('A reset refused before erasing anything must fail its task.');
+        } catch (\Throwable $e) {
+            $this->assertNotInstanceOf(\PHPUnit\Framework\AssertionFailedError::class, $e);
+        }
     }
 
     public function testHandleRecreatesEmptyDirectoryStructure(): void
@@ -383,7 +398,7 @@ class FullResetHandlerTest extends TestCase
         $stmt->execute(['enc', 'idx']);
 
         $handler = new FullResetHandler($failingBackupService);
-        $handler->handle([], $this->context);
+        $this->handleExpectingTheFailureToReachTheScheduler($handler);
 
         // Nothing was touched — the DB wipe never started.
         $this->assertSame('1', (string) $this->pdo->query('SELECT COUNT(*) FROM user_accounts')->fetchColumn());

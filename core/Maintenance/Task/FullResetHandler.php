@@ -102,6 +102,11 @@ class FullResetHandler implements TaskHandlerInterface
         );
 
         $preserveDir = null;
+        // Whether anything was destroyed yet. A failure before that point
+        // changed nothing and is thrown on, so the scheduler records it
+        // as failed and the screen says so; after it, the tracking row
+        // itself is gone with the tables and there is nobody to tell.
+        $erasing = false;
 
         try {
             // Step 1: safety backup. Its two files are moved outside
@@ -155,6 +160,7 @@ class FullResetHandler implements TaskHandlerInterface
             rename($filesZipPath, $preservedZip);
 
             // Step 2: wipe every table's data.
+            $erasing = true;
             $this->truncateAllTables($pdo);
 
             // Step 3: delete secrets.enc (forces DB/SMTP reconfiguration at setup).
@@ -220,6 +226,9 @@ class FullResetHandler implements TaskHandlerInterface
                 );
             } catch (\Throwable) {
                 // Nothing more can be done from here.
+            }
+            if (!$erasing) {
+                throw $e;
             }
         }
     }
