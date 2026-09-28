@@ -27,13 +27,18 @@ namespace Core\Geo;
  * rate limit is expressed as a shape instead: a consumer's task geocodes
  * exactly one row per run and re-schedules itself when more are pending
  * (the camps module's place geocoding task is the reference shape), the
- * same way Core\Maintenance\Task\AutoBackupHandler paces itself. On a
+ * same way Core\Maintenance\Task\AutoBackupHandler paces itself — and
+ * every call goes through Core\Geo\GeocodingThrottle, the one site-wide
+ * limiter, so a task and a form lookup never land in the same second. On a
  * site without a real cron this is slow; that is acceptable, because
  * coordinates are a convenience and typing them by hand always works.
  *
- * NEVER called from a web request. An outbound HTTP call on a page load
- * makes the page as slow as the slowest third party, and this one is a
- * free service with no availability promise.
+ * NEVER called directly from a web request. An outbound HTTP call on a
+ * page load makes the page as slow as the slowest third party, and this
+ * one is a free service with no availability promise. The one exception —
+ * an address looked up while a form is being filled in (issue #642) —
+ * goes through Core\Geo\AddressLocator, which caches, throttles the whole
+ * site to one request per second and bounds each account.
  */
 class GeocodingService
 {

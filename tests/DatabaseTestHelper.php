@@ -970,6 +970,22 @@ class DatabaseTestHelper
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
 
+        // The carpool map's live address lookup (schema/core.sql:
+        // geocoding_cache, geocoding_lookups) — a fingerprint and a count,
+        // never the address.
+        $pdo->exec('CREATE TABLE geocoding_cache (
+            fingerprint TEXT NOT NULL PRIMARY KEY,
+            latitude REAL NULL,
+            longitude REAL NULL,
+            looked_up_at TEXT NOT NULL
+        )');
+
+        $pdo->exec('CREATE TABLE geocoding_lookups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_account_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+
         // Core\Audit's per-entity change history (schema/core.sql:
         // entity_changes). The three value columns are BLOB here as they
         // are in production — the repository writes ciphertext into them.

@@ -3179,7 +3179,9 @@ demandé, avec son statut et le lien — jamais un numéro de téléphone.
   (`Core\View\SearchPickerResult`) — `ARCHITECTURE.md` §8.30bis.
 - **Le géocodage et la carte** (`Core\Geo`, `public/assets/js/map.js`),
   sortis du module camps, avec le verrou manuel d'un point placé à la main —
-  `ARCHITECTURE.md` §8.119.
+  `ARCHITECTURE.md` §8.119. Depuis l'issue #642, le formulaire d'un
+  covoiturage cherche aussi l'adresse pendant la saisie
+  (`Core\Geo\AddressLocator`).
 - **Le lieu, la recherche et l'enrichissement dans l'API du calendrier**
   (`EventSummary::$location`, `searchUpcomingEvents()`,
   `EventDescriptionEnricherInterface`) — `ARCHITECTURE.md` §7.6.

@@ -47,11 +47,16 @@ le Staff d'unité et par les animateurs des sections de ses évènements.
 
 L'adresse reprend le lieu des évènements ; c'est la destination de tous les
 allers et le départ de tous les retours. Le point sur la carte est
-facultatif : sans lui, le lien de carte ouvre l'adresse. Après
-l'enregistrement, le point est cherché automatiquement depuis l'adresse ;
-dans « Modifier », vous pouvez ensuite déplacer l'épingle ou la
-« Retirer ». Sans point, « Placer le point sur la carte » vous laisse le
-poser vous-même. Un point placé à la main n'est plus jamais modifié
+facultatif : sans lui, le lien de carte ouvre l'adresse.
+
+Dès que vous quittez le champ de l'adresse, le site la cherche : la carte
+se centre dessus, un **rond rouge** marque l'adresse et l'épingle du point
+de rendez-vous s'y pose. Déplacez l'épingle si le rendez-vous est à côté ;
+une épingle déplacée ne suit plus l'adresse, le rond si.
+
+Adresse introuvable ? « Placer le point sur la carte » vous laisse poser
+l'épingle, et le site cherche encore après l'enregistrement. « Retirer »
+enlève l'épingle. Un point placé à la main n'est plus jamais modifié
 automatiquement.
 
 Laissez la date du retour vide pour une sortie d'un seul trajet.

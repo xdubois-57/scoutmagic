@@ -1387,6 +1387,35 @@ CREATE TABLE help_assistant_cache (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
+-- geocoding_cache: addresses already looked up while a form was being
+-- filled in (Core\Geo\AddressLocator, issue #642), so the same place asked
+-- twice costs Nominatim one request instead of two.
+--
+-- The key is a FINGERPRINT — a SHA-256 of the lower-cased address — never the
+-- address itself: the cache recognises a line, it does not remember it.
+-- A NULL point is an answer too (« nothing found »), kept for hours rather
+-- than months. Core\Geo\Task\PurgeGeocodingHandler drops old rows daily.
+CREATE TABLE geocoding_cache (
+    fingerprint CHAR(64) NOT NULL PRIMARY KEY,
+    latitude DECIMAL(9, 6) NULL,
+    longitude DECIMAL(9, 6) NULL,
+    looked_up_at DATETIME NOT NULL,
+    INDEX idx_geocoding_cache_looked_up (looked_up_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- geocoding_lookups: one row per request Core\Geo\AddressLocator actually
+-- sent to Nominatim, for its per-account quota — the shape of
+-- help_assistant_rate_limits. An answer served from geocoding_cache is not
+-- counted. An id and an instant, never the address.
+CREATE TABLE geocoding_lookups (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_account_id INT UNSIGNED NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_geocoding_lookups_lookup (user_account_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
 -- help_topics_seen: which discovery tips an account has already been
 -- shown (« Le saviez-vous ? », ARCHITECTURE.md §8.95).
 --

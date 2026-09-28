@@ -90,6 +90,15 @@
       "label": ""
     },
     {
+      "path": "/covoiturage/organiser/adresse",
+      "method": "GET",
+      "controller": "Modules\\Covoiturage\\Controller\\CarpoolOrganizerController",
+      "action": "locateAddress",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
       "path": "/covoiturage/organiser/{id}/modifier",
       "method": "GET",
       "controller": "Modules\\Covoiturage\\Controller\\CarpoolOrganizerController",
@@ -277,7 +286,7 @@
       "default_value": "1",
       "type": "boolean",
       "label": "Retrouver le point depuis l'adresse",
-      "description": "Cherche automatiquement, en tâche de fond, le point sur la carte correspondant à l'adresse d'un covoiturage (service Nominatim d'OpenStreetMap). Sans point, le lien de cartes ouvre simplement l'adresse ; un point placé à la main n'est jamais modifié."
+      "description": "Cherche automatiquement le point sur la carte correspondant à l'adresse d'un covoiturage (service Nominatim d'OpenStreetMap) : pendant la saisie de l'adresse, depuis le serveur du site, puis en tâche de fond pour ce qui n'a pas été trouvé. Sans point, le lien de cartes ouvre simplement l'adresse ; un point placé à la main n'est jamais modifié."
     }
   ],
   "cookies": [],

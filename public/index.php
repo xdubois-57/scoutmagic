@@ -3922,6 +3922,16 @@ $schedulerService->seed(
     new DateTimeImmutable()
 );
 
+// Same bootstrap for the address lookup's purge (Core\Geo\Task\
+// PurgeGeocodingHandler, issue #642): quota rows past their window and
+// cached answers too old to be served.
+$schedulerService->seed(
+    'core',
+    \Core\Geo\Task\PurgeGeocodingHandler::TASK_KEY,
+    \Core\Geo\Task\PurgeGeocodingHandler::REFERENCE,
+    new DateTimeImmutable()
+);
+
 // Same bootstrap for the daily usage-statistics report (Core\Statistics\
 // Task\SendStatisticsHandler). The very first occurrence runs immediately;
 // every guard it can trip (reporting disabled, non-public host, this site
@@ -10621,7 +10631,15 @@ if ($isEnabled('covoiturage')) {
             ),
             $covoiturageBoard,
             $sectionService,
-            $covoiturageViewers
+            $covoiturageViewers,
+            // The map's live address lookup (#642), under the same switch
+            // as the background geocoding: off means neither ever asks.
+            (string) $settingService->get('covoiturage_geocoding_enabled', 'covoiturage', '1') === '1'
+                ? new \Core\Geo\AddressLocator(
+                    $pdo,
+                    new \Core\Geo\GeocodingService((string) ($settingService->get('base_url') ?? ''))
+                )
+                : null
         )
     );
 

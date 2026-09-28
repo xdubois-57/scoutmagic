@@ -55,6 +55,8 @@ final class CoreTaskHandlers
             'purge_human_check_rate_limits' => \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::class,
             \Core\Help\Assistant\Task\PurgeHelpAssistantHandler::TASK_KEY =>
                 \Core\Help\Assistant\Task\PurgeHelpAssistantHandler::class,
+            // What the carpool map's address lookup keeps (#642).
+            \Core\Geo\Task\PurgeGeocodingHandler::TASK_KEY => \Core\Geo\Task\PurgeGeocodingHandler::class,
             \Core\Statistics\Task\SendStatisticsHandler::TASK_KEY => \Core\Statistics\Task\SendStatisticsHandler::class,
             \Core\Support\Task\GenerateSupportPackageHandler::TASK_KEY =>
                 \Core\Support\Task\GenerateSupportPackageHandler::class,

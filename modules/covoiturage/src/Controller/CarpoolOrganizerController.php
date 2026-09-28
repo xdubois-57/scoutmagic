@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Covoiturage\Controller;
 
+use Core\Geo\AddressLocator;
+use Core\Geo\GeoPoint;
 use Core\Geo\GeoPointException;
 use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
@@ -43,7 +45,10 @@ class CarpoolOrganizerController extends AbstractController
         private CarpoolService $service,
         private CarpoolBoard $board,
         private SectionService $sections,
-        private CarpoolViewerResolver $viewers
+        private CarpoolViewerResolver $viewers,
+        // Null when « Retrouver le point depuis l'adresse » is switched off:
+        // the form then never asks, and the route answers « not found ».
+        private ?AddressLocator $locator = null
     ) {
         parent::__construct($twig);
     }
@@ -190,6 +195,32 @@ class CarpoolOrganizerController extends AbstractController
     }
 
     /**
+     * GET /covoiturage/organiser/adresse?q= — the point of the address being
+     * typed, so the form's map can centre on it before anything is saved
+     * (issue #642). Asked once when the address field is left, never per
+     * keystroke; every refusal (off, over quota, busy, unknown) is the same
+     * « not found », and the form then works as it always did.
+     *
+     * @param array<string, string> $params
+     */
+    public function locateAddress(Request $request, array $params): Response
+    {
+        $viewer = $this->viewer();
+        $point = $this->locator !== null && $viewer->mayCreate()
+            ? $this->locator->locate((string) $request->getQuery('q', ''), $viewer->accountId)
+            : null;
+
+        return $this->json($point === null
+            ? ['success' => true, 'found' => false]
+            : [
+                'success' => true,
+                'found' => true,
+                'latitude' => $point->latitude,
+                'longitude' => $point->longitude,
+            ]);
+    }
+
+    /**
      * @param array<string, mixed> $submitted
      * @param list<string> $errors
      */
@@ -231,9 +262,56 @@ class CarpoolOrganizerController extends AbstractController
             'duplicate_of' => $error instanceof DuplicateCarpoolException ? $error->existingCarpoolId : null,
             'location_mismatch' => $error instanceof LocationMismatchException ? $error->locations : [],
             'point' => $carpool?->point,
-            'point_is_manual' => $carpool !== null && $carpool->pointIsManual,
+            'point_is_manual' => $this->pointIsManual($carpool, $submitted),
+            'address_lookup' => $this->locator !== null,
             'breadcrumb_current' => $carpool !== null ? 'Modifier le covoiturage' : null,
         ]);
+    }
+
+    /**
+     * Whether the pin the form shows was placed — or removed — by a human.
+     * A form shown again after a refusal carries the answer itself: the
+     * script posts `point_manual`; without the script, a point posted
+     * without `point_automatic` was typed — unless it is the carpool's own
+     * automatic point, which the edit form posts back untouched.
+     *
+     * @param array<string, mixed> $submitted
+     */
+    private function pointIsManual(?Carpool $carpool, array $submitted): bool
+    {
+        if ($carpool !== null && $carpool->pointIsManual) {
+            return true;
+        }
+        if ($submitted === []) {
+            return false;
+        }
+        if ((string) ($submitted['point_manual'] ?? '') === '1') {
+            return true;
+        }
+
+        if (
+            trim((string) ($submitted['latitude'] ?? '')) === ''
+            || (string) ($submitted['point_automatic'] ?? '') === '1'
+        ) {
+            return false;
+        }
+
+        return $carpool?->point === null || $carpool->point->line() !== $this->postedPointLine($submitted);
+    }
+
+    /**
+     * @param array<string, mixed> $submitted
+     */
+    private function postedPointLine(array $submitted): ?string
+    {
+        try {
+            return GeoPoint::fromInput(
+                (string) ($submitted['latitude'] ?? ''),
+                (string) ($submitted['longitude'] ?? '')
+            )?->line();
+        } catch (GeoPointException) {
+            return null;
+        }
     }
 
     /**

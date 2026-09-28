@@ -31,6 +31,20 @@ interface LeafletMouseEvent {
     latlng: { lat: number; lng: number };
 }
 
+interface LeafletIcon {
+    // Opaque: built by divIcon(), only ever handed to marker().
+    readonly _leafletIcon?: never;
+}
+
+interface LeafletMarkerOptions {
+    draggable?: boolean;
+    icon?: LeafletIcon;
+    title?: string;
+    alt?: string;
+    interactive?: boolean;
+    keyboard?: boolean;
+}
+
 interface LeafletBounds {
     // Opaque: only ever handed straight back to fitBounds().
     readonly _leafletBounds?: never;
@@ -42,7 +56,7 @@ interface LeafletFeatureGroup {
 
 interface LeafletMap {
     setView(center: LeafletLatLng, zoom: number): LeafletMap;
-    fitBounds(bounds: LeafletBounds, options?: { padding?: [number, number]; maxZoom?: number }): LeafletMap;
+    fitBounds(bounds: LeafletBounds | LeafletLatLng[], options?: { padding?: [number, number]; maxZoom?: number }): LeafletMap;
     on(event: string, handler: (event: LeafletMouseEvent) => void): LeafletMap;
     invalidateSize(): LeafletMap;
 }
@@ -50,7 +64,8 @@ interface LeafletMap {
 interface LeafletStatic {
     map(element: HTMLElement | string): LeafletMap;
     tileLayer(urlTemplate: string, options?: { attribution?: string; maxZoom?: number }): LeafletLayer;
-    marker(latlng: LeafletLatLng, options?: { draggable?: boolean }): LeafletMarker;
+    marker(latlng: LeafletLatLng, options?: LeafletMarkerOptions): LeafletMarker;
+    divIcon(options: { className?: string; html?: string; iconSize?: [number, number] }): LeafletIcon;
     featureGroup(layers: LeafletLayer[]): LeafletFeatureGroup;
 }
 

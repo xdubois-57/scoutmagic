@@ -53,6 +53,11 @@ final class CovoiturageRbacTest extends TestCase
     private int $carpoolId;
     private int $offerId;
     private int $requestId;
+    private CarpoolRepository $carpools;
+    private CarpoolBoard $board;
+    private SectionService $sections;
+    private CarpoolViewerResolver $viewers;
+    private CarpoolService $service;
 
     protected function setUp(): void
     {
@@ -104,10 +109,15 @@ final class CovoiturageRbacTest extends TestCase
             new OfferService($offers, $requests, $this->pdo),
             $viewers
         );
+        $this->carpools = $carpools;
+        $this->board = $board;
+        $this->sections = $sections;
+        $this->viewers = $viewers;
+        $this->service = new CarpoolService($carpools, $offers, $sections, H::members($this->pdo), new FakeCalendar([]));
         $this->organizer = new CarpoolOrganizerController(
             $twig,
             $carpools,
-            new CarpoolService($carpools, $offers, $sections, H::members($this->pdo), new FakeCalendar([])),
+            $this->service,
             $board,
             $sections,
             $viewers
@@ -216,6 +226,128 @@ final class CovoiturageRbacTest extends TestCase
         $response = $this->frontController('GET', '/covoiturage/organiser/{id}/modifier', 'edit', 'chief')
             ->handle(new Request('GET', '/covoiturage/organiser/' . $this->carpoolId . '/modifier', [], [], [], []));
         $this->assertSame(200, $response->getStatusCode());
+    }
+
+    public function testTheAddressLookupAnswersWithThePointOfTheAddress(): void
+    {
+        // #642: the map's live lookup, with Nominatim replaced by a fake.
+        $this->organizer = $this->organizerWithLocator(['latitude' => 50.125, 'longitude' => 5.187]);
+        AuthSession::login($this->accountId, 'parent@test.be', Role::CHIEF->value);
+
+        $response = $this->frontController('GET', '/covoiturage/organiser/adresse', 'locateAddress', 'chief')
+            ->handle(new Request('GET', '/covoiturage/organiser/adresse', ['q' => 'Gîte de Han, rue des Grottes 12'], [], [], []));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(
+            ['success' => true, 'found' => true, 'latitude' => 50.125, 'longitude' => 5.187],
+            json_decode($response->getBody(), true)
+        );
+
+        $form = $this->frontController('GET', '/covoiturage/organiser/nouveau', 'create', 'chief')
+            ->handle(new Request('GET', '/covoiturage/organiser/nouveau', [], [], [], []))->getBody();
+        $this->assertStringContainsString('data-locate-url="/covoiturage/organiser/adresse"', $form);
+        $this->assertStringContainsString('name="point_automatic"', $form);
+    }
+
+    public function testWithTheLookupSwitchedOffTheRouteFindsNothingAndTheFormNeverAsks(): void
+    {
+        AuthSession::login($this->accountId, 'parent@test.be', Role::CHIEF->value);
+
+        $response = $this->frontController('GET', '/covoiturage/organiser/adresse', 'locateAddress', 'chief')
+            ->handle(new Request('GET', '/covoiturage/organiser/adresse', ['q' => 'Gîte de Han, rue des Grottes 12'], [], [], []));
+        $this->assertSame(['success' => true, 'found' => false], json_decode($response->getBody(), true));
+
+        $form = $this->frontController('GET', '/covoiturage/organiser/nouveau', 'create', 'chief')
+            ->handle(new Request('GET', '/covoiturage/organiser/nouveau', [], [], [], []))->getBody();
+        $this->assertStringNotContainsString('data-locate-url', $form);
+    }
+
+    public function testAPointRemovedByHandStaysRemovedWhenTheFormComesBackRefused(): void
+    {
+        // « Retirer » posts empty coordinates and point_manual=1; a refusal
+        // for another reason (here, the dates) must show the form with the
+        // point still marked as a human's decision, or the page's lookup
+        // would put the pin straight back on the address.
+        AuthSession::login($this->accountId, 'parent@test.be', Role::ADMIN->value);
+        $body = [
+            '_csrf_token' => \Core\Security\CsrfGuard::generateToken(),
+            'address' => 'Gîte de Han, rue des Grottes 12',
+            'outbound_date' => '2027-05-10',
+            'return_date' => '2027-05-01',
+            'latitude' => '',
+            'longitude' => '',
+            'point_automatic' => '0',
+            'point_manual' => '1',
+        ];
+
+        $page = $this->frontController('POST', '/covoiturage/organiser/{id}/modifier', 'update', 'chief')
+            ->handle(new Request('POST', '/covoiturage/organiser/' . $this->carpoolId . '/modifier', [], $body, [], []))
+            ->getBody();
+
+        $this->assertStringContainsString('Le retour ne peut pas précéder', $page);
+        $this->assertStringContainsString('data-manual="1"', $page);
+        $this->assertStringContainsString('name="point_manual" value="1"', $page);
+    }
+
+    public function testAnAutomaticPointPostedBackWithoutTheScriptIsNotCalledHandPlaced(): void
+    {
+        // Without JavaScript the edit form posts the carpool's own point
+        // back untouched, and `point_automatic` stays at 0: that is not a
+        // human's point, even when the form comes back refused.
+        (new \Modules\Covoiturage\Repository\CarpoolRepository($this->pdo))->points()
+            ->recordGeocoding($this->carpoolId, new \Core\Geo\GeoPoint(50.125, 5.187), new \DateTimeImmutable());
+        AuthSession::login($this->accountId, 'parent@test.be', Role::ADMIN->value);
+        $body = [
+            '_csrf_token' => \Core\Security\CsrfGuard::generateToken(),
+            'address' => 'Gîte de Han-sur-Lesse, rue des Grottes 12',
+            'outbound_date' => '2027-05-10',
+            'return_date' => '2027-05-01',
+            'latitude' => '50.125000',
+            'longitude' => '5.187000',
+            'point_automatic' => '0',
+        ];
+
+        $page = $this->frontController('POST', '/covoiturage/organiser/{id}/modifier', 'update', 'chief')
+            ->handle(new Request('POST', '/covoiturage/organiser/' . $this->carpoolId . '/modifier', [], $body, [], []))
+            ->getBody();
+
+        $this->assertStringContainsString('Le retour ne peut pas précéder', $page);
+        $this->assertStringContainsString('data-manual="0"', $page);
+
+        // Coordinates typed over it are a human's, as before.
+        $body['latitude'] = '50.200000';
+        $page = $this->frontController('POST', '/covoiturage/organiser/{id}/modifier', 'update', 'chief')
+            ->handle(new Request('POST', '/covoiturage/organiser/' . $this->carpoolId . '/modifier', [], $body, [], []))
+            ->getBody();
+        $this->assertStringContainsString('data-manual="1"', $page);
+    }
+
+    /** @param array{latitude: float, longitude: float}|null $answer */
+    private function organizerWithLocator(?array $answer): CarpoolOrganizerController
+    {
+        $geocoder = new class ($answer) extends \Core\Geo\GeocodingService {
+            /** @param array{latitude: float, longitude: float}|null $answer */
+            public function __construct(private ?array $answer)
+            {
+                parent::__construct('https://unit.test');
+            }
+
+            public function geocodeLine(?string $line): ?array
+            {
+                return $this->answer;
+            }
+        };
+
+        return new CarpoolOrganizerController(
+            $this->twig,
+            $this->carpools,
+            $this->service,
+            $this->board,
+            $this->sections,
+            $this->viewers,
+            new \Core\Geo\AddressLocator($this->pdo, $geocoder, static function (int $microseconds): void {
+            })
+        );
     }
 
     private function resolve(string $path): string
