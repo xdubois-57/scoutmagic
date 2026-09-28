@@ -658,15 +658,38 @@ class GitHubWebhookServiceTest extends TestCase
         $all = $this->schedulerRepository->findByModuleAndTaskKey('core', 'install_update', 10);
         $payload = json_decode((string) $all[0]['payload'], true);
 
+        // From the constant, not a copy of its value: the deadline written
+        // into the payload IS that constant, and a test spelling 600 here
+        // went on passing when the constant moved (issue #683). The value
+        // itself is pinned once, by the test below.
+        $wait = GitHubWebhookService::ARTIFACT_WAIT_SECONDS;
         $this->assertArrayHasKey('wait_for_artifact_until', $payload);
-        $this->assertGreaterThanOrEqual($before + 600, (int) $payload['wait_for_artifact_until']);
-        $this->assertLessThanOrEqual($after + 600, (int) $payload['wait_for_artifact_until']);
+        $this->assertGreaterThanOrEqual($before + $wait, (int) $payload['wait_for_artifact_until']);
+        $this->assertLessThanOrEqual($after + $wait, (int) $payload['wait_for_artifact_until']);
 
         // The handler is never told its own reference, so it travels in
         // the payload: a retry scheduled while waiting must stay findable
         // by supersedeQueuedInstall(), or a newer push would leave two
         // installs due at once.
         $this->assertSame('push_install', $payload['reference']);
+    }
+
+    /**
+     * **45 minutes, and the number is the point** (issue #683). Ten minutes
+     * was set against the build time alone — 30 to 40 seconds — and ignored
+     * the wait for a GitHub runner, which measured 18 and 20 minutes on a
+     * busy evening. The site gave up first and wrote « Échouée » against
+     * builds that had succeeded; their archives appeared 8 to 10 minutes
+     * later, by which time nothing was watching for them.
+     *
+     * Pinned here rather than left to the deadline test above, which now
+     * reads the constant and so would follow it anywhere: one test proves
+     * the payload carries the constant, this one proves the constant is
+     * still the value that was reasoned about.
+     */
+    public function testTheArtifactWaitIsThreeQuartersOfAnHour(): void
+    {
+        $this->assertSame(2700, GitHubWebhookService::ARTIFACT_WAIT_SECONDS);
     }
 
     /**

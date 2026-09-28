@@ -286,6 +286,35 @@ class UpdateHistoryRepositoryTest extends TestCase
         $this->assertSame('installing', $this->repository->findById($newest)->status);
     }
 
+    /**
+     * **A row still waiting for its artifact is not a stuck row** (issue
+     * #683). `pending` means « scheduled, nothing started », and an install
+     * from a push webhook now sits there for up to 45 minutes while CI waits
+     * for a GitHub runner — up from ten, which is why this guarantee stopped
+     * being theoretical. Failing such a row here would mark an update failed
+     * while its own handler was still perfectly on track to install it, and
+     * #622's « Ignorée » path — the one thing that may supersede a pending
+     * install — would no longer be the only one.
+     *
+     * Asserted rather than deduced from the status list: three docblocks in
+     * this area already claim it, and none of them would notice a fifth
+     * status joining that `IN (...)`.
+     */
+    public function testMarkOtherInProgressAsFailedLeavesAPendingRowWaitingForItsArtifact(): void
+    {
+        $waiting = $this->repository->create('1.0.0', 'dev-aaa', false, null);
+        $current = $this->repository->create('1.0.0', 'dev-bbb', false, null);
+        $this->repository->setStatus($current, 'backing_up');
+
+        $this->repository->markOtherInProgressAsFailed($current);
+
+        $this->assertSame(
+            'pending',
+            $this->repository->findById($waiting)->status,
+            'an install still waiting for its artifact was failed as if it were stuck'
+        );
+    }
+
     public function testMarkOtherInProgressAsFailedLeavesTerminalRowsAlone(): void
     {
         $completed = $this->repository->create('1.0.0', '1.1.0', false, $this->userId);

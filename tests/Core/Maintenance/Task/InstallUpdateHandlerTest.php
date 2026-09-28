@@ -266,11 +266,17 @@ class InstallUpdateHandlerTest extends TestCase
     }
 
     /**
-     * Past the deadline the build is not late, it is broken — and a broken
-     * build has to be visible. There is deliberately NO fallback to
-     * GitHub's zipball of the commit: that archive carries no vendor/, and
-     * installing it is exactly the silent dependency drift this channel
-     * was rebuilt to remove.
+     * Past the deadline the wait ends and the row is marked failed, because
+     * an install cannot stay 'pending' for ever — but **it does not follow
+     * that the build is broken**, and the message must not say so (issue
+     * #683). Twice, measured, the archive was published 8 to 10 minutes
+     * after the site gave up: the build had succeeded and GitHub's runner
+     * queue was full. So this asserts the wording as carefully as the
+     * status.
+     *
+     * There is still deliberately NO fallback to GitHub's zipball of the
+     * commit: that archive carries no vendor/, and installing it is exactly
+     * the silent dependency drift this channel was rebuilt to remove.
      */
     public function testAnArtifactThatNeverAppearedFailsTheUpdateInsteadOfWaitingForever(): void
     {
@@ -295,6 +301,25 @@ class InstallUpdateHandlerTest extends TestCase
         $this->assertStringContainsString('dev-latest', $message);
         $this->assertStringContainsString('scoutmagic-dev-a1b2c3d.zip', $message);
         $this->assertStringNotContainsString('https://', $message);
+
+        // It says the archive was not READY IN TIME, names the queue as the
+        // usual reason, and promises what happens next — and it no longer
+        // tells anybody to rerun a build that, in every case measured, had
+        // succeeded (issue #683). « jamais été publiée » goes too: the
+        // archive usually IS published, minutes later.
+        $this->assertStringContainsString('pas prête à temps', $message);
+        $this->assertStringContainsString('file d\'attente', $message);
+        $this->assertStringContainsString('Rien n\'a été modifié', $message);
+        $this->assertStringNotContainsString(
+            'relancez la construction',
+            $message,
+            'the message still asks for a rebuild, which was wrong in both measured cases'
+        );
+        $this->assertStringNotContainsString(
+            'jamais été publiée',
+            $message,
+            'the message still asserts the archive was never published, which is usually false'
+        );
 
         // Nothing left queued: the wait is over, not paused.
         $this->assertCount(0, (new SchedulerRepository($this->pdo))->findByModuleAndTaskKey('core', 'install_update', 10));
@@ -964,6 +989,47 @@ class InstallUpdateHandlerTest extends TestCase
         $this->assertCount(1, $notifications);
         $this->assertSame('core.update_failed', $notifications[0]->typeId);
         $this->assertSame('Échec de la mise à jour', $notifications[0]->title);
+    }
+
+    /**
+     * **And the notification says the same thing as the history row**
+     * (issue #683). The two texts are written in different places, one line
+     * apart, and only the history one was covered — so the push notification
+     * could have gone on telling a superadmin their build had failed long
+     * after the tooltip stopped. A dev install from a push has no requester,
+     * which is exactly when this notification is the only thing anybody
+     * sees.
+     */
+    public function testTheFailureNotificationDoesNotBlameTheBuildEither(): void
+    {
+        [$superadminId, $context] = $this->superadminAndRoleAwareContext();
+        $id = $this->updateHistoryRepository->create('dev-0000000', 'dev-a1b2c3d', false, null);
+
+        $this->handlerProbing(404)->handle([
+            'history_id' => $id,
+            'download_url' => self::DEV_ARTIFACT_URL,
+            'source_type' => 'release',
+            'wait_for_artifact_until' => time() - 1,
+            'reference' => 'push_install',
+        ], $context);
+
+        $notifications = (new NotificationRepository(
+            $this->pdo,
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        ))->findByUserAccountId($superadminId);
+
+        $this->assertCount(1, $notifications);
+        $this->assertSame('core.update_failed', $notifications[0]->typeId);
+        $body = $notifications[0]->body;
+        $this->assertStringContainsString('pas prête à temps', $body);
+        $this->assertStringContainsString('file d\'attente', $body);
+        $this->assertStringContainsString('Rien n\'a été modifié', $body);
+        $this->assertStringNotContainsString(
+            'jamais été publiée',
+            $body,
+            'the notification still asserts the archive was never published'
+        );
+        $this->assertStringNotContainsString('relancez la construction', $body);
     }
 
     /**
