@@ -5289,13 +5289,6 @@ $router->addRoute(
 );
 $router->addRoute(
     'POST',
-    '/config/maintenance/backup/database',
-    MaintenanceController::class,
-    'createDatabaseBackup',
-    'superadmin',
-);
-$router->addRoute(
-    'POST',
     '/config/maintenance/backup/full',
     MaintenanceController::class,
     'createFullBackup',

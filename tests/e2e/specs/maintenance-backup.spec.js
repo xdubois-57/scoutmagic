@@ -99,18 +99,71 @@ test('maintenance backups run to completion, the auto-save saves, and the danger
     await expect(savedToast).toBeVisible();
 
     // ---------------------------------------------------------------
-    // Database-only backup: a plain synchronous POST that comes back to
-    // the page it was sent from, and whose proof is the new row in
-    // « Sauvegardes récentes », with its download link.
+    // The manual backup is one form since IT-04 of issue #619: four
+    // scopes, one button, and every scope goes the same way — a
+    // background task, then a line in « Sauvegardes récentes ». Each
+    // launch is started by the form's fetch and finished by the
+    // status-polling loop, which reloads the page when the poll reports
+    // done.
     // ---------------------------------------------------------------
-    // Two buttons on the page say "Générer" (database-only, and the full
-    // backup's submit); the database one is the plain form targeting the
-    // synchronous endpoint.
-    await page.goto('/config/maintenance/sauvegarde-manuelle', { waitUntil: 'domcontentloaded' });
-    await expect(page.locator('#maintenance-backups-body')).toBeVisible();
-    await page.locator('form[action="/config/maintenance/backup/database"]')
-        .getByRole('button', { name: 'Générer' }).click();
-    await page.waitForURL('**/config/maintenance/sauvegarde-manuelle', { waitUntil: 'domcontentloaded' });
+    /** @param {string} scopeId the radio to check before launching */
+    async function launchManualBackup(scopeId) {
+        await page.goto('/config/maintenance/sauvegarde-manuelle', { waitUntil: 'domcontentloaded' });
+        await expect(page.locator('#maintenance-backups-body')).toBeVisible();
+        await page.locator(scopeId).check();
+        // Nothing to type (issue #619, IT-03): the site generates the password.
+        await expect(page.locator('#manual-backup-form input[type="password"]')).toHaveCount(0);
+        await page.locator('#manual-backup-submit').click();
+
+        // **Waiting on the pair, not on the progress bar alone — because a
+        // refusal hides the progress bar too.** `maintenance.js` removes
+        // the bar's `d-none` synchronously on submit, then, if the launch
+        // comes back refused, puts the server's sentence in
+        // `#manual-backup-error` and puts `d-none` BACK. So the state
+        // « progress hidden » is the state of a refusal, and a spec that
+        // asserts only `toBeVisible()` reports « Expected: visible /
+        // Received: hidden » while the page is displaying the reason two
+        // lines below. That is what happened on pull request #607, where
+        // this line failed and the run said nothing about why (issue #623).
+        await expect
+            .poll(
+                async () => {
+                    if (await page.locator('#manual-backup-progress').isVisible()) {
+                        return 'launched';
+                    }
+
+                    const refusal = ((await page.locator('#manual-backup-error').textContent()) ?? '').trim();
+
+                    return refusal === '' ? 'nothing happened yet' : `refused: ${refusal}`;
+                },
+                {
+                    message: 'the backup launch must be accepted, and say why if it is not',
+                    timeout: scaled(10_000),
+                },
+            )
+            .toBe('launched');
+
+        // The backup itself is a scheduled task, and public/cron.php is the
+        // only thing that runs one — the application does not turn its own
+        // queue on the tail of a request any more, and this instance has no
+        // crontab. The progress bar being visible means the fetch came back
+        // with a backup id, so the row is committed and a pass will claim it.
+        await runScheduler();
+
+        // The polling loop ends in window.location.reload(), which brings
+        // the form back with its progress bar hidden and no error: that
+        // pair is the poll having seen 'done'. A failed job would show its
+        // error instead of reloading, and fail here saying so.
+        await expect(
+            page.locator('#manual-backup-progress'),
+            'the background backup must complete and the page reload itself',
+        ).toBeHidden({ timeout: scaled(120_000) });
+        await page.waitForLoadState('load');
+        await expect(page.locator('#manual-backup-error')).toBeHidden();
+    }
+
+    // The database alone — a synchronous download until IT-04.
+    await launchManualBackup('#scope-database');
 
     // The list's rows carry the family badge with the type label, so the
     // assertion is on the badge's text, not on a cell.
@@ -124,66 +177,8 @@ test('maintenance backups run to completion, the auto-save saves, and the danger
     await expect(backupsList.getByLabel(/^Télécharger la sauvegarde/).first()).toBeVisible();
     await expect(backupsList.getByLabel(/^Supprimer la sauvegarde/).first()).toBeVisible();
 
-    // ---------------------------------------------------------------
-    // Full encrypted backup (configuration-only scope): started by a
-    // hand-built fetch, finished by the status-polling loop — the page
-    // reloads itself when the poll reports done.
-    // ---------------------------------------------------------------
-    await page.goto('/config/maintenance/sauvegarde-manuelle', { waitUntil: 'domcontentloaded' });
-    await page.locator('#scope-config').check();
-    // Nothing to type (issue #619, IT-03): the site generates the password.
-    await expect(page.locator('#full-backup-form input[type="password"]')).toHaveCount(0);
-    await page.locator('#full-backup-submit').click();
-
-    // **Waiting on the pair, not on the progress bar alone — because a
-    // refusal hides the progress bar too.** `maintenance.js` removes the
-    // bar's `d-none` synchronously on submit, then, if the launch comes
-    // back refused, puts the server's sentence in `#full-backup-error`
-    // and puts `d-none` BACK. So the state « progress hidden » is the
-    // state of a refusal, and a spec that asserts only `toBeVisible()`
-    // reports « Expected: visible / Received: hidden » while the page is
-    // displaying the reason two lines below. That is what happened on
-    // pull request #607, where this line failed and the run said nothing
-    // about why (issue #623).
-    //
-    // `#full-backup-error` is read here rather than at the end of the
-    // scenario — where it is also asserted hidden — because that later
-    // assertion never runs: this one fails first and the test stops.
-    await expect
-        .poll(
-            async () => {
-                if (await page.locator('#full-backup-progress').isVisible()) {
-                    return 'launched';
-                }
-
-                const refusal = ((await page.locator('#full-backup-error').textContent()) ?? '').trim();
-
-                return refusal === '' ? 'nothing happened yet' : `refused: ${refusal}`;
-            },
-            {
-                message: 'the backup launch must be accepted, and say why if it is not',
-                timeout: scaled(10_000),
-            },
-        )
-        .toBe('launched');
-
-    // The backup itself is a scheduled task, and public/cron.php is the
-    // only thing that runs one — the application does not turn its own
-    // queue on the tail of a request any more, and this instance has no
-    // crontab. The progress bar being visible means the fetch came back
-    // with a backup id, so the row is committed and a pass will claim it.
-    await runScheduler();
-
-    // The polling loop ends in window.location.reload(), which brings
-    // the form back with its progress bar hidden and no error: that pair
-    // is the poll having seen 'done'. A failed job would show its error
-    // instead of reloading, and fail here saying so.
-    await expect(
-        page.locator('#full-backup-progress'),
-        'the background backup must complete and the page reload itself',
-    ).toBeHidden({ timeout: scaled(120_000) });
-    await page.waitForLoadState('load');
-    await expect(page.locator('#full-backup-error')).toBeHidden();
+    // The configuration alone.
+    await launchManualBackup('#scope-config');
 
     // And the finished row is on the list, downloadable — the download
     // link is only drawn for a completed backup, so a row still pending

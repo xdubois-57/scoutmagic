@@ -39,6 +39,18 @@ final class BackupIntegrityWiringTest extends TestCase
      */
     private const ALLOWED = 'core/Maintenance/BackupIntegrity.php';
 
+    /**
+     * Files that create a backup row and hand its completion to a task,
+     * with the task that completes it. The controller has created every
+     * manual backup this way since IT-04 of issue #619, when the database
+     * alone stopped being a synchronous dump written in the request.
+     *
+     * @var array<string, string>
+     */
+    private const COMPLETED_BY = [
+        'core/Http/Controller/MaintenanceController.php' => 'core/Maintenance/Task/CreateBackupHandler.php',
+    ];
+
     public function testOnlyBackupIntegrityCompletesABackup(): void
     {
         $offenders = [];
@@ -127,7 +139,7 @@ final class BackupIntegrityWiringTest extends TestCase
 
         foreach ($creators as $file) {
             $this->assertContains(
-                $file,
+                self::COMPLETED_BY[$file] ?? $file,
                 $completers,
                 $file . ' creates a backup but never completes it through BackupIntegrity.'
             );

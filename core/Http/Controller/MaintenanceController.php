@@ -18,7 +18,6 @@ use Core\Database\SchemaFiles;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
-use Core\Maintenance\BackupException;
 use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
 use Core\Maintenance\GitHubReleaseClient;
@@ -63,7 +62,7 @@ class MaintenanceController extends AbstractController
      *
      * @var string[]
      */
-    private const FULL_BACKUP_SCOPES = ['full_config', 'full_no_gallery'];
+    private const FULL_BACKUP_SCOPES = ['full_config', 'full_no_gallery', 'database'];
 
     /**
      * How many rows « Sauvegardes récentes » shows before « voir plus ».
@@ -842,84 +841,21 @@ class MaintenanceController extends AbstractController
     }
 
     /**
-     * POST /config/maintenance/backup/database — synchronous (module spec:
-     * a plain DB dump is fast enough not to need the background/polling
-     * pattern the full zip uses).
-     *
-     * @param array<string, string> $params
-     */
-    public function createDatabaseBackup(Request $request, array $params): Response
-    {
-        if (($guard = $this->guardCsrf($request, self::PAGE_MANUAL_BACKUP)) !== null) {
-            return $guard;
-        }
-
-        $userId = AuthSession::getUserAccountId();
-        $backupId = $this->backupRepository->create('database', $userId);
-        $this->backupRepository->markInProgress($backupId);
-
-        try {
-            $path = $this->backupService->createDatabaseDump();
-            $fileId = $this->fileRepository->create(
-                $this->relativePath($path),
-                'database.sql',
-                'application/sql',
-                (int) filesize($path),
-                \Core\Maintenance\Backup::FILE_ROLE,
-                null,
-                $userId
-            );
-            $this->integrity()->complete($backupId, $fileId, $path, null, null);
-            $this->retention()->purgeAfterCreating('database');
-
-            $this->journalService->log(
-                'core',
-                'backup_completed',
-                'info',
-                'Sauvegarde de la base de données générée',
-                ['backup_id' => $backupId],
-                $userId
-            );
-            FlashMessage::set('success', 'Sauvegarde de la base de données générée.');
-        } catch (BackupException | \Core\Storage\InsufficientDiskSpaceException $e) {
-            // Both are marked UserFacingException, so each one's own
-            // sentence survives — the gate stands here for the empty-message
-            // case (which would render as a blank flash and a blank tooltip:
-            // a failure that looks like a success) and so this write site
-            // reads the same as every other one.
-            //
-            // InsufficientDiskSpaceException is named explicitly because it
-            // is a SIBLING of BackupException, not a subtype — both extend
-            // RuntimeException. Catching only the latter let a full quota
-            // escape as a 500, leaving the `backups` row stuck at
-            // `in_progress` for ever and hiding the one message that says
-            // what to do about it. This is the only synchronous backup
-            // route; the background ones report through their own handler.
-            $message = UserFacingMessage::from(
-                $e,
-                'La sauvegarde de la base de données n\'a pas pu être générée — vérifiez l\'espace disque et '
-                . 'les droits d\'écriture sur storage/, puis réessayez.'
-            );
-            $this->backupRepository->markFailed($backupId, substr($message, 0, 500));
-            $this->journalService->log(
-                'core',
-                'backup_failed',
-                'info',
-                'Échec de la génération d\'une sauvegarde de base de données',
-                ['backup_id' => $backupId, 'error' => $e->getMessage()],
-                $userId
-            );
-            FlashMessage::set('error', $message);
-        }
-
-        return $this->redirect(self::PAGE_MANUAL_BACKUP);
-    }
-
-    /**
      * POST /config/maintenance/backup/full (AJAX, JSON) — schedules the
      * background generation (module spec: too slow for a synchronous
      * request, especially with the gallery included) and returns
      * immediately; the page polls backupStatus() for progress.
+     *
+     * **The database alone goes this way too since IT-04 of issue #619**:
+     * it used to be a synchronous download, the one button on the screen
+     * that answered with a file instead of a line in the list. One control
+     * whose button sometimes downloads and sometimes notifies is exactly
+     * what the issue held against the old screen.
+     *
+     * **On a host whose libzip cannot encrypt, these three scopes are
+     * written in clear** — the fallback IT-04 decided, and the screen says
+     * so before the button. No password is issued, and the task is told.
+     * The portable archive has its own route and never falls back.
      *
      * @param array<string, string> $params
      */
@@ -935,25 +871,25 @@ class MaintenanceController extends AbstractController
         if (!in_array($scope, self::FULL_BACKUP_SCOPES, true)) {
             return $this->json(['success' => false, 'error' => 'Portée de sauvegarde invalide.'], 400);
         }
-        if (!$this->backupService->supportsZipEncryption()) {
-            return $this->json(['success' => false, 'error' => 'Le serveur ne supporte pas le chiffrement des archives '
-                . '— contactez votre hébergeur.'], 422);
-        }
+        $encrypted = $this->backupService->supportsZipEncryption();
 
         $userId = AuthSession::getUserAccountId();
         $backupId = $this->backupRepository->create($scope, $userId);
-        $refusal = $this->issuePassword($backupId);
-        if ($refusal !== null) {
-            return $refusal;
+        if ($encrypted) {
+            $refusal = $this->issuePassword($backupId);
+            if ($refusal !== null) {
+                return $refusal;
+            }
         }
 
         // No password in the payload: CreateBackupHandler reads the one
-        // just kept in secrets.enc (issue #619, IT-03).
+        // just kept in secrets.enc (issue #619, IT-03) — or writes the
+        // archive in clear when told to.
         $this->schedulerService->scheduleAfter(
             'core',
             'create_backup',
             0,
-            ['backup_id' => $backupId, 'scope' => $scope],
+            ['backup_id' => $backupId, 'scope' => $scope] + ($encrypted ? [] : ['unencrypted' => true]),
             null,
             $userId
         );
@@ -962,8 +898,8 @@ class MaintenanceController extends AbstractController
             'core',
             'backup_requested',
             'info',
-            'Sauvegarde complète demandée',
-            ['backup_id' => $backupId, 'scope' => $scope],
+            $encrypted ? 'Sauvegarde demandée' : 'Sauvegarde demandée, non chiffrée (le serveur ne sait pas chiffrer)',
+            ['backup_id' => $backupId, 'scope' => $scope, 'encrypted' => $encrypted],
             $userId
         );
 
@@ -2004,25 +1940,6 @@ class MaintenanceController extends AbstractController
         }
 
         return (string) ($secrets['github_webhook_secret'] ?? '');
-    }
-
-    private function relativePath(string $absolutePath): string
-    {
-        return ltrim(substr($absolutePath, strlen($this->storagePath)), '/');
-    }
-
-    /**
-     * The one completion path, shared with every background task that
-     * creates a backup — a backup marked complete without its digests is
-     * a backup nothing can ever verify.
-     */
-    private function integrity(): \Core\Maintenance\BackupIntegrity
-    {
-        return new \Core\Maintenance\BackupIntegrity(
-            $this->backupRepository,
-            $this->fileRepository,
-            $this->storagePath
-        );
     }
 
     /**

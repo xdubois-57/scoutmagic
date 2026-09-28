@@ -102,22 +102,22 @@ describe('maintenance.js: auto-backup-frequency select', () => {
     });
 });
 
-describe('maintenance.js: full-backup-form + its poller', () => {
+describe('maintenance.js: manual-backup-form + its poller', () => {
     function buildDom() {
         appendAll(
-            el(`<form id="full-backup-form">
+            el(`<form id="manual-backup-form">
                 <input type="radio" name="scope" value="all" checked>
-                <button type="submit" id="full-backup-submit"></button>
+                <button type="submit" id="manual-backup-submit"></button>
             </form>`),
-            el('<div id="full-backup-progress" class="d-none"></div>'),
-            el('<div id="full-backup-error" class="d-none"></div>'),
+            el('<div id="manual-backup-progress" class="d-none"></div>'),
+            el('<div id="manual-backup-error" class="d-none"></div>'),
         );
     }
 
     async function submit() {
         buildDom();
         await boot();
-        document.getElementById('full-backup-form').dispatchEvent(new Event('submit', { cancelable: true }));
+        document.getElementById('manual-backup-form').dispatchEvent(new Event('submit', { cancelable: true }));
     }
 
     it('never submits with no scope selected', async () => {
@@ -125,7 +125,7 @@ describe('maintenance.js: full-backup-form + its poller', () => {
         document.querySelector('input[name="scope"]').checked = false;
         global.fetch = vi.fn();
         await boot();
-        document.getElementById('full-backup-form').dispatchEvent(new Event('submit', { cancelable: true }));
+        document.getElementById('manual-backup-form').dispatchEvent(new Event('submit', { cancelable: true }));
         expect(fetch).not.toHaveBeenCalled();
     });
 
@@ -144,23 +144,25 @@ describe('maintenance.js: full-backup-form + its poller', () => {
     it('disables the submit button and shows progress immediately on submit', async () => {
         global.fetch = vi.fn(() => new Promise(() => {})); // never resolves
         await submit();
-        expect(/** @type {HTMLButtonElement} */ (document.getElementById('full-backup-submit')).disabled).toBe(true);
-        expect(document.getElementById('full-backup-progress').classList.contains('d-none')).toBe(false);
+        expect(/** @type {HTMLButtonElement} */ (document.getElementById('manual-backup-submit')).disabled).toBe(true);
+        expect(document.getElementById('manual-backup-progress').classList.contains('d-none')).toBe(false);
     });
 
     it('shows the server error and re-enables the button when the launch itself fails', async () => {
         global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Espace disque insuffisant.' }));
         await submit();
-        await vi.waitFor(() => expect(document.getElementById('full-backup-error').textContent).toBe('Espace disque insuffisant.'));
-        expect(document.getElementById('full-backup-error').classList.contains('d-none')).toBe(false);
-        expect(/** @type {HTMLButtonElement} */ (document.getElementById('full-backup-submit')).disabled).toBe(false);
-        expect(document.getElementById('full-backup-progress').classList.contains('d-none')).toBe(true);
+        await vi.waitFor(() => expect(document.getElementById('manual-backup-error').textContent)
+            .toBe('Espace disque insuffisant.'));
+        expect(document.getElementById('manual-backup-error').classList.contains('d-none')).toBe(false);
+        expect(/** @type {HTMLButtonElement} */ (document.getElementById('manual-backup-submit')).disabled).toBe(false);
+        expect(document.getElementById('manual-backup-progress').classList.contains('d-none')).toBe(true);
     });
 
     it('shows a generic error when the launch request itself fails over the network', async () => {
         global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
         await submit();
-        await vi.waitFor(() => expect(document.getElementById('full-backup-error').textContent).toBe('Erreur réseau.'));
+        await vi.waitFor(() => expect(document.getElementById('manual-backup-error').textContent)
+            .toBe('Erreur réseau.'));
     });
 
     it('reloads the page once polling reports the backup completed', async () => {
@@ -186,7 +188,7 @@ describe('maintenance.js: full-backup-form + its poller', () => {
         await submit();
         await vi.advanceTimersByTimeAsync(3000);
 
-        expect(document.getElementById('full-backup-error').textContent).toBe('Disque plein.');
+        expect(document.getElementById('manual-backup-error').textContent).toBe('Disque plein.');
         const callCountAfterFailure = fetch.mock.calls.length;
         await vi.advanceTimersByTimeAsync(3000);
         expect(fetch.mock.calls.length).toBe(callCountAfterFailure); // polling actually stopped
@@ -211,24 +213,24 @@ describe('maintenance.js: full-backup-form + its poller', () => {
     });
 });
 
-describe('maintenance.js: portable-backup-form + its poller', () => {
-    // The two backup forms share one wiring (wireBackupForm). These cases
-    // are about what is NOT shared — a different endpoint — plus one case
-    // proving the shared half really is reached from this form too. Since
-    // IT-03 neither form has anything to type.
+describe('maintenance.js: manual-backup-form, portable scope', () => {
+    // One form since IT-04 (issue #619): the portable scope goes to its own
+    // route. These cases are about what differs for it — the endpoint and
+    // the payload — plus one proving the shared polling is reached too.
     function buildDom() {
         appendAll(
-            el(`<form id="portable-backup-form">
-                <button type="submit" id="portable-backup-submit"></button>
+            el(`<form id="manual-backup-form">
+                <input type="radio" name="scope" value="portable" checked>
+                <button type="submit" id="manual-backup-submit"></button>
             </form>`),
-            el('<div id="portable-backup-progress" class="d-none"></div>'),
-            el('<div id="portable-backup-error" class="d-none"></div>'),
+            el('<div id="manual-backup-progress" class="d-none"></div>'),
+            el('<div id="manual-backup-error" class="d-none"></div>'),
         );
     }
 
     async function submit() {
         await boot();
-        document.getElementById('portable-backup-form').dispatchEvent(new Event('submit', { cancelable: true }));
+        document.getElementById('manual-backup-form').dispatchEvent(new Event('submit', { cancelable: true }));
     }
 
     it('does nothing when the form is absent from the page', async () => {
@@ -255,9 +257,9 @@ describe('maintenance.js: portable-backup-form + its poller', () => {
             error: 'Le serveur ne supporte pas le chiffrement des archives.',
         }, 422));
         await submit();
-        await vi.waitFor(() => expect(document.getElementById('portable-backup-error').textContent)
+        await vi.waitFor(() => expect(document.getElementById('manual-backup-error').textContent)
             .toBe('Le serveur ne supporte pas le chiffrement des archives.'));
-        expect(document.getElementById('portable-backup-submit').disabled).toBe(false);
+        expect(document.getElementById('manual-backup-submit').disabled).toBe(false);
     });
 
     // The shared half, reached from this form: one polling loop, the same
@@ -370,7 +372,7 @@ describe('maintenance.js: wireInstallForm() — wired for both update forms', ()
         expect(document.getElementById('update-install-form-error').textContent).toBe('');
     });
 
-    it('shows an error and stops polling on a rolled_back install (a state full-backup polling does not have)', async () => {
+    it('shows an error and stops polling on a rolled_back install (a state backup polling does not have)', async () => {
         buildDom('update-install-form');
         global.fetch = vi.fn()
             .mockResolvedValueOnce({ json: () => Promise.resolve({ success: true, history_id: 7 }) })

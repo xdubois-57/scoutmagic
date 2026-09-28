@@ -184,6 +184,12 @@ class BackupService implements BackupServiceInterface
     private const FULL_BACKUP_TOP_LEVEL = ['core', 'modules', 'public', 'storage'];
 
     /**
+     * The scopes whose archive holds the database dump and nothing else:
+     * the configuration alone, and since IT-04 the whole database alone.
+     */
+    private const DUMP_ONLY_SCOPES = ['full_config', 'database'];
+
+    /**
      * Zips BACKED_UP_TOP_LEVEL into a single archive, minus two kinds of
      * thing: the secrets (storage/keys/, storage/config/ — those never
      * leave the server in a backup archive, encrypted or not) and every
@@ -258,16 +264,23 @@ class BackupService implements BackupServiceInterface
      *         Both are real files on disk that the caller is responsible
      *         for registering (Core\File\FileRepository) — this service
      *         never deletes either.
-     * @throws BackupException when $scope is invalid, the server's
-     *                          ZipArchive build doesn't support encryption
-     *                          (checked via supportsZipEncryption() before
-     *                          any file is touched — this must never
-     *                          silently fall back to an unencrypted zip),
-     *                          or dump/archive generation fails
+     * **`database` is the third scope since IT-04 of issue #619**: the full
+     * dump alone, in the same encrypted archive, where it used to be a bare
+     * `.sql` handed straight to the browser.
+     *
+     * **A null password writes the archive in clear** — the fallback IT-04
+     * decided for a host whose libzip cannot encrypt, chosen by the caller
+     * and never guessed here. The portable archive has no such fallback
+     * ({@see writeArchive()}).
+     *
+     * @throws BackupException when $scope is invalid, a password is given
+     *                          to a server whose ZipArchive build cannot
+     *                          encrypt (checked before any file is
+     *                          touched), or dump/archive generation fails
      */
-    public function createFullBackup(string $scope, string $password): array
+    public function createFullBackup(string $scope, ?string $password): array
     {
-        if (!in_array($scope, ['full_config', 'full_no_gallery'], true)) {
+        if (!in_array($scope, ['full_config', 'full_no_gallery', 'database'], true)) {
             throw new BackupException('Portée de sauvegarde invalide.');
         }
 
@@ -337,13 +350,15 @@ class BackupService implements BackupServiceInterface
      */
     private function writeArchive(
         string $scope,
-        string $password,
+        ?string $password,
         ?PortableManifest $manifest
     ): array {
-        if ($password === '') {
+        // The portable archive is never written in clear: it carries the
+        // site's keys, and in clear it is every member's data in one file.
+        if ($password === '' || ($password === null && $manifest !== null)) {
             throw new BackupException('Un mot de passe est requis.');
         }
-        if (!$this->supportsZipEncryption()) {
+        if ($password !== null && !$this->supportsZipEncryption()) {
             throw new BackupException('Le serveur ne supporte pas le chiffrement des archives — contactez votre '
                 . 'hébergeur.');
         }
@@ -372,7 +387,7 @@ class BackupService implements BackupServiceInterface
         // to prevent, arrived at through the guard itself.
         $this->diskBudget?->ensureRoom(
             $this->estimateDatabaseDumpBytes()
-            + ($scope === 'full_config'
+            + (in_array($scope, self::DUMP_ONLY_SCOPES, true)
                 ? 0
                 : $this->estimateFileBackupBytes(self::FULL_BACKUP_TOP_LEVEL))
             + ($manifest !== null ? $this->estimateSecretMemberBytes() : 0)
@@ -388,10 +403,10 @@ class BackupService implements BackupServiceInterface
         }
 
         try {
-            $this->addEncryptedFile($zip, $dbDumpPath, 'database.sql', $archivePassword);
+            $this->addArchiveFile($zip, $dbDumpPath, 'database.sql', $archivePassword);
             $manifest?->addMember('database.sql', $this->digestOf($dbDumpPath), (int) filesize($dbDumpPath));
 
-            if ($scope !== 'full_config') {
+            if (!in_array($scope, self::DUMP_ONLY_SCOPES, true)) {
                 // Deliberately NOT BACKED_UP_TOP_LEVEL: this archive is
                 // the operator's own downloadable backup, and every entry
                 // in it is separately AES-256 encrypted
@@ -413,7 +428,7 @@ class BackupService implements BackupServiceInterface
                 }
             }
 
-            if ($manifest !== null && $keys !== null) {
+            if ($manifest !== null && $keys !== null && $archivePassword !== null) {
                 $this->addSealedSecrets($zip, $manifest, $keys->envelopeKey(), $archivePassword);
                 $this->addEncryptedString($zip, PortableManifest::MEMBER, $manifest->toJson(), $archivePassword);
 
@@ -917,6 +932,19 @@ class BackupService implements BackupServiceInterface
         }
 
         return $total;
+    }
+
+    /**
+     * An archive entry, encrypted when a password is given — and in clear
+     * only when the caller chose the no-encryption fallback (IT-04).
+     */
+    private function addArchiveFile(\ZipArchive $zip, string $sourcePath, string $entryName, ?string $password): void
+    {
+        if ($password !== null) {
+            $this->addEncryptedFile($zip, $sourcePath, $entryName, $password);
+        } elseif (!$zip->addFile($sourcePath, $entryName)) {
+            throw new BackupException("Impossible d'ajouter {$entryName} à l'archive.");
+        }
     }
 
     private function addEncryptedFile(\ZipArchive $zip, string $sourcePath, string $entryName, string $password): void
