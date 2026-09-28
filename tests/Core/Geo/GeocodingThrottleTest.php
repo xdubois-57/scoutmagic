@@ -139,4 +139,28 @@ final class GeocodingThrottleTest extends TestCase
         $this->assertFalse($ran);
         $this->assertSame(3, $asked, 'asked before every try');
     }
+
+    /**
+     * Asked once more when the slot is taken: a newer request that arrived
+     * during the try itself still wins, and the slot is given back at once.
+     */
+    public function testACallNoLongerWantedOnceTheSlotIsTakenGivesItBack(): void
+    {
+        $asked = 0;
+        $ran = false;
+        $throttle = new GeocodingThrottle($this->caller, static function (int $us): void {
+        }, static fn(): float => 100.0);
+
+        $result = $throttle->runWaiting(function () use (&$ran): string {
+            $ran = true;
+
+            return 'sent';
+        }, 3.0, function () use (&$asked): bool {
+            return ++$asked < 2;
+        });
+
+        $this->assertSame([GeocodingThrottle::NOT_WANTED, null], $result);
+        $this->assertFalse($ran);
+        $this->assertTrue(AdvisoryLock::acquire($this->holder, GeocodingThrottle::LOCK_NAME), 'the slot was given back');
+    }
 }

@@ -59,8 +59,8 @@ adresse postale à un nom de lieu, ou posez l'épingle avec « Placer le point
 sur la carte ». « Retirer » enlève l'épingle. Un point placé à la main n'est
 plus jamais modifié automatiquement.
 
-Les dates encore vides se remplissent depuis les évènements choisis ; une
-date tapée n'est jamais remplacée. Laissez le retour vide pour une sortie
+Les dates vides se remplissent depuis les évènements (le retour, si
+plusieurs jours) ; une date tapée n'est jamais remplacée. Laissez le retour vide pour une sortie
 d'un seul trajet.
 
 ## Suivre et supprimer

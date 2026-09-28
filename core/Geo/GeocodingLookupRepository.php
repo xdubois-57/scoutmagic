@@ -10,13 +10,14 @@ namespace Core\Geo;
 
 /**
  * One row per address lookup Core\Geo\AddressLocator had to queue for
- * Nominatim — so that, per account, only the latest one is ever sent
- * (issue #692). A chief who corrects an address while the first lookup is
- * still waiting for its turn wants the correction looked up, not both.
+ * Nominatim — so that, per account, a lookup still waiting for its turn
+ * gives way to a newer one (issue #692). A chief who corrects an address
+ * while the first lookup waits wants the correction looked up, not both.
  *
  * It used to feed a per-account quota (30 per 10 minutes); the maintainer
  * decided a quota must never be the reason an address is not found, and
- * the « latest wins » rule already keeps one account from sending a burst.
+ * a waiting request giving way to a newer one keeps one account from
+ * sending a burst.
  *
  * The row holds an account id and an instant, never the address. An
  * answer served from the cache never creates one.

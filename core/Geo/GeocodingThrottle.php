@@ -81,9 +81,10 @@ class GeocodingThrottle
      * Runs $call alone on the site like run(), but waits for the slot —
      * up to $maxWaitSeconds — instead of giving up at once.
      *
-     * $stillWanted is asked before every try: when it answers false (a
-     * newer request of the same person has arrived) the wait stops and
-     * nothing is sent.
+     * $stillWanted is asked before every try and once more when the slot
+     * is taken: when it answers false (a newer request of the same person
+     * has arrived) the wait stops, the slot is given back, and nothing is
+     * sent.
      *
      * @template T
      * @param callable(): T $call
@@ -96,10 +97,18 @@ class GeocodingThrottle
         $deadline = ($this->clock)() + $maxWaitSeconds;
 
         while (true) {
-            if (!$stillWanted()) {
+            if (!self::asks($stillWanted)) {
                 return [self::NOT_WANTED, null];
             }
             if (AdvisoryLock::acquire($this->pdo, self::LOCK_NAME)) {
+                // Asked again now that the slot is ours: a newer request
+                // may have arrived during the try itself.
+                if (!self::asks($stillWanted)) {
+                    AdvisoryLock::release($this->pdo, self::LOCK_NAME);
+
+                    return [self::NOT_WANTED, null];
+                }
+
                 return [self::RAN, $this->runHolding($call)];
             }
             if (($this->clock)() >= $deadline) {
@@ -107,6 +116,19 @@ class GeocodingThrottle
             }
             ($this->pause)(self::RETRY_MICROSECONDS);
         }
+    }
+
+    /**
+     * The question « still wanted? », asked afresh every time: its answer
+     * changes while we wait (a newer request's row appears), which is the
+     * whole point of asking it more than once.
+     *
+     * @param callable(): bool $stillWanted
+     * @phpstan-impure
+     */
+    private static function asks(callable $stillWanted): bool
+    {
+        return $stillWanted();
     }
 
     /**

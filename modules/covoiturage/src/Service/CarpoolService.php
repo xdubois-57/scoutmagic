@@ -203,8 +203,14 @@ class CarpoolService
      * as `Y-m-d`, what the form's date fields hold. Null when no event is
      * visible.
      *
+     * An outing that starts and ends the same day suggests no return: the
+     * calendar gives a one-day event its start as its end, and filling the
+     * return with it would quietly turn a one-way outing into a round trip,
+     * where the form says « Laissez le retour vide pour une sortie d'un seul
+     * trajet ».
+     *
      * @param list<int> $eventIds
-     * @return array{outbound: string, return: string}|null
+     * @return array{outbound: string, return: string|null}|null
      */
     public function eventDates(array $eventIds, CarpoolViewer $viewer): ?array
     {
@@ -218,7 +224,10 @@ class CarpoolService
             return null;
         }
 
-        return ['outbound' => min($starts), 'return' => max($ends)];
+        $outbound = min($starts);
+        $return = max($ends);
+
+        return ['outbound' => $outbound, 'return' => $return > $outbound ? $return : null];
     }
 
     /**

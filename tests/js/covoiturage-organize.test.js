@@ -165,6 +165,13 @@ describe('covoiturage-organize', () => {
             expect(value('carpool-return')).toBe('2026-10-12');
         });
 
+        it('leaves the return empty for a one-day outing', async () => {
+            await chooseWithDates({ outbound: '2026-10-10', return: null });
+
+            expect(value('carpool-outbound')).toBe('2026-10-10');
+            expect(value('carpool-return')).toBe('');
+        });
+
         it('ignores an answer without dates, or with a date that is not one', async () => {
             await chooseWithDates(null);
             expect(value('carpool-outbound')).toBe('');

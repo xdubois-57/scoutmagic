@@ -28,15 +28,18 @@ namespace Core\Geo;
  *   again every tenth of a second (GeocodingThrottle::runWaiting(), issue
  *   #692); past that it answers « unavailable » and sends nothing.
  * - **No autocompletion.** The form asks once, when the address field is
- *   left, never per keystroke; and whatever a script does, only the
- *   latest of one account's waiting requests is ever sent (below).
+ *   left, never per keystroke; and whatever a script does, a request
+ *   that has to wait gives way to the same account's newer one (below).
  * - **A cache** (GeocodingCacheRepository): the same address, asked again
  *   by anybody, costs nothing — that includes every re-display of a form.
- * - **Only a person's latest request is sent** (GeocodingLookupRepository,
+ * - **A waiting request gives way to a newer one** (GeocodingLookupRepository,
  *   issue #692). A lookup that has to wait for the slot gives up the moment
- *   the same account asks for another address, so correcting a typo never
- *   costs two calls. This replaced a per-account quota: the maintainer
- *   decided a quota must never be why an address is not found.
+ *   the same account asks for another address — checked before every try
+ *   and once more when the slot is taken. A request that finds the slot
+ *   free goes at once: it cannot know about a correction not yet typed, so
+ *   a burst sends its first request and its latest, never the ones between.
+ *   This replaced a per-account quota: the maintainer decided a quota must
+ *   never be why an address is not found.
  *
  * The form says which answer it got (AddressLookup, issue #692): found,
  * not found, unavailable — the slot stayed busy past MAX_WAIT_SECONDS, or

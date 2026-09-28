@@ -120,6 +120,19 @@ final class CarpoolServiceTest extends TestCase
         $this->assertNull($this->service->eventDates([999], H::viewer(1, Role::CHIEF)), 'no visible event, no dates');
     }
 
+    /**
+     * A one-day outing suggests no return: the calendar gives such an event
+     * its start as its end, and a return filled with it would turn a one-way
+     * outing into a round trip nobody asked for.
+     */
+    public function testAOneDayOutingSuggestsNoReturn(): void
+    {
+        $this->assertSame(
+            ['outbound' => H::day(20), 'return' => null],
+            $this->service->eventDates([501, 502], H::viewer(1, Role::CHIEF))
+        );
+    }
+
     public function testADateTimeIsCutToTheDayTheFormHolds(): void
     {
         $service = new CarpoolService(
