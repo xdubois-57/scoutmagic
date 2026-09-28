@@ -312,6 +312,46 @@ class UpdateHistoryRepositoryTest extends TestCase
         $this->assertSame('installing', $this->repository->findById($id)->status);
     }
 
+    // --- markSkippedIfPending() ---
+
+    /** A queued install that never started is skipped, and says so. */
+    public function testMarkSkippedIfPendingSkipsAPendingRow(): void
+    {
+        $id = $this->repository->create('1.0.0', '1.1.0', false, $this->userId);
+
+        $this->assertTrue($this->repository->markSkippedIfPending($id, 'Remplacée.'));
+        $this->assertSame('skipped', $this->repository->findById($id)->status);
+        $this->assertSame('Remplacée.', $this->repository->findById($id)->errorMessage);
+    }
+
+    /**
+     * **And it does not stamp « Ignorée » over a claim already won** (raised in
+     * review of #691). Since #689 the supersede also reaches an install whose
+     * handler is running, and that handler can win its
+     * `claimPendingForBackup()` between a status read and this write. An
+     * unguarded write left a row reading « Ignorée » for an install busy
+     * replacing files — invisible to `findInProgress()`, so `MaintenanceGate`
+     * stopped holding visitors back and `markOtherInProgressAsFailed()` could
+     * not find it either.
+     *
+     * Guarding one side of a race is not guarding it.
+     */
+    public function testMarkSkippedIfPendingLeavesAnInstallThatWonItsClaimAlone(): void
+    {
+        $id = $this->repository->create('1.0.0', '1.1.0', false, $this->userId);
+        $this->assertTrue($this->repository->claimPendingForBackup($id));
+
+        $this->assertFalse(
+            $this->repository->markSkippedIfPending($id, 'Remplacée.'),
+            'the supersede reported success against an install that had already claimed the row'
+        );
+        $this->assertSame(
+            'backing_up',
+            $this->repository->findById($id)->status,
+            'a running install was marked « Ignorée » while it was replacing files'
+        );
+    }
+
     // --- markOtherInProgressAsFailed() ---
 
     public function testMarkOtherInProgressAsFailedLeavesTheGivenRowAlone(): void

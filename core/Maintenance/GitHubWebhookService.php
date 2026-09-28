@@ -552,15 +552,20 @@ class GitHubWebhookService
             return;
         }
 
-        $history = $this->updateHistoryRepository->findById($historyId);
-        // Only 'pending': a row that already started is the business of
-        // markOtherInProgressAsFailed(), which has the rollback semantics
-        // this does not.
-        if ($history !== null && $history->status === 'pending') {
-            // Skipped, not failed (issue #622): it never started, and the
-            // install that replaces it contains it.
-            $this->updateHistoryRepository->markSkipped($historyId, $reason);
-        }
+        // Still only 'pending' — a row that already started is the business of
+        // markOtherInProgressAsFailed(), which has the rollback semantics this
+        // does not — but the condition lives in the UPDATE rather than in a
+        // read before it (raised in review of #691). Since this method also
+        // acts on an install whose handler is already running, that handler can
+        // win its « pending → backing_up » claim between a read here and the
+        // write: the unguarded write then stamped « Ignorée » over a claim the
+        // install was acting on, leaving a row that reads « Ignorée » for an
+        // install busy replacing files — invisible to findInProgress(), so
+        // MaintenanceGate stopped holding visitors back.
+        //
+        // Skipped, not failed (issue #622): it never started, and the install
+        // that replaces it contains it.
+        $this->updateHistoryRepository->markSkippedIfPending($historyId, $reason);
     }
 
     /**

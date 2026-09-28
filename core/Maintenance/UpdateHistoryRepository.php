@@ -374,6 +374,36 @@ class UpdateHistoryRepository
         $stmt->execute([substr($reason, 0, 500), self::now(), $id]);
     }
 
+    /**
+     * The same « Ignorée », but only while the row is still `pending` — and
+     * says whether it happened.
+     *
+     * **The other side of {@see claimPendingForBackup()}'s compare-and-set**
+     * (raised in review of #691). Since #689, `GitHubWebhookService::
+     * supersedeQueuedInstall()` also acts on an install whose handler is
+     * already running, and it used to read the status and then write: between
+     * the two, that handler can win its claim and move the row to
+     * `backing_up`. The unguarded write then stamped « Ignorée » over a claim
+     * the install had won and was acting on — leaving a row that reads
+     * « Ignorée » for an install busy replacing files, invisible to
+     * {@see findInProgress()}, so `Core\Maintenance\MaintenanceGate` stopped
+     * holding visitors back and {@see markOtherInProgressAsFailed()} could no
+     * longer find it.
+     *
+     * Guarding one side of a race is not guarding it: whoever writes first
+     * wins here too, and the loser is told so.
+     */
+    public function markSkippedIfPending(int $id, string $reason): bool
+    {
+        $stmt = $this->pdo->prepare(
+            "UPDATE update_history SET status = 'skipped', error_message = ?, completed_at = ?
+              WHERE id = ? AND status = 'pending'"
+        );
+        $stmt->execute([substr($reason, 0, 500), self::now(), $id]);
+
+        return $stmt->rowCount() === 1;
+    }
+
     public function markRolledBack(int $id, string $errorMessage): void
     {
         $stmt = $this->pdo->prepare("UPDATE update_history SET status = 'rolled_back', error_message = ?, "
