@@ -69,8 +69,14 @@ class RestoreBackupHandler implements TaskHandlerInterface
     private const TYPE_COMPLETED = 'core.restore_completed';
     private const TYPE_FAILED = 'core.restore_failed';
 
-    /** @var string[] */
-    private const ENCRYPTED_BACKUP_TYPES = ['full_config', 'full_no_gallery', 'full_with_gallery'];
+    /**
+     * The types written encrypted, read only when the archive itself
+     * cannot be asked ({@see archiveIsEncrypted()}). `database` since
+     * IT-04, when the dump-only scope became an encrypted archive too.
+     *
+     * @var string[]
+     */
+    private const ENCRYPTED_BACKUP_TYPES = ['full_config', 'full_no_gallery', 'full_with_gallery', 'database'];
 
     /**
      * @param array<string, mixed> $payload
@@ -1094,9 +1100,16 @@ class RestoreBackupHandler implements TaskHandlerInterface
             return [$dbDumpPath, $filesZipPath, $kept, null];
         }
 
-        // Older archives: a full backup still needs the password its
-        // operator typed; anything else was written in clear.
-        $needsPassword = in_array($backup->type, self::ENCRYPTED_BACKUP_TYPES, true);
+        // No kept password: an older archive whose operator typed one, or
+        // one written in clear on a host that cannot encrypt (IT-04). The
+        // archive itself says which — its type cannot, since the same
+        // scope is encrypted on one host and clear on another. A row with
+        // no archive at all (an old database export) has nothing to
+        // decrypt; the type decides only when the archive cannot be read.
+        $needsPassword = $filesZipPath !== null && (
+            self::archiveIsEncrypted($filesZipPath)
+            ?? in_array($backup->type, self::ENCRYPTED_BACKUP_TYPES, true)
+        );
         // Said here, before the database is touched: found missing only at
         // extraction, it would cost a restore and a rollback.
         if ($needsPassword && $password === null) {
@@ -1107,6 +1120,35 @@ class RestoreBackupHandler implements TaskHandlerInterface
         }
 
         return [$dbDumpPath, $filesZipPath, $needsPassword ? $password : null, null];
+    }
+
+    /**
+     * Whether any entry of the archive is encrypted, or null when it
+     * cannot be read.
+     */
+    private static function archiveIsEncrypted(string $zipPath): ?bool
+    {
+        if (!is_file($zipPath)) {
+            return null;
+        }
+
+        $zip = new \ZipArchive();
+        if ($zip->open($zipPath, \ZipArchive::RDONLY) !== true) {
+            return null;
+        }
+
+        try {
+            for ($index = 0; $index < $zip->numFiles; $index++) {
+                $stat = $zip->statIndex($index);
+                if ($stat !== false && $stat['encryption_method'] !== \ZipArchive::EM_NONE) {
+                    return true;
+                }
+            }
+
+            return false;
+        } finally {
+            $zip->close();
+        }
     }
 
     private function relativePath(string $storagePath, string $absolutePath): string
