@@ -519,7 +519,7 @@
     // the reset can be submitted — the reset erases it.
     var fullResetNoted = /** @type {HTMLInputElement|null} */ (document.getElementById('full-reset-password-noted'));
     var fullResetUpdate = wireKeywordGate('full-reset-keyword', 'EFFACER', function () {
-        return fullResetCheckbox?.checked && (fullResetNoted === null || fullResetNoted.checked);
+        return fullResetCheckbox?.checked && fullResetNoted?.checked !== false;
     });
     if (fullResetCheckbox && fullResetUpdate) {
         fullResetCheckbox.addEventListener('change', fullResetUpdate);
@@ -573,7 +573,7 @@
             window.ScoutMagicApi.postJson('/config/maintenance/reset/full', {
                 confirm_keyword: /** @type {HTMLInputElement} */ (document.getElementById('full-reset-keyword')).value,
                 confirm_checkbox: true,
-                password_noted: fullResetNoted === null ? false : fullResetNoted.checked
+                password_noted: fullResetNoted?.checked === true
             })
                 .then(function (res) {
                     if (!res.data) {
