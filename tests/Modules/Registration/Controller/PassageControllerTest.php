@@ -10,6 +10,7 @@ use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Import\MemberYearRepository;
 use Core\Member\SectionService;
 use Core\ScoutYear\ScoutYearResolver;
@@ -92,7 +93,7 @@ class PassageControllerTest extends TestCase
 
         $this->requestRepository = new RegistrationRequestRepository($this->pdo, $encryption);
         $slotCapacityRepository = new SlotCapacityRepository($this->pdo);
-        $slotService = new SlotService($this->pdo, $encryption, $settingService, $ageBracketRepository, $slotCapacityRepository, $this->requestRepository);
+        $slotService = new SlotService(new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $encryption), new \Core\Config\ScoutYearService($this->pdo), $settingService, $ageBracketRepository, $slotCapacityRepository, $this->requestRepository);
         $connection = Connection::withPdo($this->pdo);
         $sectionService = new SectionService(
     new SectionRepository($connection),
@@ -121,7 +122,7 @@ class PassageControllerTest extends TestCase
         // response carries back is the projection's own numbers, and a
         // stub here would let the two stop agreeing.
         $this->forecastService = new \Modules\Registration\Service\ForecastService(
-            $this->pdo, $encryption, $sectionService, $passageService
+            new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $encryption), $encryption, $sectionService, $passageService
         );
         $this->projection = new \Modules\Registration\Service\ProjectedPopulationService(
             $this->forecastService,
@@ -219,11 +220,7 @@ class PassageControllerTest extends TestCase
 
     private function rawJsonRequest(string $method, string $path, array $body): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs([$method, $path, [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode($body));
+        $request = new RequestWithInput($method, $path, [], [], [], [], json_encode($body));
 
         return $request;
     }

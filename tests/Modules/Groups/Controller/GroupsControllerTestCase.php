@@ -133,7 +133,7 @@ abstract class GroupsControllerTestCase extends TestCase
      */
     protected function memberServiceMock(array $linkedMemberIds): MemberService
     {
-        $memberService = $this->createMock(MemberService::class);
+        $memberService = $this->createStub(MemberService::class);
         $memberService->method('getLinkedMembers')->willReturn(
             array_map(fn(int $id) => $this->profile($id), $linkedMemberIds)
         );
@@ -144,7 +144,7 @@ abstract class GroupsControllerTestCase extends TestCase
 
     protected function accountRepoMock(int $accountId, bool $completeProfile = true): UserAccountRepository
     {
-        $accountRepo = $this->createMock(UserAccountRepository::class);
+        $accountRepo = $this->createStub(UserAccountRepository::class);
         $accountRepo->method('findById')->willReturn(new UserAccount(
             $accountId,
             'parent@test.be',
@@ -163,7 +163,7 @@ abstract class GroupsControllerTestCase extends TestCase
 
     protected function scoutYearResolverMock(): ScoutYearResolver
     {
-        $resolver = $this->createMock(ScoutYearResolver::class);
+        $resolver = $this->createStub(ScoutYearResolver::class);
         $resolver->method('getEffectiveYear')->willReturn(
             new EffectiveScoutYear($this->currentYearId, '2025-2026', null)
         );

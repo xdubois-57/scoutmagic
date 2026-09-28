@@ -34,13 +34,20 @@ use Tests\DatabaseTestHelper;
  * A type declaring `default_on_role_min` is offered to everybody from its
  * own `role_min` up, but only starts switched on from `default_on_role_min`
  * up — the "on for the superadmin, available and off for the admin" shape
- * the two automatic-update types need (Core\Notification\
- * NotificationRegistry). These cover both halves: the declaration rule
- * itself, and the send pipeline actually honouring it.
+ * a module can declare (docs/module-development.md). These cover both
+ * halves: the declaration rule itself, and the send pipeline actually
+ * honouring it.
+ *
+ * No core type has that shape any more — the two automatic-update types
+ * it was written for went to superadmin with the Maintenance pages
+ * (issue #619) — so the pipeline cases run on a type registered the way a
+ * module's module.json registers it (self::SCOPED).
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class RoleScopedNotificationDefaultsTest extends TestCase
 {
+    private const SCOPED = 'fixture.scoped';
+
     private \PDO $pdo;
     private EncryptionService $encryption;
     private NotificationRepository $notificationRepository;
@@ -64,7 +71,7 @@ class RoleScopedNotificationDefaultsTest extends TestCase
             $this->notificationRepository,
             new PushSubscriptionRepository($this->pdo, $this->encryption),
             $this->preferenceRepository,
-            $this->createMock(WebPush::class),
+            $this->createStub(WebPush::class),
             new SettingService(new SettingRepository($this->pdo)),
             new JournalService(new JournalRepository($this->pdo)),
             new SchedulerService($this->schedulerRepository),
@@ -72,6 +79,26 @@ class RoleScopedNotificationDefaultsTest extends TestCase
             new RoleResolver(new MemberYearRepository($this->pdo), $this->encryption, $this->pdo),
             new ScoutYearService($this->pdo)
         );
+        $this->service->registerModuleTypes('fixture', [self::scopedDeclaration()]);
+    }
+
+    /**
+     * On for superadmins, offered and off for admins.
+     *
+     * @return array{id: string, label: string, description: string, group: string, role_min: string,
+     *     channels: array{in_app: string, push: string, email: string}, default_on_role_min: string}
+     */
+    private static function scopedDeclaration(): array
+    {
+        return [
+            'id' => self::SCOPED,
+            'label' => 'L',
+            'description' => 'D',
+            'group' => 'G',
+            'role_min' => 'admin',
+            'channels' => ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off'],
+            'default_on_role_min' => 'superadmin',
+        ];
     }
 
     private function createAccount(string $email, bool $superAdmin = false): int
@@ -188,7 +215,11 @@ class RoleScopedNotificationDefaultsTest extends TestCase
         $this->assertFalse($type->defaultEnabled('push', true));
     }
 
-    public function testTheTwoAutomaticUpdateTypesAreDeclaredForAdminsAndOnForSuperadmins(): void
+    /**
+     * Both link to /config/maintenance/mise-a-jour, superadmin-only since
+     * issue #619: offered to an admin, they would only lead to a refusal.
+     */
+    public function testTheTwoAutomaticUpdateTypesAreForSuperadminsAlone(): void
     {
         $types = [];
         foreach (NotificationRegistry::getCoreTypes() as $type) {
@@ -197,11 +228,19 @@ class RoleScopedNotificationDefaultsTest extends TestCase
 
         foreach (['core.update_installed', 'core.update_failed'] as $id) {
             $this->assertArrayHasKey($id, $types);
-            $this->assertSame('admin', $types[$id]->roleMin);
-            $this->assertSame('superadmin', $types[$id]->defaultOnRoleMin);
+            $this->assertSame('superadmin', $types[$id]->roleMin);
             $this->assertTrue($types[$id]->defaultsOnForRole(Role::SUPERADMIN));
-            $this->assertFalse($types[$id]->defaultsOnForRole(Role::ADMIN));
         }
+    }
+
+    public function testAnAdminIsNeverAmongTheAutomaticUpdateRecipientsEvenAfterSwitchingItOn(): void
+    {
+        $adminEmail = 'admin@test.example';
+        $adminId = $this->createAccount($adminEmail);
+        $this->giveRole($adminEmail, 'admin');
+        $this->preferenceRepository->setChannel($adminId, 'core.update_installed', 'in_app', true);
+
+        $this->assertSame([], $this->service->recipientsForType('core.update_installed'));
     }
 
     public function testRecipientsForTypeHoldsSuperadminsAndLeavesOutEverybodyBelowRoleMin(): void
@@ -212,7 +251,7 @@ class RoleScopedNotificationDefaultsTest extends TestCase
         $this->giveRole($chiefEmail, 'chief');
         $identifiedId = $this->createAccount('member@test.example');
 
-        $recipients = array_column($this->service->recipientsForType('core.update_installed'), 'userAccountId');
+        $recipients = array_column($this->service->recipientsForType(self::SCOPED), 'userAccountId');
 
         $this->assertSame([$superadminId], $recipients);
         $this->assertNotContains($chiefId, $recipients);
@@ -225,22 +264,22 @@ class RoleScopedNotificationDefaultsTest extends TestCase
         $adminId = $this->createAccount($adminEmail);
         $this->giveRole($adminEmail, 'admin');
 
-        $this->assertSame([], $this->service->recipientsForType('core.update_installed'));
+        $this->assertSame([], $this->service->recipientsForType(self::SCOPED));
 
-        $this->preferenceRepository->setChannel($adminId, 'core.update_installed', 'in_app', true);
+        $this->preferenceRepository->setChannel($adminId, self::SCOPED, 'in_app', true);
 
         $this->assertSame(
             [$adminId],
-            array_column($this->service->recipientsForType('core.update_installed'), 'userAccountId')
+            array_column($this->service->recipientsForType(self::SCOPED), 'userAccountId')
         );
     }
 
     public function testASuperadminWhoSwitchedTheTypeOffIsLeftOutOfTheBroadcast(): void
     {
         $superadminId = $this->createAccount('super@test.example', true);
-        $this->preferenceRepository->setChannel($superadminId, 'core.update_installed', 'in_app', false);
+        $this->preferenceRepository->setChannel($superadminId, self::SCOPED, 'in_app', false);
 
-        $this->assertSame([], $this->service->recipientsForType('core.update_installed'));
+        $this->assertSame([], $this->service->recipientsForType(self::SCOPED));
     }
 
     /**
@@ -273,16 +312,16 @@ class RoleScopedNotificationDefaultsTest extends TestCase
         $arrivingEmail = 'arriving@test.example';
         $arrivingId = $this->createAccount($arrivingEmail);
         $this->giveRoleInYear($arrivingEmail, 'admin', $nextYearId);
-        $this->preferenceRepository->setChannel($arrivingId, 'core.update_installed', 'in_app', true);
+        $this->preferenceRepository->setChannel($arrivingId, self::SCOPED, 'in_app', true);
 
         // Judged in the year the site is still on, they are nobody.
-        $this->assertSame([], $this->service->recipientsForType('core.update_installed'));
+        $this->assertSame([], $this->service->recipientsForType(self::SCOPED));
 
         $withTheSet = new NotificationService(
             $this->notificationRepository,
             new PushSubscriptionRepository($this->pdo, $this->encryption),
             $this->preferenceRepository,
-            $this->createMock(WebPush::class),
+            $this->createStub(WebPush::class),
             $settingService,
             new JournalService(new JournalRepository($this->pdo)),
             new SchedulerService($this->schedulerRepository),
@@ -291,10 +330,11 @@ class RoleScopedNotificationDefaultsTest extends TestCase
             new ScoutYearService($this->pdo),
             new AuthorizationYearService(new ScoutYearService($this->pdo), $settingService)
         );
+        $withTheSet->registerModuleTypes('fixture', [self::scopedDeclaration()]);
 
         $this->assertSame(
             [$arrivingId],
-            array_column($withTheSet->recipientsForType('core.update_installed'), 'userAccountId')
+            array_column($withTheSet->recipientsForType(self::SCOPED), 'userAccountId')
         );
     }
 
@@ -316,11 +356,11 @@ class RoleScopedNotificationDefaultsTest extends TestCase
         $adminEmail = 'admin@test.example';
         $adminId = $this->createAccount($adminEmail);
         $this->giveRole($adminEmail, 'admin');
-        $this->preferenceRepository->setChannel($adminId, 'core.update_installed', 'in_app', true);
+        $this->preferenceRepository->setChannel($adminId, self::SCOPED, 'in_app', true);
 
         $this->service->dispatch(
-            'core.update_installed',
-            $this->service->recipientsForType('core.update_installed'),
+            self::SCOPED,
+            $this->service->recipientsForType(self::SCOPED),
             ['title' => 'Mise à jour terminée', 'body' => 'B', 'url' => '/config/maintenance']
         );
 
@@ -335,8 +375,8 @@ class RoleScopedNotificationDefaultsTest extends TestCase
         $superadminId = $this->createAccount('super@test.example', true);
 
         $this->service->dispatch(
-            'core.update_installed',
-            $this->service->recipientsForType('core.update_installed'),
+            self::SCOPED,
+            $this->service->recipientsForType(self::SCOPED),
             ['title' => 'Mise à jour terminée', 'body' => 'B', 'url' => '/config/maintenance']
         );
 

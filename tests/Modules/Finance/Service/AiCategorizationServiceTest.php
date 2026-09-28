@@ -105,7 +105,7 @@ class AiCategorizationServiceTest extends TestCase
 
     public function testIsAvailableReflectsConnector(): void
     {
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
 
         $this->assertTrue($this->service($llmConnector)->isAvailable());
@@ -137,7 +137,7 @@ class AiCategorizationServiceTest extends TestCase
         $categoryId = $this->categoryRepository->create('Alimentation');
         $transaction = $this->createTransaction('VIR Delhaize');
 
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('complete')->willReturn(new LlmResponse('{}', ['category' => '  ALIMENTATION  ', 'new_category_suggestion' => null], 10, 5));
 
         $this->assertSame($categoryId, $this->service($llmConnector)->categorize($transaction));
@@ -148,7 +148,7 @@ class AiCategorizationServiceTest extends TestCase
         $this->categoryRepository->create('Alimentation');
         $transaction = $this->createTransaction('Achat inhabituel');
 
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('complete')->willReturn(new LlmResponse(
             '{}', ['category' => null, 'new_category_suggestion' => 'Fournitures de bureau'], 10, 5
         ));
@@ -164,7 +164,7 @@ class AiCategorizationServiceTest extends TestCase
         $this->categoryRepository->create('Alimentation');
         $transaction = $this->createTransaction('Achat');
 
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('complete')->willReturn(new LlmResponse(
             '{}', ['category' => 'Catégorie Inexistante', 'new_category_suggestion' => null], 10, 5
         ));
@@ -176,7 +176,7 @@ class AiCategorizationServiceTest extends TestCase
     {
         $transaction = $this->createTransaction('Achat');
 
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('complete')->willThrowException(LlmException::noProvider());
 
         $this->assertNull($this->service($llmConnector)->categorize($transaction));
@@ -186,7 +186,7 @@ class AiCategorizationServiceTest extends TestCase
     {
         $transaction = $this->createTransaction('Achat');
 
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('complete')->willReturn(new LlmResponse('not json', null, 10, 5));
 
         $this->assertNull($this->service($llmConnector)->categorize($transaction));
@@ -248,7 +248,7 @@ class AiCategorizationServiceTest extends TestCase
     {
         $transaction = $this->createTransaction('Achat');
 
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('complete')->willReturn(new LlmResponse('{}', ['category' => null, 'new_category_suggestion' => null], 10, 5));
 
         $service = new AiCategorizationService(

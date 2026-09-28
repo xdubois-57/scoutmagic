@@ -8,12 +8,13 @@ declare(strict_types=1);
 
 namespace Modules\Registration\Service;
 
+use Core\Member\Household\HouseholdKey;
 use Modules\Registration\Api\HouseholdRegistrationCountProvider;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 
 /**
  * Concrete Api\HouseholdRegistrationCountProvider — a thin pass-through to
- * the repository's own blind-index-based count, kept as its own class so
+ * the repository's own per-household count, kept as its own class so
  * the composition root wires a stable Api-shaped object rather than the
  * repository directly (ARCHITECTURE.md §7.5).
  */
@@ -23,17 +24,17 @@ class HouseholdRegistrationCountService implements HouseholdRegistrationCountPro
     {
     }
 
-    public function countAtAddress(string $addressBlindIndex, int $scoutYearId, ?int $excludeRequestId): int
+    public function countInHousehold(HouseholdKey $household, int $scoutYearId, ?int $excludeRequestId): int
     {
-        return $this->repository->countHouseholdAtAddress($addressBlindIndex, $scoutYearId, $excludeRequestId);
+        return $this->repository->countRequestsInHousehold($household, $scoutYearId, $excludeRequestId);
     }
 
     /**
-     * @param string[] $addressBlindIndexes
+     * @param HouseholdKey[] $households
      * @return array<string, int>
      */
-    public function countsAtAddresses(array $addressBlindIndexes, int $scoutYearId): array
+    public function countsInHouseholds(array $households, int $scoutYearId): array
     {
-        return $this->repository->countHouseholdsAtAddresses($addressBlindIndexes, $scoutYearId);
+        return $this->repository->countRequestsInHouseholds($households, $scoutYearId);
     }
 }

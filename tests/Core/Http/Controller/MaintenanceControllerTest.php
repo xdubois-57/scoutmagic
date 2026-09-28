@@ -12,6 +12,7 @@ use Core\File\FileRepository;
 use Core\Http\Controller\MaintenanceController;
 use Core\Http\FrontController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Http\Router;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
@@ -106,7 +107,7 @@ class MaintenanceControllerTest extends TestCase
         $this->secretManager->generateMasterKey();
         $this->secretManager->writeSecrets([]);
 
-        $moduleManager = $this->createMock(ModuleManager::class);
+        $moduleManager = $this->createStub(ModuleManager::class);
         $moduleManager->method('getEnabledModuleIds')->willReturn([]);
 
         // Built through the real factory, not a bare Environment: this page
@@ -225,11 +226,7 @@ class MaintenanceControllerTest extends TestCase
      */
     private function jsonRequest(array $data): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/config/maintenance/backup/full', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput('POST', '/config/maintenance/backup/full', [], [], [], [], json_encode($data));
         return $request;
     }
 
@@ -1482,7 +1479,7 @@ class MaintenanceControllerTest extends TestCase
         $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, 1);
         $this->updateHistoryRepository->setStatus($id, 'migrating');
 
-        $runner = $this->createMock(\Core\Database\MigrationRunner::class);
+        $runner = $this->createStub(\Core\Database\MigrationRunner::class);
         $runner->method('migrate')->willThrowException(new \RuntimeException('boom'));
 
         $response = $this->controllerWithRunner($runner)->updateStatus(
@@ -2425,7 +2422,7 @@ class MaintenanceControllerTest extends TestCase
     private function buildFrontController(): FrontController
     {
         $router = new Router();
-        $router->addRoute('GET', '/config/maintenance', MaintenanceController::class, 'index', 'admin');
+        $router->addRoute('GET', '/config/maintenance', MaintenanceController::class, 'index', 'superadmin');
 
         $configFile = sys_get_temp_dir() . '/test_maintenance_config_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
@@ -2437,17 +2434,18 @@ class MaintenanceControllerTest extends TestCase
         return $fc;
     }
 
-    public function testChiefIsDenied(): void
+    /** A chef d'unité, one level below the floor maintenance has since issue #619. */
+    public function testAdminIsDenied(): void
     {
-        AuthSession::login(1, 'chief@test.be', 'chief');
-
         $response = $this->buildFrontController()->handle(new Request('GET', '/config/maintenance', [], [], [], []));
 
         $this->assertSame(403, $response->getStatusCode());
     }
 
-    public function testAdminIsAllowed(): void
+    public function testSuperadminIsAllowed(): void
     {
+        AuthSession::login(1, 'root@test.be', 'superadmin');
+
         $response = $this->buildFrontController()->handle(new Request('GET', '/config/maintenance', [], [], [], []));
 
         $this->assertSame(200, $response->getStatusCode());

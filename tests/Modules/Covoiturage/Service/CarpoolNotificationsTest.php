@@ -46,7 +46,7 @@ final class CarpoolNotificationsTest extends TestCase
         $this->requests = new SeatRequestRepository($this->pdo, H::encryption());
         $this->carpools = new CarpoolRepository($this->pdo);
 
-        $notifications = $this->createMock(NotificationService::class);
+        $notifications = $this->createStub(NotificationService::class);
         $notifications->method('dispatch')->willReturnCallback(function (string $type, array $recipients, array $payload): void {
             $this->sent[] = [
                 'type' => $type,

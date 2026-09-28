@@ -6,6 +6,7 @@ namespace Tests\Core\Http\Controller;
 
 use Core\Http\Controller\AccountController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
@@ -50,7 +51,7 @@ class AccountControllerTest extends TestCase
             'https://localhost'
         );
 
-        $twig = $this->createMock(Environment::class);
+        $twig = $this->createStub(Environment::class);
         $twig->method('render')->willReturn('<html></html>');
 
         $this->accountPhotoService = new \Core\Photo\AccountPhotoService(
@@ -431,18 +432,6 @@ class AccountControllerTest extends TestCase
         $credId = random_bytes(32);
         $id = $this->webAuthnRepo->create($this->userId, $credId, random_bytes(64), 'Test Key');
 
-        $request = new Request('POST', '/account/passkey/delete', [], [], [], []);
-        // Simulate raw body for JSON request
-        $controller = $this->getMockBuilder(AccountController::class)
-            ->setConstructorArgs([
-                $this->createMock(Environment::class),
-                $this->userRepo,
-                $this->webAuthnRepo,
-                new WebAuthnService($this->webAuthnRepo, $this->userRepo, 'localhost', 'Test', 'https://localhost')
-            ])
-            ->onlyMethods([])
-            ->getMock();
-
         // Directly test the repository integration
         $this->webAuthnRepo->delete($id);
         $result = $this->webAuthnRepo->findByCredentialId($credId);
@@ -559,11 +548,7 @@ class AccountControllerTest extends TestCase
      */
     private function makeJsonRequest(array $body, array $server): Request
     {
-        $mock = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/account/passkey/delete', [], [], [], $server])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $mock->method('getRawBody')->willReturn((string) json_encode($body));
+        $mock = new RequestWithInput('POST', '/account/passkey/delete', [], [], [], $server, (string) json_encode($body));
 
         return $mock;
     }

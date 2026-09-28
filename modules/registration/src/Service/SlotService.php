@@ -8,11 +8,12 @@ declare(strict_types=1);
 
 namespace Modules\Registration\Service;
 
+use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
 use Core\Import\AgeBranchRepository;
 use Core\Member\MemberYearService;
-use Core\Security\EncryptionService;
 use Modules\Registration\Repository\AgeBracketRepository;
+use Modules\Registration\Repository\PassageRosterRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\SlotCapacityRepository;
 
@@ -41,8 +42,8 @@ class SlotService
     public const DEFAULT_CAPACITY = 15;
 
     public function __construct(
-        private \PDO $pdo,
-        private EncryptionService $encryption,
+        private PassageRosterRepository $roster,
+        private ScoutYearService $scoutYearService,
         private SettingService $settingService,
         private AgeBracketRepository $ageBracketRepository,
         private SlotCapacityRepository $slotCapacityRepository,
@@ -358,43 +359,26 @@ class SlotService
         $referenceYear = MemberYearService::referenceYearFromScoutYearLabel($this->scoutYearLabel($currentScoutYearId));
 
         // Non-staff only — the same role filter every other aggregation in
-        // this module applies (Service\PassageService::getAnimeMemberYears(),
-        // Service\ForecastService::countCurrentAnimes()/
-        // countDeparturesForYear(), Core\Member\SectionService::
+        // this module applies (Repository\PassageRosterRepository, behind
+        // Service\PassageService::getAnimeMemberYears() and Service\
+        // ForecastService's counts, and Core\Member\SectionService::
         // getSectionAnimes()). Without it, a leader whose effective age
         // still falls inside the 6-17 range was counted as a projected
         // animé, which shrank "restant" and could push the availability
-        // tier shown TO THE PUBLIC down a level.
-        //
-        // The join can multiply rows (one per function), so the result is
-        // deduplicated by member_year id in PHP — replacing one over-count
-        // by another would defeat the purpose.
-        $stmt = $this->pdo->prepare(
-            "SELECT my.id, my.birth_date_encrypted, my.scout_year_offset
-             FROM member_years my
-             JOIN member_functions mf ON mf.member_year_id = my.id
-             JOIN functions f ON mf.function_id = f.id
-             WHERE my.scout_year_id = ? AND my.is_active = 1 AND my.leaving = 0
-               AND f.role NOT IN ('chief', 'admin', 'intendant') AND mf.section_id IS NOT NULL"
-        );
-        $stmt->execute([$currentScoutYearId]);
-
-        $uniqueRows = [];
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $uniqueRows[(int) $row['id']] = $row;
-        }
+        // tier shown TO THE PUBLIC down a level. One entry per member_year,
+        // however many functions it holds.
+        $animeAges = $this->roster->findAnimeAges($currentScoutYearId);
 
         // Feeder slot => headcount currently sitting there.
         $currentBySlot = [];
-        foreach ($uniqueRows as $row) {
-            if ($row['birth_date_encrypted'] === null) {
+        foreach ($animeAges as $age) {
+            if ($age['birth_date'] === null) {
                 continue;
             }
-            $birthDate = $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date');
-            $birthYear = MemberYearService::extractBirthYear($birthDate);
+            $birthYear = MemberYearService::extractBirthYear($age['birth_date']);
             $effective = $memberYearService->getEffectiveAge(
                 $birthYear,
-                (int) $row['scout_year_offset'],
+                $age['scout_year_offset'],
                 $referenceYear
             );
             if ($effective->branchName === null || $effective->yearInBranch === null) {
@@ -468,10 +452,6 @@ class SlotService
 
     private function scoutYearLabel(int $scoutYearId): string
     {
-        $stmt = $this->pdo->prepare('SELECT label FROM scout_years WHERE id = ?');
-        $stmt->execute([$scoutYearId]);
-        $label = $stmt->fetchColumn();
-
-        return $label !== false ? (string) $label : '';
+        return $this->scoutYearService->findById($scoutYearId)['label'] ?? '';
     }
 }

@@ -64,7 +64,7 @@ class ReactionControllerTest extends GroupsControllerTestCase
             $this->pdo,
             new GroupActivityService($this->groupRepo, $this->postRepo),
             new PostMediaService(
-                $this->createMock(DelegatedAlbumManager::class),
+                $this->createStub(DelegatedAlbumManager::class),
                 new PostMediaRepository($this->pdo),
                 $this->groupRepo,
                 new \Modules\Groups\Repository\ReplyRepository($this->pdo)

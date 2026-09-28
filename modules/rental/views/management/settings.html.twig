@@ -1,5 +1,6 @@
 {% extends 'base.html.twig' %}
 {% block title %}Réglages — {{ asset.name }} — {{ site_name }}{% endblock %}
+{% block stylesheets %}<link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">{% endblock %}
 {#
   One asset's own settings: what a visitor may ask for, what it costs, and
   what is expected up front.

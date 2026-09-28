@@ -80,7 +80,7 @@ class InstallUpdateHandlerTest extends TestCase
         $this->context = new TaskContext(
             $connection,
             $encryption,
-            $this->createMock(MailService::class),
+            $this->createStub(MailService::class),
             $journalService,
             $settings,
             $userAccountRepository,
@@ -89,7 +89,7 @@ class InstallUpdateHandlerTest extends TestCase
                 new NotificationRepository($this->pdo, $encryption),
                 new PushSubscriptionRepository($this->pdo, $encryption),
                 new NotificationPreferenceRepository($this->pdo),
-                $this->createMock(WebPush::class),
+                $this->createStub(WebPush::class),
                 $settings,
                 $journalService,
                 new SchedulerService(new SchedulerRepository($this->pdo)),
@@ -465,7 +465,7 @@ class InstallUpdateHandlerTest extends TestCase
         $history = $this->updateHistoryRepository->findById($historyId);
         $this->assertNotNull($history);
 
-        $backupService = $this->createMock(BackupService::class);
+        $backupService = $this->createStub(BackupService::class);
 
         $method = new \ReflectionMethod(InstallUpdateHandler::class, 'rollbackToSafetyBackup');
         $method->setAccessible(true);
@@ -922,7 +922,7 @@ class InstallUpdateHandlerTest extends TestCase
         $context = new TaskContext(
             Connection::withPdo($this->pdo),
             $encryption,
-            $this->createMock(MailService::class),
+            $this->createStub(MailService::class),
             $journalService,
             $settings,
             $userAccountRepository,
@@ -931,7 +931,7 @@ class InstallUpdateHandlerTest extends TestCase
                 new NotificationRepository($this->pdo, $encryption),
                 new PushSubscriptionRepository($this->pdo, $encryption),
                 new NotificationPreferenceRepository($this->pdo),
-                $this->createMock(WebPush::class),
+                $this->createStub(WebPush::class),
                 $settings,
                 $journalService,
                 new SchedulerService(new SchedulerRepository($this->pdo)),

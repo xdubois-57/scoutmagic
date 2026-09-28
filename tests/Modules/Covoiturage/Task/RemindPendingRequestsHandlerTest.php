@@ -37,7 +37,7 @@ final class RemindPendingRequestsHandlerTest extends TestCase
 
     private function context(): TaskContext
     {
-        $notifications = $this->createMock(NotificationService::class);
+        $notifications = $this->createStub(NotificationService::class);
         $notifications->method('dispatch')->willReturnCallback(function (string $type, array $recipients, array $payload): void {
             $this->sent[] = [
                 'type' => $type,

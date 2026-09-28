@@ -397,13 +397,20 @@ class CampsAttachmentController extends AbstractController
         }
         $place = $this->places->findById($camp->placeId);
         $albumId = $this->albumId($camp, $place?->name);
+        $media = $this->albumService->listMedia($albumId, $camp->id);
 
+        // Three states, kept apart (issue #637): the gallery module is off,
+        // the gallery is on but refused this stay an album, or the album is
+        // there. They used to be one boolean, and the second state was
+        // announced as the first — « module désactivé » while it was on.
         return $this->render('@camps/photos.html.twig', [
             'camp' => $camp,
             'camp_label' => CampLabels::dateRange($camp->startDate, $camp->endDate, $camp->yearOnly),
             'place' => $place,
+            'gallery_enabled' => $this->albumService->isAvailable(),
             'album_available' => $this->albumService->isAvailable() && $albumId !== null,
-            'media' => $this->albumService->listMedia($albumId),
+            'media' => $media ?? [],
+            'media_unreadable' => $media === null,
             'breadcrumb_current' => 'Photos',
             'breadcrumb_trail' => $this->trail($camp, $place?->name),
         ]);

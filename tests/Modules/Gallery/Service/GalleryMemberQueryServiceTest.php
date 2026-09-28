@@ -63,10 +63,10 @@ class GalleryMemberQueryServiceTest extends TestCase
 );
         $scoutYearService = new ScoutYearService($this->pdo);
 
-        $accessService = $this->createMock(GalleryAccessService::class);
+        $accessService = $this->createStub(GalleryAccessService::class);
         $storageLocationRepository = new StorageLocationRepository($this->pdo, $encryption);
         $storageBackendFactory = new StorageBackendFactory($storageLocationRepository, sys_get_temp_dir());
-        $settingService = $this->createMock(\Core\Config\SettingService::class);
+        $settingService = $this->createStub(\Core\Config\SettingService::class);
         $settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);
         $storageWiring = GalleryStorageWiring::build(
                 $this->pdo, $encryption, $settingService, sys_get_temp_dir(), $this->albumRepository
@@ -76,7 +76,7 @@ class GalleryMemberQueryServiceTest extends TestCase
         $mediaService = new MediaService(
             $mediaRepository, $this->albumRepository, new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir()),
             new SchedulerService(new SchedulerRepository($this->pdo)), $settingService,
-            $accessService, $storageBackendFactory, $this->galleryLocationService, $this->createMock(FfmpegAvailability::class)
+            $accessService, $storageBackendFactory, $this->galleryLocationService, $this->createStub(FfmpegAvailability::class)
         );
 
         $this->service = new GalleryMemberQueryService($this->albumRepository, $mediaRepository, $mediaService, $sectionService, $scoutYearService);

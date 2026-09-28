@@ -13,6 +13,7 @@ use Core\File\FileRepository;
 use Core\File\UploadHandler;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Import\FunctionRepository;
 use Core\Import\ImportJournalRepository;
 use Core\Mail\MailException;
@@ -90,11 +91,7 @@ class ErrorMessageLeakTest extends TestCase
 
     private function jsonRequest(array $data): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn((string) json_encode($data));
+        $request = new RequestWithInput('POST', '/', [], [], [], [], (string) json_encode($data));
         return $request;
     }
 
@@ -115,7 +112,7 @@ class ErrorMessageLeakTest extends TestCase
 );
 
         return new MassMailController(
-            $this->createMock(Environment::class),
+            $this->createStub(Environment::class),
             $massMailService,
             new MailingListService(
                 new MailingListRepository($this->pdo),
@@ -123,21 +120,21 @@ class ErrorMessageLeakTest extends TestCase
                 $sectionService,
                 new FunctionRepository($this->pdo)
             ),
-            $this->createMock(MassMailAccessService::class),
-            $this->createMock(MemberService::class),
+            $this->createStub(MassMailAccessService::class),
+            $this->createStub(MemberService::class),
             $sectionService,
             new ScoutYearService($this->pdo),
-            $this->createMock(ImportJournalRepository::class),
-            $this->createMock(SettingService::class),
-            $this->createMock(UploadHandler::class),
+            $this->createStub(ImportJournalRepository::class),
+            $this->createStub(SettingService::class),
+            $this->createStub(UploadHandler::class),
             new FileRepository($this->pdo),
-            $this->createMock(AudienceImportService::class)
+            $this->createStub(AudienceImportService::class)
         );
     }
 
     public function testTestSendNeverFlashesThePhpMailerTextToTheChief(): void
     {
-        $massMailService = $this->createMock(MassMailService::class);
+        $massMailService = $this->createStub(MassMailService::class);
         $massMailService->method('findById')->willReturn($this->draft());
         $massMailService->method('sendTestEmail')->willThrowException(new MailException(
             'SMTP connect() failed. https://github.com/PHPMailer/PHPMailer/wiki/Troubleshooting'
@@ -163,7 +160,7 @@ class ErrorMessageLeakTest extends TestCase
      */
     public function testTestSendStillShowsAMarkedRefusalVerbatim(): void
     {
-        $massMailService = $this->createMock(MassMailService::class);
+        $massMailService = $this->createStub(MassMailService::class);
         $massMailService->method('findById')->willReturn($this->draft());
         $massMailService->method('sendTestEmail')->willThrowException(
             new \Modules\MassMail\Api\MassMailException('Adresse email invalide.')

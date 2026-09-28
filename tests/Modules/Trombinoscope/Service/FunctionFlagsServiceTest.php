@@ -31,7 +31,7 @@ class FunctionFlagsServiceTest extends TestCase
 
     public function testLabelsAreNonEmptyFrench(): void
     {
-        $service = new FunctionFlagsService($this->createMock(FunctionFlagsRepository::class));
+        $service = new FunctionFlagsService($this->createStub(FunctionFlagsRepository::class));
 
         $this->assertNotSame('', $service->getSectionLabel());
         $this->assertNotSame('', $service->getLeadLabel());

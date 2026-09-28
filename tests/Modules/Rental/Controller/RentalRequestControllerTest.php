@@ -237,7 +237,7 @@ class RentalRequestControllerTest extends TestCase
      */
     private function recordingMailService(): MailService
     {
-        $mock = $this->createMock(MailService::class);
+        $mock = $this->createStub(MailService::class);
         $mock->method('send')->willReturnCallback(
             function (
                 string $to,

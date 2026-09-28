@@ -792,7 +792,7 @@ class CampsChiefControllerTest extends TestCase
             attachments: $attachments
         );
 
-        $inbound = $this->createMock(\Modules\InboundMail\Api\InboundMailInterface::class);
+        $inbound = $this->createStub(\Modules\InboundMail\Api\InboundMailInterface::class);
         $inbound->method('findForReference')->willReturn([]);
         $inbound->method('findForTriage')->willReturn([$message]);
         $inbound->method('attach')->willReturnCallback(

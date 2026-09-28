@@ -22,7 +22,7 @@ class SeoKeywordServiceTest extends TestCase
 
     public function testIsAvailableReflectsConnectorAvailability(): void
     {
-        $connector = $this->createMock(LlmConnectorInterface::class);
+        $connector = $this->createStub(LlmConnectorInterface::class);
         $connector->method('isAvailable')->willReturn(true);
 
         $service = new SeoKeywordService($connector);
@@ -39,7 +39,7 @@ class SeoKeywordServiceTest extends TestCase
 
     public function testGenerateKeywordsReturnsTrimmedContent(): void
     {
-        $connector = $this->createMock(LlmConnectorInterface::class);
+        $connector = $this->createStub(LlmConnectorInterface::class);
         $connector->method('isAvailable')->willReturn(true);
         $connector->method('complete')->willReturn(new LlmResponse(" camp, ete, scoutisme \n", null, 10, 5));
 
@@ -50,7 +50,7 @@ class SeoKeywordServiceTest extends TestCase
 
     public function testGenerateKeywordsWrapsLlmExceptionIntoNewsException(): void
     {
-        $connector = $this->createMock(LlmConnectorInterface::class);
+        $connector = $this->createStub(LlmConnectorInterface::class);
         $connector->method('isAvailable')->willReturn(true);
         $connector->method('complete')->willThrowException(new LlmException('API down'));
 
@@ -68,7 +68,7 @@ class SeoKeywordServiceTest extends TestCase
     public function testTheLlmFailuresTextNeverReachesTheNewsExceptionsOwnMessage(): void
     {
         $technical = new LlmException('HTTP 401 — {"error":{"message":"invalid x-api-key"}}');
-        $connector = $this->createMock(LlmConnectorInterface::class);
+        $connector = $this->createStub(LlmConnectorInterface::class);
         $connector->method('isAvailable')->willReturn(true);
         $connector->method('complete')->willThrowException($technical);
         $service = new SeoKeywordService($connector);
@@ -98,7 +98,7 @@ class SeoKeywordServiceTest extends TestCase
 
     public function testGenerateSummaryReturnsTrimmedContent(): void
     {
-        $connector = $this->createMock(LlmConnectorInterface::class);
+        $connector = $this->createStub(LlmConnectorInterface::class);
         $connector->method('isAvailable')->willReturn(true);
         $connector->method('complete')->willReturn(new LlmResponse(" Venez nombreux au camp d'été ! \n", null, 10, 5));
 
@@ -109,7 +109,7 @@ class SeoKeywordServiceTest extends TestCase
 
     public function testGenerateSummaryTruncatesToThreeHundredCharacters(): void
     {
-        $connector = $this->createMock(LlmConnectorInterface::class);
+        $connector = $this->createStub(LlmConnectorInterface::class);
         $connector->method('isAvailable')->willReturn(true);
         $connector->method('complete')->willReturn(new LlmResponse(str_repeat('a', 400), null, 10, 5));
 
@@ -120,7 +120,7 @@ class SeoKeywordServiceTest extends TestCase
 
     public function testGenerateSummaryWrapsLlmExceptionIntoNewsException(): void
     {
-        $connector = $this->createMock(LlmConnectorInterface::class);
+        $connector = $this->createStub(LlmConnectorInterface::class);
         $connector->method('isAvailable')->willReturn(true);
         $connector->method('complete')->willThrowException(new LlmException('API down'));
 

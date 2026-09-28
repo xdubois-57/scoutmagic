@@ -29,7 +29,7 @@ class GalleryStorageSubProcessorServiceTest extends TestCase
      */
     private function service(array $locations): GalleryStorageSubProcessorService
     {
-        $repository = $this->createMock(StorageLocationRepository::class);
+        $repository = $this->createStub(StorageLocationRepository::class);
         $repository->method('findAll')->willReturn($locations);
 
         return new GalleryStorageSubProcessorService($repository);

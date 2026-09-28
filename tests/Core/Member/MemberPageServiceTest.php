@@ -79,9 +79,9 @@ class MemberPageServiceTest extends TestCase
         $this->memberDocumentService = new MemberDocumentService(new MemberDocumentRepository($this->pdo));
         $this->memberEmailService = new MemberEmailService(
             new MemberEmailRepository($this->pdo, $this->encryption),
-            $this->createMock(\Core\Mail\MailService::class),
-            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createMock(\Twig\Environment::class)),
-            $this->createMock(\Core\Journal\JournalService::class),
+            $this->createStub(\Core\Mail\MailService::class),
+            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createStub(\Twig\Environment::class)),
+            $this->createStub(\Core\Journal\JournalService::class),
             $this->sectionService,
             $this->memberService,
             new \Core\Config\ScoutYearService($this->pdo),
@@ -94,9 +94,9 @@ class MemberPageServiceTest extends TestCase
         $this->bounceStates = new \Core\Mail\Feedback\Bounce\BounceStateRepository($this->pdo, $this->encryption);
         $this->memberEmailService = new MemberEmailService(
             new MemberEmailRepository($this->pdo, $this->encryption),
-            $this->createMock(\Core\Mail\MailService::class),
-            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createMock(\Twig\Environment::class)),
-            $this->createMock(\Core\Journal\JournalService::class),
+            $this->createStub(\Core\Mail\MailService::class),
+            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createStub(\Twig\Environment::class)),
+            $this->createStub(\Core\Journal\JournalService::class),
             $this->sectionService,
             $this->memberService,
             new \Core\Config\ScoutYearService($this->pdo),
@@ -119,7 +119,7 @@ class MemberPageServiceTest extends TestCase
             new \Core\File\FileRepository($this->pdo),
             $this->sectionService,
             new \Core\Config\ScoutYearService($this->pdo),
-            $this->createMock(\Core\Journal\JournalService::class),
+            $this->createStub(\Core\Journal\JournalService::class),
             new \Core\Scheduler\SchedulerService(new \Core\Scheduler\SchedulerRepository($this->pdo)),
             $settingService,
             new \Core\Pdf\PdfCompressor($storagePath . '/temp')
@@ -327,7 +327,7 @@ class MemberPageServiceTest extends TestCase
             $this->encryption->encrypt('Belgique', 'member_addresses.country'),
         ]);
 
-        $provider = $this->createMock(SectionResponsableProvider::class);
+        $provider = $this->createStub(SectionResponsableProvider::class);
         $provider->method('getResponsable')->willReturn($lead);
 
         $profile = $this->createMemberInSection('MEMBER2');
@@ -388,7 +388,7 @@ class MemberPageServiceTest extends TestCase
     public function testSectionInfoIncludesNextEventWhenCalendarEnabled(): void
     {
         $event = new EventSummary(1, 'Grand jeu', 'Meute A', '2099-01-01', '2099-01-01');
-        $lookup = $this->createMock(CalendarEventLookupInterface::class);
+        $lookup = $this->createStub(CalendarEventLookupInterface::class);
         $lookup->method('findEventsInWindow')->willReturn([$event]);
 
         $profile = $this->createMemberInSection();
@@ -421,7 +421,7 @@ class MemberPageServiceTest extends TestCase
 
     public function testMassMailIsPopulatedForSelf(): void
     {
-        $massMailQuery = $this->createMock(MassMailQueryInterface::class);
+        $massMailQuery = $this->createStub(MassMailQueryInterface::class);
         $massMailQuery->method('getRecentEmailsForMember')->willReturn([['id' => 1, 'subject' => 'Sujet', 'sent_at' => '2026-01-01', 'section_name' => 'Meute A']]);
 
         $profile = $this->createMemberInSection();
@@ -432,7 +432,7 @@ class MemberPageServiceTest extends TestCase
 
     public function testMassMailIsPopulatedForChiefEvenWhenNotSelf(): void
     {
-        $massMailQuery = $this->createMock(MassMailQueryInterface::class);
+        $massMailQuery = $this->createStub(MassMailQueryInterface::class);
         $massMailQuery->method('getRecentEmailsForMember')->willReturn([['id' => 1, 'subject' => 'Sujet', 'sent_at' => '2026-01-01', 'section_name' => 'Meute A']]);
 
         $profile = $this->createMemberInSection();
@@ -519,9 +519,9 @@ class MemberPageServiceTest extends TestCase
         $this->assertFalse($dataDisabled['mass_mail_enabled']);
         $this->assertFalse($dataDisabled['gallery_enabled']);
 
-        $massMailQuery = $this->createMock(MassMailQueryInterface::class);
+        $massMailQuery = $this->createStub(MassMailQueryInterface::class);
         $massMailQuery->method('getRecentEmailsForMember')->willReturn([]);
-        $galleryProvider = $this->createMock(GalleryAlbumProvider::class);
+        $galleryProvider = $this->createStub(GalleryAlbumProvider::class);
         $galleryProvider->method('getAlbumsForMember')->willReturn([]);
 
         $dataEnabled = $this->buildService(null, $massMailQuery, $galleryProvider)->buildPageData($profile, $this->scoutYearId, true, false, Role::IDENTIFIED);
@@ -547,7 +547,7 @@ class MemberPageServiceTest extends TestCase
         $profile = $this->createMemberInSection();
 
         $view = new FormationPathView([], 'T2 atteint', 'T3', true);
-        $provider = $this->createMock(FormationPathProvider::class);
+        $provider = $this->createStub(FormationPathProvider::class);
         $provider->method('getFormationPath')->willReturn($view);
 
         $service = $this->buildService(null, null, null, null, $provider);
@@ -580,7 +580,7 @@ class MemberPageServiceTest extends TestCase
         $profile = $this->createMemberInSection();
 
         $view = new MemberPaymentView('Cotisation 2025-2026', 3825, 3825, 0, '+++123/4567/89012+++', 'Unité', 'BE71 0961 2345 6769', 'https://x/qr');
-        $provider = $this->createMock(MemberPaymentProvider::class);
+        $provider = $this->createStub(MemberPaymentProvider::class);
         $provider->method('getOpenPayments')->willReturn([$view]);
 
         $service = $this->buildService(null, null, null, null, null, $provider);

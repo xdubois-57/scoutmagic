@@ -69,7 +69,7 @@ class RequestEmailServiceTest extends TestCase
 
     public function testBodiesAreNotReadyByDefault(): void
     {
-        $service = $this->buildService($this->createMock(MailService::class));
+        $service = $this->buildService($this->createStub(MailService::class));
 
         $this->assertFalse($service->isAcceptedBodyReady());
         $this->assertFalse($service->isRefusedBodyReady());
@@ -77,7 +77,7 @@ class RequestEmailServiceTest extends TestCase
 
     public function testSendAcceptedThrowsWhenBodyNotWritten(): void
     {
-        $service = $this->buildService($this->createMock(MailService::class));
+        $service = $this->buildService($this->createStub(MailService::class));
         $request = $this->requestRepository->findById($this->createRequest());
 
         $this->expectException(RegistrationException::class);
@@ -86,7 +86,7 @@ class RequestEmailServiceTest extends TestCase
 
     public function testSendRefusedThrowsWhenBodyNotWritten(): void
     {
-        $service = $this->buildService($this->createMock(MailService::class));
+        $service = $this->buildService($this->createStub(MailService::class));
         $request = $this->requestRepository->findById($this->createRequest());
 
         $this->expectException(RegistrationException::class);
@@ -154,7 +154,7 @@ class RequestEmailServiceTest extends TestCase
     public function testMailDeliveryFailureIsSurfacedNotSwallowed(): void
     {
         $this->editableContentService->set('registration_email_refused_body', '<p>Désolé.</p>', 'rich_text', 1);
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
         $mailService->method('send')->willThrowException(new MailException('SMTP down'));
         $service = $this->buildService($mailService);
         $requestId = $this->createRequest();
@@ -181,7 +181,7 @@ class RequestEmailServiceTest extends TestCase
     public function testTheSmtpErrorNeverReachesTheRegistrationExceptionsOwnMessage(): void
     {
         $this->editableContentService->set('registration_email_refused_body', '<p>Désolé.</p>', 'rich_text', 1);
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
         $mailService->method('send')->willThrowException(
             new MailException('SMTP connect() failed. https://github.com/PHPMailer/PHPMailer/wiki/Troubleshooting')
         );
@@ -210,7 +210,7 @@ class RequestEmailServiceTest extends TestCase
     public function testFailedSendLeavesThePreviousTrackingLinkUsable(): void
     {
         $this->editableContentService->set('registration_email_refused_body', '<p>Désolé.</p>', 'rich_text', 1);
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
         $mailService->method('send')->willThrowException(new MailException('SMTP down'));
         $service = $this->buildService($mailService);
 

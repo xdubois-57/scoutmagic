@@ -2714,7 +2714,6 @@ $memberExportRowBuilder = new \Core\Member\Export\MemberExportRowBuilder(
     $sectionRosterRepository,
     $sectionService,
     $scoutYearService,
-    $encryptionService,
     $memberEmailRepository,
     $memberMovementClassifier
 );
@@ -2825,7 +2824,11 @@ $duplicateMemberRepository = new \Core\Member\Duplicate\DuplicateMemberRepositor
 $duplicateMemberDetector = new \Core\Member\Duplicate\DuplicateMemberDetector(
     $duplicateMemberRepository
 );
-$memberMergeService = new \Core\Member\Duplicate\MemberMergeService($pdo, $duplicateMemberRepository, $journalService);
+$memberMergeService = new \Core\Member\Duplicate\MemberMergeService(
+    new \Core\Member\Duplicate\MemberMergeRepository($pdo, $duplicateMemberRepository),
+    $duplicateMemberRepository,
+    $journalService
+);
 $rosterReplacementGuard = new \Core\Import\RosterReplacementGuard(
     new \Core\Import\RosterComparisonRepository($pdo),
     $scoutYearResolver
@@ -2914,6 +2917,30 @@ $twig->addGlobal('unit_logo_available', $unitLogoService->resolveIconContent('64
 
 // Create backup service (Configuration > Maintenance)
 $backupRepository = new BackupRepository($pdo);
+// One-time reprise: every file a backup owns was registered at `admin`
+// before issue #619 moved maintenance to `superadmin`, and /files/{id}
+// checks the file's own floor — so an archive taken earlier would stay
+// downloadable by a chef d'unité whom every maintenance page now turns
+// away. Same shape as member_section_periods_backfilled.
+if ($settingService->get('backup_files_superadmin') !== '1') {
+    $settingService->register(
+        'backup_files_superadmin',
+        '0',
+        'boolean',
+        'Sauvegardes réservées aux superadministrateurs',
+        'Indique si les fichiers des sauvegardes existantes ont été réservés aux superadministrateurs.',
+        null,
+        null,
+        null,
+        false,
+        999
+    );
+
+    $backupRepository->raiseFileFloor();
+
+    $settingRepo->updateValue(null, 'backup_files_superadmin', '1');
+    $settingService->clearCache();
+}
 // One service for the whole request, because two of them would be two
 // answers to « what is worth warning about this relation » — and since
 // IT-05 one of those answers depends on where the off-site backup writes.
@@ -3496,7 +3523,7 @@ $menuBuilder->addPage(
     MenuBuilder::MENU_CONFIGURATION,
     'Maintenance',
     '/config/maintenance',
-    'admin',
+    'superadmin',
     150,
     false,
     null,
@@ -5184,15 +5211,21 @@ $router->addRoute(
 );
 // Configuration > Maintenance — six sub-pages sharing one rail (issue #619,
 // docs/chantiers/CHANTIER-maintenance.md), Santé de l'hébergement being the
-// landing one at /config/maintenance. The five below take the page's own
-// floor for now; the whole set moves to `superadmin` in the next step of
-// the same issue.
+// landing one at /config/maintenance.
+//
+// **Every maintenance route is `superadmin`**, the POSTs and the /api/ ones
+// as much as the pages — it is the verb that acts. The Configuration menu
+// has that floor (MenuBuilder), but sixteen of these routes and the
+// Maintenance entry itself said `admin`, so a chef d'unité who never saw
+// the menu reached backups, restore's status and the off-site phrase by
+// typing the address. Tests\Core\Http\MaintenanceRbacTest reads
+// the floors from this file.
 $router->addRoute(
     'GET',
     '/config/maintenance',
     MaintenanceController::class,
     'index',
-    'admin',
+    'superadmin',
     ['label' => 'Maintenance', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
 );
 $router->addRoute(
@@ -5200,7 +5233,7 @@ $router->addRoute(
     '/config/maintenance/mise-a-jour',
     MaintenanceController::class,
     'updatePage',
-    'admin',
+    'superadmin',
     ['label' => 'Mise à jour', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
         'ancestors' => [['label' => 'Maintenance', 'path' => '/config/maintenance']]],
 );
@@ -5209,7 +5242,7 @@ $router->addRoute(
     '/config/maintenance/sauvegarde-manuelle',
     MaintenanceController::class,
     'manualBackupPage',
-    'admin',
+    'superadmin',
     ['label' => 'Sauvegarde manuelle', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
         'ancestors' => [['label' => 'Maintenance', 'path' => '/config/maintenance']]],
 );
@@ -5218,7 +5251,7 @@ $router->addRoute(
     '/config/maintenance/sauvegarde-automatique',
     MaintenanceController::class,
     'automaticBackupPage',
-    'admin',
+    'superadmin',
     ['label' => 'Sauvegarde automatique', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
         'ancestors' => [['label' => 'Maintenance', 'path' => '/config/maintenance']]],
 );
@@ -5227,7 +5260,7 @@ $router->addRoute(
     '/config/maintenance/sauvegardes-recentes',
     MaintenanceController::class,
     'recentBackupsPage',
-    'admin',
+    'superadmin',
     ['label' => 'Sauvegardes récentes', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
         'ancestors' => [['label' => 'Maintenance', 'path' => '/config/maintenance']]],
 );
@@ -5236,7 +5269,7 @@ $router->addRoute(
     '/config/maintenance/reinitialisation',
     MaintenanceController::class,
     'resetPage',
-    'admin',
+    'superadmin',
     ['label' => 'Réinitialisation', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
         'ancestors' => [['label' => 'Maintenance', 'path' => '/config/maintenance']]],
 );
@@ -5245,15 +5278,19 @@ $router->addRoute(
     '/config/maintenance/backup/database',
     MaintenanceController::class,
     'createDatabaseBackup',
-    'admin',
+    'superadmin',
 );
-$router->addRoute('POST', '/config/maintenance/backup/full', MaintenanceController::class, 'createFullBackup', 'admin');
-// 'admin', like every other backup route, and deliberately not
-// 'superadmin' even though this is the one archive that packages the
-// master key. The role that can take this backup is the role that can
-// already download a full one, read every member's file and reset the
-// site; requiring a higher one here would suggest the others are safe.
-// What guards this route is what it produces — the passphrase length
+$router->addRoute(
+    'POST',
+    '/config/maintenance/backup/full',
+    MaintenanceController::class,
+    'createFullBackup',
+    'superadmin'
+);
+// The one archive that packages the master key. Its floor is no higher
+// than its neighbours' — every maintenance route is `superadmin`, and a
+// stricter floor here alone would suggest the others are safe. What
+// guards it beyond the role is what it produces: the passphrase length
 // (Core\Maintenance\Portable\PortablePassphrase), the second envelope on
 // the secrets, and a `security` journal entry naming what was asked for.
 $router->addRoute(
@@ -5261,16 +5298,16 @@ $router->addRoute(
     '/config/maintenance/backup/portable',
     MaintenanceController::class,
     'createPortableBackup',
-    'admin',
+    'superadmin',
 );
 $router->addRoute(
     'POST',
     '/config/maintenance/backup/auto-frequency',
     MaintenanceController::class,
     'updateAutoBackupFrequency',
-    'admin',
+    'superadmin',
 );
-// 'admin', like every other write in the « Sauvegardes » section — the
+// Same floor as every other write in the « Sauvegardes » section — the
 // same person who can create a backup and download it can remove one. The
 // dangerous case is not a role: it is deleting the safety net of an
 // operation that is running right now, and that is refused outright by
@@ -5280,9 +5317,15 @@ $router->addRoute(
     '/config/maintenance/backup/{id}/delete',
     MaintenanceController::class,
     'deleteBackup',
-    'admin'
+    'superadmin'
 );
-$router->addRoute('GET', '/api/maintenance/backup-status/{id}', MaintenanceController::class, 'backupStatus', 'admin');
+$router->addRoute(
+    'GET',
+    '/api/maintenance/backup-status/{id}',
+    MaintenanceController::class,
+    'backupStatus',
+    'superadmin'
+);
 $router->addRoute(
     'POST',
     '/config/maintenance/update/install',
@@ -5295,9 +5338,15 @@ $router->addRoute(
     '/config/maintenance/update/check-now',
     MaintenanceController::class,
     'checkForUpdatesNow',
-    'admin',
+    'superadmin',
 );
-$router->addRoute('GET', '/api/maintenance/update-status/{id}', MaintenanceController::class, 'updateStatus', 'admin');
+$router->addRoute(
+    'GET',
+    '/api/maintenance/update-status/{id}',
+    MaintenanceController::class,
+    'updateStatus',
+    'superadmin'
+);
 $router->addRoute(
     'POST',
     '/config/maintenance/reset/settings',
@@ -5320,27 +5369,33 @@ $router->addRoute(
     'restoreUploadChunk',
     'superadmin',
 );
-$router->addRoute('GET', '/api/maintenance/reset-status/{id}', MaintenanceController::class, 'resetStatus', 'admin');
+$router->addRoute(
+    'GET',
+    '/api/maintenance/reset-status/{id}',
+    MaintenanceController::class,
+    'resetStatus',
+    'superadmin'
+);
 $router->addRoute(
     'POST',
     '/config/maintenance/auto-update/save',
     MaintenanceController::class,
     'saveAutoUpdatePreferences',
-    'admin',
+    'superadmin',
 );
 $router->addRoute(
     'POST',
     '/api/maintenance/webhook-secret',
     MaintenanceController::class,
     'generateWebhookSecret',
-    'admin',
+    'superadmin',
 );
 
-// **The off-site backup.** Three routes at the `admin` floor: which
-// declared location the archives go to, and the two that govern the
-// phrase those archives are encrypted with. Those two need that floor
-// most of all — one shows the key to every archive this site has ever
-// sent off-server, and the other makes them all unreadable.
+// **The off-site backup.** Which declared location the archives go to,
+// and the routes that govern the phrase those archives are encrypted
+// with, at the maintenance floor like the rest (issue #619). The phrase
+// routes need it most of all — one shows the key to every archive this
+// site has ever sent off-server, and another makes them all unreadable.
 //
 // The Google conversation used to sit here and moved to Configuration >
 // Stockage in IT-05, because a Drive folder is a storage location now and
@@ -5351,14 +5406,14 @@ $router->addRoute(
     '/config/maintenance/remote/destination',
     RemoteBackupController::class,
     'chooseDestination',
-    'admin',
+    'superadmin',
 );
 $router->addRoute(
     'POST',
     '/config/maintenance/remote/passphrase/reveal',
     RemoteBackupController::class,
     'revealPassphrase',
-    'admin',
+    'superadmin',
 );
 // « Je l'ai recopiée hors du serveur » — a statement nothing can verify,
 // and the only answer there is to the question the phrase raises
@@ -5371,14 +5426,14 @@ $router->addRoute(
     '/config/maintenance/remote/passphrase/confirm',
     RemoteBackupController::class,
     'confirmPassphraseNoted',
-    'admin',
+    'superadmin',
 );
 $router->addRoute(
     'POST',
     '/config/maintenance/remote/passphrase/regenerate',
     RemoteBackupController::class,
     'regeneratePassphrase',
-    'admin',
+    'superadmin',
 );
 // The only public, CSRF-free route in the codebase — GitHub is a machine
 // caller with no session; the HMAC-SHA256 signature (Core\Maintenance\
@@ -6035,11 +6090,19 @@ $leadershipFormationLevels = null;
 // accepted/encoded requests to the PROJECTED count, through the same
 // nullable Api provider as before (ARCHITECTURE.md §7.5) — null when it is
 // disabled, and the service degrades to counting members alone.
+// The one place a household key is derived from an address (issue #630).
+// The registration module is handed this repository rather than deriving
+// the key itself: it stores the identity, never computes it.
+$householdRepository = new \Core\Member\Household\HouseholdRepository($pdo, $encryptionService);
 $householdRegistrationCountForOthers = null;
 if ($isEnabled('registration')) {
     \Core\Debug\RequestTimeline::mark('module_registration');
     $householdRegistrationCountForOthers = new \Modules\Registration\Service\HouseholdRegistrationCountService(
-        new \Modules\Registration\Repository\RegistrationRequestRepository($pdo, $encryptionService)
+        new \Modules\Registration\Repository\RegistrationRequestRepository(
+            $pdo,
+            $encryptionService,
+            $householdRepository
+        )
     );
 }
 $feeEstimationService = new \Core\Member\FeeEstimationService(
@@ -6051,7 +6114,7 @@ $feeEstimationService = new \Core\Member\FeeEstimationService(
 // they are the roster's. Built here so a module can consume it without
 // owning it.
 $householdService = new \Core\Member\Household\HouseholdService(
-    new \Core\Member\Household\HouseholdRepository($pdo, $encryptionService),
+    $householdRepository,
     $householdRegistrationCountForOthers
 );
 
@@ -10168,7 +10231,8 @@ if ($isEnabled('camps')) {
     );
     $campsAlbumService = new \Modules\Camps\Service\CampAlbumService(
         $auditService,
-        $galleryDelegatedAlbumManager ?? null
+        $galleryDelegatedAlbumManager ?? null,
+        $journalService
     );
     $campsReviewService = new \Modules\Camps\Service\ReviewService($campsReviewRepo, $auditService, $campsPlaceRepo);
     $campsSummaryService = new \Modules\Camps\Service\PlaceSummaryService(
@@ -10500,6 +10564,7 @@ if ($isEnabled('covoiturage')) {
         $covoiturageOfferRepo,
         $covoiturageRequestRepo,
         $settingService,
+        $sectionService,
         $memberService,
         $userAccountRepo
     );
@@ -10536,6 +10601,7 @@ if ($isEnabled('covoiturage')) {
                 $covoiturageCarpoolRepo,
                 $covoiturageOfferRepo,
                 $sectionService,
+                $memberService,
                 $calendarServiceForOthers
             ),
             $covoiturageBoard,
@@ -10856,7 +10922,8 @@ if ($isEnabled('registration')) {
 
     $registrationRequestRepo = new \Modules\Registration\Repository\RegistrationRequestRepository(
         $pdo,
-        $encryptionService
+        $encryptionService,
+        $householdRepository
     );
     $registrationYearCodeRepo = new \Modules\Registration\Repository\RegistrationYearCodeRepository($pdo);
     $registrationAgeBracketRepo = new \Modules\Registration\Repository\AgeBracketRepository($pdo);
@@ -10865,10 +10932,20 @@ if ($isEnabled('registration')) {
         $pdo,
         $encryptionService
     );
+    // One roster repository for every service of this module reading the
+    // animés of a year (Passage, Prévisions, slot capacities).
+    $registrationPassageRosterRepo = new \Modules\Registration\Repository\PassageRosterRepository(
+        $pdo,
+        $encryptionService
+    );
+    $registrationImportedMemberRepo = new \Modules\Registration\Repository\ImportedMemberRepository(
+        $pdo,
+        $encryptionService
+    );
 
     $registrationSlotService = new \Modules\Registration\Service\SlotService(
-        $pdo,
-        $encryptionService,
+        $registrationPassageRosterRepo,
+        $scoutYearService,
         $settingService,
         $registrationAgeBracketRepo,
         $registrationSlotCapacityRepo,
@@ -10938,9 +11015,8 @@ if ($isEnabled('registration')) {
         $journalService
     );
     $registrationReconciliation = new \Modules\Registration\Service\ReconciliationService(
-        $pdo,
+        $registrationImportedMemberRepo,
         $registrationRequestRepo,
-        $encryptionService,
         $registrationMigrationService,
         $journalService
     );
@@ -11004,7 +11080,7 @@ if ($isEnabled('registration')) {
 
     $registrationSectionTransferRepo = new \Modules\Registration\Repository\SectionTransferRepository($pdo);
     $registrationPassageService = new \Modules\Registration\Service\PassageService(
-        new \Modules\Registration\Repository\PassageRosterRepository($pdo, $encryptionService),
+        $registrationPassageRosterRepo,
         $encryptionService,
         $sectionService,
         $registrationSectionTransferRepo,
@@ -11043,7 +11119,7 @@ if ($isEnabled('registration')) {
     // PassageService::getAnimeMemberYears()/getBranchChanges()/
     // getNewRegistrations() rather than recomputing any of them).
     $registrationForecastService = new \Modules\Registration\Service\ForecastService(
-        $pdo,
+        $registrationPassageRosterRepo,
         $encryptionService,
         $sectionService,
         $registrationPassageService
@@ -11297,8 +11373,7 @@ if ($isEnabled('registration')) {
     // same ordering constraint as ImportController above) — re-registered
     // here with the real provider only when mass_mail is also enabled.
     $registrationExternalMailingListService = new \Modules\Registration\Service\ExternalMailingListService(
-        $pdo,
-        $encryptionService,
+        $registrationImportedMemberRepo,
         $scoutYearResolver,
         $scoutYearService,
         $registrationRequestRepo
@@ -12316,7 +12391,8 @@ $frontController->registerController(
     new \Core\Http\Controller\AttentionController(
         $twig,
         new \Core\Attention\AttentionService($attentionProviders),
-        $scoutYearResolver
+        $scoutYearResolver,
+        $router
     )
 );
 

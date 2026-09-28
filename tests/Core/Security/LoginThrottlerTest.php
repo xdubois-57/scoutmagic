@@ -23,7 +23,7 @@ class LoginThrottlerTest extends TestCase
         $this->pdo = DatabaseTestHelper::createTestDatabase();
 
         // SQLite uses different date functions, so we need a mock Connection
-        $connection = $this->createMock(Connection::class);
+        $connection = $this->createStub(Connection::class);
         $connection->method('getPdo')->willReturn($this->pdo);
 
         $this->throttler = new LoginThrottler($connection);

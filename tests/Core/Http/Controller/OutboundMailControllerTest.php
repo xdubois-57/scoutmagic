@@ -170,7 +170,7 @@ class OutboundMailControllerTest extends TestCase
             self::fakeDnsVerifier($this->dkim),
             $this->returns = new \Core\Mail\Feedback\ReturnPathVerifier(
                 new \Core\Mail\Feedback\ReturnProbeRepository($this->pdo, $encryption),
-                $this->createMock(\Core\Mail\MailService::class),
+                $this->createStub(\Core\Mail\MailService::class),
                 new JournalService(new JournalRepository($this->pdo)),
                 // No `inbound_mail` here: the default installation this
                 // test builds has no module at all, so the verification
@@ -4078,7 +4078,7 @@ class OutboundMailControllerTest extends TestCase
                 $this->pdo,
                 new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
             ),
-            $this->createMock(\Core\Mail\MailService::class),
+            $this->createStub(\Core\Mail\MailService::class),
             new JournalService(new JournalRepository(new \PDO('sqlite::memory:'))),
             $inbound
         ));

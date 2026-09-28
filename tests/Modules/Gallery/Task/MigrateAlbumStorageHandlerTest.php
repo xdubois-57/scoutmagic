@@ -125,7 +125,7 @@ class MigrateAlbumStorageHandlerTest extends TestCase
         return new TaskContext(
             Connection::withPdo($this->pdo),
             $this->encryption,
-            $this->createMock(MailService::class),
+            $this->createStub(MailService::class),
             new JournalService(new JournalRepository($this->pdo)),
             new SettingService(new SettingRepository($this->pdo)),
             new UserAccountRepository($this->pdo, $this->encryption),
@@ -372,7 +372,7 @@ class MigrateAlbumStorageHandlerTest extends TestCase
         $sourceId = $this->sourceId;
         $storagePath = $this->storagePath;
 
-        $factory = $this->createMock(StorageBackendFactory::class);
+        $factory = $this->createStub(StorageBackendFactory::class);
         $factory->method('create')->willReturnCallback(
             function (StorageLocation $location) use ($sourceId, $storagePath): StorageBackendInterface {
                 if ($location->id === $sourceId) {
@@ -420,7 +420,7 @@ class MigrateAlbumStorageHandlerTest extends TestCase
         $sourceId = $this->sourceId;
         $storagePath = $this->storagePath;
 
-        $factory = $this->createMock(StorageBackendFactory::class);
+        $factory = $this->createStub(StorageBackendFactory::class);
         $factory->method('create')->willReturnCallback(
             function (StorageLocation $location) use ($sourceId, $storagePath, $decorate) {
                 if ($location->id === $sourceId) {

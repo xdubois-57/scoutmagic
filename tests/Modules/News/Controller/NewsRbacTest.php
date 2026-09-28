@@ -107,7 +107,7 @@ class NewsRbacTest extends TestCase
     new SectionRepository($connection),
     new MemberProfileRepository($connection, $encryption, new MemberBadgeRepository($this->pdo))
 );
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/news/views';
@@ -137,7 +137,7 @@ class NewsRbacTest extends TestCase
 );
 
         $uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
-        $journalService = $this->createMock(JournalService::class);
+        $journalService = $this->createStub(JournalService::class);
 
         $this->newsController = new NewsController(
             $twig, $articleService, $formService, $responseService, new SeoKeywordService(null),

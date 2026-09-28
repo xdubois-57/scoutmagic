@@ -638,7 +638,7 @@ class CampsMessageConsumerTest extends TestCase
 
     public function testTheChiefsAreToldOfAStayCreatedFromAMessage(): void
     {
-        $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
+        $stayFromMail = $this->createStub(\Modules\Camps\Mail\StayFromMailService::class);
         $stayFromMail->method('isAutomatic')->willReturn(true);
         $stayFromMail->method('createFrom')->willReturn($this->campId);
         $notifier = $this->createMock(\Modules\Camps\Mail\CampsMailNotifier::class);
@@ -658,7 +658,7 @@ class CampsMessageConsumerTest extends TestCase
 
     public function testNoStayCreatedMeansNobodyIsTold(): void
     {
-        $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
+        $stayFromMail = $this->createStub(\Modules\Camps\Mail\StayFromMailService::class);
         $stayFromMail->method('isAutomatic')->willReturn(true);
         $stayFromMail->method('createFrom')->willReturn(null);
         $notifier = $this->createMock(\Modules\Camps\Mail\CampsMailNotifier::class);
@@ -769,7 +769,7 @@ class CampsMessageConsumerTest extends TestCase
     public function testAMessageNobodyCouldTurnIntoAStayIsLeftAlone(): void
     {
         $dedicated = self::DEDICATED_MAILBOX;
-        $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
+        $stayFromMail = $this->createStub(\Modules\Camps\Mail\StayFromMailService::class);
         $stayFromMail->method('isAutomatic')->willReturn(true);
         $stayFromMail->method('createFrom')->willReturn(null);
 
@@ -832,7 +832,7 @@ class CampsMessageConsumerTest extends TestCase
     public function testTheContractThatCreatedTheStayIsFiledAsItsDocument(): void
     {
         $documents = $this->documentService();
-        $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
+        $stayFromMail = $this->createStub(\Modules\Camps\Mail\StayFromMailService::class);
         $stayFromMail->method('isAutomatic')->willReturn(true);
         $stayFromMail->method('createFrom')->willReturn($this->campId);
 
@@ -1055,7 +1055,7 @@ class CampsMessageConsumerTest extends TestCase
 
     public function testAPeriodIsNotReadOnASharedBoxByTheDeferredPassEither(): void
     {
-        $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
+        $stayFromMail = $this->createStub(\Modules\Camps\Mail\StayFromMailService::class);
         $stayFromMail->method('fullTextOf')->willReturn('Du 12 au 19 juillet 2026');
 
         $consumer = new CampsMessageConsumer(

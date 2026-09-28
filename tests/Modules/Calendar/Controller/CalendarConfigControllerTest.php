@@ -13,6 +13,7 @@ use Core\Database\Connection;
 use Core\Exception\UserFacingMessage;
 use Core\Http\FrontController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Http\Router;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
@@ -281,7 +282,7 @@ class CalendarConfigControllerTest extends TestCase
         $_SESSION['_csrf_token'] = $token;
 
         $failure = new SettingException("Setting 'event_default_title' is not editable.");
-        $settingService = $this->createMock(SettingService::class);
+        $settingService = $this->createStub(SettingService::class);
         $settingService->method('set')->willThrowException($failure);
         $controller = new CalendarConfigController(
             $this->twig, $this->calendarService, $this->sectionService,
@@ -577,12 +578,7 @@ class CalendarConfigControllerTest extends TestCase
      */
     private function createJsonRequest(array $data): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/config/calendar/defaults', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput('POST', '/config/calendar/defaults', [], [], [], [], json_encode($data));
 
         return $request;
     }

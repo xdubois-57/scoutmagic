@@ -14,6 +14,7 @@ use Core\Database\Connection;
 use Core\File\FileRepository;
 use Core\File\UploadHandler;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
@@ -63,6 +64,11 @@ use Core\Member\Repository\SectionRepository;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
+// This class builds its doubles once (in setUp() or a shared helper) and
+// hands the same ones to every test: some tests set expectations on
+// them, the others only need their answers, and PHPUnit would report
+// each of those as a mock with no expectation (issue #665).
+#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class NewsIntegrationTest extends TestCase
 {
     private \PDO $pdo;
@@ -117,7 +123,7 @@ class NewsIntegrationTest extends TestCase
     new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
 );
         $this->sectionService = $sectionService;
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/news/views';
@@ -1143,7 +1149,7 @@ class NewsIntegrationTest extends TestCase
 
     private function receivablesStub(): \Modules\Finance\Api\ExpectedReceivableInterface
     {
-        $stub = $this->createMock(\Modules\Finance\Api\ExpectedReceivableInterface::class);
+        $stub = $this->createStub(\Modules\Finance\Api\ExpectedReceivableInterface::class);
         $stub->method('getReceivableStatus')->willReturnCallback(
             static fn (int $id): array => in_array($id, [11, 13], true)
                 ? ['amount_due' => 3000, 'amount_received' => 3000, 'status' => 'paid']
@@ -1239,7 +1245,7 @@ class NewsIntegrationTest extends TestCase
     public function testTheWarningSaysSoWhenNoStatementWasEverImported(): void
     {
         $event = $this->crossedEvent();
-        $status = $this->createMock(\Modules\Finance\Api\StatementImportStatusInterface::class);
+        $status = $this->createStub(\Modules\Finance\Api\StatementImportStatusInterface::class);
         $status->method('lastStatementImportedAt')->willReturn(null);
 
         $body = $this->responsesBody($event['article'], 'in_unpaid', $status);
@@ -1250,7 +1256,7 @@ class NewsIntegrationTest extends TestCase
     public function testTheWarningIsAbsentFromTheOtherFilters(): void
     {
         $event = $this->crossedEvent();
-        $status = $this->createMock(\Modules\Finance\Api\StatementImportStatusInterface::class);
+        $status = $this->createStub(\Modules\Finance\Api\StatementImportStatusInterface::class);
         $status->method('lastStatementImportedAt')->willReturn('2026-02-21 08:00:00');
 
         $this->assertStringNotContainsString('Dernier extrait bancaire', $this->responsesBody($event['article'], 'all', $status));
@@ -1357,7 +1363,7 @@ class NewsIntegrationTest extends TestCase
     {
         $event = $this->crossedEvent();
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
-        $status = $this->createMock(\Modules\Finance\Api\StatementImportStatusInterface::class);
+        $status = $this->createStub(\Modules\Finance\Api\StatementImportStatusInterface::class);
         $status->method('lastStatementImportedAt')->willReturn('2026-02-21 08:00:00');
 
         $controller = new FormController(
@@ -1672,7 +1678,7 @@ class NewsIntegrationTest extends TestCase
 
     private function stubDraftProvider(): \Modules\MassMail\Api\MassMailDraftInterface
     {
-        $stub = $this->createMock(\Modules\MassMail\Api\MassMailDraftInterface::class);
+        $stub = $this->createStub(\Modules\MassMail\Api\MassMailDraftInterface::class);
         $stub->method('createMergeDraft')->willReturn('/mass-mail/7');
 
         return $stub;
@@ -1683,7 +1689,7 @@ class NewsIntegrationTest extends TestCase
      */
     private function recordingDraftProvider(array &$captured): \Modules\MassMail\Api\MassMailDraftInterface
     {
-        $stub = $this->createMock(\Modules\MassMail\Api\MassMailDraftInterface::class);
+        $stub = $this->createStub(\Modules\MassMail\Api\MassMailDraftInterface::class);
         $stub->method('createMergeDraft')->willReturnCallback(
             function (
                 string $label,
@@ -1868,7 +1874,7 @@ class NewsIntegrationTest extends TestCase
      */
     private function controllerWithFinanceAccounts(): array
     {
-        $financeAccount = $this->createMock(FinanceAccountInterface::class);
+        $financeAccount = $this->createStub(FinanceAccountInterface::class);
         $financeAccount->method('getConfiguredAccounts')->willReturn([
             ['id' => 42, 'name' => 'Compte unité', 'iban' => null, 'holder_name' => null, 'section_id' => null],
         ]);
@@ -2103,7 +2109,7 @@ class NewsIntegrationTest extends TestCase
         $csrfToken = CsrfGuard::generateToken();
         $_FILES['image'] = $this->fakeUploadedImage();
 
-        $uploadHandler = $this->createMock(UploadHandler::class);
+        $uploadHandler = $this->createStub(UploadHandler::class);
         $uploadHandler->method('handle')->willThrowException(
             new \Core\File\UploadException('Le fichier dépasse la taille maximale de 5 Mo.')
         );
@@ -2280,11 +2286,7 @@ class NewsIntegrationTest extends TestCase
         AuthSession::login(999, 'other-chief@test.com', 'chief');
         $csrfToken = CsrfGuard::generateToken();
 
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['DELETE', '/news/' . $id, [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode(['_csrf_token' => $csrfToken]));
+        $request = new RequestWithInput('DELETE', '/news/' . $id, [], [], [], [], json_encode(['_csrf_token' => $csrfToken]));
 
         $response = $this->newsController->delete($request, ['id' => (string) $id]);
 
@@ -2302,11 +2304,7 @@ class NewsIntegrationTest extends TestCase
         $this->journalService->expects($this->once())->method('log')
             ->with('news', 'article_deleted', 'info', $this->anything(), ['article_id' => $id], $this->chiefAccountId);
 
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['DELETE', '/news/' . $id, [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode(['_csrf_token' => $csrfToken]));
+        $request = new RequestWithInput('DELETE', '/news/' . $id, [], [], [], [], json_encode(['_csrf_token' => $csrfToken]));
 
         $response = $this->newsController->delete($request, ['id' => (string) $id]);
 

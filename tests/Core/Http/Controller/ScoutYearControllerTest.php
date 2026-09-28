@@ -416,7 +416,7 @@ class ScoutYearControllerTest extends TestCase
 
     private function buildControllerWithVeto(int $blockingCount): ClockableScoutYearController
     {
-        $veto = $this->createMock(ScoutYearTransitionVetoProvider::class);
+        $veto = $this->createStub(ScoutYearTransitionVetoProvider::class);
         $veto->method('countBlockingRequests')->willReturn($blockingCount);
 
         $scoutYearService = new ScoutYearService($this->pdo);

@@ -23,8 +23,10 @@
 //   Tests\Core\Maintenance territory.
 // - "Vérifier maintenant" (update check): it calls GitHub over the real
 //   network, which a hermetic suite must not depend on.
-// - The admin-vs-superadmin split of this page's routes: RBAC per route
-//   is PHPUnit's job; the harness has no admin-but-not-superadmin login.
+// - The role of this page's routes (every one `superadmin` since issue
+//   #619): RBAC per route is PHPUnit's job (Tests\Core\Http\
+//   MaintenanceRbacTest); the harness has no admin-but-not-superadmin
+//   login.
 import { expect, test } from '@playwright/test';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';

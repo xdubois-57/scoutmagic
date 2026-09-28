@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Modules\News\Controller;
 
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Pdf\DocumentPdfService;
@@ -371,11 +372,7 @@ class ScanIntegrationTest extends TestCase
      */
     private function jsonRequest(string $path, array $payload): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', $path, [], $payload, [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn((string) json_encode($payload));
+        $request = new RequestWithInput('POST', $path, [], $payload, [], [], (string) json_encode($payload));
 
         return $request;
     }

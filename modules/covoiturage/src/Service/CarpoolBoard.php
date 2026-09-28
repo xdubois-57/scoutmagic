@@ -12,6 +12,7 @@ use Core\Config\SettingService;
 use Core\Geo\MapsLink;
 use Core\Member\MemberProfile;
 use Core\Member\MemberService;
+use Core\Member\SectionService;
 use Core\Security\UserAccountRepository;
 use Modules\Covoiturage\Repository\Carpool;
 use Modules\Covoiturage\Repository\CarpoolRepository;
@@ -50,6 +51,7 @@ class CarpoolBoard
         private OfferRepository $offers,
         private SeatRequestRepository $requests,
         private SettingService $settings,
+        private SectionService $sections,
         private ?MemberService $members = null,
         private ?UserAccountRepository $accounts = null
     ) {
@@ -166,6 +168,9 @@ class CarpoolBoard
             'directions' => $directions,
             'staff_hides_passengers' => $viewer->role->hasAccess(\Core\Security\Role::CHIEF)
                 && !$viewer->seesPassengersOf($carpool),
+            // Said out loud on the page, because nothing else on it reveals
+            // that a section besides the events' sees the passengers (#650).
+            'creator_section' => $this->sectionNames([$carpool->sectionId])[$carpool->sectionId] ?? null,
         ];
     }
 
@@ -180,6 +185,7 @@ class CarpoolBoard
         $today ??= new \DateTimeImmutable('today');
         $carpools = $this->carpools->findEndingOnOrAfter($today->format('Y-m-d'));
         [$offersByCarpool, $requestsByOffer] = $this->load($carpools);
+        $names = $this->sectionNamesOf($carpools);
 
         $rows = [];
         foreach ($carpools as $carpool) {
@@ -193,12 +199,6 @@ class CarpoolBoard
                 $taken += $this->taken($requests);
                 $pending += count(array_filter($requests, static fn(SeatRequest $r): bool => $r->isPending()));
             }
-            $sections = [];
-            foreach ($carpool->events as $event) {
-                if ($event->sectionName !== null) {
-                    $sections[$event->sectionName] = $event->sectionName;
-                }
-            }
 
             $visible = $viewer->seesPassengersOf($carpool);
             $rows[] = [
@@ -206,7 +206,12 @@ class CarpoolBoard
                 'title' => count($carpool->events) > 1
                     ? $carpool->title() . ' · ' . count($carpool->events) . ' évènements liés'
                     : ($carpool->events === [] ? 'Sans évènement' : $carpool->title()),
-                'sections' => array_values($sections),
+                // Built from sectionIds(), which is also what decides who
+                // sees the passengers: one source, so the badges cannot
+                // drift from the access they are describing. Before #650
+                // they were read off the events alone, and a carpool whose
+                // section had been chosen by hand showed none at all.
+                'sections' => array_values($names[$carpool->id]),
                 'address' => $carpool->address,
                 'dates' => $this->dates($carpool, $today),
                 'visible' => $visible,
@@ -273,6 +278,66 @@ class CarpoolBoard
                 $family
             ),
         ];
+    }
+
+    /**
+     * Section names for a set of ids, resolved in ONE query and WITHOUT the
+     * active/visible filtering `getAllWithBranches()` applies: a carpool's
+     * section is frozen at creation (#650), so it may name a section since
+     * deactivated — and « Géré aussi par : … » must still say which one
+     * rather than fall silent.
+     *
+     * @param list<?int> $ids
+     * @return array<int, string> keyed by section id, absent ids omitted
+     */
+    private function sectionNames(array $ids): array
+    {
+        $wanted = [];
+        foreach ($ids as $id) {
+            if ($id !== null) {
+                $wanted[$id] = $id;
+            }
+        }
+        if ($wanted === []) {
+            return [];
+        }
+
+        $names = [];
+        foreach ($this->sections->findByIds(array_values($wanted)) as $id => $section) {
+            $names[$id] = $section['name'] ?? $section['desk_code'];
+        }
+
+        return $names;
+    }
+
+    /**
+     * Each carpool's managing sections, as names, in sectionIds() order.
+     *
+     * @param list<Carpool> $carpools
+     * @return array<int, array<int, string>> keyed by carpool id, then by
+     *         section id
+     */
+    private function sectionNamesOf(array $carpools): array
+    {
+        $ids = [];
+        foreach ($carpools as $carpool) {
+            foreach ($carpool->sectionIds() as $sectionId) {
+                $ids[] = $sectionId;
+            }
+        }
+        $names = $this->sectionNames($ids);
+
+        $byCarpool = [];
+        foreach ($carpools as $carpool) {
+            $byCarpool[$carpool->id] = [];
+            foreach ($carpool->sectionIds() as $sectionId) {
+                if (isset($names[$sectionId])) {
+                    $byCarpool[$carpool->id][$sectionId] = $names[$sectionId];
+                }
+            }
+        }
+
+        return $byCarpool;
     }
 
     /**

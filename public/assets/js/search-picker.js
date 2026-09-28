@@ -262,7 +262,7 @@
 
             if (row.badge) {
                 var badge = document.createElement('span');
-                badge.className = 'badge text-bg-light border';
+                badge.className = 'badge bg-body-secondary text-body-emphasis border';
                 badge.textContent = row.badge;
                 button.appendChild(badge);
             }

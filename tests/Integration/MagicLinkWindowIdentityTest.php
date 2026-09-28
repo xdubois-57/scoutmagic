@@ -83,7 +83,7 @@ class MagicLinkWindowIdentityTest extends TestCase
         $userRepo->create(self::EMAIL, false);
         $this->createMember('CHILD_A', self::EMAIL);
 
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
         $mailService->method('send')->willReturnCallback(
             function (string $to, string $subject, string $bodyHtml, string $bodyText): void {
                 $this->sentMail = ['to' => $to, 'subject' => $subject, 'body' => $bodyText !== '' ? $bodyText : $bodyHtml];

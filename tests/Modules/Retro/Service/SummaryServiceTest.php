@@ -46,7 +46,7 @@ class SummaryServiceTest extends TestCase
 
     public function testGenerateReturnsBulletsFromStructuredResponse(): void
     {
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willReturn(new LlmResponse('', ['bullets' => ['Ambiance top', 'Repas à améliorer']], 5, 5));
         $service = new SummaryService($llmConnector);
@@ -58,7 +58,7 @@ class SummaryServiceTest extends TestCase
 
     public function testGenerateWrapsAnLlmFailureAsARetroException(): void
     {
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willThrowException(new LlmException('Provider down.'));
         $service = new SummaryService($llmConnector);
@@ -75,7 +75,7 @@ class SummaryServiceTest extends TestCase
     public function testTheLlmFailuresTextNeverReachesTheRetroExceptionsOwnMessage(): void
     {
         $technical = new LlmException('HTTP 401 — {"error":{"message":"invalid x-api-key"}}');
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willThrowException($technical);
         $service = new SummaryService($llmConnector);

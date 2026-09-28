@@ -254,7 +254,11 @@ class CarpoolOrganizerController extends AbstractController
                 static fn(SearchPickerResult $row): array => ['value' => $row->id, 'label' => $row->label],
                 $this->service->searchEvents('', $this->viewer())
             ),
-            'sections' => $this->sections->getAllWithBranches(),
+            // Read-only, and named rather than chosen (issue #650): the
+            // section comes from the creator, and on an existing carpool it
+            // is the one frozen at ITS creation — which is why this asks the
+            // carpool first and the viewer only for a new one.
+            'managing_section' => $this->managingSectionName($carpool),
             'duplicate_of' => $error instanceof DuplicateCarpoolException ? $error->existingCarpoolId : null,
             'location_mismatch' => $error instanceof LocationMismatchException ? $error->locations : [],
             'point' => $carpool?->point,
@@ -316,17 +320,43 @@ class CarpoolOrganizerController extends AbstractController
     private function valuesOf(?Carpool $carpool): array
     {
         if ($carpool === null) {
-            return ['address' => '', 'outbound_date' => '', 'return_date' => '', 'section_id' => ''];
+            return ['address' => '', 'outbound_date' => '', 'return_date' => ''];
         }
 
         return [
             'address' => $carpool->address,
             'outbound_date' => $carpool->outboundDate,
             'return_date' => $carpool->returnDate ?? '',
-            'section_id' => $carpool->sectionId !== null ? (string) $carpool->sectionId : '',
             'latitude' => $carpool->point !== null ? number_format($carpool->point->latitude, 6, '.', '') : '',
             'longitude' => $carpool->point !== null ? number_format($carpool->point->longitude, 6, '.', '') : '',
         ];
+    }
+
+    /**
+     * The name of the section that manages this carpool besides its events' —
+     * the carpool's own for an existing one, the viewer's for a new one, and
+     * null when there is none to name.
+     *
+     * Both branches read the SAME source as the saving does
+     * (CarpoolService::creatorSectionId() and Carpool::sectionId), so the
+     * sentence the form shows cannot promise a section the save would not
+     * store.
+     *
+     * The lookup does not filter on active/visible: a frozen section may
+     * since have been deactivated, and saying which one is the whole point.
+     */
+    private function managingSectionName(?Carpool $carpool): ?string
+    {
+        $sectionId = $carpool !== null
+            ? $carpool->sectionId
+            : $this->service->creatorSectionId($this->viewer());
+        if ($sectionId === null) {
+            return null;
+        }
+
+        $section = $this->sections->findByIds([$sectionId])[$sectionId] ?? null;
+
+        return $section !== null ? ($section['name'] ?? $section['desk_code']) : null;
     }
 
     /**

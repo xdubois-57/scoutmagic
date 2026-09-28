@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Registration\Repository;
 
+use Core\Member\Household\HouseholdKey;
+use Core\Member\Household\HouseholdRepository;
 use Core\Security\EncryptionService;
 use Modules\Registration\Repository\RegistrationRequest;
 use Modules\Registration\Repository\RegistrationRequestRepository;
@@ -227,12 +229,15 @@ class RegistrationRequestRepositoryTest extends TestCase
         $paixIndex = $this->blindIndexFor($paix['id']);
         $louiseIndex = $this->blindIndexFor($louise['id']);
 
-        $counts = $this->repository->countHouseholdsAtAddresses([$paixIndex, $louiseIndex], $this->scoutYearId);
+        $counts = $this->repository->countRequestsInHouseholds(
+            [HouseholdKey::fromStorable($paixIndex), HouseholdKey::fromStorable($louiseIndex)],
+            $this->scoutYearId
+        );
 
         $this->assertSame(2, $counts[$paixIndex]);
         $this->assertSame(1, $counts[$louiseIndex]);
         $this->assertSame(
-            $this->repository->countHouseholdAtAddress($paixIndex, $this->scoutYearId, null),
+            $this->repository->countRequestsInHousehold(HouseholdKey::fromStorable($paixIndex), $this->scoutYearId, null),
             $counts[$paixIndex]
         );
     }
@@ -242,8 +247,11 @@ class RegistrationRequestRepositoryTest extends TestCase
         $created = $this->repository->create($this->scoutYearId, $this->sampleFields(), null, []);
         $this->repository->updateStatus($created['id'], 'accepted', null);
 
-        $counts = $this->repository->countHouseholdsAtAddresses(
-            [$this->blindIndexFor($created['id']), 'an-index-nobody-lives-at'],
+        $counts = $this->repository->countRequestsInHouseholds(
+            [
+                HouseholdKey::fromStorable($this->blindIndexFor($created['id'])),
+                HouseholdKey::fromStorable('an-index-nobody-lives-at'),
+            ],
             $this->scoutYearId
         );
 
@@ -253,8 +261,29 @@ class RegistrationRequestRepositoryTest extends TestCase
 
     public function testCountHouseholdsAtAddressesOnAnEmptyListRunsNoQuery(): void
     {
-        $this->assertSame([], $this->repository->countHouseholdsAtAddresses([], $this->scoutYearId));
-        $this->assertSame([], $this->repository->countHouseholdsAtAddresses([''], $this->scoutYearId));
+        $this->assertSame([], $this->repository->countRequestsInHouseholds([], $this->scoutYearId));
+    }
+
+    /**
+     * A request is stored under the household the core derives for its
+     * address — the core's key, not a second derivation of it (issue #630).
+     * The same address typed with other spacing and case lands in the same
+     * household, because the core normalizes it; the module never does.
+     */
+    public function testARequestIsStoredUnderTheHouseholdTheCoreDerives(): void
+    {
+        $created = $this->repository->create(
+            $this->scoutYearId,
+            $this->sampleFields(['street' => '  rue de la PAIX ', 'number' => '12']),
+            null,
+            []
+        );
+
+        $household = (new HouseholdRepository($this->pdo, $this->encryption))
+            ->keyForAddress('Rue de la Paix', '12', null, $this->sampleFields()['postal_code']);
+
+        $this->assertNotNull($household);
+        $this->assertSame($household->storable(), $this->blindIndexFor($created['id']));
     }
 
     private function blindIndexFor(int $requestId): string

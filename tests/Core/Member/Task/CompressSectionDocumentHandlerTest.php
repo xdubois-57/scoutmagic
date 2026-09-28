@@ -54,10 +54,10 @@ class CompressSectionDocumentHandlerTest extends TestCase
         $this->context = new TaskContext(
             Connection::withPdo($this->pdo),
             $this->encryption,
-            $this->createMock(MailService::class),
+            $this->createStub(MailService::class),
             new JournalService(new JournalRepository($this->pdo)),
             $settingService,
-            $this->createMock(UserAccountRepository::class),
+            $this->createStub(UserAccountRepository::class),
             $this->storagePath
         );
 

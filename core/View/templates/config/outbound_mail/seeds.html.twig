@@ -20,6 +20,7 @@
 #}
 {% extends 'base.html.twig' %}
 {% block title %}Boîtes témoins — {{ site_name }}{% endblock %}
+{% block stylesheets %}<link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">{% endblock %}
 {% block content %}
 {% include 'partials/page_header.html.twig' with {
     title: 'Boîtes témoins',

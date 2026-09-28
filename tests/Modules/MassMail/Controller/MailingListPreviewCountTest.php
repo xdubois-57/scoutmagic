@@ -12,6 +12,7 @@ use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Import\FunctionRepository;
 use Core\Import\MemberYearRepository;
 use Core\Member\SectionService;
@@ -108,7 +109,7 @@ class MailingListPreviewCountTest extends TestCase
 );
 
         $this->controller = new MailingListController(
-            $this->createMock(Environment::class),
+            $this->createStub(Environment::class),
             new MailingListService(
                 new MailingListRepository($this->pdo),
                 new MemberResolutionRepository($this->pdo, $this->encryption),
@@ -129,7 +130,7 @@ class MailingListPreviewCountTest extends TestCase
                 new ListAddressRepository($this->pdo, $this->encryption),
                 new MailingListRepository($this->pdo),
                 new SettingService(new SettingRepository($this->pdo)),
-                $this->createMock(\Core\Journal\JournalService::class)
+                $this->createStub(\Core\Journal\JournalService::class)
             ),
             new \Modules\MassMail\Service\ListAddressImportService(
                 new ListAddressRepository($this->pdo, $this->encryption),
@@ -137,9 +138,9 @@ class MailingListPreviewCountTest extends TestCase
                     new ListAddressRepository($this->pdo, $this->encryption),
                     new MailingListRepository($this->pdo),
                     new SettingService(new SettingRepository($this->pdo)),
-                    $this->createMock(\Core\Journal\JournalService::class)
+                    $this->createStub(\Core\Journal\JournalService::class)
                 ),
-                $this->createMock(\Core\Journal\JournalService::class)
+                $this->createStub(\Core\Journal\JournalService::class)
             )
         );
 
@@ -270,11 +271,7 @@ class MailingListPreviewCountTest extends TestCase
      */
     private function rawRequest(string $body): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/admin/listes-de-diffusion/preview-count', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn($body);
+        $request = new RequestWithInput('POST', '/admin/listes-de-diffusion/preview-count', [], [], [], [], $body);
 
         return $request;
     }

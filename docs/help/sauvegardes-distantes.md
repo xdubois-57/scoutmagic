@@ -3,7 +3,7 @@ id: sauvegardes-distantes
 title: Ce que le site envoie sur Drive
 summary: Le rythme des envois, ce qui part, ce qui est conservé, et les alertes qui le surveillent.
 category: Configuration
-role_min: admin
+role_min: superadmin
 discovery: off
 question: À quel rythme le site envoie-t-il ses sauvegardes sur Drive ?
 question: Qu'est-ce qui part, et qu'est-ce qui ne part pas ?

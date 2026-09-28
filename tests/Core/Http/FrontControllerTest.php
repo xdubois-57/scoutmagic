@@ -408,7 +408,7 @@ class FrontControllerTest extends TestCase
 
     private function gateReturning(?UpdateHistory $history): MaintenanceGate
     {
-        $repository = $this->createMock(UpdateHistoryRepository::class);
+        $repository = $this->createStub(UpdateHistoryRepository::class);
         $repository->method('findInProgress')->willReturn($history);
         return new MaintenanceGate($repository);
     }

@@ -37,7 +37,7 @@ class ReceiptExtractionServiceTest extends TestCase
 
     public function testIsAvailableFalseWhenConnectorReportsUnavailable(): void
     {
-        $connector = $this->createMock(LlmConnectorInterface::class);
+        $connector = $this->createStub(LlmConnectorInterface::class);
         $connector->method('isAvailable')->willReturn(false);
 
         $service = new ReceiptExtractionService($this->schedulerService, $connector);
@@ -47,7 +47,7 @@ class ReceiptExtractionServiceTest extends TestCase
 
     public function testIsAvailableTrueWhenConnectorReportsAvailable(): void
     {
-        $connector = $this->createMock(LlmConnectorInterface::class);
+        $connector = $this->createStub(LlmConnectorInterface::class);
         $connector->method('isAvailable')->willReturn(true);
 
         $service = new ReceiptExtractionService($this->schedulerService, $connector);
@@ -78,7 +78,7 @@ class ReceiptExtractionServiceTest extends TestCase
 
     public function testScheduleExtractionSchedulesTaskWhenAvailable(): void
     {
-        $connector = $this->createMock(LlmConnectorInterface::class);
+        $connector = $this->createStub(LlmConnectorInterface::class);
         $connector->method('isAvailable')->willReturn(true);
 
         $service = new ReceiptExtractionService($this->schedulerService, $connector);

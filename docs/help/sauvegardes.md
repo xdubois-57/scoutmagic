@@ -3,7 +3,7 @@ id: sauvegardes
 title: Sauvegarder le site
 summary: Les sauvegardes à la demande et automatiques, et l'espace disque qui les décide.
 category: Configuration
-role_min: admin
+role_min: superadmin
 discovery: off
 question: Comment sauvegarder le site avant une opération risquée ?
 question: Pourquoi ma sauvegarde est-elle refusée faute de place ?
@@ -18,9 +18,10 @@ repliés : cliquez sur un titre pour l'ouvrir.
 
 ## L'espace disque, avant tout le reste
 
-En tête du bloc, « Espace disque » indique ce que le site occupe et sur
-quoi ce pourcentage est calculé. C'est la contrainte qui décide si les
-boutons en dessous vont fonctionner : une sauvegarde qui n'a pas la
+Ce que le site occupe, volume par volume, et sur quoi chaque pourcentage
+est calculé se lit sur Configuration › Stockage, une page réservée au
+super-administrateur. C'est la contrainte qui décide si les boutons de
+sauvegarde vont fonctionner : une sauvegarde qui n'a pas la
 place d'aller au bout est refusée d'emblée, avec le nombre d'octets qui
 manquent — mieux vaut un refus net qu'une archive tronquée que
 personne ne découvrira avant d'en avoir besoin.

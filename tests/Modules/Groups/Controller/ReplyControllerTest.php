@@ -46,7 +46,7 @@ class ReplyControllerTest extends GroupsControllerTestCase
         $memberService = $this->memberServiceMock($linkedMemberIds);
         $accountRepo = $this->accountRepoMock($accountId, $completeProfile);
         $postMediaService = new PostMediaService(
-            $delegatedAlbumManager ?? $this->createMock(DelegatedAlbumManager::class),
+            $delegatedAlbumManager ?? $this->createStub(DelegatedAlbumManager::class),
             new PostMediaRepository($this->pdo),
             $this->groupRepo,
             $this->replyRepo
@@ -343,7 +343,7 @@ class ReplyControllerTest extends GroupsControllerTestCase
 
     public function testAnImageOnlyReplyIsValid(): void
     {
-        $album = $this->createMock(DelegatedAlbumManager::class);
+        $album = $this->createStub(DelegatedAlbumManager::class);
         $album->method('ensureAlbum')->willReturn(new DelegatedAlbum(55, 'Louveteaux', '2026-01-01'));
         $album->method('addMedia')->willReturn(new DelegatedMedia(77, 'photo', 'pending', 0, 'photo0.jpg', '2026-01-01 10:00:00'));
         $this->withCsrf(['body' => '']);
@@ -379,7 +379,7 @@ class ReplyControllerTest extends GroupsControllerTestCase
 
     public function testARefusedUploadLeavesNoReplyBehind(): void
     {
-        $album = $this->createMock(DelegatedAlbumManager::class);
+        $album = $this->createStub(DelegatedAlbumManager::class);
         $album->method('ensureAlbum')->willReturn(new DelegatedAlbum(55, 'Louveteaux', '2026-01-01'));
         $album->method('addMedia')->willThrowException(new GalleryException('Type de fichier non autorisé.'));
         $this->withCsrf(['body' => 'avec image']);

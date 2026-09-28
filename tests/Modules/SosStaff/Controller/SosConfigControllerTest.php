@@ -8,6 +8,7 @@ use Core\Config\AppConfig;
 use Core\Database\Connection;
 use Core\Http\FrontController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Http\Router;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
@@ -127,11 +128,7 @@ class SosConfigControllerTest extends TestCase
      */
     private function jsonRequest(array $data, string $path = '/config/sos/x'): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', $path, [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput('POST', $path, [], [], [], [], json_encode($data));
         return $request;
     }
 

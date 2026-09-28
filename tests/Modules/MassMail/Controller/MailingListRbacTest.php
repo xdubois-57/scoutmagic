@@ -80,7 +80,7 @@ class MailingListRbacTest extends TestCase
             new FunctionRepository($this->pdo)
         );
 
-        $this->twig = $this->createMock(Environment::class);
+        $this->twig = $this->createStub(Environment::class);
         $this->controller = new MailingListController(
             $this->twig,
             $listService,
@@ -93,7 +93,7 @@ class MailingListRbacTest extends TestCase
                 new ListAddressRepository($this->pdo, $encryption),
                 new MailingListRepository($this->pdo),
                 new SettingService(new SettingRepository($this->pdo)),
-                $this->createMock(\Core\Journal\JournalService::class)
+                $this->createStub(\Core\Journal\JournalService::class)
             ),
             new \Modules\MassMail\Service\ListAddressImportService(
                 new ListAddressRepository($this->pdo, $encryption),
@@ -101,9 +101,9 @@ class MailingListRbacTest extends TestCase
                     new ListAddressRepository($this->pdo, $encryption),
                     new MailingListRepository($this->pdo),
                     new SettingService(new SettingRepository($this->pdo)),
-                    $this->createMock(\Core\Journal\JournalService::class)
+                    $this->createStub(\Core\Journal\JournalService::class)
                 ),
-                $this->createMock(\Core\Journal\JournalService::class)
+                $this->createStub(\Core\Journal\JournalService::class)
             )
         );
 

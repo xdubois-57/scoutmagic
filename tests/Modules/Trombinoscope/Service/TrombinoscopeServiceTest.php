@@ -39,7 +39,7 @@ class TrombinoscopeServiceTest extends TestCase
 
     public function testSeparatesLeadFromRestOfStaff(): void
     {
-        $repository = $this->createMock(TrombinoscopeRepository::class);
+        $repository = $this->createStub(TrombinoscopeRepository::class);
         $repository->method('getEligibleStaffForSection')->willReturn([
             ['member_year_id' => 10, 'is_lead' => true],
             ['member_year_id' => 20, 'is_lead' => false],
@@ -61,12 +61,12 @@ class TrombinoscopeServiceTest extends TestCase
 
     public function testNoLeadWhenNoneFlagged(): void
     {
-        $repository = $this->createMock(TrombinoscopeRepository::class);
+        $repository = $this->createStub(TrombinoscopeRepository::class);
         $repository->method('getEligibleStaffForSection')->willReturn([
             ['member_year_id' => 10, 'is_lead' => false],
         ]);
 
-        $sectionService = $this->createMock(SectionService::class);
+        $sectionService = $this->createStub(SectionService::class);
         $sectionService->method('hydrateMemberProfiles')->willReturn([10 => $this->makeProfile(10, 1, 'Alice')]);
 
         $service = new TrombinoscopeService($repository, $sectionService);
@@ -78,13 +78,13 @@ class TrombinoscopeServiceTest extends TestCase
 
     public function testStaffSortedByDisplayName(): void
     {
-        $repository = $this->createMock(TrombinoscopeRepository::class);
+        $repository = $this->createStub(TrombinoscopeRepository::class);
         $repository->method('getEligibleStaffForSection')->willReturn([
             ['member_year_id' => 10, 'is_lead' => false],
             ['member_year_id' => 20, 'is_lead' => false],
         ]);
 
-        $sectionService = $this->createMock(SectionService::class);
+        $sectionService = $this->createStub(SectionService::class);
         $sectionService->method('hydrateMemberProfiles')->willReturn([
             10 => $this->makeProfile(10, 1, 'Zoe'),
             20 => $this->makeProfile(20, 2, 'Amir'),
@@ -99,12 +99,12 @@ class TrombinoscopeServiceTest extends TestCase
 
     public function testSkipsMembersThatFailToHydrate(): void
     {
-        $repository = $this->createMock(TrombinoscopeRepository::class);
+        $repository = $this->createStub(TrombinoscopeRepository::class);
         $repository->method('getEligibleStaffForSection')->willReturn([
             ['member_year_id' => 10, 'is_lead' => false],
         ]);
 
-        $sectionService = $this->createMock(SectionService::class);
+        $sectionService = $this->createStub(SectionService::class);
         $sectionService->method('hydrateMemberProfiles')->willReturn([]);
 
         $service = new TrombinoscopeService($repository, $sectionService);
@@ -116,12 +116,12 @@ class TrombinoscopeServiceTest extends TestCase
 
     public function testImplementsSectionResponsableProviderReturningTheLead(): void
     {
-        $repository = $this->createMock(TrombinoscopeRepository::class);
+        $repository = $this->createStub(TrombinoscopeRepository::class);
         $repository->method('getEligibleStaffForSection')->willReturn([
             ['member_year_id' => 10, 'is_lead' => true],
         ]);
 
-        $sectionService = $this->createMock(SectionService::class);
+        $sectionService = $this->createStub(SectionService::class);
         $sectionService->method('hydrateMemberProfiles')->willReturn([10 => $this->makeProfile(10, 1, 'Alice')]);
 
         $service = new TrombinoscopeService($repository, $sectionService);
@@ -132,12 +132,12 @@ class TrombinoscopeServiceTest extends TestCase
 
     public function testGetResponsableReturnsNullWhenNoneFlagged(): void
     {
-        $repository = $this->createMock(TrombinoscopeRepository::class);
+        $repository = $this->createStub(TrombinoscopeRepository::class);
         $repository->method('getEligibleStaffForSection')->willReturn([
             ['member_year_id' => 10, 'is_lead' => false],
         ]);
 
-        $sectionService = $this->createMock(SectionService::class);
+        $sectionService = $this->createStub(SectionService::class);
         $sectionService->method('hydrateMemberProfiles')->willReturn([10 => $this->makeProfile(10, 1, 'Alice')]);
 
         $service = new TrombinoscopeService($repository, $sectionService);

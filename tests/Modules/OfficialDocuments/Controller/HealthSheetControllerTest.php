@@ -34,9 +34,14 @@ use Twig\Environment;
  * member's is refused, on every one of the four, including the one that
  * destroys data and the one that hands back a printable document.
  */
+// This class builds its doubles once (in setUp() or a shared helper) and
+// hands the same ones to every test: some tests set expectations on
+// them, the others only need their answers, and PHPUnit would report
+// each of those as a mock with no expectation (issue #665).
+#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 final class HealthSheetControllerTest extends TestCase
 {
-    private Environment&\PHPUnit\Framework\MockObject\MockObject $twig;
+    private Environment&\PHPUnit\Framework\MockObject\Stub $twig;
     private MemberService&\PHPUnit\Framework\MockObject\MockObject $memberService;
     private HealthSheetRepository&\PHPUnit\Framework\MockObject\MockObject $repository;
     private HealthSheetController $controller;
@@ -50,7 +55,7 @@ final class HealthSheetControllerTest extends TestCase
 
         // A mock rather than a stub: what the screen is HANDED is the
         // assertion in `testTheOverflowWarningIsFrenchAndNeverAFieldName`.
-        $this->twig = $this->createMock(Environment::class);
+        $this->twig = $this->createStub(Environment::class);
         $this->twig->method('render')->willReturn('<html></html>');
 
         $this->memberService = $this->createMock(MemberService::class);
