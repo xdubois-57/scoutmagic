@@ -406,8 +406,10 @@ class MaintenanceControllerTest extends TestCase
     {
         $body = $this->page('manualBackupPage', 'resetPage');
 
-        $this->assertStringContainsString("Les clés de chiffrement ne sont pas dans l'archive", $body);
-        $this->assertStringContainsString('storage/keys/', $body);
+        // One sentence per scope since IT-04 of issue #619: the complete
+        // site says it leaves the keys behind, and what that costs.
+        $this->assertStringContainsString('sans les clés du site', $body);
+        $this->assertStringContainsString('reste illisible ailleurs', $body);
         // And on the restore side, where the consequence is met.
         $this->assertStringContainsString('pas les clés de chiffrement', $body);
     }
@@ -472,15 +474,16 @@ class MaintenanceControllerTest extends TestCase
     {
         $body = $this->page('manualBackupPage');
 
+        // A scope among four since IT-04 of issue #619, and its description
+        // still carries the warning.
         $this->assertStringContainsString('Sauvegarde portable', $body);
-        $this->assertStringContainsString('Contient les clés de chiffrement du site.', $body);
-        $this->assertStringContainsString('Téléchargez-la puis supprimez-la du serveur.', $body);
+        $this->assertStringContainsString('clés comprises', $body);
+        $this->assertStringContainsString('Téléchargez-la, puis supprimez-la du serveur', $body);
         $this->assertStringContainsString('Une seule est conservée', $body);
 
         // Nothing to type any more (issue #619, IT-03): the site generates
-        // each archive's password and says where it will be shown.
+        // each archive's password.
         $this->assertStringNotContainsString('type="password"', $body);
-        $this->assertStringContainsString("s'affiche au moment de la télécharger", $body);
         // And the two sentences the chantier requires on screen.
         $this->assertStringContainsString('Notez le mot de passe affiché au téléchargement.', $body);
         $this->assertStringContainsString('illisibles les archives déjà produites', $body);
@@ -498,8 +501,8 @@ class MaintenanceControllerTest extends TestCase
     {
         $body = $this->page('manualBackupPage');
 
-        $this->assertStringContainsString('Sans les secrets', $body);
-        $this->assertStringContainsString('se restaure sur cette installation', $body);
+        $this->assertStringContainsString('sans les clés du site', $body);
+        $this->assertStringContainsString('elle se restaure ici', $body);
     }
 
     public function testTheHealthBlockReportsAStaleCronRatherThanAMissingOne(): void
@@ -849,11 +852,52 @@ class MaintenanceControllerTest extends TestCase
         $this->assertStringNotContainsString('auto-update-silence-warning', $body);
     }
 
-    public function testDatabaseBackupButtonIsLabeledGenerer(): void
+    /**
+     * One section, four scopes, one button (issue #619, IT-04) — and no
+     * form left that downloads a file on the spot.
+     */
+    public function testTheManualBackupIsOneFormWithFourScopesAndOneButton(): void
     {
-        $response = $this->pageResponse('manualBackupPage');
+        $body = $this->pageResponse('manualBackupPage')->getBody();
 
-        $this->assertStringContainsString('Générer', $response->getBody());
+        $this->assertSame(1, substr_count($body, 'id="manual-backup-form"'));
+        foreach (['full_config', 'full_no_gallery', 'database', 'portable'] as $scope) {
+            $this->assertMatchesRegularExpression('/value="' . $scope . '"/', $body);
+        }
+        $this->assertSame(1, substr_count($body, 'type="submit"'));
+        $this->assertStringContainsString('Lancer la sauvegarde', $body);
+        $this->assertStringNotContainsString('/config/maintenance/backup/database', $body);
+        $this->assertStringNotContainsString('manual-backup-unencrypted', $body);
+    }
+
+    /**
+     * Where libzip cannot encrypt, the screen says so before the button,
+     * says what to ask the host for, and the portable scope cannot be
+     * chosen (issue #619, IT-04).
+     */
+    public function testWhereArchivesCannotBeEncryptedTheScreenSaysSoAndDisablesThePortable(): void
+    {
+        $controller = ($this->rebuildController)(new class (
+            $this->connection,
+            $this->storagePath,
+            dirname($this->storagePath)
+        ) extends BackupService {
+            public function supportsZipEncryption(): bool
+            {
+                return false;
+            }
+        });
+
+        $request = new Request('GET', '/config/maintenance/sauvegarde-manuelle', [], [], [], []);
+        $body = $controller->manualBackupPage($request, [])->getBody();
+
+        $this->assertStringContainsString('manual-backup-unencrypted', $body);
+        $this->assertStringContainsString('en clair', $body);
+        $this->assertStringContainsString('openssl', $body);
+        $this->assertMatchesRegularExpression(
+            '/value="portable"\s+aria-describedby="scope-portable-help"\s+disabled/',
+            $body
+        );
     }
 
     /**
@@ -1017,55 +1061,66 @@ class MaintenanceControllerTest extends TestCase
         );
     }
 
-    public function testCreateDatabaseBackupValidatesCsrf(): void
+    /**
+     * The database alone goes the way every scope goes since IT-04 of
+     * issue #619: a background task and a kept password, never a file
+     * handed straight back.
+     */
+    public function testTheDatabaseAloneIsScheduledLikeEveryOtherScope(): void
     {
-        $request = new Request('POST', '/config/maintenance/backup/database', [], ['_csrf_token' => 'bad'], [], []);
+        $response = $this->controller->createFullBackup($this->jsonRequest([
+            'scope' => 'database', '_csrf_token' => $this->csrfToken(),
+        ]), []);
 
-        $response = $this->controller->createDatabaseBackup($request, []);
-
-        $this->assertSame(302, $response->getStatusCode());
-        $this->assertSame([], $this->backupRepository->findRecent(5));
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $backup = $this->backupRepository->findById((int) $decoded['backup_id']);
+        $this->assertSame('database', $backup?->type);
+        $this->assertNotNull(
+            \Core\Maintenance\BackupPasswords::forStorage($this->storagePath)->passwordFor((int) $decoded['backup_id'])
+        );
+        $payload = json_decode(
+            (string) $this->schedulerRepository->findByModuleAndTaskKey('core', 'create_backup')[0]['payload'],
+            true
+        );
+        $this->assertSame('database', $payload['scope']);
+        $this->assertArrayNotHasKey('unencrypted', $payload);
     }
 
     /**
-     * A full quota must reach the admin as the actionable French sentence,
-     * not as a 500 — and must not leave the `backups` row stuck at
-     * `in_progress` for ever.
-     *
-     * `InsufficientDiskSpaceException` is a SIBLING of `BackupException`
-     * (both extend RuntimeException), so a `catch (BackupException)` alone
-     * let it escape. This is the only synchronous backup route; every
-     * background one reports through its own handler.
+     * Where libzip cannot encrypt, the configuration, the site and the
+     * database go in clear, as IT-04 decided — no password issued, the task
+     * told. The portable archive refuses instead.
      */
-    public function testAFullQuotaIsReportedToTheAdminRatherThanEscapingAsAnError(): void
+    public function testWhereArchivesCannotBeEncryptedThreeScopesGoInClearAndThePortableIsRefused(): void
     {
-        $this->settingService->register(\Core\Storage\DiskBudget::QUOTA_SETTING, '', 'text', 'Quota', 'Quota');
-        $this->settingService->set(\Core\Storage\DiskBudget::QUOTA_SETTING, '1');
-
-        $controller = ($this->rebuildController)(new BackupService(
+        $controller = ($this->rebuildController)(new class (
             $this->connection,
             $this->storagePath,
-            dirname($this->storagePath),
-            new \Core\Storage\DiskBudget($this->storagePath, $this->settingService)
-        ));
+            dirname($this->storagePath)
+        ) extends BackupService {
+            public function supportsZipEncryption(): bool
+            {
+                return false;
+            }
+        });
 
-        $token = $this->csrfToken();
-        $request = new Request(
-            'POST',
-            '/config/maintenance/backup/database',
-            [],
-            ['_csrf_token' => $token],
-            [],
-            []
+        $response = $controller->createFullBackup($this->jsonRequest([
+            'scope' => 'database', '_csrf_token' => $this->csrfToken(),
+        ]), []);
+        $portable = $controller->createPortableBackup($this->jsonRequest([
+            '_csrf_token' => $this->csrfToken(),
+        ]), []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertNull(
+            \Core\Maintenance\BackupPasswords::forStorage($this->storagePath)->passwordFor((int) $decoded['backup_id'])
         );
-
-        $response = $controller->createDatabaseBackup($request, []);
-
-        $this->assertSame(302, $response->getStatusCode(), 'a refusal redirects, it does not 500');
-
-        $backups = $this->backupRepository->findRecent(5);
-        $this->assertNotSame([], $backups);
-        $this->assertSame('failed', $backups[0]->status, 'the row must not be left at in_progress');
+        $scheduled = $this->schedulerRepository->findByModuleAndTaskKey('core', 'create_backup');
+        $this->assertCount(1, $scheduled);
+        $this->assertTrue(json_decode((string) $scheduled[0]['payload'], true)['unencrypted']);
+        $this->assertSame(422, $portable->getStatusCode());
     }
 
     public function testCreateFullBackupValidatesCsrf(): void

@@ -6,6 +6,7 @@ category: Configuration
 role_min: superadmin
 discovery: off
 question: Comment sauvegarder le site avant une opération risquée ?
+question: Quelle sauvegarde choisir ?
 question: Pourquoi ma sauvegarde est-elle refusée faute de place ?
 paths: /config/maintenance/sauvegarde-manuelle, /config/maintenance/sauvegarde-automatique
 related: sauvegarde-portable, sauvegardes-conserver, mises-a-jour, reinitialisation
@@ -34,24 +35,26 @@ Réglages, d'après votre contrat d'hébergement — « 10 Go » ou « 500 Mo »
 suffisent comme écriture — et le calcul portera sur votre espace à
 vous.
 
-## Trois formes de sauvegarde
+## Quatre portées, un seul bouton
 
-- **Base de données seule** : un export complet, généré sur-le-champ.
-  Les données personnelles y restent chiffrées, mais le fichier reste
-  sensible — il est réservé au super-administrateur.
-- **Sauvegarde complète (chiffrée)** : une archive protégée par un mot
-  de passe que le site génère et conserve, générée en arrière-plan —
-  une notification vous prévient quand elle est prête. Deux portées au
-  choix : la configuration seule, ou le site complet. Notez le mot de
-  passe affiché à côté du téléchargement.
+Choisissez ce que vous sauvegardez, puis « Lancer la sauvegarde ». Elle
+se fait en arrière-plan : une notification vous prévient quand elle est
+prête, et elle apparaît dans « Sauvegardes récentes », avec son mot de
+passe à côté du téléchargement. Notez-le.
 
-- **Sauvegarde portable** : la même chose, plus les clés de
-  chiffrement du site — la seule archive qui se restaure sur une
-  installation neuve, chez un autre hébergeur. Elle a ses propres
-  règles, et le sujet « Emporter le site ailleurs » les explique.
+- **Configuration seule** : les paramètres et la structure, sans aucune
+  donnée de membre.
+- **Site complet** : tout, sans les clés du site ; se restaure ici,
+  reste illisible ailleurs.
+- **Base de données seule** : l'export SQL, sans les fichiers. Les
+  données personnelles y restent chiffrées.
+- **Sauvegarde portable** : tout, clés comprises. La seule qui se
+  restaure sur une installation neuve ; le sujet « Emporter le site
+  ailleurs » explique ses règles.
 
-Si votre hébergeur ne sait pas chiffrer les archives, la page le
-signale : la sauvegarde de la base seule reste disponible.
+Si votre hébergeur ne sait pas chiffrer les archives, la page le dit :
+les trois premières portées sont enregistrées en clair, la portable est
+indisponible, et l'avertissement dit quoi demander à l'hébergeur.
 
 ## Les sauvegardes automatiques
 

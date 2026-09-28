@@ -157,6 +157,22 @@ class CreateBackupHandlerTest extends TestCase
         $this->assertStringContainsString('La sauvegarde n\'a pas pu être générée', (string) $backup->errorMessage);
     }
 
+    /**
+     * An archive requested in clear — the fallback for a host that cannot
+     * encrypt (issue #619, IT-04) — is written with no password; the
+     * portable one never is, whatever its payload says.
+     */
+    public function testAnArchiveRequestedInClearHasNoPasswordButThePortableAlwaysNeedsOne(): void
+    {
+        $password = new \ReflectionMethod(CreateBackupHandler::class, 'password');
+        $payload = ['unencrypted' => true];
+
+        $this->assertNull($password->invoke($this->handler, 1, 'database', $payload, $this->context));
+
+        $this->expectException(\RuntimeException::class);
+        $password->invoke($this->handler, 2, \Core\Maintenance\Backup::PORTABLE_TYPE, $payload, $this->context);
+    }
+
     public function testHandleNotifiesRequesterOnFailure(): void
     {
         $id = $this->backupRepository->create('full_config', $this->userId);

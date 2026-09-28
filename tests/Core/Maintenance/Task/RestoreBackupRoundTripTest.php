@@ -165,6 +165,61 @@ class RestoreBackupRoundTripTest extends TestCase
         );
     }
 
+    /**
+     * **A database-only archive is encrypted like the others since IT-04**,
+     * so without its kept password it is refused before the database is
+     * touched — not restored, then rolled back at extraction.
+     */
+    public function testADatabaseArchiveWithoutItsKeptPasswordIsRefusedBeforeAnythingIsRestored(): void
+    {
+        $backupId = $this->takeEncryptedServerBackup('database');
+        \Core\Maintenance\BackupPasswords::forStorage($this->storagePath)->forget($backupId);
+
+        $this->expectException(\Core\Maintenance\BackupException::class);
+        $this->expectExceptionMessage('plus conservé sur ce serveur');
+        $this->resolveServerSource($backupId);
+    }
+
+    /**
+     * **An archive written in clear on a host that cannot encrypt restores
+     * with no password** (IT-04): none was issued, none is kept, and the
+     * archive itself — not its type — says there is nothing to decrypt.
+     */
+    public function testAnArchiveWrittenInClearRestoresWithoutAnyPassword(): void
+    {
+        $this->setUnitName('Unité du Chêne');
+        $backupId = $this->takeEncryptedServerBackup('full_config', false);
+
+        $this->assertNull($this->resolveServerSource($backupId)[2], 'a password was asked of a clear archive');
+
+        $this->setUnitName('Unité renommée par erreur');
+        $this->restore(['source' => 'server', 'backup_id' => $backupId]);
+
+        $this->assertSame('Unité du Chêne', $this->unitName());
+    }
+
+    /**
+     * The resolution step alone — through handle(), the rollback after a
+     * failure restores the event log too, and every trace of which step
+     * refused.
+     *
+     * @return array<int, mixed>
+     */
+    private function resolveServerSource(int $backupId): array
+    {
+        $resolve = new \ReflectionMethod(RestoreBackupHandler::class, 'resolveSource');
+        $source = $resolve->invoke(
+            new RestoreBackupHandler(),
+            ['source' => 'server', 'backup_id' => $backupId],
+            $this->pdo(),
+            $this->storagePath,
+            $this->context()->encryption
+        );
+        $this->assertIsArray($source);
+
+        return $source;
+    }
+
     public function testARowCreatedAfterTheBackupIsGoneAgain(): void
     {
         $backupId = $this->takeServerBackup();
@@ -762,18 +817,24 @@ class RestoreBackupRoundTripTest extends TestCase
         $secrets->writeSecrets([]);
     }
 
-    /** A « configuration seule » archive, encrypted with a generated, kept password. */
-    private function takeEncryptedServerBackup(): int
+    /**
+     * An archive of the given scope, encrypted with a generated, kept
+     * password — or, with `$encrypted` false, written in clear with no
+     * password kept, as a host that cannot encrypt writes it (IT-04).
+     */
+    private function takeEncryptedServerBackup(string $scope = 'full_config', bool $encrypted = true): int
     {
         $this->initialiseSecrets();
 
         $backups = new BackupRepository($this->pdo());
         $files = new FileRepository($this->pdo());
-        $backupId = $backups->create('full_config', null);
-        $password = \Core\Maintenance\BackupPasswords::forStorage($this->storagePath)->issue($backupId);
+        $backupId = $backups->create($scope, null);
+        $password = $encrypted
+            ? \Core\Maintenance\BackupPasswords::forStorage($this->storagePath)->issue($backupId)
+            : null;
 
         $service = new BackupService($this->connection, $this->storagePath, dirname($this->storagePath));
-        $result = $service->createFullBackup('full_config', $password);
+        $result = $service->createFullBackup($scope, $password);
 
         $register = fn(string $path, string $name, string $mime): int => $files->create(
             ltrim(substr($path, strlen($this->storagePath)), '/'),

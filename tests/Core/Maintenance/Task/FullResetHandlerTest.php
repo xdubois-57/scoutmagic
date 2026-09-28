@@ -115,7 +115,7 @@ class FullResetHandlerTest extends TestCase
                 return $path;
             }
 
-            public function createFullBackup(string $scope, string $password): array
+            public function createFullBackup(string $scope, ?string $password): array
             {
                 return ['zipPath' => $this->createFileBackup(), 'dbDumpPath' => $this->createDatabaseDump()];
             }
@@ -416,7 +416,10 @@ class FullResetHandlerTest extends TestCase
             }
             public function createConfigOnlyDump(): string { return $this->createDatabaseDump(); }
             public function createFileBackup(?string $password = null): string { return ''; }
-            public function createFullBackup(string $scope, string $password): array { return ['zipPath' => '', 'dbDumpPath' => '']; }
+            public function createFullBackup(string $scope, ?string $password): array
+            {
+                return ['zipPath' => '', 'dbDumpPath' => ''];
+            }
             public function supportsZipEncryption(): bool { return true; }
             public function restoreDatabase(string $dumpPath): void {}
             public function restoreFiles(string $archivePath, ?string $password = null): void {}

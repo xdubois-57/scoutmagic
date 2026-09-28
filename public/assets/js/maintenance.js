@@ -20,24 +20,21 @@
     });
 })();
 
-// Configuration > Maintenance — the two forms that start a background
-// backup: "Sauvegarde complète (chiffrée)" and "Sauvegarde portable". Both
-// submit, then poll GET /api/maintenance/backup-status/{id} via
+// Configuration > Maintenance > Sauvegarde manuelle — the one form that
+// starts a background backup (issue #619, IT-04): four scopes, one button.
+// It submits, then polls GET /api/maintenance/backup-status/{id} via
 // ScoutMagicApi.poll until the generation finishes or fails.
 //
-// One wiring for both rather than two copies of it. They differ only in
-// what they post — a scope and a password, or a passphrase — so the
-// payload is the parameter and everything else (disable the button, show
-// the spinner, poll, reload or report) is shared. The portable form
-// arrived second, and a second copy of these sixty lines is how the two
-// stop behaving the same way on the day one of them is fixed.
+// The portable archive keeps its own route — it is the one that packages
+// the site's keys, and the server checks and journals it on its own — so
+// the request is the parameter: which route, and what to post to it.
 (function () {
     /**
      * @param {string} prefix element id prefix: `{prefix}-form`, `-submit`, `-progress`, `-error`
-     * @param {string} endpoint where to POST
-     * @param {(form: HTMLFormElement) => (Object|null)} buildPayload null to abort (invalid input)
+     * @param {(form: HTMLFormElement) => ({endpoint: string, payload: Object}|null)} buildRequest
+     *        null to abort (invalid input)
      */
-    function wireBackupForm(prefix, endpoint, buildPayload) {
+    function wireBackupForm(prefix, buildRequest) {
         var form = /** @type {HTMLFormElement} */ (document.getElementById(prefix + '-form'));
         if (!form) return;
 
@@ -82,13 +79,13 @@
             e.preventDefault();
             errorEl.classList.add('d-none');
 
-            var payload = buildPayload(form);
-            if (!payload) return;
+            var request = buildRequest(form);
+            if (!request) return;
 
             submitBtn.disabled = true;
             progressEl.classList.remove('d-none');
 
-            window.ScoutMagicApi.postJson(endpoint, payload).then(function (res) {
+            window.ScoutMagicApi.postJson(request.endpoint, request.payload).then(function (res) {
                 if (!res.data) {
                     showError('Erreur réseau.');
                     return;
@@ -102,17 +99,16 @@
         });
     }
 
-    // No password field any more (issue #619, IT-03): the site generates
-    // one per archive, keeps it, and reveals it at download time.
-    wireBackupForm('full-backup', '/config/maintenance/backup/full', function (form) {
+    // No password field (issue #619, IT-03): the site generates one per
+    // archive, keeps it, and reveals it at download time.
+    wireBackupForm('manual-backup', function (form) {
         var scope = /** @type {HTMLInputElement} */ (form.querySelector('input[name="scope"]:checked'));
         if (!scope) return null;
+        if (scope.value === 'portable') {
+            return { endpoint: '/config/maintenance/backup/portable', payload: {} };
+        }
 
-        return { scope: scope.value };
-    });
-
-    wireBackupForm('portable-backup', '/config/maintenance/backup/portable', function () {
-        return {};
+        return { endpoint: '/config/maintenance/backup/full', payload: { scope: scope.value } };
     });
 })();
 

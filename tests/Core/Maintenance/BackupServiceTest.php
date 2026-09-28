@@ -730,6 +730,68 @@ class BackupServiceTest extends TestCase
     }
 
     /**
+     * The database alone (issue #619, IT-04): the full dump, encrypted in
+     * its archive, and nothing else — no file tree.
+     *
+     * @group database
+     */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
+    public function testTheDatabaseScopeArchivesTheFullDumpAloneEncrypted(): void
+    {
+        $service = $this->realDbService();
+
+        $result = $service->createFullBackup('database', 'correct-horse-battery-staple');
+
+        $this->assertSame(['database.sql'], $this->zipEntryNames($result['zipPath']));
+        $zip = new \ZipArchive();
+        $zip->open($result['zipPath']);
+        $this->assertNotSame(0, $zip->statName('database.sql')['encryption_method']);
+        $zip->setPassword('correct-horse-battery-staple');
+        $this->assertSame(file_get_contents($result['dbDumpPath']), $zip->getFromName('database.sql'));
+        $zip->close();
+
+        unlink($result['zipPath']);
+        unlink($result['dbDumpPath']);
+    }
+
+    /**
+     * No password is the in-clear fallback IT-04 decided for a host that
+     * cannot encrypt: the archive is written, readable without one.
+     *
+     * @group database
+     */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
+    public function testWithoutAPasswordTheArchiveIsWrittenInClear(): void
+    {
+        $service = $this->realDbService();
+
+        $result = $service->createFullBackup('database', null);
+
+        $zip = new \ZipArchive();
+        $zip->open($result['zipPath']);
+        $this->assertSame(0, $zip->statName('database.sql')['encryption_method']);
+        $this->assertNotFalse($zip->getFromName('database.sql'));
+        $zip->close();
+
+        unlink($result['zipPath']);
+        unlink($result['dbDumpPath']);
+    }
+
+    /** The portable archive has no in-clear fallback: it carries the site's keys. */
+    public function testThePortableArchiveIsNeverWrittenWithoutAPassword(): void
+    {
+        $write = new \ReflectionMethod(BackupService::class, 'writeArchive');
+
+        $this->expectException(BackupException::class);
+        $write->invoke(
+            $this->service,
+            \Core\Maintenance\Backup::PORTABLE_TYPE,
+            null,
+            new \Core\Maintenance\Portable\PortableManifest('1.0.0', null, new \DateTimeImmutable())
+        );
+    }
+
+    /**
      * Builds a BackupService against a real MySQL/MariaDB server, skipped
      * only where no server was promised (`UsesProductionEngine`), since the
      * dump and the restore genuinely need a live engine.

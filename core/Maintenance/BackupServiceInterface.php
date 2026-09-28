@@ -37,7 +37,7 @@ interface BackupServiceInterface
     /**
      * @return array{zipPath: string, dbDumpPath: string}
      */
-    public function createFullBackup(string $scope, string $password): array;
+    public function createFullBackup(string $scope, ?string $password): array;
 
     public function supportsZipEncryption(): bool;
 

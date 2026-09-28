@@ -32,119 +32,96 @@
                     <a href="/config/stockage">Configuration › Stockage</a>, mesurée volume par volume.
                 </p>
 
+                {# One section, four scopes, one button (issue #619, IT-04).
+                   Three blocks used to offer the same act three ways — one
+                   of them downloading a file on the spot, the other two
+                   notifying later. Every scope now goes the same way: a
+                   background task, a notification, a line in « Sauvegardes
+                   récentes ». Each description says what the archive is
+                   FOR, not only what it holds.
+
+                   Tag names spelled in words on purpose — Sonar's HTML
+                   parser does not know Twig comments, so writing them in
+                   angle brackets here makes it see a stray element and
+                   report it (Web:S8732 did exactly that on this block). #}
                 {% if not zip_encryption_supported %}
-                    <div class="alert alert-warning small">
-                        Le serveur ne supporte pas le chiffrement des archives — la sauvegarde complète est indisponible.
-                        Contactez votre hébergeur. La sauvegarde de la base de données seule reste utilisable.
+                    <div class="alert alert-warning small" id="manual-backup-unencrypted">
+                        <p class="mb-1">
+                            <strong>Ce serveur ne sait pas chiffrer les archives.</strong> La configuration, le site
+                            complet et la base de données seront enregistrés <strong>en clair</strong> ; la
+                            sauvegarde portable est indisponible.
+                        </p>
+                        <p class="mb-0">
+                            À demander à l'hébergeur, dans cet ordre : activer l'extension PHP
+                            <code>openssl</code> ; à défaut, compiler l'extension <code>zip</code> contre libzip 1.2
+                            ou plus, avec le chiffrement.
+                        </p>
                     </div>
                 {% endif %}
 
-                <hr class="my-4">
-
-                <div class="row g-4">
-                    <div class="col-12 col-md-6">
-                        <h3 class="h6">Base de données seule</h3>
-                        <p class="text-body-secondary small">
-                            Export SQL complet de la base de données. Les champs personnels y restent chiffrés,
-                            mais le fichier reste sensible — réservé aux administrateurs.
-                        </p>
-                        <form method="post" action="/config/maintenance/backup/database">
-                            {{ csrf_field()|raw }}
-                            <button type="submit" class="btn btn-outline-primary btn-sm">
-                                <i class="bi bi-database-down" aria-hidden="true"></i> Générer
-                            </button>
-                        </form>
-                    </div>
-
-                    <div class="col-12 col-md-6">
-                        <h3 class="h6">Sauvegarde complète (chiffrée)</h3>
-                        <p class="text-body-secondary small">
-                            Archive ZIP chiffrée avec un mot de passe que le site génère, générée en arrière-plan.
-                            Vous recevrez une notification lorsqu'elle sera prête ; son mot de passe s'affiche au
-                            moment de la télécharger.
-                            <strong>Sans les secrets</strong> : elle se restaure sur cette installation, pas sur
-                            une autre.
-                        </p>
-                        {# Core\Maintenance\BackupService leaves storage/keys and
-                           storage/config out of the archive (« secrets never
-                           leave the server in a backup »). That is deliberate,
-                           and the screen said so nowhere: restored on another
-                           host, such a backup gives an unreadable database
-                           with nothing to explain why. #}
-                        <p class="small text-warning-emphasis">
-                            <i class="bi bi-key"></i>
-                            <strong>Les clés de chiffrement ne sont pas dans l'archive</strong> — elles ne quittent
-                            jamais le serveur. Restaurée <em>ici</em>, cette sauvegarde se relit normalement ;
-                            restaurée sur un autre hébergement, la base reste illisible tant que
-                            <code>storage/keys/</code> et <code>storage/config/</code> n'y ont pas été recopiés
-                            séparément, par un autre moyen.
-                        </p>
-                        <form id="full-backup-form" {{ not zip_encryption_supported ? 'class="d-none"' : '' }}>
-                            {# A group of radios is labelled by a legend inside a
-                               fieldset, not by a loose label pointing at nothing: a
-                               screen reader announces the legend with each option,
-                               which is the whole point of the grouping.
-
-                               Tag names spelled in words on purpose — Sonar's HTML
-                               parser does not know Twig comments, so writing them in
-                               angle brackets here makes it see a stray element and
-                               report it (Web:S8732 did exactly that on this block). #}
-                            <fieldset class="mb-2 border-0 p-0">
-                                <legend class="form-label small float-none w-auto">Portée</legend>
-                                <div class="form-check">
-                                    <input class="form-check-input" type="radio" name="scope" id="scope-config" value="full_config" checked>
-                                    <label class="form-check-label small" for="scope-config">Configuration seule (paramètres, structure — sans les données membres)</label>
-                                </div>
-                                <div class="form-check">
-                                    <input class="form-check-input" type="radio" name="scope" id="scope-no-gallery" value="full_no_gallery">
-                                    <label class="form-check-label small" for="scope-no-gallery">Site complet, hors emplacements de stockage</label>
-                                </div>
-                            </fieldset>
-                            <p class="form-text mb-2">
-                                Aucune archive ne reprend le contenu d'un emplacement de stockage — ni la galerie
-                                photo, ni les autres. Chaque emplacement a son propre cycle de vie&nbsp;:
-                                <a href="/config/stockage">Configuration &gt; Stockage</a>.
-                            </p>
-                            <button type="submit" class="btn btn-primary btn-sm" id="full-backup-submit">
-                                <i class="bi bi-shield-lock" aria-hidden="true"></i> Générer
-                            </button>
-                            <output class="mt-2 small d-none d-block" id="full-backup-progress">
-                                <span class="spinner-border spinner-border-sm"></span> Génération en cours…
-                            </output>
-                            <div class="mt-2 small text-danger d-none" id="full-backup-error" role="alert"></div>
-                        </form>
-                    </div>
-
-                    {# A third block in its own right, never a fourth scope of
-                       the encrypted block above: its meaning and its warning
-                       have nothing in common with it. Full width because the
-                       warning is what must be read before the button, not
-                       beside it. #}
-                    <div class="col-12">
-                        <h3 class="h6">Sauvegarde portable</h3>
-                        <div class="alert alert-warning small">
-                            <strong>Contient les clés de chiffrement du site.</strong> C'est ce qui permet de la
-                            restaurer sur une installation neuve, chez un autre hébergeur — et c'est aussi ce qui
-                            fait que son mot de passe protège, à lui seul, toutes les données de l'unité.
-                            Téléchargez-la puis supprimez-la du serveur.
+                <form id="manual-backup-form">
+                    <fieldset class="mb-3 border-0 p-0">
+                        <legend class="form-label float-none w-auto">Que sauvegarder&nbsp;?</legend>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="radio" name="scope"
+                                   id="scope-config" value="full_config" checked
+                                   aria-describedby="scope-config-help">
+                            <label class="form-check-label" for="scope-config">Configuration seule</label>
+                            <div class="form-text" id="scope-config-help">
+                                Les paramètres et la structure du site, sans aucune donnée de membre. Pour repartir
+                                d'une configuration connue après un réglage malheureux.
+                            </div>
                         </div>
-                        <p class="small text-body-secondary">
-                            Son mot de passe est généré par le site et s'affiche au moment de la télécharger.
-                        </p>
-                        <form id="portable-backup-form" {{ not zip_encryption_supported ? 'class="d-none"' : '' }}>
-                            <button type="submit" class="btn btn-primary btn-sm" id="portable-backup-submit">
-                                <i class="bi bi-box-seam" aria-hidden="true"></i> Créer une sauvegarde portable
-                            </button>
-                            <output class="mt-2 small d-none d-block" id="portable-backup-progress">
-                                <span class="spinner-border spinner-border-sm"></span> Génération en cours…
-                            </output>
-                            <div class="mt-2 small text-danger d-none" id="portable-backup-error" role="alert"></div>
-                        </form>
-                        <p class="small text-body-secondary mt-2 mb-0">
-                            Une seule est conservée : la nouvelle remplace la précédente.
-                        </p>
-                    </div>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="radio" name="scope"
+                                   id="scope-no-gallery" value="full_no_gallery"
+                                   aria-describedby="scope-no-gallery-help">
+                            <label class="form-check-label" for="scope-no-gallery">Site complet</label>
+                            <div class="form-text" id="scope-no-gallery-help">
+                                Tout, hors emplacements de stockage, sans les clés du site. Pour revenir en arrière
+                                sur ce serveur : elle se restaure ici et reste illisible ailleurs.
+                            </div>
+                        </div>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="radio" name="scope"
+                                   id="scope-database" value="database"
+                                   aria-describedby="scope-database-help">
+                            <label class="form-check-label" for="scope-database">Base de données seule</label>
+                            <div class="form-text" id="scope-database-help">
+                                L'export SQL, sans les fichiers ; les champs personnels y restent chiffrés. Pour
+                                examiner ou reprendre les données sans toucher aux fichiers du site.
+                            </div>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="scope"
+                                   id="scope-portable" value="portable"
+                                   aria-describedby="scope-portable-help"
+                                   {{ not zip_encryption_supported ? 'disabled' : '' }}>
+                            <label class="form-check-label" for="scope-portable">Sauvegarde portable</label>
+                            <div class="form-text" id="scope-portable-help">
+                                Tout, <strong>clés comprises</strong> : la seule qui se restaure sur une installation
+                                neuve, chez un autre hébergeur. Une seule est conservée, la nouvelle remplace la
+                                précédente. Téléchargez-la, puis supprimez-la du serveur : son mot de passe protège
+                                à lui seul toutes les données de l'unité.
+                            </div>
+                        </div>
+                    </fieldset>
+                    <p class="form-text mb-3">
+                        Aucune archive ne reprend le contenu d'un emplacement de stockage — ni la galerie photo, ni
+                        les autres. Chaque emplacement a son propre cycle de vie&nbsp;:
+                        <a href="/config/stockage">Configuration &gt; Stockage</a>.
+                    </p>
+                    <button type="submit" class="btn btn-primary btn-sm" id="manual-backup-submit">
+                        <i class="bi bi-shield-lock" aria-hidden="true"></i> Lancer la sauvegarde
+                    </button>
+                    <output class="mt-2 small d-none d-block" id="manual-backup-progress">
+                        <span class="spinner-border spinner-border-sm"></span> Génération en cours… Vous serez notifié
+                        lorsqu'elle sera prête, et elle apparaîtra dans « Sauvegardes récentes ».
+                    </output>
+                    <div class="mt-2 small text-danger d-none" id="manual-backup-error" role="alert"></div>
+                </form>
 
+                <div class="row g-4 mt-1">
                     {# The two sentences IT-03 requires on screen: a generated
                        password is only as good as the copy somebody made of it. #}
                     <div class="col-12">

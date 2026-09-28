@@ -60,7 +60,7 @@ class CreateBackupHandler implements TaskHandlerInterface
         $backupRepository->markInProgress($backupId);
 
         try {
-            $password = $this->password($backupId, $payload, $context);
+            $password = $this->password($backupId, $scope, $payload, $context);
 
             $basePath = dirname($context->storagePath);
             $backupService = new BackupService(
@@ -81,7 +81,7 @@ class CreateBackupHandler implements TaskHandlerInterface
             // other. The archive-writing path below them is single.
             $result = $scope === Backup::PORTABLE_TYPE
                 ? $backupService->createPortableBackup(
-                    $password,
+                    $password ?? throw new \Core\Maintenance\BackupException('Un mot de passe est requis.'),
                     \Core\Maintenance\VersionFile::read($basePath),
                     $this->installationId($context)
                 )
@@ -199,10 +199,19 @@ class CreateBackupHandler implements TaskHandlerInterface
      * the archive's id like a generated one, so the archive can be
      * downloaded and restored the same way as any other.
      *
+     * **Null for an archive requested in clear** — the fallback IT-04
+     * decided for a host whose libzip cannot encrypt. The controller asks
+     * for it by saying so in the payload; the portable archive never gets
+     * it, whatever the payload says.
+     *
      * @param array<string, mixed> $payload
      */
-    private function password(int $backupId, array $payload, TaskContext $context): string
+    private function password(int $backupId, string $scope, array $payload, TaskContext $context): ?string
     {
+        if (($payload['unencrypted'] ?? false) === true && $scope !== Backup::PORTABLE_TYPE) {
+            return null;
+        }
+
         $passwords = BackupPasswords::forStorage($context->storagePath);
 
         $legacy = (string) ($payload['encrypted_password'] ?? '');
