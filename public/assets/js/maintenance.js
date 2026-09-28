@@ -524,15 +524,22 @@
     if (fullResetCheckbox && fullResetUpdate) {
         fullResetCheckbox.addEventListener('change', fullResetUpdate);
     }
-    if (fullResetNoted && fullResetUpdate) {
-        fullResetNoted.addEventListener('change', fullResetUpdate);
-    }
-    var fullResetReveal = /** @type {HTMLButtonElement|null} */ (document.getElementById('full-reset-password-reveal'));
-    var fullResetPasswordOut = document.getElementById('full-reset-password');
-    if (fullResetReveal && fullResetPasswordOut && fullResetNoted) {
-        var revealButton = fullResetReveal;
-        var revealOutput = fullResetPasswordOut;
-        var notedBox = fullResetNoted;
+    wireFullResetPassword(fullResetNoted, fullResetUpdate);
+
+    /**
+     * The reveal button and the « noté » box of the full reset's safety-copy
+     * password. Its own function so the section above stays readable.
+     *
+     * @param {HTMLInputElement|null} notedBox
+     * @param {(() => void)|null} update
+     * @returns {void}
+     */
+    function wireFullResetPassword(notedBox, update) {
+        if (!notedBox) return;
+        if (update) notedBox.addEventListener('change', update);
+        var revealButton = /** @type {HTMLButtonElement|null} */ (document.getElementById('full-reset-password-reveal'));
+        var revealOutput = document.getElementById('full-reset-password');
+        if (!revealButton || !revealOutput) return;
         revealButton.addEventListener('click', function () {
             revealButton.disabled = true;
             window.ScoutMagicApi.postJson('/config/maintenance/reset/full/password', {}).then(function (res) {
@@ -552,6 +559,7 @@
             });
         });
     }
+
     var fullResetForm = document.getElementById('full-reset-form');
     if (fullResetForm) {
         fullResetForm.addEventListener('submit', async function (e) {
