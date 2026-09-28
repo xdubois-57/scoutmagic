@@ -104,7 +104,7 @@
         pairs.forEach(function (pair) {
             var field = /** @type {HTMLInputElement|null} */ (document.getElementById(pair[0]));
             var value = typeof pair[1] === 'string' ? pair[1] : '';
-            if (field && field.value === '' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+            if (field?.value === '' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
                 field.value = value;
             }
         });
