@@ -600,14 +600,13 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
      */
     private function purge(TaskContext $context, ResumableUploadBackend $backend): void
     {
+        $remaining = null;
         $this->quietly(
             $context,
-            static function () use ($context, $backend): void {
+            static function () use ($context, $backend, &$remaining): void {
                 $retention = new RemoteRetention($context->settings);
                 $report = $retention->purge($backend, $retention->listArchives($backend));
-                // What is left is the destination's real state, which the
-                // page shows without asking the destination anything.
-                $retention->recordState($report['remaining'], new \DateTimeImmutable());
+                $remaining = $report['remaining'];
                 if ($report['deleted'] > 0 || $report['failed'] > 0) {
                     $context->journal->log(
                         'core',
@@ -625,6 +624,22 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
             'remote_backup_purge_failed',
             'La purge des archives distantes a échoué'
         );
+
+        // What is left is the destination's real state, which the page
+        // shows without asking the destination anything. Its own guard,
+        // AFTER the purge's journal line: a settings write that fails here
+        // is bookkeeping, and must not turn a purge that deleted archives
+        // into one journaled as failed.
+        if ($remaining !== null) {
+            $this->quietly(
+                $context,
+                static function () use ($context, $remaining): void {
+                    (new RemoteRetention($context->settings))->recordState($remaining, new \DateTimeImmutable());
+                },
+                'remote_backup_state_failed',
+                'La purge a abouti mais l\'état de la destination n\'a pas pu être enregistré'
+            );
+        }
     }
 
     /**

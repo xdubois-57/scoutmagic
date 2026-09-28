@@ -265,6 +265,45 @@ final class RemoteRetentionTest extends TestCase
     }
 
     /**
+     * **A month back from the 31st is the last day of the shorter month**
+     * (IT-05 review). `modify('-1 month')` from 31 March lands on 3 March,
+     * which would pull 28 February out of the weekly periods and thin it
+     * against 27 February as if both spoke for February. Clamped, the
+     * boundary is 28 February: the 28th opens its week, the 27th its
+     * month, and both stay.
+     */
+    public function testAMonthBackFromTheEndOfAMonthDoesNotOverflow(): void
+    {
+        $this->settings->values[RemoteRetention::KEEP_SETTING] = '1000';
+        $this->settings->values[RemoteRetention::MAX_BYTES_SETTING] = '10 Go';
+
+        $doomed = $this->retention->beyondTheBounds([
+            new StoredObject('scoutmagic-2026-03-31-030000-g1.zip', 10),
+            new StoredObject('scoutmagic-2026-02-28-040000-g1.zip', 10),
+            new StoredObject('scoutmagic-2026-02-27-030000-g1.zip', 10),
+        ]);
+
+        $this->assertSame([], $this->keysOf($doomed));
+    }
+
+    /**
+     * And the boundary never moves back while the newest archive moves
+     * forward — across the end of a month included.
+     */
+    public function testTheMonthBoundaryOnlyEverMovesForward(): void
+    {
+        $boundary = new \ReflectionMethod(RemoteRetention::class, 'aMonthBefore');
+        $previous = PHP_INT_MIN;
+        $day = new \DateTimeImmutable('2026-01-25 03:00:00', new \DateTimeZone('UTC'));
+        for ($step = 0; $step < 400; $step++) {
+            $at = $boundary->invoke(null, $day->modify("+{$step} days")->getTimestamp());
+            $this->assertIsInt($at);
+            $this->assertGreaterThanOrEqual($previous, $at, 'the boundary moved back on day ' . $step);
+            $previous = $at;
+        }
+    }
+
+    /**
      * **The bounds apply to what the thinning kept**, and still bite: a
      * kept archive past the count goes like any other.
      */

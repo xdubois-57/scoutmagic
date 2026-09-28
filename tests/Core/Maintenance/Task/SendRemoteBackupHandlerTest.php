@@ -840,6 +840,31 @@ final class SendRemoteBackupHandlerTest extends TestCase
     }
 
     /**
+     * **A reading that cannot be written is not a failed purge** (IT-05
+     * review): the archives were deleted and that is journaled as such;
+     * only the bookkeeping after it is reported as failing.
+     */
+    public function testAStateThatCannotBeRecordedLeavesThePurgeJournaledAsDone(): void
+    {
+        $this->settings->values[RemoteRetention::KEEP_SETTING] = '2';
+        $this->settings->refuseKey = RemoteRetention::STATE_SETTING;
+        $backend = new RecordingBackend($this);
+        $backend->remote = [
+            new StoredObject('scoutmagic-2026-03-03.zip', 10, null, '2026-03-03T00:00:00Z'),
+            new StoredObject('scoutmagic-2026-02-02.zip', 10, null, '2026-02-02T00:00:00Z'),
+            new StoredObject('scoutmagic-2026-01-01.zip', 10, null, '2026-01-01T00:00:00Z'),
+        ];
+
+        $this->runOnce($this->payloadFor($this->archiveOf(50)), $backend);
+
+        $this->assertSame(['scoutmagic-2026-01-01.zip'], $backend->deleted);
+        $this->assertSame(
+            ['remote_backup_purged', 'remote_backup_state_failed'],
+            $this->events(['remote_backup_purged', 'remote_backup_state_failed', 'remote_backup_purge_failed'])
+        );
+    }
+
+    /**
      * And a purge that fails does not turn a delivered archive into a
      * failed send — the bytes are there either way, and the next run
      * would otherwise send them all again.

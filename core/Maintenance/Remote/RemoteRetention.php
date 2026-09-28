@@ -447,10 +447,32 @@ final class RemoteRetention
     /**
      * The same moment one calendar month earlier: where « one per week »
      * ends and « one per month » begins.
+     *
+     * **Clamped to the last day of the shorter month**, not left to
+     * `modify('-1 month')`, which overflows: from 31 March it lands on
+     * 3 March, and from 1 April on 1 March — a boundary that moved BACK
+     * two days while the newest archive moved forward one, flipping an
+     * early-March archive from one period to another and back.
      */
     private static function aMonthBefore(int $instant): int
     {
-        return (new \DateTimeImmutable('@' . $instant))->modify('-1 month')->getTimestamp();
+        $year = (int) gmdate('Y', $instant);
+        $month = (int) gmdate('n', $instant) - 1;
+        if ($month === 0) {
+            $month = 12;
+            $year--;
+        }
+        $lastDay = (int) gmdate('t', gmmktime(0, 0, 0, $month, 1, $year));
+        $day = min((int) gmdate('j', $instant), $lastDay);
+
+        return gmmktime(
+            (int) gmdate('G', $instant),
+            (int) gmdate('i', $instant),
+            (int) gmdate('s', $instant),
+            $month,
+            $day,
+            $year
+        );
     }
 
     /**
