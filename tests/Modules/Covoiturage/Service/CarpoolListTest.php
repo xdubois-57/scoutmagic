@@ -35,7 +35,56 @@ final class CarpoolListTest extends TestCase
             new CarpoolRepository($this->pdo),
             new OfferRepository($this->pdo, H::encryption()),
             new SeatRequestRepository($this->pdo, H::encryption()),
-            new SettingService(new SettingRepository($this->pdo))
+            new SettingService(new SettingRepository($this->pdo)),
+            H::sections($this->pdo)
+        );
+    }
+
+    /**
+     * **The organisers' badges come from Carpool::sectionIds(), the very
+     * list that decides who sees the passengers (issue #650).**
+     *
+     * They used to be read off the linked events alone. Two things were
+     * wrong with that once the creator's section started granting access:
+     * a carpool with no event showed no badge at all although a section
+     * governed it, and a carpool with events hid the creator's section,
+     * whose animateurs can open every passenger list on the page.
+     *
+     * Deriving both from one expression is what keeps them from drifting:
+     * a section added to the access is a section shown, with no second
+     * place to remember.
+     */
+    public function testTheBadgesNameEverySectionThatSeesThePassengers(): void
+    {
+        $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('LOU', 'Louveteaux', 20)");
+        $branchId = (int) $this->pdo->lastInsertId();
+        $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id, name) VALUES (?, ?, ?)')
+            ->execute(['LOU01', $branchId, 'Louveteaux']);
+        $creatorSectionId = (int) $this->pdo->lastInsertId();
+        $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id, name) VALUES (?, ?, ?)')
+            ->execute(['BAL01', $branchId, 'Baladins']);
+        $eventSectionId = (int) $this->pdo->lastInsertId();
+
+        // With an event: both sections, the creator's and the event's.
+        H::carpool($this->pdo, 5, null, [
+            new \Modules\Covoiturage\Repository\CarpoolEvent(701, 'Fête', $eventSectionId, 'Baladins'),
+        ], $creatorSectionId);
+        // With none: the creator's alone, which used to show nothing.
+        H::carpool($this->pdo, 6, null, [], $creatorSectionId);
+
+        $rows = $this->board->organizerList(H::viewer(1, Role::CHIEF, [$creatorSectionId]));
+
+        $badges = [];
+        foreach ($rows as $row) {
+            $names = $row['sections'];
+            self::assertIsArray($names);
+            sort($names);
+            $badges[] = $names;
+        }
+        $this->assertSame(
+            [['Baladins', 'Louveteaux'], ['Louveteaux']],
+            $badges,
+            'the badges no longer name every section whose staff opens the passenger lists'
         );
     }
 

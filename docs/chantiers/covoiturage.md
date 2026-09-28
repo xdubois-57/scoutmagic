@@ -259,8 +259,10 @@ places sous le nombre accordé refusées, retrait ≠ refus, annulation) ;
 `CarpoolVisibilityTest` (chaque ligne de D8, dont l'animateur d'une
 section non liée qui ne voit ni voitures ni passagers, et les téléphones
 qui ne vont qu'à l'autre partie d'une demande acceptée) ;
-`CarpoolServiceTest` (les deux garde-fous, la section sans évènement, le
-point manuel, l'adresse modifiée remise en file, la suppression) ;
+`CarpoolServiceTest` (les deux garde-fous, le point manuel, l'adresse
+modifiée remise en file, la suppression ; la section, depuis #650, est
+déduite et non plus demandée — voir « Après le chantier » en fin de
+document) ;
 `PurgeCarpoolsHandlerTest` (purge à 30 jours de la dernière date, en
 cascade, réglable) ; `GeocodeCarpoolsHandlerTest` ;
 `PhoneStaysInTheRepositoryTest` (aucun fichier du module hors des deux
@@ -406,3 +408,70 @@ fil d'Ariane d'une réservation (arrivé avec #475, qui attendait encore
 3. **Les titres de sujets d'aide des locations** reprennent les libellés
    de menu : « Gérer les locations d'un bien » devient « Gérer mes
    locations », « Créer les biens à louer » devient « Biens à louer ».
+
+---
+
+## Après le chantier
+
+Ce document est un journal d'itérations : ce qui suit ne réécrit pas ce
+qui précède, mais dit où le code s'en écarte désormais.
+
+### #650 — la visibilité du staff ne dérive plus des seuls évènements
+
+**D3, tel que ce document l'a livré**, faisait dériver la visibilité du
+staff des sections des évènements liés, et, pour un covoiturage sans
+évènement, d'une section choisie à la main dans un champ « Section
+concernée » du formulaire d'organisation.
+
+**Ce que le ticket #650 a changé.** Le champ était le défaut : il restait
+modifiable alors qu'il était ignoré dès qu'un évènement était retenu, et
+il ne redevenait obligatoire que sans évènement — une règle que personne
+ne pouvait deviner avant de rencontrer le message d'erreur. Il a disparu.
+La section est désormais celle **du créateur**, déduite comme partout
+ailleurs sur le site (`Core\View\SectionPickerHelper`), figée à
+l'enregistrement, et `Carpool::sectionIds()` retourne l'**union** de cette
+section et de celles des évènements. Le staff de la section du créateur
+voit donc les passagers en plus de ceux des sections des évènements : un
+animateur ne perd plus de vue un covoiturage qu'il a organisé pour sa
+section parce que la sortie est un évènement d'unité.
+
+Trois points méritent d'être retenus plutôt que redécouverts :
+
+1. **Les variantes du cœur existent pour des raisons de permission**, et
+   il y en a deux, la seconde relevée en revue. `resolveDefault()` se
+   replie sur « la première section disponible » quand le lecteur n'en a
+   pas : juste pour décider quel onglet s'ouvre, et ce serait une fuite ici
+   — les animateurs d'une section au hasard verraient les passagers
+   d'enfants qu'ils ne suivent pas. Mais `resolveMainSection()`, qui
+   résout contre la liste des sections qu'un écran propose, ne convenait
+   pas non plus, et dans l'autre sens : cette liste vient de
+   `getAllWithBranches()`, qui écarte les sections inactives **et
+   masquées**, alors que `SectionStaffAuthorizationService::
+   getStaffedSections()` les garde. Un animateur encadre donc une section
+   masquée que la liste ne mentionne pas, et ses covoiturages auraient été
+   enregistrés sans section du tout. D'où `resolveMainSectionCode()`, qui
+   ne consulte aucune liste, et `SectionService::findByDeskCode()`, qui ne
+   filtre sur aucun des deux drapeaux. Et la section retenue est ensuite
+   **croisée avec celles que le créateur encadre réellement** : la règle de
+   la fonction principale est aveugle au rôle, alors que le contrôle
+   d'accès qu'elle alimente filtre sur `f.role IN ('chief', 'admin')`. Sans
+   ce croisement, un animateur de la section B dont la fonction principale
+   Desk est en section A figerait le covoiturage sur A — dont le staff ne
+   suit pas ces enfants — et priverait le sien. Le croisement se fait avec
+   le tableau même que `CarpoolViewer::isStaffOf()` consulte, pour que
+   l'octroi et sa vérification ne puissent pas venir de deux lectures
+   différentes.
+2. **`null` est une réponse.** Un compte lié à aucun membre, ou à un membre
+   sans fonction dans une section, crée un covoiturage sans section :
+   géré par son créateur, le Staff d'U et les sections de ses évènements.
+   Aucune section n'est choisie à sa place.
+3. **Aucune migration.** Les covoiturages antérieurs n'ont pas été
+   touchés, et la nouvelle expression n'a pas eu besoin de cas
+   particulier : ceux qui ont des évènements ne portent pas de section
+   propre, ceux qui n'en ont pas ne portent pas d'évènement, donc l'une
+   des deux moitiés de l'union est vide dans chacune des deux formes qui
+   existaient.
+
+`ARCHITECTURE.md` §8.120 porte la règle telle qu'elle est maintenant ;
+`CarpoolSectionAccessTest` épingle les cinq cas d'autorisation, dont
+celui des covoiturages d'avant.

@@ -4,10 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Covoiturage\Service;
 
-use Core\Badge\MemberBadgeRepository;
-use Core\Database\Connection;
 use Core\Geo\GeoPointException;
-use Core\Member\SectionService;
 use Core\Security\Role;
 use Modules\Calendar\Api\CalendarEventLookupInterface;
 use Modules\Calendar\Api\EventSummary;
@@ -21,8 +18,6 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Covoiturage\CovoiturageTestHelper as H;
 use Tests\Modules\Covoiturage\FakeCalendar;
-use Core\Member\Repository\MemberProfileRepository;
-use Core\Member\Repository\SectionRepository;
 
 /**
  * Organising a carpool: who may, the two guards at creation, the place and
@@ -51,10 +46,8 @@ final class CarpoolServiceTest extends TestCase
         $this->service = new CarpoolService(
             $this->carpools,
             new OfferRepository($this->pdo, H::encryption()),
-            new SectionService(
-    new SectionRepository(Connection::withPdo($this->pdo)),
-    new MemberProfileRepository(Connection::withPdo($this->pdo), H::encryption(), new MemberBadgeRepository($this->pdo))
-),
+            H::sections($this->pdo),
+            H::members($this->pdo),
             new FakeCalendar([
                 new EventSummary(501, "Fête d'unité — Baladins", 'Baladins', H::day(20), H::day(20), null, 'Plaine de Basse-Wavre', 10, 'Baladins'),
                 new EventSummary(502, "Fête d'unité — Louveteaux", 'Louveteaux', H::day(20), H::day(20), null, 'Plaine de Basse-Wavre', 20, 'Louveteaux'),
@@ -74,7 +67,6 @@ final class CarpoolServiceTest extends TestCase
             'address' => '',
             'outbound_date' => H::day(20),
             'return_date' => '',
-            'section_id' => '',
         ], $overrides);
     }
 
@@ -146,20 +138,243 @@ final class CarpoolServiceTest extends TestCase
         $this->assertSame('Gîte de Han', $this->carpools->findById($id)?->address);
     }
 
-    public function testWithoutAnEventTheSectionIsRequired(): void
+    /**
+     * **Issue #650 replaced a required field with a deduction.** A carpool
+     * with no event used to be refused until a chief picked « Section
+     * concernée » from a list; now nothing is asked, and the section is the
+     * creator's own — so the carpool saves, and saves with that section.
+     *
+     * The refusal this test used to assert is gone on purpose: the message
+     * it looked for ("Sans évènement, choisissez la section concernée…")
+     * described a field that no longer exists.
+     */
+    public function testWithoutAnEventTheCarpoolTakesItsCreatorsOwnSection(): void
     {
-        try {
-            $this->service->create($this->input(['event_ids' => [], 'address' => 'Bastogne']), H::viewer(1, Role::CHIEF));
-            $this->fail('A carpool with no event and no section.');
-        } catch (CarpoolException $e) {
-            $this->assertStringContainsString('section', $e->getMessage());
-        }
+        H::linkAccountToSection($this->pdo, 1, $this->sectionId);
 
         $id = $this->service->create(
-            $this->input(['event_ids' => [], 'address' => 'Bastogne', 'section_id' => (string) $this->sectionId]),
+            $this->input(['event_ids' => [], 'address' => 'Bastogne']),
+            H::viewer(1, Role::CHIEF, [$this->sectionId])
+        );
+
+        $this->assertSame([$this->sectionId], $this->carpools->findById($id)?->sectionIds());
+    }
+
+    /**
+     * **A hidden section still governs its chief's carpools** — raised in
+     * review of #650, and the asymmetry behind it is real, not hypothetical.
+     *
+     * `SectionStaffAuthorizationService::getStaffedSections()` resolves a
+     * chief's sections through `getSection()`, which filters on neither
+     * `is_active` nor `is_visible`. A chief therefore staffs a hidden
+     * section. But `getAllWithBranches()` — the list every section picker
+     * passes to `SectionPickerHelper` — drops it. Resolving the creator's
+     * section against that list stored NO section for such a chief, and
+     * their section's staff lost the passengers this change exists to show
+     * them.
+     *
+     * So the resolution goes through the Desk code and
+     * `SectionService::findByDeskCode()`, which filters on neither flag.
+     * Put `getAllWithBranches()` back in `creatorSectionId()` and this test
+     * goes red on its own.
+     */
+    public function testAHiddenSectionIsStillTheCreatorsOwn(): void
+    {
+        $this->pdo->prepare('UPDATE sections SET is_visible = 0 WHERE id = ?')->execute([$this->sectionId]);
+        H::linkAccountToSection($this->pdo, 1, $this->sectionId);
+
+        $id = $this->service->create(
+            $this->input(['event_ids' => [], 'address' => 'Bastogne']),
+            H::viewer(1, Role::CHIEF, [$this->sectionId])
+        );
+
+        $this->assertSame(
+            [$this->sectionId],
+            $this->carpools->findById($id)?->sectionIds(),
+            "a chief of a hidden section created a carpool their own section cannot see"
+        );
+    }
+
+    /**
+     * **The form's section is never read (issue #650).** The field is gone,
+     * but a hand-built POST can still carry `section_id` — and honouring it
+     * would let the sender hand ANY section's animateurs the passengers of
+     * a carpool, which is the one thing this deduction must not allow.
+     *
+     * The posted id here is a real, existing section, so nothing but the
+     * "don't read the input" rule can refuse it: the carpool must come out
+     * with the creator's section, not with the one posted.
+     */
+    public function testAPostedSectionIsIgnored(): void
+    {
+        $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('ECL', 'Éclaireurs', 40)");
+        $this->pdo->exec(
+            "INSERT INTO sections (desk_code, age_branch_id, name) VALUES ('ECL01', "
+            . (int) $this->pdo->lastInsertId() . ", 'Éclaireurs')"
+        );
+        $otherSectionId = (int) $this->pdo->lastInsertId();
+        H::linkAccountToSection($this->pdo, 1, $this->sectionId);
+
+        $id = $this->service->create(
+            $this->input([
+                'event_ids' => [],
+                'address' => 'Bastogne',
+                'section_id' => (string) $otherSectionId,
+            ]),
+            H::viewer(1, Role::CHIEF, [$this->sectionId])
+        );
+
+        $this->assertSame(
+            [$this->sectionId],
+            $this->carpools->findById($id)?->sectionIds(),
+            'the section posted by hand was stored, so a request can choose who sees the passengers'
+        );
+    }
+
+    /**
+     * **The main-function rule is blind to role; the access check is not**
+     * (raised in review of #664). `MemberProfile::getMainFunction()` returns
+     * whichever function Desk flagged « Fonction principale », or simply the
+     * first one, with no regard for its role. `CarpoolViewer::isStaffOf()`
+     * reads `staffedSectionIds`, which `StaffedSectionRepository` builds
+     * WITH `f.role IN ('chief', 'admin')` — « without the role filter, every
+     * animé would come back as an animateur of their own section », says its
+     * own comment.
+     *
+     * So the two can name different sections. Here the creator's
+     * main-flagged function is in the Louveteaux section while they staff
+     * only another one: freezing the carpool onto Louveteaux would hand that
+     * staff the passengers of children they do not follow, and leave the
+     * creator's own colleagues with nothing — the leak this whole change was
+     * written to avoid, reached through the main-function flag instead of
+     * through the « first available section » fallback.
+     *
+     * Remove the intersection with `$viewer->staffedSectionIds` from
+     * `creatorSectionId()` and this test goes red on its own.
+     */
+    public function testASectionTheCreatorDoesNotStaffIsNeverFrozenOntoTheCarpool(): void
+    {
+        $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('ECL', 'Éclaireurs', 40)");
+        $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id, name) VALUES (?, ?, ?)')
+            ->execute(['ECL01', (int) $this->pdo->lastInsertId(), 'Éclaireurs']);
+        $staffedElsewhere = (int) $this->pdo->lastInsertId();
+
+        // Their Desk main function names Louveteaux; the sections they
+        // actually staff hold only Éclaireurs.
+        H::linkAccountToSection($this->pdo, 1, $this->sectionId);
+        $viewer = H::viewer(1, Role::CHIEF, [$staffedElsewhere]);
+
+        $this->assertNull(
+            $this->service->creatorSectionId($viewer),
+            'a section the creator does not staff was named as theirs'
+        );
+
+        $id = $this->service->create(
+            $this->input(['event_ids' => [], 'address' => 'Bastogne']),
+            $viewer
+        );
+        $carpool = $this->carpools->findById($id);
+        $this->assertNotNull($carpool);
+        $this->assertNull($carpool->sectionId, 'that section was frozen onto the carpool anyway');
+        $this->assertFalse(
+            H::viewer(20, Role::CHIEF, [$this->sectionId])->seesPassengersOf($carpool),
+            'the staff of a section the creator does not staff was given the passengers'
+        );
+    }
+
+    /**
+     * A creator with no section of their own: the carpool is saved WITHOUT
+     * one, never with a section picked in its place — the reason #650 asked
+     * for a variant of SectionPickerHelper::resolveDefault() instead of
+     * reusing it, since its « first available section » fallback would have
+     * handed these passengers to whichever section sorts first.
+     */
+    public function testACreatorWithNoSectionLeavesTheCarpoolWithNone(): void
+    {
+        H::linkAccountToSection($this->pdo, 1, null);
+
+        $id = $this->service->create(
+            $this->input(['event_ids' => [], 'address' => 'Bastogne']),
             H::viewer(1, Role::CHIEF)
         );
-        $this->assertSame([$this->sectionId], $this->carpools->findById($id)?->sectionIds());
+
+        $carpool = $this->carpools->findById($id);
+        $this->assertNotNull($carpool);
+        $this->assertNull($carpool->sectionId, 'a section was chosen for a creator who has none');
+        $this->assertSame([], $carpool->sectionIds());
+    }
+
+    /**
+     * An account linked to no member at all — the same requirement as the
+     * test above, through the other door the rule leaves open.
+     */
+    public function testACreatorLinkedToNoMemberLeavesTheCarpoolWithNoSection(): void
+    {
+        $id = $this->service->create(
+            $this->input(['event_ids' => [], 'address' => 'Bastogne']),
+            H::viewer(1, Role::CHIEF)
+        );
+
+        $this->assertNull($this->carpools->findById($id)?->sectionId);
+    }
+
+    /**
+     * **With events, the creator's section is ADDED, not replaced** — the
+     * union issue #650 asked for. A carpool for two Unit-wide events keeps
+     * both their sections and gains its creator's, so a chief who organised
+     * the trip does not lose sight of it.
+     */
+    public function testWithEventsTheCreatorsSectionIsAddedToTheirs(): void
+    {
+        H::linkAccountToSection($this->pdo, 1, $this->sectionId);
+
+        $id = $this->service->create($this->input(), H::viewer(1, Role::CHIEF, [$this->sectionId]));
+
+        $sectionIds = $this->carpools->findById($id)?->sectionIds() ?? [];
+        // 10 and 20 are the sections of events 501 and 502 in setUp().
+        $expected = [$this->sectionId, 10, 20];
+        sort($sectionIds);
+        sort($expected);
+        $this->assertSame($expected, $sectionIds);
+    }
+
+    /**
+     * **The section is frozen at creation (#650).** Editing must not
+     * recompute it — neither for the creator, who may have changed section
+     * since, nor for another chief, whose own section would otherwise
+     * silently replace it and take the first one's staff off the carpool.
+     */
+    public function testEditingNeverRecomputesTheSection(): void
+    {
+        H::linkAccountToSection($this->pdo, 1, $this->sectionId);
+        $id = $this->service->create(
+            $this->input(['event_ids' => [], 'address' => 'Bastogne']),
+            H::viewer(1, Role::CHIEF, [$this->sectionId])
+        );
+
+        $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('ECL', 'Éclaireurs', 40)");
+        $this->pdo->exec(
+            "INSERT INTO sections (desk_code, age_branch_id, name) VALUES ('ECL01', "
+            . (int) $this->pdo->lastInsertId() . ", 'Éclaireurs')"
+        );
+        $otherSectionId = (int) $this->pdo->lastInsertId();
+        H::linkAccountToSection($this->pdo, 2, $otherSectionId);
+
+        $carpool = $this->carpools->findById($id);
+        $this->assertNotNull($carpool);
+        $this->service->update(
+            $carpool,
+            $this->input(['event_ids' => [], 'address' => 'Bastogne 2']),
+            H::viewer(2, Role::CHIEF, [$this->sectionId])
+        );
+
+        $after = $this->carpools->findById($id);
+        $this->assertSame('Bastogne 2', $after?->address, 'the edit did not go through at all');
+        $this->assertSame(
+            $this->sectionId,
+            $after?->sectionId,
+            "the editor's own section replaced the creator's"
+        );
     }
 
     public function testAnEventTheChiefCannotSeeIsRefused(): void
@@ -290,21 +505,38 @@ final class CarpoolServiceTest extends TestCase
         $this->assertNull($this->carpools->findById($id));
     }
 
-    public function testWithoutTheCalendarEveryCarpoolCarriesASection(): void
+    /**
+     * Without the calendar module there is no event to link, and since #650
+     * nothing to ask either: the carpool is simply managed by its creator's
+     * section. Before, the same call was REFUSED unless the form carried a
+     * section — which is what this test used to assert, and which a site
+     * without a calendar had no way to make obvious.
+     */
+    public function testWithoutTheCalendarACarpoolStillTakesItsCreatorsSection(): void
     {
         $service = new CarpoolService(
             $this->carpools,
             new OfferRepository($this->pdo, H::encryption()),
-            new SectionService(
-    new SectionRepository(Connection::withPdo($this->pdo)),
-    new MemberProfileRepository(Connection::withPdo($this->pdo), H::encryption(), new MemberBadgeRepository($this->pdo))
-),
+            H::sections($this->pdo),
+            H::members($this->pdo),
             null
         );
 
         $this->assertFalse($service->hasCalendar());
-        $this->assertSame([], $service->searchEvents('fête', H::viewer(1, Role::CHIEF)));
+        $this->assertSame([], $service->searchEvents('fête', H::viewer(1, Role::CHIEF, [$this->sectionId])));
+
+        H::linkAccountToSection($this->pdo, 1, $this->sectionId);
+        $id = $service->create(
+            $this->input(['event_ids' => [], 'address' => 'Bastogne']),
+            H::viewer(1, Role::CHIEF, [$this->sectionId])
+        );
+
+        $this->assertSame([$this->sectionId], $this->carpools->findById($id)?->sectionIds());
+
+        // And a posted event id is REFUSED rather than dropped: with no
+        // calendar there is nothing to resolve it against, so the carpool
+        // would silently lose the section the form said it concerned.
         $this->expectException(CarpoolException::class);
-        $service->create($this->input(), H::viewer(1, Role::CHIEF));
+        $service->create($this->input(['address' => 'Bastogne']), H::viewer(1, Role::CHIEF, [$this->sectionId]));
     }
 }

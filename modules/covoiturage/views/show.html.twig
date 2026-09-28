@@ -53,6 +53,13 @@
         </a>
     {% endif %}
 
+    {% if carpool.creator_section %}
+        {# Said on the page because this section grants access to the
+           passengers and nothing else here would reveal it (issue #650):
+           it comes from the carpool's creator, not from its events. #}
+        <p class="small text-body-secondary mb-2">Géré aussi par : {{ carpool.creator_section }}</p>
+    {% endif %}
+
     {% if carpool.staff_hides_passengers %}
         <p class="small text-body-secondary bg-body-tertiary rounded px-3 py-2">
             Vous ne voyez pas les passagers : ce covoiturage ne concerne pas votre section.

@@ -46,6 +46,28 @@ class SectionStaffAuthorizationService
     }
 
     /**
+     * The sections this address GENUINELY staffs — the role-filtered list,
+     * with no widening for admins, unlike {@see getStaffedSections()}.
+     *
+     * The difference decides correctness, not convenience.
+     * `getStaffedSections()` answers « which sections may this account act
+     * on », so it short-circuits to every section for an admin: right for a
+     * picker or a page, and vacuous for a caller that needs to know whether
+     * a real staffing relationship exists. Raised in review of #664, where
+     * a carpool's section was being checked against the widened list and so
+     * was not checked at all for a chef d'unité.
+     *
+     * Use this one to establish a relationship; use the other to decide what
+     * somebody may reach.
+     *
+     * @return int[]
+     */
+    public function ownStaffedSectionIds(string $email, int $scoutYearId): array
+    {
+        return $this->staffedSections->staffedSectionIds($email, $scoutYearId);
+    }
+
+    /**
      * @return array<
      *     int,
      *     array{

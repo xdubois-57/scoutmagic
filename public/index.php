@@ -10554,6 +10554,7 @@ if ($isEnabled('covoiturage')) {
         $covoiturageOfferRepo,
         $covoiturageRequestRepo,
         $settingService,
+        $sectionService,
         $memberService,
         $userAccountRepo
     );
@@ -10590,6 +10591,7 @@ if ($isEnabled('covoiturage')) {
                 $covoiturageCarpoolRepo,
                 $covoiturageOfferRepo,
                 $sectionService,
+                $memberService,
                 $calendarServiceForOthers
             ),
             $covoiturageBoard,

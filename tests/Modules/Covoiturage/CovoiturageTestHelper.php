@@ -4,6 +4,13 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Covoiturage;
 
+use Core\Badge\MemberBadgeRepository;
+use Core\Database\Connection;
+use Core\Member\MemberService;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Import\MemberYearRepository;
+use Core\Member\Repository\SectionRepository;
+use Core\Member\SectionService;
 use Core\Security\EncryptionService;
 use Core\Security\Role;
 use Modules\Covoiturage\Repository\CarpoolEvent;
@@ -101,7 +108,11 @@ final class CovoiturageTestHelper
             $address,
             self::day($outboundInDays),
             $returnInDays !== null ? self::day($returnInDays) : null,
-            $events === [] ? $sectionId : null,
+            // Both, since issue #650: a carpool carries its creator's section
+            // AND its events' — the shape the code has to handle. Passing
+            // null for $sectionId gives the pre-#650 shape a test needs to
+            // pin that those carpools did not change.
+            $sectionId,
             null
         );
         $repo->replaceEvents($id, $events);
@@ -146,8 +157,85 @@ final class CovoiturageTestHelper
     /**
      * @param list<int> $staffed
      */
+    public static function sections(\PDO $pdo): SectionService
+    {
+        return new SectionService(
+            new SectionRepository(Connection::withPdo($pdo)),
+            self::profiles($pdo)
+        );
+    }
+
+    public static function members(\PDO $pdo): MemberService
+    {
+        return new MemberService(new MemberYearRepository($pdo), self::profiles($pdo));
+    }
+
+    private static function profiles(\PDO $pdo): MemberProfileRepository
+    {
+        return new MemberProfileRepository(
+            Connection::withPdo($pdo),
+            self::encryption(),
+            new MemberBadgeRepository($pdo)
+        );
+    }
+
+    /**
+     * An account whose address is linked to ONE member holding ONE function
+     * in $sectionId — which is all Core\View\SectionPickerHelper needs to
+     * call that section the account's own, and therefore all
+     * CarpoolService::creatorSectionId() needs (issue #650).
+     *
+     * $sectionId null gives the other case the rule turns on: an animateur
+     * with no section of their own, whose carpools must be saved with no
+     * section rather than with somebody else's.
+     *
+     * The address is the one viewer() builds for the same account id, so a
+     * test names the account once and both sides agree.
+     */
+    public static function linkAccountToSection(
+        \PDO $pdo,
+        int $accountId,
+        ?int $sectionId,
+        int $scoutYearId = 1
+    ): void {
+        $pdo->prepare(
+            'INSERT OR IGNORE INTO scout_years (id, label, start_date, end_date, is_current)
+             VALUES (?, ?, ?, ?, 1)'
+        )->execute([$scoutYearId, '2025-2026', '2025-09-01', '2026-08-31']);
+
+        $pdo->prepare('INSERT INTO members (desk_id) VALUES (?)')->execute([uniqid('desk', true)]);
+        $memberId = (int) $pdo->lastInsertId();
+
+        $encryption = self::encryption();
+        $pdo->prepare(
+            'INSERT INTO member_years
+                (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_blind_index, is_active)
+             VALUES (?, ?, ?, ?, ?, 1)'
+        )->execute([
+            $memberId,
+            $scoutYearId,
+            $encryption->encrypt('Animateur', 'member_years.first_name'),
+            $encryption->encrypt('Test', 'member_years.last_name'),
+            $encryption->blindIndex(self::emailOf($accountId), 'email'),
+        ]);
+        $memberYearId = (int) $pdo->lastInsertId();
+
+        $pdo->prepare('INSERT OR IGNORE INTO functions (desk_code, label, role) VALUES (?, ?, ?)')
+            ->execute(['chief', 'Animateur', 'chief']);
+        $lookup = $pdo->prepare('SELECT id FROM functions WHERE desk_code = ?');
+        $lookup->execute(['chief']);
+
+        $pdo->prepare('INSERT INTO member_functions (member_year_id, function_id, section_id) VALUES (?, ?, ?)')
+            ->execute([$memberYearId, (int) $lookup->fetchColumn(), $sectionId]);
+    }
+
+    public static function emailOf(int $accountId): string
+    {
+        return 'account' . $accountId . '@test.be';
+    }
+
     public static function viewer(int $accountId, Role $role = Role::IDENTIFIED, array $staffed = []): CarpoolViewer
     {
-        return new CarpoolViewer($accountId, 'account' . $accountId . '@test.be', $role, 1, $staffed);
+        return new CarpoolViewer($accountId, self::emailOf($accountId), $role, 1, $staffed);
     }
 }

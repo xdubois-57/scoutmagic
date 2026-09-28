@@ -40,13 +40,22 @@ class CarpoolRepository
         return (int) $this->pdo->lastInsertId();
     }
 
-    public function update(int $id, string $address, string $outboundDate, ?string $returnDate, ?int $sectionId): void
+    /**
+     * **No section here, on purpose.** `carpools.section_id` is written once,
+     * by create(), and issue #650 froze it there: the carpool keeps its
+     * creator's section even when somebody else edits it, and even when the
+     * creator has changed section since. Leaving the column out of this
+     * statement is what makes that structural rather than a convention a
+     * caller could forget — adding the parameter back is the whole of the
+     * change it would take to break it.
+     */
+    public function update(int $id, string $address, string $outboundDate, ?string $returnDate): void
     {
         $stmt = $this->pdo->prepare(
-            'UPDATE carpools SET address = ?, outbound_date = ?, return_date = ?, section_id = ?, updated_at = ?
+            'UPDATE carpools SET address = ?, outbound_date = ?, return_date = ?, updated_at = ?
               WHERE id = ?'
         );
-        $stmt->execute([$address, $outboundDate, $returnDate, $sectionId, date('Y-m-d H:i:s'), $id]);
+        $stmt->execute([$address, $outboundDate, $returnDate, date('Y-m-d H:i:s'), $id]);
     }
 
     public function delete(int $id): void

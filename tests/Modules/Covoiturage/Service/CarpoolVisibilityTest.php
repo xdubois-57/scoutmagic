@@ -52,7 +52,8 @@ final class CarpoolVisibilityTest extends TestCase
             $this->carpools,
             new OfferRepository($this->pdo, H::encryption()),
             new SeatRequestRepository($this->pdo, H::encryption()),
-            new SettingService(new SettingRepository($this->pdo))
+            new SettingService(new SettingRepository($this->pdo)),
+            H::sections($this->pdo)
         );
 
         // A Louveteaux weekend: one car, the driver's; the rider's family

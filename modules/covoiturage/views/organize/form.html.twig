@@ -12,8 +12,9 @@
 {% endblock %}
 {#
   Creating or editing a carpool. The events are chosen with the core's
-  search picker (partials/search_picker.html.twig); without an event, a
-  section decides which staff sees the passengers (D3).
+  search picker (partials/search_picker.html.twig). Nothing here chooses a
+  section: the staff that sees the passengers is that of the events, plus
+  the creator's own section, which is shown read-only (D3, issue #650).
 
   Two guards, both enforced by Service\CarpoolService whatever the script
   does: an event that already has a carpool is refused with a link to join
@@ -58,24 +59,35 @@
             } only %}
         {% endif %}
 
-        {% set _section_options = [{ value: '', label: 'Aucune' }] %}
-        {% for section in sections %}
-            {% set _section_options = _section_options|merge([{
-                value: section.id,
-                label: section.name ?? section.desk_code,
-                selected: values.section_id|default('') == section.id ~ '',
-            }]) %}
-        {% endfor %}
-        {% include 'partials/form_field.html.twig' with {
-            field_id: 'carpool-section',
-            field_name: 'section_id',
-            label: 'Section concernée',
-            type: 'select',
-            options: _section_options,
-            help: has_calendar
-                ? 'Seulement sans aucun évènement retenu : c\'est elle qui décidera quels animateurs voient les voitures et les passagers.'
-                : 'C\'est elle qui décidera quels animateurs voient les voitures et les passagers.',
-        } only %}
+        {# No « Section concernée » to choose any more (issue #650): the
+           section is the creator's own, taken at creation and never asked
+           for. Said here in full words, because it decides who sees the
+           passengers and nothing else on the page would reveal it. #}
+        <p class="small text-body-secondary mb-3">
+            {% if managing_section %}
+                Géré aussi par : <strong>{{ managing_section }}</strong>{% if carpool is null %} — votre section{% endif %}.
+                Ses animateurs voient les voitures et les passagers, comme ceux des sections des évènements retenus.
+            {% elseif carpool is null %}
+                {# Two causes, and the sentence must not pick one: the account may be
+                   linked to no member with a section at all, or its « fonction
+                   principale » may name a section it does not staff — which
+                   CarpoolService::creatorSectionId() refuses, on purpose. Raised in
+                   review of #664: blaming the account alone told a chef d'unité to fix
+                   a link that is not broken. #}
+                Aucune section ne s'ajoute à celles des évènements retenus : la section de votre fonction principale
+                n'a pas pu être retenue — soit votre compte n'est lié à aucun membre qui en a une, soit vous n'êtes pas
+                animateur ou responsable de cette section. Ce covoiturage restera géré par vous, par le Staff d'unité
+                et par les animateurs des sections de ses évènements.
+            {% else %}
+                {# Raised in review of #650: the wording above is about the account of
+                   whoever CREATES the carpool, not of whoever edits it, so it would state
+                   something false here — and the case is common, every carpool created
+                   before #650 with events holds no section. #}
+                Aucune section n'est enregistrée sur ce covoiturage, en plus de celles de ses évènements. Il reste géré
+                par son créateur, par le Staff d'unité et par les animateurs des sections de ses évènements. Cette
+                section ne se recalcule pas : elle est retenue à la création et une modification ne la change pas.
+            {% endif %}
+        </p>
 
         {% include 'partials/form_field.html.twig' with {
             field_id: 'carpool-address',

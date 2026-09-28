@@ -27,8 +27,21 @@ Si un covoiturage existe déjà pour un évènement, le site vous le signale et
 propose de le rejoindre plutôt que d'en créer un second. Si les évènements
 retenus n'indiquent pas le même lieu, il vous demande de confirmer.
 
-Sans aucun évènement, choisissez la section concernée : c'est son staff qui
-verra les voitures et les passagers.
+## Qui verra les voitures et les passagers
+
+Vous n'avez **aucune section à choisir** : le covoiturage est géré par votre
+propre section, en plus de celles des évènements retenus. Le formulaire vous
+la nomme — « Géré aussi par : … » — et la page du covoiturage la rappelle,
+pour que chacun sache qui a accès aux passagers.
+
+Cette section est retenue **une fois pour toutes, à l'enregistrement**. Si
+vous changez de section l'année suivante, le covoiturage reste à celle
+d'origine ; et si un autre animateur le modifie, votre section garde son
+accès.
+
+Si votre compte n'est lié à aucun membre ayant une fonction dans une
+section, aucune section ne s'ajoute : le covoiturage reste géré par vous, par
+le Staff d'unité et par les animateurs des sections de ses évènements.
 
 ## Le lieu et les dates
 
