@@ -1818,6 +1818,37 @@ class MaintenanceControllerTest extends TestCase
         $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'full_reset'));
     }
 
+    /**
+     * A host whose libzip cannot encrypt keeps the copy in clear: there is
+     * no password to show, and the reset goes ahead without one.
+     */
+    public function testWhereArchivesCannotBeEncryptedTheResetNeedsNoPassword(): void
+    {
+        $controller = ($this->rebuildController)(new class (
+            $this->connection,
+            $this->storagePath,
+            dirname($this->storagePath)
+        ) extends BackupService {
+            public function supportsZipEncryption(): bool
+            {
+                return false;
+            }
+        });
+
+        $reveal = $controller->revealFullResetPassword(
+            $this->jsonRequest(['_csrf_token' => $this->csrfToken()]),
+            []
+        );
+        $reset = $controller->fullReset($this->jsonRequest([
+            'confirm_keyword' => 'EFFACER', 'confirm_checkbox' => true, '_csrf_token' => $this->csrfToken(),
+        ]), []);
+
+        $this->assertSame(409, $reveal->getStatusCode());
+        $this->assertArrayNotHasKey('password', json_decode($reveal->getBody(), true));
+        $this->assertTrue(json_decode($reset->getBody(), true)['success']);
+        $this->assertCount(1, $this->schedulerRepository->findByModuleAndTaskKey('core', 'full_reset'));
+    }
+
     /** The same password every time it is shown, journaled without it. */
     public function testTheFullResetPasswordIsStableAndItsRevealJournaled(): void
     {
