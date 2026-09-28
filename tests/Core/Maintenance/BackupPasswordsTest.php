@@ -49,6 +49,16 @@ final class BackupPasswordsTest extends TestCase
         $this->assertSame('Test', $this->secrets->readSecrets()['site_name']);
     }
 
+    /** A password that could not be kept is never handed out to encrypt with. */
+    public function testAPasswordThatCannotBeKeptIsNotIssued(): void
+    {
+        $passwords = BackupPasswords::forStorage($this->storage);
+        unlink($this->storage . '/keys/master.key');
+
+        $this->expectException(\RuntimeException::class);
+        $passwords->issue(3);
+    }
+
     /** One per archive: revealing one says nothing about another. */
     public function testEachArchiveHasItsOwnPassword(): void
     {

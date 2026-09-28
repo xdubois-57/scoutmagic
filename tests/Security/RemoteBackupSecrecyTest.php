@@ -322,7 +322,7 @@ final class RemoteBackupSecrecyTest extends TestCase
         );
 
         $this->assertStringContainsString(
-            '$secretManager->writeSecrets($secrets);',
+            '$secretManager->updateSecrets(',
             substr($bootstrap, $at, 2000),
             'the retired keys are listed but the blob is never rewritten without them.'
         );

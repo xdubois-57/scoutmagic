@@ -1175,7 +1175,9 @@ class MaintenanceController extends AbstractController
             AuthSession::getUserAccountId()
         );
 
-        return $this->json(['success' => true, 'password' => $password]);
+        // A credential in the body: no browser or proxy keeps a copy.
+        return $this->json(['success' => true, 'password' => $password])
+            ->setHeader('Cache-Control', 'no-store');
     }
 
     /**
@@ -1779,9 +1781,11 @@ class MaintenanceController extends AbstractController
         $wasConfigured = $this->webhookSecret() !== '';
         $newSecret = bin2hex(random_bytes(32));
 
-        $secrets = $this->secretManager->readSecrets();
-        $secrets['github_webhook_secret'] = $newSecret;
-        $this->secretManager->writeSecrets($secrets);
+        $this->secretManager->updateSecrets(static function (array $secrets) use ($newSecret): array {
+            $secrets['github_webhook_secret'] = $newSecret;
+
+            return $secrets;
+        });
 
         $userId = AuthSession::getUserAccountId();
         $this->journalService->log(

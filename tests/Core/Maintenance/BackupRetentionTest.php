@@ -221,6 +221,7 @@ final class BackupRetentionTest extends TestCase
             $this->assertSame($keptPassword, $passwords->passwordFor($kept));
         } finally {
             @unlink($this->storagePath . '/config/secrets.enc');
+            @unlink($this->storagePath . '/config/secrets.enc.lock');
             @unlink($this->storagePath . '/keys/master.key');
             @rmdir($this->storagePath . '/config');
             @rmdir($this->storagePath . '/keys');

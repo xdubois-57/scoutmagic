@@ -165,7 +165,10 @@ class SecretManager
         // backup passwords gone at once. A rename is atomic on the same
         // filesystem: a reader sees the old file or the new one.
         $temporary = $this->secretsPath . '.' . bin2hex(random_bytes(6)) . '.tmp';
-        if (file_put_contents($temporary, $encoded) === false) {
+        // Short writes too: a disk that fills up mid-write can return a
+        // byte count rather than false, and half a blob renamed over the
+        // whole one is exactly what the rename is here to prevent.
+        if (file_put_contents($temporary, $encoded) !== strlen($encoded)) {
             @unlink($temporary);
             throw new \RuntimeException('Failed to write the secrets file.');
         }

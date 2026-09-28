@@ -86,7 +86,7 @@ class InstallationIdentityServiceTest extends TestCase
 
     protected function tearDown(): void
     {
-        foreach (['/config/secrets.enc', '/keys/master.key'] as $file) {
+        foreach (['/config/secrets.enc', '/config/secrets.enc.lock', '/keys/master.key'] as $file) {
             if (is_file($this->tempDir . $file)) {
                 unlink($this->tempDir . $file);
             }

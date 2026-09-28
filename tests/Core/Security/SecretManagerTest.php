@@ -101,7 +101,15 @@ class SecretManagerTest extends TestCase
         $manager->generateMasterKey();
 
         $manager->writeSecrets(['a' => '1']);
+        $before = (string) file_get_contents($this->secretsPath);
+        // A reader holding the old file open still reads the old file: the
+        // new one replaced it, rather than truncating and refilling it.
+        $reader = fopen($this->secretsPath, 'r');
         $manager->writeSecrets(['a' => '2']);
+        if (PHP_OS_FAMILY !== 'Windows') {
+            $this->assertSame($before, stream_get_contents($reader));
+        }
+        fclose($reader);
 
         $this->assertSame(['secrets.enc'], array_values(array_diff(scandir(dirname($this->secretsPath)), ['.', '..'])));
         $this->assertSame(['a' => '2'], $manager->readSecrets());

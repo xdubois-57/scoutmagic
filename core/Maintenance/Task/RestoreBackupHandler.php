@@ -1073,6 +1073,14 @@ class RestoreBackupHandler implements TaskHandlerInterface
             // An archive of this server: the site kept the password it
             // generated for it (issue #619, IT-03), so nobody has to type it.
             $password = BackupPasswords::forStorage($storagePath)->passwordFor($backup->id);
+            // Said here, before the database is touched: found missing only
+            // at extraction, it would cost a restore and a rollback.
+            if ($password === null) {
+                throw new BackupException(
+                    'Le mot de passe de cette sauvegarde n\'est plus conservé sur ce serveur : '
+                    . 'téléversez l\'archive avec son mot de passe.'
+                );
+            }
         }
 
         return [$dbDumpPath, $filesZipPath, $needsPassword ? $password : null, null];

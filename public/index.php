@@ -339,7 +339,12 @@ if (!VapidKeyPairFactory::isValid(
     $vapidKeys = VapidKeyPairFactory::createValid();
     $secrets['vapid_public_key'] = $vapidKeys['publicKey'];
     $secrets['vapid_private_key'] = $vapidKeys['privateKey'];
-    $secretManager->writeSecrets($secrets);
+    $secretManager->updateSecrets(static function (array $current) use ($vapidKeys): array {
+        $current['vapid_public_key'] = $vapidKeys['publicKey'];
+        $current['vapid_private_key'] = $vapidKeys['privateKey'];
+
+        return $current;
+    });
 }
 
 // site_name from secrets used as fallback during settings migration
@@ -1993,12 +1998,15 @@ if ($settingService->get('settings_migrated') !== '1') {
     $secretKeysToKeep = ['db_host', 'db_port', 'db_name', 'db_user', 'db_password', 'smtp_host', 'smtp_port',
         'smtp_user', 'smtp_password', 'mail_mode', 'encryption_key', 'blind_index_key', 'admin_email'];
     $cleanedSecrets = [];
-    foreach ($secretKeysToKeep as $sk) {
-        if (isset($secrets[$sk])) {
-            $cleanedSecrets[$sk] = $secrets[$sk];
+    $secretManager->updateSecrets(static function (array $current) use ($secretKeysToKeep, &$cleanedSecrets): array {
+        foreach ($secretKeysToKeep as $sk) {
+            if (isset($current[$sk])) {
+                $cleanedSecrets[$sk] = $current[$sk];
+            }
         }
-    }
-    $secretManager->writeSecrets($cleanedSecrets);
+
+        return $cleanedSecrets;
+    });
     $secrets = $cleanedSecrets;
 }
 
@@ -2207,10 +2215,16 @@ if ($settingService->get('remote_backup_settings_pruned') !== '1') {
         foreach ($carriedOver as $retired) {
             unset($secrets[$retired]);
         }
-        // Read-then-write over the whole blob, like every other writer of
-        // this file; asked for only when there is something to remove, so a
-        // fresh installation never rewrites it to no purpose.
-        $secretManager->writeSecrets($secrets);
+        // Read-then-write over the whole blob under the secrets lock;
+        // asked for only when there is something to remove, so a fresh
+        // installation never rewrites it to no purpose.
+        $secretManager->updateSecrets(static function (array $current) use ($retiredSecrets): array {
+            foreach ($retiredSecrets as $retired) {
+                unset($current[$retired]);
+            }
+
+            return $current;
+        });
     }
 
     $settingRepo->updateValue(null, 'remote_backup_settings_pruned', '1');
