@@ -2937,9 +2937,21 @@ deux sens : sans déclencheur actif, l'absence de `mail_provider_circuit_opened`
 rougirait, et le décompte à `FAILURES_BEFORE_OPEN + 1` aussi. Les deux passent,
 donc le déclencheur refuse bien les écritures.
 
-Le `exec()` restant du fichier appartient au test de compteur, antérieur à ce lot :
-laissé tel quel plutôt que d'élargir la PR, et signalé dans la réponse au
-relecteur.
+Le `exec()` restant du fichier appartenait au test de compteur, antérieur à ce
+lot : laissé tel quel plutôt que d'élargir la PR, et ouvert en **#679**. Corrigé
+depuis, dans une PR qui lui est propre — le mainteneur a demandé cette issue
+nommément, ce qui n'est pas le cas prévu par la règle « faire rider la correction
+sur le changement suivant » mais une instruction qui la précède. Le dire ainsi
+plutôt que de se donner le beau rôle : la règle n'a pas été mise à l'épreuve ici,
+elle a été court-circuitée par une demande explicite, et c'est très bien.
+`MailTransportChainTest` ne contient plus aucun `PDO::exec()`.
+
+Sa correction a demandé la même vérification que les trois premières, et elle
+n'était pas rhétorique : le retrait de la mise en scène — déclencheur rendu
+inoffensif — rougit sur « Failed asserting that an array contains
+`mail_send_counter_failed` ». Le `CREATE TRIGGER` préparé crée donc bien un
+déclencheur qui refuse l'écriture, au lieu de rendre le test vert pour la
+mauvaise raison.
 
 #### La règle enfreinte dans le commit même qui l'écrivait
 
