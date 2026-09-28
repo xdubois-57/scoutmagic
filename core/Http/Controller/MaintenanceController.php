@@ -373,6 +373,11 @@ class MaintenanceController extends AbstractController
             }
         }
 
+        // Probed once: the page reports it, and the backup list needs it
+        // to tell an archive written in clear from one whose password was
+        // never kept.
+        $zipEncryptionSupported = $this->backupService->supportsZipEncryption();
+
         return [
             'abandoned_migration' => $abandonedMigration,
             // The line Santé de l'hébergement shows under a cron that is not
@@ -455,9 +460,9 @@ class MaintenanceController extends AbstractController
             // BackupRetention), and the screen's own « voir plus » needs
             // the rest to have something to reveal. BACKUPS_LISTED is a
             // safety belt on a table retention already keeps small.
-            'backups' => $this->backupList(),
+            'backups' => $this->backupList($zipEncryptionSupported),
             'backups_shown_at_once' => self::BACKUPS_SHOWN_AT_ONCE,
-            'zip_encryption_supported' => $this->backupService->supportsZipEncryption(),
+            'zip_encryption_supported' => $zipEncryptionSupported,
             // 'weekly' — the registered default since issue #286; a
             // fallback still spelling 'monthly' would put the select on a
             // value the installation does not hold.
@@ -1235,7 +1240,7 @@ class MaintenanceController extends AbstractController
      *
      * @return array<int, array<string, mixed>>
      */
-    private function backupList(): array
+    private function backupList(bool $zipEncryptionSupported): array
     {
         // Read once for the whole list. A secrets file that cannot be read
         // costs the reveal buttons, never the page.
@@ -1271,11 +1276,14 @@ class MaintenanceController extends AbstractController
                 // IT-03, encrypted with a password its operator chose and
                 // the site never kept. The picker shows the field for it
                 // alone; every other archive of this server needs none.
-                'needsTypedPassword' => in_array(
-                    $backup->type,
-                    ['full_config', 'full_no_gallery', 'full_with_gallery'],
-                    true
-                ) && !in_array($backup->id, $withPassword, true),
+                //
+                // Not on a host that cannot encrypt: there, a full backup
+                // with no kept password is one IT-04 wrote in clear, and
+                // asking for a password it never had would only mislead.
+                // RestoreBackupHandler reads the archive itself either way.
+                'needsTypedPassword' => $zipEncryptionSupported
+                    && in_array($backup->type, ['full_config', 'full_no_gallery', 'full_with_gallery'], true)
+                    && !in_array($backup->id, $withPassword, true),
                 // What the last verification pass found (§8.101). Null
                 // where there is nothing to say — a backup taken an hour
                 // ago has not been re-read yet, and a badge saying so

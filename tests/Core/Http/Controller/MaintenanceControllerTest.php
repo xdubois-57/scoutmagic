@@ -2385,6 +2385,34 @@ class MaintenanceControllerTest extends TestCase
         $this->assertStringContainsString('Aucune sauvegarde de ce serveur ne peut être restaurée', $body);
     }
 
+    /**
+     * **On a host that cannot encrypt, no full backup asks for a password**
+     * (IT-06 review): there, a full backup with no kept password was written
+     * in clear by IT-04, and a field asking for its password would ask for
+     * one that never existed.
+     */
+    public function testWhereArchivesCannotBeEncryptedNoFullBackupAsksForAPassword(): void
+    {
+        $clear = $this->backupRepository->create('full_config', 1);
+        $this->backupRepository->markCompleted($clear, 1, 1);
+        $controller = ($this->rebuildController)(new class (
+            $this->connection,
+            $this->storagePath,
+            dirname($this->storagePath)
+        ) extends BackupService {
+            public function supportsZipEncryption(): bool
+            {
+                return false;
+            }
+        });
+
+        $request = new Request('GET', '/config/maintenance/sauvegardes-recentes', [], [], [], []);
+        $body = $controller->recentBackupsPage($request, [])->getBody();
+
+        $this->assertStringContainsString('<option value="' . $clear . '">', $body);
+        $this->assertStringNotContainsString('data-needs-password', $body);
+    }
+
     // --- Mises à jour automatiques ---
 
     public function testSaveAutoUpdatePreferencesPersistsAllFourFields(): void
