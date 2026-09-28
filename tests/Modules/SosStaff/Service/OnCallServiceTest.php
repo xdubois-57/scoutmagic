@@ -43,7 +43,7 @@ class OnCallServiceTest extends TestCase
         $settingService->register('transition_hour', '10:00', 'text', 'Heure', 'desc', 'sos_staff');
         $settingService->register('email_notifications_enabled', '1', 'boolean', 'Emails', 'desc', 'sos_staff');
 
-        $settingsService = $this->createMock(SosSettingsService::class);
+        $settingsService = $this->createStub(SosSettingsService::class);
         $settingsService->method('getTransitionHour')->willReturn('10:00');
 
         $this->service = new OnCallService($this->onCallRepository, $this->schedulerService, $settingsService);

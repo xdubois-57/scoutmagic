@@ -61,7 +61,7 @@ class MemberBounceNotifierTest extends TestCase
      */
     private function capturingNotifications(): \Core\Notification\NotificationService
     {
-        $notifications = $this->createMock(\Core\Notification\NotificationService::class);
+        $notifications = $this->createStub(\Core\Notification\NotificationService::class);
         $notifications->method('dispatch')->willReturnCallback(
             function (string $typeId, array $recipients, array $payload): void {
                 $this->sent[] = [

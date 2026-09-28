@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tests\Core\Page;
 
 use Core\Http\Controller\EditableContentController;
-use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Page\TextPageContentAuthorizer;
 use Core\Page\TextPageRepository;
 use Core\Page\TextPageService;
@@ -72,11 +72,7 @@ class TextPageContentWriteRbacTest extends TestCase
         $token = bin2hex(random_bytes(32));
         $_SESSION['_csrf_token'] = $token;
 
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/api/editable-content', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode([
+        $request = new RequestWithInput('POST', '/api/editable-content', [], [], [], [], json_encode([
             'key' => $key,
             'value' => '<p>Texte injecté.</p>',
             'type' => 'rich_text',

@@ -57,15 +57,15 @@ class DelegatedAlbumServiceTest extends TestCase
         $this->mediaRepository = new MediaRepository($this->pdo);
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->storageLocationRepository = new StorageLocationRepository($this->pdo, $encryption);
-        $this->storageBackendFactory = $this->createMock(StorageBackendFactory::class);
-        $settingService = $this->createMock(SettingService::class);
+        $this->storageBackendFactory = $this->createStub(StorageBackendFactory::class);
+        $settingService = $this->createStub(SettingService::class);
         $settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);
         $storageWiring = GalleryStorageWiring::build(
                 $this->pdo, $encryption, $settingService, sys_get_temp_dir(), $this->albumRepository
             );
         $this->storageLocationService = $storageWiring->locationService;
         $this->galleryLocationService = $storageWiring->galleryLocations;
-        $mediaService = $this->createMock(MediaService::class);
+        $mediaService = $this->createStub(MediaService::class);
 
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
         $stmt->execute(['enc', 'idx']);
@@ -241,13 +241,13 @@ class DelegatedAlbumServiceTest extends TestCase
         };
 
         $service = new DelegatedAlbumService(
-            $racingRepository, $this->mediaRepository, $this->createMock(MediaService::class),
+            $racingRepository, $this->mediaRepository, $this->createStub(MediaService::class),
             $this->storageLocationRepository,
             $this->storageLocationService,
             new GalleryLocationService(
                 $this->storageLocationService,
                 $racingRepository,
-                $this->createMock(SettingService::class)
+                $this->createStub(SettingService::class)
             ),
             $this->storageBackendFactory, new ScoutYearService($this->pdo)
         );
@@ -354,7 +354,7 @@ class DelegatedAlbumServiceTest extends TestCase
         // can go and re-point. ARCHITECTURE.md § 8.107 states the rule and
         // StorageCapabilities::require() is where it normally lives; this
         // call site builds the same sentence from the same enum.
-        $backend = $this->createMock(StorageBackendInterface::class);
+        $backend = $this->createStub(StorageBackendInterface::class);
         $this->storageBackendFactory->method('create')->willReturn($backend);
 
         $from = $this->service->ensureAlbum('some_owner_type', 42, 'Source', '2026-01-01', $this->authorId);

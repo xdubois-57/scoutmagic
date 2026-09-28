@@ -5,7 +5,8 @@
          colors="true"
          failOnRisky="true"
          failOnWarning="true"
-         failOnPhpunitDeprecation="true">
+         failOnPhpunitDeprecation="true"
+         failOnPhpunitNotice="true">
     <!--
         failOnRisky, because a risky test is a test saying the code it
         exercises broke the state of the process, and without this the
@@ -24,6 +25,12 @@
         deprecations were with() without expects(), which PHPUnit 14
         removes. At zero, the next one is a red run rather than a line
         nobody reads.
+
+        failOnPhpunitNotice followed at zero too (#665): 3 603 notices, a
+        mock with no expectation each, most of them doubles that only had
+        to answer and are stubs now. Where a class shares one double
+        between tests that verify it and tests that only read from it, the
+        class says so with #[AllowMockObjectsWithoutExpectations].
     -->
     <testsuites>
         <testsuite name="Core">

@@ -46,6 +46,11 @@ use Modules\Gallery\Service\GalleryLocationService;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
+// This class builds its doubles once (in setUp() or a shared helper) and
+// hands the same ones to every test: some tests set expectations on
+// them, the others only need their answers, and PHPUnit would report
+// each of those as a mock with no expectation (issue #665).
+#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class AlbumServiceTest extends TestCase
 {
     private GalleryLocationService $galleryLocationService;
@@ -75,7 +80,7 @@ class AlbumServiceTest extends TestCase
         $this->albumRepository = new AlbumRepository($this->pdo);
         $this->mediaRepository = new MediaRepository($this->pdo);
         $mediaRepository = $this->mediaRepository;
-        $this->accessService = $this->createMock(GalleryAccessService::class);
+        $this->accessService = $this->createStub(GalleryAccessService::class);
         $this->accessService->method('canManageAlbum')->willReturn(true);
         // A page carrying no Open Graph tag: the shape fetch() answers then,
         // where an unconfigured double would answer [] and leave every key
@@ -85,7 +90,7 @@ class AlbumServiceTest extends TestCase
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->storageLocationRepository = new StorageLocationRepository($this->pdo, $encryption);
         $this->storageBackendFactory = $this->createMock(StorageBackendFactory::class);
-        $settingService = $this->createMock(SettingService::class);
+        $settingService = $this->createStub(SettingService::class);
         $settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);
         $storageWiring = GalleryStorageWiring::build(
                 $this->pdo, $encryption, $settingService, sys_get_temp_dir(), $this->albumRepository
@@ -171,7 +176,7 @@ class AlbumServiceTest extends TestCase
 
     public function testCreateExternalAlbumFetchesTitleFromOgDataWhenTitleIsBlank(): void
     {
-        $ogScraperService = $this->createMock(OgScraperService::class);
+        $ogScraperService = $this->createStub(OgScraperService::class);
         $ogScraperService->method('fetch')->willReturn(['title' => 'Album de la famille Dupont', 'description' => 'Desc', 'image' => 'https://example.com/img.jpg']);
         $settingService = $this->settingServiceAllowingEverything();
         $service = new AlbumService(
@@ -214,7 +219,7 @@ class AlbumServiceTest extends TestCase
 
     public function testCreateExternalAlbumLeavesOgImageFileIdNullWhenTheImageDownloadFails(): void
     {
-        $ogScraperService = $this->createMock(OgScraperService::class);
+        $ogScraperService = $this->createStub(OgScraperService::class);
         $ogScraperService->method('fetch')->willReturn(['title' => 'Titre', 'description' => 'Desc', 'image' => 'https://example.com/img.jpg']);
         $ogScraperService->method('fetchImageBytes')->willReturn(null);
         $service = new AlbumService(
@@ -231,7 +236,7 @@ class AlbumServiceTest extends TestCase
 
     public function testCreateExternalAlbumRequiresATitleWhenOgFetchYieldsNoTitle(): void
     {
-        $ogScraperService = $this->createMock(OgScraperService::class);
+        $ogScraperService = $this->createStub(OgScraperService::class);
         $ogScraperService->method('fetch')->willReturn(['title' => '', 'description' => '', 'image' => '']);
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $this->accessService,
@@ -245,7 +250,7 @@ class AlbumServiceTest extends TestCase
 
     public function testCreateExternalAlbumKeepsAnExplicitTitleEvenWhenOgDataDiffers(): void
     {
-        $ogScraperService = $this->createMock(OgScraperService::class);
+        $ogScraperService = $this->createStub(OgScraperService::class);
         $ogScraperService->method('fetch')->willReturn(['title' => 'Titre de la page', 'description' => '', 'image' => '']);
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $this->accessService,
@@ -260,11 +265,11 @@ class AlbumServiceTest extends TestCase
 
     public function testCreateRejectsWhenTheChiefDoesNotManageTheSection(): void
     {
-        $accessService = $this->createMock(GalleryAccessService::class);
+        $accessService = $this->createStub(GalleryAccessService::class);
         $accessService->method('canManageAlbum')->willReturn(false);
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $accessService,
-            $this->createMock(OgScraperService::class), $this->storageBackendFactory, $this->storageLocationRepository,
+            $this->createStub(OgScraperService::class), $this->storageBackendFactory, $this->storageLocationRepository,
             $this->storageLocationService, $this->galleryLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(), $this->schedulerService, $this->uploadHandler
         );
 
@@ -341,7 +346,7 @@ class AlbumServiceTest extends TestCase
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $storageLocationRepository = new StorageLocationRepository($pdo, $encryption);
         $albumRepository = new AlbumRepository($pdo);
-        $storageBackendFactory = $this->createMock(StorageBackendFactory::class);
+        $storageBackendFactory = $this->createStub(StorageBackendFactory::class);
         $settingService = $this->settingServiceAllowingEverything();
         // Deliberately its OWN connection: this case is about an
         // installation with no location declared at all, which the shared
@@ -357,7 +362,7 @@ class AlbumServiceTest extends TestCase
         $galleryLocationService = $storageWiring->galleryLocations;
         $service = new AlbumService(
             $albumRepository, new MediaRepository($pdo), $this->accessService,
-            $this->createMock(OgScraperService::class), $storageBackendFactory, $storageLocationRepository,
+            $this->createStub(OgScraperService::class), $storageBackendFactory, $storageLocationRepository,
             $storageLocationService, $galleryLocationService, new ScoutYearService($pdo), $settingService,
             $this->schedulerService, new UploadHandler(new FileRepository($pdo), sys_get_temp_dir())
         );
@@ -651,7 +656,7 @@ class AlbumServiceTest extends TestCase
 
     private function settingServiceAllowingEverything(): SettingService
     {
-        $settingService = $this->createMock(SettingService::class);
+        $settingService = $this->createStub(SettingService::class);
         $settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);
         return $settingService;
     }
@@ -836,7 +841,7 @@ class AlbumServiceTest extends TestCase
             $fileIds[] = $fileId;
             $this->mediaRepository->create($id, 'photo', $fileId, 0, null);
         }
-        $backend = $this->createMock(\Core\Storage\Location\Backend\StorageBackendInterface::class);
+        $backend = $this->createStub(\Core\Storage\Location\Backend\StorageBackendInterface::class);
         $this->storageBackendFactory->method('create')->willReturn($backend);
 
         $this->service->delete($id, Role::CHIEF, 'chief@test.com');
@@ -874,7 +879,7 @@ class AlbumServiceTest extends TestCase
         $jpegBytes = (string) ob_get_clean();
         imagedestroy($image);
 
-        $ogScraperService = $this->createMock(OgScraperService::class);
+        $ogScraperService = $this->createStub(OgScraperService::class);
         $ogScraperService->method('fetch')->willReturn(['title' => 'Titre', 'description' => 'Desc', 'image' => 'https://example.com/img.jpg']);
         $ogScraperService->method('fetchImageBytes')->willReturn($jpegBytes);
         $service = $this->serviceWithScraper($ogScraperService);
@@ -913,7 +918,7 @@ class AlbumServiceTest extends TestCase
             $notificationRepository,
             new PushSubscriptionRepository($this->pdo, $encryption),
             new NotificationPreferenceRepository($this->pdo),
-            $this->createMock(WebPush::class),
+            $this->createStub(WebPush::class),
             $settingService,
             new JournalService(new JournalRepository($this->pdo)),
             new SchedulerService(new SchedulerRepository($this->pdo)),
@@ -938,7 +943,7 @@ class AlbumServiceTest extends TestCase
         $this->memberOfTheSectionByBlindIndex('idx');
 
         $service = new AlbumService(
-            $this->albumRepository, new MediaRepository($this->pdo), $this->accessService, $this->createMock(OgScraperService::class),
+            $this->albumRepository, new MediaRepository($this->pdo), $this->accessService, $this->createStub(OgScraperService::class),
             $this->storageBackendFactory, $this->storageLocationRepository, $this->storageLocationService,
             $this->galleryLocationService,
             new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(), $this->schedulerService, $this->uploadHandler,

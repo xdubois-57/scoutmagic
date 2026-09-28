@@ -727,7 +727,7 @@ class ScoutYearTransitionAccessTest extends TestCase
 
     private function buildAuthStack(MemberYearRepository $memberYearRepo): void
     {
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
         $mailService->method('send')->willReturnCallback(
             function (string $to, string $subject, string $bodyHtml, string $bodyText): void {
                 $this->sentMail = [

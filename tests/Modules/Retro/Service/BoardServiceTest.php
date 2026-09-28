@@ -32,6 +32,11 @@ use Twig\Environment;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
+// This class builds its doubles once (in setUp() or a shared helper) and
+// hands the same ones to every test: some tests set expectations on
+// them, the others only need their answers, and PHPUnit would report
+// each of those as a mock with no expectation (issue #665).
+#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class BoardServiceTest extends TestCase
 {
     private \PDO $pdo;
@@ -51,7 +56,7 @@ class BoardServiceTest extends TestCase
         $this->journalService = new JournalService(new JournalRepository($this->pdo));
         $this->schedulerService = new SchedulerService(new SchedulerRepository($this->pdo));
         $this->memberService = $this->createMock(MemberService::class);
-        $this->sectionService = $this->createMock(SectionService::class);
+        $this->sectionService = $this->createStub(SectionService::class);
 
         $this->twig = TestTwig::create(['retro']);
     }
@@ -64,7 +69,7 @@ class BoardServiceTest extends TestCase
     ): BoardService {
         return new BoardService(
             $this->boardRepository, new CommentRepository($this->pdo), $this->memberService, $this->sectionService,
-            $this->schedulerService, $this->journalService, $mailService ?? $this->createMock(MailService::class),
+            $this->schedulerService, $this->journalService, $mailService ?? $this->createStub(MailService::class),
             EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'retro'), 'Test Unit', 'https://example.test',
             $shortUrlService, $calendarEventLookup, $summaryService
         );
@@ -125,7 +130,7 @@ class BoardServiceTest extends TestCase
 
     public function testCreateWithAnEventResolvesTheDateServerSideIgnoringTheClient(): void
     {
-        $calendarLookup = $this->createMock(CalendarEventLookupInterface::class);
+        $calendarLookup = $this->createStub(CalendarEventLookupInterface::class);
         $calendarLookup->method('findEventById')->willReturn(new EventSummary(42, 'Camp d\'été', 'Animateurs', '2026-08-05', '2026-08-10'));
 
         $board = $this->service(null, $calendarLookup)->create(
@@ -145,7 +150,7 @@ class BoardServiceTest extends TestCase
      */
     public function testCreateWithAnEventResolvesTheTitleServerSideEvenWhenTheClientSendsNone(): void
     {
-        $calendarLookup = $this->createMock(CalendarEventLookupInterface::class);
+        $calendarLookup = $this->createStub(CalendarEventLookupInterface::class);
         $calendarLookup->method('findEventById')->willReturn(new EventSummary(42, 'Camp d\'été', 'Animateurs', '2026-08-05', '2026-08-10'));
 
         $board = $this->service(null, $calendarLookup)->create(
@@ -157,7 +162,7 @@ class BoardServiceTest extends TestCase
 
     public function testUpdateWithAnEventResolvesTheTitleServerSideEvenWhenTheClientSendsNone(): void
     {
-        $calendarLookup = $this->createMock(CalendarEventLookupInterface::class);
+        $calendarLookup = $this->createStub(CalendarEventLookupInterface::class);
         $calendarLookup->method('findEventById')->willReturn(new EventSummary(42, 'Camp d\'été', 'Animateurs', '2026-08-05', '2026-08-10'));
         $service = $this->service(null, $calendarLookup);
 
@@ -172,7 +177,7 @@ class BoardServiceTest extends TestCase
 
     public function testCreateThrowsWhenLinkedEventDoesNotExist(): void
     {
-        $calendarLookup = $this->createMock(CalendarEventLookupInterface::class);
+        $calendarLookup = $this->createStub(CalendarEventLookupInterface::class);
         $calendarLookup->method('findEventById')->willReturn(null);
 
         $this->expectException(RetroException::class);
@@ -189,7 +194,7 @@ class BoardServiceTest extends TestCase
 
     public function testCreateUsesTheShortUrlWhenAvailable(): void
     {
-        $shortUrlService = $this->createMock(ShortUrlService::class);
+        $shortUrlService = $this->createStub(ShortUrlService::class);
         $shortUrlService->method('createShortUrl')->willReturn('abc123');
 
         $board = $this->service($shortUrlService)->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
@@ -200,7 +205,7 @@ class BoardServiceTest extends TestCase
 
     public function testCreateSurvivesAShortUrlServiceFailure(): void
     {
-        $shortUrlService = $this->createMock(ShortUrlService::class);
+        $shortUrlService = $this->createStub(ShortUrlService::class);
         $shortUrlService->method('createShortUrl')->willThrowException(new \RuntimeException('boom'));
 
         $board = $this->service($shortUrlService)->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
@@ -282,7 +287,7 @@ class BoardServiceTest extends TestCase
 
     public function testCloseGeneratesAiSummaryWhenAvailable(): void
     {
-        $summaryService = $this->createMock(SummaryService::class);
+        $summaryService = $this->createStub(SummaryService::class);
         $summaryService->method('isAvailable')->willReturn(true);
         $summaryService->method('generate')->willReturn('- Thème principal');
         $service = $this->service(null, null, $summaryService);
@@ -295,7 +300,7 @@ class BoardServiceTest extends TestCase
 
     public function testCloseSurvivesAiSummaryFailure(): void
     {
-        $summaryService = $this->createMock(SummaryService::class);
+        $summaryService = $this->createStub(SummaryService::class);
         $summaryService->method('isAvailable')->willReturn(true);
         $summaryService->method('generate')->willThrowException(new RetroException('AI down'));
         $service = $this->service(null, null, $summaryService);
@@ -331,7 +336,7 @@ class BoardServiceTest extends TestCase
 
     public function testCloseIncludesTheAiSummaryInTheEmailWhenGenerated(): void
     {
-        $summaryService = $this->createMock(SummaryService::class);
+        $summaryService = $this->createStub(SummaryService::class);
         $summaryService->method('isAvailable')->willReturn(true);
         $summaryService->method('generate')->willReturn('- Résumé IA');
         $mailService = $this->createMock(MailService::class);
@@ -400,7 +405,7 @@ class BoardServiceTest extends TestCase
 
     public function testCloseSucceedsEvenWhenTheMailServiceThrows(): void
     {
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
         $mailService->method('send')->willThrowException(new \RuntimeException('SMTP down'));
         $service = $this->service(mailService: $mailService);
         $board = $service->create(
@@ -415,7 +420,7 @@ class BoardServiceTest extends TestCase
 
     public function testCloseJournalLogsWhenTheMailServiceThrows(): void
     {
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
         $mailService->method('send')->willThrowException(new \RuntimeException('SMTP down'));
         $service = $this->service(mailService: $mailService);
         $board = $service->create(

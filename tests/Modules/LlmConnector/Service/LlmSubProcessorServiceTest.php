@@ -24,9 +24,9 @@ class LlmSubProcessorServiceTest extends TestCase
      */
     private function service(?array $provider, array $models = []): LlmSubProcessorService
     {
-        $providerRepository = $this->createMock(ProviderRepository::class);
+        $providerRepository = $this->createStub(ProviderRepository::class);
         $providerRepository->method('findFirstActive')->willReturn($provider);
-        $modelRepository = $this->createMock(ProviderModelRepository::class);
+        $modelRepository = $this->createStub(ProviderModelRepository::class);
         $modelRepository->method('findByProvider')->willReturn($models);
 
         return new LlmSubProcessorService($providerRepository, $modelRepository);

@@ -124,8 +124,8 @@ class RegistrationRbacTest extends TestCase
         );
         $this->requestController = new RegistrationRequestController(
             $twig, $requestRepository, $ageBracketRepository, $sectionService, $feeCategoryRepository, $feeEstimationService,
-            $statusService, $this->createMock(\Modules\Registration\Service\RequestEmailService::class),
-            $this->createMock(\Modules\Registration\Service\MigrationService::class),
+            $statusService, $this->createStub(\Modules\Registration\Service\RequestEmailService::class),
+            $this->createStub(\Modules\Registration\Service\MigrationService::class),
             new MemberRepository($this->pdo), new MemberYearRepository($this->pdo), $scoutYearResolver, $scoutYearService, $slotService,
             new MemberService(
     new MemberYearRepository($this->pdo),

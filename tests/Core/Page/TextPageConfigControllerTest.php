@@ -11,6 +11,7 @@ namespace Tests\Core\Page;
 
 use Core\Http\Controller\TextPageConfigController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Page\TextPageRepository;
@@ -121,11 +122,7 @@ class TextPageConfigControllerTest extends TestCase
     private function postJson(string $path, array $payload, string $action): \Core\Http\Response
     {
         $token = $this->token();
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', $path, [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode($payload + ['_csrf_token' => $token]));
+        $request = new RequestWithInput('POST', $path, [], [], [], [], json_encode($payload + ['_csrf_token' => $token]));
 
         return $this->controller->{$action}($request, []);
     }
@@ -462,11 +459,7 @@ class TextPageConfigControllerTest extends TestCase
     {
         $page = $this->pages->create('ASBL', 'Notre ASBL', MenuBuilder::MENU_NOTRE_UNITE, null);
 
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/config/pages-de-texte/ordre', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn('not json at all');
+        $request = new RequestWithInput('POST', '/config/pages-de-texte/ordre', [], [], [], [], 'not json at all');
 
         $response = $this->controller->{$action}($request, []);
 
@@ -480,11 +473,7 @@ class TextPageConfigControllerTest extends TestCase
         $page = $this->pages->create('ASBL', 'Notre ASBL', MenuBuilder::MENU_NOTRE_UNITE, null);
         $_SESSION['_csrf_token'] = bin2hex(random_bytes(32));
 
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/config/pages-de-texte/ordre', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode([
+        $request = new RequestWithInput('POST', '/config/pages-de-texte/ordre', [], [], [], [], json_encode([
             'id' => $page->id,
             'ids' => [],
             'active' => false,

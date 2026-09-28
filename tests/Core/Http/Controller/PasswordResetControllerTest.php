@@ -42,7 +42,7 @@ class PasswordResetControllerTest extends TestCase
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->userRepo = new UserAccountRepository($this->pdo, $this->encryption);
 
-        $mailService = $this->createMock(\Core\Mail\MailService::class);
+        $mailService = $this->createStub(\Core\Mail\MailService::class);
         $twig = new Environment(new ArrayLoader([
             'email/password_reset.html.twig' => '{{ reset_url }}',
             'email/password_reset.text.twig' => '{{ reset_url }}',
@@ -51,7 +51,7 @@ class PasswordResetControllerTest extends TestCase
         $twig->addGlobal('site_name', 'Test Unit');
         $twig->addGlobal('csp_nonce', 'x');
 
-        $connection = $this->createMock(Connection::class);
+        $connection = $this->createStub(Connection::class);
         $connection->method('getPdo')->willReturn($this->pdo);
 
         $this->service = new PasswordResetService($connection, $this->encryption, $mailService, EmailTemplateRendererFactory::overTestDatabase($this->pdo, $twig), 'https://example.com', 'Test Unit');

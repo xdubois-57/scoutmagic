@@ -9,6 +9,7 @@ use Core\ScoutYear\EffectiveScoutYear;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Http\FrontController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Http\Router;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
@@ -80,11 +81,11 @@ class BannerConfigControllerTest extends TestCase
         // to "authorized" by default so every existing CRUD test below
         // keeps exercising its own behaviour, not this gate. The dedicated
         // denial tests further down override this per-instance.
-        $this->memberService = $this->createMock(MemberService::class);
+        $this->memberService = $this->createStub(MemberService::class);
         $this->memberService->method('isUnitChief')->willReturn(true);
         // The year the CALLER is served, preview excluded — see
         // ScoutYearResolver::getAuthorizationYear().
-        $this->scoutYearService = $this->createMock(ScoutYearResolver::class);
+        $this->scoutYearService = $this->createStub(ScoutYearResolver::class);
         $this->scoutYearService->method('getAuthorizationYear')
             ->willReturn(new EffectiveScoutYear(1, '2025-2026', null));
 
@@ -106,11 +107,7 @@ class BannerConfigControllerTest extends TestCase
      */
     private function jsonRequest(array $data): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/config/banner/x', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput('POST', '/config/banner/x', [], [], [], [], json_encode($data));
         return $request;
     }
 
@@ -408,7 +405,7 @@ class BannerConfigControllerTest extends TestCase
      */
     public function testAdminWhoIsNotUnitChiefIsDenied(): void
     {
-        $memberService = $this->createMock(MemberService::class);
+        $memberService = $this->createStub(MemberService::class);
         $memberService->method('isUnitChief')->willReturn(false);
         $controller = new BannerConfigController(
             $this->twig, $this->bannerService, new JournalService(new JournalRepository($this->pdo)),
@@ -423,7 +420,7 @@ class BannerConfigControllerTest extends TestCase
 
     public function testActionsRejectAnAdminWhoIsNotUnitChief(): void
     {
-        $memberService = $this->createMock(MemberService::class);
+        $memberService = $this->createStub(MemberService::class);
         $memberService->method('isUnitChief')->willReturn(false);
         $controller = new BannerConfigController(
             $this->twig, $this->bannerService, new JournalService(new JournalRepository($this->pdo)),

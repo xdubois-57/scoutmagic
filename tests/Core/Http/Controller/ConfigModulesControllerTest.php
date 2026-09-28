@@ -10,6 +10,7 @@ use Core\Cookie\CookieConsentService;
 use Core\Database\MigrationRunner;
 use Core\Http\Controller\ConfigModulesController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Http\Router;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
@@ -47,7 +48,7 @@ class ConfigModulesControllerTest extends TestCase
         $this->registryRepo = new ModuleRegistryRepository($this->pdo);
         $router = new Router();
 
-        $migrationRunner = $this->createMock(MigrationRunner::class);
+        $migrationRunner = $this->createStub(MigrationRunner::class);
         $journalRepo = new JournalRepository($this->pdo);
         $journalService = new JournalService($journalRepo);
 
@@ -523,12 +524,7 @@ class ConfigModulesControllerTest extends TestCase
      */
     private function createJsonRequest(array $data): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/config/modules/toggle', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput('POST', '/config/modules/toggle', [], [], [], [], json_encode($data));
 
         return $request;
     }

@@ -43,6 +43,11 @@ use Core\Member\Repository\SectionRepository;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
+// This class builds its doubles once (in setUp() or a shared helper) and
+// hands the same ones to every test: some tests set expectations on
+// them, the others only need their answers, and PHPUnit would report
+// each of those as a mock with no expectation (issue #665).
+#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class ResponseServiceTest extends TestCase
 {
     private \PDO $pdo;
@@ -402,7 +407,7 @@ class ResponseServiceTest extends TestCase
         $field = $this->fieldRepository->findById($fieldId);
         $this->formRepository->update($this->formId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, 7);
 
-        $structuredCommunication = $this->createMock(StructuredCommunicationInterface::class);
+        $structuredCommunication = $this->createStub(StructuredCommunicationInterface::class);
         $structuredCommunication->method('generate')->willReturn('+++100/0000/00034+++');
 
         $expectedReceivable = $this->createMock(ExpectedReceivableInterface::class);
@@ -410,10 +415,10 @@ class ResponseServiceTest extends TestCase
             ->with('news', $this->formId, 7, 1000, '+++100/0000/00034+++', 'a@test.com')
             ->willReturn(55);
 
-        $sepaQrCode = $this->createMock(SepaQrCodeInterface::class);
+        $sepaQrCode = $this->createStub(SepaQrCodeInterface::class);
         $sepaQrCode->method('generatePng')->willReturn('png-bytes');
 
-        $financeAccount = $this->createMock(FinanceAccountInterface::class);
+        $financeAccount = $this->createStub(FinanceAccountInterface::class);
         $financeAccount->method('getConfiguredAccounts')->willReturn([
             ['id' => 7, 'name' => 'Compte', 'iban' => 'BE68539007547034', 'holder_name' => 'Unité', 'section_id' => null],
         ]);
@@ -515,7 +520,7 @@ class ResponseServiceTest extends TestCase
 
     public function testAnEventWithADateSendsAnIcsAndOneWithoutDoesNot(): void
     {
-        $icsBuilder = $this->createMock(\Modules\Calendar\Api\IcsFeedBuilderInterface::class);
+        $icsBuilder = $this->createStub(\Modules\Calendar\Api\IcsFeedBuilderInterface::class);
         $icsBuilder->method('buildVirtualCalendar')->willReturn("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n");
 
         $attachments = [];

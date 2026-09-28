@@ -47,7 +47,7 @@ class TrackingControllerTest extends TestCase
         $secondaryEmailRepository = new RegistrationSecondaryEmailRepository($this->pdo, $this->encryption);
         $trackingService = new TrackingService($requestRepository, $secondaryEmailRepository, $this->encryption);
 
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
         $mailService->method('send');
         $twig = TwigFactory::create(dirname(__DIR__, 4) . '/core/View/templates', false, [
             'registration' => dirname(__DIR__, 4) . '/modules/registration/views',

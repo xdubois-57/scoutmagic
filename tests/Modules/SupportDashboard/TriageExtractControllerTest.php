@@ -12,6 +12,7 @@ use Core\File\FileRepository;
 use Core\File\StoredFileReader;
 use Core\Http\FrontController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Http\Router;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
@@ -201,11 +202,7 @@ class TriageExtractControllerTest extends TestCase
         // The body arrives on php://input, which a test cannot write to;
         // the same shape Tests\Core\Http\Controller\WebhookControllerTest
         // uses.
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/api/support/tickets/' . $this->reference . '/triage-extract', [], [], [], $server])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn($body ?? '{"github_issue_number":181}');
+        $request = new RequestWithInput('POST', '/api/support/tickets/' . $this->reference . '/triage-extract', [], [], [], $server, $body ?? '{"github_issue_number":181}');
 
         return $request;
     }

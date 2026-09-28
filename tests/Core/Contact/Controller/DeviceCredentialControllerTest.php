@@ -11,6 +11,7 @@ use Core\Contact\Controller\DeviceCredentialController;
 use Core\Contact\Device\DeviceCredentialRepository;
 use Core\Contact\Device\DeviceCredentialService;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
@@ -94,11 +95,7 @@ class DeviceCredentialControllerTest extends TestCase
      */
     private function jsonRequest(array $data): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/api/account/devices', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn((string) json_encode($data));
+        $request = new RequestWithInput('POST', '/api/account/devices', [], [], [], [], (string) json_encode($data));
 
         return $request;
     }

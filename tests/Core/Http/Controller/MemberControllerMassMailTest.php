@@ -89,7 +89,7 @@ class MemberControllerMassMailTest extends TestCase
 
     private function buildTwigCapturingContext(): Environment
     {
-        $twig = $this->getMockBuilder(Environment::class)->disableOriginalConstructor()->onlyMethods(['render'])->getMock();
+        $twig = $this->createStub(Environment::class);
         $twig->method('render')->willReturnCallback(fn($template, $context) => json_encode(array_key_exists('recent_mass_mail_emails', $context)
             ? ['has_key' => true, 'value' => $context['recent_mass_mail_emails']]
             : ['has_key' => false]));
@@ -103,8 +103,8 @@ class MemberControllerMassMailTest extends TestCase
 
         $memberEmailService = new MemberEmailService(
             new MemberEmailRepository($this->pdo, $this->encryption),
-            $this->createMock(\Core\Mail\MailService::class),
-            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createMock(Environment::class)),
+            $this->createStub(\Core\Mail\MailService::class),
+            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createStub(Environment::class)),
             new JournalService(new JournalRepository($this->pdo)),
             new SectionService(
     new SectionRepository($connection),
@@ -163,8 +163,8 @@ class MemberControllerMassMailTest extends TestCase
             new JournalService(new JournalRepository($this->pdo)),
             $this->buildMemberPageService($massMailQuery),
             new DepartureService(new DepartureRepository($this->pdo, $this->encryption), new JournalService(new JournalRepository($this->pdo))),
-            $this->createMock(SectionStaffAuthorizationService::class),
-            $this->createMock(SectionService::class)
+            $this->createStub(SectionStaffAuthorizationService::class),
+            $this->createStub(SectionService::class)
         );
     }
 

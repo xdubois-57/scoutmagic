@@ -143,11 +143,11 @@ class PostControllerTest extends TestCase
         $memberRepo = new GroupMemberRepository($this->pdo);
         $access = new GroupAccessService($memberRepo, $sectionRepo, new SectionMembershipRepository($this->pdo));
 
-        $memberService = $this->createMock(MemberService::class);
+        $memberService = $this->createStub(MemberService::class);
         $memberService->method('getLinkedMembers')->willReturn(array_map(fn(int $id) => $this->profile($id), $linkedMemberIds));
         $memberService->method('findDisplayNamesByMemberIds')->willReturn([$this->memberId => 'Akéla']);
 
-        $accountRepo = $this->createMock(UserAccountRepository::class);
+        $accountRepo = $this->createStub(UserAccountRepository::class);
         $accountRepo->method('findById')->willReturn(new UserAccount(
             $accountId,
             'parent@test.be',
@@ -159,18 +159,18 @@ class PostControllerTest extends TestCase
         ));
         $accountRepo->method('findNamesByIds')->willReturn([$accountId => ['first_name' => 'Marie', 'last_name' => 'Dupont']]);
 
-        $resolver = $this->createMock(ScoutYearResolver::class);
+        $resolver = $this->createStub(ScoutYearResolver::class);
         $resolver->method('getEffectiveYear')->willReturn(new EffectiveScoutYear($this->currentYearId, '2025-2026', null));
 
         $activityService = new GroupActivityService($this->groupRepo, $this->postRepo);
         $postService = new PostService($this->postRepo, $activityService, GroupsTestHelper::rateLimitService($this->pdo));
         $postMediaService = new PostMediaService(
-            $delegatedAlbumManager ?? $this->createMock(DelegatedAlbumManager::class),
+            $delegatedAlbumManager ?? $this->createStub(DelegatedAlbumManager::class),
             new PostMediaRepository($this->pdo), $this->groupRepo, new \Modules\Groups\Repository\ReplyRepository($this->pdo)
         );
         $postLinkRepo = new PostLinkRepository($this->pdo);
         $postLinkService = new PostLinkService(
-            $linkPreviewFetcher ?? $this->createMock(LinkPreviewFetcher::class),
+            $linkPreviewFetcher ?? $this->createStub(LinkPreviewFetcher::class),
             new LinkFetchThrottleService(new LinkFetchLogRepository($this->pdo)),
             $postLinkRepo,
             new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir()),
@@ -493,7 +493,7 @@ class PostControllerTest extends TestCase
 
     public function testCreateDetectsTheUrlInTheBodyStoresAndRendersThePreviewCardAndStripsItFromTheText(): void
     {
-        $fetcher = $this->createMock(LinkPreviewFetcher::class);
+        $fetcher = $this->createStub(LinkPreviewFetcher::class);
         $fetcher->method('fetch')->willReturn(new \Core\Http\LinkPreview('Un super lien', 'Une belle description', null));
         $this->withCsrf(['body' => 'Regarde ça: https://example.com/article trop bien']);
 
@@ -528,7 +528,7 @@ class PostControllerTest extends TestCase
     {
         // The body is empty AFTER stripping the URL, but the post is still
         // saved — a link alone counts as content, same as it always has.
-        $fetcher = $this->createMock(LinkPreviewFetcher::class);
+        $fetcher = $this->createStub(LinkPreviewFetcher::class);
         $fetcher->method('fetch')->willReturn(null);
         $this->withCsrf(['body' => 'https://example.com/article']);
 
@@ -685,7 +685,7 @@ class PostControllerTest extends TestCase
 
     public function testCreateAcceptsExactlyFourMedia(): void
     {
-        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager = $this->createStub(DelegatedAlbumManager::class);
         $manager->method('ensureAlbum')->willReturn(new DelegatedAlbum(1, 'Louveteaux', '2026-01-01'));
         // **Counted, not drawn.** Four `random_int(1000, 9999)` draws
         // collide about once in fifteen hundred runs, and the collision
@@ -713,7 +713,7 @@ class PostControllerTest extends TestCase
 
     public function testCreateAcceptsAMediaOnlyPostWithNoBodyText(): void
     {
-        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager = $this->createStub(DelegatedAlbumManager::class);
         $manager->method('ensureAlbum')->willReturn(new DelegatedAlbum(1, 'Louveteaux', '2026-01-01'));
         $manager->method('addMedia')->willReturn(new DelegatedMedia(1, 'photo', 'pending', 0, 'photo.jpg', '2026-01-01 10:00:00'));
 
@@ -744,7 +744,7 @@ class PostControllerTest extends TestCase
         // videoUploadAllowed()'s docblock) — this asserts the whole post
         // disappears, not just the media, matching the module spec
         // ("never a silent failure or a stuck upload").
-        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager = $this->createStub(DelegatedAlbumManager::class);
         $manager->method('ensureAlbum')->willReturn(new DelegatedAlbum(1, 'Louveteaux', '2026-01-01'));
         $manager->method('addMedia')->willThrowException(new GalleryException("L'envoi de vidéos est désactivé."));
 

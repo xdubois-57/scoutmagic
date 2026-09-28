@@ -11,6 +11,7 @@ use Core\Database\Connection;
 use Core\File\FileRepository;
 use Core\File\UploadHandler;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Import\FunctionRepository;
 use Core\Import\ImportJournalRepository;
 use Core\Member\MemberService;
@@ -51,11 +52,7 @@ class CsrfTest extends TestCase
 
     private function jsonRequest(array $data): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput('POST', '/', [], [], [], [], json_encode($data));
         return $request;
     }
 
@@ -75,18 +72,18 @@ class CsrfTest extends TestCase
         );
 
         $controller = new MassMailController(
-            $this->createMock(Environment::class),
-            $this->createMock(\Modules\MassMail\Service\MassMailService::class),
+            $this->createStub(Environment::class),
+            $this->createStub(\Modules\MassMail\Service\MassMailService::class),
             $listService,
-            $this->createMock(MassMailAccessService::class),
-            $this->createMock(MemberService::class),
+            $this->createStub(MassMailAccessService::class),
+            $this->createStub(MemberService::class),
             $sectionService,
             new ScoutYearService($this->pdo),
-            $this->createMock(ImportJournalRepository::class),
-            $this->createMock(SettingService::class),
-            $this->createMock(UploadHandler::class),
+            $this->createStub(ImportJournalRepository::class),
+            $this->createStub(SettingService::class),
+            $this->createStub(UploadHandler::class),
             new FileRepository($this->pdo),
-            $this->createMock(\Modules\MassMail\Service\AudienceImportService::class)
+            $this->createStub(\Modules\MassMail\Service\AudienceImportService::class)
         );
 
         // CSRF is checked before buildAuthorization() is ever evaluated, so
@@ -126,16 +123,16 @@ class CsrfTest extends TestCase
         $importService->expects($this->never())->method('import');
 
         $controller = new MassMailController(
-            $this->createMock(Environment::class),
-            $this->createMock(\Modules\MassMail\Service\MassMailService::class),
+            $this->createStub(Environment::class),
+            $this->createStub(\Modules\MassMail\Service\MassMailService::class),
             $listService,
-            $this->createMock(MassMailAccessService::class),
-            $this->createMock(MemberService::class),
+            $this->createStub(MassMailAccessService::class),
+            $this->createStub(MemberService::class),
             $sectionService,
             new ScoutYearService($this->pdo),
-            $this->createMock(ImportJournalRepository::class),
-            $this->createMock(SettingService::class),
-            $this->createMock(UploadHandler::class),
+            $this->createStub(ImportJournalRepository::class),
+            $this->createStub(SettingService::class),
+            $this->createStub(UploadHandler::class),
             new FileRepository($this->pdo),
             $importService
         );
@@ -165,7 +162,7 @@ class CsrfTest extends TestCase
         );
 
         $controller = new MailingListController(
-            $this->createMock(Environment::class),
+            $this->createStub(Environment::class),
             $listService,
             new \Core\ScoutYear\ScoutYearResolver(
                 new \Core\Config\ScoutYearService($this->pdo),
@@ -176,7 +173,7 @@ class CsrfTest extends TestCase
                 new \Modules\MassMail\Repository\ListAddressRepository($this->pdo, $encryption),
                 new MailingListRepository($this->pdo),
                 new SettingService(new \Core\Config\SettingRepository($this->pdo)),
-                $this->createMock(\Core\Journal\JournalService::class)
+                $this->createStub(\Core\Journal\JournalService::class)
             ),
             new \Modules\MassMail\Service\ListAddressImportService(
                 new \Modules\MassMail\Repository\ListAddressRepository($this->pdo, $encryption),
@@ -184,9 +181,9 @@ class CsrfTest extends TestCase
                     new \Modules\MassMail\Repository\ListAddressRepository($this->pdo, $encryption),
                     new MailingListRepository($this->pdo),
                     new SettingService(new \Core\Config\SettingRepository($this->pdo)),
-                    $this->createMock(\Core\Journal\JournalService::class)
+                    $this->createStub(\Core\Journal\JournalService::class)
                 ),
-                $this->createMock(\Core\Journal\JournalService::class)
+                $this->createStub(\Core\Journal\JournalService::class)
             )
         );
 

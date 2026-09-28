@@ -74,16 +74,16 @@ class MediaServiceTest extends TestCase
         $uploadHandler = new UploadHandler($this->fileRepository, sys_get_temp_dir());
         $this->storedFileCleaner = new StoredFileCleaner($this->fileRepository, sys_get_temp_dir());
         $schedulerService = new SchedulerService(new SchedulerRepository($this->pdo));
-        $this->settingService = $this->createMock(SettingService::class);
+        $this->settingService = $this->createStub(SettingService::class);
         $this->settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);
-        $this->accessService = $this->createMock(GalleryAccessService::class);
+        $this->accessService = $this->createStub(GalleryAccessService::class);
         $this->accessService->method('canManageAlbum')->willReturn(true);
         $storageWiring = GalleryStorageWiring::build(
                 $this->pdo, $encryption, $this->settingService, $this->storagePath, $this->albumRepository
             );
         $this->storageLocationService = $storageWiring->locationService;
         $this->galleryLocationService = $storageWiring->galleryLocations;
-        $ffmpegAvailability = $this->createMock(FfmpegAvailability::class);
+        $ffmpegAvailability = $this->createStub(FfmpegAvailability::class);
         $ffmpegAvailability->method('check')->willReturn(false);
 
         $this->service = new MediaService(
@@ -235,7 +235,7 @@ class MediaServiceTest extends TestCase
      */
     private function serviceWithVideoSupport(): MediaService
     {
-        $ffmpeg = $this->createMock(FfmpegAvailability::class);
+        $ffmpeg = $this->createStub(FfmpegAvailability::class);
         $ffmpeg->method('check')->willReturn(true);
 
         return new MediaService(
@@ -363,9 +363,9 @@ class MediaServiceTest extends TestCase
 
     private function serviceWithUploadHandlerThrowing(\Throwable $e): MediaService
     {
-        $uploadHandler = $this->createMock(UploadHandler::class);
+        $uploadHandler = $this->createStub(UploadHandler::class);
         $uploadHandler->method('handle')->willThrowException($e);
-        $ffmpegAvailability = $this->createMock(FfmpegAvailability::class);
+        $ffmpegAvailability = $this->createStub(FfmpegAvailability::class);
         $ffmpegAvailability->method('check')->willReturn(false);
 
         return new MediaService(
@@ -387,7 +387,7 @@ class MediaServiceTest extends TestCase
 
     private function serviceWithMaxMedia(int $maxMedia): MediaService
     {
-        $settingService = $this->createMock(SettingService::class);
+        $settingService = $this->createStub(SettingService::class);
         $settingService->method('get')->willReturnCallback(
             fn($key, $module, $default) => $key === 'gallery_max_media_per_album' ? $maxMedia : $default
         );
@@ -395,7 +395,7 @@ class MediaServiceTest extends TestCase
         return new MediaService(
             $this->mediaRepository, $this->albumRepository, new UploadHandler($this->fileRepository, sys_get_temp_dir()),
             new SchedulerService(new SchedulerRepository($this->pdo)), $settingService, $this->accessService,
-            $this->storageBackendFactory, $this->galleryLocationService, $this->createMock(FfmpegAvailability::class),
+            $this->storageBackendFactory, $this->galleryLocationService, $this->createStub(FfmpegAvailability::class),
             $this->storedFileCleaner
         );
     }

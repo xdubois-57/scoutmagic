@@ -76,7 +76,7 @@ class MigrationRunnerChunkingTest extends TestCase
             $declaredByName[$table->name] = $table;
         }
 
-        $introspector = $this->createMock(SchemaIntrospector::class);
+        $introspector = $this->createStub(SchemaIntrospector::class);
         $introspector->method('getTables')->willReturn(array_keys($declaredByName));
         $introspector->method('getTableDefinition')->willReturnCallback(
             static fn(string $name): TableDefinition => $declaredByName[$name]

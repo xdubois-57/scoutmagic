@@ -9,6 +9,7 @@ use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Cookie\CookieConsentService;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
 use Modules\Retro\Controller\RetroBoardController;
@@ -37,7 +38,7 @@ class RetroBoardControllerTest extends TestCase
     private BoardRepository $boardRepository;
     private CommentRepository $commentRepository;
     private RetroBoardController $controller;
-    private \PHPUnit\Framework\MockObject\MockObject $boardService;
+    private BoardService&\PHPUnit\Framework\MockObject\Stub $boardService;
     private Environment $twig;
     private RateLimitService $rateLimitService;
     private SettingService $settingService;
@@ -55,7 +56,7 @@ class RetroBoardControllerTest extends TestCase
         $this->rateLimitService = new RateLimitService(new RateLimitRepository($this->pdo), $encryption);
         $commentService = new CommentService($this->commentRepository, null, $this->rateLimitService);
         $voteService = new VoteService($voteRepository, $this->commentRepository, $encryption);
-        $this->boardService = $this->createMock(BoardService::class);
+        $this->boardService = $this->createStub(BoardService::class);
         $this->boardService->method('publicUrl')->willReturn('/r/dummy-token');
         $this->settingService = new SettingService(new SettingRepository($this->pdo));
         $this->scoutYearService = new \Core\ScoutYear\ScoutYearResolver(
@@ -164,11 +165,7 @@ class RetroBoardControllerTest extends TestCase
 
     private function jsonRequest(string $path, array $data): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', $path, [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput('POST', $path, [], [], [], [], json_encode($data));
         return $request;
     }
 
@@ -201,7 +198,7 @@ class RetroBoardControllerTest extends TestCase
         $this->settingService->register('retro_moderation_mode', 'disabled', 'select', 'Modération', '', 'retro');
         $this->settingService->set('retro_moderation_mode', 'enforced', 'retro');
 
-        $moderationService = $this->createMock(ModerationService::class);
+        $moderationService = $this->createStub(ModerationService::class);
         $moderationService->method('isAvailable')->willReturn(true);
         $moderationService->method('moderate')->willReturn([
             'flagged' => true, 'reason' => 'Propos irrespectueux.', 'suggestion' => 'Une version plus polie.',

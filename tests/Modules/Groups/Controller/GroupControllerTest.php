@@ -146,7 +146,7 @@ class GroupControllerTest extends TestCase
             $this->groupRepo, $sectionRepo, $memberRepo, new SectionMembershipRepository($this->pdo), $readRepo
         );
 
-        $this->memberService = $this->createMock(MemberService::class);
+        $this->memberService = $this->createStub(MemberService::class);
         $this->memberService->method('getLinkedMembers')->willReturn(
             array_map(fn(int $id) => $this->profile($id), $linkedMemberIds)
         );
@@ -154,7 +154,7 @@ class GroupControllerTest extends TestCase
             array_combine($linkedMemberIds, array_map(fn(int $id) => 'Akéla ' . $id, $linkedMemberIds))
         );
 
-        $accountRepo = $this->createMock(UserAccountRepository::class);
+        $accountRepo = $this->createStub(UserAccountRepository::class);
         $accountRepo->method('findById')->willReturn(new UserAccount(
             1,
             'parent@test.be',
@@ -166,10 +166,10 @@ class GroupControllerTest extends TestCase
         ));
         $accountRepo->method('findNamesByIds')->willReturn([1 => ['first_name' => 'Marie', 'last_name' => 'Dupont']]);
 
-        $resolver = $this->createMock(ScoutYearResolver::class);
+        $resolver = $this->createStub(ScoutYearResolver::class);
         $resolver->method('getEffectiveYear')->willReturn(new EffectiveScoutYear($this->currentYearId, '2025-2026', null));
 
-        $sectionService = $this->createMock(SectionService::class);
+        $sectionService = $this->createStub(SectionService::class);
         $sectionService->method('getAllWithBranches')->willReturn([]);
         $sectionService->method('getSection')->willReturn(['id' => $this->sectionId, 'name' => 'Louveteaux', 'desk_code' => 'LOU']);
 
@@ -201,7 +201,7 @@ class GroupControllerTest extends TestCase
         $activityService = new GroupActivityService($this->groupRepo, $postRepo);
         $postService = new PostService($postRepo, $activityService, GroupsTestHelper::rateLimitService($this->pdo));
         $postMediaService = new PostMediaService(
-            $delegatedAlbumManager ?? $this->createMock(DelegatedAlbumManager::class),
+            $delegatedAlbumManager ?? $this->createStub(DelegatedAlbumManager::class),
             new PostMediaRepository($this->pdo), $this->groupRepo,
             new \Modules\Groups\Repository\ReplyRepository($this->pdo)
         );
@@ -712,7 +712,7 @@ class GroupControllerTest extends TestCase
         $this->groupRepo->setGalleryAlbumId($groupId, 42);
         $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'SCP2', $this->sectionId, $this->currentYearId);
 
-        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager = $this->createStub(DelegatedAlbumManager::class);
         $manager->method('listMedia')->willReturn([
             new DelegatedMedia(7, 'photo', 'done', 0, 'a.jpg', '2026-01-01 10:00:00'),
             new DelegatedMedia(8, 'photo', 'pending', 1, 'b.jpg', '2026-01-02 10:00:00'),
@@ -1308,7 +1308,7 @@ class GroupControllerTest extends TestCase
         $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
         $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MBC2', $this->sectionId, $this->currentYearId);
 
-        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager = $this->createStub(DelegatedAlbumManager::class);
         $manager->method('listMedia')->willReturn([]);
 
         $body = $this->controller([$member], 'identified', true, $manager, ['label' => 'Galerie du groupe', 'parents' => ['Espace membres']])
@@ -1335,7 +1335,7 @@ class GroupControllerTest extends TestCase
         (new \Modules\Groups\Repository\PostMediaRepository($this->pdo))->attach($postId, 1, 0);
         (new \Modules\Groups\Repository\PostMediaRepository($this->pdo))->attach($postId, 2, 1);
 
-        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager = $this->createStub(DelegatedAlbumManager::class);
         $manager->method('listMedia')->willReturn([
             new DelegatedMedia(1, 'photo', 'pending', 0, 'a.jpg', '2026-01-01 10:00:00'),
             new DelegatedMedia(2, 'photo', 'failed', 1, 'b.jpg', '2026-01-01 10:00:00'),
@@ -1365,7 +1365,7 @@ class GroupControllerTest extends TestCase
         (new \Modules\Groups\Repository\PostMediaRepository($this->pdo))->attach($postId, 1, 0);
         (new \Modules\Groups\Repository\PostMediaRepository($this->pdo))->attach($postId, 2, 1);
 
-        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager = $this->createStub(DelegatedAlbumManager::class);
         $manager->method('listMedia')->willReturn([
             new DelegatedMedia(1, 'photo', 'done', 0, 'a.jpg', '2026-01-01 10:00:00'),
             new DelegatedMedia(2, 'photo', 'pending', 1, 'b.jpg', '2026-01-01 10:00:00'),
@@ -1400,7 +1400,7 @@ class GroupControllerTest extends TestCase
         $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Une photo', '2026-01-01 10:00:00', 1, $creator);
         (new \Modules\Groups\Repository\PostMediaRepository($this->pdo))->attach($postId, 1, 0);
 
-        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager = $this->createStub(DelegatedAlbumManager::class);
         $manager->method('listMedia')->willReturn([
             new DelegatedMedia(1, 'photo', 'done', 0, 'a.jpg', '2026-01-01 10:00:00'),
         ]);
@@ -1434,7 +1434,7 @@ class GroupControllerTest extends TestCase
         $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Une vidéo', '2026-01-01 10:00:00', 1, $creator);
         (new \Modules\Groups\Repository\PostMediaRepository($this->pdo))->attach($postId, 5, 0);
 
-        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager = $this->createStub(DelegatedAlbumManager::class);
         $manager->method('listMedia')->willReturn([
             new DelegatedMedia(5, 'video', 'done', 0, 'a.mp4', '2026-01-01 10:00:00'),
         ]);

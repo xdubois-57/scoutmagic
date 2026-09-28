@@ -23,7 +23,7 @@ class TaskCapabilitiesTest extends TestCase
      */
     private function capabilities(array $enabledModuleIds): TaskCapabilities
     {
-        $moduleManager = $this->createMock(ModuleManager::class);
+        $moduleManager = $this->createStub(ModuleManager::class);
         $moduleManager->method('getEnabledModuleIds')->willReturn($enabledModuleIds);
 
         return new TaskCapabilities($moduleManager);
@@ -78,7 +78,7 @@ class TaskCapabilitiesTest extends TestCase
         // The enabled set can change mid-request on the Modules page, so a
         // snapshot taken at registration time would answer for a state
         // that no longer holds.
-        $moduleManager = $this->createMock(ModuleManager::class);
+        $moduleManager = $this->createStub(ModuleManager::class);
         $moduleManager->method('getEnabledModuleIds')->willReturnOnConsecutiveCalls(['some_module'], []);
         $capabilities = new TaskCapabilities($moduleManager);
         $capabilities->register(FakeCapabilityInterface::class, 'some_module', static fn (): object => new FakeCapability());

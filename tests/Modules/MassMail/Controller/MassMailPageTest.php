@@ -121,8 +121,8 @@ class MassMailPageTest extends TestCase
 
         $memberEmailService = new MemberEmailService(
             new MemberEmailRepository($this->pdo, $encryption),
-            $this->createMock(MailService::class),
-            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createMock(Environment::class)),
+            $this->createStub(MailService::class),
+            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createStub(Environment::class)),
             new JournalService(new JournalRepository($this->pdo)),
             $sectionService,
             $memberService,
@@ -135,7 +135,7 @@ class MassMailPageTest extends TestCase
         // From is, to fill the « De : » of a test-mode preview when the
         // sender section has no address of its own. An unconfigured mock
         // answers [] there, which is not a shape this method ever returns.
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
         $mailService->method('getDefaultSender')
             ->willReturn(['address' => 'unite@test.be', 'name' => 'Test Unité']);
 

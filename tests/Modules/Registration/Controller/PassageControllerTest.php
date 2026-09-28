@@ -10,6 +10,7 @@ use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Import\MemberYearRepository;
 use Core\Member\SectionService;
 use Core\ScoutYear\ScoutYearResolver;
@@ -219,11 +220,7 @@ class PassageControllerTest extends TestCase
 
     private function rawJsonRequest(string $method, string $path, array $body): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs([$method, $path, [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode($body));
+        $request = new RequestWithInput($method, $path, [], [], [], [], json_encode($body));
 
         return $request;
     }

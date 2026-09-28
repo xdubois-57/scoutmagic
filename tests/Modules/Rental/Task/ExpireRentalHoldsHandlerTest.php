@@ -60,7 +60,7 @@ class ExpireRentalHoldsHandlerTest extends TestCase
         $this->runner->setTaskContext(new TaskContext(
             Connection::withPdo($this->pdo),
             $encryption,
-            $this->createMock(MailService::class),
+            $this->createStub(MailService::class),
             $journalService,
             new SettingService(new SettingRepository($this->pdo)),
             new UserAccountRepository($this->pdo, $encryption),

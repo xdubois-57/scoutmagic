@@ -179,7 +179,7 @@ class ResponseColumnsTest extends TestCase
 
     private function withFinance(): ResponseColumns
     {
-        $receivables = $this->createMock(ExpectedReceivableInterface::class);
+        $receivables = $this->createStub(ExpectedReceivableInterface::class);
         $receivables->method('getReceivableStatus')->willReturn(
             ['amount_due' => 3000, 'amount_received' => 1250, 'status' => 'partial']
         );

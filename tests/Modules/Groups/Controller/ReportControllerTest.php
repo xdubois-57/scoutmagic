@@ -699,7 +699,7 @@ class ReportControllerTest extends GroupsControllerTestCase
     private function feedService(): \Modules\Groups\Service\GroupFeedService
     {
         $postMediaService = new \Modules\Groups\Service\PostMediaService(
-            $this->createMock(\Modules\Gallery\Api\DelegatedAlbumManager::class),
+            $this->createStub(\Modules\Gallery\Api\DelegatedAlbumManager::class),
             new \Modules\Groups\Repository\PostMediaRepository($this->pdo),
             $this->groupRepo,
             $this->replyRepo

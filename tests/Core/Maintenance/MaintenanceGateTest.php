@@ -55,7 +55,7 @@ class MaintenanceGateTest extends TestCase
      */
     private function repositoryReturning(?UpdateHistory $history): UpdateHistoryRepository
     {
-        $repository = $this->createMock(UpdateHistoryRepository::class);
+        $repository = $this->createStub(UpdateHistoryRepository::class);
         $repository->method('findInProgress')->willReturn($history);
         return $repository;
     }

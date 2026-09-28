@@ -252,11 +252,11 @@ class RunOperationalChecksHandlerTest extends TestCase
 
         return new TaskContext(
             connection: $this->connection(),
-            encryption: $this->createMock(\Core\Security\EncryptionService::class),
-            mailService: $this->createMock(\Core\Mail\MailService::class),
+            encryption: $this->createStub(\Core\Security\EncryptionService::class),
+            mailService: $this->createStub(\Core\Mail\MailService::class),
             journal: new JournalService(new JournalRepository($this->pdo)),
             settings: $settings,
-            userAccounts: $this->createMock(\Core\Security\UserAccountRepository::class),
+            userAccounts: $this->createStub(\Core\Security\UserAccountRepository::class),
             storagePath: $this->storagePath,
             notifications: null
         );
@@ -264,7 +264,7 @@ class RunOperationalChecksHandlerTest extends TestCase
 
     private function connection(): Connection
     {
-        $connection = $this->createMock(Connection::class);
+        $connection = $this->createStub(Connection::class);
         $connection->method('getPdo')->willReturn($this->pdo);
 
         return $connection;

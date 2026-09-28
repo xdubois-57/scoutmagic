@@ -385,7 +385,7 @@ class DrainDeferredMailHandlerTest extends TestCase
      */
     private function recordingMailService(): MailService
     {
-        $mock = $this->createMock(MailService::class);
+        $mock = $this->createStub(MailService::class);
         // The drain sends through withoutDeferral(); on the real service
         // that is a queue-less clone, and what this double has to answer
         // is « the same service ». That the clone really drops the queue
