@@ -115,7 +115,7 @@
      * @param {HTMLInputElement|null} address
      */
     function savedPinAddress(pointAddress, address) {
-        if (pointAddress && pointAddress.value) {
+        if (pointAddress?.value) {
             return pointAddress.value;
         }
         return address ? address.value.trim() : '';

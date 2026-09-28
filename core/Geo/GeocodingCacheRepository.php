@@ -13,7 +13,7 @@ namespace Core\Geo;
  * (Core\Geo\AddressLocator), so the same place asked twice costs Nominatim
  * one request instead of two.
  *
- * The key is a FINGERPRINT of the folded address, never the address: the
+ * The key is a FINGERPRINT of the lower-cased address, never the address: the
  * cache needs to recognise a line, not to remember it. What it keeps is
  * the answer — a point, or none — and when it was obtained.
  *
@@ -48,10 +48,12 @@ class GeocodingCacheRepository
     }
 
     /**
-     * Replaces whatever was known about this address. Always called under
-     * AddressLocator's advisory lock, so the delete-then-insert cannot race
-     * another writer of the same fingerprint — and it spells the same on
-     * MySQL and on the SQLite the fast tests use, which no upsert does.
+     * Replaces whatever was known about this address. Called under
+     * AddressLocator's advisory lock, so the delete-then-insert does not
+     * race another writer of the same fingerprint where the lock is real —
+     * and where it is not, the duplicate key raised is one more failure
+     * AddressLocator answers as « not found ». It spells the same on MySQL
+     * and on the SQLite the fast tests use, which no upsert does.
      */
     public function store(string $fingerprint, ?GeoPoint $point, \DateTimeImmutable $at): void
     {

@@ -1391,7 +1391,7 @@ CREATE TABLE help_assistant_cache (
 -- filled in (Core\Geo\AddressLocator, issue #642), so the same place asked
 -- twice costs Nominatim one request instead of two.
 --
--- The key is a FINGERPRINT — a SHA-256 of the folded address — never the
+-- The key is a FINGERPRINT — a SHA-256 of the lower-cased address — never the
 -- address itself: the cache recognises a line, it does not remember it.
 -- A NULL point is an answer too (« nothing found »), kept for hours rather
 -- than months. Core\Geo\Task\PurgeGeocodingHandler drops old rows daily.

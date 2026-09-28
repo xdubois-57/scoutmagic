@@ -85,6 +85,21 @@ class AddressLocator
             return null;
         }
 
+        try {
+            return $this->lookUp($line, $userAccountId);
+        } catch (\PDOException $e) {
+            // A lock wait, a dropped connection, a lost race on the cache
+            // key: the form's lookup is a convenience, and the database is
+            // not its caller's concern. error_log() rather than the
+            // journal, which is the same database.
+            error_log('ScoutMagic address lookup failed: ' . $e->getMessage());
+
+            return null;
+        }
+    }
+
+    private function lookUp(string $line, int $userAccountId): ?GeoPoint
+    {
         // Lower-cased, never folded to ASCII: TextNormalizerService::fold()
         // drops every non-Latin letter, and two Greek or Cyrillic addresses
         // would then share one cache key — and one point.

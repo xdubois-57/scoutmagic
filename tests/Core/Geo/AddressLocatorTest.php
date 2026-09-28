@@ -125,6 +125,14 @@ final class AddressLocatorTest extends TestCase
         $this->assertNotNull($this->locator()->locate('Place du Marché 1, Namur', 7));
     }
 
+    public function testADatabaseFailureIsAnswerNotFoundNotAnError(): void
+    {
+        $this->pdo->prepare('DROP TABLE geocoding_cache')->execute();
+
+        $this->assertNull($this->locator()->locate('Rue des Grottes 12, Han', 7));
+        $this->assertSame([], $this->sent);
+    }
+
     public function testTheLockIsHeldForAFullSecondAfterTheCallBegan(): void
     {
         // The clock reads 100.0 when the call begins and 100.25 after it.
