@@ -195,6 +195,40 @@ final class BackupRetentionTest extends TestCase
     }
 
     /**
+     * The archive's generated password goes with it (issue #619, IT-03):
+     * otherwise secrets.enc grows by one entry per backup, forever.
+     */
+    public function testForgettingABackupForgetsItsPasswordAndOnlyItsOwn(): void
+    {
+        $secrets = new \Core\Security\SecretManager(
+            $this->storagePath . '/keys/master.key',
+            $this->storagePath . '/config/secrets.enc'
+        );
+        @mkdir($this->storagePath . '/config', 0700, true);
+        $secrets->generateMasterKey();
+        $secrets->writeSecrets([]);
+        $passwords = \Core\Maintenance\BackupPasswords::forStorage($this->storagePath);
+
+        $gone = $this->completed('full_config', archive: 'g.zip');
+        $kept = $this->completed('full_config', archive: 'k.zip');
+        $passwords->issue($gone);
+        $keptPassword = $passwords->issue($kept);
+
+        try {
+            $this->retention()->forget($this->backups->findById($gone) ?? throw new \LogicException());
+
+            $this->assertNull($passwords->passwordFor($gone));
+            $this->assertSame($keptPassword, $passwords->passwordFor($kept));
+        } finally {
+            @unlink($this->storagePath . '/config/secrets.enc');
+            @unlink($this->storagePath . '/config/secrets.enc.lock');
+            @unlink($this->storagePath . '/keys/master.key');
+            @rmdir($this->storagePath . '/config');
+            @rmdir($this->storagePath . '/keys');
+        }
+    }
+
+    /**
      * A file already gone is the ordinary case, not an edge one — a purge
      * that half-succeeded, an archive removed over FTP. Leaving the row
      * would leave a line offering the download of nothing.

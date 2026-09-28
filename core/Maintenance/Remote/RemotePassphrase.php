@@ -275,7 +275,7 @@ final class RemotePassphrase
         $phrase = self::generate();
 
         try {
-            $secrets = $this->secrets->readSecrets();
+            $this->secrets->readSecrets();
         } catch (\Throwable $e) {
             throw RemoteBackupException::of(
                 'Les secrets de ce site sont illisibles : rien n\'a été modifié.',
@@ -283,12 +283,18 @@ final class RemotePassphrase
             );
         }
 
-        $previousPhrase = is_string($secrets[self::SECRET_KEY] ?? null) ? (string) $secrets[self::SECRET_KEY] : '';
         $previousGeneration = (string) ($this->settings->get(self::GENERATION_SETTING) ?: '0');
         $previousCreatedAt = $this->createdAt();
 
-        $secrets[self::SECRET_KEY] = $phrase;
-        $this->secrets->writeSecrets($secrets);
+        // The phrase being replaced is read under the same lock as the
+        // write, so the rollback below restores what was really there.
+        $previousPhrase = '';
+        $this->secrets->updateSecrets(static function (array $secrets) use ($phrase, &$previousPhrase): array {
+            $previousPhrase = is_string($secrets[self::SECRET_KEY] ?? null) ? (string) $secrets[self::SECRET_KEY] : '';
+            $secrets[self::SECRET_KEY] = $phrase;
+
+            return $secrets;
+        });
 
         try {
             $this->settings->setInternal(self::GENERATION_SETTING, (string) ($this->generation() + 1));
@@ -297,7 +303,7 @@ final class RemotePassphrase
                 (new \DateTimeImmutable())->format('Y-m-d H:i:s')
             );
         } catch (\Throwable $e) {
-            $this->rollBack($secrets, $previousPhrase, $previousGeneration, $previousCreatedAt);
+            $this->rollBack($previousPhrase, $previousGeneration, $previousCreatedAt);
 
             throw RemoteBackupException::of(
                 'La nouvelle phrase de passe n\'a pas pu être enregistrée : l\'ancienne reste en vigueur.',
@@ -318,22 +324,22 @@ final class RemotePassphrase
      * number is in the same broken state this method exists to undo.
      * Anything that still fails is left to the exception the caller is
      * about to receive, which says the old phrase remains in force.
-     *
-     * @param array<string, string> $secrets as they were just written
      */
     private function rollBack(
-        array $secrets,
         string $previousPhrase,
         string $previousGeneration,
         string $previousCreatedAt
     ): void {
         try {
-            if ($previousPhrase === '') {
-                unset($secrets[self::SECRET_KEY]);
-            } else {
-                $secrets[self::SECRET_KEY] = $previousPhrase;
-            }
-            $this->secrets->writeSecrets($secrets);
+            $this->secrets->updateSecrets(static function (array $secrets) use ($previousPhrase): array {
+                if ($previousPhrase === '') {
+                    unset($secrets[self::SECRET_KEY]);
+                } else {
+                    $secrets[self::SECRET_KEY] = $previousPhrase;
+                }
+
+                return $secrets;
+            });
 
             $this->settings->setInternal(self::GENERATION_SETTING, $previousGeneration);
             $this->settings->setInternal(self::CREATED_AT_SETTING, $previousCreatedAt);

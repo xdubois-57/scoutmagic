@@ -435,11 +435,6 @@ class MaintenanceController extends AbstractController
             'backups' => $this->backupList(),
             'backups_shown_at_once' => self::BACKUPS_SHOWN_AT_ONCE,
             'zip_encryption_supported' => $this->backupService->supportsZipEncryption(),
-            // The screen promises a minimum and the server enforces it;
-            // handing the number to the template is what keeps the two
-            // from being two numbers (Core\Maintenance\Portable\
-            // PortablePassphrase).
-            'portable_passphrase_min_length' => \Core\Maintenance\Portable\PortablePassphrase::MIN_LENGTH,
             // 'weekly' — the registered default since issue #286; a
             // fallback still spelling 'monthly' would put the select on a
             // value the installation does not hold.
@@ -936,13 +931,9 @@ class MaintenanceController extends AbstractController
         }
 
         $scope = (string) ($data['scope'] ?? '');
-        $password = (string) ($data['password'] ?? '');
 
         if (!in_array($scope, self::FULL_BACKUP_SCOPES, true)) {
             return $this->json(['success' => false, 'error' => 'Portée de sauvegarde invalide.'], 400);
-        }
-        if ($password === '') {
-            return $this->json(['success' => false, 'error' => 'Un mot de passe est requis.'], 400);
         }
         if (!$this->backupService->supportsZipEncryption()) {
             return $this->json(['success' => false, 'error' => 'Le serveur ne supporte pas le chiffrement des archives '
@@ -951,18 +942,18 @@ class MaintenanceController extends AbstractController
 
         $userId = AuthSession::getUserAccountId();
         $backupId = $this->backupRepository->create($scope, $userId);
+        $refusal = $this->issuePassword($backupId);
+        if ($refusal !== null) {
+            return $refusal;
+        }
 
-        // The password never touches the database in plaintext — encrypted
-        // with the same master-key-backed service as everything else
-        // sensitive, decrypted only inside CreateBackupHandler right before
-        // it's needed.
-        $encryptedPassword = base64_encode($this->encryption->encrypt($password, 'backup_password'));
-
+        // No password in the payload: CreateBackupHandler reads the one
+        // just kept in secrets.enc (issue #619, IT-03).
         $this->schedulerService->scheduleAfter(
             'core',
             'create_backup',
             0,
-            ['backup_id' => $backupId, 'scope' => $scope, 'encrypted_password' => $encryptedPassword],
+            ['backup_id' => $backupId, 'scope' => $scope],
             null,
             $userId
         );
@@ -1002,15 +993,6 @@ class MaintenanceController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
         }
 
-        $passphrase = (string) ($data['passphrase'] ?? '');
-
-        // Server-side, because a `minlength` on the field is a suggestion:
-        // this endpoint is reachable without the page.
-        $refusal = \Core\Maintenance\Portable\PortablePassphrase::refuse($passphrase);
-        if ($refusal !== null) {
-            return $this->json(['success' => false, 'error' => $refusal], 400);
-        }
-
         if (!$this->backupService->supportsZipEncryption()) {
             // 422 and a sentence, never a quietly unencrypted archive: this
             // is the one archive where the zip layer is not merely the
@@ -1022,18 +1004,18 @@ class MaintenanceController extends AbstractController
 
         $userId = AuthSession::getUserAccountId();
         $backupId = $this->backupRepository->create(\Core\Maintenance\Backup::PORTABLE_TYPE, $userId);
-
-        $encryptedPassphrase = base64_encode($this->encryption->encrypt($passphrase, 'backup_password'));
+        // Generated, like every archive's (IT-03): 30 characters, far above
+        // PortablePassphrase::MIN_LENGTH, the floor a typed one had to meet.
+        $refusal = $this->issuePassword($backupId);
+        if ($refusal !== null) {
+            return $refusal;
+        }
 
         $this->schedulerService->scheduleAfter(
             'core',
             'create_backup',
             0,
-            [
-                'backup_id' => $backupId,
-                'scope' => \Core\Maintenance\Backup::PORTABLE_TYPE,
-                'encrypted_password' => $encryptedPassphrase,
-            ],
+            ['backup_id' => $backupId, 'scope' => \Core\Maintenance\Backup::PORTABLE_TYPE],
             null,
             $userId
         );
@@ -1042,7 +1024,7 @@ class MaintenanceController extends AbstractController
         // journal line its sibling writes: this is the moment an operator
         // asked the site to package its master key into a downloadable
         // file. The passphrase is not in the entry, and never anywhere but
-        // the encrypted payload above.
+        // secrets.enc.
         $this->journalService->log(
             'core',
             'portable_backup_requested',
@@ -1154,6 +1136,77 @@ class MaintenanceController extends AbstractController
         return $this->redirect(self::PAGE_RECENT_BACKUPS);
     }
 
+    /**
+     * POST /config/maintenance/backup/{id}/password (AJAX, JSON) — the
+     * generated password of one archive, for the person about to download
+     * it (issue #619, IT-03).
+     *
+     * POST behind the CSRF token, never GET, and journaled: the same
+     * rules as RemoteBackupController::revealPassphrase(), for the same
+     * reason — a page rendered for any other purpose, or cached anywhere,
+     * never carries a password. The password itself is never in the
+     * journal.
+     *
+     * @param array<string, string> $params
+     */
+    public function revealBackupPassword(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        $token = is_array($data) && is_string($data['_csrf_token'] ?? null) ? $data['_csrf_token'] : null;
+        if (($guard = $this->guardCsrfJson($request, $token)) !== null) {
+            return $guard;
+        }
+
+        $backup = $this->backupRepository->findById((int) ($params['id'] ?? 0));
+        $password = $backup !== null ? $this->passwords()->passwordFor($backup->id) : null;
+        if ($backup === null || $password === null) {
+            return $this->json([
+                'success' => false,
+                'error' => 'Aucun mot de passe n\'est conservé pour cette sauvegarde.',
+            ], 404);
+        }
+
+        $this->journalService->log(
+            'core',
+            'backup_password_revealed',
+            'security',
+            'Mot de passe d\'une sauvegarde affiché',
+            ['backup_id' => $backup->id, 'type' => $backup->type],
+            AuthSession::getUserAccountId()
+        );
+
+        // A credential in the body: no browser or proxy keeps a copy.
+        return $this->json(['success' => true, 'password' => $password])
+            ->setHeader('Cache-Control', 'no-store');
+    }
+
+    /**
+     * Generates and keeps the password of a backup row just created, or
+     * fails that row: an archive must never be written with a password the
+     * site did not manage to keep.
+     */
+    private function issuePassword(int $backupId): ?Response
+    {
+        try {
+            $this->passwords()->issue($backupId);
+        } catch (\Throwable $e) {
+            $this->backupRepository->markFailed($backupId, 'Le mot de passe de l\'archive n\'a pas pu être conservé.');
+            error_log('Backup password could not be stored: ' . $e::class);
+
+            return $this->json([
+                'success' => false,
+                'error' => 'Le mot de passe de l\'archive n\'a pas pu être conservé : la sauvegarde n\'est pas créée.',
+            ], 500);
+        }
+
+        return null;
+    }
+
+    private function passwords(): \Core\Maintenance\BackupPasswords
+    {
+        return \Core\Maintenance\BackupPasswords::forStorage($this->storagePath);
+    }
+
     private function safetyNet(): \Core\Maintenance\BackupSafetyNet
     {
         return new \Core\Maintenance\BackupSafetyNet(
@@ -1176,6 +1229,14 @@ class MaintenanceController extends AbstractController
      */
     private function backupList(): array
     {
+        // Read once for the whole list. A secrets file that cannot be read
+        // costs the reveal buttons, never the page.
+        try {
+            $withPassword = $this->passwords()->keptIds();
+        } catch (\Throwable) {
+            $withPassword = [];
+        }
+
         $rows = [];
         foreach ($this->backupRepository->findForList(self::BACKUPS_LISTED) as $backup) {
             $family = \Core\Maintenance\BackupFamily::tryFromType($backup->type);
@@ -1193,6 +1254,10 @@ class MaintenanceController extends AbstractController
                 // restorable onto THIS installation, and offering it would
                 // start a destructive restore that cannot finish.
                 'isPortable' => $backup->type === \Core\Maintenance\Backup::PORTABLE_TYPE,
+                // Only archives whose generated password the site kept
+                // (IT-03): an older one was encrypted with a password its
+                // operator typed, and nobody here can say it again.
+                'hasPassword' => in_array($backup->id, $withPassword, true),
                 // What the last verification pass found (§8.101). Null
                 // where there is nothing to say — a backup taken an hour
                 // ago has not been re-read yet, and a badge saying so
@@ -1716,9 +1781,11 @@ class MaintenanceController extends AbstractController
         $wasConfigured = $this->webhookSecret() !== '';
         $newSecret = bin2hex(random_bytes(32));
 
-        $secrets = $this->secretManager->readSecrets();
-        $secrets['github_webhook_secret'] = $newSecret;
-        $this->secretManager->writeSecrets($secrets);
+        $this->secretManager->updateSecrets(static function (array $secrets) use ($newSecret): array {
+            $secrets['github_webhook_secret'] = $newSecret;
+
+            return $secrets;
+        });
 
         $userId = AuthSession::getUserAccountId();
         $this->journalService->log(

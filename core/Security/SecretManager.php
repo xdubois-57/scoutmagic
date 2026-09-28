@@ -157,14 +157,65 @@ class SecretManager
         // into « the password is still on disk and nothing knows it »,
         // which is precisely the failure `TransportService` orders its
         // steps to avoid.
-        if (file_put_contents($this->secretsPath, $encoded) === false) {
+        //
+        // Written beside the file and renamed over it, never truncated in
+        // place: this blob holds every secret the site has, and a process
+        // that dies half-way through an in-place write leaves a file whose
+        // GCM tag no longer checks — SMTP password, install identity and
+        // backup passwords gone at once. A rename is atomic on the same
+        // filesystem: a reader sees the old file or the new one.
+        $temporary = $this->secretsPath . '.' . bin2hex(random_bytes(6)) . '.tmp';
+        // Short writes too: a disk that fills up mid-write can return a
+        // byte count rather than false, and half a blob renamed over the
+        // whole one is exactly what the rename is here to prevent.
+        if (file_put_contents($temporary, $encoded) !== strlen($encoded)) {
+            @unlink($temporary);
             throw new \RuntimeException('Failed to write the secrets file.');
         }
         // Same 0600 as the master key (generateMasterKey): defence in depth so
         // the encrypted blob isn't world-readable under a default umask on
-        // shared hosting (audit hardening).
+        // shared hosting (audit hardening). Set before the rename, so the
+        // live file is never readable by anybody else, not even briefly.
         if (PHP_OS_FAMILY !== 'Windows') {
-            @chmod($this->secretsPath, 0600);
+            @chmod($temporary, 0600);
+        }
+        if (!rename($temporary, $this->secretsPath)) {
+            @unlink($temporary);
+            throw new \RuntimeException('Failed to write the secrets file.');
+        }
+    }
+
+    /**
+     * Reads, changes and writes the secrets while holding an exclusive lock,
+     * for a caller that changes one entry and must not lose another
+     * process's change to a different one.
+     *
+     * writeSecrets() replaces the whole file, so two processes that each
+     * read, add their own key and write, one after the other, keep only the
+     * second key. That used to be rare — an installation, a settings
+     * screen — and is routine since backup passwords live here (issue #619,
+     * IT-03): a web request issues one while a cron purge forgets another.
+     * The lock is advisory, on a file beside the secrets, and only callers
+     * that come through here take it.
+     *
+     * @param callable(array<string, mixed>): array<string, mixed> $change
+     *        receives the current secrets and returns the ones to write
+     */
+    public function updateSecrets(callable $change): void
+    {
+        $lock = @fopen($this->secretsPath . '.lock', 'c');
+        if ($lock === false) {
+            throw new \RuntimeException('Cannot open the secrets lock file.');
+        }
+
+        try {
+            if (!flock($lock, LOCK_EX)) {
+                throw new \RuntimeException('Cannot lock the secrets file.');
+            }
+            $this->writeSecrets($change($this->readSecrets()));
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
         }
     }
 

@@ -38,11 +38,12 @@ vous.
 
 - **Base de données seule** : un export complet, généré sur-le-champ.
   Les données personnelles y restent chiffrées, mais le fichier reste
-  sensible — il est réservé aux chefs d'unité.
-- **Sauvegarde complète (chiffrée)** : une archive protégée par le mot
-  de passe que vous choisissez, générée en arrière-plan — une
-  notification vous prévient quand elle est prête. Deux portées au
-  choix : la configuration seule, ou le site complet.
+  sensible — il est réservé au super-administrateur.
+- **Sauvegarde complète (chiffrée)** : une archive protégée par un mot
+  de passe que le site génère et conserve, générée en arrière-plan —
+  une notification vous prévient quand elle est prête. Deux portées au
+  choix : la configuration seule, ou le site complet. Notez le mot de
+  passe affiché à côté du téléchargement.
 
 - **Sauvegarde portable** : la même chose, plus les clés de
   chiffrement du site — la seule archive qui se restaure sur une

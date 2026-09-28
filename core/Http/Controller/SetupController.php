@@ -1404,8 +1404,13 @@ class SetupController extends AbstractController
             $runner->migrate($this->schemaFileSet());
 
             // Store admin email in secrets for auto-repair
-            $secrets['admin_email'] = strtolower(trim($data['admin_email']));
-            $this->secretManager->writeSecrets($secrets);
+            $adminEmail = strtolower(trim($data['admin_email']));
+            $secrets['admin_email'] = $adminEmail;
+            $this->secretManager->updateSecrets(static function (array $current) use ($adminEmail): array {
+                $current['admin_email'] = $adminEmail;
+
+                return $current;
+            });
 
             // Create initial admin account (base64 keys decoded to match the boot sequence)
             $this->createAdminAccount(
@@ -1482,16 +1487,22 @@ class SetupController extends AbstractController
     private function handleConfigUpdate(array $data, Request $request): Response
     {
         try {
-            $currentSecrets = $this->secretManager->readSecrets();
+            // Merge new values (keep passwords if not provided), under the
+            // lock every change to secrets.enc takes (SecretManager::
+            // updateSecrets()).
+            $currentSecrets = [];
+            $merge = static function (array $current) use ($data, &$currentSecrets): array {
+                $currentSecrets = $current;
+                $currentSecrets['db_host'] = $data['db_host'];
+                $currentSecrets['db_port'] = (int) $data['db_port'];
+                $currentSecrets['db_name'] = $data['db_name'];
+                $currentSecrets['db_user'] = $data['db_user'];
+                if ($data['db_password'] !== '') {
+                    $currentSecrets['db_password'] = $data['db_password'];
+                }
 
-            // Merge new values (keep passwords if not provided)
-            $currentSecrets['db_host'] = $data['db_host'];
-            $currentSecrets['db_port'] = (int) $data['db_port'];
-            $currentSecrets['db_name'] = $data['db_name'];
-            $currentSecrets['db_user'] = $data['db_user'];
-            if ($data['db_password'] !== '') {
-                $currentSecrets['db_password'] = $data['db_password'];
-            }
+                return $currentSecrets;
+            };
             // **The relay is deliberately absent** (issue #336). This path
             // only ever runs on an installed site, where the send mode and
             // the SMTP credentials belong to « Courrier sortant ›
@@ -1506,7 +1517,7 @@ class SetupController extends AbstractController
             // 'smtp', so every save of this page ERASED the relay. Refusing
             // them here rather than trusting the form is also what stops a
             // crafted POST doing it on purpose.
-            $this->secretManager->writeSecrets($currentSecrets);
+            $this->secretManager->updateSecrets($merge);
 
             // Write non-secret settings to settings table
             if ($this->settingService !== null) {

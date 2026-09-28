@@ -82,10 +82,12 @@ class NotificationConfigController extends AbstractController
         $deviceCount = (int) $stmt->fetchColumn();
 
         $vapidKeys = VapidKeyPairFactory::createValid();
-        $secrets = $this->secretManager->readSecrets();
-        $secrets['vapid_public_key'] = $vapidKeys['publicKey'];
-        $secrets['vapid_private_key'] = $vapidKeys['privateKey'];
-        $this->secretManager->writeSecrets($secrets);
+        $this->secretManager->updateSecrets(static function (array $secrets) use ($vapidKeys): array {
+            $secrets['vapid_public_key'] = $vapidKeys['publicKey'];
+            $secrets['vapid_private_key'] = $vapidKeys['privateKey'];
+
+            return $secrets;
+        });
 
         // Every existing subscription was encrypted against the old
         // application server key pair — the browser itself will silently

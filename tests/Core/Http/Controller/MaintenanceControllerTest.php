@@ -468,7 +468,7 @@ class MaintenanceControllerTest extends TestCase
      * A block that shipped with the button and without the warning would
      * look finished and would be the dangerous half.
      */
-    public function testThePortableBlockCarriesItsWarningAndItsLengthRule(): void
+    public function testThePortableBlockCarriesItsWarningAndNoPasswordField(): void
     {
         $body = $this->page('manualBackupPage');
 
@@ -477,17 +477,13 @@ class MaintenanceControllerTest extends TestCase
         $this->assertStringContainsString('Téléchargez-la puis supprimez-la du serveur.', $body);
         $this->assertStringContainsString('Une seule est conservée', $body);
 
-        // The screen promises the same number the server enforces, and it
-        // gets it from the same constant rather than from a literal typed
-        // into a template.
-        $this->assertStringContainsString(
-            'minlength="' . \Core\Maintenance\Portable\PortablePassphrase::MIN_LENGTH . '"',
-            $body
-        );
-        $this->assertStringContainsString(
-            'Au moins ' . \Core\Maintenance\Portable\PortablePassphrase::MIN_LENGTH . ' caractères',
-            $body
-        );
+        // Nothing to type any more (issue #619, IT-03): the site generates
+        // each archive's password and says where it will be shown.
+        $this->assertStringNotContainsString('type="password"', $body);
+        $this->assertStringContainsString("s'affiche au moment de la télécharger", $body);
+        // And the two sentences the chantier requires on screen.
+        $this->assertStringContainsString('Notez le mot de passe affiché au téléchargement.', $body);
+        $this->assertStringContainsString('illisibles les archives déjà produites', $body);
     }
 
     /**
@@ -1118,16 +1114,28 @@ class MaintenanceControllerTest extends TestCase
         $this->assertSame('Portée de sauvegarde invalide.', $decoded['error']);
     }
 
-    public function testCreateFullBackupRejectsEmptyPassword(): void
+    /**
+     * Nothing to type (issue #619, IT-03): the site generates the archive's
+     * password, keeps it under the archive's id, and never puts it in the
+     * scheduled task — the handler reads it from secrets.enc.
+     */
+    public function testCreateFullBackupGeneratesAndKeepsThePasswordOutsideThePayload(): void
     {
-        $token = $this->csrfToken();
-
         $response = $this->controller->createFullBackup($this->jsonRequest([
-            'scope' => 'full_config', 'password' => '', '_csrf_token' => $token,
+            'scope' => 'full_config', '_csrf_token' => $this->csrfToken(),
         ]), []);
 
         $decoded = json_decode($response->getBody(), true);
-        $this->assertFalse($decoded['success']);
+        $this->assertTrue($decoded['success']);
+
+        $password = \Core\Maintenance\BackupPasswords::forStorage($this->storagePath)
+            ->passwordFor($decoded['backup_id']);
+        $this->assertNotNull($password);
+        $this->assertMatchesRegularExpression('/^[A-HJKMNP-Z2-9]{5}(-[A-HJKMNP-Z2-9]{5}){5}$/', $password);
+
+        $payload = (string) $this->schedulerRepository->findByModuleAndTaskKey('core', 'create_backup')[0]['payload'];
+        $this->assertStringNotContainsString($password, $payload);
+        $this->assertStringNotContainsString('password', $payload);
     }
 
     public function testCreateFullBackupSchedulesTheBackgroundTaskAndReturnsBackupId(): void
@@ -1165,24 +1173,21 @@ class MaintenanceControllerTest extends TestCase
     }
 
     /**
-     * The length rule is enforced HERE, not only in the browser.
-     *
-     * The field carries a `minlength` and the page checks it, but this
-     * endpoint is reachable without the page — and this passphrase is the
-     * only thing standing between a lost archive and the site's master
-     * key.
+     * A portable archive's password is generated too, and far above the
+     * floor a typed passphrase had to meet: it is the only lock on the
+     * master key inside the archive.
      */
-    public function testCreatePortableBackupRefusesAShortPassphrase(): void
+    public function testAPortableBackupGetsAGeneratedPasswordAboveTheLengthFloor(): void
     {
         $response = $this->controller->createPortableBackup($this->jsonRequest([
-            'passphrase' => 'trop court', '_csrf_token' => $this->csrfToken(),
+            '_csrf_token' => $this->csrfToken(),
         ]), []);
 
         $decoded = json_decode($response->getBody(), true);
-        $this->assertSame(400, $response->getStatusCode());
-        $this->assertFalse($decoded['success']);
-        $this->assertStringContainsString('16', $decoded['error']);
-        $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'create_backup'));
+        $this->assertTrue($decoded['success']);
+        $password = (string) \Core\Maintenance\BackupPasswords::forStorage($this->storagePath)
+            ->passwordFor($decoded['backup_id']);
+        $this->assertNull(\Core\Maintenance\Portable\PortablePassphrase::refuse($password));
     }
 
     public function testCreatePortableBackupSchedulesTheBackgroundTaskUnderItsOwnType(): void
@@ -1204,23 +1209,79 @@ class MaintenanceControllerTest extends TestCase
     }
 
     /**
-     * The passphrase never reaches the database in clear.
-     *
-     * It is the only lock on the master key inside the archive; a copy of
-     * it sitting in a scheduler payload would put it in the one place a
+     * The passphrase never reaches the database at all: not in clear, and
+     * no longer even encrypted in the scheduler payload, the one place a
      * stolen database dump would look.
      */
-    public function testThePassphraseIsEncryptedInTheScheduledPayload(): void
+    public function testNoPassphraseTravelsInTheScheduledPayload(): void
     {
         $this->controller->createPortableBackup($this->jsonRequest([
-            'passphrase' => self::PORTABLE_PASSPHRASE, '_csrf_token' => $this->csrfToken(),
+            '_csrf_token' => $this->csrfToken(),
         ]), []);
 
         $scheduled = $this->schedulerRepository->findByModuleAndTaskKey('core', 'create_backup');
         $payload = (string) $scheduled[0]['payload'];
 
-        $this->assertStringNotContainsString(self::PORTABLE_PASSPHRASE, $payload);
-        $this->assertStringContainsString('encrypted_password', $payload);
+        $this->assertStringNotContainsString('password', $payload);
+        $this->assertStringNotContainsString('passphrase', $payload);
+    }
+
+    /**
+     * The password is revealed to whoever is about to download, by a POST
+     * behind the CSRF token, and the reveal is journaled without it.
+     */
+    public function testTheGeneratedPasswordIsRevealedOnDemandAndJournaled(): void
+    {
+        $created = json_decode($this->controller->createFullBackup($this->jsonRequest([
+            'scope' => 'full_config', '_csrf_token' => $this->csrfToken(),
+        ]), [])->getBody(), true);
+        $id = (int) $created['backup_id'];
+        $kept = \Core\Maintenance\BackupPasswords::forStorage($this->storagePath)->passwordFor($id);
+
+        $response = $this->controller->revealBackupPassword(
+            $this->jsonRequest(['_csrf_token' => $this->csrfToken()]),
+            ['id' => (string) $id]
+        );
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame($kept, $decoded['password']);
+
+        $rows = $this->pdo->query(
+            "SELECT level, context FROM event_log WHERE event_type = 'backup_password_revealed'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(1, $rows);
+        $this->assertSame('security', $rows[0]['level']);
+        $this->assertStringNotContainsString((string) $kept, (string) $rows[0]['context']);
+    }
+
+    public function testRevealingRefusesWithoutTheCsrfToken(): void
+    {
+        $created = json_decode($this->controller->createFullBackup($this->jsonRequest([
+            'scope' => 'full_config', '_csrf_token' => $this->csrfToken(),
+        ]), [])->getBody(), true);
+
+        $response = $this->controller->revealBackupPassword(
+            $this->jsonRequest(['_csrf_token' => 'bad']),
+            ['id' => (string) $created['backup_id']]
+        );
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertStringNotContainsString('"password"', $response->getBody());
+    }
+
+    /** An archive with no kept password — older, or unencrypted — says so. */
+    public function testRevealingAnArchiveWithoutAKeptPasswordSaysSo(): void
+    {
+        $id = $this->backupRepository->create('auto_backup', null);
+
+        $response = $this->controller->revealBackupPassword(
+            $this->jsonRequest(['_csrf_token' => $this->csrfToken()]),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertStringContainsString('Aucun mot de passe', $response->getBody());
     }
 
     /**

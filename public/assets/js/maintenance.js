@@ -102,53 +102,17 @@
         });
     }
 
+    // No password field any more (issue #619, IT-03): the site generates
+    // one per archive, keeps it, and reveals it at download time.
     wireBackupForm('full-backup', '/config/maintenance/backup/full', function (form) {
         var scope = /** @type {HTMLInputElement} */ (form.querySelector('input[name="scope"]:checked'));
-        var password = /** @type {HTMLInputElement} */ (document.getElementById('full-backup-password')).value;
-        if (!scope || password === '') return null;
+        if (!scope) return null;
 
-        return { scope: scope.value, password: password };
+        return { scope: scope.value };
     });
 
-    // The length is checked here so the operator is told before waiting for
-    // a round trip, and again on the server, which is where it counts:
-    // Core\Maintenance\Portable\PortablePassphrase is the rule, this is a
-    // courtesy. The number comes from the field's own minlength rather than
-    // being written twice.
-    var portablePassphrase = /** @type {HTMLInputElement} */ (document.getElementById('portable-backup-passphrase'));
-
-    // A custom validity message lasts until something clears it, and while
-    // one is set the browser refuses to fire `submit` at all. The only
-    // clearing used to live inside the callback below — on the far side of
-    // the event the message itself suppresses. So an operator who tripped
-    // the guard once met a form that refused every later passphrase,
-    // correct ones included, until they reloaded the page: the courtesy
-    // check locking the door it exists to hold open. Clearing on `input`
-    // has to be wired here, once, rather than on that unreachable path.
-    if (portablePassphrase) {
-        portablePassphrase.addEventListener('input', function () {
-            portablePassphrase.setCustomValidity('');
-        });
-    }
-
     wireBackupForm('portable-backup', '/config/maintenance/backup/portable', function () {
-        var field = portablePassphrase;
-        var passphrase = field.value;
-        var minimum = Number.parseInt(field.getAttribute('minlength') || '0', 10) || 0;
-
-        // Code points, not UTF-16 units: the server counts with
-        // mb_strlen(), and `.length` counts an emoji as two. Eight of them
-        // would satisfy a `.length` check and then be refused by the
-        // server for being eight characters — the client guard telling the
-        // operator the opposite of the rule.
-        if (Array.from(passphrase).length < minimum) {
-            field.setCustomValidity('La phrase de passe doit faire au moins ' + minimum + ' caractères.');
-            field.reportValidity();
-            return null;
-        }
-        field.setCustomValidity('');
-
-        return { passphrase: passphrase };
+        return {};
     });
 })();
 
@@ -748,6 +712,49 @@
             }, function () { /* nothing to say: the text is selectable */ });
         });
     }
+
+    // « Sauvegardes récentes »: the generated password of one archive
+    // (issue #619, IT-03), revealed on demand beside its download button.
+    // Same rules as the off-site passphrase above: a POST, CSRF-guarded and
+    // journaled on the server, never rendered into the page.
+    document.querySelectorAll('[data-backup-password]').forEach(function (button) {
+        var backupButton = /** @type {HTMLButtonElement} */ (button);
+        var id = backupButton.dataset.backupPassword || '';
+        var output = document.getElementById('backup-password-' + id);
+        if (!output) return;
+        var passwordOutput = output;
+
+        backupButton.addEventListener('click', function () {
+            if (!passwordOutput.classList.contains('d-none')) {
+                passwordOutput.classList.add('d-none');
+                passwordOutput.textContent = '';
+                return;
+            }
+
+            backupButton.disabled = true;
+            window.ScoutMagicApi.postJson('/config/maintenance/backup/' + id + '/password', {})
+                .then(function (res) {
+                    var data = res.data || {};
+                    backupButton.disabled = false;
+                    passwordOutput.textContent = '';
+                    if (!data.success || !data.password) {
+                        passwordOutput.textContent = data.error || 'Le mot de passe n\'a pas pu être lu.';
+                    } else {
+                        var label = document.createElement('span');
+                        label.textContent = 'Mot de passe de l\'archive : ';
+                        var value = document.createElement('code');
+                        value.className = 'user-select-all';
+                        value.textContent = data.password;
+                        var note = document.createElement('span');
+                        note.className = 'd-block text-body-secondary';
+                        note.textContent = 'Notez-le : le serveur qui pourrait vous le redire n\'existera '
+                            + 'peut-être plus le jour où vous en aurez besoin.';
+                        passwordOutput.append(label, value, note);
+                    }
+                    passwordOutput.classList.remove('d-none');
+                });
+        });
+    });
 
     // Resume polling after the classic-form restore redirect.
     var restoreIdMatch = /[?&]restore_id=(\d+)/.exec(window.location.search);

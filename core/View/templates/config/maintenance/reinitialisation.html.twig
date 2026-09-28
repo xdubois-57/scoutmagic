@@ -94,7 +94,7 @@
                                 {% include 'partials/form_field.html.twig' with {
                                     field_id: 'restore-backup-password', field_name: 'password',
                                     type: 'password', label: "Mot de passe ou phrase de passe de l'archive",
-                                    help: "Nécessaire pour une sauvegarde complète chiffrée, et pour une sauvegarde portable venue d'une autre installation. Laissez vide sinon.",
+                                    help: "Seulement pour un fichier téléversé : une sauvegarde complète ou portable venue d'ailleurs. Une sauvegarde de ce serveur se restaure avec le mot de passe que le site a conservé ; laissez vide.",
                                     size: 'sm', wrapper_class: '',
                                 } only %}
                             </div>

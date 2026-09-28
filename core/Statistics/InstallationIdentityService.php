@@ -181,11 +181,17 @@ class InstallationIdentityService
             return $existing;
         }
 
-        $secret = bin2hex(random_bytes(self::SECRET_BYTES));
-        $secrets[self::SECRET_NAME] = $secret;
-
+        // Generated under the lock, and only if still missing there: two
+        // requests creating it at once must agree on one secret.
+        $secret = '';
         try {
-            $this->secretManager->writeSecrets($secrets);
+            $this->secretManager->updateSecrets(static function (array $secrets) use (&$secret): array {
+                $current = $secrets[self::SECRET_NAME] ?? null;
+                $secret = is_string($current) && $current !== '' ? $current : bin2hex(random_bytes(self::SECRET_BYTES));
+                $secrets[self::SECRET_NAME] = $secret;
+
+                return $secrets;
+            });
         } catch (\Throwable) {
             return null;
         }
@@ -209,9 +215,11 @@ class InstallationIdentityService
         );
 
         if ($this->secretManager->isInitialized()) {
-            $secrets = $this->secretManager->readSecrets();
-            $secrets[self::SECRET_NAME] = bin2hex(random_bytes(self::SECRET_BYTES));
-            $this->secretManager->writeSecrets($secrets);
+            $this->secretManager->updateSecrets(static function (array $secrets): array {
+                $secrets[self::SECRET_NAME] = bin2hex(random_bytes(self::SECRET_BYTES));
+
+                return $secrets;
+            });
         }
 
         $this->journalService?->log(
