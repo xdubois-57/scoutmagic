@@ -644,22 +644,32 @@ class InstallUpdateHandler implements TaskHandlerInterface
             return false;
         }
 
+        // Says what was observed and NOTHING about why (issue #683). The
+        // previous wording accused the build — « relancez la construction,
+        // puis réessayez » — on the strength of a missing file alone. In the
+        // two cases that were measured the build had succeeded and the
+        // archive arrived minutes later: the site had stopped waiting first,
+        // because GitHub's runner queue was full. Advice that is wrong in
+        // the common case is worse than no advice, so the sentence now names
+        // the likely cause, states that nothing was touched, and says what
+        // happens next without asking for anything. The archive and
+        // prerelease names stay: they are what somebody checks by hand.
         $updateHistoryRepository->markFailed(
             $historyId,
-            'L\'archive de cette mise à jour n\'a jamais été publiée : l\'intégration continue devait déposer '
+            'L\'archive de cette mise à jour n\'était pas prête à temps : l\'intégration continue devait déposer '
             . '« '
             . basename($downloadUrl)
             . ' » sur la préversion « '
             . \Core\Maintenance\GitHubWebhookService::DEV_BUILD_TAG
-            . ' » du dépôt, et elle est toujours '
-            . 'absente. La mise à jour a été abandonnée sans rien modifier ; relancez la construction, puis '
-            . 'réessayez.'
+            . ' » du dépôt, et elle était toujours absente à la fin du délai d\'attente. Le plus souvent, la file '
+            . 'd\'attente de GitHub Actions était pleine et la construction a abouti un peu plus tard. Rien n\'a '
+            . 'été modifié, et le prochain envoi de code installera la version la plus récente.'
         );
         $context->journal->log(
             'core',
             'update_failed',
             'info',
-            'Artefact de mise à jour jamais publié — installation abandonnée',
+            'Artefact de mise à jour pas publié avant la fin du délai — installation abandonnée',
             [
                 'history_id' => $historyId,
                 'version_to' => $history->versionTo,
@@ -673,7 +683,9 @@ class InstallUpdateHandler implements TaskHandlerInterface
             $history,
             'core.update_failed',
             'Échec de la mise à jour',
-            'L\'archive de la mise à jour n\'a jamais été publiée — aucune modification n\'a été effectuée.'
+            'L\'archive de la mise à jour n\'était pas prête à temps, le plus souvent parce que la file d\'attente '
+            . 'de GitHub Actions était pleine. Rien n\'a été modifié, et le prochain envoi de code installera la '
+            . 'version la plus récente.'
         );
 
         return false;

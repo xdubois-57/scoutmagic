@@ -71,14 +71,34 @@ class GitHubWebhookService
     /**
      * How long Task\InstallUpdateHandler may keep waiting for that
      * artifact to appear before giving up (seconds). The webhook fires the
-     * instant the push lands; CI needs 1-3 minutes to resolve
-     * dependencies, zip the tree and upload the asset — so the install is
-     * scheduled immediately, finds nothing, and reschedules itself until
-     * either the asset shows up or this deadline passes. Ten minutes is
-     * several times the observed build time and still short enough that a
-     * genuinely failed build is reported the same morning.
+     * instant the push lands, so the install is scheduled immediately,
+     * finds nothing, and reschedules itself until either the asset shows up
+     * or this deadline passes.
+     *
+     * **The wait is dominated by GitHub's runner queue, not by the build**
+     * (issue #683). Ten minutes here was set against « CI needs 1-3 minutes
+     * to resolve dependencies, zip the tree and upload the asset », which
+     * is still true of the build itself and says nothing about how long a
+     * job waits to start. Two measured pushes on the dev channel:
+     *
+     * - `dev-ac883d4`, pushed 20:39:09 UTC — job started 20:57:17, 18 min
+     *   of queue, then a 30 s build;
+     * - `dev-f6104c8`, pushed 22:50 UTC — job started 23:10:18, 20 min of
+     *   queue, then a 40 s build.
+     *
+     * Both archives were published, 8 to 10 minutes AFTER the site had
+     * already given up and written « Échouée » against a build that never
+     * failed. That evening the repository queued 8 full CI runs on `main`,
+     * 5 PR runs, 5 Claude reviews, 16 triage passes and 8 archive builds:
+     * the queue is a property of how busy the repository is, so it will
+     * happen again.
+     *
+     * 45 minutes is twice the worst queue measured. The cost of raising it
+     * is only that a build which genuinely fails is reported later; the
+     * cost of leaving it at ten was a false accusation on a healthy build,
+     * and a site left on its previous version until the next push.
      */
-    public const ARTIFACT_WAIT_SECONDS = 600;
+    public const ARTIFACT_WAIT_SECONDS = 2700;
 
     // Wall-clock timezone the admin's auto_update_day/auto_update_time are
     // expressed in: the application clock, named explicitly rather than
