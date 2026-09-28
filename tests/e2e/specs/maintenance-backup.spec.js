@@ -34,8 +34,6 @@ import { loginAsAdmin } from '../support/admin-login.js';
 import { runScheduler } from '../support/scheduler.js';
 import { scaled } from '../support/timeouts.js';
 
-const ARCHIVE_PASSWORD = 'Archive-e2e-2024!';
-
 test('maintenance backups run to completion, the auto-save saves, and the danger zone stays locked behind its keywords', async ({ page }) => {
     // The encrypted backup zips core/, modules/ and public/ in the
     // background — well past the default budget on a loaded run.
@@ -133,7 +131,8 @@ test('maintenance backups run to completion, the auto-save saves, and the danger
     // ---------------------------------------------------------------
     await page.goto('/config/maintenance/sauvegarde-manuelle', { waitUntil: 'domcontentloaded' });
     await page.locator('#scope-config').check();
-    await page.locator('#full-backup-password').fill(ARCHIVE_PASSWORD);
+    // Nothing to type (issue #619, IT-03): the site generates the password.
+    await expect(page.locator('#full-backup-form input[type="password"]')).toHaveCount(0);
     await page.locator('#full-backup-submit').click();
 
     // **Waiting on the pair, not on the progress bar alone — because a
@@ -193,6 +192,13 @@ test('maintenance backups run to completion, the auto-save saves, and the danger
     await expect(
         backupsList.getByLabel(/^Télécharger la sauvegarde « Configuration seule »/).first(),
     ).toBeVisible();
+
+    // Its generated password is revealed on demand beside the download,
+    // with the sentence that says to note it.
+    await backupsList.getByLabel(/^Afficher le mot de passe de la sauvegarde « Configuration seule »/).first().click();
+    const revealed = backupsList.locator('output[id^="backup-password-"]').first();
+    await expect(revealed.locator('code')).toHaveText(/^[A-HJKMNP-Z2-9]{5}(-[A-HJKMNP-Z2-9]{5}){5}$/);
+    await expect(revealed).toContainText('Notez-le');
 
     // ---------------------------------------------------------------
     // The webhook secret (dev-level auto-updates): revealed only by the

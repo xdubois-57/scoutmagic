@@ -141,6 +141,18 @@ final class BackupRetention
         }
 
         $this->backups->delete($backup->id);
+
+        // And its password (issue #619, IT-03), or secrets.enc would grow
+        // by one entry per backup, forever. After the row: a password left
+        // behind by a failure here is harmless, an archive whose password
+        // went first is not. A secrets file that cannot be rewritten must
+        // not undo a deletion that already happened, so it is logged, not
+        // thrown.
+        try {
+            BackupPasswords::forStorage($this->storagePath)->forget($backup->id);
+        } catch (\Throwable $e) {
+            error_log('Backup password could not be forgotten for backup ' . $backup->id . ': ' . $e::class);
+        }
     }
 
     /**

@@ -15,7 +15,7 @@ Vous avez une sauvegarde portable et sa phrase de passe. Voici la suite.
 
 ## Ce qu'il vous faut
 
-L'archive `.zip`, la phrase de passe notée en la créant, et un
+L'archive `.zip`, le mot de passe noté en la téléchargeant, et un
 hébergement — le même remis à neuf, ou un autre. Sans la phrase de
 passe, l'archive est définitivement illisible : personne, ici compris,
 ne peut la rouvrir.

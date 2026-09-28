@@ -5309,6 +5309,15 @@ $router->addRoute(
     'deleteBackup',
     'superadmin'
 );
+// The generated password of one archive (issue #619, IT-03): POST and
+// journaled, like the off-site passphrase's reveal below.
+$router->addRoute(
+    'POST',
+    '/config/maintenance/backup/{id}/password',
+    MaintenanceController::class,
+    'revealBackupPassword',
+    'superadmin'
+);
 $router->addRoute(
     'GET',
     '/api/maintenance/backup-status/{id}',

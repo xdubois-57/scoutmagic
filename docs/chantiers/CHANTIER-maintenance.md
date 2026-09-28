@@ -168,6 +168,25 @@ d'une unité avec galerie.
   licence et la vitalité du dépôt avant d'ajouter la ligne au `composer.json`, et note que la
   bibliothèque tire `symfony/finder` et `psr/http-message` avec elle.
 
+### Tranché en cours de route (issue #619)
+
+- **libzip reste le moteur de chiffrement.** La mesure demandée plus haut a été faite : `nelexa/zip`
+  tient en mémoire (4 Mo de pic sur une archive de 1 Go, `memory_limit` de 128 Mo), mais chiffre
+  environ cinq fois plus lentement que libzip (1 Go compressé et chiffré en AES-256 : 202 s contre
+  44 s), et son dépôt n'a plus publié de version depuis juin 2022. Le mainteneur a choisi de rester
+  sur libzip : le repli d'IT-04 s'applique donc.
+- **La copie de sécurité d'une réinitialisation complète reste chiffrée.** La réinitialisation efface
+  `secrets.enc`, donc le mot de passe de cette copie : la page de réinitialisation l'affiche et fait
+  confirmer qu'il est noté **avant** d'effacer quoi que ce soit.
+- **L'itération est livrée en deux PR**, pour rester sous la cinquantaine de fichiers :
+  - IT-03a — un mot de passe généré par archive pour la sauvegarde complète et la portable
+    (`Core\Maintenance\BackupPasswords`, clé `backup_password_{id}` de `secrets.enc`), révélé à côté du
+    téléchargement, oublié avec l'archive, retrouvé seul pour restaurer une archive de ce serveur ; plus
+    aucun champ de mot de passe dans les formulaires de sauvegarde, ni de mot de passe dans la charge
+    d'une tâche planifiée ;
+  - IT-03b — le chiffrement des sauvegardes automatiques et de sécurité, et la copie de la
+    réinitialisation complète ci-dessus.
+
 ---
 
 ## IT-04 — Sauvegarde manuelle

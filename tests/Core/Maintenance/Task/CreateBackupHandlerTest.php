@@ -140,6 +140,23 @@ class CreateBackupHandlerTest extends TestCase
         $this->assertStringNotContainsString('Mot de passe de sauvegarde illisible', (string) $backup->errorMessage);
     }
 
+    /**
+     * Since IT-03 (issue #619) the password is not in the task: the handler
+     * reads the one the site kept when the archive was requested. If it is
+     * missing, the archive fails — it is never written with no password,
+     * nor with one nobody kept.
+     */
+    public function testHandleFailsWhenNoPasswordWasKeptForTheArchive(): void
+    {
+        $id = $this->backupRepository->create('full_config', $this->userId);
+
+        $this->handler->handle(['backup_id' => $id, 'scope' => 'full_config'], $this->context);
+
+        $backup = $this->backupRepository->findById($id);
+        $this->assertSame('failed', $backup->status);
+        $this->assertStringContainsString('La sauvegarde n\'a pas pu être générée', (string) $backup->errorMessage);
+    }
+
     public function testHandleNotifiesRequesterOnFailure(): void
     {
         $id = $this->backupRepository->create('full_config', $this->userId);

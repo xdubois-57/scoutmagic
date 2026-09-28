@@ -35,22 +35,19 @@ C'est pour cela qu'elle est un bloc séparé sur la page Maintenance,
 avec son propre avertissement, et qu'elle a trois règles que les
 autres n'ont pas.
 
-## Une phrase de passe d'au moins seize caractères
+## Un mot de passe généré par le site
 
-Quatre mots ordinaires suffisent, et se retiennent : c'est la
-longueur, pas les majuscules ni les chiffres, qui protège vraiment. Le
-site refuse plus court.
+Vous n'avez rien à inventer : le site génère le mot de passe de
+chaque archive, trente caractères faciles à recopier sur papier, et
+le conserve. Il s'affiche dans **Sauvegardes récentes**, avec le
+bouton en forme de clé à côté du téléchargement.
 
-**Elle n'est jamais enregistrée en clair.** Le site en garde une copie
-chiffrée le temps de fabriquer l'archive — dans la tâche de
-sauvegarde, jusqu'à la suppression de celle-ci — parce que la
-génération se fait en arrière-plan, après que vous avez quitté la
-page. Nulle part ailleurs, et jamais lisible telle quelle.
-
-Une archive dont la phrase de passe est perdue est donc
-définitivement illisible — par un intrus comme par vous. Notez-la là
-où vous notez ce qui compte, pas dans un fichier posé à côté de
-l'archive.
+**Notez-le au moment de télécharger l'archive.** Le jour où vous en
+aurez besoin, le serveur qui pourrait vous le redire n'existera
+peut-être plus — c'est même la raison d'être de cette sauvegarde.
+Une archive dont le mot de passe est perdu est définitivement
+illisible, par un intrus comme par vous. Notez-le là où vous notez
+ce qui compte, pas dans un fichier posé à côté de l'archive.
 
 ## Une seule est conservée
 

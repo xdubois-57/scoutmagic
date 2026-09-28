@@ -58,6 +58,16 @@
                         classes: 'btn btn-sm btn-outline-secondary',
                         icon: 'download',
                     } only %}
+                    {# The generated password, revealed on demand (IT-03):
+                       POST and journaled, never printed in the page. #}
+                    {% if backup.hasPassword %}
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                data-backup-password="{{ backup.id }}" title="Afficher le mot de passe"
+                                aria-controls="backup-password-{{ backup.id }}"
+                                aria-label="Afficher le mot de passe de la sauvegarde « {{ backup.typeLabel }} » du {{ backup.createdAt }}">
+                            <i class="bi bi-key" aria-hidden="true"></i>
+                        </button>
+                    {% endif %}
                 {% endif %}
                 {# The confirmation is `data-confirm` on the FORM
                    (design.md §7.5) and names the backup. No keyword to
@@ -79,6 +89,9 @@
                         <i class="bi bi-trash" aria-hidden="true"></i>
                     </button>
                 </form>
+                {% if backup.hasPassword %}
+                    <output class="w-100 small d-none" id="backup-password-{{ backup.id }}" aria-live="polite"></output>
+                {% endif %}
             </li>
         {% endfor %}
     </ul>

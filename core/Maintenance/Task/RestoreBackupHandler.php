@@ -17,6 +17,7 @@ use Core\Database\SqlParser;
 use Core\File\FileRepository;
 use Core\Maintenance\Backup;
 use Core\Maintenance\BackupException;
+use Core\Maintenance\BackupPasswords;
 use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
 use Core\Maintenance\Portable\PortableArchive;
@@ -1068,6 +1069,11 @@ class RestoreBackupHandler implements TaskHandlerInterface
         }
 
         $needsPassword = in_array($backup->type, self::ENCRYPTED_BACKUP_TYPES, true);
+        if ($needsPassword && $password === null) {
+            // An archive of this server: the site kept the password it
+            // generated for it (issue #619, IT-03), so nobody has to type it.
+            $password = BackupPasswords::forStorage($storagePath)->passwordFor($backup->id);
+        }
 
         return [$dbDumpPath, $filesZipPath, $needsPassword ? $password : null, null];
     }

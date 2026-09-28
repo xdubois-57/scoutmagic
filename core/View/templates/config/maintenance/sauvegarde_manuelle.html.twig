@@ -59,8 +59,9 @@
                     <div class="col-12 col-md-6">
                         <h3 class="h6">Sauvegarde complète (chiffrée)</h3>
                         <p class="text-body-secondary small">
-                            Archive ZIP protégée par mot de passe, générée en arrière-plan. Vous recevrez une
-                            notification lorsqu'elle sera prête.
+                            Archive ZIP chiffrée avec un mot de passe que le site génère, générée en arrière-plan.
+                            Vous recevrez une notification lorsqu'elle sera prête ; son mot de passe s'affiche au
+                            moment de la télécharger.
                             <strong>Sans les secrets</strong> : elle se restaure sur cette installation, pas sur
                             une autre.
                         </p>
@@ -104,11 +105,6 @@
                                 photo, ni les autres. Chaque emplacement a son propre cycle de vie&nbsp;:
                                 <a href="/config/stockage">Configuration &gt; Stockage</a>.
                             </p>
-                            {% include 'partials/form_field.html.twig' with {
-                                field_id: 'full-backup-password', type: 'password',
-                                label: "Mot de passe de l'archive", required: true,
-                                size: 'sm', wrapper_class: 'mb-2',
-                            } only %}
                             <button type="submit" class="btn btn-primary btn-sm" id="full-backup-submit">
                                 <i class="bi bi-shield-lock" aria-hidden="true"></i> Générer
                             </button>
@@ -132,14 +128,10 @@
                             fait que son mot de passe protège, à lui seul, toutes les données de l'unité.
                             Téléchargez-la puis supprimez-la du serveur.
                         </div>
+                        <p class="small text-body-secondary">
+                            Son mot de passe est généré par le site et s'affiche au moment de la télécharger.
+                        </p>
                         <form id="portable-backup-form" {{ not zip_encryption_supported ? 'class="d-none"' : '' }}>
-                            {% include 'partials/form_field.html.twig' with {
-                                field_id: 'portable-backup-passphrase', type: 'password',
-                                label: 'Phrase de passe',
-                                help: 'Au moins ' ~ portable_passphrase_min_length ~ ' caractères. Elle n\'est jamais enregistrée en clair : le site en garde une copie chiffrée dans la tâche de sauvegarde, jusqu\'à la suppression de cette tâche. Une archive dont la phrase de passe est perdue est définitivement illisible.',
-                                required: true, minlength: portable_passphrase_min_length,
-                                size: 'sm', wrapper_class: 'mb-2',
-                            } only %}
                             <button type="submit" class="btn btn-primary btn-sm" id="portable-backup-submit">
                                 <i class="bi bi-box-seam" aria-hidden="true"></i> Créer une sauvegarde portable
                             </button>
@@ -151,6 +143,21 @@
                         <p class="small text-body-secondary mt-2 mb-0">
                             Une seule est conservée : la nouvelle remplace la précédente.
                         </p>
+                    </div>
+
+                    {# The two sentences IT-03 requires on screen: a generated
+                       password is only as good as the copy somebody made of it. #}
+                    <div class="col-12">
+                        <div class="alert alert-secondary small mb-0" id="backup-password-notice">
+                            <p class="mb-1">
+                                <strong>Notez le mot de passe affiché au téléchargement.</strong> Le serveur qui
+                                pourrait vous le redire n'existera peut-être plus le jour où vous en aurez besoin.
+                            </p>
+                            <p class="mb-0">
+                                Régénérer la phrase de passe hors site, ou réinitialiser les clés du site, rend
+                                illisibles les archives déjà produites.
+                            </p>
+                        </div>
                     </div>
                 </div>
             </div>

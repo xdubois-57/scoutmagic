@@ -109,15 +109,13 @@ describe('maintenance.js: full-backup-form + its poller', () => {
                 <input type="radio" name="scope" value="all" checked>
                 <button type="submit" id="full-backup-submit"></button>
             </form>`),
-            el('<input id="full-backup-password" value="">'),
             el('<div id="full-backup-progress" class="d-none"></div>'),
             el('<div id="full-backup-error" class="d-none"></div>'),
         );
     }
 
-    async function submit(password = 'pw') {
+    async function submit() {
         buildDom();
-        /** @type {HTMLInputElement} */ (document.getElementById('full-backup-password')).value = password;
         await boot();
         document.getElementById('full-backup-form').dispatchEvent(new Event('submit', { cancelable: true }));
     }
@@ -125,28 +123,21 @@ describe('maintenance.js: full-backup-form + its poller', () => {
     it('never submits with no scope selected', async () => {
         buildDom();
         document.querySelector('input[name="scope"]').checked = false;
-        /** @type {HTMLInputElement} */ (document.getElementById('full-backup-password')).value = 'pw';
         global.fetch = vi.fn();
         await boot();
         document.getElementById('full-backup-form').dispatchEvent(new Event('submit', { cancelable: true }));
         expect(fetch).not.toHaveBeenCalled();
     });
 
-    it('never submits with an empty password', async () => {
-        buildDom();
-        global.fetch = vi.fn();
-        await boot();
-        document.getElementById('full-backup-form').dispatchEvent(new Event('submit', { cancelable: true }));
-        expect(fetch).not.toHaveBeenCalled();
-    });
-
-    it('POSTs the checked scope, the password and the CSRF token', async () => {
+    // No password to type any more (issue #619, IT-03): the site
+    // generates it, and the payload carries the scope alone.
+    it('POSTs the checked scope and the CSRF token, and no password', async () => {
         global.fetch = vi.fn(() => jsonResponse({}));
-        await submit('s3cret');
+        await submit();
         await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
         expect(fetch).toHaveBeenCalledWith('/config/maintenance/backup/full', expect.objectContaining({
             method: 'POST',
-            body: JSON.stringify({ scope: 'all', password: 's3cret', _csrf_token: 'tok' }),
+            body: JSON.stringify({ scope: 'all', _csrf_token: 'tok' }),
         }));
     });
 
@@ -221,29 +212,21 @@ describe('maintenance.js: full-backup-form + its poller', () => {
 });
 
 describe('maintenance.js: portable-backup-form + its poller', () => {
-    // The two backup forms share one wiring (wireBackupForm) since the
-    // portable one arrived. These cases are therefore about what is NOT
-    // shared — a different endpoint, a different payload, and a length
-    // rule the other form does not have — plus one case proving the
-    // shared half really is reached from this form too.
-    function buildDom(minlength = '16') {
+    // The two backup forms share one wiring (wireBackupForm). These cases
+    // are about what is NOT shared — a different endpoint — plus one case
+    // proving the shared half really is reached from this form too. Since
+    // IT-03 neither form has anything to type.
+    function buildDom() {
         appendAll(
             el(`<form id="portable-backup-form">
                 <button type="submit" id="portable-backup-submit"></button>
             </form>`),
-            el(minlength === null
-                ? '<input id="portable-backup-passphrase" value="">'
-                : `<input id="portable-backup-passphrase" minlength="${minlength}" value="">`),
             el('<div id="portable-backup-progress" class="d-none"></div>'),
             el('<div id="portable-backup-error" class="d-none"></div>'),
         );
     }
 
-    async function submit(passphrase) {
-        const field = /** @type {HTMLInputElement} */ (document.getElementById('portable-backup-passphrase'));
-        field.value = passphrase;
-        // jsdom implements no constraint-validation UI.
-        field.reportValidity = vi.fn(() => false);
+    async function submit() {
         await boot();
         document.getElementById('portable-backup-form').dispatchEvent(new Event('submit', { cancelable: true }));
     }
@@ -254,89 +237,15 @@ describe('maintenance.js: portable-backup-form + its poller', () => {
         expect(fetch).not.toHaveBeenCalled();
     });
 
-    it('POSTs the passphrase and the CSRF token to the portable endpoint', async () => {
+    it('POSTs only the CSRF token to the portable endpoint', async () => {
         buildDom();
         global.fetch = vi.fn(() => jsonResponse({}));
-        await submit('quatre mots parfaitement ordinaires');
+        await submit();
         await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
         expect(fetch).toHaveBeenCalledWith('/config/maintenance/backup/portable', expect.objectContaining({
             method: 'POST',
-            body: JSON.stringify({ passphrase: 'quatre mots parfaitement ordinaires', _csrf_token: 'tok' }),
+            body: JSON.stringify({ _csrf_token: 'tok' }),
         }));
-    });
-
-    // The server refuses a short passphrase too, and that is where it
-    // counts: this only spares the operator a round trip.
-    it('sends nothing when the passphrase is shorter than the field demands', async () => {
-        buildDom();
-        global.fetch = vi.fn();
-        await submit('trop court');
-        expect(fetch).not.toHaveBeenCalled();
-        expect(document.getElementById('portable-backup-submit').disabled).toBe(false);
-    });
-
-    // The server counts characters with mb_strlen(); `.length` counts
-    // UTF-16 units, so eight emoji are sixteen units and eight characters.
-    // A client guard that used `.length` would wave them through and let
-    // the server refuse them — telling the operator the opposite of the
-    // rule they have to satisfy.
-    it('counts code points, not UTF-16 units, like the server does', async () => {
-        buildDom();
-        global.fetch = vi.fn();
-        await submit('\u{1F600}'.repeat(8));
-        expect(fetch).not.toHaveBeenCalled();
-    });
-
-    // The refusal above sets a custom validity message, and such a message
-    // lasts until something clears it — while one is set the browser fires
-    // no `submit` event at all. The clearing therefore cannot live in the
-    // submit handler: an operator who tripped the guard once would find
-    // the form refusing every later passphrase, correct ones included,
-    // until they reloaded the page. Typing is what clears it.
-    //
-    // jsdom runs no native pre-submit validation, so the lockout itself
-    // cannot be staged here; the state that causes it can. A field still
-    // carrying a message after the operator has typed a good passphrase is
-    // a field the browser will keep refusing.
-    it('lets the operator correct a refused passphrase without reloading the page', async () => {
-        buildDom();
-        global.fetch = vi.fn();
-        await submit('\u{1F600}'.repeat(8));
-
-        const field = /** @type {HTMLInputElement} */ (document.getElementById('portable-backup-passphrase'));
-        expect(field.validationMessage).not.toBe('');
-
-        field.value = 'quatre mots parfaitement ordinaires';
-        field.dispatchEvent(new Event('input'));
-
-        expect(field.validationMessage).toBe('');
-        expect(field.checkValidity()).toBe(true);
-    });
-
-    // The minimum is the field's own, read from the DOM rather than
-    // repeated here — so a template that stops declaring one leaves this
-    // guard with nothing to enforce, and the server's rule stands alone.
-    // Worth pinning because the fallback is silent: a missing attribute
-    // reads as zero, never as « refuse everything ».
-    it('enforces no minimum when the field declares none', async () => {
-        buildDom(null);
-        global.fetch = vi.fn(() => jsonResponse({}));
-        await submit('court');
-        await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
-    });
-
-    it('accepts sixteen accented characters, which are more than sixteen bytes', async () => {
-        buildDom();
-        global.fetch = vi.fn(() => jsonResponse({}));
-        await submit('é'.repeat(16));
-        await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
-    });
-
-    it('accepts exactly the minimum length', async () => {
-        buildDom();
-        global.fetch = vi.fn(() => jsonResponse({}));
-        await submit('a'.repeat(16));
-        await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
     });
 
     it('shows the server refusal — a host with no zip encryption, say', async () => {
@@ -345,7 +254,7 @@ describe('maintenance.js: portable-backup-form + its poller', () => {
             success: false,
             error: 'Le serveur ne supporte pas le chiffrement des archives.',
         }, 422));
-        await submit('quatre mots parfaitement ordinaires');
+        await submit();
         await vi.waitFor(() => expect(document.getElementById('portable-backup-error').textContent)
             .toBe('Le serveur ne supporte pas le chiffrement des archives.'));
         expect(document.getElementById('portable-backup-submit').disabled).toBe(false);
@@ -363,7 +272,7 @@ describe('maintenance.js: portable-backup-form + its poller', () => {
         Object.defineProperty(window, 'location', { configurable: true, value: { reload: vi.fn() } });
         vi.useFakeTimers();
 
-        await submit('quatre mots parfaitement ordinaires');
+        await submit();
         await vi.advanceTimersByTimeAsync(3000);
 
         expect(fetch).toHaveBeenNthCalledWith(2, '/api/maintenance/backup-status/7', expect.anything());
@@ -1428,5 +1337,57 @@ describe('maintenance.js: revealing the off-site passphrase', () => {
         expect(document.getElementById('remote-backup-passphrase').textContent).toContain('illisibles');
         expect(document.getElementById('remote-backup-passphrase-copy').classList.contains('d-none')).toBe(true);
         expect(document.getElementById('remote-backup-passphrase-reveal').disabled).toBe(false);
+    });
+});
+
+/**
+ * The generated password of one archive (issue #619, IT-03), revealed on
+ * demand beside its download button in « Sauvegardes récentes ».
+ */
+describe('maintenance.js: revealing an archive password', () => {
+    function buildDom() {
+        appendAll(
+            el('<button type="button" data-backup-password="12">clé</button>'),
+            el('<output id="backup-password-12" class="d-none"></output>'),
+        );
+    }
+
+    it('POSTs to the archive own endpoint and shows the password with the note', async () => {
+        buildDom();
+        global.fetch = vi.fn(() => jsonResponse({ success: true, password: 'AB3DE-F7HJK-MNPQR-STUVW-XYZ23-45678' }));
+        await boot();
+
+        document.querySelector('[data-backup-password]').click();
+        await vi.waitFor(() => expect(document.getElementById('backup-password-12').classList.contains('d-none')).toBe(false));
+
+        expect(fetch).toHaveBeenCalledWith('/config/maintenance/backup/12/password', expect.objectContaining({ method: 'POST' }));
+        const output = document.getElementById('backup-password-12');
+        expect(output.querySelector('code').textContent).toBe('AB3DE-F7HJK-MNPQR-STUVW-XYZ23-45678');
+        expect(output.textContent).toContain('Notez-le');
+    });
+
+    it('hides the password again on a second click', async () => {
+        buildDom();
+        global.fetch = vi.fn(() => jsonResponse({ success: true, password: 'AB3DE-F7HJK-MNPQR-STUVW-XYZ23-45678' }));
+        await boot();
+        const button = document.querySelector('[data-backup-password]');
+
+        button.click();
+        await vi.waitFor(() => expect(document.getElementById('backup-password-12').classList.contains('d-none')).toBe(false));
+        button.click();
+
+        const output = document.getElementById('backup-password-12');
+        expect(output.classList.contains('d-none')).toBe(true);
+        expect(output.textContent).toBe('');
+    });
+
+    it('says why when the server has no password to give', async () => {
+        buildDom();
+        global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Aucun mot de passe n\'est conservé pour cette sauvegarde.' }, 404));
+        await boot();
+
+        document.querySelector('[data-backup-password]').click();
+        await vi.waitFor(() => expect(document.getElementById('backup-password-12').textContent).toContain('Aucun mot de passe'));
+        expect(document.getElementById('backup-password-12').querySelector('code')).toBeNull();
     });
 });
