@@ -258,6 +258,100 @@ class UpdateHistoryRepositoryTest extends TestCase
         $this->assertSame('failed', $this->repository->findById($id)->status);
     }
 
+    // --- claimPendingForBackup() ---
+
+    /**
+     * The transition an install must win before it may overwrite the live
+     * tree. A `pending` row is claimed, and the row says so.
+     */
+    public function testClaimPendingForBackupWinsOnAPendingRow(): void
+    {
+        $id = $this->repository->create('1.0.0', '1.1.0', false, $this->userId);
+
+        $this->assertTrue($this->repository->claimPendingForBackup($id));
+        $this->assertSame('backing_up', $this->repository->findById($id)->status);
+    }
+
+    /**
+     * **And a row a newer push has taken cannot be clobbered** (raised in
+     * review of #689). `Task\InstallUpdateHandler` re-reads this row when it
+     * stops waiting for its artifact, but the install lock,
+     * markOtherInProgressAsFailed() and an uncached disk walk all run between
+     * that read and this write: a push landing in there marks the row
+     * « Ignorée », and an unguarded `setStatus()` overwrote it without
+     * looking — installing the older commit after the newer, which is the
+     * inversion #689 is about on a shorter window.
+     *
+     * The guard is `WHERE … AND status = 'pending'` rather than a second
+     * re-read, because a re-read would only shorten that window again. Here
+     * the database arbitrates: whoever wrote first wins.
+     */
+    public function testClaimPendingForBackupRefusesARowAlreadySuperseded(): void
+    {
+        $id = $this->repository->create('1.0.0', '1.1.0', false, $this->userId);
+        $this->repository->markSkipped($id, 'Installation remplacée : un push plus récent.');
+
+        $this->assertFalse(
+            $this->repository->claimPendingForBackup($id),
+            'an install claimed a row a newer push had already taken'
+        );
+        $this->assertSame(
+            'skipped',
+            $this->repository->findById($id)->status,
+            'the « Ignorée » a newer push wrote was silently overwritten'
+        );
+    }
+
+    /** Nor one that is already running, for the same reason. */
+    public function testClaimPendingForBackupRefusesARowAlreadyUnderWay(): void
+    {
+        $id = $this->repository->create('1.0.0', '1.1.0', false, $this->userId);
+        $this->repository->setStatus($id, 'installing');
+
+        $this->assertFalse($this->repository->claimPendingForBackup($id));
+        $this->assertSame('installing', $this->repository->findById($id)->status);
+    }
+
+    // --- markSkippedIfPending() ---
+
+    /** A queued install that never started is skipped, and says so. */
+    public function testMarkSkippedIfPendingSkipsAPendingRow(): void
+    {
+        $id = $this->repository->create('1.0.0', '1.1.0', false, $this->userId);
+
+        $this->assertTrue($this->repository->markSkippedIfPending($id, 'Remplacée.'));
+        $this->assertSame('skipped', $this->repository->findById($id)->status);
+        $this->assertSame('Remplacée.', $this->repository->findById($id)->errorMessage);
+    }
+
+    /**
+     * **And it does not stamp « Ignorée » over a claim already won** (raised in
+     * review of #691). Since #689 the supersede also reaches an install whose
+     * handler is running, and that handler can win its
+     * `claimPendingForBackup()` between a status read and this write. An
+     * unguarded write left a row reading « Ignorée » for an install busy
+     * replacing files — invisible to `findInProgress()`, so `MaintenanceGate`
+     * stopped holding visitors back and `markOtherInProgressAsFailed()` could
+     * not find it either.
+     *
+     * Guarding one side of a race is not guarding it.
+     */
+    public function testMarkSkippedIfPendingLeavesAnInstallThatWonItsClaimAlone(): void
+    {
+        $id = $this->repository->create('1.0.0', '1.1.0', false, $this->userId);
+        $this->assertTrue($this->repository->claimPendingForBackup($id));
+
+        $this->assertFalse(
+            $this->repository->markSkippedIfPending($id, 'Remplacée.'),
+            'the supersede reported success against an install that had already claimed the row'
+        );
+        $this->assertSame(
+            'backing_up',
+            $this->repository->findById($id)->status,
+            'a running install was marked « Ignorée » while it was replacing files'
+        );
+    }
+
     // --- markOtherInProgressAsFailed() ---
 
     public function testMarkOtherInProgressAsFailedLeavesTheGivenRowAlone(): void

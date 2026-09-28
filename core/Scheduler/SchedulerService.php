@@ -319,6 +319,20 @@ class SchedulerService
     }
 
     /**
+     * Same question as find(), but about a task that is alive rather than
+     * merely queued — see SchedulerRepository::findLiveByModuleAndKey() for
+     * why the difference is a correctness one (issue #689). The caller gets
+     * the row's `status` and must decide: a `pending` one may be cancelled,
+     * a `processing` one is already running and may not.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function findLive(string $moduleId, string $taskKey, string $reference): ?array
+    {
+        return $this->repository->findLiveByModuleAndKey($moduleId, $taskKey, $reference);
+    }
+
+    /**
      * Whether a batched hand-over is still in flight — see
      * SchedulerRepository::hasLiveStartingWith() for why the reference is
      * matched on its start rather than in full.

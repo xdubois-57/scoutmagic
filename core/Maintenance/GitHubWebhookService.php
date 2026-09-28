@@ -519,12 +519,32 @@ class GitHubWebhookService
      */
     private function supersedeQueuedInstall(string $reference, string $reason): void
     {
-        $queued = $this->schedulerService->find('core', 'install_update', $reference);
+        // `findLive()` and NOT `find()`: the latter answers about a `pending`
+        // row only, and SchedulerRepository::claimOverdue() flips the row to
+        // `processing` before Task\InstallUpdateHandler runs. A push landing
+        // while that handler probed GitHub for its artifact therefore
+        // superseded NOTHING — the older install kept its `pending` history
+        // row, the newer one queued itself under the same reference, and the
+        // older commit could install after the newer (issue #689). The wait
+        // is 45 minutes since #683, so there are ~30 probes per install to
+        // land inside instead of ~6.
+        $queued = $this->schedulerService->findLive('core', 'install_update', $reference);
         if ($queued === null) {
             return;
         }
 
-        $this->schedulerService->cancel((int) $queued['id']);
+        // A claimed row is executing: cancelling it would only delete the
+        // bookkeeping of a process already running, which is why this is a
+        // status check and not a second cancel. Marking the history row below
+        // is what stops it, in two places rather than one — the handler
+        // re-reads the row when it stops waiting for its artifact, and its
+        // first write is a guarded « pending → backing_up » claim
+        // ({@see UpdateHistoryRepository::claimPendingForBackup()}) that the
+        // « Ignorée » written here makes fail. The read alone left the lock,
+        // markOtherInProgressAsFailed() and a disk walk uncovered.
+        if ((string) ($queued['status'] ?? '') !== 'processing') {
+            $this->schedulerService->cancel((int) $queued['id']);
+        }
 
         $payload = json_decode((string) ($queued['payload'] ?? ''), true);
         $historyId = is_array($payload) ? (int) ($payload['history_id'] ?? 0) : 0;
@@ -532,15 +552,20 @@ class GitHubWebhookService
             return;
         }
 
-        $history = $this->updateHistoryRepository->findById($historyId);
-        // Only 'pending': a row that already started is the business of
-        // markOtherInProgressAsFailed(), which has the rollback semantics
-        // this does not.
-        if ($history !== null && $history->status === 'pending') {
-            // Skipped, not failed (issue #622): it never started, and the
-            // install that replaces it contains it.
-            $this->updateHistoryRepository->markSkipped($historyId, $reason);
-        }
+        // Still only 'pending' — a row that already started is the business of
+        // markOtherInProgressAsFailed(), which has the rollback semantics this
+        // does not — but the condition lives in the UPDATE rather than in a
+        // read before it (raised in review of #691). Since this method also
+        // acts on an install whose handler is already running, that handler can
+        // win its « pending → backing_up » claim between a read here and the
+        // write: the unguarded write then stamped « Ignorée » over a claim the
+        // install was acting on, leaving a row that reads « Ignorée » for an
+        // install busy replacing files — invisible to findInProgress(), so
+        // MaintenanceGate stopped holding visitors back.
+        //
+        // Skipped, not failed (issue #622): it never started, and the install
+        // that replaces it contains it.
+        $this->updateHistoryRepository->markSkippedIfPending($historyId, $reason);
     }
 
     /**
