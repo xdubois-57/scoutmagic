@@ -626,6 +626,42 @@ class MaintenanceControllerTest extends TestCase
         // And it is the failure that is shown, with its badge — not just its
         // version echoed somewhere.
         $this->assertStringContainsString('Échouée — restaurée automatiquement', $body);
+        // A failure DOES keep the warning colour: the test below proves a
+        // success does not, and without this one the fix for it could drop
+        // the colour everywhere unnoticed.
+        $this->assertStringContainsString('table-warning', $body);
+    }
+
+    /**
+     * **The extra row is not an alarm unless the attempt failed** (raised in
+     * review of #687). `update_history_older_attempt` is decided by age
+     * alone, so a SUCCEEDED attempt pushed out of the fetched rows reaches
+     * the same branch — and `table-warning` there painted a yellow warning
+     * directly above that attempt's own green « Réussie » badge, on a page
+     * whose banner says nothing is wrong. The row stays (option 1 of the
+     * ticket says the last attempt is always shown, not only a failed one);
+     * only the colour follows the outcome.
+     */
+    public function testAnOlderAttemptThatSucceededIsNotPaintedAsAWarning(): void
+    {
+        $ok = $this->updateHistoryRepository->create('9.9.9', '9.9.10', false, null);
+        $this->updateHistoryRepository->markCompleted($ok);
+        for ($i = 0; $i < 25; $i++) {
+            $skipped = $this->updateHistoryRepository->create('1.1.0', '1.2.' . $i, false, null);
+            $this->updateHistoryRepository->markSkipped($skipped, 'Installation remplacée.');
+        }
+
+        $body = $this->page('updatePage');
+
+        // Still shown, and still announced as older — that part is the fix.
+        $this->assertStringContainsString('9.9.9 → 9.9.10', $body);
+        $this->assertStringContainsString('Dernière tentative réelle', $body);
+        // But not dressed as a failure.
+        $this->assertStringNotContainsString(
+            'table-warning',
+            $body,
+            'a successful older attempt is painted as a warning, contradicting its own « Réussie » badge'
+        );
     }
 
     /**
