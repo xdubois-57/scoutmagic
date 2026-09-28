@@ -83,7 +83,7 @@ class RegistrationRbacTest extends TestCase
 
         $requestRepository = new RegistrationRequestRepository($this->pdo, $encryption);
         $slotCapacityRepository = new SlotCapacityRepository($this->pdo);
-        $slotService = new SlotService($this->pdo, $encryption, $settingService, $ageBracketRepository, $slotCapacityRepository, $requestRepository);
+        $slotService = new SlotService(new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $encryption), new \Core\Config\ScoutYearService($this->pdo), $settingService, $ageBracketRepository, $slotCapacityRepository, $requestRepository);
         $connection = Connection::withPdo($this->pdo);
         $sectionService = new SectionService(
     new SectionRepository($connection),

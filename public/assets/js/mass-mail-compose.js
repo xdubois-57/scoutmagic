@@ -185,7 +185,7 @@
         const columns = el('mm-merge-columns');
         if (columns) {
             columns.innerHTML = '<span class="form-text small mt-0 me-1">Colonnes :</span>'
-                + audience.columns.map((c) => '<span class="badge text-bg-light border">' + escapeHtml(c) + '</span>').join(' ');
+                + audience.columns.map((c) => '<span class="badge bg-body-secondary text-body-emphasis border">' + escapeHtml(c) + '</span>').join(' ');
         }
     }
 

@@ -219,6 +219,16 @@ describe('rendering', () => {
         expect(results.querySelector('a[href="/account"]').textContent).toContain('Mon compte');
     });
 
+    it('draws the category badge in colours that follow the theme', async () => {
+        buildScope('adresse');
+        await boot();
+
+        const badge = document.querySelector('[data-help-search-results] .badge');
+        expect(badge).not.toBeNull();
+        expect(badge.classList.contains('text-bg-light')).toBe(false);
+        expect(badge.classList.contains('bg-body-secondary')).toBe(true);
+    });
+
     it('says what did not work and what to try instead when nothing matches', async () => {
         buildScope('xyzzy');
         await boot();

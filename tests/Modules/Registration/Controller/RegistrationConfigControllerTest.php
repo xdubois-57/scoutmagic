@@ -94,7 +94,7 @@ class RegistrationConfigControllerTest extends TestCase
         $this->requestRepository = new RegistrationRequestRepository($this->pdo, $encryption);
         $yearCodeRepository = new RegistrationYearCodeRepository($this->pdo);
         $slotService = new SlotService(
-            $this->pdo, $encryption, $settingService, $ageBracketRepository, $slotCapacityRepository, $this->requestRepository
+            new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $encryption), new \Core\Config\ScoutYearService($this->pdo), $settingService, $ageBracketRepository, $slotCapacityRepository, $this->requestRepository
         );
         $connection = Connection::withPdo($this->pdo);
         $sectionService = new SectionService(

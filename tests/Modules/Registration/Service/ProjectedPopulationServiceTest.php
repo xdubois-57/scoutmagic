@@ -88,11 +88,11 @@ class ProjectedPopulationServiceTest extends TestCase
             new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $this->encryption), $this->encryption, $sectionService, $this->transferRepository,
             $this->requestRepository, $ageBracketRepository
         );
-        $this->forecastService = new ForecastService($this->pdo, $this->encryption, $sectionService, $passageService);
+        $this->forecastService = new ForecastService(new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $this->encryption), $this->encryption, $sectionService, $passageService);
 
         $settingService = new SettingService(new SettingRepository($this->pdo));
         $slotService = new SlotService(
-            $this->pdo, $this->encryption, $settingService, $ageBracketRepository,
+            new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $this->encryption), new \Core\Config\ScoutYearService($this->pdo), $settingService, $ageBracketRepository,
             new SlotCapacityRepository($this->pdo), $this->requestRepository
         );
 

@@ -1,5 +1,6 @@
 {% extends 'base.html.twig' %}
 {% block title %}Animés de la section — {{ site_name }}{% endblock %}
+{% block stylesheets %}<link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">{% endblock %}
 
 {% block content %}
     {% set movement_bg_classes = {

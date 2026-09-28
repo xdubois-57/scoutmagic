@@ -8,6 +8,7 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Member\MemberEmailRepository;
 use Core\Security\EncryptionService;
+use Modules\Registration\Repository\ImportedMemberRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\RegistrationSecondaryEmailRepository;
 use Modules\Registration\Service\MigrationService;
@@ -47,7 +48,12 @@ class ReconciliationServiceTest extends TestCase
         $journalService = new JournalService($this->journalRepository);
         $migrationService = new MigrationService($this->pdo, $this->requestRepository, $secondaryEmailRepository, $memberEmailRepository, $journalService);
 
-        $this->service = new ReconciliationService($this->pdo, $this->requestRepository, $this->encryption, $migrationService, $journalService);
+        $this->service = new ReconciliationService(
+            new ImportedMemberRepository($this->pdo, $this->encryption),
+            $this->requestRepository,
+            $migrationService,
+            $journalService
+        );
 
         $this->scoutYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
     }

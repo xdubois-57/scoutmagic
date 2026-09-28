@@ -62,9 +62,9 @@ class FeeEstimationService
         // be able to get wrong. What crosses to the module below is that same
         // key as an opaque token, because its contract keys on it.
         $householdKey = $this->repository->householdKeyFor($normalized);
-        $count = $this->repository->countProjectedHouseholdMembers($householdKey, $scoutYearId);
+        $count = $this->repository->countProjectedHouseholdMembers($householdKey->storable(), $scoutYearId);
         if ($this->registrationCount !== null) {
-            $count += $this->registrationCount->countAtAddress(
+            $count += $this->registrationCount->countInHousehold(
                 $householdKey,
                 $scoutYearId,
                 $excludeRegistrationRequestId

@@ -1,0 +1,399 @@
+<?php
+
+/*
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
+declare(strict_types=1);
+
+namespace Tests\Architecture;
+
+use PHPUnit\Framework\TestCase;
+
+/**
+ * A page that uses a class of `components.css` loads `components.css`
+ * (issue #602).
+ *
+ * `base.html.twig` loads Bootstrap, `app.css` and `editable.css` on every
+ * page, but not `components.css`: a page asks for it in its own
+ * `{% block stylesheets %}`. Forgetting to is silent — the class is simply
+ * inert — and it had been found by hand four times (the rental calendar,
+ * the member card, the support ticket, then #570's carpool map, whose
+ * point map had no height at all) before #602 found fifteen more pages
+ * with an inert `.min-w-0`.
+ *
+ * **What it reads.** The classes `components.css` styles with a SIMPLE
+ * selector — `.foo`, optionally with a pseudo-class — and that no
+ * always-loaded stylesheet styles too. A class that only appears inside a
+ * compound selector (`.nav .active`, `.rating .bi-star`) is styled only in
+ * that context, and using it elsewhere is not a missing stylesheet. Then
+ * every page reaching `base.html.twig` through `extends`, together with
+ * everything it extends, includes, embeds or imports, recursively: a class
+ * used in a partial needs the stylesheet on each page that pulls the
+ * partial in. A template named through a variable is followed too, by the
+ * string that names it: any quoted literal in a template that is the name
+ * of a known template counts as an edge. `camps/unsorted_mail.html.twig`
+ * hands `picker_template: '@camps/partials/triage_picker.html.twig'` to a
+ * partial that does `{% include ui.picker_template %}`; following only the
+ * literal `include` lost that page's stay picker (found in review of #602).
+ */
+final class ComponentsStylesheetIsLoadedWhereItsClassesAreUsedTest extends TestCase
+{
+    private const ALWAYS_LOADED = [
+        'public/assets/vendor/bootstrap/css/bootstrap.min.css',
+        'public/assets/vendor/bootstrap-icons/bootstrap-icons.min.css',
+        'public/assets/css/app.css',
+        'public/assets/css/editable.css',
+    ];
+
+    public function testEveryPageUsingAComponentsClassLoadsTheStylesheet(): void
+    {
+        $classes = self::componentsOnlyClasses();
+        $templates = self::templates();
+        $offenders = [];
+        $pages = 0;
+
+        foreach ($templates as $name => $source) {
+            if (!self::isPage($name, $templates)) {
+                continue;
+            }
+            ++$pages;
+
+            $reachable = self::reachable($name, $templates);
+            $loads = false;
+            $used = [];
+            foreach ($reachable as $member) {
+                $memberSource = $templates[$member];
+                if (str_contains($memberSource, "/assets/css/components.css')")) {
+                    $loads = true;
+                }
+                foreach (self::classesUsedIn($memberSource) as $class) {
+                    if (isset($classes[$class])) {
+                        $used[$class] = true;
+                    }
+                }
+            }
+
+            if (!$loads && $used !== []) {
+                ksort($used);
+                $offenders[] = $name . ' uses ' . implode(', ', array_map(
+                    static fn (string $class): string => '.' . $class,
+                    array_keys($used)
+                ));
+            }
+        }
+
+        $this->assertGreaterThan(100, $pages, 'the scan found almost no pages to read');
+        $this->assertGreaterThan(20, count($classes), 'the scan found almost no components.css classes');
+        $this->assertSame(
+            [],
+            $offenders,
+            "these pages use a class that only public/assets/css/components.css styles, and base.html.twig\n"
+            . "does not load that file. Link it in the page's {% block stylesheets %} — or, for a generic\n"
+            . "utility, move the rule to app.css:\n  " . implode("\n  ", $offenders) . "\n"
+        );
+    }
+
+    /** The scan has to know the classes that started this, or it approves everything. */
+    public function testTheReaderKnowsWhatItIsLookingFor(): void
+    {
+        $classes = self::componentsOnlyClasses();
+
+        $this->assertArrayHasKey('carpool-point-map', $classes, 'issue #570\'s class');
+        $this->assertArrayHasKey('support-payload-preview', $classes, 'issue #602\'s class');
+        $this->assertArrayNotHasKey('min-w-0', $classes, '.min-w-0 lives in app.css since #602');
+
+        $this->assertEqualsCanonicalizing(
+            ['a', 'b-c', 'd'],
+            self::classesUsedIn('<div class="a {{ x ? \'d\' : \'\' }} b-c">')
+        );
+        // A class forwarded to a partial, the way receipts/form.html.twig hands
+        // `receipt-drop-zone` to drop_zone.html.twig (found in review of #602).
+        $this->assertSame(
+            ['receipt-drop-zone'],
+            self::classesUsedIn("{% include 'partials/drop_zone.html.twig' with { class_extra: 'receipt-drop-zone' } %}")
+        );
+        $this->assertSame(['is-open'], self::classesUsedIn("{% set row_class = 'is-open' %}"));
+
+        // An include through a variable is followed by the string naming the
+        // template, the way camps/unsorted_mail.html.twig reaches its picker.
+        $this->assertEqualsCanonicalizing(
+            ['page', 'picker', 'partial'],
+            self::reachable('page', [
+                'page' => "{% include 'partial' with { ui: { picker_template: 'picker' } } %}",
+                'partial' => '{% include ui.picker_template %}',
+                'picker' => '<div class="x"></div>',
+            ])
+        );
+        // And an apostrophe in a Twig comment does not shift the pairing, so
+        // the literal after it is still found (review of #602).
+        $this->assertContains(
+            'picker',
+            self::reachable('page', [
+                'page' => "{# the manager's own box #}\n{% include 'partial' with { ui: { picker_template: 'picker' } } %}",
+                'partial' => '{% include ui.picker_template %}',
+                'picker' => '',
+            ])
+        );
+        // Nor does one in the page's own text, nor an escaped quote inside a
+        // Twig string (review of #602).
+        foreach (["<p>disposent d'une boîte</p>", "{{ 'l\\'équipe' }}"] as $before) {
+            $this->assertContains(
+                'picker',
+                self::reachable('page', [
+                    'page' => $before . "\n{% include 'partial' with { ui: { picker_template: 'picker' } } %}",
+                    'partial' => '{% include ui.picker_template %}',
+                    'picker' => '',
+                ]),
+                $before
+            );
+        }
+        $this->assertSame(['a', 'b'], self::simpleClassesIn('.a, .b:hover { x: 1 } .c .d { } .e > .f { }'));
+    }
+
+    /**
+     * @return array<string, true>
+     */
+    private static function componentsOnlyClasses(): array
+    {
+        $root = dirname(__DIR__, 2);
+        $classes = array_fill_keys(
+            self::simpleClassesIn((string) file_get_contents($root . '/public/assets/css/components.css')),
+            true
+        );
+
+        foreach (self::ALWAYS_LOADED as $path) {
+            $css = self::withoutComments((string) file_get_contents($root . '/' . $path));
+            foreach (array_keys($classes) as $class) {
+                if (preg_match('/\.' . preg_quote($class, '/') . '(?![\w-])/', $css) === 1) {
+                    unset($classes[$class]);
+                }
+            }
+        }
+
+        return $classes;
+    }
+
+    /**
+     * The classes a stylesheet styles with a simple selector.
+     *
+     * @return list<string>
+     */
+    private static function simpleClassesIn(string $css): array
+    {
+        $css = self::withoutComments($css);
+        // At-rule preludes (`@media …`) end in `{` too; they are not selectors.
+        preg_match_all('/([^{}@;]+)\{/', $css, $matches);
+
+        $classes = [];
+        foreach ($matches[1] as $selectorList) {
+            foreach (explode(',', $selectorList) as $selector) {
+                if (preg_match('/^\.([A-Za-z][\w-]*)(?::{1,2}[\w-]+(?:\([^)]*\))?)*$/', trim($selector), $m) === 1) {
+                    $classes[$m[1]] = true;
+                }
+            }
+        }
+
+        return array_keys($classes);
+    }
+
+    /**
+     * The class names a template writes: the literal ones in its `class="…"`
+     * attributes, and the string literals it hands to one through Twig.
+     *
+     * The second half is what the review of issue #602's fix found missing.
+     * `receipts/form.html.twig` passes `class_extra: 'receipt-drop-zone'` to
+     * a partial that prints it inside `class="…"`; the name is never written
+     * in an attribute, so a scan of attributes alone approved a page that
+     * used a components-only class without loading the stylesheet. Read too:
+     * any quoted string assigned to a Twig key or variable whose name
+     * contains `class` (`class_extra: '…'`, `{% set row_class = '…' %}`),
+     * and the quoted strings inside a `{{ … }}` within the attribute
+     * (`{{ active ? 'is-active' }}`).
+     *
+     * @return list<string>
+     */
+    private static function classesUsedIn(string $source): array
+    {
+        $source = self::withoutTwigComments($source);
+        $values = [];
+
+        preg_match_all('/\bclass="([^"]*)"/', $source, $attributes);
+        foreach ($attributes[1] as $value) {
+            preg_match_all('/\{\{.*?\}\}|\{%.*?%\}/s', $value, $expressions);
+            foreach ($expressions[0] as $expression) {
+                $values = [...$values, ...self::quotedStringsIn($expression)];
+            }
+            // Twig expressions inside the attribute are not class names themselves.
+            $values[] = (string) preg_replace('/\{\{.*?\}\}|\{%.*?%\}/s', ' ', $value);
+        }
+
+        // A key (`class_extra: '…'`) or a `{% set …class… = '…' %}`; never
+        // `class="…"` itself, which is HTML and read above.
+        preg_match_all(
+            '/(?:\b\w*class\w*\s*:|\{%-?\s*set\s+\w*class\w*\s*=)\s*(\'[^\']*\'|"[^"]*")/i',
+            $source,
+            $forwarded
+        );
+        foreach ($forwarded[1] as $literal) {
+            $values[] = substr($literal, 1, -1);
+        }
+
+        $classes = [];
+        foreach ($values as $value) {
+            foreach (preg_split('/\s+/', trim($value)) ?: [] as $token) {
+                if (preg_match('/^[A-Za-z][\w-]*$/', $token) === 1) {
+                    $classes[$token] = true;
+                }
+            }
+        }
+
+        return array_keys($classes);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function quotedStringsIn(string $expression): array
+    {
+        // A Twig string may escape its own quote (`'the manager\'s'`).
+        preg_match_all('/\'((?:[^\'\\\\]|\\\\.)*)\'|"((?:[^"\\\\]|\\\\.)*)"/s', $expression, $matches);
+
+        return array_values(array_filter(
+            array_map(static fn(string $single, string $double): string => $single . $double, $matches[1], $matches[2]),
+            static fn(string $literal): bool => $literal !== ''
+        ));
+    }
+
+    /**
+     * @param array<string, string> $templates
+     */
+    private static function isPage(string $name, array $templates): bool
+    {
+        $seen = [];
+        while (isset($templates[$name]) && !isset($seen[$name])) {
+            $seen[$name] = true;
+            if (preg_match('/\{%-?\s*extends\s+[\'"]([^\'"]+)[\'"]/', $templates[$name], $m) !== 1) {
+                return false;
+            }
+            if ($m[1] === 'base.html.twig') {
+                return true;
+            }
+            $name = $m[1];
+        }
+
+        return false;
+    }
+
+    /**
+     * The template and everything it extends, includes, embeds or imports —
+     * or merely names in a quoted string, for the include that takes a
+     * variable. Over-approximating is the safe side: a template named but
+     * not rendered costs at worst a stylesheet link it did not need.
+     *
+     * @param array<string, string> $templates
+     * @return list<string>
+     */
+    private static function reachable(string $name, array $templates): array
+    {
+        $seen = [];
+        $queue = [$name];
+        while ($queue !== []) {
+            $current = array_pop($queue);
+            if (isset($seen[$current]) || !isset($templates[$current])) {
+                continue;
+            }
+            $seen[$current] = true;
+            preg_match_all(
+                '/(?:\{%-?\s*(?:extends|include|embed|import|from)\s+|\binclude\(\s*)[\'"]([^\'"]+)[\'"]/',
+                $templates[$current],
+                $matches
+            );
+            foreach ($matches[1] as $next) {
+                $queue[] = $next;
+            }
+            foreach (self::quotedStringsIn(self::twigCodeIn($templates[$current])) as $literal) {
+                if (isset($templates[$literal])) {
+                    $queue[] = $literal;
+                }
+            }
+        }
+
+        return array_keys($seen);
+    }
+
+    /**
+     * Every template, keyed by the name Twig knows it by: `x.html.twig`
+     * for core, `@module/x.html.twig` for a module's views.
+     *
+     * @return array<string, string>
+     */
+    private static function templates(): array
+    {
+        $root = dirname(__DIR__, 2);
+        $templates = [];
+
+        $core = $root . '/core/View/templates';
+        foreach (self::twigFilesUnder($core) as $path) {
+            $templates[substr($path, strlen($core) + 1)] = (string) file_get_contents($path);
+        }
+        foreach (glob($root . '/modules/*/views', GLOB_ONLYDIR) ?: [] as $views) {
+            $module = basename(dirname($views));
+            foreach (self::twigFilesUnder($views) as $path) {
+                $templates['@' . $module . '/' . substr($path, strlen($views) + 1)] = (string) file_get_contents($path);
+            }
+        }
+
+        return $templates;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function twigFilesUnder(string $directory): array
+    {
+        $files = [];
+        $iterator = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS));
+        foreach ($iterator as $file) {
+            if ($file instanceof \SplFileInfo && str_ends_with($file->getFilename(), '.twig')) {
+                $files[] = $file->getPathname();
+            }
+        }
+
+        return $files;
+    }
+
+    /**
+     * The Twig code of a template: its `{% … %}` and `{{ … }}` tags, one per
+     * line, and nothing of the text around them.
+     *
+     * Quoted strings are paired left to right, so one apostrophe in prose
+     * (« disposent d'une boîte ») shifts every pair after it: in
+     * `rental/management/booking_mail.html.twig` it swallowed the literal
+     * naming `_triage_picker.html.twig`, and the page's picker left the scan
+     * without a word. Stripping `{# … #}` comments was not enough, since the
+     * page's own text has apostrophes too (both found in review of #602);
+     * only the tags hold Twig strings, so only the tags are read.
+     */
+    private static function twigCodeIn(string $source): string
+    {
+        preg_match_all('/\{\{.*?\}\}|\{%.*?%\}/s', self::withoutTwigComments($source), $tags);
+
+        return implode("\n", $tags[0]);
+    }
+
+    /**
+     * A template without its `{# … #}` comments, whose `{{`, `{%` and quotes
+     * are prose and would otherwise be read as code.
+     */
+    private static function withoutTwigComments(string $source): string
+    {
+        return (string) preg_replace('/\{#.*?#\}/s', '', $source);
+    }
+
+    private static function withoutComments(string $css): string
+    {
+        return (string) preg_replace('#/\*.*?\*/#s', '', $css);
+    }
+}

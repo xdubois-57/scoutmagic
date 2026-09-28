@@ -28,6 +28,21 @@ final class DiskUsageCheck implements OperationalCheck
 {
     public const KEY = 'disk_usage';
 
+    /**
+     * Where the disk is shown: the storage dashboard, volume by volume
+     * (issue #649). Constants, because two surfaces name this destination
+     * — the notification from {@see read()}, the attention page from
+     * {@see \Core\Alert\AlertSurfaces::destinations()} — and they must
+     * not drift apart.
+     */
+    public const STORAGE_PATH = '/config/stockage';
+
+    public const ACTION_LABEL = 'Voir l\'espace disque';
+
+    public const ATTENTION_WHY = 'Le site l\'a signalé aux administrateurs et le répète ici tant que c\'est '
+        . 'vrai. L\'occupation de chaque volume se lit sur Configuration › Stockage, '
+        . 'page du super-administrateur.';
+
     public function __construct(private readonly DiskBudget $diskBudget)
     {
     }
@@ -64,8 +79,12 @@ final class DiskUsageCheck implements OperationalCheck
             why: 'Passé ce point, une sauvegarde ou un envoi de photo peut être refusé, et une écriture '
                 . 'interrompue en cours de route laisse un fichier incomplet. Supprimez des sauvegardes ou '
                 . 'des photos, ou demandez plus d\'espace à votre hébergeur.',
-            actionUrl: '/config/maintenance',
-            actionLabel: 'Voir l\'espace disque'
+            // The storage dashboard, which shows the use of every volume. It
+            // used to be /config/maintenance, which stopped showing disk space
+            // when its panel moved to Storage — the button then led to a page
+            // without the thing it promised (issue #649).
+            actionUrl: self::STORAGE_PATH,
+            actionLabel: self::ACTION_LABEL
         );
     }
 }

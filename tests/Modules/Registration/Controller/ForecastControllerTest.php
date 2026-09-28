@@ -63,10 +63,10 @@ class ForecastControllerTest extends TestCase
         $requestRepository = new RegistrationRequestRepository($this->pdo, $encryption);
         $ageBracketRepository = new AgeBracketRepository($this->pdo);
         $slotCapacityRepository = new SlotCapacityRepository($this->pdo);
-        $slotService = new SlotService($this->pdo, $encryption, $settingService, $ageBracketRepository, $slotCapacityRepository, $requestRepository);
+        $slotService = new SlotService(new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $encryption), new \Core\Config\ScoutYearService($this->pdo), $settingService, $ageBracketRepository, $slotCapacityRepository, $requestRepository);
         $transferRepository = new SectionTransferRepository($this->pdo);
         $passageService = new PassageService(new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $encryption), $encryption, $sectionService, $transferRepository, $requestRepository, $ageBracketRepository);
-        $forecastService = new ForecastService($this->pdo, $encryption, $sectionService, $passageService);
+        $forecastService = new ForecastService(new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $encryption), $encryption, $sectionService, $passageService);
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/registration/views';

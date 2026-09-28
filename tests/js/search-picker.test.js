@@ -167,6 +167,17 @@ describe('search-picker', () => {
             expect(buttons[2].textContent).toContain('Un covoiturage existe déjà');
         });
 
+        // A fixed light pair stays white in the dark theme (issue #645); the
+        // body-secondary pair follows the theme.
+        it('draws the badge in colours that follow the theme', async () => {
+            await type('fête');
+
+            const badge = resultButtons()[0].querySelector('.badge');
+            expect(badge.classList.contains('text-bg-light')).toBe(false);
+            expect(badge.classList.contains('bg-body-secondary')).toBe(true);
+            expect(badge.classList.contains('text-body-emphasis')).toBe(true);
+        });
+
         it('never renders a label as markup', async () => {
             answerWith([{ id: 1, label: '<img src=x onerror=alert(1)>' }]);
             await type('x');
