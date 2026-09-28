@@ -378,6 +378,40 @@ final class CarpoolServiceTest extends TestCase
         $this->assertFalse($this->carpools->findById($created)?->pointIsManual);
     }
 
+    public function testAPinRemovedByHandBeforeAnyPointWasSavedIsLockedAsNoPoint(): void
+    {
+        // The page placed a pin from the address and the chief clicked
+        // « Retirer » before the first save: the task must not put it back.
+        $removed = ['latitude' => '', 'longitude' => '', 'point_automatic' => '0', 'point_manual' => '1'];
+        $id = $this->service->create($this->input($removed), H::viewer(1, Role::CHIEF));
+
+        $this->assertNull($this->carpools->findById($id)?->point);
+        $this->assertTrue($this->carpools->findById($id)?->pointIsManual);
+        $this->assertNull($this->carpools->findNextToGeocode());
+
+        // Same on an edit of a carpool the task has not placed yet.
+        $alone = ['event_ids' => [], 'address' => 'Bastogne', 'section_id' => (string) $this->sectionId];
+        $other = $this->service->create($this->input($alone), H::viewer(1, Role::CHIEF));
+        $carpool = $this->carpools->findById($other);
+        $this->assertNotNull($carpool);
+        $this->assertFalse($carpool->pointIsManual);
+        $this->service->update($carpool, $this->input($alone + $removed), H::viewer(1, Role::CHIEF));
+
+        $this->assertTrue($this->carpools->findById($other)?->pointIsManual);
+        $this->assertNull($this->carpools->findNextToGeocode());
+    }
+
+    public function testEmptyCoordinatesWithoutTheRemovalLeaveThePointToTheTask(): void
+    {
+        $id = $this->service->create(
+            $this->input(['latitude' => '', 'longitude' => '', 'point_automatic' => '0', 'point_manual' => '0']),
+            H::viewer(1, Role::CHIEF)
+        );
+
+        $this->assertFalse($this->carpools->findById($id)?->pointIsManual);
+        $this->assertSame($id, $this->carpools->findNextToGeocode()?->id);
+    }
+
     public function testTheFormCannotTurnAHandPlacedPointBackIntoAnAutomaticOne(): void
     {
         $id = $this->service->create(

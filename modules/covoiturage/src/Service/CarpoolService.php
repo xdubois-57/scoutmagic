@@ -127,9 +127,10 @@ class CarpoolService
         );
         $this->carpools->replaceEvents($id, $data['events']);
         // A point placed before saving is a human's point — unless the form
-        // says it came from the address and nobody touched it (#642). None
-        // at all leaves the address to the geocoding task.
-        if ($data['point'] !== null) {
+        // says it came from the address and nobody touched it (#642). A pin
+        // removed with « Retirer » is locked as « no point »; none at all
+        // leaves the address to the geocoding task.
+        if ($data['point'] !== null || $data['point_removed']) {
             $this->savePoint($id, $data['point'], $data['point_automatic']);
         }
 
@@ -178,7 +179,13 @@ class CarpoolService
         // coordinates, or forgetGeocoding() above would leave the row
         // without it.
         $foundForNewAddress = $addressChanged && $data['point_automatic'] && $data['point'] !== null;
-        if ($data['point_given'] && ($data['point']?->line() !== $carpool->point?->line() || $foundForNewAddress)) {
+        // « Retirer » on a carpool the task has not placed yet: nothing to
+        // compare, but a human's « no point » all the same.
+        $removedByHand = $data['point_removed'] && !$carpool->pointIsManual;
+        if (
+            $data['point_given']
+            && ($data['point']?->line() !== $carpool->point?->line() || $foundForNewAddress || $removedByHand)
+        ) {
             $this->savePoint($carpool->id, $data['point'], $data['point_automatic']);
         }
     }
@@ -241,7 +248,8 @@ class CarpoolService
     /**
      * @param array<string, mixed> $input
      * @return array{address: string, outbound: string, return: ?string, section_id: ?int,
-     *               events: list<CarpoolEvent>, point: ?GeoPoint, point_given: bool, point_automatic: bool}
+     *               events: list<CarpoolEvent>, point: ?GeoPoint, point_given: bool, point_automatic: bool,
+     *               point_removed: bool}
      * @throws CarpoolException
      */
     private function validate(array $input, CarpoolViewer $viewer, ?Carpool $existing): array
@@ -347,6 +355,11 @@ class CarpoolService
             'point' => $point,
             'point_given' => $pointGiven,
             'point_automatic' => $automatic,
+            // « Retirer » posts empty coordinates and `point_manual`: a
+            // human's decision, locked like a placed point — or the task
+            // would put back the pin the chief just took away.
+            'point_removed' => $pointGiven && $point === null && !$automatic
+                && (string) ($input['point_manual'] ?? '') === '1',
         ];
     }
 
