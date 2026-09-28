@@ -255,11 +255,64 @@ final class CovoiturageRbacTest extends TestCase
 
         $response = $this->frontController('GET', '/covoiturage/organiser/adresse', 'locateAddress', 'chief')
             ->handle(new Request('GET', '/covoiturage/organiser/adresse', ['q' => 'Gîte de Han, rue des Grottes 12'], [], [], []));
-        $this->assertSame(['success' => true, 'found' => false], json_decode($response->getBody(), true));
+        $this->assertSame(
+            ['success' => true, 'found' => false, 'reason' => 'unavailable'],
+            json_decode($response->getBody(), true)
+        );
 
         $form = $this->frontController('GET', '/covoiturage/organiser/nouveau', 'create', 'chief')
             ->handle(new Request('GET', '/covoiturage/organiser/nouveau', [], [], [], []))->getBody();
         $this->assertStringNotContainsString('data-locate-url', $form);
+    }
+
+    /**
+     * Issue #692: a new carpool refused for its dates came back with its
+     * chip reading « Évènement n° 494 » — the form posts ids only, and the
+     * titles were known for a saved carpool alone.
+     */
+    public function testARefusedNewCarpoolShowsItsEventsByTitle(): void
+    {
+        $this->useCalendarWith(new \Modules\Calendar\Api\EventSummary(494, 'Week-end de rentrée', 'Louveteaux', '2020-10-10', '2020-10-12', null, 'Gîte de Han', null, 'Louveteaux'));
+        AuthSession::login($this->accountId, 'parent@test.be', Role::CHIEF->value);
+        $body = [
+            '_csrf_token' => \Core\Security\CsrfGuard::generateToken(),
+            'event_ids' => ['494'],
+            'address' => 'Gîte de Han',
+            'outbound_date' => '2020-10-10',
+            'return_date' => '',
+        ];
+
+        $page = $this->frontController('POST', '/covoiturage/organiser/nouveau', 'store', 'chief')
+            ->handle(new Request('POST', '/covoiturage/organiser/nouveau', [], $body, [], []))
+            ->getBody();
+
+        $this->assertStringContainsString('est déjà passée', $page);
+        // The chips are drawn from the picker's data-selected, not from
+        // the page's text (which also lists the event among the options).
+        $this->assertSame(1, preg_match('/data-selected="([^"]*)"/', $page, $match));
+        $chips = json_decode(html_entity_decode($match[1], ENT_QUOTES), true);
+        $this->assertSame(
+            [['id' => 494, 'label' => 'Week-end de rentrée', 'badge' => 'Louveteaux']],
+            $chips
+        );
+    }
+
+    /** Issue #692: the places route carries the events' dates too. */
+    public function testThePlacesRouteAlsoAnswersTheEventsDates(): void
+    {
+        $this->useCalendarWith(
+            new \Modules\Calendar\Api\EventSummary(494, 'Week-end', 'Louveteaux', '2027-10-10', '2027-10-12', null, 'Gîte de Han'),
+            new \Modules\Calendar\Api\EventSummary(495, 'Week-end', 'Baladins', '2027-10-09', '2027-10-11', null, 'Gîte de Han')
+        );
+        AuthSession::login($this->accountId, 'parent@test.be', Role::CHIEF->value);
+
+        $response = $this->frontController('GET', '/covoiturage/organiser/lieux', 'eventLocations', 'chief')
+            ->handle(new Request('GET', '/covoiturage/organiser/lieux', ['ids' => '494,495'], [], [], []));
+
+        $this->assertSame(
+            ['success' => true, 'locations' => ['Gîte de Han'], 'dates' => ['outbound' => '2027-10-09', 'return' => '2027-10-12']],
+            json_decode($response->getBody(), true)
+        );
     }
 
     public function testAPointRemovedByHandStaysRemovedWhenTheFormComesBackRefused(): void
@@ -359,6 +412,24 @@ final class CovoiturageRbacTest extends TestCase
         };
 
         return str_replace('{id}', (string) $id, $path);
+    }
+
+    private function useCalendarWith(\Modules\Calendar\Api\EventSummary ...$events): void
+    {
+        $this->organizer = new CarpoolOrganizerController(
+            $this->twig,
+            $this->carpools,
+            new CarpoolService(
+                $this->carpools,
+                new OfferRepository($this->pdo, H::encryption()),
+                $this->sections,
+                H::members($this->pdo),
+                new FakeCalendar(array_values($events))
+            ),
+            $this->board,
+            $this->sections,
+            $this->viewers
+        );
     }
 
     private function frontController(string $method, string $path, string $action, string $floor): FrontController

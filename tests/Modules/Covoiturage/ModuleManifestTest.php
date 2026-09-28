@@ -62,4 +62,26 @@ final class ModuleManifestTest extends TestCase
         }
         $this->assertSame('30', $this->manifest['settings'][0]['default_value'], 'D9: 30 days by default.');
     }
+
+    /**
+     * Issue #692: a refused form is shown again by the POST route, so the
+     * POST carries the same breadcrumb as the page it re-renders — or the
+     * refused page came back with an empty one.
+     */
+    public function testAFormShownAgainAfterARefusalKeepsItsBreadcrumb(): void
+    {
+        $manifest = json_decode(
+            (string) file_get_contents(dirname(__DIR__, 3) . '/modules/covoiturage/module.json'),
+            true
+        );
+        $byRoute = [];
+        foreach ($manifest['routes'] as $route) {
+            $byRoute[$route['method'] . ' ' . $route['path']] = $route;
+        }
+
+        foreach (['/covoiturage/organiser/nouveau', '/covoiturage/organiser/{id}/modifier'] as $path) {
+            $this->assertArrayHasKey('breadcrumb', $byRoute['POST ' . $path], $path);
+            $this->assertSame($byRoute['GET ' . $path]['breadcrumb'], $byRoute['POST ' . $path]['breadcrumb'], $path);
+        }
+    }
 }

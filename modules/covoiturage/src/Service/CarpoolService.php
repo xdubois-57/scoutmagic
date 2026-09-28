@@ -180,6 +180,48 @@ class CarpoolService
     }
 
     /**
+     * The events a refused form had chosen, re-read so its chips show their
+     * titles again (issue #692) — keyed by id; an id the viewer may no
+     * longer see is simply absent.
+     *
+     * @param list<int> $eventIds
+     * @return array<int, EventSummary>
+     */
+    public function chosenEvents(array $eventIds, CarpoolViewer $viewer): array
+    {
+        $events = [];
+        foreach ($this->resolveEvents($eventIds, $viewer) as $event) {
+            $events[$event->id] = $event;
+        }
+
+        return $events;
+    }
+
+    /**
+     * The outing's dates the chosen events suggest (issue #692): the
+     * earliest start for the way there, the latest end for the way back —
+     * as `Y-m-d`, what the form's date fields hold. Null when no event is
+     * visible.
+     *
+     * @param list<int> $eventIds
+     * @return array{outbound: string, return: string}|null
+     */
+    public function eventDates(array $eventIds, CarpoolViewer $viewer): ?array
+    {
+        $starts = [];
+        $ends = [];
+        foreach ($this->resolveEvents($eventIds, $viewer) as $event) {
+            $starts[] = substr($event->startDate, 0, 10);
+            $ends[] = substr($event->endDate !== '' ? $event->endDate : $event->startDate, 0, 10);
+        }
+        if ($starts === []) {
+            return null;
+        }
+
+        return ['outbound' => min($starts), 'return' => max($ends)];
+    }
+
+    /**
      * @param array<string, mixed> $input the organiser form
      * @throws CarpoolException
      */

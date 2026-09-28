@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Covoiturage\Controller;
 
 use Core\Geo\AddressLocator;
+use Core\Geo\AddressLookup;
 use Core\Geo\GeoPoint;
 use Core\Geo\GeoPointException;
 use Core\Http\Controller\AbstractController;
@@ -188,9 +189,14 @@ class CarpoolOrganizerController extends AbstractController
             static fn(int $id): bool => $id > 0
         ));
 
+        $viewer = $this->viewer();
+
         return $this->json([
             'success' => true,
-            'locations' => $this->service->eventLocations($ids, $this->viewer()),
+            'locations' => $this->service->eventLocations($ids, $viewer),
+            // The earliest start and the latest end, which the form puts
+            // into dates still empty — never over one typed by hand (#692).
+            'dates' => $this->service->eventDates($ids, $viewer),
         ]);
     }
 
@@ -198,26 +204,32 @@ class CarpoolOrganizerController extends AbstractController
      * GET /covoiturage/organiser/adresse?q= — the point of the address being
      * typed, so the form's map can centre on it before anything is saved
      * (issue #642). Asked once when the address field is left, never per
-     * keystroke; every refusal (off, over quota, busy, unknown) is the same
-     * « not found », and the form then works as it always did.
+     * keystroke. When nothing is found the answer says why (issue #692),
+     * so the form can say it under the field: `reason` is `not_found`
+     * (Nominatim does not know it), `unavailable` (the lookup could not run
+     * in time) or `superseded` (this person already asked for another
+     * address, which is the one that answers).
      *
      * @param array<string, string> $params
      */
     public function locateAddress(Request $request, array $params): Response
     {
         $viewer = $this->viewer();
-        $point = $this->locator !== null && $viewer->mayCreate()
-            ? $this->locator->locate((string) $request->getQuery('q', ''), $viewer->accountId)
-            : null;
+        if ($this->locator === null || !$viewer->mayCreate()) {
+            return $this->json(['success' => true, 'found' => false, 'reason' => AddressLookup::UNAVAILABLE]);
+        }
 
-        return $this->json($point === null
-            ? ['success' => true, 'found' => false]
-            : [
-                'success' => true,
-                'found' => true,
-                'latitude' => $point->latitude,
-                'longitude' => $point->longitude,
-            ]);
+        $lookup = $this->locator->locate((string) $request->getQuery('q', ''), $viewer->accountId);
+        if ($lookup->point === null) {
+            return $this->json(['success' => true, 'found' => false, 'reason' => $lookup->status]);
+        }
+
+        return $this->json([
+            'success' => true,
+            'found' => true,
+            'latitude' => $lookup->point->latitude,
+            'longitude' => $lookup->point->longitude,
+        ]);
     }
 
     /**
@@ -233,12 +245,18 @@ class CarpoolOrganizerController extends AbstractController
                 $selectedEvents[] = ['id' => $event->eventId, 'label' => $event->title, 'badge' => $event->sectionName];
             }
         } else {
-            $known = [];
-            foreach ($carpool !== null ? $carpool->events : [] as $event) {
-                $known[$event->eventId] = $event->title;
-            }
-            foreach ((array) ($submitted['event_ids'] ?? []) as $id) {
-                $selectedEvents[] = ['id' => (int) $id, 'label' => $known[(int) $id] ?? ('Évènement n° ' . (int) $id)];
+            // A refused form posts ids only; their titles are read again
+            // (issue #692), so a chip never falls back to a bare number
+            // unless the event has since become invisible or gone.
+            $ids = array_values(array_filter(
+                array_map('intval', (array) ($submitted['event_ids'] ?? [])),
+                static fn(int $id): bool => $id > 0
+            ));
+            $known = $this->service->chosenEvents($ids, $this->viewer());
+            foreach ($ids as $id) {
+                $selectedEvents[] = isset($known[$id])
+                    ? ['id' => $id, 'label' => $known[$id]->title, 'badge' => $known[$id]->sectionName]
+                    : ['id' => $id, 'label' => 'Évènement n° ' . $id];
             }
         }
 

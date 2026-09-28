@@ -100,7 +100,14 @@
             value: values.address|default(''),
             maxlength: 255,
             help: 'Reprise du lieu des évènements retenus. C\'est la destination de tous les allers et le départ de tous les retours.',
+            describedby_extra: 'carpool-address-status',
+            wrapper_class: 'mb-1',
         } only %}
+        {# Filled by covoiturage-organize.js when the map could not place the
+           address (issue #692): the lookup used to fail in silence, and a
+           venue name Nominatim does not know looked exactly like a lookup
+           that never ran. #}
+        <p class="form-text text-warning-emphasis mb-3 d-none" id="carpool-address-status" aria-live="polite" data-carpool-address-status></p>
 
         <div class="alert alert-warning small {{ location_mismatch is empty ? 'd-none' : '' }}" id="carpool-location-warning" aria-live="polite" aria-atomic="true">
             Les évènements retenus n'indiquent pas tous le même lieu<span data-carpool-locations>{% if location_mismatch is not empty %} ({{ location_mismatch|join(' ; ') }}){% endif %}</span>. Vérifiez : un covoiturage n'a qu'une destination, et s'ils divergent c'est qu'ils n'appartiennent probablement pas au même trajet.

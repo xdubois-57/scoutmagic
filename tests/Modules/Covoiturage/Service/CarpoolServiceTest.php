@@ -107,6 +107,46 @@ final class CarpoolServiceTest extends TestCase
         $this->assertCount(2, $this->carpools->findById($existing)?->events ?? []);
     }
 
+    /**
+     * Issue #692: the form fills its dates from the chosen events — the
+     * earliest start for the way there, the latest end for the way back.
+     */
+    public function testTheChosenEventsSuggestTheEarliestStartAndTheLatestEnd(): void
+    {
+        $this->assertSame(
+            ['outbound' => H::day(20), 'return' => H::day(31)],
+            $this->service->eventDates([503, 501], H::viewer(1, Role::CHIEF))
+        );
+        $this->assertNull($this->service->eventDates([999], H::viewer(1, Role::CHIEF)), 'no visible event, no dates');
+    }
+
+    public function testADateTimeIsCutToTheDayTheFormHolds(): void
+    {
+        $service = new CarpoolService(
+            $this->carpools,
+            new OfferRepository($this->pdo, H::encryption()),
+            H::sections($this->pdo),
+            H::members($this->pdo),
+            new FakeCalendar([
+                new EventSummary(601, 'Hike', 'Pionniers', H::day(9) . ' 08:30:00', H::day(10) . ' 17:00:00'),
+            ])
+        );
+
+        $this->assertSame(
+            ['outbound' => H::day(9), 'return' => H::day(10)],
+            $service->eventDates([601], H::viewer(1, Role::CHIEF))
+        );
+    }
+
+    /** Issue #692: a refused form's chips get their titles back. */
+    public function testTheChosenEventsAreReadAgainByIdAndAnUnknownOneIsLeftOut(): void
+    {
+        $events = $this->service->chosenEvents([502, 999], H::viewer(1, Role::CHIEF));
+
+        $this->assertSame([502], array_keys($events));
+        $this->assertSame("Fête d'unité — Louveteaux", $events[502]->title);
+    }
+
     public function testTheSearchWarnsOnAnEventThatAlreadyHasACarpool(): void
     {
         $this->service->create($this->input(['event_ids' => ['502']]), H::viewer(1, Role::CHIEF));

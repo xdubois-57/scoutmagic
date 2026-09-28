@@ -10,13 +10,16 @@ declare(strict_types=1);
 namespace Tests\Core\Geo;
 
 use Core\Geo\AddressLocator;
+use Core\Geo\AddressLookup;
 use Core\Geo\GeocodingService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
 /**
  * The carpool map's live address lookup (issue #642): what reaches
- * Nominatim, how often, and what a refusal looks like to the caller.
+ * Nominatim, how often, and what the caller is told when there is no point
+ * (issue #692). Waiting for the slot and giving way to a newer request need
+ * two real connections: AddressLocatorOnMysqlTest.
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
 final class AddressLocatorTest extends TestCase
@@ -39,8 +42,10 @@ final class AddressLocatorTest extends TestCase
 
     public function testAFoundAddressIsReturnedAndOnlyItsFingerprintIsKept(): void
     {
-        $point = $this->locator()->locate('  Gîte de Han,   rue des Grottes 12 ', 7);
+        $lookup = $this->locator()->locate('  Gîte de Han,   rue des Grottes 12 ', 7);
 
+        $this->assertSame(AddressLookup::FOUND, $lookup->status);
+        $point = $lookup->point;
         $this->assertNotNull($point);
         $this->assertSame(50.1234, $point->latitude);
         $this->assertSame(4.5678, $point->longitude);
@@ -58,9 +63,9 @@ final class AddressLocatorTest extends TestCase
         $this->locator()->locate('Rue des Grottes 12, Han', 7);
         $again = $this->locator()->locate('rue des grottes 12,  HAN', 8);
 
-        $this->assertNotNull($again);
+        $this->assertSame(AddressLookup::FOUND, $again->status);
         $this->assertCount(1, $this->sent, 'the folded address is the same place');
-        $this->assertSame(1, $this->rows('geocoding_lookups'), 'a cached answer is not counted');
+        $this->assertSame(1, $this->rows('geocoding_lookups'), 'a cached answer is never queued');
     }
 
     public function testAddressesInNonLatinScriptsDoNotShareOneCacheKey(): void
@@ -71,20 +76,20 @@ final class AddressLocatorTest extends TestCase
         $second = $this->locator()->locate('Οδός Εγνατίας 12', 7);
 
         $this->assertCount(2, $this->sent);
-        $this->assertSame(40.64, $second?->latitude);
+        $this->assertSame(40.64, $second->point?->latitude);
     }
 
     public function testNothingFoundIsCachedForHoursNotForMonths(): void
     {
         $this->answer = null;
-        $this->assertNull($this->locator()->locate('Le pré de Jules', 7));
-        $this->assertNull($this->locator()->locate('Le pré de Jules', 7));
+        $this->assertSame(AddressLookup::NOT_FOUND, $this->locator()->locate('Le pré de Jules', 7)->status);
+        $this->assertSame(AddressLookup::NOT_FOUND, $this->locator()->locate('Le pré de Jules', 7)->status);
         $this->assertCount(1, $this->sent);
 
         $this->ageCache('-' . (AddressLocator::NOT_FOUND_TTL_HOURS + 1) . ' hours');
         $this->answer = ['latitude' => 50.5, 'longitude' => 4.5];
 
-        $this->assertNotNull($this->locator()->locate('Le pré de Jules', 7));
+        $this->assertSame(AddressLookup::FOUND, $this->locator()->locate('Le pré de Jules', 7)->status);
         $this->assertCount(2, $this->sent);
     }
 
@@ -93,50 +98,48 @@ final class AddressLocatorTest extends TestCase
         $this->locator()->locate('Rue des Grottes 12, Han', 7);
         $this->ageCache('-' . (AddressLocator::FOUND_TTL_DAYS - 1) . ' days');
 
-        $this->assertNotNull($this->locator()->locate('Rue des Grottes 12, Han', 7));
+        $this->assertSame(AddressLookup::FOUND, $this->locator()->locate('Rue des Grottes 12, Han', 7)->status);
         $this->assertCount(1, $this->sent);
     }
 
     public function testALineTooShortOrTooLongToMeanAPlaceIsNeverSent(): void
     {
-        $this->assertNull($this->locator()->locate('   ab  ', 7));
-        $this->assertNull($this->locator()->locate(str_repeat('a', 256), 7));
+        $this->assertSame(AddressLookup::NOT_FOUND, $this->locator()->locate('   ab  ', 7)->status);
+        $this->assertSame(AddressLookup::NOT_FOUND, $this->locator()->locate(str_repeat('a', 256), 7)->status);
 
         $this->assertSame([], $this->sent);
         $this->assertSame(0, $this->rows('geocoding_lookups'));
     }
 
-    public function testAnAccountOverItsQuotaGetsNoAnswerAndSendsNothing(): void
+    /**
+     * The per-account quota is gone (issue #692): the maintainer decided a
+     * quota must never be why an address is not found. An account that has
+     * already looked up a hundred addresses still gets the next one.
+     */
+    public function testNoQuotaEverStopsAnAddressFromBeingLookedUp(): void
     {
         $stmt = $this->pdo->prepare('INSERT INTO geocoding_lookups (user_account_id, created_at) VALUES (?, ?)');
-        for ($i = 0; $i < AddressLocator::QUOTA_PER_WINDOW; $i++) {
+        for ($i = 0; $i < 100; $i++) {
             $stmt->execute([7, (new \DateTimeImmutable())->format('Y-m-d H:i:s')]);
         }
 
-        $this->assertNull($this->locator()->locate('Rue des Grottes 12, Han', 7));
-        $this->assertSame([], $this->sent);
-
-        // Another account is not affected, and old rows no longer count.
-        $this->assertNotNull($this->locator()->locate('Rue des Grottes 12, Han', 8));
-        $this->pdo->prepare('UPDATE geocoding_lookups SET created_at = ? WHERE user_account_id = ?')->execute([
-            (new \DateTimeImmutable('-' . (AddressLocator::QUOTA_WINDOW_MINUTES + 1) . ' minutes'))->format('Y-m-d H:i:s'),
-            7,
-        ]);
-        $this->assertNotNull($this->locator()->locate('Place du Marché 1, Namur', 7));
+        $this->assertSame(AddressLookup::FOUND, $this->locator()->locate('Rue des Grottes 12, Han', 7)->status);
+        $this->assertSame(['Rue des Grottes 12, Han'], $this->sent);
     }
 
-    public function testADatabaseFailureIsAnswerNotFoundNotAnError(): void
+    public function testADatabaseFailureIsAnswerUnavailableNotAnError(): void
     {
         $this->pdo->prepare('DROP TABLE geocoding_cache')->execute();
 
-        $this->assertNull($this->locator()->locate('Rue des Grottes 12, Han', 7));
+        $this->assertSame(AddressLookup::UNAVAILABLE, $this->locator()->locate('Rue des Grottes 12, Han', 7)->status);
         $this->assertSame([], $this->sent);
     }
 
     public function testTheLockIsHeldForAFullSecondAfterTheCallBegan(): void
     {
-        // The clock reads 100.0 when the call begins and 100.25 after it.
-        $readings = [100.0, 100.25];
+        // The clock reads 99.9 when the wait's deadline is set, 100.0 when
+        // the call begins and 100.25 after it.
+        $readings = [99.9, 100.0, 100.25];
         $locator = $this->locator(static function () use (&$readings): float {
             return array_shift($readings) ?? 100.25;
         });
@@ -148,7 +151,7 @@ final class AddressLocatorTest extends TestCase
 
     public function testASlowCallIsNotPausedFurther(): void
     {
-        $readings = [100.0, 101.5];
+        $readings = [99.9, 100.0, 101.5];
         $locator = $this->locator(static function () use (&$readings): float {
             return array_shift($readings) ?? 101.5;
         });
