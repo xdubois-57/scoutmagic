@@ -408,10 +408,6 @@ class MaintenanceController extends AbstractController
             'backups' => $this->backupList(),
             'backups_shown_at_once' => self::BACKUPS_SHOWN_AT_ONCE,
             'zip_encryption_supported' => $this->backupService->supportsZipEncryption(),
-            // The screen promises a minimum and the server enforces it;
-            // handing the number to the template is what keeps the two
-            // from being two numbers (Core\Maintenance\Portable\
-            // PortablePassphrase).
             // 'weekly' — the registered default since issue #286; a
             // fallback still spelling 'monthly' would put the select on a
             // value the installation does not hold.
