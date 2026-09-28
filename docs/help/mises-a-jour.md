@@ -16,13 +16,12 @@ ligne, sans manipulation de fichiers. Le bloc « Mise à jour » de la
 page Maintenance affiche la version installée, ses notes de version,
 et la date de la dernière vérification.
 
-## L'état, en haut de page
+## La dernière tentative
 
-« Tâche cron réelle » dit si la tâche planifiée de votre hébergeur
-tourne, et à quelle cadence ; en rouge, elle affiche la ligne à
-configurer. Sans elle, rien ne s'installe tout seul. « Mise à jour
-automatique » donne la dernière version posée avec succès, et signale
-une dernière tentative échouée.
+Un bandeau rouge signale une dernière installation échouée, et dit si
+le site a été restauré ; l'historique, plus bas, détaille la suite. La
+tâche cron, sans laquelle rien ne s'installe seul, se vérifie sur Santé
+de l'hébergement.
 
 ## Vérifier et installer
 
