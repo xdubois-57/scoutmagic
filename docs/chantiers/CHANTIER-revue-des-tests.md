@@ -2714,3 +2714,296 @@ sais au lieu de le supposer.
 La leçon de méthode, qui prolonge celle du lot 6 : **pour mettre une assertion en
 doute, il faut nommer la régression qu'elle est censée attraper, puis l'écrire.**
 La retirer ne teste rien, et la garder sans y penser ne prouve rien non plus.
+
+### Itération 16 — Les chemins d'échec, lot 8 : `MailTransportChain` — 2026-09-27
+
+**Mesuré d'abord** : **856 blocs `catch` balayés, 313 corps jamais exécutés
+(36,6 %)**, contre 319 au lot 7. La soustraction tombe juste et le total ne bouge
+pas : le lot 7 en a fermé six, j'en mesure six de moins, et `main` n'a gagné aucun
+`catch` dans cette fenêtre.
+
+C'est la **troisième** fenêtre observée, et elle est vide — après 7 nouveaux dont 2
+non couverts au lot 5 et 4 dont 3 au lot 7. Elle confirme la révision faite à
+l'itération 14 plutôt que la généralité écrite à l'itération 13 : le phénomène est
+**épisodique**, il ne coûte pas un lot à chaque fenêtre. L'argument pour une porte
+de release tient sur deux fenêtres chargées ; il n'a pas besoin d'être présenté
+comme une hémorragie continue, et le présenter ainsi le rendrait réfutable par la
+première fenêtre calme.
+
+**La cible que #449 cite dans son propre corps.** `MailTransportChain` porte douze
+`catch`, dont cinq jamais exécutés, et c'est la classe dont l'issue tire son
+exemple : le `try`/`catch` autour du compteur d'envois, dont elle explique que
+laisser remonter l'échec ferait rejouer par `mass_mail` un envoi déjà parti —
+« un second exemplaire dans la boîte de quelqu'un ». L'itération 6 avait fermé
+cette branche-là. Cinq restaient, toutes des `catch (\Throwable)` sans variable,
+dans des méthodes privées dont chaque docblock nomme l'enjeu.
+
+#### Le constat : le même danger, une instruction plus haut, non testé
+
+`deliver()` appelle `recordSuccess($provider)` **après** le retour du transport et
+**hors de tout `try`**. Son `catch` interne est donc la seule chose qui empêche
+l'exception de s'échapper — et la conséquence est mot pour mot celle que le
+commentaire du compteur, dix lignes plus bas, prend la peine d'écrire :
+`MailService` rapporterait en échec un envoi qui a bien eu lieu, `mass_mail` le
+rejouerait, quelqu'un recevrait le message deux fois.
+
+L'issue #449 célèbre la branche du compteur. La branche identique une instruction
+au-dessus, avec la même conséquence, n'était couverte par personne. Ce n'est pas un
+défaut du produit : c'est la démonstration que **l'exemple d'une issue attire les
+tests sur lui-même** et laisse son voisin immédiat dans l'ombre. Vaut d'être noté
+pour les lots suivants : là où une issue cite une ligne, regarder les deux d'à
+côté.
+
+L'observable n'est donc pas qu'un message soit parti, mais qu'**aucune exception
+ne soit sortie** *et* que l'instruction suivante ait tourné : le compteur est
+incrémenté, ce qui distingue « le `catch` est revenu de `recordSuccess()` » de
+« il est revenu de `deliver()` ».
+
+#### La branche que j'ai déclarée inatteignable, et qui ne l'est pas
+
+C'est l'erreur du lot, et elle mérite plus de place que le reste.
+
+J'ai écrit ici — et dans le docblock de `preferred()`, que j'ai « corrigé » en
+conséquence — que son `catch` n'était atteignable par aucun état du produit. Le
+raisonnement paraissait clos : une table `settings` illisible fait échouer
+`candidates()` d'abord, qui lit cette même table via
+`MailProviderDirectory::local()` ; et `DomainPreferences::all()` lit un cache de
+`SettingService` que `MailTransportFactory` donne aux deux objets, donc déjà chaud.
+J'ai même **mesuré**, ce qui m'a donné la confiance de le publier : table
+supprimée, cache le plus froid possible, le message sort en `localhost`, c'est-à-dire
+par le repli de `candidates()`.
+
+Le relecteur local l'a reproduite avec des classes de production seulement, et il a
+raison. Le chaînon manquant est la **mémoïsation de `MailProviderDirectory`** :
+`all()` garde son `$resolved`, donc au deuxième envoi `candidates()` ne lit plus
+aucun réglage. Si le cache de `SettingService` a été invalidé entre-temps — ce que
+fait **toute** écriture de réglage — c'est `DomainPreferences::all()` qui passe la
+première requête **de réglages** de l'envoi, à l'intérieur de `preferred()`.
+Vérifié à mon tour : mémo chaud, cache vidé, table `settings` supprimée, et le
+message part par un vrai relais dans l'ordre de la voie. Exactement le contrat de
+la branche.
+
+**Et la fenêtre est large là où elle compte** : un publipostage de quatre cents,
+c'est des centaines de messages par une seule chaîne, et celui qui est en vol quand
+cette lecture commence à échouer est précisément celui que ce `catch` sauve.
+
+**Puis le relecteur de la PR a resserré la formule une troisième fois, et il avait
+raison aussi.** J'avais rétabli le docblock original tel quel — « un réglage
+illisible, une base qui vient de disparaître ». Or la seconde moitié est fausse pour
+cette branche : quand `preferred()` s'exécute, `candidates()` a déjà lu
+`mail_lane_entries` et `mail_send_counters` **sans cache**, donc tout ce qui emporte
+la connexion entière est absorbé là, un étage plus tôt et dans une autre branche.
+Ce qui arrive ici, c'est `settings` illisible pendant que les deux autres tables
+répondent — exactement ce que ma mise en scène installe, sans que mon texte le dise.
+Et « la première requête de l'envoi » était faux au même titre : deux allers-retours
+ont déjà réussi ; c'est la première requête **de réglages**.
+
+Ma correction initiale, elle, disait à un mainteneur qu'une branche vivante est
+morte, ce qui est l'invitation à la supprimer.
+
+Le docblock est rétabli, augmenté de la seule chose que j'ai apprise : la fenêtre
+s'ouvre après la mémoïsation du répertoire. Et la branche a son test, donc le lot
+ferme **cinq** branches sur cinq.
+
+**Trois formulations pour une branche, ce qui est le vrai enseignement.** Inatteignable
+(faux), « la base disparaît » (trop large, et interceptée plus tôt), « la lecture de
+`settings` échoue alors que les autres tables répondent » (juste). Les trois fois,
+j'écrivais une condition d'atteignabilité **sans énumérer les lectures qui la
+précèdent**. C'est mécanique et cela se vérifie : lister les requêtes déjà passées
+avant le point visé, et ne nommer comme déclencheur que ce qui peut échouer alors
+que toutes ont réussi.
+
+**La faute de méthode, nommée pour qu'elle serve.** J'ai mesuré l'état le plus
+**défavorable** à l'atteignabilité — cache froid, tout neuf — et j'en ai tiré une
+conclusion négative. Or une conclusion négative (« aucun état n'atteint ceci »)
+n'est jamais établie par un état : il faut chercher l'état le plus **favorable** et
+échouer à l'atteindre. La mesure m'a donné une fausse assurance justement parce que
+c'était une mesure. D'où la règle : **une conclusion d'inatteignabilité se démontre
+en essayant d'atteindre depuis l'état le plus favorable, pas en constatant un échec
+depuis le plus hostile** — et le premier état favorable à chercher est celui qu'un
+objet mémoïsant ou un cache produit au deuxième passage, jamais au premier.
+
+Je retire aussi ce que j'avais tiré de cette erreur : que les 313 corps non couverts
+ne sont pas tous couvrables, et qu'une porte de release exigeant zéro serait donc
+fausse. Ce lot n'en fournit **aucun** exemple — les cinq branches étaient
+atteignables, dont celle que j'avais déclarée morte. L'argument pour une porte de
+release reste celui des lots 5 et 7 (des `catch` neufs qui arrivent non couverts),
+qui n'a pas besoin de celui-là.
+
+#### Ce que la méthode du skill steward a donné, la première fois qu'elle servait
+
+Dix vérifications, dix rouges, et surtout : les **retraits de mise en
+scène** rougissent sur l'assertion visée elle-même — « Failed asserting that an
+array does not contain `mail_provider_circuit_opened` » et « … `_closed` ». C'est
+la première fois de ce chantier qu'une preuve d'absence tue par l'assertion voulue
+et non par un chemin latéral. Le lot 6 avait établi la règle en constatant l'échec
+de l'autre instrument ; le lot 8 la voit fonctionner.
+
+Les cinq mutations du produit portent chacune sur un `catch` rendu levant, et
+chacune tue le test de sa branche — ici la mutation du produit est le bon
+instrument, parce que l'observable **est** l'absence d'exception et n'a pas de
+chemin plus court.
+
+**Les deux invariants de journal sont épinglés dans les deux sens à l'intérieur de
+leur propre test**, la leçon du lot 7 : aucun test préexistant n'écrivait
+`mail_provider_circuit_opened` ni `_closed`, donc une assertion d'absence seule
+aurait tenu **à vide** sur une classe qui ne les écrit jamais. Chaque test fait
+donc les deux moitiés, et la seule différence entre elles est le déclencheur SQL.
+
+#### Deux honnêtetés plutôt qu'une propreté affichée
+
+**Une prédiction corrigée par la mesure.** J'avais écrit l'ordre attendu des
+relais à la main en supposant que le troisième message éviterait le relais fautif.
+Faux : le disjoncteur s'ouvre **à la fin** du troisième échec, donc les trois
+messages l'essaient. Le rouge l'a dit, et la preuve du saut est passée sur un
+quatrième message, où elle prouve quelque chose. Le bon sens de l'erreur — prédire
+puis mesurer — mais « trois échecs ouvrent le disjoncteur » ne veut pas dire « le
+troisième message est protégé ».
+
+**Une contamination déclarée au lieu d'une pureté revendiquée.** Le test du
+disjoncteur illisible entre aussi dans le `catch` de `recordSuccess()` : la table
+supprimée, toute issue d'un envoi passe par l'un des deux `record*`. C'est écrit
+dans le commentaire du test. Les lots précédents annonçaient « un test chacun,
+sans contamination croisée » ; ici ce serait faux, et une attribution exacte vaut
+mieux qu'une phrase rassurante.
+
+**Le retrait le plus instructif du lot** n'est ni une absence ni une mutation : ne
+pas invalider le cache de réglages, dans le test de `preferred()`, laisse le cache
+répondre et la préférence s'appliquer — donc le test rougit. C'est la preuve que ce
+test atteint sa branche **par la condition qu'il annonce** et non par accident, et
+c'est aussi la démonstration, en une ligne rouge, de l'erreur analysée plus haut.
+
+#### La seconde assertion infalsifiable du lot, et la faille de ma propre preuve
+
+Le relecteur de la PR a trouvé, sur la nouvelle tête, que les deux `assertCount`
+du test de `recordFailure()` **ne discriminent rien**. La boucle était bornée à
+`FAILURES_BEFORE_OPEN` ; or le disjoncteur s'ouvre **à la fin** du troisième
+échec, donc le relais fautif est essayé trois fois que les écritures soient
+refusées ou non. Les deux mondes produisent le même décompte. Vérifié, corrigé en
+portant la boucle à `FAILURES_BEFORE_OPEN + 1` — et le retrait de mise en scène
+rougit maintenant sur l'assertion visée : « actual size 3 matches expected
+size 4 ».
+
+**Ce qui rend ce constat sévère, c'est que j'avais déjà mesuré la prémisse.**
+Dans ce même lot, ma prédiction de l'ordre des relais était fausse pour
+exactement cette raison, le rouge me l'avait dit, et j'avais déplacé la preuve du
+saut sur un quatrième message — trente lignes plus bas. Les deux assertions
+d'au-dessus reposaient sur la même prémisse et sont restées telles quelles.
+D'où la règle : **une mesure qui renverse une prémisse doit être portée à toutes
+les assertions qui en dépendent, pas seulement à celle qu'on regardait.**
+Corriger l'endroit où l'on regarde n'est pas corriger la prémisse.
+
+**Et ma preuve elle-même était trop grossière.** Le retrait de mise en scène R3
+avait bien tué ce test — par ses assertions de journal. J'ai lu « rouge » et
+conclu « prouvé », sans demander **laquelle** des assertions mourait. Deuxième
+règle, plus générale que la première : **un retrait de mise en scène qui rougit
+un test prouve UNE de ses assertions, pas toutes.** Il faut lire le message
+d'échec, pas le code de sortie, et compter une ligne rouge par assertion dont on
+prétend avoir prouvé la falsifiabilité.
+
+Les deux règles sont écrites dans le skill steward et non seulement ici, parce
+que c'est la troisième fois de cette séance qu'une règle consignée au seul journal
+ne survit pas — et cette fois elle n'a même pas survécu à l'intérieur du **même
+fichier de test**.
+
+#### Le SQL non préparé, troisième fois dans la même séance
+
+CodeRabbit — qui a enfin pu relire, son quota horaire étant revenu — relève trois
+`PDO::exec()` de DDL fixe dans mes tests : un `CREATE TRIGGER` et deux
+`DROP TRIGGER`. Étiqueté « Minor », donc optionnel au sens des règles de conduite
+sur les PR.
+
+Corrigé quand même, et l'argument n'est pas le confort : **le corps de la PR coche
+« I have read `SECURITY.md` and applied the security checklist ».** On ne peut pas
+cocher cette case et soutenir en même temps que le premier point SQL de cette
+liste ne s'applique pas. `SECURITY.md` § 29 dit « Prepared statements everywhere
+(PDO) » et `AGENTS.md` § 51 « All SQL uses prepared statements ». Aucune de mes
+trois instructions ne concatène quoi que ce soit — il n'y a pas d'injection
+possible — mais la règle du dépôt est écrite sans exception, et mon propre fichier
+était incohérent : `prepare()->execute()` pour les `DROP TABLE`, `exec()` pour les
+déclencheurs.
+
+**Troisième fois de cette séance pour cette seule famille** : relevée au lot 2,
+refaite au lot 6, refaite ici. Les deux premières concernaient une vraie
+concaténation ; celle-ci non, ce qui explique qu'elle soit passée sous mon radar —
+je vérifiais « est-ce que je concatène ? » au lieu de « est-ce que je prépare ? ».
+La règle du dépôt pose la seconde question, plus large, et c'est celle qu'il faut
+se poser.
+
+Et une vérification que le correctif imposait : un `CREATE TRIGGER` préparé qui
+n'aurait rien créé rendrait mes tests de dégradation verts **pour la mauvaise
+raison**, la panne ayant disparu. Le test le prouve tout seul, par sa conception en
+deux sens : sans déclencheur actif, l'absence de `mail_provider_circuit_opened`
+rougirait, et le décompte à `FAILURES_BEFORE_OPEN + 1` aussi. Les deux passent,
+donc le déclencheur refuse bien les écritures.
+
+Le `exec()` restant du fichier appartient au test de compteur, antérieur à ce lot :
+laissé tel quel plutôt que d'élargir la PR, et signalé dans la réponse au
+relecteur.
+
+#### La règle enfreinte dans le commit même qui l'écrivait
+
+Quatrième constat de relecture sur ce lot, et le plus instructif : ma correction des
+deux `assertCount` n'avait rendu discriminante que **la première**. La seconde, qui
+compte les envois par le relais de secours, vaut 4 dans les deux mondes — mesuré, la
+séquence contrefactuelle étant `P,S,P,S,P,S,S`, sept entrées dont `second` quatre
+fois. L'ouverture du disjoncteur n'empêche que le **premier** relais d'être essayé ;
+le second reçoit autant de messages de toute façon.
+
+**Et je n'avais aucune preuve du contraire, pour une raison mécanique** :
+**PHPUnit s'arrête à la première assertion en échec.** Mon retrait de mise en scène
+avait rougi sur la première du couple, et la seconde n'a jamais été évaluée. J'ai lu
+le rouge comme prouvant le couple.
+
+C'est exactement la règle que je venais d'écrire — « un retrait de mise en scène
+prouve UNE assertion, pas toutes » — enfreinte **dans le commit qui l'ajoutait**. Ce
+qui en dit plus long que la règle elle-même : une règle qui demande de la discipline
+à chaque application sera enfreinte, y compris par celui qui vient de l'écrire.
+
+D'où le raffinement, et il supprime le besoin de discipline au lieu de s'y fier :
+quand plusieurs assertions portent sur la même observable, **les fondre en une seule
+qui ne peut pas passer à moitié**. Les deux décomptes sont devenus un `assertSame`
+sur la séquence ordonnée complète : huit entrées contre sept, divergence à l'indice
+six. Un couple de décomptes pouvait être à moitié juste ; une séquence ordonnée, non.
+
+La deuxième voie — relancer le retrait une fois par assertion, les autres
+neutralisées — reste valable mais coûte une exécution par assertion et demande de
+s'en souvenir. Consigné dans le skill steward avec le mécanisme nommé, parce que
+c'est le mécanisme, et non l'inattention, qui produit l'erreur.
+
+#### Avoir invoqué la règle du dépôt pour ne pas la suivre
+
+Cinquième constat de relecture sur ce lot, et le plus grave des cinq — non pas
+techniquement, mais parce qu'il porte sur la gouvernance.
+
+En différant le dernier `PDO::exec()` du fichier, j'ai écrit dans une réponse de
+relecture qu'`AGENTS.md` « demande de faire rider une correction incidente sur le
+changement suivant qui touche le fichier plutôt que d'ouvrir une PR ou une **issue**
+dédiée ». Le § « A problem you decide not to fix now becomes a GitHub issue » dit
+l'inverse, et vise nommément ce cas : « a review bot's report you verified and
+accepted but judged out of scope ». L'exception unique — une vulnérabilité de
+sécurité — ne s'appliquait pas, puisque j'avais moi-même établi qu'aucune injection
+n'était possible.
+
+**Ce n'est pas un oubli, c'est une confusion entre deux règles**, et elle mérite
+d'être nommée pour ne pas se répéter :
+
+- *où la correction est appliquée* — la consigne du mainteneur veut qu'une correction
+  incidente ride le changement suivant, sans PR dédiée. Cela reste vrai ;
+- *quel artefact garde la trace* — `AGENTS.md` veut une issue, « because nothing is
+  ever read back out of » un commit, un fil de relecture ou un résumé, et « the next
+  agent starts from a clean context ».
+
+La première ne répond pas à la seconde. J'ai pris l'une pour une réponse à l'autre,
+et j'ai publié cette lecture, ce qui est pire qu'un silence : un prochain agent peut
+la reprendre comme une règle du dépôt.
+
+Et l'argument que j'avançais — « un ticket coûterait plus en triage qu'il ne
+rapporte » — est exactement le jugement que cette règle a pour fonction
+d'interdire. Le texte cite d'ailleurs « a trap you documented in a comment rather
+than removed » parmi les cas visés.
+
+Ouvert en **#679**, la réponse fautive corrigée là où elle a été publiée, et la
+règle écrite dans le skill steward. Ce journal en garde l'analyse, mais il faut être
+clair sur son statut : **un journal de chantier n'est pas un backlog non plus.** Il
+sert à comprendre, pas à ne pas oublier.
