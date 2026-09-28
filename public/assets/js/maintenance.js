@@ -641,6 +641,18 @@
         // stopped here, and the confirmed one is re-sent by hand below.
         restoreForm.addEventListener('submit', function (e) {
             e.preventDefault();
+            // From this server with nothing to choose: a disabled select is
+            // left out of the POST, and the controller would answer with an
+            // error after a confirmation that promised a restore.
+            var serverSelect = /** @type {HTMLSelectElement|null} */ (document.getElementById('restore-backup-id'));
+            if (!sourceUploadRadio?.checked && (!serverSelect || serverSelect.disabled || serverSelect.value === '')) {
+                var noBackupEl = document.getElementById('restore-backup-error');
+                if (noBackupEl) {
+                    noBackupEl.textContent = 'Aucune sauvegarde de ce serveur à restaurer : choisissez un fichier.';
+                    noBackupEl.classList.remove('d-none');
+                }
+                return;
+            }
             window.ScoutMagicConfirm.ask({
                 message: 'Cette action va remplacer les données actuelles par celles de la sauvegarde sélectionnée. Continuer ?',
                 confirmLabel: 'Restaurer'
@@ -788,9 +800,14 @@
         var download = /** @type {HTMLAnchorElement|null} */ (row?.querySelector('a[href^="/files/"]') ?? null);
         if (!download) return;
         var downloadLink = download;
+        var revealing = false;
         downloadLink.addEventListener('click', function (e) {
             if (!passwordOutput.classList.contains('d-none')) return;
             e.preventDefault();
+            // One reveal per download: a second click while the first is
+            // still asking would ask again and serve the file twice.
+            if (revealing) return;
+            revealing = true;
             // The file is served whatever the answer: a password that
             // could not be read says so in the row, and must not also
             // cost the download.
@@ -801,6 +818,7 @@
             // the one now showing the password. The second click finds the
             // output visible and returns at the top of this listener.
             revealBackupPassword(id, backupButton, passwordOutput).then(function () {
+                revealing = false;
                 downloadLink.click();
             });
         });

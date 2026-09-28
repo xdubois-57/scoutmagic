@@ -74,6 +74,5 @@ les sauvegardes ».
 
 ## Restaurer
 
-La restauration se fait dans « Sauvegardes récentes », sous la liste —
-voyez le sujet « Restaurer une sauvegarde ». Une sauvegarde de ce
-serveur se restaure sans mot de passe.
+Elle se fait dans « Sauvegardes récentes » : voyez « Restaurer une
+sauvegarde », qui dit aussi quand un mot de passe est demandé.

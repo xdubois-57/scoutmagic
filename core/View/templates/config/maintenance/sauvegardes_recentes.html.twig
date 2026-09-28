@@ -86,7 +86,11 @@
                     </div>
                     <div class="mb-2" id="restore-server-picker">
                         <label class="visually-hidden" for="restore-backup-id">Sauvegarde à restaurer</label>
-                        <select class="form-select form-select-sm" name="backup_id" id="restore-backup-id" {% if backups is empty %}disabled{% endif %}>
+                        {# Counted on what the list below can offer, not on
+                           the list as a whole: pending, failed and portable
+                           rows are shown above but never restorable here. #}
+                        {% set restorable = backups|filter(b => b.status == 'completed' and not b.isPortable) %}
+                        <select class="form-select form-select-sm" name="backup_id" id="restore-backup-id" {% if restorable is empty %}disabled{% endif %}>
                             {# `not backup.isPortable`: a portable archive is for starting
                                over on a NEW installation, not for
                                overwriting this one. Offering it here
@@ -101,6 +105,9 @@
                                 {% endif %}
                             {% endfor %}
                         </select>
+                        {% if restorable is empty %}
+                            <div class="form-text">Aucune sauvegarde de ce serveur ne peut être restaurée pour l'instant.</div>
+                        {% endif %}
                     </div>
                     <div class="mb-2 d-none" id="restore-upload-picker">
                         <input type="file" class="form-control form-control-sm" name="backup_file" id="restore-backup-file" accept=".zip" aria-label="Fichier de sauvegarde">

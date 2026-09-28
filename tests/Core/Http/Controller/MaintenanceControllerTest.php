@@ -2369,6 +2369,22 @@ class MaintenanceControllerTest extends TestCase
         $this->assertStringContainsString('<option value="' . $database . '">', $body);
     }
 
+    /**
+     * **The server list is empty when nothing in it can be restored**
+     * (IT-06 review): a portable archive is listed above but never offered,
+     * and a selector with no option would post no backup at all.
+     */
+    public function testWithNothingRestorableTheServerListIsDisabledAndSaysSo(): void
+    {
+        $portable = $this->backupRepository->create(\Core\Maintenance\Backup::PORTABLE_TYPE, 1);
+        $this->backupRepository->markCompleted($portable, 1, 1);
+
+        $body = $this->page('recentBackupsPage');
+
+        $this->assertMatchesRegularExpression('~id="restore-backup-id"\s+disabled>~', $body);
+        $this->assertStringContainsString('Aucune sauvegarde de ce serveur ne peut être restaurée', $body);
+    }
+
     // --- Mises à jour automatiques ---
 
     public function testSaveAutoUpdatePreferencesPersistsAllFourFields(): void
