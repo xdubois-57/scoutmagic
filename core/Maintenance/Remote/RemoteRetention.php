@@ -42,6 +42,25 @@ use Core\Storage\Location\StoredObject;
  * point: « thirty archives or ten gibibytes, whichever bites first » was
  * never a statement about Google, and the class that enforces it has no
  * business knowing which destination it is enforcing it on.
+ *
+ * **Thinned before it is counted (issue #619, IT-05).** Thirty daily
+ * archives reached back one month and no further: the day somebody
+ * noticed, in spring, that a section had been emptied at Christmas, every
+ * copy that still held it was gone. So the archives are first thinned —
+ * the latest, then one per week over the month just gone, then one per
+ * month beyond — and only what survives the thinning is held to the two
+ * bounds, which did not change. At thirty allowed, a year of daily
+ * archives thins to about seventeen: the count stops biting and the reach goes from a
+ * month to a year, for the same volume.
+ *
+ * Nothing new is recorded to do it. Each archive's name carries the
+ * instant it was written ({@see nameFor()}), which is all the thinning
+ * reads. **An archive of an earlier passphrase generation is not treated
+ * apart**: age alone decides, and one that survives stays unreadable with
+ * the current phrase — assumed, and said on the page.
+ *
+ * **Local retention does not thin.** It exists to go back a few days after
+ * a wrong move on a site that is still standing, not to cross the year.
  */
 final class RemoteRetention
 {
@@ -70,6 +89,12 @@ final class RemoteRetention
 
     public const KEEP_SETTING = 'backup_remote_keep';
     public const MAX_BYTES_SETTING = 'backup_remote_max_bytes';
+
+    /**
+     * What the destination held after the last purge, as JSON — read by
+     * the page, which never asks the destination anything itself.
+     */
+    public const STATE_SETTING = 'backup_remote_state';
 
     public const DEFAULT_KEEP = 30;
 
@@ -112,6 +137,18 @@ final class RemoteRetention
             null,
             true,
             321
+        );
+        $settings->register(
+            self::STATE_SETTING,
+            '',
+            'text',
+            'État de la destination hors site',
+            'Le nombre, le volume et la plus ancienne des archives relevés au dernier envoi.',
+            null,
+            null,
+            null,
+            false,
+            322
         );
     }
 
@@ -156,8 +193,8 @@ final class RemoteRetention
     }
 
     /**
-     * Which of the destination's files are beyond the bounds, newest
-     * first.
+     * Which of the destination's files are thinned out or beyond the
+     * bounds, newest first.
      *
      * **Separate from deleting them**, so the decision can be asserted
      * without a network in the way — and so a caller can say what it is
@@ -201,11 +238,27 @@ final class RemoteRetention
 
         $keep = max(1, $this->keep());
         $maxBytes = $this->maxBytes();
+        $monthAgo = $files === [] ? 0 : self::aMonthBefore(self::writtenAt($files[0]));
 
         $kept = 0;
         $bytes = 0;
+        $periods = [];
         $doomed = [];
         foreach ($files as $file) {
+            // Thinning first: the newest of each period stays, and every
+            // later one of the same period goes. The newest overall opens
+            // its own week, so it is never thinned. Periods are calendar
+            // weeks and months, never windows sliding with the newest
+            // archive: a sliding week would drop yesterday's keeper the
+            // day it changed windows, before its successor had aged into
+            // the next one.
+            $period = self::periodOf(self::writtenAt($file), $monthAgo);
+            if (isset($periods[$period])) {
+                $doomed[] = $file;
+                continue;
+            }
+            $periods[$period] = true;
+
             $bytes += $file->sizeBytes;
             $kept++;
 
@@ -222,22 +275,34 @@ final class RemoteRetention
     }
 
     /**
-     * Deletes what is beyond the bounds and answers with what went.
+     * Deletes what is beyond the bounds and answers with what went — and
+     * with what is left, which is the destination's real state.
+     *
+     * An archive whose deletion failed is still there, so it is counted
+     * among what is left: the page states what the destination holds, not
+     * what this class meant it to hold.
      *
      * @param list<StoredObject> $files
-     * @return array{deleted: int, failed: int, freedBytes: int}
+     * @return array{
+     *     deleted: int,
+     *     failed: int,
+     *     freedBytes: int,
+     *     remaining: array{count: int, bytes: int, oldest: ?string}
+     * }
      */
     public function purge(StorageBackendInterface $backend, array $files): array
     {
         $deleted = 0;
         $failed = 0;
         $freed = 0;
+        $gone = [];
 
         foreach ($this->beyondTheBounds($files) as $file) {
             try {
                 $backend->delete($file->key);
                 $deleted++;
                 $freed += $file->sizeBytes;
+                $gone[$file->key] = true;
             } catch (\Throwable) {
                 // Stepped over, never fatal: one file this application
                 // cannot remove must not strand every older one behind
@@ -247,7 +312,89 @@ final class RemoteRetention
             }
         }
 
-        return ['deleted' => $deleted, 'failed' => $failed, 'freedBytes' => $freed];
+        $left = array_values(array_filter(
+            $files,
+            static fn(StoredObject $f): bool => self::isArchive($f->key) && !isset($gone[$f->key])
+        ));
+
+        return [
+            'deleted' => $deleted,
+            'failed' => $failed,
+            'freedBytes' => $freed,
+            'remaining' => self::stateOf($left),
+        ];
+    }
+
+    /**
+     * How many archives, how much room, and since when — the three things
+     * that let an operator check the policy at a glance.
+     *
+     * @param list<StoredObject> $archives
+     * @return array{count: int, bytes: int, oldest: ?string}
+     */
+    public static function stateOf(array $archives): array
+    {
+        $bytes = 0;
+        $oldest = null;
+        foreach ($archives as $archive) {
+            $bytes += $archive->sizeBytes;
+            $at = self::writtenAt($archive);
+            if ($at > 0 && ($oldest === null || $at < $oldest)) {
+                $oldest = $at;
+            }
+        }
+
+        return [
+            'count' => count($archives),
+            'bytes' => $bytes,
+            // Back to the wall-clock time the name was written in, which
+            // writtenAt() read as if it were UTC — the same stored shape
+            // as every other date this page shows.
+            'oldest' => $oldest === null ? null : gmdate('Y-m-d H:i:s', $oldest),
+        ];
+    }
+
+    /**
+     * What the last purge left on the destination, or null before the
+     * first one — or when what was recorded cannot be read back.
+     *
+     * @return array{count: int, bytes: int, oldest: ?string, observedAt: string}|null
+     */
+    public function lastKnownState(): ?array
+    {
+        $raw = $this->settings->get(self::STATE_SETTING);
+        $state = is_string($raw) && $raw !== '' ? json_decode($raw, true) : null;
+        if (
+            !is_array($state)
+            || !is_int($state['count'] ?? null)
+            || !is_int($state['bytes'] ?? null)
+            || !is_string($state['observedAt'] ?? null)
+        ) {
+            return null;
+        }
+        $oldest = $state['oldest'] ?? null;
+
+        return [
+            'count' => $state['count'],
+            'bytes' => $state['bytes'],
+            'oldest' => is_string($oldest) ? $oldest : null,
+            'observedAt' => $state['observedAt'],
+        ];
+    }
+
+    /**
+     * Records what a purge left, stamped with when it was seen.
+     *
+     * @param array{count: int, bytes: int, oldest: ?string} $state
+     */
+    public function recordState(array $state, \DateTimeImmutable $observedAt): void
+    {
+        $this->settings->setInternal(self::STATE_SETTING, (string) json_encode([
+            'count' => $state['count'],
+            'bytes' => $state['bytes'],
+            'oldest' => $state['oldest'],
+            'observedAt' => $observedAt->format('Y-m-d H:i:s'),
+        ]));
     }
 
     /**
@@ -295,6 +442,24 @@ final class RemoteRetention
         $announced = $file->lastModifiedAt === null ? false : strtotime($file->lastModifiedAt);
 
         return $announced === false ? 0 : $announced;
+    }
+
+    /**
+     * The same moment one calendar month earlier: where « one per week »
+     * ends and « one per month » begins.
+     */
+    private static function aMonthBefore(int $instant): int
+    {
+        return (new \DateTimeImmutable('@' . $instant))->modify('-1 month')->getTimestamp();
+    }
+
+    /**
+     * The period an archive speaks for: its ISO week inside the month
+     * just gone, its calendar month before that. UTC, like the names.
+     */
+    private static function periodOf(int $instant, int $monthAgo): string
+    {
+        return $instant >= $monthAgo ? 'week ' . gmdate('o-W', $instant) : 'month ' . gmdate('Y-m', $instant);
     }
 
     /** Whether a remote file is one of {@see nameFor()}'s. */

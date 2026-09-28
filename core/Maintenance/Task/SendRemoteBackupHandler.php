@@ -605,13 +605,20 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
             static function () use ($context, $backend): void {
                 $retention = new RemoteRetention($context->settings);
                 $report = $retention->purge($backend, $retention->listArchives($backend));
+                // What is left is the destination's real state, which the
+                // page shows without asking the destination anything.
+                $retention->recordState($report['remaining'], new \DateTimeImmutable());
                 if ($report['deleted'] > 0 || $report['failed'] > 0) {
                     $context->journal->log(
                         'core',
                         'remote_backup_purged',
                         'info',
                         'Archives distantes supprimées au-delà des bornes de conservation',
-                        $report
+                        [
+                            'deleted' => $report['deleted'],
+                            'failed' => $report['failed'],
+                            'freedBytes' => $report['freedBytes'],
+                        ]
                     );
                 }
             },

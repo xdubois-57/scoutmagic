@@ -243,6 +243,27 @@ class MaintenanceController extends AbstractController
     }
 
     /**
+     * The destination's last recorded state, with its volume already
+     * written the way the page shows it.
+     *
+     * @return array{count: int, size: string, oldest: ?string, observedAt: string}|null
+     */
+    private function remoteBackupState(\Core\Maintenance\Remote\RemoteRetention $retention): ?array
+    {
+        $state = $retention->lastKnownState();
+        if ($state === null) {
+            return null;
+        }
+
+        return [
+            'count' => $state['count'],
+            'size' => \Core\Storage\ByteFormatter::format($state['bytes']),
+            'oldest' => $state['oldest'],
+            'observedAt' => $state['observedAt'],
+        ];
+    }
+
+    /**
      * GET /config/maintenance/sauvegarde-automatique — the scheduled
      * backups and the off-site ones, `#remote-backup` included.
      *
@@ -409,6 +430,9 @@ class MaintenanceController extends AbstractController
             'remote_backup_last_success' =>
                 (string) ($this->settingService->get(SendRemoteBackupHandler::LAST_SUCCESS_SETTING) ?: ''),
             'remote_backup_keep' => $remoteRetention->keep(),
+            // What the last send found on the destination once its purge
+            // was done (IT-05) — a recorded reading, not a request.
+            'remote_backup_state' => $this->remoteBackupState($remoteRetention),
             'remote_backup_max_bytes' => \Core\Storage\ByteFormatter::format($remoteRetention->maxBytes()),
             'remote_backup_interval_hours' => SendRemoteBackupHandler::INTERVAL_HOURS,
             'remote_backup_passphrase_generation' => $remotePassphrase->generation(),

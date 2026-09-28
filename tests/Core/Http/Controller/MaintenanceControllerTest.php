@@ -282,7 +282,9 @@ class MaintenanceControllerTest extends TestCase
             'index' => ['maintenance-health'],
             'updatePage' => ['maintenance-update', 'maintenance-auto-update'],
             'manualBackupPage' => ['maintenance-backups'],
-            'automaticBackupPage' => ['maintenance-backups-automatic', 'remote-backup'],
+            // One box since IT-05: « Hors site » is its second half, no
+            // longer a box of its own (see the test just below).
+            'automaticBackupPage' => ['maintenance-backups-automatic'],
             'recentBackupsPage' => ['maintenance-backups-list'],
             'resetPage' => ['maintenance-reset'],
         ];
@@ -354,15 +356,79 @@ class MaintenanceControllerTest extends TestCase
         // Both sides state the independence, because an operator reads
         // whichever box they opened.
         $this->assertStringContainsString('ne gouverne <strong>que</strong> ce qui s\'écrit sur ce serveur', $body);
-        $this->assertStringContainsString(
-            'la fréquence choisie dans
-                    « Sauvegarde automatique » n\'a aucun effet dessus',
+        $this->assertMatchesRegularExpression(
+            '~la fréquence choisie dans\s+« Sur ce serveur » n\'a aucun effet dessus~',
             $body
         );
         $this->assertStringContainsString(
             'fixée à ' . \Core\Maintenance\Task\SendRemoteBackupHandler::INTERVAL_HOURS . ' heures',
             $body
         );
+    }
+
+    /**
+     * **One box, two halves named by the accident they protect from**
+     * (issue #619, IT-05) — and the off-site half keeps the anchor every
+     * round trip through Google and every alert lands on.
+     */
+    public function testTheAutomaticBackupIsOneBoxWithTwoHalvesNamedByTheirAccident(): void
+    {
+        $body = $this->page('automaticBackupPage');
+
+        $this->assertSame(1, substr_count($body, '<div class="card mb-4"'), 'the two boxes were not merged');
+        $this->assertStringNotContainsString('Sauvegarde hors site', $body);
+
+        $local = strpos($body, '<h3 class="h5" id="auto-backup-local-title">Sur ce serveur</h3>');
+        $remote = strpos($body, '<section id="remote-backup" aria-labelledby="remote-backup-title">');
+        $this->assertIsInt($local);
+        $this->assertIsInt($remote);
+        $this->assertLessThan($remote, $local);
+        $this->assertStringContainsString('<div id="remote-backup-body">', $body);
+
+        // The asymmetry is said, not smoothed over.
+        $this->assertStringContainsString('pour revenir en arrière après une fausse', $body);
+        $this->assertStringContainsString('pour le jour où le serveur n\'existe plus', $body);
+
+        // Nothing moved out on the way: the frequency, the destination,
+        // the cadence and the passphrase are all still here.
+        $this->assertStringContainsString('id="auto-backup-frequency"', $body);
+        $this->assertStringContainsString('action="/config/maintenance/remote/destination"', $body);
+        $this->assertStringContainsString(
+            'fixée à ' . \Core\Maintenance\Task\SendRemoteBackupHandler::INTERVAL_HOURS . ' heures',
+            $body
+        );
+        $this->assertStringContainsString('Phrase de passe des sauvegardes distantes', $body);
+    }
+
+    /**
+     * **The retention says its policy, then shows the real state** — a
+     * policy nobody can check at a glance reassures nobody. Before the
+     * first send there is no reading, and the page says so rather than
+     * showing a zero it never measured.
+     */
+    public function testTheOffsiteRetentionShowsItsPolicyAndTheRealState(): void
+    {
+        $body = $this->page('automaticBackupPage');
+
+        $this->assertStringContainsString('la dernière' . "\n", $body);
+        $this->assertMatchesRegularExpression(
+            '~une par semaine sur le mois écoulé, puis une par mois au-delà~',
+            $body
+        );
+        $this->assertStringContainsString('Pas encore de relevé', $body);
+
+        \Core\Maintenance\Remote\RemoteRetention::register($this->settingService);
+        (new \Core\Maintenance\Remote\RemoteRetention($this->settingService))->recordState(
+            ['count' => 14, 'bytes' => 3 * 1024 * 1024 * 1024, 'oldest' => '2025-10-31 03:00:00'],
+            new \DateTimeImmutable('2026-09-28 04:12:00')
+        );
+
+        $body = $this->page('automaticBackupPage');
+        $this->assertStringNotContainsString('Pas encore de relevé', $body);
+        $this->assertMatchesRegularExpression('~<strong>14\s+archives</strong>~', $body);
+        $this->assertStringContainsString('3,0 Go occupés', $body);
+        $this->assertStringContainsString('la plus ancienne du 31/10/2025', $body);
+        $this->assertMatchesRegularExpression('~Relevé à la fin de l\'envoi du\s+28/09/2026 à 04:12~', $body);
     }
 
     /**

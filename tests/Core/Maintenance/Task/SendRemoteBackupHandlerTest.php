@@ -815,6 +815,31 @@ final class SendRemoteBackupHandlerTest extends TestCase
     }
 
     /**
+     * **What the purge left is written down**, so the page can show the
+     * destination's real state — count, volume, oldest — without asking
+     * the destination anything on every view (issue #619, IT-05).
+     */
+    public function testASuccessfulSendRecordsWhatTheDestinationHolds(): void
+    {
+        $this->settings->values[RemoteRetention::KEEP_SETTING] = '2';
+        $backend = new RecordingBackend($this);
+        $backend->remote = [
+            new StoredObject('scoutmagic-2026-03-03.zip', 10, null, '2026-03-03T00:00:00Z'),
+            new StoredObject('scoutmagic-2026-02-02.zip', 20, null, '2026-02-02T00:00:00Z'),
+            new StoredObject('scoutmagic-2026-01-01.zip', 40, null, '2026-01-01T00:00:00Z'),
+            new StoredObject('scoutmagic-test.txt', 5, null, '2026-03-04T00:00:00Z'),
+        ];
+
+        $this->runOnce($this->payloadFor($this->archiveOf(50)), $backend);
+
+        $state = (new RemoteRetention($this->settings))->lastKnownState();
+        $this->assertNotNull($state, 'nothing was recorded after the purge');
+        $this->assertSame(2, $state['count'], 'the witness or a deleted archive was counted');
+        $this->assertSame(30, $state['bytes']);
+        $this->assertSame('2026-02-02 00:00:00', $state['oldest']);
+    }
+
+    /**
      * And a purge that fails does not turn a delivered archive into a
      * failed send — the bytes are there either way, and the next run
      * would otherwise send them all again.
