@@ -826,7 +826,7 @@ class SendBatchHandlerTest extends TestCase
             new NotificationRepository($this->pdo, $this->encryption),
             new PushSubscriptionRepository($this->pdo, $this->encryption),
             new NotificationPreferenceRepository($this->pdo),
-            $this->createMock(WebPush::class),
+            $this->createStub(WebPush::class),
             $settingService,
             new JournalService(new JournalRepository($this->pdo)),
             new SchedulerService(new SchedulerRepository($this->pdo)),

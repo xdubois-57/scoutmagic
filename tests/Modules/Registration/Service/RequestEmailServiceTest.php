@@ -29,11 +29,6 @@ use Tests\Modules\Registration\RegistrationTestHelper;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
-// This class builds its doubles once (in setUp() or a shared helper) and
-// hands the same ones to every test: some tests set expectations on
-// them, the others only need their answers, and PHPUnit would report
-// each of those as a mock with no expectation (issue #665).
-#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class RequestEmailServiceTest extends TestCase
 {
     private \PDO $pdo;
@@ -159,7 +154,7 @@ class RequestEmailServiceTest extends TestCase
     public function testMailDeliveryFailureIsSurfacedNotSwallowed(): void
     {
         $this->editableContentService->set('registration_email_refused_body', '<p>Désolé.</p>', 'rich_text', 1);
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
         $mailService->method('send')->willThrowException(new MailException('SMTP down'));
         $service = $this->buildService($mailService);
         $requestId = $this->createRequest();
@@ -186,7 +181,7 @@ class RequestEmailServiceTest extends TestCase
     public function testTheSmtpErrorNeverReachesTheRegistrationExceptionsOwnMessage(): void
     {
         $this->editableContentService->set('registration_email_refused_body', '<p>Désolé.</p>', 'rich_text', 1);
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
         $mailService->method('send')->willThrowException(
             new MailException('SMTP connect() failed. https://github.com/PHPMailer/PHPMailer/wiki/Troubleshooting')
         );
@@ -215,7 +210,7 @@ class RequestEmailServiceTest extends TestCase
     public function testFailedSendLeavesThePreviousTrackingLinkUsable(): void
     {
         $this->editableContentService->set('registration_email_refused_body', '<p>Désolé.</p>', 'rich_text', 1);
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
         $mailService->method('send')->willThrowException(new MailException('SMTP down'));
         $service = $this->buildService($mailService);
 

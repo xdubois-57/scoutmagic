@@ -2758,7 +2758,7 @@ class RentalManagementControllerTest extends TestCase
     public function testCourrierNeedsExactlyOneDedicatedMailbox(array $boxes): void
     {
         $this->loginAsManager();
-        $inbound = $this->createMock(\Modules\InboundMail\Api\InboundMailInterface::class);
+        $inbound = $this->createStub(\Modules\InboundMail\Api\InboundMailInterface::class);
         $inbound->method('isCollecting')->willReturn(true);
         $inbound->method('dedicatedMailboxesFor')->willReturn($boxes);
         $this->withMailbox($inbound);
