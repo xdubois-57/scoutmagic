@@ -121,12 +121,12 @@ final class HostHealth
         }
 
         $probe = rtrim($path, '/') . '/.host-health-' . bin2hex(random_bytes(6));
-        if (@file_put_contents($probe, 'ok') !== 2) {
-            return false;
-        }
+        $written = @file_put_contents($probe, 'ok');
+        // Removed whatever the outcome: a write cut short by a full quota
+        // still leaves the file behind, one per page view.
         @unlink($probe);
 
-        return true;
+        return $written === 2;
     }
 
     public static function cronCheck(CronStatus $status): HostCheck
@@ -287,6 +287,21 @@ final class HostHealth
         }
         if ($driver === 'mysql' && preg_match('/^(\d+\.\d+\.\d+)/', $version, $mysql) === 1) {
             return self::versionedDatabase('MySQL', $mysql[1], self::MYSQL_TESTED, '8.0', $consequence);
+        }
+
+        // The connection answered — this page could not render otherwise —
+        // but it would not say what it is: an unknown engine is not a
+        // supported one.
+        if ($driver === '' || $version === '') {
+            return new HostCheck(
+                'database',
+                'Base de données',
+                HostCheck::STATE_DEGRADED,
+                'Moteur ou version illisible',
+                $consequence,
+                'Vérifier que la base est bien MySQL 8.0 ou MariaDB 10.11 ou plus récente, les deux versions sur '
+                    . 'lesquelles ScoutMagic est testé.'
+            );
         }
 
         return new HostCheck(

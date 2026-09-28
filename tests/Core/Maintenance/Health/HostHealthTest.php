@@ -124,6 +124,8 @@ final class HostHealthTest extends TestCase
         yield 'MySQL tested' => ['mysql', '8.0.39', HostCheck::STATE_OK, 'MySQL 8.0.39'];
         yield 'MySQL too old' => ['mysql', '5.7.44-log', HostCheck::STATE_DEGRADED, 'MySQL 5.7.44'];
         yield 'another driver' => ['sqlite', '3.45.1', HostCheck::STATE_OK, 'sqlite 3.45.1'];
+        yield 'version unreadable' => ['mysql', '', HostCheck::STATE_DEGRADED, 'Moteur ou version illisible'];
+        yield 'driver unreadable' => ['', '8.0.39', HostCheck::STATE_DEGRADED, 'Moteur ou version illisible'];
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('databases')]
