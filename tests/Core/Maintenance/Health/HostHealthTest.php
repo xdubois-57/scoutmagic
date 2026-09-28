@@ -80,11 +80,31 @@ final class HostHealthTest extends TestCase
      */
     public function testNoShellIsNamedAsTheCauseRatherThanMissingBinaries(): void
     {
-        $line = $this->line('ffmpeg', $this->facts(shellAvailable: false, ffmpegPath: null, ffprobePath: null));
+        $line = $this->line('ffmpeg', $this->facts(
+            shellDeclared: false,
+            shellWorks: false,
+            ffmpegPath: null,
+            ffprobePath: null
+        ));
 
         $this->assertSame(HostCheck::STATE_MISSING, $line->state);
         $this->assertStringContainsString('aucun programme', $line->status);
         $this->assertStringContainsString('disable_functions', $line->ask);
+    }
+
+    /**
+     * Declared is not working: a security module, a nologin shell or a
+     * noexec mount let exec() be called and run nothing. That host must
+     * not be told to install ffmpeg, nor to edit disable_functions.
+     */
+    public function testAShellDeclaredButNotWorkingIsNamedAsSuch(): void
+    {
+        $line = $this->line('ffmpeg', $this->facts(shellWorks: false, ffmpegPath: null, ffprobePath: null));
+
+        $this->assertSame(HostCheck::STATE_MISSING, $line->state);
+        $this->assertStringContainsString('rien ne s\'exécute', $line->status);
+        $this->assertStringNotContainsString('disable_functions', $line->ask);
+        $this->assertStringContainsString('noexec', $line->ask);
     }
 
     public function testOneMissingBinaryIsNamed(): void
@@ -174,7 +194,8 @@ final class HostHealthTest extends TestCase
     /** @param list<string> $missingMailExtensions */
     private function facts(
         ?CronStatus $cron = null,
-        bool $shellAvailable = true,
+        bool $shellDeclared = true,
+        bool $shellWorks = true,
         ?string $ffmpegPath = '/usr/bin/ffmpeg',
         ?string $ffprobePath = '/usr/bin/ffprobe',
         bool $zipEncryption = true,
@@ -188,7 +209,8 @@ final class HostHealthTest extends TestCase
     ): HostFacts {
         return new HostFacts(
             $cron ?? new CronStatus(CronStatus::STATE_ACTIVE, self::NOW - 30, self::NOW - 30, 60, self::NOW),
-            $shellAvailable,
+            $shellDeclared,
+            $shellWorks,
             $ffmpegPath,
             $ffprobePath,
             $zipEncryption,

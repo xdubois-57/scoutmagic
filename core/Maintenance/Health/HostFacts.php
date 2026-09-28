@@ -22,7 +22,10 @@ final class HostFacts
      */
     public function __construct(
         public readonly CronStatus $cron,
-        public readonly bool $shellAvailable,
+        /** A shell-execution function is callable (not in disable_functions). */
+        public readonly bool $shellDeclared,
+        /** And running a command through it actually works (ShellExecutor::probe()). */
+        public readonly bool $shellWorks,
         public readonly ?string $ffmpegPath,
         public readonly ?string $ffprobePath,
         public readonly bool $zipEncryption,

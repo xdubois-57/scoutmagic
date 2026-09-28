@@ -72,13 +72,18 @@ final class HostHealth
      */
     public function detect(): HostFacts
     {
-        $shell = ShellExecutor::isAvailable();
+        // Demonstrated, not declared (ShellExecutor::probe()): a host can
+        // leave exec() out of disable_functions and still run nothing —
+        // and then « ffmpeg absent » would send the operator to install a
+        // package that may well be there.
+        $shell = ShellExecutor::probe();
 
         return new HostFacts(
             cron: (new CronHealth($this->storagePath, $this->settingService))->status(),
-            shellAvailable: $shell,
-            ffmpegPath: $shell ? ExecutableLocator::find('ffmpeg') : null,
-            ffprobePath: $shell ? ExecutableLocator::find('ffprobe') : null,
+            shellDeclared: $shell['declared'],
+            shellWorks: $shell['works'],
+            ffmpegPath: $shell['works'] ? ExecutableLocator::find('ffmpeg') : null,
+            ffprobePath: $shell['works'] ? ExecutableLocator::find('ffprobe') : null,
             zipEncryption: $this->backupService->supportsZipEncryption(),
             sodium: PortableKeys::hasSodium(),
             gd: extension_loaded('gd'),
@@ -171,7 +176,7 @@ final class HostHealth
         $install = 'Installer ffmpeg (le paquet fournit aussi ffprobe), exécutable par l\'utilisateur qui fait '
             . 'tourner PHP.';
 
-        if (!$facts->shellAvailable) {
+        if (!$facts->shellDeclared) {
             return new HostCheck(
                 'ffmpeg',
                 'ffmpeg et ffprobe',
@@ -180,6 +185,17 @@ final class HostHealth
                 $consequence,
                 'Autoriser une des fonctions exec(), shell_exec(), system() ou passthru(), aujourd\'hui '
                     . 'désactivées (disable_functions), puis installer ffmpeg.'
+            );
+        }
+        if (!$facts->shellWorks) {
+            return new HostCheck(
+                'ffmpeg',
+                'ffmpeg et ffprobe',
+                HostCheck::STATE_MISSING,
+                'Introuvables : PHP a le droit de lancer un programme, mais rien ne s\'exécute',
+                $consequence,
+                'Demander pourquoi une commande lancée par PHP n\'aboutit pas (module de sécurité, compte '
+                    . 'sans shell, montage « noexec », PATH vide), puis installer ffmpeg.'
             );
         }
 
