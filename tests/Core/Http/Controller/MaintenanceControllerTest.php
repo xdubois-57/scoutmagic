@@ -1773,17 +1773,75 @@ class MaintenanceControllerTest extends TestCase
         $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'full_reset'));
     }
 
-    public function testFullResetSchedulesTheBackgroundTask(): void
+    public function testFullResetSchedulesTheBackgroundTaskOnceThePasswordWasShownAndNoted(): void
     {
-        $token = $this->csrfToken();
+        $this->revealFullResetPassword();
 
         $response = $this->controller->fullReset($this->jsonRequest([
-            'confirm_keyword' => 'EFFACER', 'confirm_checkbox' => true, '_csrf_token' => $token,
+            'confirm_keyword' => 'EFFACER', 'confirm_checkbox' => true, 'password_noted' => true,
+            '_csrf_token' => $this->csrfToken(),
         ]), []);
 
         $decoded = json_decode($response->getBody(), true);
         $this->assertTrue($decoded['success']);
         $this->assertCount(1, $this->schedulerRepository->findByModuleAndTaskKey('core', 'full_reset'));
+    }
+
+    /**
+     * The safety copy is encrypted and the reset erases its password with
+     * secrets.enc (issue #619, IT-03b): nothing is scheduled before the
+     * password was shown.
+     */
+    public function testFullResetIsRefusedUntilTheSafetyCopyPasswordWasShown(): void
+    {
+        $response = $this->controller->fullReset($this->jsonRequest([
+            'confirm_keyword' => 'EFFACER', 'confirm_checkbox' => true, 'password_noted' => true,
+            '_csrf_token' => $this->csrfToken(),
+        ]), []);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertStringContainsString('Affichez', $response->getBody());
+        $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'full_reset'));
+    }
+
+    /** …and until the operator confirms having noted it. */
+    public function testFullResetIsRefusedUntilThePasswordIsConfirmedNoted(): void
+    {
+        $this->revealFullResetPassword();
+
+        $response = $this->controller->fullReset($this->jsonRequest([
+            'confirm_keyword' => 'EFFACER', 'confirm_checkbox' => true, '_csrf_token' => $this->csrfToken(),
+        ]), []);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'full_reset'));
+    }
+
+    /** The same password every time it is shown, journaled without it. */
+    public function testTheFullResetPasswordIsStableAndItsRevealJournaled(): void
+    {
+        $first = $this->revealFullResetPassword();
+        $second = $this->revealFullResetPassword();
+
+        $this->assertSame($first, $second);
+        $this->assertMatchesRegularExpression('/^[A-HJKMNP-Z2-9]{5}(-[A-HJKMNP-Z2-9]{5}){5}$/', $first);
+        $rows = $this->pdo->query(
+            "SELECT level, context FROM event_log WHERE event_type = 'full_reset_password_revealed'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(2, $rows);
+        $this->assertSame('security', $rows[0]['level']);
+        $this->assertStringNotContainsString($first, (string) $rows[0]['context']);
+    }
+
+    private function revealFullResetPassword(): string
+    {
+        $response = $this->controller->revealFullResetPassword(
+            $this->jsonRequest(['_csrf_token' => $this->csrfToken()]),
+            []
+        );
+        $this->assertSame(200, $response->getStatusCode());
+
+        return (string) json_decode($response->getBody(), true)['password'];
     }
 
     public function testRestoreBackupValidatesCsrf(): void

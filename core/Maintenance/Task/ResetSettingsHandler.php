@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Maintenance\Task;
 
 use Core\File\FileRepository;
+use Core\Maintenance\BackupPasswords;
 use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
 use Core\Maintenance\RequesterNotice;
@@ -58,10 +59,15 @@ class ResetSettingsHandler implements TaskHandlerInterface
             // both sized on — see the method's docblock.
             $backupService->ensureRoomForDumpAndArchive();
 
+            // Encrypted at its creation like every archive (issue #619,
+            // IT-03b), with a password kept under the row — or in clear on
+            // a host whose libzip cannot encrypt.
+            $safetyPassword = BackupPasswords::forStorage($context->storagePath)->forSafetyCopy($backupService);
             $dbDumpPath = $backupService->createDatabaseDump();
-            $filesZipPath = $backupService->createFileBackup();
+            $filesZipPath = $backupService->createFileBackup($safetyPassword);
 
             $backupId = $backupRepository->create('auto_reset', $requestedBy);
+            BackupPasswords::forStorage($context->storagePath)->keepFor($backupId, $safetyPassword);
             $zipFileId = $fileRepository->create(
                 $this->relativePath($context->storagePath, $filesZipPath),
                 'sauvegarde.zip',

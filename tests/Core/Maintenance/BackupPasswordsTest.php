@@ -92,6 +92,45 @@ final class BackupPasswordsTest extends TestCase
         $this->assertSame('typed by hand', $passwords->passwordFor(7));
     }
 
+    /**
+     * The full reset's password is revealed before the reset, possibly
+     * twice: the same one both times, or one of the two opens nothing.
+     */
+    public function testTheFullResetPasswordIsGeneratedOnceAndStable(): void
+    {
+        $passwords = BackupPasswords::forStorage($this->storage);
+
+        $this->assertNull($passwords->revealedFullResetPassword());
+        $first = $passwords->fullResetPassword();
+
+        $this->assertSame($first, $passwords->fullResetPassword());
+        $this->assertSame($first, $passwords->revealedFullResetPassword());
+        $this->assertSame([], $passwords->keptIds(), 'It is not an archive password.');
+    }
+
+    /** A safety copy is encrypted where the password can be both used and kept. */
+    public function testASafetyCopyGetsAPasswordOnlyWhereItCanBeUsedAndKept(): void
+    {
+        $canEncrypt = $this->createStub(\Core\Maintenance\BackupServiceInterface::class);
+        $canEncrypt->method('supportsZipEncryption')->willReturn(true);
+        $cannot = $this->createStub(\Core\Maintenance\BackupServiceInterface::class);
+        $cannot->method('supportsZipEncryption')->willReturn(false);
+
+        $this->assertNotNull(BackupPasswords::forStorage($this->storage)->forSafetyCopy($canEncrypt));
+        $this->assertNull(BackupPasswords::forStorage($this->storage)->forSafetyCopy($cannot));
+        $this->assertNull(BackupPasswords::forStorage($this->storage . '/nowhere')->forSafetyCopy($canEncrypt));
+    }
+
+    public function testKeepingNoPasswordStoresNothing(): void
+    {
+        $passwords = BackupPasswords::forStorage($this->storage);
+
+        $passwords->keepFor(5, null);
+        $passwords->keepFor(6, 'kept');
+
+        $this->assertSame([6], $passwords->keptIds());
+    }
+
     /** An installation without secrets yet has nothing kept, and nothing to forget. */
     public function testAnUninitialisedStoreHasNothingAndForgetsQuietly(): void
     {

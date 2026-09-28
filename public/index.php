@@ -5368,6 +5368,15 @@ $router->addRoute(
     'superadmin',
 );
 $router->addRoute('POST', '/config/maintenance/reset/full', MaintenanceController::class, 'fullReset', 'superadmin');
+// The full reset's safety-copy password, shown before the reset erases it
+// with secrets.enc (issue #619, IT-03b).
+$router->addRoute(
+    'POST',
+    '/config/maintenance/reset/full/password',
+    MaintenanceController::class,
+    'revealFullResetPassword',
+    'superadmin'
+);
 $router->addRoute(
     'POST',
     '/config/maintenance/reset/restore',

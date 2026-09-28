@@ -16,6 +16,7 @@ use Core\Database\SqlParser;
 use Core\Exception\UserFacingMessage;
 use Core\File\FileRepository;
 use Core\Http\StreamResponseHeaders;
+use Core\Maintenance\BackupPasswords;
 use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
 use Core\Maintenance\InstallLock;
@@ -252,10 +253,15 @@ class InstallUpdateHandler implements TaskHandlerInterface
             // really did delete those folders — stopped doing so for the
             // same reason.
             $updateHistoryRepository->setStatus($historyId, 'backing_up');
+            // Encrypted at its creation like every archive (issue #619,
+            // IT-03b), with a password kept under the row — or in clear on
+            // a host whose libzip cannot encrypt.
+            $safetyPassword = BackupPasswords::forStorage($context->storagePath)->forSafetyCopy($backupService);
             $dbDumpPath = $backupService->createDatabaseDump();
-            $filesZipPath = $backupService->createFileBackup();
+            $filesZipPath = $backupService->createFileBackup($safetyPassword);
 
             $backupId = $backupRepository->create('auto_update', $history->requestedBy);
+            BackupPasswords::forStorage($context->storagePath)->keepFor($backupId, $safetyPassword);
             $zipFileId = $fileRepository->create(
                 $this->relativePath($context->storagePath, $filesZipPath),
                 'sauvegarde.zip',
@@ -354,6 +360,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
                     $backupService,
                     (string) $dbDumpPath,
                     (string) $filesZipPath,
+                    $safetyPassword,
                     $installError
                 );
             }
@@ -519,6 +526,9 @@ class InstallUpdateHandler implements TaskHandlerInterface
                 $backupService,
                 $context->storagePath . '/' . $dbDumpFile->relativePath,
                 $context->storagePath . '/' . $filesZipFile->relativePath,
+                // Kept under the safety copy's row since IT-03b; null for a
+                // copy taken before, which was written in clear.
+                BackupPasswords::forStorage($context->storagePath)->passwordFor($backup->id),
                 $migrationError
             );
         }
@@ -862,6 +872,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
         BackupService $backupService,
         string $dbDumpPath,
         string $filesZipPath,
+        ?string $filesZipPassword,
         \Throwable $error
     ): void {
         $context->journal->log(
@@ -879,7 +890,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
 
         try {
             $backupService->restoreDatabase($dbDumpPath);
-            $backupService->restoreFiles($filesZipPath);
+            $backupService->restoreFiles($filesZipPath, $filesZipPassword);
             // Same write-site rule as markFailed() above: this string is
             // rendered as a title="" tooltip on the maintenance page.
             $updateHistoryRepository->markRolledBack(

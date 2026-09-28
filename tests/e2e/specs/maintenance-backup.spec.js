@@ -238,11 +238,21 @@ test('maintenance backups run to completion, the auto-save saves, and the danger
         await expect(page.locator(submit), `${submit} must re-lock when the keyword goes`).toBeDisabled();
     }
 
-    // The full erase adds a checkbox to its keyword — both are required.
+    // The full erase adds a checkbox to its keyword — both are required —
+    // and, since IT-03b (issue #619), the safety copy's password: shown,
+    // then confirmed noted, because the reset erases it.
     await expect(page.locator('#full-reset-submit')).toBeDisabled();
     await page.locator('#full-reset-keyword').fill('EFFACER');
     await expect(page.locator('#full-reset-submit'), 'the keyword alone must not arm a full erase').toBeDisabled();
     await page.locator('#full-reset-checkbox').check();
+    await expect(
+        page.locator('#full-reset-submit'),
+        'a full erase must not arm before its safety copy password was noted',
+    ).toBeDisabled();
+    await expect(page.locator('#full-reset-password-noted')).toBeDisabled();
+    await page.locator('#full-reset-password-reveal').click();
+    await expect(page.locator('#full-reset-password code')).toHaveText(/^[A-HJKMNP-Z2-9]{5}(-[A-HJKMNP-Z2-9]{5}){5}$/);
+    await page.locator('#full-reset-password-noted').check();
     await expect(page.locator('#full-reset-submit')).toBeEnabled();
     await page.locator('#full-reset-checkbox').uncheck();
     await expect(page.locator('#full-reset-submit')).toBeDisabled();

@@ -34,6 +34,8 @@ class FullResetHandlerTest extends TestCase
     private string $basePath;
     private string $storagePath;
     private TaskContext $context;
+    private string $masterKey;
+    private string $resetPassword;
 
     protected function setUp(): void
     {
@@ -46,8 +48,17 @@ class FullResetHandlerTest extends TestCase
         mkdir($this->storagePath . '/config', 0755, true);
         mkdir($this->storagePath . '/uploads', 0755, true);
         mkdir($this->basePath . '/schema', 0755, true);
-        file_put_contents($this->storagePath . '/keys/master.key', 'the-master-key-bytes');
-        file_put_contents($this->storagePath . '/config/secrets.enc', 'encrypted-secrets');
+        // A real key and secrets file: the reset reads the safety copy's
+        // password from them (issue #619, IT-03b) before erasing them.
+        $secrets = new \Core\Security\SecretManager(
+            $this->storagePath . '/keys/master.key',
+            $this->storagePath . '/config/secrets.enc'
+        );
+        rmdir($this->storagePath . '/keys');
+        $secrets->generateMasterKey();
+        $secrets->writeSecrets(['db_password' => 'x']);
+        $this->masterKey = (string) file_get_contents($this->storagePath . '/keys/master.key');
+        $this->resetPassword = \Core\Maintenance\BackupPasswords::forStorage($this->storagePath)->fullResetPassword();
         file_put_contents($this->storagePath . '/uploads/doc.pdf', 'fake-pdf-bytes');
 
         $connection = Connection::withPdo($this->pdo);
@@ -64,18 +75,18 @@ class FullResetHandlerTest extends TestCase
         );
     }
 
-    private function fakeBackupService(): BackupServiceInterface
+    private function fakeBackupService(bool $canEncrypt = true): BackupServiceInterface
     {
         $dbDumpDir = sys_get_temp_dir() . '/full_reset_fake_backups_' . uniqid();
         mkdir($dbDumpDir, 0755, true);
 
-        return new class ($dbDumpDir) implements BackupServiceInterface {
+        return new class ($dbDumpDir, $canEncrypt) implements BackupServiceInterface {
             // Nothing to reserve: this fake writes a couple of bytes.
             public function ensureRoomForDumpAndArchive(int $extraBytes = 0): void
             {
             }
 
-            public function __construct(private string $dir)
+            public function __construct(private string $dir, private bool $canEncrypt)
             {
             }
 
@@ -91,12 +102,15 @@ class FullResetHandlerTest extends TestCase
                 return $this->createDatabaseDump();
             }
 
-            public function createFileBackup(): string
+            public function createFileBackup(?string $password = null): string
             {
                 $path = $this->dir . '/files_' . bin2hex(random_bytes(4)) . '.zip';
                 $zip = new \ZipArchive();
                 $zip->open($path, \ZipArchive::CREATE);
                 $zip->addFromString('marker.txt', 'fake backup');
+                if ($password !== null) {
+                    $zip->setEncryptionName('marker.txt', \ZipArchive::EM_AES_256, $password);
+                }
                 $zip->close();
                 return $path;
             }
@@ -108,7 +122,7 @@ class FullResetHandlerTest extends TestCase
 
             public function supportsZipEncryption(): bool
             {
-                return true;
+                return $this->canEncrypt;
             }
 
             public function restoreDatabase(string $dumpPath): void
@@ -140,7 +154,7 @@ class FullResetHandlerTest extends TestCase
 
         $this->assertFileDoesNotExist($this->storagePath . '/config/secrets.enc');
         $this->assertFileExists($this->storagePath . '/keys/master.key');
-        $this->assertSame('the-master-key-bytes', file_get_contents($this->storagePath . '/keys/master.key'));
+        $this->assertSame($this->masterKey, file_get_contents($this->storagePath . '/keys/master.key'));
     }
 
     public function testHandleDeletesOtherStorageFiles(): void
@@ -222,14 +236,59 @@ class FullResetHandlerTest extends TestCase
         ))->create(StorageLocationType::Local, $label, new LocalLocationConfig($path), null);
     }
 
-    public function testHandlePreservesTheSafetyBackupFilesUnderMaintenance(): void
+    /**
+     * One encrypted archive, the database inside it, and no clear dump
+     * beside it: master.key survives the reset, so a readable dump left
+     * next to it would be the whole database in clear (issue #619, IT-03b).
+     * It opens with the password the reset page revealed.
+     */
+    public function testHandlePreservesTheSafetyCopyEncryptedWithTheRevealedPassword(): void
     {
         $handler = new FullResetHandler($this->fakeBackupService());
         $handler->handle([], $this->context);
 
         $this->assertDirectoryExists($this->storagePath . '/maintenance');
+        $files = array_values(array_diff(scandir($this->storagePath . '/maintenance') ?: [], ['.', '..']));
+        $this->assertCount(1, $files);
+        $this->assertStringEndsWith('.zip', $files[0]);
+
+        $zip = new \ZipArchive();
+        $this->assertTrue($zip->open($this->storagePath . '/maintenance/' . $files[0]));
+        $this->assertFalse(@$zip->getFromName('database.sql'), 'The dump must not be readable without the password.');
+        $zip->setPassword($this->resetPassword);
+        $this->assertSame('-- fake dump', $zip->getFromName('database.sql'));
+        $zip->close();
+    }
+
+    /** A host whose libzip cannot encrypt still gets its safety copy — in clear, as before. */
+    public function testAHostThatCannotEncryptKeepsTheCopyInClear(): void
+    {
+        $handler = new FullResetHandler($this->fakeBackupService(canEncrypt: false));
+        $handler->handle([], $this->context);
+
         $files = array_diff(scandir($this->storagePath . '/maintenance') ?: [], ['.', '..']);
         $this->assertCount(2, $files);
+    }
+
+    /**
+     * No password revealed, no reset: the copy would be one nobody can
+     * open, and the reset erases the only place its password was kept.
+     */
+    public function testWithoutARevealedPasswordNothingIsErased(): void
+    {
+        $secrets = new \Core\Security\SecretManager(
+            $this->storagePath . '/keys/master.key',
+            $this->storagePath . '/config/secrets.enc'
+        );
+        $secrets->writeSecrets(['db_password' => 'x']);
+        $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
+        $stmt->execute(['enc', 'idx']);
+
+        (new FullResetHandler($this->fakeBackupService()))->handle([], $this->context);
+
+        $this->assertSame('1', (string) $this->pdo->query('SELECT COUNT(*) FROM user_accounts')->fetchColumn());
+        $this->assertFileExists($this->storagePath . '/config/secrets.enc');
+        $this->assertCount(1, $this->pdo->query("SELECT * FROM event_log WHERE event_type = 'full_reset_failed'")->fetchAll());
     }
 
     public function testHandleRecreatesEmptyDirectoryStructure(): void
@@ -288,7 +347,7 @@ class FullResetHandlerTest extends TestCase
                 throw new \RuntimeException('mysqldump unavailable');
             }
             public function createConfigOnlyDump(): string { return $this->createDatabaseDump(); }
-            public function createFileBackup(): string { return ''; }
+            public function createFileBackup(?string $password = null): string { return ''; }
             public function createFullBackup(string $scope, string $password): array { return ['zipPath' => '', 'dbDumpPath' => '']; }
             public function supportsZipEncryption(): bool { return true; }
             public function restoreDatabase(string $dumpPath): void {}

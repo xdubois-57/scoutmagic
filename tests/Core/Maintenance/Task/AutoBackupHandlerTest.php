@@ -90,7 +90,7 @@ class AutoBackupHandlerTest extends TestCase
                 return $this->createDatabaseDump();
             }
 
-            public function createFileBackup(): string
+            public function createFileBackup(?string $password = null): string
             {
                 $path = $this->dir . '/files_' . bin2hex(random_bytes(4)) . '.zip';
                 $zip = new \ZipArchive();
@@ -238,7 +238,7 @@ class AutoBackupHandlerTest extends TestCase
 
             public function createDatabaseDump(): string { throw new \RuntimeException('mysqldump unavailable'); }
             public function createConfigOnlyDump(): string { return $this->createDatabaseDump(); }
-            public function createFileBackup(): string { return ''; }
+            public function createFileBackup(?string $password = null): string { return ''; }
             public function createFullBackup(string $scope, string $password): array { return ['zipPath' => '', 'dbDumpPath' => '']; }
             public function supportsZipEncryption(): bool { return true; }
             public function restoreDatabase(string $dumpPath): void {}

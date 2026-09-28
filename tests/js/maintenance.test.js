@@ -822,6 +822,22 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
         </form>`));
     }
 
+    // The same form on a host that can encrypt (issue #619, IT-03b): the
+    // safety copy's password must be shown and confirmed noted first.
+    function buildFullResetWithPassword() {
+        appendAll(el(`<form id="full-reset-form">
+            <button type="button" id="full-reset-password-reveal"></button>
+            <output id="full-reset-password" class="d-none"></output>
+            <input type="checkbox" id="full-reset-password-noted" disabled>
+            <input type="checkbox" id="full-reset-checkbox">
+            <input id="full-reset-keyword">
+            <button type="submit" id="full-reset-submit" disabled></button>
+            <div id="full-reset-progress" class="d-none"></div>
+            <div id="full-reset-error" class="d-none"></div>
+            <input type="hidden" name="_csrf_token" value="tok">
+        </form>`));
+    }
+
     function buildRestoreBackup() {
         appendAll(
             el(`<form id="restore-backup-form">
@@ -903,6 +919,56 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
             checkbox.checked = false;
             checkbox.dispatchEvent(new Event('change'));
             expect(submit.disabled).toBe(true);
+        });
+    });
+
+    describe('full-reset — the safety copy password, shown and noted first (IT-03b)', () => {
+        function armEverythingButTheNotedBox() {
+            const checkbox = /** @type {HTMLInputElement} */ (document.getElementById('full-reset-checkbox'));
+            checkbox.checked = true;
+            checkbox.dispatchEvent(new Event('change'));
+            type(document.getElementById('full-reset-keyword'), 'EFFACER');
+        }
+
+        it('keeps the button disabled until the password is confirmed noted', async () => {
+            buildFullResetWithPassword();
+            await boot();
+            armEverythingButTheNotedBox();
+            expect(/** @type {HTMLButtonElement} */ (document.getElementById('full-reset-submit')).disabled).toBe(true);
+        });
+
+        it('shows the password, then lets the operator confirm and submit with it noted', async () => {
+            buildFullResetWithPassword();
+            global.fetch = vi.fn(() => jsonResponse({ success: true, password: 'AB3DE-F7HJK-MNPQR-STUVW-XYZ23-45678' }));
+            await boot();
+            const noted = /** @type {HTMLInputElement} */ (document.getElementById('full-reset-password-noted'));
+            expect(noted.disabled).toBe(true);
+
+            document.getElementById('full-reset-password-reveal').click();
+            await vi.waitFor(() => expect(noted.disabled).toBe(false));
+            expect(fetch).toHaveBeenCalledWith('/config/maintenance/reset/full/password', expect.objectContaining({ method: 'POST' }));
+            expect(document.getElementById('full-reset-password').querySelector('code').textContent)
+                .toBe('AB3DE-F7HJK-MNPQR-STUVW-XYZ23-45678');
+
+            armEverythingButTheNotedBox();
+            noted.checked = true;
+            noted.dispatchEvent(new Event('change'));
+            expect(/** @type {HTMLButtonElement} */ (document.getElementById('full-reset-submit')).disabled).toBe(false);
+
+            global.fetch = vi.fn(() => new Promise(() => {}));
+            document.getElementById('full-reset-form').dispatchEvent(new Event('submit', { cancelable: true }));
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+            expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual(expect.objectContaining({ password_noted: true }));
+        });
+
+        it('says why and keeps the box locked when the password cannot be shown', async () => {
+            buildFullResetWithPassword();
+            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Le mot de passe n\'a pas pu être conservé.' }, 500));
+            await boot();
+
+            document.getElementById('full-reset-password-reveal').click();
+            await vi.waitFor(() => expect(document.getElementById('full-reset-password').textContent).toContain('conservé'));
+            expect(/** @type {HTMLInputElement} */ (document.getElementById('full-reset-password-noted')).disabled).toBe(true);
         });
     });
 

@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Maintenance\Task;
 
 use Core\File\FileRepository;
+use Core\Maintenance\BackupPasswords;
 use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
 use Core\Maintenance\BackupServiceInterface;
@@ -98,10 +99,15 @@ class AutoBackupHandler implements TaskHandlerInterface
             // of room half-written.
             $backupService->ensureRoomForDumpAndArchive();
 
+            // Encrypted at its creation like every archive (issue #619,
+            // IT-03b), with a password kept under the row — or in clear on
+            // a host whose libzip cannot encrypt.
+            $password = BackupPasswords::forStorage($context->storagePath)->forSafetyCopy($backupService);
             $dbDumpPath = $backupService->createDatabaseDump();
-            $filesZipPath = $backupService->createFileBackup();
+            $filesZipPath = $backupService->createFileBackup($password);
 
             $backupId = $backupRepository->create('auto_backup', null);
+            BackupPasswords::forStorage($context->storagePath)->keepFor($backupId, $password);
             $zipFileId = $fileRepository->create(
                 $this->relativePath($context->storagePath, $filesZipPath),
                 'sauvegarde.zip',
