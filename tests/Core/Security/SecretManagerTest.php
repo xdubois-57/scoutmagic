@@ -91,6 +91,87 @@ class SecretManagerTest extends TestCase
         $this->assertSame($secrets, $readBack);
     }
 
+    /**
+     * The file is replaced by a rename, never truncated in place: nothing
+     * but the secrets file (and the lock beside it) is left in the directory.
+     */
+    public function testWriteSecretsLeavesNoTemporaryFileBehind(): void
+    {
+        $manager = new SecretManager($this->masterKeyPath, $this->secretsPath);
+        $manager->generateMasterKey();
+
+        $manager->writeSecrets(['a' => '1']);
+        $manager->writeSecrets(['a' => '2']);
+
+        $this->assertSame(['secrets.enc'], array_values(array_diff(scandir(dirname($this->secretsPath)), ['.', '..'])));
+        $this->assertSame(['a' => '2'], $manager->readSecrets());
+        if (PHP_OS_FAMILY !== 'Windows') {
+            $this->assertSame('0600', substr(sprintf('%o', fileperms($this->secretsPath)), -4));
+        }
+    }
+
+    public function testUpdateSecretsChangesOneEntryAndKeepsTheOthers(): void
+    {
+        $manager = new SecretManager($this->masterKeyPath, $this->secretsPath);
+        $manager->generateMasterKey();
+        $manager->writeSecrets(['smtp_password' => 'kept', 'old' => 'x']);
+
+        $manager->updateSecrets(static function (array $secrets): array {
+            unset($secrets['old']);
+            $secrets['backup_password_1'] = 'new';
+
+            return $secrets;
+        });
+
+        $this->assertSame(['smtp_password' => 'kept', 'backup_password_1' => 'new'], $manager->readSecrets());
+    }
+
+    /**
+     * The change runs under an exclusive lock that another process would
+     * wait for — flock() locks per open file, so a second handle in this
+     * same process stands in for that other process.
+     */
+    public function testUpdateSecretsHoldsAnExclusiveLockWhileChanging(): void
+    {
+        $manager = new SecretManager($this->masterKeyPath, $this->secretsPath);
+        $manager->generateMasterKey();
+        $manager->writeSecrets([]);
+        $lockPath = $this->secretsPath . '.lock';
+        $lockedDuringChange = null;
+
+        $manager->updateSecrets(static function (array $secrets) use ($lockPath, &$lockedDuringChange): array {
+            $other = fopen($lockPath, 'c');
+            $lockedDuringChange = !flock($other, LOCK_EX | LOCK_NB);
+            fclose($other);
+
+            return $secrets;
+        });
+
+        $this->assertTrue($lockedDuringChange);
+        $after = fopen($lockPath, 'c');
+        $this->assertTrue(flock($after, LOCK_EX | LOCK_NB), 'The lock is released afterwards.');
+        fclose($after);
+    }
+
+    /** A change that throws writes nothing and still releases the lock. */
+    public function testUpdateSecretsWritesNothingWhenTheChangeFails(): void
+    {
+        $manager = new SecretManager($this->masterKeyPath, $this->secretsPath);
+        $manager->generateMasterKey();
+        $manager->writeSecrets(['a' => '1']);
+
+        try {
+            $manager->updateSecrets(static fn (array $secrets): array => throw new \LogicException('no'));
+            $this->fail('The exception should propagate.');
+        } catch (\LogicException) {
+        }
+
+        $this->assertSame(['a' => '1'], $manager->readSecrets());
+        $lock = fopen($this->secretsPath . '.lock', 'c');
+        $this->assertTrue(flock($lock, LOCK_EX | LOCK_NB));
+        fclose($lock);
+    }
+
     public function testReadSecretsThrowsWhenMasterKeyIsMissing(): void
     {
         $manager = new SecretManager($this->masterKeyPath, $this->secretsPath);

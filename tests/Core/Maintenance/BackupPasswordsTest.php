@@ -28,7 +28,7 @@ final class BackupPasswordsTest extends TestCase
 
     protected function tearDown(): void
     {
-        foreach (['/config/secrets.enc', '/keys/master.key'] as $file) {
+        foreach (['/config/secrets.enc', '/config/secrets.enc.lock', '/keys/master.key'] as $file) {
             @unlink($this->storage . $file);
         }
         @rmdir($this->storage . '/config');

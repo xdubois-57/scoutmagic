@@ -76,7 +76,7 @@ final class PortablePassphraseDisclosureTest extends TestCase
 
         $store = self::strippedSource('core/Maintenance/BackupPasswords.php');
         $this->assertStringContainsString("'backup_password_%d'", $store);
-        $this->assertStringContainsString('writeSecrets(', $store, 'BackupPasswords no longer writes into secrets.enc.');
+        $this->assertStringContainsString('->updateSecrets(', $store, 'BackupPasswords no longer writes into secrets.enc.');
     }
 
     /**

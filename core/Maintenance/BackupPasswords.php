@@ -32,6 +32,10 @@ use Core\Security\SecretManager;
  *
  * **Deleting an archive deletes its password** (BackupRetention::forget()),
  * or the secrets file would grow by one entry per backup, forever.
+ *
+ * Every change goes through SecretManager::updateSecrets(), under a lock:
+ * a web request issues a password while a cron purge forgets another, and
+ * two unlocked read-then-write passes would keep only one of the two.
  */
 final class BackupPasswords
 {
@@ -72,9 +76,11 @@ final class BackupPasswords
      */
     public function store(int $backupId, string $password): void
     {
-        $secrets = $this->secrets->readSecrets();
-        $secrets[self::keyFor($backupId)] = $password;
-        $this->secrets->writeSecrets($secrets);
+        $this->secrets->updateSecrets(static function (array $secrets) use ($backupId, $password): array {
+            $secrets[self::keyFor($backupId)] = $password;
+
+            return $secrets;
+        });
     }
 
     /** Null when the archive has none kept: older, unencrypted, or already forgotten. */
@@ -121,13 +127,15 @@ final class BackupPasswords
             return;
         }
 
-        $secrets = $this->secrets->readSecrets();
         $key = self::keyFor($backupId);
-        if (!array_key_exists($key, $secrets)) {
+        if (!array_key_exists($key, $this->secrets->readSecrets())) {
             return;
         }
 
-        unset($secrets[$key]);
-        $this->secrets->writeSecrets($secrets);
+        $this->secrets->updateSecrets(static function (array $secrets) use ($key): array {
+            unset($secrets[$key]);
+
+            return $secrets;
+        });
     }
 }
