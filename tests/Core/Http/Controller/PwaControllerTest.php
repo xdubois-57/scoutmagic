@@ -295,7 +295,7 @@ class PwaControllerTest extends TestCase
         $router->addRoute('GET', '/favicon.ico', PwaController::class, 'favicon', 'public');
         $router->addRoute('GET', '/offline', PwaController::class, 'offline', 'public');
 
-        $fc = new FrontController($router, $this->createMock(Environment::class), $config);
+        $fc = new FrontController($router, $this->createStub(Environment::class), $config);
         $fc->registerController(PwaController::class, $this->controller);
 
         $manifestResponse = $fc->handle(new Request('GET', '/manifest.webmanifest', [], [], [], []));

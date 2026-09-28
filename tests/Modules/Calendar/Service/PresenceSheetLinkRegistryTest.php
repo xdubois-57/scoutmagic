@@ -37,10 +37,10 @@ class PresenceSheetLinkRegistryTest extends TestCase
     public function testASecondProviderIsRefusedRatherThanSilentlyShadowed(): void
     {
         $registry = new PresenceSheetLinkRegistry();
-        $registry->provide($this->createMock(PresenceSheetLinkLookupInterface::class));
+        $registry->provide($this->createStub(PresenceSheetLinkLookupInterface::class));
 
         $this->expectException(\LogicException::class);
-        $registry->provide($this->createMock(PresenceSheetLinkLookupInterface::class));
+        $registry->provide($this->createStub(PresenceSheetLinkLookupInterface::class));
     }
 
     public function testItPassesWhereThePersonalFeedExpectsTheLookup(): void

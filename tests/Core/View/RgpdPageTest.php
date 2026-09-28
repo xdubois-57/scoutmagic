@@ -73,10 +73,10 @@ class RgpdPageTest extends TestCase
      */
     private function makeController(string $mode): PageController
     {
-        $settingService = $this->createMock(SettingService::class);
+        $settingService = $this->createStub(SettingService::class);
         $settingService->method('get')->willReturn($mode);
 
-        $rgpdContentService = $this->createMock(RgpdContentService::class);
+        $rgpdContentService = $this->createStub(RgpdContentService::class);
         $rgpdContentService->method('getDefaultContent')->willReturn('<h2>Protection des données</h2><p><span id="rgpd-last-updated">Date de publication</span></p>');
         $rgpdContentService->method('getDefaultContentLastModified')->willReturn($this->defaultContentModifiedAt);
 
@@ -86,9 +86,9 @@ class RgpdPageTest extends TestCase
             $this->sectionRepo,
             $settingService,
             $rgpdContentService,
-            $this->createMock(SectionService::class),
-            $this->createMock(UnitStaffSectionService::class),
-            $this->createMock(ScoutYearService::class)
+            $this->createStub(SectionService::class),
+            $this->createStub(UnitStaffSectionService::class),
+            $this->createStub(ScoutYearService::class)
         );
     }
 
@@ -99,10 +99,10 @@ class RgpdPageTest extends TestCase
         // The default content mock above doesn't include this link, so we
         // exercise the real default content here instead.
         $realRgpdContentService = new RgpdContentService(
-            $this->createMock(\Core\Module\ModuleManager::class),
-            $this->createMock(SettingService::class)
+            $this->createStub(\Core\Module\ModuleManager::class),
+            $this->createStub(SettingService::class)
         );
-        $settingService = $this->createMock(SettingService::class);
+        $settingService = $this->createStub(SettingService::class);
         $settingService->method('get')->willReturn('default');
 
         $controller = new PageController(
@@ -111,9 +111,9 @@ class RgpdPageTest extends TestCase
             $this->sectionRepo,
             $settingService,
             $realRgpdContentService,
-            $this->createMock(SectionService::class),
-            $this->createMock(UnitStaffSectionService::class),
-            $this->createMock(ScoutYearService::class)
+            $this->createStub(SectionService::class),
+            $this->createStub(UnitStaffSectionService::class),
+            $this->createStub(ScoutYearService::class)
         );
 
         $request = new Request('GET', '/rgpd', [], [], [], []);

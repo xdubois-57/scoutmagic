@@ -130,7 +130,7 @@ class SupportPackageServiceTest extends TestCase
         $this->fileRepository = new FileRepository($this->pdo);
         $this->encryptedStorage = new EncryptedFileStorageService($this->fileRepository, $this->encryption, $this->storagePath);
 
-        $connection = $this->createMock(Connection::class);
+        $connection = $this->createStub(Connection::class);
         $connection->method('getPdo')->willReturn($this->pdo);
         $this->connection = $connection;
     }
@@ -485,7 +485,7 @@ class SupportPackageServiceTest extends TestCase
             $pdo = DatabaseTestHelper::createTestDatabase();
             $pdo->exec('DROP TABLE ' . $table);
 
-            $connection = $this->createMock(Connection::class);
+            $connection = $this->createStub(Connection::class);
             $connection->method('getPdo')->willReturn($pdo);
             $connection->method('dumpCredentials')->willReturn([
                 'host' => '', 'port' => 0, 'dbName' => '', 'user' => '', 'password' => '',

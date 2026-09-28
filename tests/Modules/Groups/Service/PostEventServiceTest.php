@@ -73,7 +73,7 @@ class PostEventServiceTest extends TestCase
      */
     public function testAnEventTheViewerMayNotSeeIsNotAttached(): void
     {
-        $lookup = $this->createMock(CalendarEventLookupInterface::class);
+        $lookup = $this->createStub(CalendarEventLookupInterface::class);
         $lookup->method('findEventById')->willReturn(null);
 
         $this->assertNull((new PostEventService($lookup))->resolveSubmitted(9, Role::IDENTIFIED));
@@ -109,7 +109,7 @@ class PostEventServiceTest extends TestCase
      */
     public function testAStaleEventIdResolvesToNothingRatherThanFailing(): void
     {
-        $lookup = $this->createMock(CalendarEventLookupInterface::class);
+        $lookup = $this->createStub(CalendarEventLookupInterface::class);
         $lookup->method('findEventById')->willReturn(null);
 
         $this->assertSame([], (new PostEventService($lookup))->summariesFor([9], Role::IDENTIFIED));

@@ -2714,7 +2714,6 @@ $memberExportRowBuilder = new \Core\Member\Export\MemberExportRowBuilder(
     $sectionRosterRepository,
     $sectionService,
     $scoutYearService,
-    $encryptionService,
     $memberEmailRepository,
     $memberMovementClassifier
 );
@@ -2825,7 +2824,11 @@ $duplicateMemberRepository = new \Core\Member\Duplicate\DuplicateMemberRepositor
 $duplicateMemberDetector = new \Core\Member\Duplicate\DuplicateMemberDetector(
     $duplicateMemberRepository
 );
-$memberMergeService = new \Core\Member\Duplicate\MemberMergeService($pdo, $duplicateMemberRepository, $journalService);
+$memberMergeService = new \Core\Member\Duplicate\MemberMergeService(
+    new \Core\Member\Duplicate\MemberMergeRepository($pdo, $duplicateMemberRepository),
+    $duplicateMemberRepository,
+    $journalService
+);
 $rosterReplacementGuard = new \Core\Import\RosterReplacementGuard(
     new \Core\Import\RosterComparisonRepository($pdo),
     $scoutYearResolver
@@ -6077,11 +6080,19 @@ $leadershipFormationLevels = null;
 // accepted/encoded requests to the PROJECTED count, through the same
 // nullable Api provider as before (ARCHITECTURE.md §7.5) — null when it is
 // disabled, and the service degrades to counting members alone.
+// The one place a household key is derived from an address (issue #630).
+// The registration module is handed this repository rather than deriving
+// the key itself: it stores the identity, never computes it.
+$householdRepository = new \Core\Member\Household\HouseholdRepository($pdo, $encryptionService);
 $householdRegistrationCountForOthers = null;
 if ($isEnabled('registration')) {
     \Core\Debug\RequestTimeline::mark('module_registration');
     $householdRegistrationCountForOthers = new \Modules\Registration\Service\HouseholdRegistrationCountService(
-        new \Modules\Registration\Repository\RegistrationRequestRepository($pdo, $encryptionService)
+        new \Modules\Registration\Repository\RegistrationRequestRepository(
+            $pdo,
+            $encryptionService,
+            $householdRepository
+        )
     );
 }
 $feeEstimationService = new \Core\Member\FeeEstimationService(
@@ -6093,7 +6104,7 @@ $feeEstimationService = new \Core\Member\FeeEstimationService(
 // they are the roster's. Built here so a module can consume it without
 // owning it.
 $householdService = new \Core\Member\Household\HouseholdService(
-    new \Core\Member\Household\HouseholdRepository($pdo, $encryptionService),
+    $householdRepository,
     $householdRegistrationCountForOthers
 );
 
@@ -10212,7 +10223,8 @@ if ($isEnabled('camps')) {
     );
     $campsAlbumService = new \Modules\Camps\Service\CampAlbumService(
         $auditService,
-        $galleryDelegatedAlbumManager ?? null
+        $galleryDelegatedAlbumManager ?? null,
+        $journalService
     );
     $campsReviewService = new \Modules\Camps\Service\ReviewService($campsReviewRepo, $auditService, $campsPlaceRepo);
     $campsSummaryService = new \Modules\Camps\Service\PlaceSummaryService(
@@ -10892,7 +10904,8 @@ if ($isEnabled('registration')) {
 
     $registrationRequestRepo = new \Modules\Registration\Repository\RegistrationRequestRepository(
         $pdo,
-        $encryptionService
+        $encryptionService,
+        $householdRepository
     );
     $registrationYearCodeRepo = new \Modules\Registration\Repository\RegistrationYearCodeRepository($pdo);
     $registrationAgeBracketRepo = new \Modules\Registration\Repository\AgeBracketRepository($pdo);
@@ -10901,10 +10914,20 @@ if ($isEnabled('registration')) {
         $pdo,
         $encryptionService
     );
+    // One roster repository for every service of this module reading the
+    // animés of a year (Passage, Prévisions, slot capacities).
+    $registrationPassageRosterRepo = new \Modules\Registration\Repository\PassageRosterRepository(
+        $pdo,
+        $encryptionService
+    );
+    $registrationImportedMemberRepo = new \Modules\Registration\Repository\ImportedMemberRepository(
+        $pdo,
+        $encryptionService
+    );
 
     $registrationSlotService = new \Modules\Registration\Service\SlotService(
-        $pdo,
-        $encryptionService,
+        $registrationPassageRosterRepo,
+        $scoutYearService,
         $settingService,
         $registrationAgeBracketRepo,
         $registrationSlotCapacityRepo,
@@ -10974,9 +10997,8 @@ if ($isEnabled('registration')) {
         $journalService
     );
     $registrationReconciliation = new \Modules\Registration\Service\ReconciliationService(
-        $pdo,
+        $registrationImportedMemberRepo,
         $registrationRequestRepo,
-        $encryptionService,
         $registrationMigrationService,
         $journalService
     );
@@ -11040,7 +11062,7 @@ if ($isEnabled('registration')) {
 
     $registrationSectionTransferRepo = new \Modules\Registration\Repository\SectionTransferRepository($pdo);
     $registrationPassageService = new \Modules\Registration\Service\PassageService(
-        new \Modules\Registration\Repository\PassageRosterRepository($pdo, $encryptionService),
+        $registrationPassageRosterRepo,
         $encryptionService,
         $sectionService,
         $registrationSectionTransferRepo,
@@ -11079,7 +11101,7 @@ if ($isEnabled('registration')) {
     // PassageService::getAnimeMemberYears()/getBranchChanges()/
     // getNewRegistrations() rather than recomputing any of them).
     $registrationForecastService = new \Modules\Registration\Service\ForecastService(
-        $pdo,
+        $registrationPassageRosterRepo,
         $encryptionService,
         $sectionService,
         $registrationPassageService
@@ -11333,8 +11355,7 @@ if ($isEnabled('registration')) {
     // same ordering constraint as ImportController above) — re-registered
     // here with the real provider only when mass_mail is also enabled.
     $registrationExternalMailingListService = new \Modules\Registration\Service\ExternalMailingListService(
-        $pdo,
-        $encryptionService,
+        $registrationImportedMemberRepo,
         $scoutYearResolver,
         $scoutYearService,
         $registrationRequestRepo

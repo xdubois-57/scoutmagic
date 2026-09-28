@@ -114,17 +114,17 @@ class GroupMemberControllerTest extends TestCase
 
         $access = new GroupAccessService($this->memberRepo, $this->sectionRepo, new SectionMembershipRepository($this->pdo));
 
-        $memberService = $this->createMock(MemberService::class);
+        $memberService = $this->createStub(MemberService::class);
         $memberService->method('getLinkedMembers')->willReturn(array_map(fn(int $id) => $this->profile($id), $linkedMemberIds));
         $memberService->method('findProfileByMemberAndYear')->willReturn($this->profile(1));
 
-        $accountRepo = $this->createMock(UserAccountRepository::class);
+        $accountRepo = $this->createStub(UserAccountRepository::class);
         $accountRepo->method('findById')->willReturn(new UserAccount(1, 'parent@test.be', 'Marie', 'Dupont', null, false, null));
 
-        $resolver = $this->createMock(ScoutYearResolver::class);
+        $resolver = $this->createStub(ScoutYearResolver::class);
         $resolver->method('getEffectiveYear')->willReturn(new EffectiveScoutYear($this->currentYearId, '2025-2026', null));
 
-        $sectionService = $this->createMock(SectionService::class);
+        $sectionService = $this->createStub(SectionService::class);
         $sectionService->method('getAllWithBranches')->willReturn(
             $candidateProfiles === [] ? [] : [['id' => $this->sectionId, 'name' => 'Louveteaux', 'desk_code' => 'LOU']]
         );

@@ -204,7 +204,7 @@ class PersonalFeedServiceTest extends TestCase
         $sectionCalendar = (new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))))->findBySectionId($sectionId);
         $this->eventRepository->create($sectionCalendar->id, 'Réunion', '2026-03-15', null, null, null, null, 'Prévoir le matériel.', null);
 
-        $lookup = $this->createMock(\Modules\Retro\Api\RetroEventLinkLookupInterface::class);
+        $lookup = $this->createStub(\Modules\Retro\Api\RetroEventLinkLookupInterface::class);
         $lookup->method('findLinkedBoardLink')->willReturn(null);
         $service = $this->serviceWithLookup($lookup);
 
@@ -312,7 +312,7 @@ class PersonalFeedServiceTest extends TestCase
             $sectionCalendar->id, 'Réunion', '2026-03-15', null, null, null, null, 'Prévoir le matériel.', null
         );
 
-        $lookup = $this->createMock(\Modules\Presences\Api\PresenceSheetLinkLookupInterface::class);
+        $lookup = $this->createStub(\Modules\Presences\Api\PresenceSheetLinkLookupInterface::class);
         $lookup->method('findSheetLink')->willReturn(null);
         $service = $this->serviceWithPresenceLookup($lookup);
 
@@ -338,10 +338,10 @@ class PersonalFeedServiceTest extends TestCase
             $sectionCalendar->id, 'Réunion', '2026-03-15', null, null, null, null, 'Grand jeu dans le bois.', null
         );
 
-        $retro = $this->createMock(\Modules\Retro\Api\RetroEventLinkLookupInterface::class);
+        $retro = $this->createStub(\Modules\Retro\Api\RetroEventLinkLookupInterface::class);
         $retro->method('findLinkedBoardLink')
             ->willReturn(new \Modules\Retro\Api\RetroLinkSummary('https://example.test/r/abc123', 'Rétro'));
-        $presences = $this->createMock(\Modules\Presences\Api\PresenceSheetLinkLookupInterface::class);
+        $presences = $this->createStub(\Modules\Presences\Api\PresenceSheetLinkLookupInterface::class);
         $presences->method('findSheetLink')
             ->willReturn(new \Modules\Presences\Api\PresenceSheetLink('https://example.test/s/K7m2Qa'));
 

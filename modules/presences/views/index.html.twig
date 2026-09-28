@@ -4,6 +4,7 @@
 #}
 {% extends 'base.html.twig' %}
 {% block title %}Présences — {{ param('site_name') }}{% endblock %}
+{% block stylesheets %}<link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">{% endblock %}
 
 {% block content %}
     {% include 'partials/page_header.html.twig' with {

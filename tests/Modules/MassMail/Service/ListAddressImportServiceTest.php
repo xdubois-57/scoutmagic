@@ -61,13 +61,13 @@ class ListAddressImportServiceTest extends TestCase
             $this->repository,
             new MailingListRepository($this->pdo),
             $this->settings,
-            $this->createMock(JournalService::class)
+            $this->createStub(JournalService::class)
         );
         $this->suppressedRepository = new SuppressedAddressRepository($this->pdo);
         $this->service = new ListAddressImportService(
             $this->repository,
             $this->addressService,
-            $this->createMock(JournalService::class),
+            $this->createStub(JournalService::class),
             $this->suppressedRepository
         );
 

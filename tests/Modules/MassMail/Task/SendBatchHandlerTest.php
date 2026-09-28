@@ -41,6 +41,11 @@ use Tests\Modules\MassMail\MassMailTestHelper;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
+// This class builds its doubles once (in setUp() or a shared helper) and
+// hands the same ones to every test: some tests set expectations on
+// them, the others only need their answers, and PHPUnit would report
+// each of those as a mock with no expectation (issue #665).
+#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class SendBatchHandlerTest extends TestCase
 {
     private \PDO $pdo;
@@ -545,7 +550,7 @@ class SendBatchHandlerTest extends TestCase
         $mailService = $this->mailServiceDouble();
         $mailService->method('send')->willThrowException(new MailException('554 5.7.1 Relay access denied'));
 
-        $journal = $this->createMock(JournalService::class);
+        $journal = $this->createStub(JournalService::class);
         $logged = [];
         $journal->method('log')->willReturnCallback(
             function (string $category, string $type, string $level, string $description, array $context = [], ?int $userId = null) use (&$logged): void {
@@ -580,7 +585,7 @@ class SendBatchHandlerTest extends TestCase
     public function testEveryCopyThatLeavesWritesItsOwnJournalLine(): void
     {
         $logged = [];
-        $journal = $this->createMock(JournalService::class);
+        $journal = $this->createStub(JournalService::class);
         $journal->method('log')->willReturnCallback(
             function (string $category, string $type, string $level, string $description, array $context = [], ?int $userId = null) use (&$logged): void {
                 $logged[] = ['type' => $type, 'level' => $level, 'description' => $description, 'context' => $context];
@@ -630,7 +635,7 @@ class SendBatchHandlerTest extends TestCase
         $mailService->method('send')->willThrowException(new MailException('554 5.7.1 Relay access denied'));
 
         $logged = [];
-        $journal = $this->createMock(JournalService::class);
+        $journal = $this->createStub(JournalService::class);
         $journal->method('log')->willReturnCallback(
             function (string $category, string $type, string $level, string $description, array $context = [], ?int $userId = null) use (&$logged): void {
                 $logged[] = ['type' => $type, 'level' => $level, 'description' => $description];
@@ -821,7 +826,7 @@ class SendBatchHandlerTest extends TestCase
             new NotificationRepository($this->pdo, $this->encryption),
             new PushSubscriptionRepository($this->pdo, $this->encryption),
             new NotificationPreferenceRepository($this->pdo),
-            $this->createMock(WebPush::class),
+            $this->createStub(WebPush::class),
             $settingService,
             new JournalService(new JournalRepository($this->pdo)),
             new SchedulerService(new SchedulerRepository($this->pdo)),

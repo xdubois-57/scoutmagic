@@ -39,10 +39,10 @@ class MentionServiceTest extends TestCase
      */
     private function service(array $memberIds, array $names): MentionService
     {
-        $resolver = $this->createMock(GroupRecipientResolver::class);
+        $resolver = $this->createStub(GroupRecipientResolver::class);
         $resolver->method('memberIdsFor')->willReturn($memberIds);
 
-        $memberService = $this->createMock(MemberService::class);
+        $memberService = $this->createStub(MemberService::class);
         $memberService->method('findDisplayNamesByMemberIds')->willReturn($names);
 
         return new MentionService($resolver, $memberService);
@@ -194,7 +194,7 @@ class MentionServiceTest extends TestCase
             $memberIds = array_merge($memberIds, $seeded['member_ids']);
         }
 
-        $resolver = $this->createMock(GroupRecipientResolver::class);
+        $resolver = $this->createStub(GroupRecipientResolver::class);
         $resolver->method('memberIdsFor')->willReturn($memberIds);
 
         $encryption = GroupsTestHelper::testEncryption();

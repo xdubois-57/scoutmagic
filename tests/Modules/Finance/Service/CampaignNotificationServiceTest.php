@@ -96,7 +96,7 @@ class CampaignNotificationServiceTest extends TestCase
             $this->notificationRepository,
             new PushSubscriptionRepository($this->pdo, $this->encryption),
             new NotificationPreferenceRepository($this->pdo),
-            $this->createMock(WebPush::class),
+            $this->createStub(WebPush::class),
             $settings,
             new JournalService(new JournalRepository($this->pdo)),
             new SchedulerService(new SchedulerRepository($this->pdo)),
@@ -224,7 +224,7 @@ class CampaignNotificationServiceTest extends TestCase
         $this->notifications->subscribe($this->accountIds['roskam'], 'https://push.test/endpoint', 'auth-key', 'p256dh-key');
 
         $pushed = [];
-        $webPush = $this->createMock(WebPush::class);
+        $webPush = $this->createStub(WebPush::class);
         $webPush->method('queueNotification')->willReturnCallback(
             static function (mixed $subscription, ?string $payload) use (&$pushed): void {
                 $pushed[] = (string) $payload;

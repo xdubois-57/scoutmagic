@@ -12,6 +12,7 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Member\SectionService;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
 use Modules\Finance\Controller\MovementController;
@@ -421,11 +422,7 @@ class MovementControllerTest extends TestCase
 
     private function jsonRequest(string $method, array $data): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs([$method, '/finance/movements/1', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput($method, '/finance/movements/1', [], [], [], [], json_encode($data));
         return $request;
     }
 
@@ -576,11 +573,7 @@ class MovementControllerTest extends TestCase
 
     private function fileUploadRequest(int $transactionId, string $tmpPath, string $csrf): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/finance/movements/' . $transactionId . '/attachments', [], ['_csrf_token' => $csrf], [], []])
-            ->onlyMethods(['getFiles'])
-            ->getMock();
-        $request->method('getFiles')->willReturn([[
+        $request = new RequestWithInput('POST', '/finance/movements/' . $transactionId . '/attachments', [], ['_csrf_token' => $csrf], [], [], files: [[
             'name' => basename($tmpPath),
             'tmp_name' => $tmpPath,
             'error' => UPLOAD_ERR_OK,

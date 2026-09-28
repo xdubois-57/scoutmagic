@@ -9,17 +9,18 @@ declare(strict_types=1);
 namespace Modules\Registration\Service;
 
 use Core\Journal\JournalService;
-use Core\Security\EncryptionService;
 use Modules\Registration\Api\ReconciliationTrigger;
+use Modules\Registration\Repository\ImportedMemberRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 
 /**
  * Confronts every 'accepted' request for a scout year against the members
  * that year's Desk import just produced (module spec). Comparison is
- * entirely blind-index based: this class decrypts only the small,
- * year-scoped set of freshly imported member_years rows (unavoidable —
- * their blind index doesn't exist yet) to compute a comparable index,
- * then does a plain in-memory lookup against the accepted requests' own
+ * entirely blind-index based: only the small, year-scoped set of freshly
+ * imported member_years rows is decrypted (unavoidable — their blind index
+ * doesn't exist yet), by Repository\ImportedMemberRepository, to compute a
+ * comparable index; this class then does a plain in-memory lookup against
+ * the accepted requests' own
  * (already-stored) blind indexes — never a decrypt loop over
  * registration_requests, and never every historical year at once.
  *
@@ -34,9 +35,8 @@ use Modules\Registration\Repository\RegistrationRequestRepository;
 class ReconciliationService implements ReconciliationTrigger
 {
     public function __construct(
-        private \PDO $pdo,
+        private ImportedMemberRepository $importedMembers,
         private RegistrationRequestRepository $requestRepository,
-        private EncryptionService $encryption,
         private MigrationService $migrationService,
         private JournalService $journalService
     ) {
@@ -57,25 +57,8 @@ class ReconciliationService implements ReconciliationTrigger
 
         /** @var array<string, array<int>> $memberIdsByBlind */
         $memberIdsByBlind = [];
-        $stmt = $this->pdo->prepare(
-            'SELECT member_id, first_name_encrypted, last_name_encrypted, birth_date_encrypted
-             FROM member_years WHERE scout_year_id = ? AND is_active = 1'
-        );
-        $stmt->execute([$scoutYearId]);
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            if ($row['birth_date_encrypted'] === null) {
-                continue;
-            }
-            $firstName = $this->encryption->decrypt($row['first_name_encrypted'], 'member_years.first_name');
-            $lastName = $this->encryption->decrypt($row['last_name_encrypted'], 'member_years.last_name');
-            $birthDate = $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date');
-            $normalized = RegistrationRequestRepository::normalizeForNameDobBlindIndex(
-                $lastName,
-                $firstName,
-                $birthDate
-            );
-            $blindIndex = $this->encryption->blindIndex($normalized, 'registration_name_dob');
-            $memberIdsByBlind[$blindIndex][] = (int) $row['member_id'];
+        foreach ($this->importedMembers->findNameDobBlindIndexesForYear($scoutYearId) as $member) {
+            $memberIdsByBlind[$member['name_dob_blind_index']][] = $member['member_id'];
         }
 
         foreach ($requestIdsByBlind as $blindIndex => $requestIds) {

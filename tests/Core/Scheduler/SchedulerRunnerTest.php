@@ -36,12 +36,12 @@ class SchedulerRunnerTest extends TestCase
         $this->runner = new SchedulerRunner($this->repo, $this->journal);
 
         // Create a mock TaskContext for handler calls
-        $connection = $this->createMock(Connection::class);
-        $encryption = $this->createMock(EncryptionService::class);
-        $mailService = $this->createMock(MailService::class);
+        $connection = $this->createStub(Connection::class);
+        $encryption = $this->createStub(EncryptionService::class);
+        $mailService = $this->createStub(MailService::class);
         $settingRepo = new SettingRepository($this->pdo);
         $settingService = new SettingService($settingRepo);
-        $userAccounts = $this->createMock(UserAccountRepository::class);
+        $userAccounts = $this->createStub(UserAccountRepository::class);
         $taskContext = new TaskContext($connection, $encryption, $mailService, $this->journal, $settingService, $userAccounts, sys_get_temp_dir());
         $this->runner->setTaskContext($taskContext);
     }
@@ -309,7 +309,7 @@ class SchedulerRunnerTest extends TestCase
         // getTaskHandler() answers null — the runner must fail the task
         // with the "No handler registered" diagnostic, never crash and
         // never silently drop the row.
-        $moduleManager = $this->createMock(\Core\Module\ModuleManager::class);
+        $moduleManager = $this->createStub(\Core\Module\ModuleManager::class);
         $moduleManager->method('getTaskHandler')->willReturn(null);
         $this->runner->setModuleManager($moduleManager);
 
@@ -329,7 +329,7 @@ class SchedulerRunnerTest extends TestCase
         // A manifest can name a class that is not on disk (a module
         // half-deployed over FTP). class_exists() is the guard; the
         // outcome must be the same clean failure as no handler at all.
-        $moduleManager = $this->createMock(\Core\Module\ModuleManager::class);
+        $moduleManager = $this->createStub(\Core\Module\ModuleManager::class);
         $moduleManager->method('getTaskHandler')->willReturn('\\Modules\\Nowhere\\Task\\GhostHandler');
         $this->runner->setModuleManager($moduleManager);
 

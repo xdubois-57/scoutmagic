@@ -59,7 +59,7 @@ class EventReminderHandlerTest extends TestCase
             $this->notificationRepository,
             new PushSubscriptionRepository($this->pdo, $encryption),
             new NotificationPreferenceRepository($this->pdo),
-            $this->createMock(WebPush::class),
+            $this->createStub(WebPush::class),
             $settingService,
             $journalService,
             new SchedulerService($this->schedulerRepository),
@@ -76,7 +76,7 @@ class EventReminderHandlerTest extends TestCase
         $this->runner->setTaskContext(new TaskContext(
             $connection,
             $encryption,
-            $this->createMock(MailService::class),
+            $this->createStub(MailService::class),
             $journalService,
             $settingService,
             $this->userAccountRepository,

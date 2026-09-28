@@ -27,6 +27,11 @@ use Tests\Modules\Registration\RegistrationTestHelper;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
+// This class builds its doubles once (in setUp() or a shared helper) and
+// hands the same ones to every test: some tests set expectations on
+// them, the others only need their answers, and PHPUnit would report
+// each of those as a mock with no expectation (issue #665).
+#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class RegistrationServiceTest extends TestCase
 {
     private \PDO $pdo;
@@ -37,7 +42,7 @@ class RegistrationServiceTest extends TestCase
     private ScoutYearService $scoutYearService;
     private ScoutYearResolver $scoutYearResolver;
     private MailService&\PHPUnit\Framework\MockObject\MockObject $mailService;
-    private JournalService&\PHPUnit\Framework\MockObject\MockObject $journalService;
+    private JournalService&\PHPUnit\Framework\MockObject\Stub $journalService;
     private int $publicYearId;
 
     protected function setUp(): void
@@ -61,7 +66,7 @@ class RegistrationServiceTest extends TestCase
         $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->publicYearId);
 
         $this->mailService = $this->createMock(MailService::class);
-        $this->journalService = $this->createMock(JournalService::class);
+        $this->journalService = $this->createStub(JournalService::class);
         $editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
 
         $this->service = new RegistrationService(

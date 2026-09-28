@@ -107,7 +107,7 @@ class RegistrationRequestControllerTest extends TestCase
         $this->requestRepository = new RegistrationRequestRepository($this->pdo, $encryption);
         $slotCapacityRepository = new SlotCapacityRepository($this->pdo);
         $slotService = new SlotService(
-            $this->pdo, $encryption, $settingService, $ageBracketRepository, $slotCapacityRepository, $this->requestRepository
+            new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $encryption), new \Core\Config\ScoutYearService($this->pdo), $settingService, $ageBracketRepository, $slotCapacityRepository, $this->requestRepository
         );
         $connection = Connection::withPdo($this->pdo);
         $sectionService = new SectionService(
@@ -123,7 +123,7 @@ class RegistrationRequestControllerTest extends TestCase
         $journalService = new JournalService($this->journalRepository);
         $statusService = new RequestStatusService($this->requestRepository, $journalService);
 
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
         $mailService->method('send');
         $this->editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
         $emailService = new RequestEmailService(

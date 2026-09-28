@@ -64,10 +64,10 @@ class RunCategorizationRulesHandlerTest extends TestCase
         return new TaskContext(
             Connection::withPdo($this->pdo),
             $this->encryption,
-            $this->createMock(MailService::class),
+            $this->createStub(MailService::class),
             new JournalService(new JournalRepository($this->pdo)),
             $this->settingService,
-            $this->createMock(UserAccountRepository::class),
+            $this->createStub(UserAccountRepository::class),
             sys_get_temp_dir()
         );
     }

@@ -19,7 +19,7 @@ class MemberPhotoFunctionTest extends TestCase
 {
     private function buildEnvironment(?int $fileId, bool $configMode): \Twig\Environment
     {
-        $service = $this->createMock(MemberPhotoService::class);
+        $service = $this->createStub(MemberPhotoService::class);
         $service->method('resolveFileId')->willReturn($fileId);
 
         $twig = TwigFactory::create(dirname(__DIR__, 3) . '/core/View/templates');

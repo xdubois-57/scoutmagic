@@ -10,6 +10,7 @@ use Core\Badge\MemberBadgeRepository;
 use Core\Database\Connection;
 use Core\Http\Controller\BadgeConfigurationController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Member\SectionService;
@@ -344,12 +345,7 @@ class BadgeConfigurationControllerTest extends TestCase
      */
     private function createJsonRequest(array $data): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/admin/badges/add', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput('POST', '/admin/badges/add', [], [], [], [], json_encode($data));
 
         return $request;
     }

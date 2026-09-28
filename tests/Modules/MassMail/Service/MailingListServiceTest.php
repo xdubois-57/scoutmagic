@@ -455,7 +455,7 @@ class MailingListServiceTest extends TestCase
 
     public function testExternalListAppearsWhenProviderIsWired(): void
     {
-        $provider = $this->createMock(\Modules\Registration\Api\ExternalMailingListProvider::class);
+        $provider = $this->createStub(\Modules\Registration\Api\ExternalMailingListProvider::class);
         $provider->method('describeMailingList')->willReturn([
             'label' => 'Inscriptions 2026-2027', 'description' => 'Demandes encodées pour 2026-2027.',
         ]);
@@ -478,7 +478,7 @@ class MailingListServiceTest extends TestCase
 
     public function testResolveMembersForYearsTagsExternalMembersWithTheProvidersOwnTargetYear(): void
     {
-        $provider = $this->createMock(\Modules\Registration\Api\ExternalMailingListProvider::class);
+        $provider = $this->createStub(\Modules\Registration\Api\ExternalMailingListProvider::class);
         $provider->method('resolveMailingListMembers')->willReturn([
             ['member_id' => 42, 'email' => 'parent@example.com'],
         ]);

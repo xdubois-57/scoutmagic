@@ -76,7 +76,7 @@ class PurgeSeedCopiesHandlerTest extends TestCase
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
-        $moduleManager = $this->createMock(\Core\Module\ModuleManager::class);
+        $moduleManager = $this->createStub(\Core\Module\ModuleManager::class);
         $moduleManager->method('getEnabledModuleIds')->willReturn(['inbound_mail']);
         $capabilities = new \Core\Scheduler\TaskCapabilities($moduleManager);
         $capabilities->register(
@@ -98,7 +98,7 @@ class PurgeSeedCopiesHandlerTest extends TestCase
         return new TaskContext(
             Connection::withPdo($this->pdo),
             $encryption,
-            $this->createMock(MailService::class),
+            $this->createStub(MailService::class),
             new JournalService(new JournalRepository($this->pdo)),
             $this->settings,
             new UserAccountRepository($this->pdo, $encryption),

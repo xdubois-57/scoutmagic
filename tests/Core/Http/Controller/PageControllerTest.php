@@ -80,10 +80,10 @@ class PageControllerTest extends TestCase
         $unitStaffSectionService = new UnitStaffSectionService(new \Core\Member\Repository\UnitStaffSectionRepository($this->pdo));
         $scoutYearService = new ScoutYearService($this->pdo);
 
-        $settingService = $this->createMock(SettingService::class);
+        $settingService = $this->createStub(SettingService::class);
         $settingService->method('get')->willReturn('default');
 
-        $rgpdContentService = $this->createMock(RgpdContentService::class);
+        $rgpdContentService = $this->createStub(RgpdContentService::class);
         $rgpdContentService->method('getDefaultContent')->willReturn('<h2>Protection des données</h2>');
         $rgpdContentService->method('getDefaultContentLastModified')->willReturn(new \DateTimeImmutable('2026-01-01T00:00:00+00:00'));
 

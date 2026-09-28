@@ -26,6 +26,11 @@ use Twig\Environment;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
+// This class builds its doubles once (in setUp() or a shared helper) and
+// hands the same ones to every test: some tests set expectations on
+// them, the others only need their answers, and PHPUnit would report
+// each of those as a mock with no expectation (issue #665).
+#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class MemberEmailAddressControllerTest extends TestCase
 {
     private MemberService&\PHPUnit\Framework\MockObject\MockObject $memberService;
@@ -42,7 +47,7 @@ class MemberEmailAddressControllerTest extends TestCase
         $this->memberService = $this->createMock(MemberService::class);
         $this->memberEmailService = $this->createMock(MemberEmailService::class);
         $this->controller = new MemberEmailAddressController(
-            $this->createMock(Environment::class),
+            $this->createStub(Environment::class),
             $this->memberEmailService,
             $this->memberService
         );

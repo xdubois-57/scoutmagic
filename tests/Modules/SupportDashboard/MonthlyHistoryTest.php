@@ -60,7 +60,7 @@ class MonthlyHistoryTest extends TestCase
         mkdir($this->storagePath . '/keys', 0o777, true);
 
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $connection = $this->createMock(Connection::class);
+        $connection = $this->createStub(Connection::class);
         $connection->method('getPdo')->willReturn($this->pdo);
 
         $this->context = new TaskContext(

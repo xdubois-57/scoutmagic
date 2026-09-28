@@ -39,10 +39,10 @@ class PresenceEventCleanupRegistryTest extends TestCase
     public function testASecondProviderIsRefusedRatherThanSilentlyShadowed(): void
     {
         $registry = new PresenceEventCleanupRegistry();
-        $registry->provide($this->createMock(PresenceEventCleanupInterface::class));
+        $registry->provide($this->createStub(PresenceEventCleanupInterface::class));
 
         $this->expectException(\LogicException::class);
-        $registry->provide($this->createMock(PresenceEventCleanupInterface::class));
+        $registry->provide($this->createStub(PresenceEventCleanupInterface::class));
     }
 
     public function testItPassesWhereTheCalendarExpectsTheCleanup(): void

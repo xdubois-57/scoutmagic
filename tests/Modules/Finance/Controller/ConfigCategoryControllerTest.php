@@ -9,6 +9,7 @@ use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Member\SectionService;
@@ -175,16 +176,20 @@ class ConfigCategoryControllerTest extends TestCase
         $camp = current(array_filter($this->financeService->getAllCategories(), fn($c) => $c->name === 'Camp été'));
         $this->financeService->deleteCategory($camp->id);
 
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/config/finance/categories', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
         }
         $token = bin2hex(random_bytes(32));
         $_SESSION['_csrf_token'] = $token;
-        $request->method('getRawBody')->willReturn(json_encode(['action' => 'reset_defaults', '_csrf_token' => $token]));
+        $request = new RequestWithInput(
+            'POST',
+            '/config/finance/categories',
+            [],
+            [],
+            [],
+            [],
+            json_encode(['action' => 'reset_defaults', '_csrf_token' => $token]),
+        );
 
         $response = $controller->save($request, []);
         $data = json_decode($response->getBody(), true);

@@ -46,7 +46,7 @@ class ApplyRedirectHandlerTest extends TestCase
         $this->runner = new SchedulerRunner($this->schedulerRepository, $journalService);
         $this->runner->registerHandler('sos_staff', 'apply_redirect', new ApplyRedirectHandler());
 
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
         $userAccounts = new UserAccountRepository($this->pdo, $encryption);
 
         $this->runner->setTaskContext(new TaskContext(

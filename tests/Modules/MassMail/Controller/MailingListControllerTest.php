@@ -12,6 +12,7 @@ use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Import\FunctionRepository;
 use Core\Import\MemberYearRepository;
 use Core\Member\SectionService;
@@ -101,12 +102,12 @@ class MailingListControllerTest extends TestCase
             new ListAddressRepository($this->pdo, $encryption),
             new MailingListRepository($this->pdo),
             new SettingService(new SettingRepository($this->pdo)),
-            $this->createMock(\Core\Journal\JournalService::class)
+            $this->createStub(\Core\Journal\JournalService::class)
         );
         $this->listAddressImportService = new ListAddressImportService(
             new ListAddressRepository($this->pdo, $encryption),
             $this->listAddressService,
-            $this->createMock(\Core\Journal\JournalService::class)
+            $this->createStub(\Core\Journal\JournalService::class)
         );
         $this->scoutYearResolver = new ScoutYearResolver(
             new ScoutYearService($this->pdo),
@@ -114,7 +115,7 @@ class MailingListControllerTest extends TestCase
             new MemberYearRepository($this->pdo)
         );
         $this->controller = new MailingListController(
-            $this->createMock(Environment::class),
+            $this->createStub(Environment::class),
             $this->listService,
             $this->scoutYearResolver,
             $this->listAddressService,
@@ -149,7 +150,7 @@ class MailingListControllerTest extends TestCase
             $this->accountId
         );
 
-        $twig = $this->createMock(Environment::class);
+        $twig = $this->createStub(Environment::class);
         $captured = null;
         $twig->method('render')->willReturnCallback(
             function (string $name, array $context) use (&$captured): string {
@@ -510,11 +511,7 @@ class MailingListControllerTest extends TestCase
      */
     private function rawRequest(string $body): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/admin/listes-de-diffusion/lists', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn($body);
+        $request = new RequestWithInput('POST', '/admin/listes-de-diffusion/lists', [], [], [], [], $body);
 
         return $request;
     }

@@ -37,7 +37,7 @@ class ModerationServiceTest extends TestCase
 
     public function testModerateReturnsNotFlaggedWhenClean(): void
     {
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willReturn(new LlmResponse('', ['flagged' => false, 'reason' => null, 'suggestion' => null], 5, 5));
         $service = new ModerationService($llmConnector);
@@ -51,7 +51,7 @@ class ModerationServiceTest extends TestCase
 
     public function testModerateReturnsReasonAndSuggestionWhenFlagged(): void
     {
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willReturn(new LlmResponse(
             '', ['flagged' => true, 'reason' => 'Insulte détectée.', 'suggestion' => 'Une reformulation plus polie.'], 5, 5
@@ -67,7 +67,7 @@ class ModerationServiceTest extends TestCase
 
     public function testModerateHardTruncatesTheSuggestionToMaxLength(): void
     {
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willReturn(new LlmResponse(
             '', ['flagged' => true, 'reason' => 'Insulte détectée.', 'suggestion' => str_repeat('a', 50)], 5, 5
@@ -81,7 +81,7 @@ class ModerationServiceTest extends TestCase
 
     public function testModerateTreatsAnLlmFailureAsNull(): void
     {
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willThrowException(new LlmException('Provider down.'));
         $service = new ModerationService($llmConnector);
@@ -91,7 +91,7 @@ class ModerationServiceTest extends TestCase
 
     public function testShortenReturnsRewrittenText(): void
     {
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willReturn(new LlmResponse('Version courte.', null, 5, 5));
         $service = new ModerationService($llmConnector);
@@ -101,7 +101,7 @@ class ModerationServiceTest extends TestCase
 
     public function testShortenWrapsAnLlmFailureAsARetroException(): void
     {
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willThrowException(new LlmException('Provider down.'));
         $service = new ModerationService($llmConnector);
@@ -113,7 +113,7 @@ class ModerationServiceTest extends TestCase
     public function testTheLlmFailuresTextNeverReachesTheRetroExceptionsOwnMessage(): void
     {
         $technical = new LlmException('HTTP 401 — {"error":{"message":"invalid x-api-key"}}');
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willThrowException($technical);
         $service = new ModerationService($llmConnector);
@@ -136,7 +136,7 @@ class ModerationServiceTest extends TestCase
      */
     public function testModerateTreatsAStringFalseAsNotFlagged(): void
     {
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willReturn(new LlmResponse(
             content: '{"flagged":"false","reason":null,"suggestion":null}',
@@ -153,7 +153,7 @@ class ModerationServiceTest extends TestCase
 
     public function testModerateTreatsAStringTrueAsNotFlaggedEither(): void
     {
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willReturn(new LlmResponse(
             content: '{"flagged":"true","reason":"Attaque","suggestion":"Reformule"}',
@@ -173,7 +173,7 @@ class ModerationServiceTest extends TestCase
 
     public function testModerateStillFlagsOnARealBooleanTrue(): void
     {
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willReturn(new LlmResponse(
             content: '{"flagged":true,"reason":"Attaque personnelle","suggestion":"Reformule"}',

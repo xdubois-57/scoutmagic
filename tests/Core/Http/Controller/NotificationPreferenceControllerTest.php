@@ -11,6 +11,7 @@ use Core\Config\SettingService;
 use Core\Http\Controller\NotificationPreferenceController;
 use Core\Http\FrontController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Http\Router;
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
@@ -60,7 +61,7 @@ class NotificationPreferenceControllerTest extends TestCase
             new NotificationRepository($this->pdo, $encryption),
             new PushSubscriptionRepository($this->pdo, $encryption),
             $this->preferenceRepository,
-            $this->createMock(WebPush::class),
+            $this->createStub(WebPush::class),
             $settingService,
             $journalService,
             new SchedulerService(new SchedulerRepository($this->pdo)),
@@ -135,11 +136,7 @@ class NotificationPreferenceControllerTest extends TestCase
     {
         $token = $this->issueCsrfToken();
         $body = json_encode(['type_id' => 'test_module.for_everyone', 'channel' => 'push', 'value' => 'off', '_csrf_token' => $token]);
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/notifications/preferences', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn($body);
+        $request = new RequestWithInput('POST', '/notifications/preferences', [], [], [], [], $body);
 
         $response = $this->controller->updateChannel($request, []);
 
@@ -157,11 +154,7 @@ class NotificationPreferenceControllerTest extends TestCase
         ]]);
         $token = $this->issueCsrfToken();
         $body = json_encode(['type_id' => 'test_module.locked', 'channel' => 'push', 'value' => 'on', '_csrf_token' => $token]);
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/notifications/preferences', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn($body);
+        $request = new RequestWithInput('POST', '/notifications/preferences', [], [], [], [], $body);
 
         $response = $this->controller->updateChannel($request, []);
 
@@ -173,11 +166,7 @@ class NotificationPreferenceControllerTest extends TestCase
     {
         $token = $this->issueCsrfToken();
         $body = json_encode(['quiet_hours_start' => '23:00', 'quiet_hours_end' => '06:00', 'discretion' => true, '_csrf_token' => $token]);
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/notifications/quiet-hours', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn($body);
+        $request = new RequestWithInput('POST', '/notifications/quiet-hours', [], [], [], [], $body);
 
         $response = $this->controller->updateAccountSettings($request, []);
 
@@ -192,11 +181,7 @@ class NotificationPreferenceControllerTest extends TestCase
     {
         $token = $this->issueCsrfToken();
         $body = json_encode(['quiet_hours_start' => '23:00', 'quiet_hours_end' => '', 'discretion' => false, '_csrf_token' => $token]);
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/notifications/quiet-hours', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn($body);
+        $request = new RequestWithInput('POST', '/notifications/quiet-hours', [], [], [], [], $body);
 
         $response = $this->controller->updateAccountSettings($request, []);
 

@@ -45,7 +45,7 @@ class OperationalAlertServiceTest extends TestCase
      */
     private function notificationsRecording(array &$types): NotificationService
     {
-        $mock = $this->createMock(NotificationService::class);
+        $mock = $this->createStub(NotificationService::class);
         $mock->method('recipientsForType')->willReturn([['userAccountId' => 1, 'memberId' => null]]);
         $mock->method('dispatch')->willReturnCallback(
             static function (string $typeId) use (&$types): void {

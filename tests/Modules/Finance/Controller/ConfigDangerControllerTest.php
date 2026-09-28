@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Modules\Finance\Controller;
 
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
@@ -190,11 +191,7 @@ class ConfigDangerControllerTest extends TestCase
     {
         $this->createTransaction($this->accountId);
 
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/config/finance/danger', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode([
+        $request = new RequestWithInput('POST', '/config/finance/danger', [], [], [], [], json_encode([
             'action' => 'delete_movements',
             'account_id' => $this->accountId,
             'confirmation_text' => 'SUPPRIMER',
@@ -211,11 +208,7 @@ class ConfigDangerControllerTest extends TestCase
     {
         $this->createTransaction($this->accountId);
 
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/config/finance/danger', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn('not json');
+        $request = new RequestWithInput('POST', '/config/finance/danger', [], [], [], [], 'not json');
 
         $this->assertSame(400, $this->controller->execute($request, [])->getStatusCode());
         // The refusal AND what it protects: this controller's whole job is
@@ -234,11 +227,7 @@ class ConfigDangerControllerTest extends TestCase
         $_SESSION['_csrf_token'] = $token;
         $data['_csrf_token'] = $token;
 
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/config/finance/danger', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput('POST', '/config/finance/danger', [], [], [], [], json_encode($data));
         return $request;
     }
 

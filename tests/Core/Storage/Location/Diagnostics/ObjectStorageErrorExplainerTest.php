@@ -22,7 +22,7 @@ class ObjectStorageErrorExplainerTest extends TestCase
 
     public function testIsAvailableReflectsTheConnectorsOwnAvailability(): void
     {
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(false);
         $service = new ObjectStorageErrorExplainer($llmConnector);
 
@@ -61,7 +61,7 @@ class ObjectStorageErrorExplainerTest extends TestCase
 
     public function testExplainWrapsAnLlmFailureAsAStorageLocationException(): void
     {
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willThrowException(new LlmException('Provider timeout.'));
         $service = new ObjectStorageErrorExplainer($llmConnector);
@@ -77,7 +77,7 @@ class ObjectStorageErrorExplainerTest extends TestCase
     public function testTheLlmFailuresTextNeverReachesTheStorageLocationExceptionsOwnMessage(): void
     {
         $technical = new LlmException('HTTP 429 — {"error":{"message":"rate_limit_exceeded for org-abc"}}');
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willThrowException($technical);
         $service = new ObjectStorageErrorExplainer($llmConnector);

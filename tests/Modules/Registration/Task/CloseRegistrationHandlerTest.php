@@ -45,7 +45,7 @@ class CloseRegistrationHandlerTest extends TestCase
         $this->context = new TaskContext(
             Connection::withPdo($this->pdo),
             $encryption,
-            $this->createMock(MailService::class),
+            $this->createStub(MailService::class),
             new JournalService(new JournalRepository($this->pdo)),
             $this->settingService,
             new UserAccountRepository($this->pdo, $encryption),

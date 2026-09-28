@@ -7,15 +7,26 @@
             subtitle: camp_label ~ (place ? ' · ' ~ place.name : ''),
         } only %}
 
-        {% if not album_available %}
+        {% if not gallery_enabled %}
             {# The gallery module hosts these photos. Without it, saying so is
                more useful than an empty grid that never fills. #}
             {% include 'partials/empty_state.html.twig' with {
                 message: 'Les photos ne sont pas disponibles : le module Galerie est désactivé sur ce site.',
                 icon: 'bi-images',
             } only %}
+        {% elseif not album_available %}
+            {# The gallery is on but refused this stay an album (issue #637).
+               The page does not know why — the journal does — so it names no
+               cause rather than a wrong one. #}
+            {% include 'partials/empty_state.html.twig' with {
+                message: 'Les photos ne sont pas disponibles pour ce séjour.',
+                icon: 'bi-images',
+            } only %}
         {% else %}
-            {% if media is empty %}
+            {% if media_unreadable %}
+                {# Not « no photo »: the photos could not be read. #}
+                <div class="alert alert-warning">Les photos de ce séjour n'ont pas pu être affichées. Réessayez plus tard.</div>
+            {% elseif media is empty %}
                 {% include 'partials/empty_state.html.twig' with {
                     message: 'Aucune photo pour ce séjour. Ajoutez-en une pour les staffs suivants.',
                     icon: 'bi-images',

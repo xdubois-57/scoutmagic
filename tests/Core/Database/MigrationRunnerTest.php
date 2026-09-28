@@ -522,7 +522,7 @@ class MigrationRunnerTest extends TestCase
         file_put_contents($schema, "CREATE TABLE race_test (\n    id INT PRIMARY KEY,\n    already_here VARCHAR(20) NULL\n);");
 
         try {
-            $lying = $this->createMock(SchemaIntrospector::class);
+            $lying = $this->createStub(SchemaIntrospector::class);
             $lying->method('getTables')->willReturn(['race_test']);
             $lying->method('getTableDefinitions')->willReturn([
                 'race_test' => new \Core\Database\TableDefinition(
@@ -769,7 +769,7 @@ class MigrationRunnerTest extends TestCase
         file_put_contents($tmpDir . '/drops.sql', 'ALTER TABLE noisy_journal_test DROP COLUMN legacy;');
 
         try {
-            $journal = $this->createMock(JournalService::class);
+            $journal = $this->createStub(JournalService::class);
             $journal->method('log')->willThrowException(new \RuntimeException('no event_log yet'));
 
             $runner = new MigrationRunner(

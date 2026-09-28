@@ -7,6 +7,7 @@ namespace Tests\Modules\Presences\Controller;
 use Core\Config\AppConfig;
 use Core\Http\FrontController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Http\Router;
 use Core\ScoutYear\EffectiveScoutYear;
 use Core\ScoutYear\ScoutYearResolver;
@@ -627,11 +628,7 @@ class PresencesControllerTest extends TestCase
      */
     private function jsonPostTo(string $path, array $payload): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', $path, [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn((string) json_encode($payload));
+        $request = new RequestWithInput('POST', $path, [], [], [], [], (string) json_encode($payload));
 
         return $request;
     }
