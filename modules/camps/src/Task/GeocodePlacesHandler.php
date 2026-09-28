@@ -63,7 +63,12 @@ class GeocodePlacesHandler implements TaskHandlerInterface
         // shares. Busy means another request just left: try again shortly,
         // and stamp nothing — this place was not looked up.
         [$ran, $point] = (new GeocodingThrottle($pdo))->run(
-            static fn(): ?array => $geocoder->geocode($place->address, $place->postalCode, $place->city, $place->country)
+            static fn(): ?array => $geocoder->geocode(
+                $place->address,
+                $place->postalCode,
+                $place->city,
+                $place->country
+            )
         );
         if (!$ran) {
             $this->rescheduleSoon($pdo);

@@ -98,6 +98,16 @@
         return Math.abs(a.lat - b[0]) < 1e-6 && Math.abs(a.lng - b[1]) < 1e-6;
     }
 
+    /**
+     * @param {HTMLInputElement|null} field a hidden field the page may lack
+     * @param {string} text
+     */
+    function fill(field, text) {
+        if (field) {
+            field.value = text;
+        }
+    }
+
     /** What wirePoint() hands back when there is no map to centre. */
     function nothing() {
         // No map on this page: a change of address has nothing to move.
@@ -149,21 +159,15 @@
         function write(latitude, longitude) {
             lat.value = latitude === null ? '' : latitude.toFixed(6);
             lng.value = longitude === null ? '' : longitude.toFixed(6);
-            if (automatic) {
-                // « The point — present or absent — is the address's, not a
-                // human's »: an automatic pin dropped for a stale address
-                // posts empty coordinates that the server must not lock.
-                automatic.value = manual ? '0' : '1';
-            }
-            if (manualField) {
-                manualField.value = manual ? '1' : '0';
-            }
-            if (pointAddress) {
-                // The address this automatic pin was found for: a form sent
-                // before the lookup of a new address answers still carries
-                // the old pin, and the server must see it is not the new one.
-                pointAddress.value = manual ? '' : pinAddress;
-            }
+            // « The point — present or absent — is the address's, not a
+            // human's »: an automatic pin dropped for a stale address posts
+            // empty coordinates that the server must not lock.
+            fill(automatic, manual ? '0' : '1');
+            fill(manualField, manual ? '1' : '0');
+            // The address this automatic pin was found for: a form sent
+            // before the lookup of a new address answers still carries the
+            // old pin, and the server must see it is not the new one.
+            fill(pointAddress, manual ? '' : pinAddress);
             if (line) {
                 line.textContent = latitude === null ? '' : lat.value + ', ' + lng.value;
             }
