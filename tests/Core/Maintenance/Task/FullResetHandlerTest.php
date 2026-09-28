@@ -288,7 +288,8 @@ class FullResetHandlerTest extends TestCase
 
         $this->assertSame('1', (string) $this->pdo->query('SELECT COUNT(*) FROM user_accounts')->fetchColumn());
         $this->assertFileExists($this->storagePath . '/config/secrets.enc');
-        $this->assertCount(1, $this->pdo->query("SELECT * FROM event_log WHERE event_type = 'full_reset_failed'")->fetchAll());
+        $failures = $this->pdo->query("SELECT * FROM event_log WHERE event_type = 'full_reset_failed'")->fetchAll();
+        $this->assertCount(1, $failures);
     }
 
     /**

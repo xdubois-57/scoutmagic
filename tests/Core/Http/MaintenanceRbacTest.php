@@ -51,6 +51,17 @@ final class MaintenanceRbacTest extends TestCase
         ['GET', '/config/maintenance/reinitialisation'],
     ];
 
+    /**
+     * The two routes that hand a password out (issue #619, IT-03): each
+     * behind the same floor, and each denied one level below it.
+     *
+     * @var array<int, array{string, string}>
+     */
+    private const PASSWORD_REVEALS = [
+        ['POST', '/config/maintenance/backup/7/password'],
+        ['POST', '/config/maintenance/reset/full/password'],
+    ];
+
     private Environment $twig;
     private AppConfig $config;
 
@@ -149,6 +160,22 @@ final class MaintenanceRbacTest extends TestCase
         }
     }
 
+    public function testAPasswordIsRevealedToASuperAdministratorAndToNobodyBelow(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(1, 'root@test.com', 'superadmin');
+        foreach (self::PASSWORD_REVEALS as [$method, $path]) {
+            $response = $this->buildFrontController()->handle(new Request($method, $path, [], [], [], []));
+            $this->assertSame(200, $response->getStatusCode(), "{$method} {$path} should be allowed for superadmin");
+        }
+
+        AuthSession::login(2, 'unitchief@test.com', 'admin');
+        foreach (self::PASSWORD_REVEALS as [$method, $path]) {
+            $response = $this->buildFrontController()->handle(new Request($method, $path, [], [], [], []));
+            $this->assertSame(403, $response->getStatusCode(), "{$method} {$path} should be denied for admin");
+        }
+    }
+
     public function testAVisitorWhoIsNotLoggedInIsSentToTheLoginPage(): void
     {
         $this->startTestSession();
@@ -166,6 +193,9 @@ final class MaintenanceRbacTest extends TestCase
         $router = new Router();
         foreach (self::PAGES as [$method, $path]) {
             $router->addRoute($method, $path, MaintenanceRbacStubController::class, 'index', 'superadmin');
+        }
+        foreach (['/config/maintenance/backup/{id}/password', '/config/maintenance/reset/full/password'] as $path) {
+            $router->addRoute('POST', $path, MaintenanceRbacStubController::class, 'index', 'superadmin');
         }
         $frontController = new FrontController($router, $this->twig, $this->config);
         $frontController->registerController(MaintenanceRbacStubController::class, new MaintenanceRbacStubController($this->twig));
