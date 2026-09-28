@@ -69,7 +69,19 @@
       "action": "store",
       "menu": "espace_chefs",
       "role_min": "chief",
-      "label": ""
+      "label": "",
+      "breadcrumb": {
+        "label": "Organiser un covoiturage",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Organiser les covoiturages",
+            "path": "/covoiturage/organiser"
+          }
+        ]
+      }
     },
     {
       "path": "/covoiturage/organiser/evenements",
@@ -126,7 +138,19 @@
       "action": "update",
       "menu": "espace_chefs",
       "role_min": "chief",
-      "label": ""
+      "label": "",
+      "breadcrumb": {
+        "label": "Modifier le covoiturage",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Organiser les covoiturages",
+            "path": "/covoiturage/organiser"
+          }
+        ]
+      }
     },
     {
       "path": "/covoiturage/organiser/{id}/supprimer",

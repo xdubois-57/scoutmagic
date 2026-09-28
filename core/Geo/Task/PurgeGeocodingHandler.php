@@ -17,8 +17,9 @@ use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 
 /**
- * Drops what Core\Geo\AddressLocator no longer needs: quota rows past their
- * window, and cached answers too old to be served.
+ * Drops what Core\Geo\AddressLocator no longer needs: queued-lookup rows
+ * no request can still be waiting on, and cached answers too old to be
+ * served.
  *
  * Self-reschedules daily, the shape of
  * Core\Help\Assistant\Task\PurgeHelpAssistantHandler, and is registered once
@@ -38,9 +39,9 @@ class PurgeGeocodingHandler implements TaskHandlerInterface
     {
         $pdo = $context->connection->getPdo();
 
-        $quotaCutoff = (new \DateTimeImmutable('-' . AddressLocator::QUOTA_WINDOW_MINUTES . ' minutes'))
+        $lookupCutoff = (new \DateTimeImmutable('-' . AddressLocator::LOOKUP_RETENTION_MINUTES . ' minutes'))
             ->format('Y-m-d H:i:s');
-        (new GeocodingLookupRepository($pdo))->deleteOlderThan($quotaCutoff);
+        (new GeocodingLookupRepository($pdo))->deleteOlderThan($lookupCutoff);
 
         // Each kind of answer goes when it stops being served: « not found »
         // after hours, a point after months.

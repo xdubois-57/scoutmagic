@@ -4,11 +4,14 @@
 // events, and the point on the map.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-function buildForm({ lat = '', lng = '', manual = '0', address = '', locate = false, pointAddress = '' } = {}) {
+function buildForm({ lat = '', lng = '', manual = '0', address = '', locate = false, pointAddress = '', outbound = '', back = '' } = {}) {
     const locateUrl = locate ? 'data-locate-url="/covoiturage/organiser/adresse"' : '';
     document.body.innerHTML = `
         <div id="carpool-events"></div>
         <input id="carpool-address" value="${address}">
+        <p class="d-none" data-carpool-address-status></p>
+        <input type="date" id="carpool-outbound" value="${outbound}">
+        <input type="date" id="carpool-return" value="${back}">
         <div class="d-none" id="carpool-location-warning">
             Lieux<span data-carpool-locations></span>
             <input type="checkbox" name="confirm_locations" value="1">
@@ -130,6 +133,52 @@ describe('covoiturage-organize', () => {
             await choose(['Plaine de Basse-Wavre']);
 
             expect(value('carpool-address')).toBe('Entrée nord');
+        });
+
+        // Issue #692: the events' dates fill the date fields still empty —
+        // the earliest start and the latest end — never over a typed one.
+        async function chooseWithDates(dates) {
+            window.ScoutMagicApi.getJson = vi.fn().mockResolvedValue({
+                ok: true, status: 200, data: { success: true, locations: [], dates },
+            });
+            document.getElementById('carpool-events').dispatchEvent(new CustomEvent('search-picker:change', {
+                detail: { selected: [{ id: 1, label: 'E1' }, { id: 2, label: 'E2' }] },
+            }));
+            await vi.waitFor(() => expect(window.ScoutMagicApi.getJson).toHaveBeenCalled());
+            await Promise.resolve();
+        }
+
+        it('fills the empty dates with the events\' earliest start and latest end', async () => {
+            await chooseWithDates({ outbound: '2026-10-10', return: '2026-10-12' });
+
+            expect(value('carpool-outbound')).toBe('2026-10-10');
+            expect(value('carpool-return')).toBe('2026-10-12');
+        });
+
+        it('never overwrites a date the chief typed', async () => {
+            buildForm({ outbound: '2026-10-09' });
+            await load();
+
+            await chooseWithDates({ outbound: '2026-10-10', return: '2026-10-12' });
+
+            expect(value('carpool-outbound')).toBe('2026-10-09');
+            expect(value('carpool-return')).toBe('2026-10-12');
+        });
+
+        it('leaves the return empty for a one-day outing', async () => {
+            await chooseWithDates({ outbound: '2026-10-10', return: null });
+
+            expect(value('carpool-outbound')).toBe('2026-10-10');
+            expect(value('carpool-return')).toBe('');
+        });
+
+        it('ignores an answer without dates, or with a date that is not one', async () => {
+            await chooseWithDates(null);
+            expect(value('carpool-outbound')).toBe('');
+
+            await chooseWithDates({ outbound: '10/10/2026', return: '' });
+            expect(value('carpool-outbound')).toBe('');
+            expect(value('carpool-return')).toBe('');
         });
 
         it('warns when the events disagree about the place', async () => {
@@ -408,6 +457,63 @@ describe('covoiturage-organize', () => {
             /** @type {HTMLButtonElement} */ (document.querySelector('[data-carpool-point-place]')).click();
             expect(leaflet.views.at(-1)).toEqual({ center: [50.125, 5.187], zoom: 15 });
             expect(addressMarkerOf(leaflet).getLatLng()).toEqual({ lat: 50.125, lng: 5.187 });
+        });
+    });
+
+    // Issue #692: a lookup that places nothing used to say nothing, and a
+    // venue name the map does not know looked like a lookup that never ran.
+    describe('the sentence under the address', () => {
+        const status = () => /** @type {HTMLElement} */ (document.querySelector('[data-carpool-address-status]'));
+
+        beforeEach(async () => {
+            stubLeaflet();
+            buildForm({ locate: true });
+            await load();
+        });
+
+        it('says an address the map does not know is not found', async () => {
+            answer({ success: true, found: false, reason: 'not_found' });
+            leave('Camp scout de la Fresnaye');
+            await settle();
+
+            expect(status().classList.contains('d-none')).toBe(false);
+            expect(status().textContent).toBe('Adresse introuvable sur la carte : vérifiez-la, ou placez le point à la main.');
+        });
+
+        it('says so differently when the lookup could not run', async () => {
+            answer({ success: true, found: false, reason: 'unavailable' });
+            leave('Rue des Grottes 12, Han');
+            await settle();
+
+            expect(status().textContent).toBe('La carte n’a pas pu chercher cette adresse pour l’instant : placez le point à la main.');
+        });
+
+        it('says nothing for a request a newer one replaced', async () => {
+            answer({ success: true, found: false, reason: 'superseded' });
+            leave('Rue des Grottes 12, Han');
+            await settle();
+
+            expect(status().classList.contains('d-none')).toBe(true);
+            expect(status().textContent).toBe('');
+        });
+
+        it('goes away once an address is found, or the field is emptied', async () => {
+            answer({ success: true, found: false, reason: 'not_found' });
+            leave('Camp scout de la Fresnaye');
+            await settle();
+
+            answer({ success: true, found: true, latitude: 50.125, longitude: 5.187 });
+            leave('Rue des Grottes 12, Han');
+            await settle();
+            expect(status().classList.contains('d-none')).toBe(true);
+
+            answer({ success: true, found: false, reason: 'not_found' });
+            leave('Camp scout de la Fresnaye');
+            await settle();
+            expect(status().classList.contains('d-none')).toBe(false);
+
+            leave('');
+            expect(status().classList.contains('d-none')).toBe(true);
         });
     });
 });

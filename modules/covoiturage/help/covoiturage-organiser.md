@@ -54,12 +54,14 @@ se centre dessus, un **rond rouge** marque l'adresse et l'épingle du point
 de rendez-vous s'y pose. Déplacez l'épingle si le rendez-vous est à côté ;
 une épingle déplacée ne suit plus l'adresse, le rond si.
 
-Adresse introuvable ? « Placer le point sur la carte » vous laisse poser
-l'épingle, et le site cherche encore après l'enregistrement. « Retirer »
-enlève l'épingle. Un point placé à la main n'est plus jamais modifié
-automatiquement.
+Adresse introuvable ? Une phrase le dit sous le champ : préférez une
+adresse postale à un nom de lieu, ou posez l'épingle avec « Placer le point
+sur la carte ». « Retirer » enlève l'épingle. Un point placé à la main n'est
+plus jamais modifié automatiquement.
 
-Laissez la date du retour vide pour une sortie d'un seul trajet.
+Les dates vides se remplissent depuis les évènements (le retour, si
+plusieurs jours) ; une date tapée n'est jamais remplacée. Laissez le retour vide pour une sortie
+d'un seul trajet.
 
 ## Suivre et supprimer
 

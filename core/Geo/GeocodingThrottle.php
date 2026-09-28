@@ -22,12 +22,25 @@ use Core\Database\AdvisoryLock;
  * has passed since it began, so the next call — from any process — cannot
  * start sooner. Another call arriving meanwhile does not queue behind it
  * (AdvisoryLock's timeout-0 rule): run() says it did not run, and the
- * caller decides — a form answers « not found », a task re-arms itself.
+ * caller decides — a task re-arms itself.
+ *
+ * A form cannot re-arm itself, so it has {@see runWaiting()} instead
+ * (issue #692): it tries again every tenth of a second until the slot is
+ * free — which, against another form lookup, is the end of that call's
+ * second — for a bounded time, and stops early the moment it is no longer
+ * wanted. Still timeout 0 at every try: a waiting request never blocks
+ * inside MySQL, and it gives up on its own clock.
  */
 class GeocodingThrottle
 {
     public const LOCK_NAME = 'scoutmagic_geocoding';
     private const MIN_INTERVAL_MICROSECONDS = 1_000_000;
+    private const RETRY_MICROSECONDS = 100_000;
+
+    /** runWaiting()'s outcomes, besides the call having run. */
+    public const RAN = 'ran';
+    public const TIMED_OUT = 'timed_out';
+    public const NOT_WANTED = 'not_wanted';
 
     /** @var \Closure(int): void */
     private \Closure $pause;
@@ -61,9 +74,73 @@ class GeocodingThrottle
             return [false, null];
         }
 
+        return [true, $this->runHolding($call)];
+    }
+
+    /**
+     * Runs $call alone on the site like run(), but waits for the slot —
+     * up to $maxWaitSeconds — instead of giving up at once.
+     *
+     * $stillWanted is asked before every try and once more when the slot
+     * is taken: when it answers false (a newer request of the same person
+     * has arrived) the wait stops, the slot is given back, and nothing is
+     * sent.
+     *
+     * @template T
+     * @param callable(): T $call
+     * @param callable(): bool $stillWanted
+     * @return array{string, T|null} [self::RAN, result], or
+     *         [self::TIMED_OUT|self::NOT_WANTED, null]
+     */
+    public function runWaiting(callable $call, float $maxWaitSeconds, callable $stillWanted): array
+    {
+        $deadline = ($this->clock)() + $maxWaitSeconds;
+
+        while (true) {
+            if (!self::asks($stillWanted)) {
+                return [self::NOT_WANTED, null];
+            }
+            if (AdvisoryLock::acquire($this->pdo, self::LOCK_NAME)) {
+                // Asked again now that the slot is ours: a newer request
+                // may have arrived during the try itself.
+                if (!self::asks($stillWanted)) {
+                    AdvisoryLock::release($this->pdo, self::LOCK_NAME);
+
+                    return [self::NOT_WANTED, null];
+                }
+
+                return [self::RAN, $this->runHolding($call)];
+            }
+            if (($this->clock)() >= $deadline) {
+                return [self::TIMED_OUT, null];
+            }
+            ($this->pause)(self::RETRY_MICROSECONDS);
+        }
+    }
+
+    /**
+     * The question « still wanted? », asked afresh every time: its answer
+     * changes while we wait (a newer request's row appears), which is the
+     * whole point of asking it more than once.
+     *
+     * @param callable(): bool $stillWanted
+     * @phpstan-impure
+     */
+    private static function asks(callable $stillWanted): bool
+    {
+        return $stillWanted();
+    }
+
+    /**
+     * @template T
+     * @param callable(): T $call
+     * @return T
+     */
+    private function runHolding(callable $call): mixed
+    {
         $started = ($this->clock)();
         try {
-            return [true, $call()];
+            return $call();
         } finally {
             $elapsed = (int) ((($this->clock)() - $started) * 1_000_000);
             if ($elapsed < self::MIN_INTERVAL_MICROSECONDS) {

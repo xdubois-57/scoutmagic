@@ -23,29 +23,43 @@ namespace Core\Geo;
  *   address never reaches a third party.
  * - **One request per second, site-wide** — Nominatim's usage policy —
  *   through Core\Geo\GeocodingThrottle, the limiter the background tasks
- *   share. A lookup arriving while another call holds the slot does not
- *   queue: it gets no answer, and the form behaves as it did before any of
- *   this existed.
+ *   share. A lookup arriving while another call holds the slot waits for
+ *   it — the end of that call's second — up to MAX_WAIT_SECONDS, trying
+ *   again every tenth of a second (GeocodingThrottle::runWaiting(), issue
+ *   #692); past that it answers « unavailable » and sends nothing.
  * - **No autocompletion.** The form asks once, when the address field is
- *   left, never per keystroke; the per-account quota below is what makes
- *   that true whatever a script does.
+ *   left, never per keystroke; and whatever a script does, a request
+ *   that has to wait gives way to the same account's newer one (below).
  * - **A cache** (GeocodingCacheRepository): the same address, asked again
  *   by anybody, costs nothing — that includes every re-display of a form.
- * - **A per-account quota** (GeocodingLookupRepository), counting only the
- *   requests that actually left for Nominatim.
+ * - **A waiting request gives way to a newer one** (GeocodingLookupRepository,
+ *   issue #692). A lookup that has to wait for the slot gives up the moment
+ *   the same account asks for another address — checked before every try
+ *   and once more when the slot is taken. A request that finds the slot
+ *   free goes at once: it cannot know about a correction not yet typed, so
+ *   a burst sends its first request and its latest, never the ones between.
+ *   This replaced a per-account quota: the maintainer decided a quota must
+ *   never be why an address is not found.
  *
- * Every refusal and every failure is the same null as « nowhere found »:
- * the caller's form stays usable and the pin is placed by hand, exactly as
- * before (and the background task still looks the address up after saving).
- *
+ * The form says which answer it got (AddressLookup, issue #692): found,
+ * not found, unavailable — the slot stayed busy past MAX_WAIT_SECONDS, or
+ * the database failed — or superseded by the same person's next request.
+ * Whatever it is, the form stays usable and the pin can be placed by hand
+ * (and the background task still looks the address up after saving).
  * Only a place is ever sent — an outing's venue, never a person's address;
  * that is the caller's contract, as it is GeocodingService's.
  */
 class AddressLocator
 {
-    /** Requests one account may send to Nominatim per window. */
-    public const QUOTA_PER_WINDOW = 30;
-    public const QUOTA_WINDOW_MINUTES = 10;
+    /**
+     * How long a form lookup waits for the site-wide slot before answering
+     * « unavailable » (issue #692). Another form's call frees it within a
+     * second; the margin is for a background task holding it.
+     */
+    public const MAX_WAIT_SECONDS = 3.0;
+
+    /** How long a queued lookup's row is kept — far past any wait. */
+    public const LOOKUP_RETENTION_MINUTES = 10;
 
     /**
      * A place does not move; three months keeps a season of outings. « Not
@@ -75,14 +89,13 @@ class AddressLocator
     }
 
     /**
-     * The point for $address, or null — not found, too short to mean a
-     * place, over quota, or another lookup in flight.
+     * The point for $address, and why there is none when there is none.
      */
-    public function locate(string $address, int $userAccountId): ?GeoPoint
+    public function locate(string $address, int $userAccountId): AddressLookup
     {
         $line = self::normalise($address);
         if ($line === null) {
-            return null;
+            return AddressLookup::notFound();
         }
 
         try {
@@ -94,11 +107,11 @@ class AddressLocator
             // journal, which is the same database.
             error_log('ScoutMagic address lookup failed: ' . $e->getMessage());
 
-            return null;
+            return AddressLookup::unavailable();
         }
     }
 
-    private function lookUp(string $line, int $userAccountId): ?GeoPoint
+    private function lookUp(string $line, int $userAccountId): AddressLookup
     {
         // Lower-cased, never folded to ASCII: TextNormalizerService::fold()
         // drops every non-Latin letter, and two Greek or Cyrillic addresses
@@ -107,26 +120,36 @@ class AddressLocator
         $cache = new GeocodingCacheRepository($this->pdo);
         $known = $cache->find($fingerprint);
         if ($known !== null && self::isFresh($known['point'], $known['looked_up_at'])) {
-            return $known['point'];
+            return AddressLookup::of($known['point']);
         }
 
         $lookups = new GeocodingLookupRepository($this->pdo);
-        $since = (new \DateTimeImmutable('-' . self::QUOTA_WINDOW_MINUTES . ' minutes'))->format('Y-m-d H:i:s');
-        if ($lookups->countSince($userAccountId, $since) >= self::QUOTA_PER_WINDOW) {
-            return null;
-        }
+        $mine = $lookups->record($userAccountId, new \DateTimeImmutable());
 
-        $lookup = function () use ($lookups, $cache, $userAccountId, $line, $fingerprint): ?GeoPoint {
-            $lookups->record($userAccountId, new \DateTimeImmutable());
+        $lookup = function () use ($cache, $line, $fingerprint): AddressLookup {
+            // Asked again once the slot is ours: somebody else may have
+            // looked the same line up while this one waited.
+            $known = $cache->find($fingerprint);
+            if ($known !== null && self::isFresh($known['point'], $known['looked_up_at'])) {
+                return AddressLookup::of($known['point']);
+            }
             $found = $this->geocoder->geocodeLine($line);
             $point = $found !== null ? new GeoPoint($found['latitude'], $found['longitude']) : null;
             $cache->store($fingerprint, $point, new \DateTimeImmutable());
 
-            return $point;
+            return AddressLookup::of($point);
         };
-        [, $point] = $this->throttle->run($lookup);
+        [$outcome, $result] = $this->throttle->runWaiting(
+            $lookup,
+            self::MAX_WAIT_SECONDS,
+            static fn(): bool => $lookups->latestId($userAccountId) === $mine
+        );
 
-        return $point;
+        return match ($outcome) {
+            GeocodingThrottle::RAN => $result instanceof AddressLookup ? $result : AddressLookup::unavailable(),
+            GeocodingThrottle::NOT_WANTED => AddressLookup::superseded(),
+            default => AddressLookup::unavailable(),
+        };
     }
 
     /** The line as it will be sent, or null when it cannot mean a place. */

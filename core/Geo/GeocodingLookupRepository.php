@@ -9,13 +9,18 @@ declare(strict_types=1);
 namespace Core\Geo;
 
 /**
- * One row per request Core\Geo\AddressLocator actually sent to Nominatim,
- * for the per-account quota — the shape of
- * Core\Help\Assistant\AssistantRateLimitRepository. An answer served from
- * the cache costs nothing and is not counted.
+ * One row per address lookup Core\Geo\AddressLocator had to queue for
+ * Nominatim — so that, per account, a lookup still waiting for its turn
+ * gives way to a newer one (issue #692). A chief who corrects an address
+ * while the first lookup waits wants the correction looked up, not both.
  *
- * The row holds an account id and an instant, never the address: the
- * quota needs to count, not to remember.
+ * It used to feed a per-account quota (30 per 10 minutes); the maintainer
+ * decided a quota must never be the reason an address is not found, and
+ * a waiting request giving way to a newer one keeps one account from
+ * sending a burst.
+ *
+ * The row holds an account id and an instant, never the address. An
+ * answer served from the cache never creates one.
  */
 class GeocodingLookupRepository
 {
@@ -24,26 +29,28 @@ class GeocodingLookupRepository
     }
 
     /**
-     * created_at is stamped from PHP, as the assistant's limiter does, so
-     * that countSince() compares against the same clock it was written by.
+     * A lookup of this account joins the queue; its id orders it against
+     * the account's others. created_at is stamped from PHP, the clock
+     * deleteOlderThan() compares against.
      */
-    public function record(int $userAccountId, \DateTimeImmutable $at): void
+    public function record(int $userAccountId, \DateTimeImmutable $at): int
     {
         $this->pdo->prepare('INSERT INTO geocoding_lookups (user_account_id, created_at) VALUES (?, ?)')
             ->execute([$userAccountId, $at->format('Y-m-d H:i:s')]);
+
+        return (int) $this->pdo->lastInsertId();
     }
 
-    public function countSince(int $userAccountId, string $sinceDatetime): int
+    /** The newest lookup this account has queued, or 0 when none. */
+    public function latestId(int $userAccountId): int
     {
-        $stmt = $this->pdo->prepare(
-            'SELECT COUNT(*) FROM geocoding_lookups WHERE user_account_id = ? AND created_at >= ?'
-        );
-        $stmt->execute([$userAccountId, $sinceDatetime]);
+        $stmt = $this->pdo->prepare('SELECT MAX(id) FROM geocoding_lookups WHERE user_account_id = ?');
+        $stmt->execute([$userAccountId]);
 
         return (int) $stmt->fetchColumn();
     }
 
-    /** Task\PurgeGeocodingHandler's cleanup: rows past the quota window. */
+    /** Task\PurgeGeocodingHandler's cleanup: rows no lookup can still be waiting on. */
     public function deleteOlderThan(string $beforeDatetime): int
     {
         $stmt = $this->pdo->prepare('DELETE FROM geocoding_lookups WHERE created_at < ?');

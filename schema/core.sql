@@ -1404,10 +1404,12 @@ CREATE TABLE geocoding_cache (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
--- geocoding_lookups: one row per request Core\Geo\AddressLocator actually
--- sent to Nominatim, for its per-account quota — the shape of
--- help_assistant_rate_limits. An answer served from geocoding_cache is not
--- counted. An id and an instant, never the address.
+-- geocoding_lookups: one row per address lookup Core\Geo\AddressLocator
+-- queued for Nominatim, so that only an account's latest one is sent — a
+-- waiting lookup gives up once a newer row of the same account exists
+-- (issue #692; it used to feed a per-account quota, since dropped). An
+-- answer served from geocoding_cache creates none. An id and an instant,
+-- never the address.
 CREATE TABLE geocoding_lookups (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     user_account_id INT UNSIGNED NOT NULL,

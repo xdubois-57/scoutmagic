@@ -12,7 +12,8 @@
 //    picker (`search-picker:change`, public/assets/js/search-picker.js),
 //    ask the server which places those events announce: fill the address
 //    when it is still empty, and warn when they disagree — a carpool has
-//    one destination.
+//    one destination. The same answer carries the events' dates, which
+//    fill the date fields still empty (issue #692).
 // 2. **The point.** Without JavaScript the page shows two coordinate
 //    fields. With it, they are hidden and a map takes their place: the pin
 //    is dragged, placed with a click, or removed, and the fields follow.
@@ -23,7 +24,10 @@
 //    (never Nominatim from here: the CSP says `connect-src 'self'`). The
 //    map centres on it and a fixed marker shows it; a pin nobody touched
 //    moves there too, and a hand-placed one stays where it is. There is no
-//    button for any of this. A lookup that finds nothing changes nothing.
+//    button for any of this. A lookup that finds nothing changes nothing on
+//    the map, but says so under the field (issue #692): « introuvable »
+//    when the map does not know the address, « pas pu chercher » when the
+//    lookup could not run.
 //
 // The map is drawn through the core's public/assets/js/map.js, the one
 // script allowed to name the tile host.
@@ -78,6 +82,31 @@
                 located();
             }
             showLocations(warning, locations);
+            fillDates(res.data?.success ? res.data.dates : null);
+        });
+    }
+
+    /**
+     * The chosen events' dates, into the date fields still empty (issue
+     * #692): the earliest start for the way there, the latest end for the
+     * way back. A date somebody typed is never overwritten.
+     *
+     * @param {any} dates `{outbound, return}` as `Y-m-d`, or null
+     */
+    function fillDates(dates) {
+        if (!dates) {
+            return;
+        }
+        var pairs = /** @type {Array<[string, unknown]>} */ ([
+            ['carpool-outbound', dates.outbound],
+            ['carpool-return', dates.return],
+        ]);
+        pairs.forEach(function (pair) {
+            var field = /** @type {HTMLInputElement|null} */ (document.getElementById(pair[0]));
+            var value = typeof pair[1] === 'string' ? pair[1] : '';
+            if (field?.value === '' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+                field.value = value;
+            }
         });
     }
 
@@ -146,8 +175,24 @@
         var lat = /** @type {HTMLInputElement|null} */ (document.getElementById('carpool-latitude'));
         var lng = /** @type {HTMLInputElement|null} */ (document.getElementById('carpool-longitude'));
         var address = /** @type {HTMLInputElement|null} */ (document.getElementById('carpool-address'));
+        var addressStatus = /** @type {HTMLElement|null} */ (document.querySelector('[data-carpool-address-status]'));
         if (!fields || !mapBox || !mapElement || !placeButton || !removeButton || !lat || !lng) {
             return nothing;
+        }
+
+        /**
+         * The sentence under the address field (issue #692): the lookup
+         * used to fail in silence, and a venue name the map does not know
+         * looked exactly like a lookup that never ran. Empty text hides it.
+         *
+         * @param {string} text
+         */
+        function sayAddress(text) {
+            if (!addressStatus) {
+                return;
+            }
+            addressStatus.textContent = text;
+            addressStatus.classList.toggle('d-none', text === '');
         }
 
         var manual = box.dataset.manual === '1';
@@ -303,6 +348,7 @@
             var mine = ++asked;
             var query = address.value.trim();
             if (query.length < 4) {
+                sayAddress('');
                 forgetAddress();
                 dropStalePin(query);
                 return;
@@ -312,7 +358,15 @@
                 return;
             }
             var data = res.data;
+            if (data?.success && !data.found && data.reason === 'superseded') {
+                // A newer request of this same person — another tab — is
+                // the one that answers; this one changes nothing.
+                return;
+            }
             if (!data?.success || !data.found || !Number.isFinite(data.latitude) || !Number.isFinite(data.longitude)) {
+                sayAddress(data?.success && data.reason !== 'unavailable'
+                    ? 'Adresse introuvable sur la carte : vérifiez-la, ou placez le point à la main.'
+                    : 'La carte n’a pas pu chercher cette adresse pour l’instant : placez le point à la main.');
                 // Nothing found, over quota, or off: an old address's marker
                 // would now be a lie, and so would its untouched pin. A pin
                 // for THIS address (the page just opened) stays.
@@ -320,6 +374,7 @@
                 dropStalePin(query);
                 return;
             }
+            sayAddress('');
             if (!manual) {
                 pinAddress = query;
             }

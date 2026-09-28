@@ -51,10 +51,10 @@ final class PurgeGeocodingHandlerTest extends TestCase
         );
     }
 
-    public function testDropsQuotaRowsPastTheWindowAndKeepsTheRest(): void
+    public function testDropsQueuedLookupRowsPastTheirRetentionAndKeepsTheRest(): void
     {
         $lookups = new GeocodingLookupRepository($this->pdo);
-        $lookups->record(1, new \DateTimeImmutable('-' . (AddressLocator::QUOTA_WINDOW_MINUTES + 5) . ' minutes'));
+        $lookups->record(1, new \DateTimeImmutable('-' . (AddressLocator::LOOKUP_RETENTION_MINUTES + 5) . ' minutes'));
         $lookups->record(1, new \DateTimeImmutable());
 
         (new PurgeGeocodingHandler())->handle([], $this->context);
